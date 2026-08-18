@@ -322,7 +322,8 @@ While the test waits (30 s window), send a message from the second account. If n
 
 | Counter                       | Description                                                  |
 | ----------------------------- | ------------------------------------------------------------ |
-| `inbound_published`           | Events successfully published via `publish_inbound()`        |
+| `inbound_published`           | Newly admitted/published canonical events                     |
+| `inbound_duplicate_admissions` | Durable replays mapped to an existing canonical event        |
 | `inbound_suppressed_self`     | Events dropped because sender == bot user_id                 |
 | `inbound_suppressed_envelope` | Events dropped because MEDRE envelope source_adapter matched |
 | `inbound_filtered_allowlist`  | Events dropped because room was not in the allowlist         |
@@ -351,14 +352,7 @@ While the test waits (30 s window), send a message from the second account. If n
 | `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                         |
 | `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                       | `pip install -e ".[matrix-e2e]"`                                                                         |
 
-## See Also
-
-- [live-validation/matrix.md](../live-validation/matrix.md) — live smoke test procedures
-- [live-validation/matrix-meshtastic.md](../live-validation/matrix-meshtastic.md) — Matrix ↔ Meshtastic cross-transport bring-up
-- [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
-- [recovery-and-replay.md](../recovery-and-replay.md) — crash recovery and replay
-
-### Classic Sync durability and recovery
+## Classic Sync durability and recovery
 
 Runtime-managed Matrix adapters use MEDRE-owned Classic Sync checkpoints. The
 Matrix SDK may reconstruct a limited timeline before MEDRE sees its following live
@@ -374,3 +368,10 @@ persisted recovery state. MEDRE stores the committed cursor in its primary SQLit
 database so plaintext and E2EE modes use the same checkpoint-ownership model.
 Recovery-abandonment metadata is stored with that checkpoint and exposed in adapter
 diagnostics.
+
+## See Also
+
+- [live-validation/matrix.md](../live-validation/matrix.md) — live smoke test procedures
+- [live-validation/matrix-meshtastic.md](../live-validation/matrix-meshtastic.md) — Matrix ↔ Meshtastic cross-transport bring-up
+- [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
+- [recovery-and-replay.md](../recovery-and-replay.md) — crash recovery and replay

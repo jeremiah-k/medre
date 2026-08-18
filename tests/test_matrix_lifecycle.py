@@ -227,6 +227,26 @@ class TestMatrixAdapterStart:
             await adapter.stop()
 
 
+async def test_checkpoint_only_context_falls_back_to_publish_inbound(mock_nio) -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    ctx = _make_context()
+    ctx.load_checkpoint = AsyncMock(return_value=None)
+    ctx.commit_checkpoint = AsyncMock()
+    ctx.admit_inbound = None
+
+    try:
+        await adapter.start(ctx)
+        session = adapter._session
+        assert session is not None
+        assert session._admission_callback is None
+        assert session._durable_sync_enabled is False
+        assert mock_nio.AsyncClient.return_value.add_event_callback.called
+        assert not mock_nio.AsyncClient.return_value.add_event_admission_callback.called
+    finally:
+        await adapter.stop()
+
+
 # ===================================================================
 # TestMatrixAdapterStop
 # ===================================================================

@@ -130,7 +130,7 @@ class MatrixSessionDiagnostics:
     reconnect_attempts: int
     last_successful_sync: float | None
     checkpoint_owned_by_medre: bool
-    committed_sync_token_present: bool
+    committed_checkpoint_present: bool
     recovered_event_count: int
     history_event_count: int
     recovery_abandoned_room_count: int
@@ -920,7 +920,7 @@ class MatrixSession:
                 try:
                     from nio.exceptions import CallbackNotAcceptedError as rejection
                 except ImportError:
-                    raise
+                    raise exc
             if isinstance(exc, rejection):
                 raise
             raise rejection(f"MEDRE durable ingress admission failed: {exc}") from exc
@@ -960,19 +960,31 @@ class MatrixSession:
         next_batch = getattr(response, "next_batch", None)
         if not isinstance(next_batch, str) or not next_batch:
             return
+
         abandoned = self._abandonment_metadata(response)
+        merged = dict(self._recovery_abandoned_rooms)
+        for room_id, reasons in abandoned.items():
+            existing = set(merged.get(room_id, ()))
+            existing.update(reasons)
+            merged[room_id] = tuple(sorted(existing))
         metadata_json = json.dumps(
-            {"abandoned_rooms": abandoned},
+            {"abandoned_rooms": merged},
             sort_keys=True,
             separators=(",", ":"),
         )
+
         if self._durable_sync_enabled:
-            assert self._checkpoint_committer is not None
-            await self._checkpoint_committer("classic_sync", next_batch, metadata_json)
-            self._client.acknowledge_classic_sync(next_batch)
+            client = self._client
+            if client is None or self._stop_requested:
+                return
+            committer = self._checkpoint_committer
+            if committer is None:
+                raise RuntimeError("durable Matrix sync has no checkpoint committer")
+            await committer("classic_sync", next_batch, metadata_json)
+            client.acknowledge_classic_sync(next_batch)
             self._committed_sync_token = next_batch
             if abandoned:
-                settle = getattr(self._client, "acknowledge_unrecovered_rooms", None)
+                settle = getattr(client, "acknowledge_unrecovered_rooms", None)
                 if callable(settle):
                     try:
                         settle(abandoned)
@@ -981,8 +993,9 @@ class MatrixSession:
                             "Failed to settle recorded Matrix recovery abandonment",
                             exc_info=True,
                         )
-        self._recovery_abandoned_rooms = abandoned
-        self._recovery_last_abandonment = self._abandonment_diagnostic(abandoned)
+
+        self._recovery_abandoned_rooms = merged
+        self._recovery_last_abandonment = self._abandonment_diagnostic(merged)
         if abandoned:
             self._logger.warning(
                 "Matrix gap recovery abandoned history in %d room(s)", len(abandoned)
@@ -998,16 +1011,42 @@ class MatrixSession:
         self._last_reconnect_error = None
 
     async def _load_classic_checkpoint(self) -> None:
-        """Restore MEDRE's committed Classic cursor before sync starts."""
+        """Restore MEDRE's committed Classic cursor and recovery evidence."""
         if not self._durable_sync_enabled:
             return
-        assert self._checkpoint_loader is not None
-        checkpoint = await self._checkpoint_loader("classic_sync")
-        self._committed_sync_token = (
-            checkpoint.cursor if checkpoint is not None else None
+        loader = self._checkpoint_loader
+        if loader is None:
+            raise RuntimeError("durable Matrix sync has no checkpoint loader")
+        checkpoint = await loader("classic_sync")
+        self._committed_sync_token = checkpoint.cursor if checkpoint is not None else None
+        self._recovery_abandoned_rooms = {}
+        self._recovery_last_abandonment = None
+        if checkpoint is not None and checkpoint.metadata_json:
+            try:
+                stored = json.loads(checkpoint.metadata_json)
+                raw_rooms = stored.get("abandoned_rooms", {}) if isinstance(stored, dict) else {}
+                if isinstance(raw_rooms, dict):
+                    restored: dict[str, tuple[str, ...]] = {}
+                    for room_id, reasons in raw_rooms.items():
+                        if isinstance(reasons, (list, tuple)):
+                            restored[str(room_id)] = tuple(
+                                sorted(str(reason) for reason in reasons)
+                            )
+                    self._recovery_abandoned_rooms = restored
+                    self._recovery_last_abandonment = self._abandonment_diagnostic(
+                        restored
+                    )
+            except (TypeError, ValueError):
+                self._logger.warning(
+                    "Ignoring malformed Matrix checkpoint recovery metadata"
+                )
+        client = self._client
+        clear_recovery = (
+            getattr(client, "clear_persisted_sync_recovery", None)
+            if client is not None
+            else None
         )
-        clear_recovery = getattr(self._client, "clear_persisted_sync_recovery", None)
-        if callable(clear_recovery) and getattr(self._client, "store", None) is not None:
+        if callable(clear_recovery) and getattr(client, "store", None) is not None:
             clear_recovery()
 
     async def _finalize_start(self) -> None:
@@ -1414,7 +1453,7 @@ class MatrixSession:
                 await self._client.sync_forever(
                     timeout=self._config.sync_timeout_ms,
                     since=self._committed_sync_token,
-                    full_state=True,
+                    full_state=self._committed_sync_token is None,
                 )
                 if self._stop_requested:
                     return
@@ -1665,7 +1704,7 @@ class MatrixSession:
             reconnect_attempts=self._reconnect_attempts,
             last_successful_sync=self._last_successful_sync,
             checkpoint_owned_by_medre=self._durable_sync_enabled,
-            committed_sync_token_present=self._committed_sync_token is not None,
+            committed_checkpoint_present=self._committed_sync_token is not None,
             recovered_event_count=self._recovered_event_count,
             history_event_count=self._history_event_count,
             recovery_abandoned_room_count=len(self._recovery_abandoned_rooms),

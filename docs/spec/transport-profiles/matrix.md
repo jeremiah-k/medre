@@ -310,7 +310,7 @@ bootstrap/rotate master or self-signing identity material.
 | `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |
 | `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                     |
 | `checkpoint_owned_by_medre`                  | `bool`          | MEDRE owns the Classic Sync checkpoint               |
-| `committed_sync_token_present`               | `bool`          | A committed Classic cursor has been restored/stored  |
+| `committed_checkpoint_present`               | `bool`          | A committed Classic cursor has been restored/stored  |
 | `recovered_event_count`                      | `int`           | Recovered timeline events seen at admission           |
 | `history_event_count`                        | `int`           | Cold-history timeline events seen at admission        |
 | `recovery_abandoned_room_count`              | `int`           | Rooms with recorded unrecoverable history             |

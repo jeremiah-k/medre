@@ -7,6 +7,8 @@ checkpoint contract without requiring a homeserver.
 from __future__ import annotations
 
 import asyncio
+import json
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -56,7 +58,9 @@ def test_durable_client_config_selects_application_owned_classic_state() -> None
     }
 
 
-async def test_admission_failure_rejects_event_for_nio_replay(monkeypatch) -> None:
+async def test_admission_failure_rejects_event_for_nio_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class CallbackNotAcceptedError(Exception):
         pass
 
@@ -65,7 +69,7 @@ async def test_admission_failure_rejects_event_for_nio_replay(monkeypatch) -> No
 
     session = _durable_session(admission_callback=reject)
     fake_nio = SimpleNamespace(CallbackNotAcceptedError=CallbackNotAcceptedError)
-    monkeypatch.setitem(__import__("sys").modules, "nio", fake_nio)
+    monkeypatch.setitem(sys.modules, "nio", fake_nio)
     room = SimpleNamespace(room_id="!room:example.org")
     event = SimpleNamespace(
         sender="@alice:example.org",
@@ -86,6 +90,39 @@ async def test_admission_failure_rejects_event_for_nio_replay(monkeypatch) -> No
     assert session._recovered_event_count == 1
 
 
+async def test_admission_failure_preserves_original_error_when_rejection_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = RuntimeError("sqlite write failed")
+
+    async def reject(_event: dict[str, object], _provenance: str) -> None:
+        raise original
+
+    session = _durable_session(admission_callback=reject)
+    monkeypatch.setitem(sys.modules, "nio", SimpleNamespace())
+    monkeypatch.delitem(sys.modules, "nio.exceptions", raising=False)
+
+    room = SimpleNamespace(room_id="!room:example.org")
+    event = SimpleNamespace(
+        sender="@alice:example.org",
+        event_id="$event",
+        body="hello",
+        source={
+            "event_id": "$event",
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+            "content": {"msgtype": "m.text", "body": "hello"},
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="sqlite write failed") as caught:
+        await session._on_nio_admission(
+            room, event, SimpleNamespace(value="live")
+        )
+
+    assert caught.value is original
+
+
 async def test_sync_response_commits_checkpoint_before_nio_ack() -> None:
     calls: list[tuple[str, str]] = []
 
@@ -104,7 +141,7 @@ async def test_sync_response_commits_checkpoint_before_nio_ack() -> None:
 
     assert calls == [("commit", "classic_sync:s42"), ("ack", "s42")]
     assert session._committed_sync_token == "s42"
-    assert session.diagnostics().committed_sync_token_present is True
+    assert session.diagnostics().committed_checkpoint_present is True
 
 
 async def test_checkpoint_failure_does_not_acknowledge_nio() -> None:
@@ -124,12 +161,27 @@ async def test_checkpoint_failure_does_not_acknowledge_nio() -> None:
     assert session._committed_sync_token is None
 
 
+async def test_stopping_session_does_not_commit_or_ack_sync_response() -> None:
+    commits = AsyncMock()
+    session = _durable_session(checkpoint_committer=commits)
+    client = MagicMock()
+    session._client = client
+    session._stop_requested = True
+
+    await session._on_sync_response(
+        SimpleNamespace(next_batch="s-stop", abandoned_rooms={})
+    )
+
+    commits.assert_not_awaited()
+    client.acknowledge_classic_sync.assert_not_called()
+
+
 async def test_load_checkpoint_restores_committed_cursor_and_clears_stale_recovery() -> None:
     checkpoint = AdapterCheckpoint(
         adapter_id="matrix-test",
         stream="classic_sync",
         cursor="s41",
-        metadata_json="{}",
+        metadata_json='{"abandoned_rooms":{"!lost:example.org":["fetch_failed"]}}',
         updated_at="2026-08-18T00:00:00Z",
     )
 
@@ -146,6 +198,13 @@ async def test_load_checkpoint_restores_committed_cursor_and_clears_stale_recove
     await session._load_classic_checkpoint()
 
     assert session._committed_sync_token == "s41"
+    assert session._recovery_abandoned_rooms == {
+        "!lost:example.org": ("fetch_failed",)
+    }
+    assert json.loads(session._recovery_last_abandonment or "{}") == {
+        "causes": {"fetch_failed": 1},
+        "room_count": 1,
+    }
     client.clear_persisted_sync_recovery.assert_called_once_with()
 
 
@@ -217,3 +276,9 @@ async def test_recovery_abandonment_is_persisted_before_cursor_advances() -> Non
         '{"causes":{"fetch_failed":1},"room_count":1}'
     )
     assert "!lost:example.org" not in diag.recovery_last_abandonment
+
+    await session._on_sync_response(
+        SimpleNamespace(next_batch="s-clean", abandoned_rooms={})
+    )
+    assert '"!lost:example.org":["fetch_failed"]' in committed_metadata
+    assert session.diagnostics().recovery_abandoned_room_count == 1

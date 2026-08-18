@@ -82,13 +82,20 @@ def build_mock_nio_module() -> MagicMock:
     client.logged_in = True
     client.restore_login = MagicMock()
     client.add_event_callback = MagicMock()
-    client.stop_sync_forever = MagicMock()
+    response_callbacks: list[Any] = []
+
+    def _add_response_callback(callback: Any, *_classes: object) -> None:
+        response_callbacks.append(callback)
+
+    client.add_response_callback = MagicMock(side_effect=_add_response_callback)
+    stop_sync = asyncio.Event()
+    client.stop_sync_forever = MagicMock(side_effect=stop_sync.set)
     client.close = AsyncMock()
 
     # sync returns a fake SyncResponse with next_batch.  sync_forever delegates
     # to this method so tests that replace client.sync continue to exercise the
     # production supervisor after MEDRE handed Classic Sync iteration to nio.
-    async def _sync_stub(*args: object, **kwargs: object) -> MagicMock:
+    async def _sync_stub(*_args: object, **_kwargs: object) -> MagicMock:
         await asyncio.sleep(0)
         resp = MagicMock(name="SyncResponse")
         resp.next_batch = "batch_token_123"
@@ -97,8 +104,11 @@ def build_mock_nio_module() -> MagicMock:
     client.sync = _sync_stub
 
     async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
-        while True:
-            await client.sync(*args, **kwargs)
+        stop_sync.clear()
+        while not stop_sync.is_set():
+            response = await client.sync(*args, **kwargs)
+            for callback in tuple(response_callbacks):
+                await callback(response)
             await asyncio.sleep(0)
 
     client.sync_forever = _sync_forever_stub

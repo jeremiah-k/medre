@@ -304,11 +304,7 @@ class TestP03MatrixNoSyncTokenPersistence:
     async def test_e2ee_config_construction_uses_only_encryption_enabled(
         self,
     ) -> None:
-        """AsyncClientConfig is constructed with encryption_enabled only.
-
-        When E2EE parity is implemented, this test should be updated to
-        verify store_sync_tokens=True is also passed.
-        """
+        """Non-durable sessions still disable nio-owned checkpoint persistence."""
         from tests.helpers.matrix_session import build_mock_nio_module
 
         mock_nio = build_mock_nio_module()
@@ -335,10 +331,13 @@ class TestP03MatrixNoSyncTokenPersistence:
         config_call = mock_nio.ClientConfig.call_args
         assert config_call is not None, "AsyncClientConfig was never called"
         kwargs = config_call.kwargs
-        # Current behavior: only encryption_enabled is passed.
-        assert kwargs.get("encryption_enabled") is True
-        # store_sync_tokens is NOT passed - this is the P-03 gap.
-        assert "store_sync_tokens" not in kwargs
+        assert kwargs == {
+            "encryption_enabled": True,
+            "max_timeouts": 3,
+            "backfill_limited_timelines": False,
+            "store_sync_tokens": False,
+            "backfill_persist_recovery": False,
+        }
         await session.stop()
 
 

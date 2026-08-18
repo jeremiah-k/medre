@@ -256,6 +256,7 @@ class MatrixAdapter(AdapterContract):
         "_permanent_delivery_failures",
         # Inbound diagnostics counters
         "_inbound_published",
+        "_inbound_duplicate_admissions",
         "_inbound_suppressed_self",
         "_inbound_suppressed_envelope",
         "_inbound_filtered_allowlist",
@@ -285,6 +286,7 @@ class MatrixAdapter(AdapterContract):
         self._permanent_delivery_failures: int = 0
         # Inbound diagnostics counters
         self._inbound_published: int = 0
+        self._inbound_duplicate_admissions: int = 0
         self._inbound_suppressed_self: int = 0
         self._inbound_suppressed_envelope: int = 0
         self._inbound_filtered_allowlist: int = 0
@@ -330,6 +332,7 @@ class MatrixAdapter(AdapterContract):
         self._permanent_delivery_failures = 0
         # Inbound diagnostics — reset on start
         self._inbound_published = 0
+        self._inbound_duplicate_admissions = 0
         self._inbound_suppressed_self = 0
         self._inbound_suppressed_envelope = 0
         self._inbound_filtered_allowlist = 0
@@ -356,7 +359,9 @@ class MatrixAdapter(AdapterContract):
         self._session = MatrixSession(
             config=self._config,
             message_callback=self._on_room_message,
-            admission_callback=self._on_room_message,
+            admission_callback=(
+                self._on_room_message if ctx.admit_inbound is not None else None
+            ),
             checkpoint_loader=ctx.load_checkpoint,
             checkpoint_committer=ctx.commit_checkpoint,
             logger=session_logger,
@@ -859,6 +864,7 @@ class MatrixAdapter(AdapterContract):
                 if result.created:
                     self._inbound_published += 1
                 else:
+                    self._inbound_duplicate_admissions += 1
                     self.ctx.logger.debug(
                         "MatrixAdapter %s: duplicate durable admission mapped to %s",
                         self.adapter_id,
@@ -924,7 +930,7 @@ class MatrixAdapter(AdapterContract):
                 "reconnect_attempts": diag.reconnect_attempts,
                 "last_successful_sync": diag.last_successful_sync,
                 "checkpoint_owned_by_medre": diag.checkpoint_owned_by_medre,
-                "committed_sync_token_present": diag.committed_sync_token_present,
+                "committed_checkpoint_present": diag.committed_checkpoint_present,
                 "recovered_event_count": diag.recovered_event_count,
                 "history_event_count": diag.history_event_count,
                 "recovery_abandoned_room_count": (
@@ -968,6 +974,7 @@ class MatrixAdapter(AdapterContract):
                 "permanent_delivery_failures": self._permanent_delivery_failures,
                 # Inbound diagnostics counters
                 "inbound_published": self._inbound_published,
+                "inbound_duplicate_admissions": self._inbound_duplicate_admissions,
                 "inbound_suppressed_self": self._inbound_suppressed_self,
                 "inbound_suppressed_envelope": self._inbound_suppressed_envelope,
                 "inbound_filtered_allowlist": self._inbound_filtered_allowlist,
@@ -999,7 +1006,7 @@ class MatrixAdapter(AdapterContract):
                 and self.ctx.load_checkpoint is not None
                 and self.ctx.commit_checkpoint is not None
             ),
-            "committed_sync_token_present": False,
+            "committed_checkpoint_present": False,
             "recovered_event_count": 0,
             "history_event_count": 0,
             "recovery_abandoned_room_count": 0,
@@ -1031,6 +1038,7 @@ class MatrixAdapter(AdapterContract):
             "permanent_delivery_failures": self._permanent_delivery_failures,
             # Inbound diagnostics counters
             "inbound_published": self._inbound_published,
+            "inbound_duplicate_admissions": self._inbound_duplicate_admissions,
             "inbound_suppressed_self": self._inbound_suppressed_self,
             "inbound_suppressed_envelope": self._inbound_suppressed_envelope,
             "inbound_filtered_allowlist": self._inbound_filtered_allowlist,

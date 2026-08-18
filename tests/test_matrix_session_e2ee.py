@@ -1,6 +1,6 @@
 """Tests for E2EE event handling, encrypted room safety, E2EE diagnostics,
 RoomEncryptionEvent callbacks, diagnostics redaction, initial full-state
-sync semantics, and E2EE key-management operations.
+sync semantics, and E2EE key-management ownership.
 
 No test requires mindroom-nio[e2e].
 """
@@ -657,298 +657,76 @@ class TestInitialSyncDoneBehavior:
 
 
 class TestE2EEKeyManagement:
-    """E2EE key-management operations after successful sync."""
+    """mindroom-nio owns E2EE key sequencing inside ``sync_forever``.
+
+    MEDRE configures the client and supervises the sync loop; it must not
+    duplicate ``keys_upload``, ``keys_query``, ``keys_claim``, or
+    ``send_to_device_messages`` after each response.
+    """
 
     @staticmethod
-    def _make_e2e_session(mock_nio, **sync_overrides):
-        """Prepare config and mocks for an E2EE-enabled session with a
-        controllable sync mock.  Mocks ``olm``, ``store``, all four
-        key-management methods (``keys_upload``, ``keys_query``,
-        ``keys_claim``, ``send_to_device_messages``), and the client
-        ``sync`` method.  Returns ``(config, client, sync_mock)``.
-        """
-
-        client = mock_nio.AsyncClient.return_value
-        # Crypto prerequisites
+    def _install_key_operation_mocks(client: MagicMock) -> None:
         client.olm = MagicMock(name="olm")
         client.store = MagicMock(name="store")
-        client.should_upload_keys = False
-        client.should_query_keys = False
-        client.should_claim_keys = False
-        client.get_users_for_key_claiming = MagicMock(return_value={})
+        client.should_upload_keys = True
+        client.should_query_keys = True
+        client.should_claim_keys = True
+        client.get_users_for_key_claiming = MagicMock(
+            return_value=["@alice:example.com"]
+        )
         client.keys_upload = AsyncMock()
         client.keys_query = AsyncMock()
         client.keys_claim = AsyncMock()
         client.send_to_device_messages = AsyncMock()
 
-        # Sync mock
-        sync_mock = AsyncMock(**sync_overrides)
-        client.sync = sync_mock
-
-        config = make_matrix_config(
-            encryption_mode="e2ee_required",
-            store_path="/tmp/test_e2ee_store",
-            device_id="DEV1",
-        )
-        return config, client, sync_mock
-
-    async def test_keys_upload_called_when_should_upload(self, mock_nio) -> None:
-        """keys_upload is called when should_upload_keys is True."""
-        import medre.adapters.matrix.compat as compat
-
-        original = compat.HAS_E2EE
-        try:
-            compat.HAS_E2EE = True
-            config, client, sync_mock = self._make_e2e_session(
-                mock_nio,
-                side_effect=[
-                    _make_sync_response("b1"),
-                    _make_sync_response("b2"),
-                ],
-            )
-            client.should_upload_keys = True
-
-            session = MatrixSession(config)
-            with fast_sleep_patch():
-                try:
-                    await session.start()
-                    await _run_session_ticks(session, ticks=6)
-                finally:
-                    await session.stop()
-
-            client.keys_upload.assert_awaited()
-        finally:
-            compat.HAS_E2EE = original
-
-    async def test_keys_query_called_when_should_query(self, mock_nio) -> None:
-        """keys_query is called when should_query_keys is True."""
-        import medre.adapters.matrix.compat as compat
-
-        original = compat.HAS_E2EE
-        try:
-            compat.HAS_E2EE = True
-            config, client, sync_mock = self._make_e2e_session(
-                mock_nio,
-                side_effect=[
-                    _make_sync_response("b1"),
-                    _make_sync_response("b2"),
-                ],
-            )
-            client.should_query_keys = True
-
-            session = MatrixSession(config)
-            with fast_sleep_patch():
-                try:
-                    await session.start()
-                    await _run_session_ticks(session, ticks=6)
-                finally:
-                    await session.stop()
-
-            client.keys_query.assert_awaited()
-        finally:
-            compat.HAS_E2EE = original
-
-    async def test_keys_claim_called_when_users_need_claiming(self, mock_nio) -> None:
-        """keys_claim is called with users from get_users_for_key_claiming."""
-        import medre.adapters.matrix.compat as compat
-
-        original = compat.HAS_E2EE
-        try:
-            compat.HAS_E2EE = True
-            config, client, sync_mock = self._make_e2e_session(
-                mock_nio,
-                side_effect=[
-                    _make_sync_response("b1"),
-                    _make_sync_response("b2"),
-                ],
-            )
-            client.should_claim_keys = True
-            users = ["@alice:example.com"]
-            client.get_users_for_key_claiming = MagicMock(return_value=users)
-
-            session = MatrixSession(config)
-            with fast_sleep_patch():
-                try:
-                    await session.start()
-                    await _run_session_ticks(session, ticks=6)
-                finally:
-                    await session.stop()
-
-            client.keys_claim.assert_any_await(users)
-        finally:
-            compat.HAS_E2EE = original
-
-    async def test_send_to_device_messages_called_after_sync(self, mock_nio) -> None:
-        """send_to_device_messages is called after each successful sync."""
-        import medre.adapters.matrix.compat as compat
-
-        original = compat.HAS_E2EE
-        try:
-            compat.HAS_E2EE = True
-            config, client, sync_mock = self._make_e2e_session(
-                mock_nio,
-                side_effect=[
-                    _make_sync_response("b1"),
-                    _make_sync_response("b2"),
-                ],
-            )
-
-            session = MatrixSession(config)
-            with fast_sleep_patch():
-                try:
-                    await session.start()
-                    await _run_session_ticks(session, ticks=6)
-                finally:
-                    await session.stop()
-
-            assert client.send_to_device_messages.await_count >= 1
-        finally:
-            compat.HAS_E2EE = original
-
-    async def test_keys_upload_failure_doesnt_break_loop(self, mock_nio) -> None:
-        """keys_upload raising RuntimeError doesn't prevent subsequent ops."""
-        import medre.adapters.matrix.compat as compat
-
-        original = compat.HAS_E2EE
-        try:
-            compat.HAS_E2EE = True
-            config, client, sync_mock = self._make_e2e_session(
-                mock_nio,
-                side_effect=[
-                    _make_sync_response("b1"),
-                    _make_sync_response("b2"),
-                ],
-            )
-            client.should_upload_keys = True
-            client.keys_upload = AsyncMock(side_effect=RuntimeError("upload failed"))
-
-            session = MatrixSession(config)
-            with fast_sleep_patch():
-                try:
-                    await session.start()
-                    await _run_session_ticks(session, ticks=6)
-                finally:
-                    await session.stop()
-
-            # keys_upload was attempted (and failed)
-            client.keys_upload.assert_awaited()
-            # send_to_device_messages still called despite keys_upload failure
-            assert client.send_to_device_messages.await_count >= 1
-        finally:
-            compat.HAS_E2EE = original
-
-    async def test_no_key_ops_before_successful_sync(self, mock_nio) -> None:
-        """Key-management methods are not called before first successful sync."""
-        import medre.adapters.matrix.compat as compat
-
-        original = compat.HAS_E2EE
-        try:
-            compat.HAS_E2EE = True
-            config, client, sync_mock = self._make_e2e_session(mock_nio)
-            client.should_upload_keys = True
-            client.should_query_keys = True
-            client.should_claim_keys = True
-
-            # Use an Event to block sync from succeeding until we're ready.
-            allow_success = asyncio.Event()
-
-            async def _controlled_sync(*args, **kwargs):
-                await asyncio.sleep(0)  # yield so test can observe state
-                if not allow_success.is_set():
-                    raise ConnectionError("down")
-                return _make_sync_response("b1")
-
-            client.sync = AsyncMock(side_effect=_controlled_sync)
-
-            session = MatrixSession(config)
-            with fast_sleep_patch():
-                try:
-                    await session.start()
-                    # Let the sync loop spin for a few iterations — it
-                    # keeps failing because allow_success is not set.
-                    await _run_session_ticks(session, ticks=6)
-
-                    # Key ops must not have been called yet (no successful sync).
-                    assert client.keys_upload.await_count == 0
-                    assert client.keys_query.await_count == 0
-                    assert client.keys_claim.await_count == 0
-
-                    # Now allow sync to succeed.
-                    allow_success.set()
-                    await _run_session_ticks(session, ticks=6)
-
-                    # After success, key ops should be called.
-                    assert client.keys_upload.await_count >= 1
-                finally:
-                    await session.stop()
-        finally:
-            compat.HAS_E2EE = original
-
-    async def test_crypto_disabled_skips_key_ops_but_sends_to_device(
+    async def test_e2ee_session_does_not_duplicate_nio_key_operations(
         self, mock_nio
     ) -> None:
-        """When crypto is disabled, key ops are skipped but send_to_device runs."""
-        config = make_matrix_config()  # plaintext mode
-        client = mock_nio.AsyncClient.return_value
-        # Set up key management mocks even though crypto is off
-        client.keys_upload = AsyncMock()
-        client.keys_query = AsyncMock()
-        client.keys_claim = AsyncMock()
-        client.send_to_device_messages = AsyncMock()
-        client.sync = AsyncMock(
-            side_effect=[
-                _make_sync_response("b1"),
-                _make_sync_response("b2"),
-            ]
-        )
+        import medre.adapters.matrix.compat as compat
 
-        session = MatrixSession(config)
+        client = mock_nio.AsyncClient.return_value
+        self._install_key_operation_mocks(client)
+        original = compat.HAS_E2EE
+        try:
+            compat.HAS_E2EE = True
+            session = MatrixSession(
+                make_matrix_config(
+                    encryption_mode="e2ee_required",
+                    store_path="/tmp/test_e2ee_store",
+                    device_id="DEV1",
+                )
+            )
+            with fast_sleep_patch():
+                try:
+                    await session.start()
+                    await _run_session_ticks(session, ticks=6)
+                finally:
+                    await session.stop()
+        finally:
+            compat.HAS_E2EE = original
+
+        client.keys_upload.assert_not_awaited()
+        client.keys_query.assert_not_awaited()
+        client.keys_claim.assert_not_awaited()
+        client.send_to_device_messages.assert_not_awaited()
+
+    async def test_plaintext_session_does_not_run_key_operations(
+        self, mock_nio
+    ) -> None:
+        client = mock_nio.AsyncClient.return_value
+        self._install_key_operation_mocks(client)
+        session = MatrixSession(make_matrix_config())
         with fast_sleep_patch():
             try:
                 await session.start()
-                assert session.crypto_enabled is False
                 await _run_session_ticks(session, ticks=6)
             finally:
                 await session.stop()
 
-        # Key management not called (crypto disabled)
         client.keys_upload.assert_not_awaited()
         client.keys_query.assert_not_awaited()
         client.keys_claim.assert_not_awaited()
-        # send_to_device_messages IS called (unconditional)
-        assert client.send_to_device_messages.await_count >= 1
-
-    async def test_attribute_error_on_send_to_device_is_quiet(
-        self, mock_nio, caplog
-    ) -> None:
-        """Missing send_to_device_messages attribute is handled gracefully."""
-        config = make_matrix_config()
-        client = mock_nio.AsyncClient.return_value
-        client.sync = AsyncMock(
-            side_effect=[
-                _make_sync_response("b1"),
-                _make_sync_response("b2"),
-            ]
-        )
-        # Remove send_to_device_messages to trigger AttributeError
-        del client.send_to_device_messages
-
-        session = MatrixSession(config)
-        with fast_sleep_patch():
-            try:
-                with caplog.at_level(logging.DEBUG):
-                    await session.start()
-                    await _run_session_ticks(session, ticks=6)
-                # Should not log ERROR for missing attribute
-                error_records = [
-                    r
-                    for r in caplog.records
-                    if r.levelno >= logging.ERROR
-                    and "send_to_device" in r.getMessage().lower()
-                ]
-                assert len(error_records) == 0
-            finally:
-                await session.stop()
+        client.send_to_device_messages.assert_not_awaited()
 
 
 # ===================================================================
