@@ -10,7 +10,12 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 
 ## 1. Scope
 
-This document specifies the MEDRE storage layer. The current SQLite backend persists `canonical_events`, `event_relations`, `native_message_refs`, `delivery_receipts`, `delivery_outbox`, a schema-reserved `plugin_state` table, and schema metadata. Identity tables (`actors`, `native_identities`, `actor_identity_links`, `actor_permissions`) and `native_archive` are spec-planned and documented here but not part of the current DDL.
+This document specifies the MEDRE storage layer. The current SQLite backend persists
+`canonical_events`, `event_relations`, `native_message_refs`, `delivery_receipts`,
+`delivery_outbox`, `durable_ingress_work`, `adapter_checkpoints`, a schema-reserved
+`plugin_state` table, and schema metadata. Identity tables (`actors`,
+`native_identities`, `actor_identity_links`, `actor_permissions`) and
+`native_archive` are spec-planned and documented here but not part of the current DDL.
 
 The initial and current backend is SQLite. The `StorageBackend` protocol (Section 3) abstracts over implementation so that future backends (PostgreSQL, NATS JetStream, Redis Streams, Kafka) MAY be substituted without changing callers.
 
@@ -106,6 +111,50 @@ class StorageBackend(Protocol):
         Ordering is ORDER BY timestamp ASC only.  There is no secondary
         sort on event_id.
         """
+        ...
+
+    # -- Durable ingress -----------------------------------------------------
+
+    async def admit_ingress(
+        self, event: CanonicalEvent, inbound_ref: NativeMessageRef | None,
+        provenance: IngressProvenance, *, suppress_routing: bool = False,
+    ) -> AdmissionResult:
+        """Atomically persist canonical event, native ref, and work marker."""
+        ...
+
+    async def claim_ingress_work(
+        self, *, worker_id: str, limit: int = 25, lease_seconds: float = 30.0,
+    ) -> list[IngressWorkItem]:
+        """Claim pending or expired-lease durable ingress work."""
+        ...
+
+    async def complete_ingress_work(
+        self, event_id: str, *, worker_id: str,
+    ) -> None:
+        """Mark owned durable ingress work complete."""
+        ...
+
+    async def release_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str,
+    ) -> None:
+        """Release failed durable ingress work for retry."""
+        ...
+
+    async def count_ingress_work_by_status(self) -> dict[str, int]:
+        """Return ingress-work counts grouped by status."""
+        ...
+
+    async def put_adapter_checkpoint(
+        self, adapter_id: str, stream: str, cursor: str,
+        *, metadata_json: str = "{}",
+    ) -> None:
+        """Persist an application-owned transport cursor."""
+        ...
+
+    async def get_adapter_checkpoint(
+        self, adapter_id: str, stream: str,
+    ) -> AdapterCheckpoint | None:
+        """Return the last committed transport cursor."""
         ...
 
     # -- Native ref correlation ---------------------------------------------
@@ -614,7 +663,64 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
 
 This closes the SQLite `NULL != NULL` gap for outbox uniqueness.
 
-### 4.11 Index Policy
+### 4.11 durable_ingress_work
+
+```sql
+CREATE TABLE durable_ingress_work (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    provenance TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    locked_at TEXT,
+    lease_until TEXT,
+    worker_id TEXT
+);
+```
+
+This table is mutable operational state for inbound work that has crossed the
+durable-admission boundary but has not yet reached the delivery outbox boundary.
+`provenance` is one of `live`, `recovered`, or `history`. `status` is one of
+`pending`, `processing`, `suppressed_history`, or `completed`.
+
+Admission of a routable event creates the row as `pending` in the same transaction
+as the canonical event and inbound native ref. Cold-history admission creates
+`suppressed_history`; it is a durable record of intentional suppression and is never
+claimed by the worker. A worker atomically claims `pending` rows, or `processing`
+rows whose lease expired, and increments `attempts`. Processing failure returns the
+row to `pending`; successful routing/planning marks it `completed`.
+
+The `event_id` primary key ensures one work marker per canonical ingress identity.
+The native-ref uniqueness rule remains the replay idempotency key for protocols such
+as Matrix whose decoder may generate a fresh canonical UUID when replaying the same
+native event.
+
+### 4.12 adapter_checkpoints
+
+```sql
+CREATE TABLE adapter_checkpoints (
+    adapter_id TEXT NOT NULL,
+    stream TEXT NOT NULL,
+    cursor TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(adapter_id, stream)
+);
+```
+
+`adapter_checkpoints` stores application-owned transport cursors. The row is mutable:
+advancing a cursor replaces `cursor`, secret-free JSON `metadata`, and `updated_at`
+for the same `(adapter_id, stream)` identity. Matrix uses stream `classic_sync`.
+
+The checkpoint MUST advance only after every relevant event represented by the
+transport response has crossed atomic durable admission. It MAY advance before the
+durable ingress worker routes the admitted events because the corresponding
+`durable_ingress_work` rows survive restart. Transport-specific continuity evidence,
+such as Matrix abandoned-room causes, belongs in `metadata`.
+
+### 4.13 Index Policy
 
 All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, alongside table DDL. They are part of the pre-release schema shape but are not individually versioned.
 
@@ -975,6 +1081,8 @@ class StorageConfig:
 | Concurrent reads       | WAL mode **MUST** be enabled for concurrent reads during writes.                                                               |
 | Replay support         | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria.                      |
 | Schema validation      | `initialize()` **MUST** validate schema version and column shape.                                                              |
+| Durable admission      | Canonical event, inbound native ref, and ingress work **MUST** commit in one transaction.                                      |
+| Checkpoint safety      | Application-owned cursors **MUST NOT** advance past relevant events that failed durable admission.                             |
 | Single database        | There **MUST NOT** be per-adapter databases.                                                                                   |
 
 ## 16. Storage Ownership Semantics
@@ -990,6 +1098,8 @@ This section states which code owns each table's rows, who may create/mutate/del
 | `native_message_refs` | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                | None                                          | Forever                          |
 | `delivery_receipts`   | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                      | None                                          | Forever                          |
 | `delivery_outbox`     | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only) | None (terminal rows become immutable history) | Forever                          |
+| `durable_ingress_work` | Durable admission (create), ingress worker (claim/transition)                  | Ingress worker (`pending`/`processing`/`completed`)      | None                                          | Forever                          |
+| `adapter_checkpoints`  | Cursor-owning adapters through runtime-bound storage callbacks                    | Cursor-owning adapters                                  | None                                          | Forever                          |
 | `plugin_state`        | Schema-reserved (no current API exposed)                                           | Not exposed                                             | None                                          | Reserved / future plugin-defined |
 | `_medre_schema_meta`  | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                            | None                                          | Forever                          |
 
@@ -1007,9 +1117,26 @@ This section states which code owns each table's rows, who may create/mutate/del
 
 6. **Evidence bundles and operator reports are derived views.** `medre evidence`, `medre inspect`, `medre trace`, and diagnostic snapshots query SQLite and present projections. They are not authoritative lifecycle state. If a report contradicts the receipt chain, the receipts are the authority.
 
-7. **Schema metadata identifies the current prerelease shape.** `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen until MEDRE reaches a release-tracked milestone. Column-shape validation (Section 10.2) catches prerelease drift without a version bump. No migration or schema bump work is required now.
+7. **Durable ingress couples acceptance to recoverable work.** Canonical event,
+   inbound native ref, and ingress-work creation occur in one transaction. Duplicate
+   native admission resolves to the original canonical identity.
 
-8. **Adapters report facts; core records persistence.** Adapters surface canonical events, adapter delivery facts, and native transport facts to the runtime. Core pipeline/runtime code records those facts through storage methods such as `append`, `store_native_ref`, and `append_receipt`. Adapters do not own lifecycle persistence, do not append receipts directly, and do not mutate storage rows.
+8. **Application-owned adapter checkpoints never outrun durable admission.** A
+   checkpoint may advance before routing completes only because accepted routable
+   events already have persistent ingress work; protocol-specific loss metadata is
+   persisted with the cursor.
+
+9. **Schema metadata identifies the current prerelease shape.**
+   `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen
+   until MEDRE reaches a release-tracked milestone. Column-shape validation
+   (Section 10.2) catches prerelease drift without a version bump. No migration or
+   schema bump work is required now.
+
+10. **Adapters report facts; core records persistence.** Adapters surface canonical
+    events, adapter delivery facts, and native transport facts to the runtime. Core
+    pipeline/runtime code records those facts through storage methods such as
+    `append`, `store_native_ref`, and `append_receipt`. Adapters do not own lifecycle
+    persistence, do not append receipts directly, and do not mutate storage rows.
 
 ### 16.3 Spec-Planned Tables
 
