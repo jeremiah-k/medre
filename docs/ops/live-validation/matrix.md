@@ -47,7 +47,10 @@ pip install -e ".[matrix-e2e]"
 MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v
 ```
 
-Expected: 4 passed. Confirms cross-signing bootstrap persistence with passwordless runtime re-verification, encrypted room creation, encrypted outbound send, and third-party inbound at Docker SDK-boundary via second nio client.
+Expected: 4 passed. Confirms cross-signing bootstrap persistence with
+passwordless runtime re-verification, encrypted room creation, encrypted
+outbound send, and third-party inbound at Docker SDK-boundary via second nio
+client.
 
 ## Third-Party Inbound Test
 
