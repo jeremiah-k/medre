@@ -36,6 +36,14 @@ _CONFTEST = _REPO_ROOT / "tests" / "integration" / "conftest.py"
 _ARTIFACTS = _REPO_ROOT / "src" / "medre" / "runtime" / "docker_bridge_artifacts.py"
 _RUN_SCRIPT = _REPO_ROOT / "scripts" / "ci" / "run-docker-integration.sh"
 
+# Central tag pattern: any run of characters that cannot continue an image
+# reference — it stops at the ``@`` digest separator, whitespace, a closing
+# quote (quoted Python defaults), or a closing paren (runner-script comment
+# defaults), so it tolerates pre-release and other non-numeric tags
+# (e.g. ``v1.159.0rc1``) rather than assuming dotted numerics.
+_TAG = r"[^@\"'\s)]+"
+_DIGEST = r"sha256:[0-9a-f]+"
+
 # (label, image repo, environment variable name)
 _IMAGES = [
     ("synapse", "matrixdotorg/synapse", "MEDRE_SYNAPSE_IMAGE"),
@@ -50,7 +58,7 @@ def _read(path: Path) -> str:
 def _compose_ref(repo: str) -> tuple[str, str | None]:
     """Return (tag, digest or None) for *repo* from the compose source of truth."""
     match = re.search(
-        rf"image:\s*{re.escape(repo)}:(v?[0-9.]+)(?:@(sha256:[0-9a-f]+))?",
+        rf"image:\s*{re.escape(repo)}:({_TAG})(?:@({_DIGEST}))?",
         _read(_COMPOSE),
     )
     assert match is not None, f"{repo} image line not found in compose"
@@ -73,7 +81,7 @@ def test_workflow_matches_compose(label: str, repo: str, env: str) -> None:
     """
     tag, digest = _compose_ref(repo)
     match = re.search(
-        rf"{env}:\s*{re.escape(repo)}:(v?[0-9.]+)(?:@(sha256:[0-9a-f]+))?",
+        rf"{env}:\s*{re.escape(repo)}:({_TAG})(?:@({_DIGEST}))?",
         _read(_WORKFLOW),
     )
     assert match is not None, f"{env} not found in workflow"
@@ -100,15 +108,13 @@ def test_conftest_default_tag_matches_compose(
     """
     tag, _digest = _compose_ref(repo)
     matches = re.findall(
-        rf'["\']{env}["\']\s*,\s*["\']{re.escape(repo)}:(v?[0-9.]+)["\']',
+        rf'["\']{env}["\']\s*,\s*["\']{re.escape(repo)}:({_TAG})["\']',
         _read(_CONFTEST),
     )
-    assert len(matches) == 1, (
-        f"expected 1 {env} fallback default in conftest, found {len(matches)}"
-    )
-    assert matches[0] == tag, (
-        f"conftest {label} tag drifted: compose is {tag}, "
-        f"conftest is {matches[0]}"
+    assert matches, f"no {env} fallback default found in conftest"
+    drifted = [value for value in matches if value != tag]
+    assert not drifted, (
+        f"conftest {label} tag drifted: compose is {tag}, conftest is {drifted}"
     )
 
 
@@ -118,20 +124,20 @@ def test_artifacts_defaults_tag_matches_compose(
 ) -> None:
     """docker_bridge_artifacts env-fallback defaults carry the compose tag.
 
-    Both fallback sites (the evidence daemon/container field and the
+    All fallback sites (the evidence container/daemon field and the
     config-snapshot image field) read the image env var and fall back to a
     tag-only default. Real CI runs always set the env var to a pinned
-    image@digest; the tag-only default matches conftest's rationale.
+    image@digest; the tag-only default matches conftest's rationale. Every
+    site present must agree with compose; the occurrence count is
+    intentionally unconstrained so adding a fallback site needs no test
+    edit.
     """
     tag, _digest = _compose_ref(repo)
     matches = re.findall(
-        rf'["\']{env}["\']\s*,\s*["\']{re.escape(repo)}:(v?[0-9.]+)["\']',
+        rf'["\']{env}["\']\s*,\s*["\']{re.escape(repo)}:({_TAG})["\']',
         _read(_ARTIFACTS),
     )
-    assert len(matches) == 2, (
-        f"expected 2 {env} fallback defaults in "
-        f"docker_bridge_artifacts.py, found {len(matches)}"
-    )
+    assert matches, f"no {env} fallback defaults found in docker_bridge_artifacts"
     drifted = [value for value in matches if value != tag]
     assert not drifted, (
         f"docker_bridge_artifacts {label} tag drifted: compose is {tag}, "
@@ -146,7 +152,7 @@ def test_run_script_comment_matches_compose(
     """The runner script's documented default carries the compose tag."""
     tag, _digest = _compose_ref(repo)
     match = re.search(
-        rf"{env}\b[^\n]*?default:\s*{re.escape(repo)}:(v?[0-9.]+)",
+        rf"{env}\b[^\n]*?default:\s*{re.escape(repo)}:({_TAG})",
         _read(_RUN_SCRIPT),
     )
     assert match is not None, f"{env} default comment not found in script"

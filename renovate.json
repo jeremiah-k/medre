@@ -32,7 +32,7 @@
         "/(^|/)scripts[/]ci[/]run-docker-integration\\.sh$/"
       ],
       "matchStrings": [
-        "matrixdotorg/synapse:(?<currentValue>v[0-9.]+)(?:@(?<currentDigest>sha256:[0-9a-f]+))?"
+        "matrixdotorg/synapse:(?<currentValue>[^@\\\"\\)\\s]+)(?:@(?<currentDigest>sha256:[0-9a-f]+))?"
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "matrixdotorg/synapse",
@@ -50,7 +50,7 @@
         "/(^|/)examples[/]configs[/]docker-meshtastic-bridge\\.yaml$/"
       ],
       "matchStrings": [
-        "meshtastic/meshtasticd:(?<currentValue>v?[0-9.]+)(?:@(?<currentDigest>sha256:[0-9a-f]+))?"
+        "meshtastic/meshtasticd:(?<currentValue>[^@\\\"\\)\\s]+)(?:@(?<currentDigest>sha256:[0-9a-f]+))?"
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "meshtastic/meshtasticd",
