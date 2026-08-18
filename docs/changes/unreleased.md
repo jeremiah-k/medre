@@ -248,6 +248,15 @@ create per-commit fragment files.
   `>=` floors untracked. Full resolution of every extra is verified via
   `uv pip install --dry-run`; all four SDK extras import against the
   new pins.
+- **Renovate cannot pin Python policy fields.** The repo-wide pin strategy
+  taught Renovate to pin `requires-python` to a single CPython release
+  (`==3.14.7`) and to patch-pin the CI workflow `python-version`, which
+  broke installation on every supported Python except 3.14. Both fields
+  are deliberate support policy and are now excluded from Renovate
+  management, with static guards enforcing the policy: `requires-python`
+  must remain a `>=` floor, and workflow `python-version` values must
+  stay minor-level. The legitimate pins in the same Renovate PR (GitHub
+  Action refs, `setuptools` in build-system requires) remain enabled.
 
 ## Continuous Integration
 

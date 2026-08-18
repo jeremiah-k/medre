@@ -91,6 +91,17 @@
       "description": "Keep docker integration image refs at their existing pin depth: tag-only fallback defaults stay tag-only",
       "matchPackageNames": ["matrixdotorg/synapse", "meshtastic/meshtasticd"],
       "pinDigests": false
+    },
+    {
+      "description": "requires-python is a deliberate support floor, not a pinnable version: pinning it to one CPython release breaks install on every other supported Python",
+      "matchDepTypes": ["requires-python"],
+      "enabled": false
+    },
+    {
+      "description": "CI workflow python-version values follow the deliberate test matrix (3.11-3.14, minor-level); do not patch-pin them",
+      "matchDepTypes": ["uses-with"],
+      "matchDepNames": ["python"],
+      "enabled": false
     }
   ]
 }

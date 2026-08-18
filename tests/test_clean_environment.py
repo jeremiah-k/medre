@@ -742,6 +742,38 @@ class TestReproducibilityEvidence:
         """_dep_name tolerates extras, markers, and odd whitespace."""
         assert _dep_name(dependency) == expected
 
+    def test_requires_python_stays_a_floor(self) -> None:
+        """``requires-python`` must remain an inclusive floor, never a pin.
+
+        The supported Python range is deliberate policy mirrored by the CI
+        test matrix (3.11 through 3.14). Pinning it to a single CPython
+        release (e.g. ``==3.14.7``) makes the package uninstallable on
+        every other supported Python; a Renovate pin attempt did exactly
+        that. Renovate is disabled for this field in renovate.json; this
+        guard makes an accidental re-pinning fail at PR time.
+
+        Validation is a full PEP 440 parse (via ``packaging``, itself a
+        guaranteed transitive of pytest) rather than substring checks, so
+        compound specifiers, markers, and whitespace cannot smuggle a
+        non-floor operator past the guard.
+        """
+        from packaging.specifiers import InvalidSpecifier, SpecifierSet
+
+        rp = str(self._project.get("requires-python", ""))
+        try:
+            specifiers = list(SpecifierSet(rp))
+        except InvalidSpecifier as exc:
+            raise AssertionError(
+                f"requires-python is not a valid PEP 440 specifier set: "
+                f"{rp!r} ({exc})"
+            ) from exc
+        assert specifiers, f"requires-python must not be empty: {rp!r}"
+        non_floor = [s for s in specifiers if s.operator != ">="]
+        assert not non_floor, (
+            f"requires-python must be a '>=...' floor only; found "
+            f"non-floor operators: {[str(s) for s in non_floor]}"
+        )
+
     def test_build_system_has_exactly_two_keys(self) -> None:
         """build-system should have requires and build-backend only."""
         bs = self._data.get("build-system", {})
@@ -782,6 +814,57 @@ class TestReproducibilityEvidence:
         assert (
             pytest_cfg.get("asyncio_mode") == "auto"
         ), f"asyncio_mode should be 'auto': {pytest_cfg.get('asyncio_mode')}"
+
+
+class TestCIPythonPolicy:
+    """CI workflow Python versions are deliberate policy, not pins.
+
+    The test matrix (3.11 through 3.14) mirrors ``requires-python`` and the
+    classifiers. Workflow ``python-version`` values must stay minor-level
+    (``3.14``) so every matrix job floats across patch releases; a Renovate
+    pin attempt rewrote ``3.14`` to ``3.14.7``. Renovate is disabled for
+    these values in renovate.json; this guard makes an accidental re-pin
+    fail at PR time.
+    """
+
+    _WORKFLOWS = sorted(
+        wf
+        for pattern in ("*.yml", "*.yaml")
+        for wf in (
+            Path(__file__).resolve().parent.parent
+            / ".github"
+            / "workflows"
+        ).glob(pattern)
+    )
+
+    def test_workflow_python_versions_are_minor_level(self) -> None:
+        """Every python-version literal is ``MAJOR.MINOR`` — never patch.
+
+        Covers both quoting styles, bare YAML scalars, and inline arrays;
+        ``${{ ... }}`` template lines are references, not literals, and
+        are skipped.
+        """
+        seen: list[str] = []
+        for workflow in self._WORKFLOWS:
+            for line in workflow.read_text(encoding="utf-8").splitlines():
+                if "python-version" not in line or "${{" in line:
+                    continue
+                # Quoted literals, single or double style (also covers
+                # every element of inline arrays like ["3.11", "3.12"]).
+                quoted = re.findall(r"'(\d[^']*)'|\"(\d[^\"]*)\"", line)
+                if quoted:
+                    seen.extend(a or b for a, b in quoted)
+                else:
+                    # Bare scalar: `python-version: 3.14` (strip comments).
+                    bare = re.search(r"python-version:\s*(\d[^\s#]*)", line)
+                    if bare:
+                        seen.append(bare.group(1))
+        assert seen, "no python-version literals found in workflows"
+        pinned = [v for v in seen if not re.fullmatch(r"\d+\.\d+", v)]
+        assert not pinned, (
+            f"workflow python-version values must be minor-level "
+            f"(e.g. '3.14'), found pin-style values: {pinned}"
+        )
 
 
 # ===================================================================
