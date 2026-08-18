@@ -1175,7 +1175,7 @@ def _build_meshtastic_evidence(
         inbound["simulated_inbound"] = True
 
     return {
-        "daemon": env.get("MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"),
+        "daemon": env.get("MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.26"),
         "inbound": inbound,
         "outbound": (
             {
@@ -1244,7 +1244,7 @@ def _collect_config_snapshot(
         ),
         "synapse_port": env.get("MEDRE_SYNAPSE_PORT", "8008"),
         "meshtasticd_image": env.get(
-            "MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.15"
+            "MEDRE_MESHTASTICD_IMAGE", "meshtastic/meshtasticd:2.7.26"
         ),
         "meshtasticd_port": env.get("MEDRE_MESHTASTICD_PORT", "4403"),
         "meshtasticd_hwid": env.get("MEDRE_MESHTASTICD_HWID", "11"),

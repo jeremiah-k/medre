@@ -27,7 +27,7 @@
 # Usage:
 #   1. Start meshtasticd in Docker:
 #      docker run -d --name meshtasticd --network host \
-#        meshtastic/meshtasticd:2.7.15 \
+#        meshtastic/meshtasticd:2.7.26 \
 #        meshtasticd -s --fsdir=/var/lib/meshtasticd-ci -p 4403 -h 11
 #
 #   2. Set the host environment variable (defaults to localhost):

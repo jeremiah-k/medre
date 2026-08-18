@@ -7,7 +7,8 @@
     "pep621",
     "github-actions",
     "dockerfile",
-    "docker-compose"
+    "docker-compose",
+    "custom.regex"
   ],
   "timezone": "America/Chicago",
   "updateNotScheduled": true,
@@ -19,6 +20,43 @@
   "separateMajorMinor": true,
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Synapse integration image across compose, CI workflow, conftest, runtime env-fallbacks, and runner script",
+      "managerFilePatterns": [
+        "/(^|/)docker-compose\\.integration\\.yaml$/",
+        "/(^|/)\\.github[/]workflows[/]docker-integration\\.yml$/",
+        "/(^|/)tests[/]integration[/]conftest\\.py$/",
+        "/(^|/)src[/]medre[/]runtime[/]docker_bridge_artifacts\\.py$/",
+        "/(^|/)scripts[/]ci[/]run-docker-integration\\.sh$/"
+      ],
+      "matchStrings": [
+        "matrixdotorg/synapse:(?<currentValue>v[0-9.]+)(?:@(?<currentDigest>sha256:[0-9a-f]+))?"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "matrixdotorg/synapse",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "meshtasticd integration image across compose, CI workflow, conftest, runtime env-fallbacks, runner script, and bridge example config",
+      "managerFilePatterns": [
+        "/(^|/)docker-compose\\.integration\\.yaml$/",
+        "/(^|/)\\.github[/]workflows[/]docker-integration\\.yml$/",
+        "/(^|/)tests[/]integration[/]conftest\\.py$/",
+        "/(^|/)src[/]medre[/]runtime[/]docker_bridge_artifacts\\.py$/",
+        "/(^|/)scripts[/]ci[/]run-docker-integration\\.sh$/",
+        "/(^|/)examples[/]configs[/]docker-meshtastic-bridge\\.yaml$/"
+      ],
+      "matchStrings": [
+        "meshtastic/meshtasticd:(?<currentValue>v?[0-9.]+)(?:@(?<currentDigest>sha256:[0-9a-f]+))?"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "meshtastic/meshtasticd",
+      "versioningTemplate": "docker"
+    }
+  ],
   "packageRules": [
     {
       "description": "Automerge all non-major dependency updates",
@@ -46,6 +84,11 @@
       "matchPackageNames": ["mindroom-nio"],
       "automerge": true,
       "minimumReleaseAge": "12 hours"
+    },
+    {
+      "description": "Keep docker integration image refs at their existing pin depth: tag-only fallback defaults stay tag-only",
+      "matchPackageNames": ["matrixdotorg/synapse", "meshtastic/meshtasticd"],
+      "pinDigests": false
     }
   ]
 }
