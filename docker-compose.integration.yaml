@@ -16,7 +16,7 @@
 services:
   # === Synapse (Matrix homeserver) ===
   synapse:
-    image: matrixdotorg/synapse:v1.155.0@sha256:a87d002fba8efba807af19a876f488f4a9d298d6b62f5bab66d14e311a355e99
+    image: matrixdotorg/synapse:v1.158.0@sha256:5f868df1f5772907c6dbe973a9b69ab530a5d6bb317c011a3788f7ad78eb1292
     container_name: medre-integration-synapse
     ports:
       - "${MEDRE_SYNAPSE_PORT:-8008}:8008"
