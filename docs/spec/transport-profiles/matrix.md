@@ -245,9 +245,9 @@ The Matrix renderer (`MatrixRenderer`) produces:
 Cross-signing and peer-device trust are separate policies. MEDRE cross-signs its own
 current device so other Matrix clients can authenticate the bot device. Encrypted
 outbound sends still use `ignore_unverified_devices=True` as an intentional permissive
-peer-device policy; cross-signing the MEDRE device does not automatically verify or trust
-other users' devices. Runtime reconciliation has no password and cannot bootstrap/rotate
-master or self-signing identity material.
+peer-device policy; cross-signing the MEDRE device does not automatically verify or
+trust other users' devices. Runtime reconciliation has no password and cannot
+bootstrap/rotate master or self-signing identity material.
 
 ---
 
