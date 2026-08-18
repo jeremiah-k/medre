@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 
 from medre.core.ingress.types import IngressWorkItem
@@ -71,3 +72,34 @@ async def test_worker_releases_failed_ingress_for_retry() -> None:
     assert storage.completed == []
     assert storage.released == [("evt-1", "RuntimeError: planner unavailable")]
     assert worker.failures == 1
+
+
+async def test_worker_survives_claim_cycle_failure() -> None:
+    class _FlakyStorage(_Storage):
+        def __init__(self) -> None:
+            super().__init__([_work()])
+            self.claims = 0
+
+        async def claim_ingress_work(self, **kwargs):
+            self.claims += 1
+            if self.claims == 1:
+                raise RuntimeError("database busy")
+            return await super().claim_ingress_work(**kwargs)
+
+    storage = _FlakyStorage()
+    pipeline = _Pipeline()
+    worker = DurableIngressWorker(
+        storage=storage, pipeline=pipeline, interval_seconds=0.001
+    )
+
+    await worker.start()
+    try:
+        async with asyncio.timeout(1):
+            while worker.processed == 0:
+                await asyncio.sleep(0)
+    finally:
+        await worker.stop()
+
+    assert worker.failures == 1
+    assert storage.claims >= 2
+    assert storage.completed == ["evt-1"]

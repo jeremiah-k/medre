@@ -128,7 +128,16 @@ class DurableIngressWorker:
 
     async def _run(self) -> None:
         while not self._stop.is_set():
-            processed = await self.run_once()
+            try:
+                processed = await self.run_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self._failures += 1
+                processed = 0
+                self._logger.exception(
+                    "Durable ingress claim cycle failed; retrying"
+                )
             if processed == 0:
                 try:
                     await asyncio.wait_for(

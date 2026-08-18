@@ -732,8 +732,10 @@ class MedreApp:
                 f"Failed to start pipeline runner: {exc}"
             ) from exc
 
-        # 2.25. Start the durable ingress worker before adapters can admit
-        #        cursor-owned transport events.
+        # 2.25. Construct the durable ingress worker, but defer processing
+        #        until adapter startup is complete. Cursor-owned adapters may
+        #        admit work during startup; the rows remain durable until all
+        #        available delivery targets have had a chance to start.
         if self.storage is not None:
             from medre.core.ingress import DurableIngressWorker
 
@@ -741,7 +743,6 @@ class MedreApp:
                 storage=self.storage,
                 pipeline=self.pipeline_runner,
             )
-            await self._ingress_worker.start()
 
         # 2.5. Start the retry worker (if enabled).
         if self.config.retry.enabled and self.storage is not None:
@@ -1066,6 +1067,9 @@ class MedreApp:
                 attempted_total,
                 degradation_cause,
             )
+
+        if self._ingress_worker is not None:
+            await self._ingress_worker.start()
 
         self._set_state(RuntimeState.RUNNING)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -38,8 +39,8 @@ async def test_history_provenance_is_forwarded_to_durable_core() -> None:
     _published, ctx = make_adapter_context()
     ctx.admit_inbound = AsyncMock(
         return_value=AdmissionResult(
-            event_id="evt-existing",
-            created=False,
+            event_id="evt-new",
+            created=True,
             provenance="history",
             work_status="suppressed_history",
         )
@@ -56,3 +57,26 @@ async def test_history_provenance_is_forwarded_to_durable_core() -> None:
     assert admitted_event.source_native_ref is not None
     assert admitted_event.source_native_ref.native_message_id == "$evt-001"
     assert adapter.diagnostics()["inbound_published"] == 1
+
+
+async def test_recovered_provenance_overrides_generic_start_timestamp_filter() -> None:
+    adapter = MatrixAdapter(make_matrix_config())
+    _published, ctx = make_adapter_context()
+    ctx.admit_inbound = AsyncMock(
+        return_value=AdmissionResult(
+            event_id="evt-recovered",
+            created=True,
+            provenance="recovered",
+            work_status="pending",
+        )
+    )
+    adapter.ctx = ctx
+    adapter._started = True
+    adapter._start_time = datetime.now(UTC) + timedelta(days=1)
+
+    await adapter._on_room_message(
+        to_event_dict(make_fake_room(), make_fake_nio_event()), "recovered"
+    )
+
+    ctx.admit_inbound.assert_awaited_once()
+    assert adapter.stale_events_dropped == 0

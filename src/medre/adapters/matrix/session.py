@@ -927,7 +927,7 @@ class MatrixSession:
 
     @staticmethod
     def _abandonment_metadata(response: Any) -> dict[str, tuple[str, ...]]:
-        """Return secret-free recovery abandonment evidence from a sync response."""
+        """Return durable recovery evidence keyed by native Matrix room ID."""
         raw = getattr(response, "abandoned_rooms", None) or {}
         result: dict[str, tuple[str, ...]] = {}
         for room_id, reasons in raw.items():
@@ -937,6 +937,23 @@ class MatrixSession:
                 values.append(str(value if value is not None else reason))
             result[str(room_id)] = tuple(sorted(values))
         return result
+
+    @staticmethod
+    def _abandonment_diagnostic(
+        abandoned: dict[str, tuple[str, ...]],
+    ) -> str | None:
+        """Return identifier-free abandonment diagnostics for operators."""
+        if not abandoned:
+            return None
+        cause_counts: dict[str, int] = {}
+        for reasons in abandoned.values():
+            for reason in reasons:
+                cause_counts[reason] = cause_counts.get(reason, 0) + 1
+        return json.dumps(
+            {"causes": cause_counts, "room_count": len(abandoned)},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     async def _on_sync_response(self, response: Any) -> None:
         """Commit MEDRE's Classic cursor, then acknowledge it to nio."""
@@ -965,8 +982,8 @@ class MatrixSession:
                             exc_info=True,
                         )
         self._recovery_abandoned_rooms = abandoned
+        self._recovery_last_abandonment = self._abandonment_diagnostic(abandoned)
         if abandoned:
-            self._recovery_last_abandonment = metadata_json
             self._logger.warning(
                 "Matrix gap recovery abandoned history in %d room(s)", len(abandoned)
             )

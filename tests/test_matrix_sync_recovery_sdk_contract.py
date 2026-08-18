@@ -23,6 +23,7 @@ def test_mindroom_nio_exposes_application_owned_classic_sync_contract() -> None:
     for name in (
         "add_event_admission_callback",
         "acknowledge_classic_sync",
+        "acknowledge_unrecovered_rooms",
         "reset_classic_sync_state",
         "sync_forever",
         "stop_sync_forever",

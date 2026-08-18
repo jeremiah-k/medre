@@ -853,15 +853,17 @@ class MatrixAdapter(AdapterContract):
 
             if provenance is None:
                 await self.publish_inbound(canonical)
+                self._inbound_published += 1
             else:
                 result = await self.admit_inbound(canonical, provenance)
-                if not result.created:
+                if result.created:
+                    self._inbound_published += 1
+                else:
                     self.ctx.logger.debug(
                         "MatrixAdapter %s: duplicate durable admission mapped to %s",
                         self.adapter_id,
                         result.event_id,
                     )
-            self._inbound_published += 1
         except asyncio.CancelledError:
             raise
         except Exception:

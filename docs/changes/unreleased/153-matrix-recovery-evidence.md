@@ -7,3 +7,6 @@
   settling nio's degraded-room marker, and expose the evidence through diagnostics.
 - Expose durable-ingress worker running/processed/failure counters in runtime
   diagnostics.
+- Defer durable-ingress work processing until adapter startup finishes, keep the
+  worker alive across transient claim-cycle failures, and keep Matrix room IDs out
+  of operator diagnostics while retaining them in internal checkpoint metadata.

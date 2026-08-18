@@ -213,4 +213,7 @@ async def test_recovery_abandonment_is_persisted_before_cursor_advances() -> Non
     assert '"!lost:example.org":["fetch_failed"]' in committed_metadata
     diag = session.diagnostics()
     assert diag.recovery_abandoned_room_count == 1
-    assert diag.recovery_last_abandonment == committed_metadata
+    assert diag.recovery_last_abandonment == (
+        '{"causes":{"fetch_failed":1},"room_count":1}'
+    )
+    assert "!lost:example.org" not in diag.recovery_last_abandonment

@@ -314,7 +314,7 @@ bootstrap/rotate master or self-signing identity material.
 | `recovered_event_count`                      | `int`           | Recovered timeline events seen at admission           |
 | `history_event_count`                        | `int`           | Cold-history timeline events seen at admission        |
 | `recovery_abandoned_room_count`              | `int`           | Rooms with recorded unrecoverable history             |
-| `recovery_last_abandonment`                  | `str \| None` | Secret-free serialized abandonment evidence           |
+| `recovery_last_abandonment`                  | `str \| None` | Identifier-free room/cause-count abandonment summary   |
 | `crypto_store_loaded`                      | `bool`          | Olm/store initialised                                |
 | `olm_loaded`                               | `bool`          | Olm subsystem loaded                                 |
 | `encrypted_room_count`                     | `int`           | Rooms tracked as encrypted                           |
