@@ -17,7 +17,6 @@ from pathlib import Path
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.config.adapters.matrix_credentials import write_credentials_json
 
-
 _HTTP_TIMEOUT_SECONDS: float = 30.0
 
 

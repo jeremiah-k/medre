@@ -267,16 +267,16 @@ authenticated auth workflow above.
 
 ### Cross-signing diagnostics
 
-| Key | Meaning |
-| --- | --- |
-| `cross_signing_provider_supported` | The installed Matrix SDK exposes the required cross-signing lifecycle API. |
-| `cross_signing_local_identity_present` | The runtime E2EE store contains persisted local cross-signing identity material. |
-| `cross_signing_server_identity_present` | The homeserver exposes a master cross-signing identity for the bot account. |
-| `cross_signing_current_device_self_signed` | The server-visible current device carries the expected self-signing signature. |
-| `cross_signing_chain_status` | `unchecked`, `unsupported`, `missing`, `repairable`, `valid`, `mismatch`, `unverifiable`, `reset_required`, or `error`. |
-| `cross_signing_repair_required` | Safe bootstrap/repair work remains; ordinary runtime will not rotate identity material. |
-| `cross_signing_reset_required` | Local/server identity disagreement or lost local identity requires operator recovery. |
-| `cross_signing_last_failure_category` | Secret-free category for the latest reconciliation failure. |
+| Key                                        | Meaning                                                                                                                 |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `cross_signing_provider_supported`         | The installed Matrix SDK exposes the required cross-signing lifecycle API.                                              |
+| `cross_signing_local_identity_present`     | The runtime E2EE store contains persisted local cross-signing identity material.                                        |
+| `cross_signing_server_identity_present`    | The homeserver exposes a master cross-signing identity for the bot account.                                             |
+| `cross_signing_current_device_self_signed` | The server-visible current device carries the expected self-signing signature.                                          |
+| `cross_signing_chain_status`               | `unchecked`, `unsupported`, `missing`, `repairable`, `valid`, `mismatch`, `unverifiable`, `reset_required`, or `error`. |
+| `cross_signing_repair_required`            | Safe bootstrap/repair work remains; ordinary runtime will not rotate identity material.                                 |
+| `cross_signing_reset_required`             | Local/server identity disagreement or lost local identity requires operator recovery.                                   |
+| `cross_signing_last_failure_category`      | Secret-free category for the latest reconciliation failure.                                                             |
 
 These fields never include cross-signing keys, signatures, access tokens, room
 keys, sidecar contents, or crypto objects.
@@ -339,17 +339,17 @@ While the test waits (30 s window), send a message from the second account. If n
 
 ## Troubleshooting
 
-| Symptom                                      | Likely cause                                       | Fix                                                              |
-| -------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------- |
-| `M_UNKNOWN_TOKEN` on startup                 | Expired or invalid access token                    | Generate a new token via login API or Element                    |
-| `M_FORBIDDEN Invalid username/password`      | Wrong credentials                                  | Verify user ID and password encoding                             |
-| Adapter enters `failed` state                | Permanent sync error or exhausted reconnect budget | Check logs, fix underlying cause, restart                        |
-| No inbound events received                   | Room not in allowlist                              | Add room ID to `MATRIX_ROOM_ALLOWLIST`                           |
-| Self-messages not suppressed                 | sender mismatch                                    | Verify `MATRIX_USER_ID` matches bot's MXID exactly               |
-| `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied     | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices |
-| `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees   | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow |
-| `cross_signing_chain_status=missing`          | No own-device cross-signing identity is established | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password |
-| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                      | `pip install -e ".[matrix-e2e]"`                                 |
+| Symptom                                      | Likely cause                                        | Fix                                                                                                      |
+| -------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `M_UNKNOWN_TOKEN` on startup                 | Expired or invalid access token                     | Generate a new token via login API or Element                                                            |
+| `M_FORBIDDEN Invalid username/password`      | Wrong credentials                                   | Verify user ID and password encoding                                                                     |
+| Adapter enters `failed` state                | Permanent sync error or exhausted reconnect budget  | Check logs, fix underlying cause, restart                                                                |
+| No inbound events received                   | Room not in allowlist                               | Add room ID to `MATRIX_ROOM_ALLOWLIST`                                                                   |
+| Self-messages not suppressed                 | sender mismatch                                     | Verify `MATRIX_USER_ID` matches bot's MXID exactly                                                       |
+| `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied      | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                 |
+| `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees    | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow |
+| `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                         |
+| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                       | `pip install -e ".[matrix-e2e]"`                                                                         |
 
 ## See Also
 

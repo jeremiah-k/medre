@@ -90,7 +90,7 @@ from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 
-from .conftest import close_nio_client, close_nio_store, E2EETestEnvironment
+from .conftest import E2EETestEnvironment, close_nio_client, close_nio_store
 from .synapse_helpers import make_context as _make_context
 from .synapse_helpers import (
     send_client_side_encrypted_message,

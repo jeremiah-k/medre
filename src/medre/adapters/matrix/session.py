@@ -1585,7 +1585,5 @@ class MatrixSession:
             cross_signing_chain_status=cross_signing.chain_status,
             cross_signing_repair_required=cross_signing.repair_required,
             cross_signing_reset_required=cross_signing.reset_required,
-            cross_signing_last_failure_category=(
-                cross_signing.last_failure_category
-            ),
+            cross_signing_last_failure_category=(cross_signing.last_failure_category),
         )

@@ -50,9 +50,7 @@ class FakeIdentity:
         self, device_keys: dict[str, object]
     ) -> dict[str, object]:
         payload = dict(device_keys)
-        payload["signatures"] = {
-            self.user_id: {"ed25519:SELF": "sig-device"}
-        }
+        payload["signatures"] = {self.user_id: {"ed25519:SELF": "sig-device"}}
         return payload
 
 
@@ -108,7 +106,11 @@ class FakeClient:
         self_signing = identity.self_signing_key_payload()
         if device_signed:
             base_device = identity.signed_device_payload(
-                {k: v for k, v in base_device.items() if k not in ("signatures", "unsigned")}
+                {
+                    k: v
+                    for k, v in base_device.items()
+                    if k not in ("signatures", "unsigned")
+                }
             ) | {"unsigned": {"device_display_name": "MEDRE"}}
         return {
             "master_keys": {self.user_id: master},
@@ -126,9 +128,7 @@ class FakeClient:
     ) -> FakeResponse:
         assert method == "POST"
         assert path == "/_matrix/client/v3/keys/query"
-        assert json.loads(data) == {
-            "device_keys": {self.user_id: [self.device_id]}
-        }
+        assert json.loads(data) == {"device_keys": {self.user_id: [self.device_id]}}
         assert headers["Authorization"] == f"Bearer {self.access_token}"
         return FakeResponse(self.server_payload)
 
@@ -171,7 +171,9 @@ async def test_unsupported_provider_is_reported_without_failure() -> None:
     assert diag.last_failure_category == "provider_unsupported"
 
 
-async def test_runtime_preserves_server_identity_when_local_sidecar_is_missing() -> None:
+async def test_runtime_preserves_server_identity_when_local_sidecar_is_missing() -> (
+    None
+):
     client = FakeClient(identity=None, server_identity=False)
     client.server_payload = client._payload(_identity(), device_signed=True)
     service = MatrixCrossSigningService(client)
@@ -187,7 +189,9 @@ async def test_runtime_preserves_server_identity_when_local_sidecar_is_missing()
     assert client.ensure_calls == []
 
 
-async def test_runtime_does_not_bootstrap_when_server_and_local_identity_are_absent() -> None:
+async def test_runtime_does_not_bootstrap_when_server_and_local_identity_are_absent() -> (
+    None
+):
     client = FakeClient(identity=None, server_identity=False)
     service = MatrixCrossSigningService(client)
 
@@ -262,7 +266,9 @@ async def test_missing_current_device_signature_is_repaired_without_rotation() -
     assert diag.repair_required is False
 
 
-async def test_missing_signature_without_provider_repair_hook_stays_repairable() -> None:
+async def test_missing_signature_without_provider_repair_hook_stays_repairable() -> (
+    None
+):
     identity = _identity()
     client = FakeClient(identity=identity, server_identity=True, device_signed=False)
     client._upload_own_device_signature = None  # type: ignore[assignment]
@@ -276,7 +282,9 @@ async def test_missing_signature_without_provider_repair_hook_stays_repairable()
     assert diag.last_failure_category == "signature_repair_unsupported"
 
 
-async def test_runtime_does_not_reupload_identity_when_server_identity_is_missing() -> None:
+async def test_runtime_does_not_reupload_identity_when_server_identity_is_missing() -> (
+    None
+):
     """Runtime reconciliation (no password) must not publish identity material.
 
     Uploading master/self-signing keys is a user-interactive-authenticated
@@ -295,14 +303,14 @@ async def test_runtime_does_not_reupload_identity_when_server_identity_is_missin
     assert diag.repair_required is True
 
 
-async def test_authenticated_reconcile_reuploads_identity_when_server_identity_is_missing() -> None:
+async def test_authenticated_reconcile_reuploads_identity_when_server_identity_is_missing() -> (
+    None
+):
     identity = _identity(uploaded=False)
     client = FakeClient(identity=identity, server_identity=False)
     service = MatrixCrossSigningService(client)
 
-    result = await service.reconcile(
-        password="fresh-password", allow_bootstrap=True
-    )
+    result = await service.reconcile(password="fresh-password", allow_bootstrap=True)
     assert result == "device_signed"
     assert client.ensure_calls == ["fresh-password"]
     assert service.diagnostics().chain_status == "valid"

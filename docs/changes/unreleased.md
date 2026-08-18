@@ -277,7 +277,7 @@ create per-commit fragment files.
   master/self-signing rotation on mismatches, and exposes secret-free
   diagnostics for provider/local/server/chain/recovery state.
 - **Authenticated E2EE bootstrap and explicit recovery.** `medre adapter
-  matrix auth login --adapter-id <id>` prepares the selected adapter's exact
+matrix auth login --adapter-id <id>` prepares the selected adapter's exact
   runtime E2EE store and verifies cross-signing before credentials are
   persisted. Passwords remain transient. `--reset-cross-signing` is an
   explicitly destructive, fresh-password-authenticated recovery path; normal

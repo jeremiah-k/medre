@@ -113,10 +113,7 @@ async def test_e2ee_runtime_identity_mismatch_is_nonfatal(mock_nio) -> None:
                 diag = session.diagnostics()
                 assert diag.cross_signing_chain_status == "mismatch"
                 assert diag.cross_signing_reset_required is True
-                assert (
-                    diag.cross_signing_last_failure_category
-                    == "identity_mismatch"
-                )
+                assert diag.cross_signing_last_failure_category == "identity_mismatch"
             finally:
                 await session.stop()
     finally:

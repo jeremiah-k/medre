@@ -255,42 +255,42 @@ bootstrap/rotate master or self-signing identity material.
 
 `adapter.diagnostics()` returns a dict (no secrets):
 
-| Key                           | Type            | Description                              |
-| ----------------------------- | --------------- | ---------------------------------------- |
-| `connected`                   | `bool`          | Session has active client                |
-| `logged_in`                   | `bool`          | Client reports authenticated             |
-| `sync_task_running`           | `bool`          | Sync asyncio task alive                  |
-| `last_sync_error`             | `str \| None`   | Last sync failure message                |
-| `store_path_configured`       | `bool`          | E2EE store path set                      |
-| `device_id_configured`        | `bool`          | Device ID known                          |
-| `encryption_mode`             | `str`           | Current E2EE mode                        |
-| `crypto_enabled`              | `bool`          | Crypto subsystem active                  |
-| `last_crypto_error`           | `str \| None`   | Last crypto error                        |
-| `encrypted_room_seen`         | `bool`          | At least one encrypted room detected     |
-| `undecryptable_event_count`   | `int`           | MegolmEvents that could not be decrypted |
-| `sync_running`                | `bool`          | Sync loop active                         |
-| `reconnecting`                | `bool`          | Reconnect backoff in progress            |
-| `reconnect_attempts`          | `int`           | Consecutive reconnect attempts           |
-| `last_successful_sync`        | `float \| None` | Monotonic time of last good sync         |
-| `crypto_store_loaded`         | `bool`          | Olm/store initialised                    |
-| `olm_loaded`                  | `bool`          | Olm subsystem loaded                     |
-| `encrypted_room_count`        | `int`           | Rooms tracked as encrypted               |
-| `plaintext_room_count`        | `int`           | Rooms tracked as plaintext               |
-| `cross_signing_provider_supported` | `bool`       | SDK exposes MEDRE's required cross-signing API |
-| `cross_signing_local_identity_present` | `bool`      | Persisted local own-device identity is available |
-| `cross_signing_server_identity_present` | `bool \| None` | Homeserver exposes an own-account master identity |
-| `cross_signing_current_device_self_signed` | `bool \| None` | Current device has expected self-signing signature |
-| `cross_signing_chain_status` | `str` | Secret-free server-visible identity-chain state |
-| `cross_signing_repair_required` | `bool` | Safe bootstrap/repair remains |
-| `cross_signing_reset_required` | `bool` | Explicit authenticated identity recovery is required |
-| `cross_signing_last_failure_category` | `str \| None` | Secret-free reconciliation failure category |
-| `transient_delivery_failures` | `int`           | Transient outbound errors                |
-| `permanent_delivery_failures` | `int`           | Permanent outbound errors                |
-| `inbound_published`           | `int`           | Events published inbound                 |
-| `inbound_suppressed_self`     | `int`           | Self-message suppressions                |
-| `inbound_suppressed_envelope` | `int`           | MEDRE-origin loop hint suppressions      |
-| `inbound_filtered_allowlist`  | `int`           | Room allowlist rejections                |
-| `inbound_suppressed_startup`  | `int`           | Backlog events before first live sync    |
+| Key                                        | Type            | Description                                          |
+| ------------------------------------------ | --------------- | ---------------------------------------------------- |
+| `connected`                                | `bool`          | Session has active client                            |
+| `logged_in`                                | `bool`          | Client reports authenticated                         |
+| `sync_task_running`                        | `bool`          | Sync asyncio task alive                              |
+| `last_sync_error`                          | `str \| None`   | Last sync failure message                            |
+| `store_path_configured`                    | `bool`          | E2EE store path set                                  |
+| `device_id_configured`                     | `bool`          | Device ID known                                      |
+| `encryption_mode`                          | `str`           | Current E2EE mode                                    |
+| `crypto_enabled`                           | `bool`          | Crypto subsystem active                              |
+| `last_crypto_error`                        | `str \| None`   | Last crypto error                                    |
+| `encrypted_room_seen`                      | `bool`          | At least one encrypted room detected                 |
+| `undecryptable_event_count`                | `int`           | MegolmEvents that could not be decrypted             |
+| `sync_running`                             | `bool`          | Sync loop active                                     |
+| `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
+| `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |
+| `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                     |
+| `crypto_store_loaded`                      | `bool`          | Olm/store initialised                                |
+| `olm_loaded`                               | `bool`          | Olm subsystem loaded                                 |
+| `encrypted_room_count`                     | `int`           | Rooms tracked as encrypted                           |
+| `plaintext_room_count`                     | `int`           | Rooms tracked as plaintext                           |
+| `cross_signing_provider_supported`         | `bool`          | SDK exposes MEDRE's required cross-signing API       |
+| `cross_signing_local_identity_present`     | `bool`          | Persisted local own-device identity is available     |
+| `cross_signing_server_identity_present`    | `bool \| None`  | Homeserver exposes an own-account master identity    |
+| `cross_signing_current_device_self_signed` | `bool \| None`  | Current device has expected self-signing signature   |
+| `cross_signing_chain_status`               | `str`           | Secret-free server-visible identity-chain state      |
+| `cross_signing_repair_required`            | `bool`          | Safe bootstrap/repair remains                        |
+| `cross_signing_reset_required`             | `bool`          | Explicit authenticated identity recovery is required |
+| `cross_signing_last_failure_category`      | `str \| None`   | Secret-free reconciliation failure category          |
+| `transient_delivery_failures`              | `int`           | Transient outbound errors                            |
+| `permanent_delivery_failures`              | `int`           | Permanent outbound errors                            |
+| `inbound_published`                        | `int`           | Events published inbound                             |
+| `inbound_suppressed_self`                  | `int`           | Self-message suppressions                            |
+| `inbound_suppressed_envelope`              | `int`           | MEDRE-origin loop hint suppressions                  |
+| `inbound_filtered_allowlist`               | `int`           | Room allowlist rejections                            |
+| `inbound_suppressed_startup`               | `int`           | Backlog events before first live sync                |
 
 ---
 

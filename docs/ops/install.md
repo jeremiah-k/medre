@@ -280,18 +280,18 @@ PYTHONPATH=src pytest -m live -v
 
 ## Common Issues
 
-| Issue                                               | Cause                                | Resolution                                                                      |
-| --------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------- |
-| `ModuleNotFoundError: No module named 'nio'`        | Matrix SDK not installed             | `pip install -e ".[matrix]"`                                                    |
-| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed         | `pip install -e ".[meshtastic]"`                                                |
-| `ListenerMismatchError`                             | Missing `pubsub` package             | `pip install -e ".[meshtastic]"` (includes PyPubSub)                            |
-| `Permission denied: /dev/ttyACM0`                   | Serial permissions                   | `sudo usermod -aG dialout $USER`, re-login                                      |
-| `OlmUnverifiedDeviceError`                          | Matrix peer-device trust check       | E2EE sends intentionally use `ignore_unverified_devices=True`; update to current MEDRE if this surfaces |
-| Cross-signing diagnostics require reset              | Local/server own-device identity mismatch | Back up Matrix state; restore matching state or run authenticated `auth login --adapter-id <id> --reset-cross-signing` |
-| `vodozemac` build failure                           | No Rust toolchain                    | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| `RNS.Identity.from_file()` returns `None`           | Identity file not found or corrupted | Check path, verify file is 64 bytes, check permissions                          |
-| `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra       | `pip install -e ".[matrix-e2e]"`                                                |
-| `PreReleaseSchemaMismatchError` at startup          | Database created by older prerelease | Back up and remove the database: `medre storage reset`, then rerun              |
+| Issue                                               | Cause                                     | Resolution                                                                                                             |
+| --------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `ModuleNotFoundError: No module named 'nio'`        | Matrix SDK not installed                  | `pip install -e ".[matrix]"`                                                                                           |
+| `ModuleNotFoundError: No module named 'meshtastic'` | Meshtastic SDK not installed              | `pip install -e ".[meshtastic]"`                                                                                       |
+| `ListenerMismatchError`                             | Missing `pubsub` package                  | `pip install -e ".[meshtastic]"` (includes PyPubSub)                                                                   |
+| `Permission denied: /dev/ttyACM0`                   | Serial permissions                        | `sudo usermod -aG dialout $USER`, re-login                                                                             |
+| `OlmUnverifiedDeviceError`                          | Matrix peer-device trust check            | E2EE sends intentionally use `ignore_unverified_devices=True`; update to current MEDRE if this surfaces                |
+| Cross-signing diagnostics require reset             | Local/server own-device identity mismatch | Back up Matrix state; restore matching state or run authenticated `auth login --adapter-id <id> --reset-cross-signing` |
+| `vodozemac` build failure                           | No Rust toolchain                         | Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh`                                        |
+| `RNS.Identity.from_file()` returns `None`           | Identity file not found or corrupted      | Check path, verify file is 64 bytes, check permissions                                                                 |
+| `ImportError: cannot import name 'HAS_E2EE'`        | Old install without E2EE extra            | `pip install -e ".[matrix-e2e]"`                                                                                       |
+| `PreReleaseSchemaMismatchError` at startup          | Database created by older prerelease      | Back up and remove the database: `medre storage reset`, then rerun                                                     |
 
 ## Quick Reference
 

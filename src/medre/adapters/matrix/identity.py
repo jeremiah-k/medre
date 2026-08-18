@@ -266,16 +266,16 @@ class MatrixCrossSigningService:
         if not isinstance(device_id, str) or not device_id:
             raise RuntimeError("Matrix device id unavailable for cross-signing query")
         if not isinstance(access_token, str) or not access_token:
-            raise RuntimeError("Matrix access token unavailable for cross-signing query")
+            raise RuntimeError(
+                "Matrix access token unavailable for cross-signing query"
+            )
         if not callable(send):
             raise RuntimeError("Matrix provider lacks authenticated send()")
 
         response = await cast(_SendRequest, send)(
             "POST",
             "/_matrix/client/v3/keys/query",
-            json.dumps(
-                {"device_keys": {user_id: [device_id]}}, separators=(",", ":")
-            ),
+            json.dumps({"device_keys": {user_id: [device_id]}}, separators=(",", ":")),
             {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
@@ -522,7 +522,11 @@ class MatrixCrossSigningService:
             raise
         except Exception as exc:
             self._fail(
-                "bootstrap_failed" if not existing_identity else "identity_repair_failed",
+                (
+                    "bootstrap_failed"
+                    if not existing_identity
+                    else "identity_repair_failed"
+                ),
                 chain_status="error",
                 repair_required=True,
             )
@@ -598,7 +602,9 @@ class MatrixCrossSigningService:
                 chain_status="reset_required",
                 reset_required=True,
             )
-            self._logger.warning("Authenticated Matrix cross-signing reset failed: %s", exc)
+            self._logger.warning(
+                "Authenticated Matrix cross-signing reset failed: %s", exc
+            )
             return None
 
         if result not in _VALID_PROVIDER_RESULTS:

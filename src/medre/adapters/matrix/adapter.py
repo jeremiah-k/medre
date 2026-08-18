@@ -923,9 +923,7 @@ class MatrixAdapter(AdapterContract):
                     diag.cross_signing_current_device_self_signed
                 ),
                 "cross_signing_chain_status": diag.cross_signing_chain_status,
-                "cross_signing_repair_required": (
-                    diag.cross_signing_repair_required
-                ),
+                "cross_signing_repair_required": (diag.cross_signing_repair_required),
                 "cross_signing_reset_required": diag.cross_signing_reset_required,
                 "cross_signing_last_failure_category": (
                     diag.cross_signing_last_failure_category

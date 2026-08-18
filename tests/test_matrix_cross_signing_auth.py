@@ -96,7 +96,9 @@ async def test_bootstrap_prepares_runtime_store_and_verifies_identity(
 
     monkeypatch.setattr(bootstrap_mod._compat_mod, "HAS_NIO", True)
     monkeypatch.setattr(bootstrap_mod._compat_mod, "HAS_E2EE", True)
-    monkeypatch.setattr(bootstrap_mod, "matrix_store_path_for_adapter", lambda _: store_path)
+    monkeypatch.setattr(
+        bootstrap_mod, "matrix_store_path_for_adapter", lambda _: store_path
+    )
     monkeypatch.setattr(bootstrap_mod, "MatrixCrossSigningService", FakeService)
     monkeypatch.setitem(sys.modules, "nio", nio)  # type: ignore[arg-type]
 
@@ -155,7 +157,9 @@ async def test_bootstrap_restricts_existing_store_and_closes_database(
 
     monkeypatch.setattr(bootstrap_mod._compat_mod, "HAS_NIO", True)
     monkeypatch.setattr(bootstrap_mod._compat_mod, "HAS_E2EE", True)
-    monkeypatch.setattr(bootstrap_mod, "matrix_store_path_for_adapter", lambda _: store_path)
+    monkeypatch.setattr(
+        bootstrap_mod, "matrix_store_path_for_adapter", lambda _: store_path
+    )
     monkeypatch.setattr(bootstrap_mod, "MatrixCrossSigningService", FakeService)
     monkeypatch.setitem(sys.modules, "nio", nio)  # type: ignore[arg-type]
 
@@ -214,7 +218,9 @@ async def test_bootstrap_propagates_explicit_reset_to_policy(
     assert observed["reset"] is True
 
 
-async def test_bootstrap_requires_e2ee_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_bootstrap_requires_e2ee_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import medre.adapters.matrix.e2ee_bootstrap as bootstrap_mod
 
     monkeypatch.setattr(bootstrap_mod._compat_mod, "HAS_NIO", True)

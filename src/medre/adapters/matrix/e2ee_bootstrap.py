@@ -99,7 +99,10 @@ async def bootstrap_login_cross_signing(
             raise MatrixConnectionError(
                 "Matrix E2EE bootstrap could not restore the authenticated session"
             )
-        if getattr(client, "olm", None) is None or getattr(client, "store", None) is None:
+        if (
+            getattr(client, "olm", None) is None
+            or getattr(client, "store", None) is None
+        ):
             raise MatrixConnectionError(
                 "Matrix E2EE bootstrap could not initialize the crypto store"
             )
@@ -135,9 +138,7 @@ async def bootstrap_login_cross_signing(
             _close_store_database(client, logger)
 
 
-def _close_store_database(
-    client: object, logger: logging.Logger | None = None
-) -> None:
+def _close_store_database(client: object, logger: logging.Logger | None = None) -> None:
     """Close the database opened by nio's MatrixStore."""
     database = getattr(getattr(client, "store", None), "database", None)
     if database is None:

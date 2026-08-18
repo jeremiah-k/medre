@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from medre.adapters.matrix.auth import (
-    MatrixLoginResult,
     _HTTP_TIMEOUT_SECONDS,
+    MatrixLoginResult,
     _normalize_homeserver,
     check_credentials_completeness,
     discover_well_known,
