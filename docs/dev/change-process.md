@@ -10,9 +10,11 @@ rules, storage guarantees) require all of the following:
 1. Update the relevant `docs/spec/` page.
 2. Update the corresponding JSON Schema files in `docs/schemas/`.
 3. Add or update tests that validate the change.
-4. Append an entry to `docs/changes/unreleased.md`.
+4. Add a numbered fragment under
+   `docs/changes/unreleased/NNN-brief-description.md`.
 
-All three artifacts (spec page, schema, test) must land in the same commit.
+All four artifacts (spec page, schema, test, change fragment) must land in the
+same change.
 
 ## Ops-Only Changes
 
@@ -40,16 +42,17 @@ permitted when they simplify the model. When making a breaking change:
 1. Update all affected spec pages.
 2. Update all affected schemas.
 3. Update all affected tests.
-4. Append an entry to `docs/changes/unreleased.md` noting the break.
+4. Add a numbered fragment under `docs/changes/unreleased/` noting the break.
 5. Run the full test suite to confirm nothing is missed.
 
 ## Changelog
 
-Unreleased changes are tracked in a single file:
-[`docs/changes/unreleased.md`](../changes/unreleased.md).
+New unreleased changes are tracked as numbered Markdown fragments under
+[`docs/changes/unreleased/`](../changes/unreleased/).
 
-Append new entries to the bottom of that file. Do not create per-commit
-fragment files.
+Use `NNN-brief-description.md`, where `NNN` is the next available sequence.
+The legacy [`docs/changes/unreleased.md`](../changes/unreleased.md) remains as
+historical pre-release material and must not receive new entries.
 
 Keep each entry to a single concise bullet or short paragraph focused on
 operator or developer impact. Omit file-by-file change lists, test names,

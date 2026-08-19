@@ -1,8 +1,8 @@
 # Unreleased Changes
 
 Pre-release MEDRE. All changes below are unreleased and subject to change
-without notice. Append new entries to the bottom of this file — do **not**
-create per-commit fragment files.
+without notice. This file is the legacy aggregate changelog. Record new changes
+as numbered fragments under `docs/changes/unreleased/`; do not append them here.
 
 ---
 
