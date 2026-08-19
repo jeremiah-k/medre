@@ -27,12 +27,19 @@ def _run_probe(tmp_path: Path, scenario: str) -> dict[str, object]:
             scenario,
             str(workdir),
         ],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         timeout=45,
         env=env,
     )
+    if completed.returncode != 0:
+        pytest.fail(
+            "LXMF local integration probe failed "
+            f"with exit code {completed.returncode}\n"
+            f"stdout:\n{completed.stdout}\n\nstderr:\n{completed.stderr}"
+        )
+
     prefix = "MEDRE_LOCAL_INTEGRATION_RESULT="
     result_line = next(
         (

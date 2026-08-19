@@ -6,8 +6,30 @@ import asyncio
 import json
 import logging
 import sys
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
+
+
+@dataclass(frozen=True)
+class SuiteResult:
+    cycles: int
+    stable_destination: bool
+    callback_count: int
+    startup_failure: str | None
+
+
+@dataclass(frozen=True)
+class SoakResult:
+    cycles: int
+    stable_destination: bool
+
+
+class _MalformedDelivery:
+    @property
+    def source_hash(self) -> bytes:
+        raise ValueError("malformed SDK callback payload")
 
 
 def _make_identity(path: Path) -> None:
@@ -18,14 +40,14 @@ def _make_identity(path: Path) -> None:
         raise RuntimeError("failed to persist local LXMF integration identity")
 
 
-def _config(base: Path, identity_path: Path, *, storage_name: str = "router") -> Any:
+def _config(base: Path, identity_path: Path) -> Any:
     from medre.config.adapters.lxmf import LxmfConfig
 
     return LxmfConfig(
         adapter_id="lxmf-local-integration",
         connection_type="reticulum",
         identity_path=str(identity_path),
-        storage_path=str(base / storage_name),
+        storage_path=str(base / "router"),
         announce_interval_seconds=0,
         message_delay_seconds=0,
     )
@@ -41,7 +63,7 @@ def _session(config: Any) -> Any:
     )
 
 
-async def _run_suite(base: Path) -> dict[str, Any]:
+async def _run_suite(base: Path) -> SuiteResult:
     from medre.adapters.lxmf.errors import LxmfConnectionError
 
     identity_path = base / "identity"
@@ -67,7 +89,7 @@ async def _run_suite(base: Path) -> dict[str, Any]:
 
         # Malformed SDK callback payloads must be dropped without reaching the
         # adapter callback or destabilising the active router.
-        session._on_lxmf_delivery(object())
+        session._on_lxmf_delivery(_MalformedDelivery())
         assert callback_count == 0
 
         await session.stop()
@@ -78,31 +100,42 @@ async def _run_suite(base: Path) -> dict[str, Any]:
         session._on_lxmf_delivery(object())
         assert callback_count == 0
 
-    bad_storage = base / "storage-is-a-file"
-    bad_storage.write_text("not a directory", encoding="utf-8")
-    failed = _session(_config(base, identity_path, storage_name=bad_storage.name))
+    # Inject a deterministic failure after the real LXMRouter constructor has
+    # run. This exercises MEDRE's partial-start cleanup without depending on
+    # incidental filesystem access inside a particular LXMF release.
+    import LXMF
+
+    def fail_registration(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("injected delivery identity registration failure")
+
+    failed = _session(_config(base, identity_path))
     startup_failure = None
-    try:
-        await failed.start(on_message)
-    except LxmfConnectionError as exc:
-        startup_failure = type(exc).__name__
-    else:
-        raise AssertionError("invalid LXMF storage path unexpectedly started")
+    with patch.object(
+        LXMF.LXMRouter,
+        "register_delivery_identity",
+        new=fail_registration,
+    ):
+        try:
+            await failed.start(on_message)
+        except LxmfConnectionError as exc:
+            startup_failure = type(exc).__name__
+        else:
+            raise AssertionError("injected LXMF startup failure unexpectedly started")
 
     assert failed.connected is False
     assert failed.router_running is False
     assert failed._router is None
     assert failed._identity is None
 
-    return {
-        "cycles": len(hashes),
-        "stable_destination": len(set(hashes)) == 1,
-        "callback_count": callback_count,
-        "startup_failure": startup_failure,
-    }
+    return SuiteResult(
+        cycles=len(hashes),
+        stable_destination=len(set(hashes)) == 1,
+        callback_count=callback_count,
+        startup_failure=startup_failure,
+    )
 
 
-async def _run_soak(base: Path) -> dict[str, Any]:
+async def _run_soak(base: Path) -> SoakResult:
     identity_path = base / "identity"
     _make_identity(identity_path)
     session = _session(_config(base, identity_path))
@@ -116,7 +149,7 @@ async def _run_soak(base: Path) -> dict[str, Any]:
             )
         hashes.append(destination_hash.hex())
         await session.stop()
-    return {"cycles": len(hashes), "stable_destination": len(set(hashes)) == 1}
+    return SoakResult(cycles=len(hashes), stable_destination=len(set(hashes)) == 1)
 
 
 def main() -> int:
@@ -131,7 +164,7 @@ def main() -> int:
         result = asyncio.run(_run_soak(base))
     else:
         raise SystemExit(f"unknown scenario: {scenario}")
-    print("MEDRE_LOCAL_INTEGRATION_RESULT=" + json.dumps(result, sort_keys=True))
+    print("MEDRE_LOCAL_INTEGRATION_RESULT=" + json.dumps(asdict(result), sort_keys=True))
     return 0
 
 
