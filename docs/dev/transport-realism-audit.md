@@ -62,5 +62,5 @@ handlers from becoming another test's hidden prerequisite.
 - LXMF: remote-peer delivery-state progression, link loss during real outbound,
   and multi-hop observation.
 
-These gaps remain explicit release gates. A passing local integration test MUST
-NOT be relabeled as external or hardware validation.
+These gaps remain explicit release gates. Do not relabel a passing local
+integration test as external or hardware validation.

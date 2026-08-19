@@ -14,7 +14,7 @@ layer does not remove the need for earlier deterministic coverage.
 | 1     | `fake_pipeline` / `wrapper_callback`    | MEDRE code + synthetic SDK boundary                         | MEDRE logic and callback wiring                              |
 | 2     | `sdk_contract`                          | exact pinned optional SDK installed                         | SDK constructors, enums, callback and return-value contracts |
 | 3     | `local_integration`                     | MEDRE + exact SDK + deterministic local endpoint/emulator   | SDK/session interaction without external service or hardware |
-| 4     | `docker_sdk_boundary` or `live_network` | containerized service, external service, or physical device | behavior of the exercised endpoint class                     |
+| 4     | `docker`, `live`, or `hardware`           | containerized service, external service, or physical device | behavior of the exercised endpoint class                     |
 | 5     | `soak` overlay                          | repeated/extended execution at one of the layers above      | bounded endurance at that same evidence layer                |
 
 `local_integration` is a test-layer label, not a runtime evidence tier. A local

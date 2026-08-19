@@ -91,6 +91,7 @@ def test_evidence_levels_defines_shared_status_labels() -> None:
 
     # These labels must appear in both documents
     shared_labels = [
+        "implemented-not-executed",
         "synthetic-tested",
         "docker-validated",
         "live-validated",

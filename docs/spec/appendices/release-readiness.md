@@ -34,10 +34,10 @@ commitment.
 | Operator runbook                    | live-validated                       | opt-in live exists      | designed           | designed           |
 | Live validation recorded            | live-validated                       | not started             | not started        | not started        |
 | Local delivery outbox               | synthetic-tested                     | synthetic-tested        | synthetic-tested   | synthetic-tested   |
-| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |                         |                    |                    |
+| Matrix live adapter (local Synapse) | docker-validated                      |                         |                    |                    |
 | Installed-SDK contract              | conformance-tested                   | conformance-tested      | conformance-tested | conformance-tested |
-| Deterministic local integration     | docker-validated                     | docker-validated        | designed           | designed           |
-| Transport soak harness              | synthetic-tested                     | opt-in live test exists | designed           | designed           |
+| Deterministic local integration     | docker-validated                     | docker-validated        | implemented-not-executed | implemented-not-executed |
+| Transport soak harness              | synthetic-tested                     | opt-in live test exists | implemented-not-executed | implemented-not-executed |
 
 ## 2. Status Definitions
 
@@ -45,6 +45,7 @@ commitment.
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `not started`             | No implementation exists.                                                                                             |
 | `designed`                | Spec/contract exists. No working code.                                                                                |
+| `implemented-not-executed` | Working harness exists, but no current-commit execution evidence is recorded.                                          |
 | `synthetic-tested`        | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
 | `conformance-tested`      | Tested against the current codebase with deterministic fixtures. Reproducible at the same commit.                     |
 | `docker-validated`        | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |

@@ -238,7 +238,7 @@ The `medre smoke --json` report includes an `evidence_level` field set to
 ### Soak is an endurance dimension
 
 `soak` is intentionally **not** another evidence tier. It describes duration and
-repetition at one of the tiers above. A soak test MUST therefore carry the
+repetition at one of the tiers above. A soak test therefore needs to carry the
 marker for the layer it exercises as well as `pytest.mark.soak`. Examples:
 
 - `local_integration + meshcore_sdk + soak` means repeated real-SDK/local-node

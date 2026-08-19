@@ -64,6 +64,7 @@ meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE validation test"
 | `MESHTASTIC_CHANNEL_INDEX`   | No       | `0`     | Channel for test messages     |
 | `MESHTASTIC_NODE_ID`         | No       |         | Meshtastic node ID            |
 | `MESHTASTIC_LIVE_SEND`       | TX       |         | `1` to enable RF transmission |
+| `MESHTASTIC_SOAK_CYCLES`     | No       | `10`    | Lifecycle cycles, valid range `1`–`100` |
 
 ## Evidence Tiers Achieved
 
@@ -108,8 +109,13 @@ pytest tests/test_meshtastic_hardware_soak.py \
 ```
 
 The soak performs repeated MEDRE start/health/stop cycles without transmitting
-RF traffic. It records hardware evidence only when actually executed against a
-physical radio at the current commit.
+RF traffic. Pytest output records lifecycle results only; it does not by itself
+prove that a TCP endpoint is a physical radio.
+
+Before classifying a run as hardware evidence, the operator verifies that the
+endpoint is a physical device and archives the device identity/model, firmware
+version, MEDRE commit SHA, connection type, and pytest output with the evidence
+record. Runs without that independent device record remain lifecycle validation.
 
 ## See Also
 
