@@ -206,8 +206,7 @@ class MeshtasticSession:
         """Return whether *generation* still names the active client state."""
         with self._client_state_lock:
             return (
-                not self._stop_requested
-                and generation == self._connection_generation
+                not self._stop_requested and generation == self._connection_generation
             )
 
     def _activate_client(self, client: Any) -> None:
@@ -905,9 +904,7 @@ class MeshtasticSession:
             generation = self._connection_generation
         self.notify_connection_lost(expected_generation=generation)
 
-    def notify_connection_lost(
-        self, *, expected_generation: int | None = None
-    ) -> None:
+    def notify_connection_lost(self, *, expected_generation: int | None = None) -> None:
         """Called when a connection loss is detected.
 
         Schedules the bounded reconnect loop on the session's event loop.

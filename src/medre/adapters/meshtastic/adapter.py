@@ -737,7 +737,9 @@ class MeshtasticAdapter(AdapterContract):
             if session is not None and connection_generation is not None:
                 if (
                     self._session is not session
-                    or not session.is_connection_generation_current(connection_generation)
+                    or not session.is_connection_generation_current(
+                        connection_generation
+                    )
                 ):
                     return
             if self.ctx is not None and self._started:

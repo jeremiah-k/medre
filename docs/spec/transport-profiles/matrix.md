@@ -328,9 +328,9 @@ Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `last_crypto_error`                        | `str \| None`   | Last crypto error                                    |
 | `encrypted_room_seen`                      | `bool`          | At least one encrypted room detected                 |
 | `undecryptable_event_count`                | `int`           | MegolmEvents that could not be decrypted             |
-| `megolm_recovery_attempts`                | `int`           | Missing-room-key to-device send attempts             |
-| `megolm_recovery_successes`               | `int`           | Missing-room-key requests accepted by the provider   |
-| `megolm_recovery_failures`                | `int`           | Terminal missing-room-key request failures           |
+| `megolm_recovery_attempts`                 | `int`           | Missing-room-key to-device send attempts             |
+| `megolm_recovery_successes`                | `int`           | Missing-room-key requests accepted by the provider   |
+| `megolm_recovery_failures`                 | `int`           | Terminal missing-room-key request failures           |
 | `sync_running`                             | `bool`          | Sync loop active                                     |
 | `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
 | `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |

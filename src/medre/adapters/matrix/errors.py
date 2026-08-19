@@ -14,7 +14,6 @@ Hierarchy::
 
 from __future__ import annotations
 
-
 MATRIX_PERMANENT_ERRCODES: frozenset[str] = frozenset(
     {
         "M_FORBIDDEN",

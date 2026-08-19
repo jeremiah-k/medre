@@ -76,6 +76,7 @@ _DELIVERY_BACKOFF_JITTER: float = 0.25
 # via module constant so tests can patch it without reaching into internals.
 _SYNC_STALE_THRESHOLD_SECONDS: float = 300.0
 
+
 class _NioRateLimitError(Exception):
     """Internal sentinel for nio rate-limit responses.
 
