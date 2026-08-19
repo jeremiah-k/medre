@@ -768,6 +768,8 @@ class MeshCoreSession:
                 }
                 if pin is not None:
                     _ble_kwargs["pin"] = pin
+                # MEDRE owns reconnect and always creates a fresh SDK client.
+                _ble_kwargs["auto_reconnect"] = False
                 result = await meshcore_module.MeshCore.create_ble(
                     **_ble_kwargs,
                 )
@@ -847,6 +849,7 @@ class MeshCoreSession:
                 self._meshcore = await mc.MeshCore.create_tcp(
                     self._config.host or "localhost",
                     self._config.port if self._config.port is not None else 4000,
+                    auto_reconnect=False,
                 )
                 if self._meshcore is None:
                     raise MeshCoreConnectionError(
@@ -856,6 +859,7 @@ class MeshCoreSession:
                 self._meshcore = await mc.MeshCore.create_serial(
                     self._config.serial_port or "/dev/ttyUSB0",
                     self._config.serial_baudrate,
+                    auto_reconnect=False,
                 )
                 if self._meshcore is None:
                     raise MeshCoreConnectionError(
@@ -960,31 +964,12 @@ class MeshCoreSession:
                 f"Failed to subscribe to events: {exc}"
             ) from exc
 
-        # Send APP_START so the firmware accepts further commands.
-        # Per meshcore_py, this MUST be called after every successful
-        # connect (and re-connect).
-        try:
-            appstart_result = await self._meshcore.commands.send_appstart()
-            if hasattr(appstart_result, "is_error") and appstart_result.is_error():
-                raise RuntimeError(
-                    f"send_appstart rejected: {appstart_result.payload!r}"
-                )
-            # Capture self_info payload into diagnostics.
-            self._capture_self_info(appstart_result)
-        except Exception as exc:
-            self._diag.last_error = str(exc)
-            if self._meshcore is not None:
-                try:
-                    await self._meshcore.disconnect()
-                except Exception as disconnect_exc:
-                    self._logger.debug(
-                        "MeshCoreSession %s: error during cleanup disconnect: %s",
-                        self._adapter_id,
-                        disconnect_exc,
-                    )
-                self._meshcore = None
-            self._subscriptions.clear()
-            raise MeshCoreConnectionError(f"send_appstart failed: {exc}") from exc
+        # MeshCore.create_*() already performs connect() and its required
+        # send_appstart(). Do not send APP_START a second time here. The SDK's
+        # internal SELF_INFO subscription is installed before connect(); its
+        # public self_info snapshot may already reflect that handshake, and
+        # subsequent SELF_INFO callbacks refresh diagnostics.
+        self._capture_self_info(getattr(self._meshcore, "self_info", None))
 
         # Start auto message fetching to drain buffered messages from the device.
         # Best-effort: failure is logged but does not prevent connection.
@@ -1006,7 +991,7 @@ class MeshCoreSession:
                 exc,
             )
 
-        # Only mark connected AFTER subscriptions + appstart succeed.
+        # Only mark connected after factory connect/APP_START and subscriptions succeed.
         self._diag.connected = True
 
     def _subscribe_events(self, mc: Any) -> None:
@@ -1069,20 +1054,19 @@ class MeshCoreSession:
             )
             self._subscriptions.append(sub_self)
 
-    def _capture_self_info(self, appstart_result: Any) -> None:
-        """Extract device self_info from the send_appstart result payload.
+    def _capture_self_info(self, self_info: Any) -> None:
+        """Extract safe diagnostics from an SDK self-info snapshot or event.
 
-        Per meshcore_py, send_appstart returns a result whose ``payload``
-        dict contains fields like ``public_key``, ``name``, and radio
-        parameters.  We extract safe diagnostic fields from it.
+        ``MeshCore.create_*()`` performs the initial ``send_appstart()``. The
+        SDK updates its public ``self_info`` mapping from SELF_INFO dispatch,
+        which may complete before or after the factory returns. Event objects
+        are still accepted for callback/test compatibility.
         """
         payload: dict[str, Any] | None = None
-        if hasattr(appstart_result, "payload") and isinstance(
-            appstart_result.payload, dict
-        ):
-            payload = appstart_result.payload
-        elif isinstance(appstart_result, dict):
-            payload = appstart_result
+        if hasattr(self_info, "payload") and isinstance(self_info.payload, dict):
+            payload = self_info.payload
+        elif isinstance(self_info, dict):
+            payload = self_info
 
         # Reset to avoid stale values across reconnects when payload is partial.
         self._diag.device_name = None

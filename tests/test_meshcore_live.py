@@ -615,11 +615,13 @@ class TestMeshCoreBLEValidation:
         assert session.connected is True
         mock_import.assert_called_once_with("meshcore")
         fake_create_ble.assert_called_once_with(
-            address="C4:4F:33:6A:B0:23", device=None
+            address="C4:4F:33:6A:B0:23",
+            device=None,
+            auto_reconnect=False,
         )
 
-        # Verify send_appstart was called during startup.
-        mock_mc_instance.commands.send_appstart.assert_awaited_once()
+        # The SDK factory owns APP_START; MEDRE must not duplicate it.
+        mock_mc_instance.commands.send_appstart.assert_not_awaited()
 
         # Verify subscription wiring was exercised.
         assert (

@@ -848,23 +848,21 @@ class TestAutoMessageFetching:
 
 
 # ===================================================================
-# Self-info capture from send_appstart
+# Self-info capture from SDK state
 # ===================================================================
 
 
 class TestSelfInfoCapture:
-    """Verify device self_info is captured from send_appstart result."""
+    """Verify device self_info is captured from the SDK state snapshot."""
 
     def _setup_real_session(
         self,
-        appstart_payload: dict | None = None,
+        self_info_payload: dict | None = None,
     ) -> tuple[MeshCoreSession, AsyncMock]:
-        """Create a TCP session with mock meshcore returning given appstart payload."""
+        """Create a TCP session with the SDK self_info snapshot populated."""
         from unittest.mock import patch
 
         from tests.helpers.meshcore_session import (
-            MockEvent,
-            MockEventType,
             build_mock_meshcore_module,
             install_mock_module,
         )
@@ -873,10 +871,8 @@ class TestSelfInfoCapture:
         session = MeshCoreSession(config, "selfinfo-test")
         mock_mc, instance = build_mock_meshcore_module()
 
-        payload = appstart_payload if appstart_payload is not None else {}
-        instance.commands.send_appstart = AsyncMock(
-            return_value=MockEvent(event_type=MockEventType.OK, payload=payload)
-        )
+        payload = self_info_payload if self_info_payload is not None else {}
+        instance.self_info = payload
 
         install_mock_module(mock_mc)
         # Patch HAS_MESHCORE so _connect_real proceeds.
@@ -893,9 +889,9 @@ class TestSelfInfoCapture:
         remove_mock_module()
 
     async def test_device_name_captured(self) -> None:
-        """Device name extracted from appstart payload."""
+        """Device name extracted from SDK self_info state."""
         session, _ = self._setup_real_session(
-            appstart_payload={"name": "MyNode42", "public_key": "aabbccdd"}
+            self_info_payload={"name": "MyNode42", "public_key": "aabbccdd"}
         )
 
         async def noop(pkt: dict) -> None:
@@ -910,9 +906,9 @@ class TestSelfInfoCapture:
             self._teardown_mock_module()
 
     async def test_public_key_prefix_captured(self) -> None:
-        """Public key prefix (first 12 hex chars) extracted from appstart."""
+        """Public key prefix (first 12 hex chars) extracted from SDK self_info state."""
         session, _ = self._setup_real_session(
-            appstart_payload={
+            self_info_payload={
                 "name": "node",
                 "public_key": "aabbccddeeff00112233445566778899",
             }
@@ -930,9 +926,9 @@ class TestSelfInfoCapture:
             self._teardown_mock_module()
 
     async def test_radio_freq_captured(self) -> None:
-        """Radio frequency extracted from appstart payload."""
+        """Radio frequency extracted from SDK self_info state."""
         session, _ = self._setup_real_session(
-            appstart_payload={"name": "node", "freq": 868.0}
+            self_info_payload={"name": "node", "freq": 868.0}
         )
 
         async def noop(pkt: dict) -> None:
@@ -947,8 +943,8 @@ class TestSelfInfoCapture:
             self._teardown_mock_module()
 
     async def test_empty_payload_leaves_defaults(self) -> None:
-        """Empty appstart payload leaves all self_info fields as None."""
-        session, _ = self._setup_real_session(appstart_payload={})
+        """Empty SDK self_info state leaves all self_info fields as None."""
+        session, _ = self._setup_real_session(self_info_payload={})
 
         async def noop(pkt: dict) -> None:
             pass
@@ -966,7 +962,7 @@ class TestSelfInfoCapture:
     async def test_public_key_bytes_prefix(self) -> None:
         """Public key as bytes is converted to hex prefix."""
         session, _ = self._setup_real_session(
-            appstart_payload={
+            self_info_payload={
                 "name": "node",
                 "public_key": b"\xaa\xbb\xcc\xdd\xee\xff\x00\x11",
             }
@@ -993,7 +989,7 @@ class TestSelfInfoCapture:
     async def test_short_public_key_no_prefix(self) -> None:
         """Public key shorter than 12 hex chars leaves prefix as None."""
         session, _ = self._setup_real_session(
-            appstart_payload={"name": "node", "public_key": "abc"}
+            self_info_payload={"name": "node", "public_key": "abc"}
         )
 
         async def noop(pkt: dict) -> None:
@@ -1006,6 +1002,27 @@ class TestSelfInfoCapture:
         finally:
             await session.stop()
             self._teardown_mock_module()
+
+
+
+
+def test_self_info_event_payload_is_captured() -> None:
+    """Event-like SELF_INFO objects populate the same diagnostics as mappings."""
+    config = _make_config()
+    session = MeshCoreSession(config, "test-1")
+
+    class _Event:
+        payload = {
+            "name": "event-node",
+            "public_key": "AABBCCDDEEFF0011223344",
+            "radio_freq": 915.0,
+        }
+
+    session._capture_self_info(_Event())
+    diag = session.diagnostics()
+    assert diag["device_name"] == "event-node"
+    assert diag["public_key_prefix"] == "aabbccddeeff"
+    assert diag["radio_freq"] == 915.0
 
 
 # ===================================================================
@@ -1112,14 +1129,12 @@ class TestStopResetsSelfInfoDiagnostics:
 
     def _setup_real_session(
         self,
-        appstart_payload: dict | None = None,
+        self_info_payload: dict | None = None,
     ) -> tuple[MeshCoreSession, AsyncMock]:
-        """Create a TCP session with mock meshcore returning given appstart payload."""
+        """Create a TCP session with the SDK self_info snapshot populated."""
         from unittest.mock import patch
 
         from tests.helpers.meshcore_session import (
-            MockEvent,
-            MockEventType,
             build_mock_meshcore_module,
             install_mock_module,
         )
@@ -1128,10 +1143,8 @@ class TestStopResetsSelfInfoDiagnostics:
         session = MeshCoreSession(config, "stop-selfinfo-test")
         mock_mc, instance = build_mock_meshcore_module()
 
-        payload = appstart_payload if appstart_payload is not None else {}
-        instance.commands.send_appstart = AsyncMock(
-            return_value=MockEvent(event_type=MockEventType.OK, payload=payload)
-        )
+        payload = self_info_payload if self_info_payload is not None else {}
+        instance.self_info = payload
 
         install_mock_module(mock_mc)
         self._has_mc_patcher = patch(
@@ -1149,7 +1162,7 @@ class TestStopResetsSelfInfoDiagnostics:
     async def test_stop_clears_device_name(self) -> None:
         """stop() resets device_name to None."""
         session, _ = self._setup_real_session(
-            appstart_payload={"name": "TestNode", "public_key": "aabbccddeeff0011"}
+            self_info_payload={"name": "TestNode", "public_key": "aabbccddeeff0011"}
         )
 
         async def noop(pkt: dict) -> None:
@@ -1164,7 +1177,7 @@ class TestStopResetsSelfInfoDiagnostics:
     async def test_stop_clears_public_key_prefix(self) -> None:
         """stop() resets public_key_prefix to None."""
         session, _ = self._setup_real_session(
-            appstart_payload={"public_key": "aabbccddeeff001122334455"}
+            self_info_payload={"public_key": "aabbccddeeff001122334455"}
         )
 
         async def noop(pkt: dict) -> None:
@@ -1178,7 +1191,7 @@ class TestStopResetsSelfInfoDiagnostics:
 
     async def test_stop_clears_radio_freq(self) -> None:
         """stop() resets radio_freq to None."""
-        session, _ = self._setup_real_session(appstart_payload={"freq": 915.0})
+        session, _ = self._setup_real_session(self_info_payload={"freq": 915.0})
 
         async def noop(pkt: dict) -> None:
             pass
