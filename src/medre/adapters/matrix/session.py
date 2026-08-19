@@ -25,12 +25,15 @@ import logging
 import os
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, cast
 
 import medre.adapters.matrix.compat as _compat_mod
-from medre.adapters.matrix.errors import MatrixConnectionError
+from medre.adapters.matrix.errors import (
+    MATRIX_PERMANENT_ERRCODES,
+    MatrixConnectionError,
+)
 from medre.adapters.matrix.identity import (
     MatrixCrossSigningDiagnostics,
     MatrixCrossSigningService,
@@ -39,6 +42,7 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.core.ingress import INGRESS_PROVENANCE_VALUES, IngressProvenance
 
 _logger = logging.getLogger(__name__)
+_sleep = asyncio.sleep
 
 # Type alias for room encryption state tracking.
 RoomEncryptionState = Literal["unknown", "encrypted", "plaintext"]
@@ -55,6 +59,14 @@ _BACKOFF_JITTER_FRACTION: float = 0.25
 # Prevents unbounded growth if a compromised or misconfigured
 # homeserver exposes an extreme number of rooms.
 _MAX_ROOM_STATES: int = 10_000
+
+# Missing Megolm room-key recovery.  mindroom-nio handles transport-level
+# timeout retries, but homeserver/federation to-device failures can still
+# return error responses.  Keep this best-effort recovery bounded so one
+# undecryptable event never stalls the sync loop indefinitely.
+_ROOM_KEY_REQUEST_MAX_ATTEMPTS: int = 3
+_ROOM_KEY_REQUEST_BASE_DELAY_SECONDS: float = 2.0
+_ROOM_KEY_REQUEST_TIMEOUT_SECONDS: float = 10.0
 
 
 def _reaction_event_classes(nio_module: Any) -> tuple[type, ...]:
@@ -125,6 +137,9 @@ class MatrixSessionDiagnostics:
     last_crypto_error: str | None
     encrypted_room_seen: bool
     undecryptable_event_count: int
+    megolm_recovery_attempts: int
+    megolm_recovery_successes: int
+    megolm_recovery_failures: int
     # Sync recovery diagnostics
     sync_running: bool
     reconnecting: bool
@@ -198,6 +213,10 @@ class MatrixSession:
         "_crypto_enabled",
         "_encrypted_room_seen",
         "_undecryptable_event_count",
+        "_room_key_request_attempts",
+        "_room_key_request_successes",
+        "_room_key_request_failures",
+        "_room_key_request_tasks",
         "_last_crypto_error",
         # Sync recovery
         "_reconnect_attempts",
@@ -266,6 +285,10 @@ class MatrixSession:
         self._encrypted_room_seen: bool = False
         self._undecryptable_event_count: int = 0
         self._last_crypto_error: str | None = None
+        self._room_key_request_attempts: int = 0
+        self._room_key_request_successes: int = 0
+        self._room_key_request_failures: int = 0
+        self._room_key_request_tasks: dict[str, asyncio.Task[None]] = {}
         # Sync recovery
         self._reconnect_attempts: int = 0
         self._reconnecting: bool = False
@@ -492,6 +515,9 @@ class MatrixSession:
         self._encrypted_room_seen = False
         self._undecryptable_event_count = 0
         self._last_crypto_error = None
+        self._room_key_request_attempts = 0
+        self._room_key_request_successes = 0
+        self._room_key_request_failures = 0
         # Reset reconnect state
         self._reconnect_attempts = 0
         self._reconnecting = False
@@ -529,14 +555,39 @@ class MatrixSession:
             await self._start_plaintext()
 
     def _build_client_config(self, nio_module: Any, *, encryption_enabled: bool) -> Any:
-        """Build the pinned mindroom-nio Classic Sync ownership policy."""
-        return nio_module.AsyncClientConfig(
+        """Build the pinned mindroom-nio sync and peer-device trust policy.
+
+        MEDRE owns durable Classic Sync checkpoints when storage callbacks are
+        available.  The pinned mindroom-nio provider exposes
+        ``replace_rotated_device_keys`` and the installed-SDK contract requires
+        it.  The defensive attribute/update guards remain intentional for
+        lightweight test doubles and provider configuration objects that may be
+        immutable.  Encrypted sessions permit rotated peer device keys, matching
+        MEDRE's existing permissive bot trust policy
+        (``ignore_unverified_devices=True`` on send).  Own-device cross-signing
+        remains a separate policy and is never rotated here.
+        """
+        config = nio_module.AsyncClientConfig(
             encryption_enabled=encryption_enabled,
             max_timeouts=3,
             backfill_limited_timelines=self._durable_sync_enabled,
             store_sync_tokens=not self._durable_sync_enabled,
             backfill_persist_recovery=False,
         )
+        if not encryption_enabled or not hasattr(config, "replace_rotated_device_keys"):
+            return config
+
+        try:
+            config.replace_rotated_device_keys = True
+        except (AttributeError, TypeError):
+            try:
+                config = replace(config, replace_rotated_device_keys=True)
+            except (TypeError, ValueError):
+                self._logger.warning(
+                    "Matrix client exposes rotated device-key recovery but "
+                    "its configuration could not be updated"
+                )
+        return config
 
     async def _start_plaintext(self) -> None:
         """Standard plaintext startup — no explicit crypto.
@@ -770,6 +821,17 @@ class MatrixSession:
             raise MatrixConnectionError(
                 f"whoami() failed during device_id discovery: {exc}"
             ) from exc
+        resolved_user_id = getattr(resp, "user_id", None)
+        if (
+            isinstance(resolved_user_id, str)
+            and resolved_user_id
+            and resolved_user_id != self._config.user_id
+        ):
+            raise MatrixConnectionError(
+                "whoami() authenticated as "
+                f"{resolved_user_id}, not configured user_id {self._config.user_id}"
+            )
+
         device_id = getattr(resp, "device_id", None)
         if not device_id:
             raise MatrixConnectionError(
@@ -1335,27 +1397,145 @@ class MatrixSession:
         )
         self._undecryptable_dedup[key] = now
 
-        # Actively request the missing room key from other devices.
-        # Best-effort: don't break the sync loop on failure.
-        if self._crypto_enabled and self._client is not None:
+        # nio awaits async event callbacks while processing a sync response.
+        # Missing-key recovery may spend tens of seconds in bounded network
+        # retries, so detach it from the sync callback and track the task for
+        # deterministic shutdown.  The warning dedup key also prevents a second
+        # task for the same room/session during the dedup window.
+        if self._stop_requested:
+            # Refuse new recovery during shutdown so stop()'s cancel-and-drain
+            # cannot miss a task created after its snapshot.
+            self._logger.debug(
+                "Skipping missing room-key recovery for %s: session is stopping",
+                event_id,
+            )
+            return
+        if not isinstance(room_id, str) or not room_id.startswith("!"):
+            self._logger.debug(
+                "Skipping missing room-key request for event %s without a valid room ID",
+                event_id,
+            )
+            return
+        task = asyncio.create_task(
+            self._request_missing_room_key(
+                event=event,
+                event_id=event_id,
+                room_id=room_id,
+                session_id_tag=session_id_tag,
+            )
+        )
+        self._room_key_request_tasks[key] = task
+        task.add_done_callback(
+            lambda done, request_key=key: self._discard_room_key_request_task(
+                request_key, done
+            )
+        )
+
+    def _discard_room_key_request_task(
+        self, request_key: str, task: asyncio.Task[None]
+    ) -> None:
+        """Forget a completed Megolm recovery task without removing a replacement."""
+        if self._room_key_request_tasks.get(request_key) is task:
+            self._room_key_request_tasks.pop(request_key, None)
+
+    async def _request_missing_room_key(
+        self,
+        *,
+        event: Any,
+        event_id: str,
+        room_id: str,
+        session_id_tag: str,
+    ) -> None:
+        """Best-effort missing-key request with bounded retry.
+
+        The callback must never make the sync loop unbounded.  Communication
+        failures and explicit to-device error responses are retried with
+        bounded exponential backoff.  Cancellation always propagates.
+        """
+        if not self._crypto_enabled or self._client is None:
+            return
+        if not isinstance(room_id, str) or not room_id.startswith("!"):
+            return
+
+        device_id = getattr(self._client, "device_id", None)
+        user_id = getattr(self._client, "user_id", None)
+        if not device_id or not user_id or not hasattr(event, "as_key_request"):
+            return
+
+        event.room_id = room_id  # nio workaround: MegolmEvents may lack room_id
+        try:
+            key_request = event.as_key_request(user_id, device_id)
+        except Exception:
+            self._room_key_request_failures += 1
+            self._logger.debug(
+                "Could not construct missing room-key request for %s",
+                event_id,
+                exc_info=True,
+            )
+            return
+
+        for attempt in range(_ROOM_KEY_REQUEST_MAX_ATTEMPTS):
+            self._room_key_request_attempts += 1
+            retryable = False
             try:
-                event.room_id = room_id  # nio workaround: MegolmEvents may lack room_id
-                device_id = getattr(self._client, "device_id", None)
-                user_id = getattr(self._client, "user_id", None)
-                if device_id and user_id and hasattr(event, "as_key_request"):
-                    key_request = event.as_key_request(user_id, device_id)
-                    await self._client.to_device(key_request)
+                response = await asyncio.wait_for(
+                    self._client.to_device(key_request),
+                    timeout=_ROOM_KEY_REQUEST_TIMEOUT_SECONDS,
+                )
+                response_name = type(response).__name__
+                errcode = getattr(response, "errcode", None)
+                normalized_errcode = (
+                    errcode.upper() if isinstance(errcode, str) else None
+                )
+                if normalized_errcode in MATRIX_PERMANENT_ERRCODES:
+                    self._room_key_request_failures += 1
                     self._logger.debug(
-                        "Requested missing room key for session %s in %s",
+                        "Missing room-key request permanently rejected for %s (%s)",
+                        event_id,
+                        normalized_errcode,
+                    )
+                    return
+                retryable = bool(
+                    response_name.endswith("Error")
+                    or (isinstance(errcode, str) and errcode)
+                )
+                if not retryable:
+                    self._room_key_request_successes += 1
+                    self._logger.debug(
+                        "Requested missing room key for session %s in %s "
+                        "(attempt %d/%d)",
                         session_id_tag,
                         room_id,
+                        attempt + 1,
+                        _ROOM_KEY_REQUEST_MAX_ATTEMPTS,
                     )
+                    return
+            except asyncio.CancelledError:
+                raise
+            except (asyncio.TimeoutError, TimeoutError, OSError, ConnectionError):
+                retryable = True
             except Exception:
+                # Provider/programming errors are not transport recovery
+                # signals.  Record the failure but do not spin on them.
+                self._room_key_request_failures += 1
                 self._logger.debug(
-                    "Key request failed for %s",
+                    "Missing room-key request failed for %s",
                     event_id,
                     exc_info=True,
-                )  # best-effort key request
+                )
+                return
+
+            if attempt >= _ROOM_KEY_REQUEST_MAX_ATTEMPTS - 1:
+                self._room_key_request_failures += 1
+                self._logger.warning(
+                    "Missing room-key request exhausted %d attempts for event %s",
+                    _ROOM_KEY_REQUEST_MAX_ATTEMPTS,
+                    event_id,
+                )
+                return
+
+            delay = _ROOM_KEY_REQUEST_BASE_DELAY_SECONDS * (2**attempt)
+            await _sleep(delay)
 
     def _prune_undecryptable_dedup(self, now: float) -> None:
         """Evict expired entries from the live undecryptable dedup cache.
@@ -1535,6 +1715,23 @@ class MatrixSession:
             if callable(stop_sync):
                 stop_sync()
 
+        # Cancel detached Megolm recovery before closing the client. Drain in
+        # a loop: a sync callback racing stop() can register a task after a
+        # single snapshot (task creation also refuses during shutdown, so
+        # this converges immediately in practice).
+        drained = 0
+        while self._room_key_request_tasks:
+            recovery_tasks = list(self._room_key_request_tasks.values())
+            self._room_key_request_tasks.clear()
+            for task in recovery_tasks:
+                task.cancel()
+            await asyncio.gather(*recovery_tasks, return_exceptions=True)
+            drained += len(recovery_tasks)
+        if drained:
+            self._logger.debug(
+                "Cancelled %d outstanding Megolm recovery task(s)", drained
+            )
+
         # Cancel outstanding join tasks before closing the client.
         join_tasks = list(self._joining_rooms.values())
         if join_tasks:
@@ -1705,6 +1902,9 @@ class MatrixSession:
             last_crypto_error=self._last_crypto_error,
             encrypted_room_seen=self._encrypted_room_seen,
             undecryptable_event_count=self._undecryptable_event_count,
+            megolm_recovery_attempts=self._room_key_request_attempts,
+            megolm_recovery_successes=self._room_key_request_successes,
+            megolm_recovery_failures=self._room_key_request_failures,
             # Sync recovery
             sync_running=self.sync_running,
             reconnecting=self._reconnecting,

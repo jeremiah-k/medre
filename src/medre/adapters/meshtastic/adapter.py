@@ -345,7 +345,11 @@ class MeshtasticAdapter(AdapterContract):
             elif self._session.reconnecting:
                 health = "degraded"
             else:
-                health = "unknown"
+                # The SDK can clear isConnected without the pubsub disconnect
+                # callback reaching MEDRE.  Treat that as degraded and use the
+                # normal reconnect path as a backup recovery trigger.
+                health = "degraded"
+                self._session.notify_connection_lost()
         elif self._session is not None and not self._started:
             # Session exists but start did not complete — subscription failure.
             health = "failed"
@@ -658,6 +662,9 @@ class MeshtasticAdapter(AdapterContract):
 
         try:
             session = self._session
+            connection_generation = (
+                session.connection_generation if session is not None else None
+            )
             own_node_id = session.node_id if session is not None else None
             classification = self._classifier.classify(packet, own_node_id=own_node_id)
             self._increment_classifier_counters(classification)
@@ -687,7 +694,12 @@ class MeshtasticAdapter(AdapterContract):
             if self._loop is not None and not self._loop.is_closed():
                 future: concurrent.futures.Future[object] = (
                     asyncio.run_coroutine_threadsafe(
-                        self._on_packet_async(canonical), self._loop
+                        self._on_packet_async(
+                            canonical,
+                            session=session,
+                            connection_generation=connection_generation,
+                        ),
+                        self._loop,
                     )
                 )
                 self._inbound_futures.add(future)
@@ -699,7 +711,13 @@ class MeshtasticAdapter(AdapterContract):
                     self.adapter_id,
                 )
 
-    async def _on_packet_async(self, canonical: CanonicalEvent) -> None:
+    async def _on_packet_async(
+        self,
+        canonical: CanonicalEvent,
+        *,
+        session: MeshtasticSession | None = None,
+        connection_generation: int | None = None,
+    ) -> None:
         """Async handler for packets received via :meth:`_on_packet`.
 
         Publishes the canonical event and logs exceptions from the
@@ -716,6 +734,14 @@ class MeshtasticAdapter(AdapterContract):
             The decoded canonical event to publish.
         """
         try:
+            if session is not None and connection_generation is not None:
+                if (
+                    self._session is not session
+                    or not session.is_connection_generation_current(
+                        connection_generation
+                    )
+                ):
+                    return
             if self.ctx is not None and self._started:
                 await self.publish_inbound(canonical)
                 self._inbound_published += 1
@@ -855,6 +881,8 @@ class MeshtasticAdapter(AdapterContract):
                 "channel_count": session_diag.channel_count,
                 "transient_delivery_failures": session_diag.transient_delivery_failures,
                 "permanent_delivery_failures": session_diag.permanent_delivery_failures,
+                "stale_receive_callbacks": session_diag.stale_receive_callbacks,
+                "stale_disconnect_callbacks": session_diag.stale_disconnect_callbacks,
                 "last_error": session_diag.last_error,
             }
         else:
@@ -867,6 +895,8 @@ class MeshtasticAdapter(AdapterContract):
                 "channel_count": 0,
                 "transient_delivery_failures": 0,
                 "permanent_delivery_failures": 0,
+                "stale_receive_callbacks": 0,
+                "stale_disconnect_callbacks": 0,
                 "last_error": None,
             }
 

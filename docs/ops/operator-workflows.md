@@ -504,12 +504,14 @@ Look for `queue_total_sent`, `queue_total_failed`, `queue_total_rejected`.
 ### "Matrix E2EE blocked"
 
 Check diagnostics for `undecryptable_event_count`. Non-zero indicates E2EE decryption
-failures. Also inspect `cross_signing_chain_status`,
+failures. Compare `megolm_recovery_attempts`, `megolm_recovery_successes`, and
+`megolm_recovery_failures` to determine whether live missing-key recovery is being
+accepted by the provider. Also inspect `cross_signing_chain_status`,
 `cross_signing_current_device_self_signed`, and `cross_signing_reset_required`.
-Cross-signing establishes MEDRE's own device identity but does not restore missing
-Megolm room keys; MEDRE does not manage room-key backup/import/export. If identity reset
-is required, back up the Matrix state directory and prefer restoring matching state
-before using the explicit password-authenticated reset command.
+Cross-signing establishes MEDRE's own device identity but does not replace room-key
+backup/import/export. If identity reset is required, back up the Matrix state directory
+and prefer restoring matching state before using the explicit password-authenticated
+reset command.
 
 ### "Meshtastic classifier ignored/dropped/deferred"
 
@@ -832,7 +834,7 @@ These are aggregate counters, not per-packet records. They reset on adapter rest
 | Queued but RF-confirmed?     | Meshtastic `sent` means local node only                          | Yes (queue stats, but no RF ack)    |
 | Matrix tx_id used?           | Deterministic dedup reduces duplicates                           | Yes (receipt metadata)              |
 | Matrix tx_id exactly-once?   | No — homeserver dedup window is finite                           | No — this is not guaranteed         |
-| Matrix E2EE blocked?         | Undecryptable events counted in diagnostics                      | Yes (undecryptable_event_count)     |
+| Matrix E2EE blocked?         | Undecryptable/key-request counters show recovery state           | Yes (E2EE diagnostics)              |
 | Meshtastic classifier stats? | Aggregate inbound skip counts                                    | Yes (diagnostics classifier\_\*)    |
 | Classifier stats per-packet? | No — aggregate only, reset on restart                            | No — in-memory counters only        |
 

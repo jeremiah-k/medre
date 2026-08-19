@@ -22,6 +22,7 @@ def test_mindroom_nio_exposes_application_owned_classic_sync_contract() -> None:
         "backfill_limited_timelines",
         "store_sync_tokens",
         "backfill_persist_recovery",
+        "replace_rotated_device_keys",
     ):
         assert name in config_params
 
@@ -32,6 +33,7 @@ def test_mindroom_nio_exposes_application_owned_classic_sync_contract() -> None:
         "reset_classic_sync_state",
         "sync_forever",
         "stop_sync_forever",
+        "to_device",
     ):
         assert callable(getattr(nio.AsyncClient, name, None))
 
@@ -43,6 +45,7 @@ def test_mindroom_nio_exposes_application_owned_classic_sync_contract() -> None:
         nio.AsyncClient.add_event_admission_callback
     ).parameters
     assert len(admission_params) == 3  # self + callback + event classes
+    assert callable(getattr(nio.events.MegolmEvent, "as_key_request", None))
     assert list(provenance.TimelineEventProvenance) == [
         provenance.TimelineEventProvenance.LIVE,
         provenance.TimelineEventProvenance.RECOVERED,

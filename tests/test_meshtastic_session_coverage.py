@@ -490,6 +490,32 @@ class TestReconnectSuccessPath:
         mock_sub.assert_called_once()
         mock_refresh.assert_called_once()
 
+    async def test_reconnect_closes_previous_client_before_replacement(
+        self, monkeypatch
+    ) -> None:
+        """Reconnect closes the client whose generation was invalidated."""
+        config = MeshtasticConfig(adapter_id="mesh-1", connection_type="tcp")
+        session = _make_session(config)
+        old_client = MagicMock()
+        session._activate_client(old_client)
+        session._reconnecting = True
+
+        async def fake_sleep(_duration: float) -> None:
+            return None
+
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+        new_client = MagicMock()
+        with (
+            patch.object(type(session), "_create_client", return_value=new_client),
+            patch.object(type(session), "_unsubscribe_callbacks"),
+            patch.object(type(session), "_subscribe_callbacks"),
+            patch.object(type(session), "_refresh_node_id"),
+        ):
+            await session._reconnect_loop()
+
+        old_client.close.assert_called_once_with()
+        assert session._client is new_client
+
     async def test_reconnect_success_unsubscribes_first(self, monkeypatch) -> None:
         """Reconnect calls _unsubscribe_callbacks before creating new client."""
         config = MeshtasticConfig(adapter_id="mesh-1", connection_type="tcp")
@@ -796,7 +822,8 @@ class TestConnectionLostSubscription:
         # so instance attribute assignment is not allowed).
         notify_called = {"called": False}
 
-        def tracking_notify(_self):
+        def tracking_notify(_self, *, expected_generation: int | None = None) -> None:
+            del expected_generation
             notify_called["called"] = True
 
         with patch.object(type(session), "notify_connection_lost", tracking_notify):
@@ -828,15 +855,22 @@ class TestConnectionLostSubscription:
 
         await session.start()
         try:
-            notify_called = {"called": False}
+            notify_called: dict[str, bool | int | None] = {
+                "called": False,
+                "generation": None,
+            }
 
-            def tracking_notify(_self):
+            def tracking_notify(
+                _self, *, expected_generation: int | None = None
+            ) -> None:
                 notify_called["called"] = True
+                notify_called["generation"] = expected_generation
 
             with patch.object(type(session), "notify_connection_lost", tracking_notify):
                 session._on_connection_lost()
 
             assert notify_called["called"] is True
+            assert notify_called["generation"] == session.connection_generation
         finally:
             await session.stop()
 

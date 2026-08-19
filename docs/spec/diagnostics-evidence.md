@@ -64,7 +64,7 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 
 > **Note:** Transport profiles define the complete per-adapter diagnostic key set. The tables below show the minimum contractual keys present in all adapter implementations. Key counts may differ from transport profiles, which define additional transport-specific keys.
 
-### 3.1 Matrix (21 keys)
+### 3.1 Matrix (24 minimum keys)
 
 | Key                         | Type            | Semantics                                                   |
 | --------------------------- | --------------- | ----------------------------------------------------------- |
@@ -77,8 +77,11 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 | `last_crypto_error`         | `str or None`   | Last E2EE failure reason                                    |
 | `encrypted_room_seen`       | `bool`          | At least one encrypted room encountered                     |
 | `undecryptable_event_count` | `int`           | Messages that failed decryption                             |
+| `megolm_recovery_attempts`  | `int`           | Missing-room-key to-device send attempts                    |
+| `megolm_recovery_successes` | `int`           | Missing-room-key requests accepted by the provider          |
+| `megolm_recovery_failures`  | `int`           | Terminal missing-room-key request failures                  |
 | `sync_running`              | `bool`          | Sync loop state                                             |
-| `last_successful_sync`      | `float or None` | Epoch timestamp of last successful sync                     |
+| `last_successful_sync`      | `float or None` | Monotonic time of last successful sync                      |
 | `crypto_store_loaded`       | `bool`          | Crypto database loaded (olm and store both present)         |
 | `encrypted_room_count`      | `int`           | Count only. No room IDs exposed.                            |
 | `plaintext_room_count`      | `int`           | Count only. No room IDs exposed.                            |
@@ -90,7 +93,7 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 | `store_path_exists`         | `bool`          | Store directory exists on disk                              |
 | `initial_sync_completed`    | `bool`          | First successful full_state sync completed                  |
 
-### 3.2 Meshtastic (adapter-level: 7 keys; session sub-dict: 3 keys)
+### 3.2 Meshtastic (adapter-level and session sub-dict)
 
 Adapter-level keys:
 
@@ -106,13 +109,15 @@ Adapter-level keys:
 
 Session sub-dict keys (`session.*`):
 
-| Key                        | Type            | Semantics                     |
-| -------------------------- | --------------- | ----------------------------- |
-| `session.node_id`          | `str or None`   | Local node number             |
-| `session.channel_count`    | `int`           | Configured channels           |
-| `session.last_packet_time` | `float or None` | Epoch of last received packet |
+| Key                                  | Type            | Semantics                                          |
+| ------------------------------------ | --------------- | -------------------------------------------------- |
+| `session.node_id`                    | `str or None`   | Local node number                                  |
+| `session.channel_count`              | `int`           | Configured channels                                |
+| `session.last_packet_time`           | `float or None` | Monotonic time of last received packet             |
+| `session.stale_receive_callbacks`    | `int`           | Packet callbacks ignored from replaced SDK clients |
+| `session.stale_disconnect_callbacks` | `int`           | Disconnect callbacks ignored from replaced clients |
 
-### 3.3 MeshCore (adapter-level: 17 keys; session sub-dict: 15 keys)
+### 3.3 MeshCore (adapter-level: 17 keys; session sub-dict: 17 keys)
 
 All 8 common keys are present. The `health` key is reported via the adapter-level diagnostics dict as well as via `health_check()`.
 

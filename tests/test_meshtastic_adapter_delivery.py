@@ -264,6 +264,8 @@ class TestMeshtasticSessionUnit:
         assert diag.channel_count == 0
         assert diag.transient_delivery_failures == 0
         assert diag.permanent_delivery_failures == 0
+        assert diag.stale_receive_callbacks == 0
+        assert diag.stale_disconnect_callbacks == 0
         assert diag.last_error is None
 
     async def test_session_send_returns_none_fake(self) -> None:

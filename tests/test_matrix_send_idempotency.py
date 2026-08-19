@@ -558,11 +558,18 @@ class TestNioPermanentResponse:
         resp.errcode = "M_NOT_FOUND"
         assert _is_nio_permanent_response(resp) is True
 
-    def test_m_unknown_is_permanent(self) -> None:
+    def test_m_unknown_is_not_permanent(self) -> None:
+        """M_UNKNOWN is status-ambiguous per spec; treat as transient.
+
+        Servers use M_UNKNOWN for any unrecognized failure and the spec
+        directs clients to prefer the HTTP status, which the errcode alone
+        does not carry. Classifying it permanent would terminate bounded
+        recovery on 5xx-triggered unknown failures.
+        """
         resp = MagicMock()
         del resp.event_id
         resp.errcode = "M_UNKNOWN"
-        assert _is_nio_permanent_response(resp) is True
+        assert _is_nio_permanent_response(resp) is False
 
     def test_success_not_permanent(self) -> None:
         resp = MagicMock()
