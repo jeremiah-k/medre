@@ -1,5 +1,10 @@
 # SDK Parity Opportunities Backlog
 
+
+> **Historical snapshot.** Version references in this document describe the
+> audit baseline at the time it was written. The current exact-pin contract is
+> `docs/dev/adapter-sdk-parity.md`.
+
 **Branch**: `development-1`
 **Baseline**: Post `adapter-sdk-parity` / after #99
 **Status**: Backlog for future work packages
@@ -139,6 +144,11 @@ to both `meshtastic.receive` and `meshtastic.connection.lost` via
 | --------- | ----------------------------------------------------- |
 | Adapter   | MeshCore                                              |
 | Reference | meshcore_py v2.3.7 `MeshCore.send_msg()` return shape |
+
+> **SDK parity ownership note:** pinned meshcore 2.3.8
+> `create_*()` calls `connect()`, and `connect()` performs `send_appstart()`. MEDRE
+> now disables SDK auto-reconnect explicitly and no longer sends a duplicate
+> APP_START after factory return. See `adapter-sdk-parity.md`.
 | Gap type  | Behavioral                                            |
 
 **Historical MEDRE behavior before development-1**: The session previously
