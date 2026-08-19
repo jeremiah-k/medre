@@ -18,7 +18,6 @@ MATRIX_PERMANENT_ERRCODES: frozenset[str] = frozenset(
     {
         "M_FORBIDDEN",
         "M_NOT_FOUND",
-        "M_UNKNOWN",
         "M_UNAUTHORIZED",
         "M_UNKNOWN_TOKEN",
         "M_USER_DEACTIVATED",
@@ -28,6 +27,12 @@ MATRIX_PERMANENT_ERRCODES: frozenset[str] = frozenset(
         "M_DUPLICATE_ANNOTATION",
     }
 )
+# ``M_UNKNOWN`` is deliberately absent: the Matrix client-server spec says
+# servers use it for any unrecognized failure and clients should prefer the
+# HTTP status. A 5xx-triggered M_UNKNOWN is transient (server bug or
+# overload), so classifying it as unconditionally permanent terminates
+# bounded recovery on recoverable failures. Treating it as transient is
+# safe: retries are capped by the retry policy / room-key request budget.
 
 
 class MatrixError(Exception):

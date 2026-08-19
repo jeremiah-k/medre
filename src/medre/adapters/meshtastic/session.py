@@ -848,10 +848,14 @@ class MeshtasticSession:
         a stale interface must never inject packets into the new session.
         """
         # The SDK invokes this callback from its reader thread.  Hold the
-        # ownership lock through validation, state mutation, and synchronous
-        # dispatch so reconnect cannot replace the client between the check and
-        # the adapter capturing ``connection_generation``.  The adapter then
-        # revalidates that generation when its event-loop publish coroutine runs.
+        # ownership lock through validation and state mutation only, then
+        # dispatch outside it: packet processing runs classification, codec
+        # decode, and a run_coroutine_threadsafe hop, and every other lock
+        # user — including the event loop via connected()/stop() — would
+        # block for that whole duration.  A replacement racing the dispatch
+        # is already rejected downstream: the adapter re-reads
+        # connection_generation inside the callback and revalidates the
+        # session and generation before publishing.
         with self._client_state_lock:
             if self._stop_requested:
                 return
@@ -867,8 +871,12 @@ class MeshtasticSession:
             self._last_packet_time = time.monotonic()
             if self._node_id is None and active_client is not None:
                 self._refresh_node_id()
-            if self._message_callback is not None:
-                self._message_callback(packet)
+            callback = self._message_callback
+
+        # Dispatch outside the ownership lock.  The adapter revalidates the
+        # captured connection generation before it publishes.
+        if callback is not None:
+            callback(packet)
 
     # -- Reconnection ---------------------------------------------------------
 
