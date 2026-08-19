@@ -310,6 +310,7 @@ def _connect_interface(config):
 # Live tests
 # ---------------------------------------------------------------------------
 @pytest.mark.live
+@pytest.mark.hardware
 @require_live
 class TestMeshtasticLiveSmoke:
     """Live Meshtastic connectivity smoke tests.
@@ -798,6 +799,7 @@ class TestMeshtasticEnvValidation:
 
 
 @pytest.mark.live
+@pytest.mark.hardware
 @require_live
 class TestMeshtasticBoundedLiveTests:
     """Opt-in live tests that connect to real Meshtastic hardware.
