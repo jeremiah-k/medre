@@ -158,6 +158,7 @@ def _has_sdk_opt_in_marker(path: Path) -> bool:
     return not declared_pytest_markers(path).isdisjoint(
         {
             "live",
+            "docker",
             "hardware",
             "local_integration",
             "matrix_sdk",
@@ -628,6 +629,14 @@ class TestSoakFrameworkFakeOnly:
 # ===================================================================
 
 
+@pytest.mark.parametrize("marker", ["local_integration", "soak"])
+def test_extended_transport_markers_registered(marker: str) -> None:
+    """Realism/endurance markers must be registered explicitly."""
+    pyproject = _REPO_ROOT / "pyproject.toml"
+    content = _file_source(pyproject)
+    assert f"{marker}:" in content
+
+
 class TestNoLiveTestsRunByDefault:
     """Enforce that the default ``pytest`` invocation does not run live
     tests and that SDK-importing files carry an explicit SDK opt-in marker.
@@ -669,13 +678,6 @@ class TestNoLiveTestsRunByDefault:
         assert (
             "hardware:" in content
         ), "pyproject.toml must register 'hardware' marker in markers list"
-
-    @pytest.mark.parametrize("marker", ["local_integration", "soak"])
-    def test_extended_transport_markers_registered(self, marker: str) -> None:
-        """Realism/endurance markers must be registered explicitly."""
-        pyproject = _REPO_ROOT / "pyproject.toml"
-        content = _file_source(pyproject)
-        assert f"{marker}:" in content
 
     def test_hardware_marker_description_mentions_live(self) -> None:
         """The ``hardware`` marker description must state it implies live."""
@@ -893,6 +895,8 @@ class TestHardwareMarkerDiscipline:
             "live",
             "docker",
             "hardware",
+            "local_integration",
+            "soak",
             "matrix_sdk",
             "lxmf_sdk",
             "meshtastic_sdk",
@@ -910,6 +914,7 @@ class TestHardwareMarkerDiscipline:
         ('"""pytest.mark.live"""\n', False),
         ('MARKER_TEXT = "pytest.mark.matrix_sdk"\n', False),
         ("pytestmark = pytest.mark.matrix_sdk\n", True),
+        ("pytestmark = pytest.mark.docker\n", True),
         ("@pytest.mark.live\ndef test_live():\n    pass\n", True),
         (
             "live_markers = [pytest.mark.live]\n"

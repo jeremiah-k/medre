@@ -141,6 +141,7 @@ def _has_sdk_opt_in_marker(path: Path) -> bool:
     return not declared_pytest_markers(path).isdisjoint(
         {
             "live",
+            "docker",
             "hardware",
             "local_integration",
             "matrix_sdk",
@@ -469,6 +470,36 @@ def test_pytest_config_excludes_sdk_contract_markers(marker: str) -> None:
     ), f"pyproject.toml addopts must exclude {marker} marker"
 
 
+@pytest.mark.parametrize("marker", ["local_integration", "soak"])
+def test_extended_transport_markers_registered(marker: str) -> None:
+    """Realism/endurance markers must be registered explicitly."""
+    pyproject = _TESTS_DIR.parent / "pyproject.toml"
+    content = _file_source(pyproject)
+    assert f"{marker}:" in content
+
+
+def test_soak_tests_also_declare_an_evidence_layer() -> None:
+    """``soak`` is an endurance overlay on an explicit evidence layer."""
+    evidence_markers = {
+        "local_integration",
+        "live",
+        "hardware",
+        "docker",
+        "matrix_sdk",
+        "lxmf_sdk",
+        "meshtastic_sdk",
+        "meshcore_sdk",
+    }
+    violations: list[str] = []
+    for path in sorted(_TESTS_DIR.rglob("test_*.py")):
+        markers = declared_pytest_markers(path)
+        if "soak" in markers and markers.isdisjoint(evidence_markers):
+            violations.append(str(path.relative_to(_REPO_ROOT)))
+    assert violations == [], (
+        "soak tests must also declare their evidence layer: " + ", ".join(violations)
+    )
+
+
 class TestNoLiveTestsRunByDefault:
     """Enforce that the default ``pytest`` invocation does not run live
     tests and that SDK-importing files carry ``live`` or an explicit ``*_sdk`` marker.
@@ -510,25 +541,6 @@ class TestNoLiveTestsRunByDefault:
         assert (
             "live:" in content
         ), "pyproject.toml must register 'live' marker in markers list"
-
-    @pytest.mark.parametrize("marker", ["local_integration", "soak"])
-    def test_extended_transport_markers_registered(self, marker: str) -> None:
-        """Realism/endurance markers must be registered explicitly."""
-        pyproject = _TESTS_DIR.parent / "pyproject.toml"
-        content = _file_source(pyproject)
-        assert f"{marker}:" in content
-
-    def test_soak_tests_also_declare_an_evidence_layer(self) -> None:
-        """``soak`` is an endurance overlay, never an SDK-import gate by itself."""
-        evidence_markers = {"local_integration", "live", "hardware", "docker"}
-        violations: list[str] = []
-        for path in sorted(_TESTS_DIR.rglob("test_*.py")):
-            markers = declared_pytest_markers(path)
-            if "soak" in markers and markers.isdisjoint(evidence_markers):
-                violations.append(str(path.relative_to(_REPO_ROOT)))
-        assert (
-            violations == []
-        ), "soak tests must also declare their evidence layer: " + ", ".join(violations)
 
     @pytest.mark.parametrize(
         "filename",

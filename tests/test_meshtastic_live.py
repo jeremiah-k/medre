@@ -13,8 +13,8 @@ Exercise the MEDRE ``MeshtasticAdapter`` against a real node: start,
 health_check, diagnostics, and stop.  These also exercise the
 ``MeshtasticSession`` boundary for real transport lifecycle.
 
-All tests are **skipped by default** and require explicit opt-in via
-environment variables.
+Hardware-dependent tests are **skipped by default** and require explicit opt-in
+via environment variables. Documentation invariants remain in the default suite.
 
 **Running live tests:**
 
@@ -70,8 +70,8 @@ Variable                    Description
 
 At minimum, ``MESHTASTIC_CONNECTION_TYPE`` must be set.  Depending on the
 connection type, the corresponding host/port/serial/BLE variable must also
-be set.  If any required variable is missing, every test in this file skips
-with a descriptive reason.
+be set. If a required variable is missing, hardware-dependent tests skip with a
+descriptive reason.
 
 **Known limitations (explicit):**
 
@@ -304,6 +304,34 @@ def _connect_interface(config):
         pytest.skip(f"Connection type {ct!r} not yet supported in live harness")
 
     return iface
+
+
+def test_backlog_suppression_implemented_note() -> None:
+    """Document that startup backlog suppression is implemented.
+
+    ``startup_backlog_suppress_seconds`` is wired into the Meshtastic adapter's
+    inbound path. Cutoff comparison lives in the transport-neutral helper
+    ``medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog``,
+    while Meshtastic-specific rxTime extraction lives in
+    ``medre.adapters.meshtastic.startup_backlog``.
+    """
+
+
+def test_outbound_dm_not_supported_note() -> None:
+    """Document that outbound direct-message delivery is not supported.
+
+    The adapter declares ``direct_messages=False``. Inbound DM metadata is
+    preserved, but no outbound DM send path exists.
+    """
+
+
+def test_sendtext_returns_packet_with_id_note() -> None:
+    """Document that mtjk sendText/sendData return packets with native IDs.
+
+    Both calls return a ``MeshPacket`` protobuf whose ``id`` is populated by
+    the interface packet-ID generator. Raw live tests and installed-SDK
+    contract tests cover the executable behavior.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -623,51 +651,6 @@ class TestMeshtasticLiveSmoke:
                 assert info.health in ("healthy", "unknown")
             finally:
                 await asyncio.wait_for(adapter.stop(), timeout=10.0)
-
-    # -- Documentation tests (always pass) ----------------------------------
-
-    async def test_backlog_suppression_implemented_note(self):
-        """Document: startup backlog suppression is implemented.
-
-        This test always passes.  It documents that
-        ``startup_backlog_suppress_seconds`` is wired into the Meshtastic
-        adapter's inbound path.  Cutoff comparison lives in the
-        transport-neutral helper
-        ``medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog``,
-        while Meshtastic-specific rxTime extraction lives in
-        ``medre.adapters.meshtastic.startup_backlog``.  Real nodes
-        replay buffered packets on TCP connect; MEDRE filters stale
-        packets whose rxTime predates the suppression window.
-        """
-        # startup_backlog_suppress_seconds is enforced in the adapter's
-        # _check_startup_backlog_suppress via the shared utility.
-        # See tests/test_meshtastic_startup_backlog.py for full coverage.
-        pass
-
-    async def test_outbound_dm_not_supported_note(self):
-        """Document: outbound DM delivery is not supported.
-
-        This test always passes.  The adapter declares
-        ``direct_messages=False``.  Inbound DM metadata is preserved but
-        no outbound DM send path exists.
-        """
-        pass
-
-    async def test_sendtext_returns_packet_with_id_note(self):
-        """Document: sendText returns MeshPacket with populated id.
-
-        Both ``sendText()`` and ``sendData()`` return a ``MeshPacket``
-        protobuf with the ``id`` field populated by the interface's
-        packet ID generator.  This is confirmed from mtjk source code
-        analysis (see ``docs/spec/transport-profiles/meshtastic.md``
-        Section 5.1) and verified by the ``test_send_text_via_raw_interface``
-        and ``test_send_data_via_raw_interface`` tests above.
-
-        The MEDRE ``FakeMeshtasticClient`` mirrors this behavior with
-        sequential deterministic IDs.
-        """
-        pass
-
 
 # ---------------------------------------------------------------------------
 # Helpers for bounded live tests

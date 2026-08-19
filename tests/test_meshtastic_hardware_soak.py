@@ -82,9 +82,11 @@ async def test_repeated_hardware_start_health_stop_cycles() -> None:
     ctx = _context()
 
     for _ in range(cycles):
-        await asyncio.wait_for(adapter.start(ctx), timeout=30.0)
-        info = await asyncio.wait_for(adapter.health_check(), timeout=10.0)
-        assert info.health == "healthy"
-        await asyncio.wait_for(adapter.stop(), timeout=15.0)
+        try:
+            await asyncio.wait_for(adapter.start(ctx), timeout=30.0)
+            info = await asyncio.wait_for(adapter.health_check(), timeout=10.0)
+            assert info.health == "healthy"
+        finally:
+            await asyncio.wait_for(adapter.stop(), timeout=15.0)
         stopped = await asyncio.wait_for(adapter.health_check(), timeout=10.0)
         assert stopped.health == "unknown"
