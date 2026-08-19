@@ -345,7 +345,11 @@ class MeshtasticAdapter(AdapterContract):
             elif self._session.reconnecting:
                 health = "degraded"
             else:
-                health = "unknown"
+                # The SDK can clear isConnected without the pubsub disconnect
+                # callback reaching MEDRE.  Treat that as degraded and use the
+                # normal reconnect path as a backup recovery trigger.
+                health = "degraded"
+                self._session.notify_connection_lost()
         elif self._session is not None and not self._started:
             # Session exists but start did not complete — subscription failure.
             health = "failed"
@@ -855,6 +859,8 @@ class MeshtasticAdapter(AdapterContract):
                 "channel_count": session_diag.channel_count,
                 "transient_delivery_failures": session_diag.transient_delivery_failures,
                 "permanent_delivery_failures": session_diag.permanent_delivery_failures,
+                "stale_receive_callbacks": session_diag.stale_receive_callbacks,
+                "stale_disconnect_callbacks": session_diag.stale_disconnect_callbacks,
                 "last_error": session_diag.last_error,
             }
         else:
@@ -867,6 +873,8 @@ class MeshtasticAdapter(AdapterContract):
                 "channel_count": 0,
                 "transient_delivery_failures": 0,
                 "permanent_delivery_failures": 0,
+                "stale_receive_callbacks": 0,
+                "stale_disconnect_callbacks": 0,
                 "last_error": None,
             }
 

@@ -82,6 +82,8 @@ class MeshtasticSessionDiagnostics:
     channel_count: int
     transient_delivery_failures: int
     permanent_delivery_failures: int
+    stale_receive_callbacks: int
+    stale_disconnect_callbacks: int
     last_error: str | None
 
 
@@ -128,6 +130,8 @@ class MeshtasticSession:
         "_channel_count",
         "_transient_delivery_failures",
         "_permanent_delivery_failures",
+        "_stale_receive_callbacks",
+        "_stale_disconnect_callbacks",
         "_last_error",
     )
 
@@ -160,14 +164,29 @@ class MeshtasticSession:
         self._channel_count: int = 0
         self._transient_delivery_failures: int = 0
         self._permanent_delivery_failures: int = 0
+        self._stale_receive_callbacks: int = 0
+        self._stale_disconnect_callbacks: int = 0
         self._last_error: str | None = None
 
     # -- Properties -----------------------------------------------------------
 
     @property
     def connected(self) -> bool:
-        """``True`` if the client is created and session is started."""
-        return self._client is not None and self._started
+        """``True`` when the active SDK client reports a live connection.
+
+        Older/fake clients may not expose ``isConnected``; for those, client
+        ownership plus the started lifecycle remains the compatibility signal.
+        """
+        if self._client is None or not self._started:
+            return False
+        connected_event = getattr(self._client, "isConnected", None)
+        is_set = getattr(connected_event, "is_set", None)
+        if callable(is_set):
+            try:
+                return bool(is_set())
+            except Exception:
+                return False
+        return True
 
     @property
     def reconnecting(self) -> bool:
@@ -289,6 +308,8 @@ class MeshtasticSession:
         self._reconnect_attempts = 0
         self._reconnecting = False
         self._last_error = None
+        self._stale_receive_callbacks = 0
+        self._stale_disconnect_callbacks = 0
         self._message_callback = message_callback
         self._loop = asyncio.get_running_loop()
 
@@ -638,6 +659,8 @@ class MeshtasticSession:
             channel_count=self._channel_count,
             transient_delivery_failures=self._transient_delivery_failures,
             permanent_delivery_failures=self._permanent_delivery_failures,
+            stale_receive_callbacks=self._stale_receive_callbacks,
+            stale_disconnect_callbacks=self._stale_disconnect_callbacks,
             last_error=self._last_error,
         )
 
@@ -780,12 +803,22 @@ class MeshtasticSession:
             self._node_id = f"!{node_num:08x}"
 
     def _on_receive(self, packet: dict[str, Any], interface: Any = None) -> None:
-        """Pubsub callback for inbound packets.
+        """Pubsub callback for inbound packets from the active SDK client.
 
-        Records diagnostics, lazily refreshes ``_node_id`` when it is
-        still ``None`` (late ``myInfo``), and forwards to the adapter's
-        message callback.
+        Late callbacks from a client replaced during reconnect are ignored.
+        This matters because pypubsub delivery can race unsubscribe/close and
+        a stale interface must never inject packets into the new session.
         """
+        if self._stop_requested:
+            return
+        if interface is not None and interface is not self._client:
+            self._stale_receive_callbacks += 1
+            self._logger.debug(
+                "MeshtasticSession %s ignored packet from stale interface",
+                self._adapter_id,
+            )
+            return
+
         self._last_packet_time = time.monotonic()
         # Lazy refresh: if myInfo was not available at connect time,
         # try again on each inbound packet until it succeeds.  Once
@@ -808,8 +841,8 @@ class MeshtasticSession:
         Parameters
         ----------
         interface:
-            The Meshtastic interface that lost its connection (unused;
-            the session already holds a reference via ``_client``).
+            The Meshtastic interface that lost its connection.  Events from
+            replaced interfaces are ignored as stale reconnect callbacks.
         **kwargs:
             Additional pubsub keyword arguments (ignored).
         """
@@ -817,6 +850,13 @@ class MeshtasticSession:
         # set _stop_requested.  These checks run in the SDK reader thread,
         # so they must be simple flag reads (no async operations).
         if self._stop_requested or not self._started:
+            return
+        if interface is not None and interface is not self._client:
+            self._stale_disconnect_callbacks += 1
+            self._logger.debug(
+                "MeshtasticSession %s ignored disconnect from stale interface",
+                self._adapter_id,
+            )
             return
         self.notify_connection_lost()
 
