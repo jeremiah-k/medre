@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
-
 _FRAME_FROM_CLIENT = 0x3C
 _FRAME_TO_CLIENT = 0x3E
 
@@ -119,7 +118,9 @@ class LocalMeshCoreNode:
             except (ConnectionError, OSError):
                 pass
 
-    async def inject_channel_message(self, text: str, *, channel_index: int = 0) -> None:
+    async def inject_channel_message(
+        self, text: str, *, channel_index: int = 0
+    ) -> None:
         writer = next(iter(self._writers), None)
         if writer is None:
             raise RuntimeError("no active MeshCore SDK client")
@@ -137,7 +138,9 @@ class LocalMeshCoreNode:
         if writer is None:
             raise RuntimeError("no active MeshCore SDK client")
         malformed = bytes([_FRAME_TO_CLIENT]) + (301).to_bytes(2, "little")
-        writer.write(malformed + _frame(_FRAME_TO_CLIENT, channel_message_payload(text)))
+        writer.write(
+            malformed + _frame(_FRAME_TO_CLIENT, channel_message_payload(text))
+        )
         await writer.drain()
 
     async def _handle_client(
@@ -166,7 +169,9 @@ class LocalMeshCoreNode:
             except (ConnectionError, OSError):
                 pass
 
-    async def _handle_command(self, payload: bytes, writer: asyncio.StreamWriter) -> None:
+    async def _handle_command(
+        self, payload: bytes, writer: asyncio.StreamWriter
+    ) -> None:
         if not payload:
             return
         command = payload[0]

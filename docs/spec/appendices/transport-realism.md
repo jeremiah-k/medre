@@ -9,13 +9,13 @@ SDK, endpoint, hardware, and endurance claims.
 Each transport SHOULD progress through the following layers in order. A later
 layer does not remove the need for earlier deterministic coverage.
 
-| Layer | Test label | Required boundary | What it may claim |
-| ----- | ---------- | ----------------- | ----------------- |
-| 1 | `fake_pipeline` / `wrapper_callback` | MEDRE code + synthetic SDK boundary | MEDRE logic and callback wiring |
-| 2 | `sdk_contract` | exact pinned optional SDK installed | SDK constructors, enums, callback and return-value contracts |
-| 3 | `local_integration` | MEDRE + exact SDK + deterministic local endpoint/emulator | SDK/session interaction without external service or hardware |
-| 4 | `docker_sdk_boundary` or `live_network` | containerized service, external service, or physical device | behavior of the exercised endpoint class |
-| 5 | `soak` overlay | repeated/extended execution at one of the layers above | bounded endurance at that same evidence layer |
+| Layer | Test label                              | Required boundary                                           | What it may claim                                            |
+| ----- | --------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------ |
+| 1     | `fake_pipeline` / `wrapper_callback`    | MEDRE code + synthetic SDK boundary                         | MEDRE logic and callback wiring                              |
+| 2     | `sdk_contract`                          | exact pinned optional SDK installed                         | SDK constructors, enums, callback and return-value contracts |
+| 3     | `local_integration`                     | MEDRE + exact SDK + deterministic local endpoint/emulator   | SDK/session interaction without external service or hardware |
+| 4     | `docker_sdk_boundary` or `live_network` | containerized service, external service, or physical device | behavior of the exercised endpoint class                     |
+| 5     | `soak` overlay                          | repeated/extended execution at one of the layers above      | bounded endurance at that same evidence layer                |
 
 `local_integration` is a test-layer label, not a runtime evidence tier. A local
 integration using an in-process endpoint remains `conformance` evidence. A

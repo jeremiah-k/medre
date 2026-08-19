@@ -14,29 +14,29 @@ commitment.
 
 ## 1. Capability Matrix
 
-| Capability                          | Matrix                               | Meshtastic         | MeshCore         | LXMF             |
-| ----------------------------------- | ------------------------------------ | ------------------ | ---------------- | ---------------- |
-| Config load                         | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
-| Instance-scoped env overrides       | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
-| Env-first adapter creation          | synthetic-tested                     | synthetic-tested   | synthetic-tested | synthetic-tested |
-| Env-driven route creation           | synthetic-tested                     | synthetic-tested   | synthetic-tested | synthetic-tested |
-| Route policy enforcement            | synthetic-tested                     | synthetic-tested   | synthetic-tested | synthetic-tested |
-| Fake lifecycle                      | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
-| Real adapter import safe            | live-validated                       | opt-in live exists | designed         | designed         |
-| Live start/health                   | live-validated                       | opt-in live exists | not started      | not started      |
-| Outbound delivery                   | live-validated                       | opt-in live exists | not started      | not started      |
-| Inbound decode                      | live-validated                       | opt-in live exists | not started      | not started      |
-| Storage native refs                 | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
-| Evidence bundle                     | live-validated                       | synthetic-tested   | synthetic-tested | synthetic-tested |
-| Delivery reliability                | synthetic-tested                     | synthetic-tested   | designed         | designed         |
-| Delivery evidence (unified inspect) | synthetic-tested                     | synthetic-tested   | not started      | not started      |
-| Run-session path                    | live-validated                       | not started        | not started      | not started      |
-| Operator runbook                    | live-validated                       | opt-in live exists | designed         | designed         |
-| Live validation recorded            | live-validated                       | not started        | not started      | not started      |
-| Local delivery outbox               | synthetic-tested                     | synthetic-tested   | synthetic-tested | synthetic-tested |
-| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |                    |                  |                  |
-| Installed-SDK contract              | conformance-tested                    | conformance-tested      | conformance-tested | conformance-tested |
-| Deterministic local integration     | docker-validated                      | docker-validated        | designed           | designed           |
+| Capability                          | Matrix                               | Meshtastic              | MeshCore           | LXMF               |
+| ----------------------------------- | ------------------------------------ | ----------------------- | ------------------ | ------------------ |
+| Config load                         | live-validated                       | synthetic-tested        | synthetic-tested   | synthetic-tested   |
+| Instance-scoped env overrides       | live-validated                       | synthetic-tested        | synthetic-tested   | synthetic-tested   |
+| Env-first adapter creation          | synthetic-tested                     | synthetic-tested        | synthetic-tested   | synthetic-tested   |
+| Env-driven route creation           | synthetic-tested                     | synthetic-tested        | synthetic-tested   | synthetic-tested   |
+| Route policy enforcement            | synthetic-tested                     | synthetic-tested        | synthetic-tested   | synthetic-tested   |
+| Fake lifecycle                      | live-validated                       | synthetic-tested        | synthetic-tested   | synthetic-tested   |
+| Real adapter import safe            | live-validated                       | opt-in live exists      | designed           | designed           |
+| Live start/health                   | live-validated                       | opt-in live exists      | not started        | not started        |
+| Outbound delivery                   | live-validated                       | opt-in live exists      | not started        | not started        |
+| Inbound decode                      | live-validated                       | opt-in live exists      | not started        | not started        |
+| Storage native refs                 | live-validated                       | synthetic-tested        | synthetic-tested   | synthetic-tested   |
+| Evidence bundle                     | live-validated                       | synthetic-tested        | synthetic-tested   | synthetic-tested   |
+| Delivery reliability                | synthetic-tested                     | synthetic-tested        | designed           | designed           |
+| Delivery evidence (unified inspect) | synthetic-tested                     | synthetic-tested        | not started        | not started        |
+| Run-session path                    | live-validated                       | not started             | not started        | not started        |
+| Operator runbook                    | live-validated                       | opt-in live exists      | designed           | designed           |
+| Live validation recorded            | live-validated                       | not started             | not started        | not started        |
+| Local delivery outbox               | synthetic-tested                     | synthetic-tested        | synthetic-tested   | synthetic-tested   |
+| Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |                         |                    |                    |
+| Installed-SDK contract              | conformance-tested                   | conformance-tested      | conformance-tested | conformance-tested |
+| Deterministic local integration     | docker-validated                     | docker-validated        | designed           | designed           |
 | Transport soak harness              | synthetic-tested                     | opt-in live test exists | designed           | designed           |
 
 ## 2. Status Definitions
@@ -161,21 +161,21 @@ executed at the current commit.
 | Adapter boundary tests (parity, lifecycle authority)             | S-tier          | Pass   |
 | Doc structure tests (single authority, status vocabulary)        | S-tier          | Pass   |
 | Matrix Docker SDK-boundary validation                            | R-tier (docker) | Pass   |
-| Meshtastic Docker local integration                             | R-tier (docker) | Pass   |
+| Meshtastic Docker local integration                              | R-tier (docker) | Pass   |
 
 ### 7.2 Not-executed gates (no evidence at any tier)
 
-| Gate                                 | Required for           | Status       |
-| ------------------------------------ | ---------------------- | ------------ |
-| External live Matrix validation      | Non-Docker production  | NOT EXECUTED |
-| Multi-room concurrent inbound (live) | Production throughput  | NOT EXECUTED |
-| E2EE reactions, edits, media (live)  | Production feature     | NOT EXECUTED |
-| Meshtastic live validation (radio)   | Meshtastic release     | NOT EXECUTED |
-| MeshCore live validation (node)      | MeshCore release       | NOT EXECUTED |
-| LXMF live validation (Reticulum)     | LXMF release           | NOT EXECUTED |
-| MeshCore deterministic local integration | MeshCore prerelease | NOT EXECUTED |
-| LXMF process-isolated local integration | LXMF prerelease | NOT EXECUTED |
-| Hardware byte-budget measurement     | Constrained transports | NOT EXECUTED |
+| Gate                                     | Required for           | Status       |
+| ---------------------------------------- | ---------------------- | ------------ |
+| External live Matrix validation          | Non-Docker production  | NOT EXECUTED |
+| Multi-room concurrent inbound (live)     | Production throughput  | NOT EXECUTED |
+| E2EE reactions, edits, media (live)      | Production feature     | NOT EXECUTED |
+| Meshtastic live validation (radio)       | Meshtastic release     | NOT EXECUTED |
+| MeshCore live validation (node)          | MeshCore release       | NOT EXECUTED |
+| LXMF live validation (Reticulum)         | LXMF release           | NOT EXECUTED |
+| MeshCore deterministic local integration | MeshCore prerelease    | NOT EXECUTED |
+| LXMF process-isolated local integration  | LXMF prerelease        | NOT EXECUTED |
+| Hardware byte-budget measurement         | Constrained transports | NOT EXECUTED |
 
 ### 7.3 Future release gates (not required for prerelease)
 

@@ -60,7 +60,9 @@ async def _run_suite(base: Path) -> dict[str, Any]:
         assert session.router_running is True
         destination_hash = session._delivery_destination_hash
         if destination_hash is None:
-            raise AssertionError("real LXMRouter did not register a delivery destination")
+            raise AssertionError(
+                "real LXMRouter did not register a delivery destination"
+            )
         hashes.append(destination_hash.hex())
 
         # Malformed SDK callback payloads must be dropped without reaching the
@@ -109,7 +111,9 @@ async def _run_soak(base: Path) -> dict[str, Any]:
         await session.start(lambda _payload: None)
         destination_hash = session._delivery_destination_hash
         if destination_hash is None:
-            raise AssertionError("real LXMRouter did not register a delivery destination")
+            raise AssertionError(
+                "real LXMRouter did not register a delivery destination"
+            )
         hashes.append(destination_hash.hex())
         await session.stop()
     return {"cycles": len(hashes), "stable_destination": len(set(hashes)) == 1}

@@ -97,7 +97,6 @@ For a serial-first bring-up procedure that wires Matrix, Meshtastic, and
 MeshCore together with four additional one-way MeshCore routes, see
 [matrix-meshtastic-meshcore.md](matrix-meshtastic-meshcore.md).
 
-
 ## Deterministic Local Integration
 
 Before hardware validation, run the real pinned MeshCore SDK against MEDRE's

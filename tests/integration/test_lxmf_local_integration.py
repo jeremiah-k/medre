@@ -35,7 +35,11 @@ def _run_probe(tmp_path: Path, scenario: str) -> dict[str, object]:
     )
     prefix = "MEDRE_LOCAL_INTEGRATION_RESULT="
     result_line = next(
-        (line for line in reversed(completed.stdout.splitlines()) if line.startswith(prefix)),
+        (
+            line
+            for line in reversed(completed.stdout.splitlines())
+            if line.startswith(prefix)
+        ),
         None,
     )
     if result_line is None:
@@ -59,6 +63,8 @@ def test_real_router_repeated_lifecycle_persistence_and_failure_cleanup(
 
 
 @pytest.mark.soak
-def test_real_router_local_soak_preserves_identity_across_restarts(tmp_path: Path) -> None:
+def test_real_router_local_soak_preserves_identity_across_restarts(
+    tmp_path: Path,
+) -> None:
     result = _run_probe(tmp_path, "soak")
     assert result == {"cycles": 10, "stable_destination": True}

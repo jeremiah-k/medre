@@ -450,7 +450,14 @@ class TestCliWorkflowsRuntimeLayerOnly:
 
 @pytest.mark.parametrize(
     "marker",
-    ["matrix_sdk", "lxmf_sdk", "meshtastic_sdk", "meshcore_sdk", "local_integration", "soak"],
+    [
+        "matrix_sdk",
+        "lxmf_sdk",
+        "meshtastic_sdk",
+        "meshcore_sdk",
+        "local_integration",
+        "soak",
+    ],
 )
 def test_pytest_config_excludes_sdk_contract_markers(marker: str) -> None:
     """``pyproject.toml`` must exclude every SDK-contract tier by default."""
@@ -519,10 +526,9 @@ class TestNoLiveTestsRunByDefault:
             markers = declared_pytest_markers(path)
             if "soak" in markers and markers.isdisjoint(evidence_markers):
                 violations.append(str(path.relative_to(_REPO_ROOT)))
-        assert violations == [], (
-            "soak tests must also declare their evidence layer: "
-            + ", ".join(violations)
-        )
+        assert (
+            violations == []
+        ), "soak tests must also declare their evidence layer: " + ", ".join(violations)
 
     @pytest.mark.parametrize(
         "filename",

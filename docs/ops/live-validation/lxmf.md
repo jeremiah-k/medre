@@ -127,7 +127,6 @@ config = LxmfConfig(
 - `RNS.Reticulum` and `LXMF` packages available locally at `/home/jeremiah/dev` but live path setup pending.
 - No native reply mechanism — replies rendered as plain text.
 
-
 ## Deterministic Local Integration
 
 Run the real pinned RNS/LXMF stack in a process-isolated local probe before

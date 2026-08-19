@@ -95,7 +95,6 @@ Based on CLI-level serial validation:
 - BLE connectivity: NOT EXECUTED.
 - Docker inbound via pubsub: not proven (meshtasticd simulation mode limitation).
 
-
 ## Hardware Soak Harness
 
 Physical-radio lifecycle endurance is opt-in and never runs in the default
