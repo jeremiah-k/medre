@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import signal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, call, patch
 
@@ -177,36 +178,183 @@ def test_propagation_diagnostic_reflects_boolean_router_state() -> None:
     assert session.diagnostics().propagation_enabled is True
 
 
-def test_teardown_quiesces_router_without_stopping_reticulum() -> None:
-    """Stop the owned LXMRouter but keep the process-global RNS instance alive."""
-    config = LxmfConfig(adapter_id="lxmf-sdk-parity-teardown")
+async def test_persistent_identity_can_restart_with_same_transport_registry(
+    tmp_path: Path,
+) -> None:
+    """stop() releases router-owned RNS registrations before the next start."""
+
+    class FakeDestination:
+        def __init__(self, destination_hash: bytes) -> None:
+            self.hash = destination_hash
+
+    class FakeTransport:
+        destinations_map: dict[bytes, FakeDestination] = {}
+        announce_handlers: list[Any] = []
+
+        @classmethod
+        def register_destination(cls, destination: FakeDestination) -> None:
+            if destination.hash in cls.destinations_map:
+                raise KeyError("Attempt to register an already registered destination")
+            cls.destinations_map[destination.hash] = destination
+
+        @classmethod
+        def deregister_destination(cls, destination: FakeDestination) -> None:
+            cls.destinations_map.pop(destination.hash, None)
+
+        @classmethod
+        def deregister_announce_handler(cls, handler: Any) -> None:
+            if handler in cls.announce_handlers:
+                cls.announce_handlers.remove(handler)
+
+    class FakeRouter:
+        def __init__(self, identity: Any, storagepath: str) -> None:
+            del storagepath
+            self.identity = identity
+            self.propagation_destination = FakeDestination(b"p" * 16)
+            self.control_destination = None
+            self.delivery_destinations: dict[bytes, FakeDestination] = {}
+            FakeTransport.register_destination(self.propagation_destination)
+            FakeTransport.announce_handlers.extend(
+                [
+                    SimpleNamespace(lxmrouter=self),
+                    SimpleNamespace(lxmrouter=self),
+                ]
+            )
+
+        def register_delivery_callback(self, _callback: Any) -> None:
+            return None
+
+        def register_delivery_identity(
+            self,
+            _identity: Any,
+            *,
+            display_name: str | None,
+            stamp_cost: int | None,
+        ) -> FakeDestination:
+            del display_name, stamp_cost
+            destination = FakeDestination(b"d" * 16)
+            FakeTransport.register_destination(destination)
+            self.delivery_destinations[destination.hash] = destination
+            return destination
+
+        def exit_handler(self) -> None:
+            return None
+
+    persistent_identity = MagicMock(name="persistent_identity")
+    reticulum_instance = MagicMock(name="reticulum_instance")
+    fake_rns = SimpleNamespace(
+        Transport=FakeTransport,
+        Reticulum=SimpleNamespace(
+            get_instance=lambda: reticulum_instance,
+        ),
+        Identity=SimpleNamespace(
+            from_file=lambda _path: persistent_identity,
+        ),
+    )
+    fake_lxmf = SimpleNamespace(LXMRouter=FakeRouter)
+    identity_path = tmp_path / "identity"
+    identity_path.write_bytes(b"persistent")
+    config = _real_config(tmp_path, identity_path=str(identity_path))
     session = LxmfSession(config=config, adapter_id=config.adapter_id)
-    router = MagicMock()
-    reticulum_instance = MagicMock()
-    session._router = router
-    session._reticulum = reticulum_instance
-    session._delivery_destination = MagicMock()
-    session._delivery_destination_hash = b"\xaa" * 16
 
-    rns = MagicMock()
-    rns.Reticulum.exit_handler = MagicMock(name="global_exit")
-
+    hashes: list[bytes] = []
     with (
         patch("medre.adapters.lxmf.session.HAS_LXMF", True),
         patch(
             "medre.adapters.lxmf.session._require_lxmf",
-            return_value=(rns, MagicMock()),
+            return_value=(fake_rns, fake_lxmf),
         ),
-        patch("medre.adapters.lxmf.session.atexit.unregister") as unregister,
     ):
+        for _ in range(3):
+            await session.start()
+            assert session._identity is persistent_identity
+            assert session._delivery_destination_hash is not None
+            hashes.append(session._delivery_destination_hash)
+            await session.stop()
+            assert FakeTransport.destinations_map == {}
+            assert FakeTransport.announce_handlers == []
+
+    assert hashes == [b"d" * 16] * 3
+
+
+def test_teardown_quiesces_router_without_stopping_reticulum() -> None:
+    """Release router-owned RNS registrations but keep global Reticulum alive."""
+    config = LxmfConfig(adapter_id="lxmf-sdk-parity-teardown")
+    session = LxmfSession(config=config, adapter_id=config.adapter_id)
+    router = MagicMock()
+    propagation_destination = MagicMock(name="propagation_destination")
+    control_destination = MagicMock(name="control_destination")
+    delivery_destination = MagicMock(name="delivery_destination")
+    router.propagation_destination = propagation_destination
+    router.control_destination = control_destination
+    router.delivery_destinations = {b"delivery": delivery_destination}
+
+    reticulum_instance = MagicMock()
+    session._router = router
+    session._reticulum = reticulum_instance
+    session._delivery_destination = delivery_destination
+    session._delivery_destination_hash = b"\xaa" * 16
+
+    transport = MagicMock()
+    owned_handler = MagicMock(name="owned_handler")
+    owned_handler.lxmrouter = router
+    other_handler = MagicMock(name="other_handler")
+    other_handler.lxmrouter = MagicMock(name="other_router")
+    transport.announce_handlers = [owned_handler, other_handler]
+    session._rns_transport = transport
+
+    with patch("medre.adapters.lxmf.session.atexit.unregister") as unregister:
         session._teardown_sdk()
 
     router.exit_handler.assert_called_once_with()
+    assert transport.deregister_destination.call_args_list == [
+        call(propagation_destination),
+        call(control_destination),
+        call(delivery_destination),
+    ]
+    transport.deregister_announce_handler.assert_called_once_with(owned_handler)
     unregister.assert_called_once_with(router.exit_handler)
-    rns.Reticulum.exit_handler.assert_not_called()
+    reticulum_instance.exit_handler.assert_not_called()
     assert session._router is None
     assert session._reticulum is None
+    assert session._rns_transport is None
     assert session._delivery_destination is None
+
+
+def test_teardown_registry_cleanup_is_best_effort(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Registry cleanup failures are logged without blocking session teardown."""
+    config = LxmfConfig(adapter_id="lxmf-sdk-parity-cleanup-errors")
+    session = LxmfSession(config=config, adapter_id=config.adapter_id)
+    router = MagicMock()
+    shared_destination = MagicMock(name="shared_destination")
+    delivery_destination = MagicMock(name="delivery_destination")
+    router.propagation_destination = shared_destination
+    router.control_destination = shared_destination
+    router.delivery_destinations = {b"delivery": delivery_destination}
+    session._router = router
+
+    transport = MagicMock()
+    transport.deregister_destination.side_effect = RuntimeError("destination busy")
+    owned_handler = MagicMock(name="owned_handler")
+    owned_handler.lxmrouter = router
+    transport.announce_handlers = [owned_handler]
+    transport.deregister_announce_handler.side_effect = RuntimeError("handler busy")
+    session._rns_transport = transport
+
+    with patch("medre.adapters.lxmf.session.atexit.unregister"):
+        session._teardown_sdk()
+
+    assert transport.deregister_destination.call_args_list == [
+        call(shared_destination),
+        call(delivery_destination),
+    ]
+    transport.deregister_announce_handler.assert_called_once_with(owned_handler)
+    assert "could not deregister owned Reticulum destination" in caplog.text
+    assert "could not deregister owned LXMF announce handler" in caplog.text
+    assert session._router is None
+    assert session._rns_transport is None
 
 
 async def test_connect_restores_custom_process_signal_handlers(tmp_path: Path) -> None:

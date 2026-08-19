@@ -155,6 +155,19 @@ def test_router_and_reticulum_lifecycle_surfaces_exist() -> None:
     exit_source = inspect.getsource(router.exit_handler)
     assert "exit_handler_running = True" in exit_source
 
+    transport = rns.Transport
+    assert callable(getattr(transport, "deregister_destination", None))
+    assert callable(getattr(transport, "deregister_announce_handler", None))
+    assert isinstance(getattr(transport, "announce_handlers", None), list)
+
+    handlers = import_module("LXMF.Handlers")
+    delivery_handler_source = inspect.getsource(handlers.LXMFDeliveryAnnounceHandler)
+    propagation_handler_source = inspect.getsource(
+        handlers.LXMFPropagationAnnounceHandler
+    )
+    assert "self.lxmrouter" in delivery_handler_source
+    assert "self.lxmrouter" in propagation_handler_source
+
     reticulum = rns.Reticulum
     assert callable(getattr(reticulum, "get_instance", None))
     assert callable(getattr(reticulum, "exit_handler", None))

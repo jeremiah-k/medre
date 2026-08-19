@@ -349,12 +349,12 @@ class TestDurabilityHelpersTransportAgnostic:
 
 
 # ===================================================================
-# 6. Soak harness fake-only
+# 6. Legacy synthetic soak harnesses remain fake-only
 # ===================================================================
 
 
 class TestSoakFakeOnly:
-    """Soak harness files must only use fake adapters — no live transports."""
+    """Legacy synthetic soak harness files must remain transport-independent."""
 
     _SOAK_TEST_FILES = [
         "test_soak_harness.py",

@@ -45,6 +45,22 @@ def _make_session(**config_overrides: Any) -> LxmfSession:
     )
 
 
+async def test_malformed_callback_attribute_access_is_dropped() -> None:
+    """Malformed SDK objects never reach the inbound callback."""
+    received: list[dict[str, Any]] = []
+
+    class MalformedMessage:
+        @property
+        def source_hash(self) -> bytes:
+            raise ValueError("malformed SDK callback payload")
+
+    session = _make_session(connection_type="fake")
+    await session.start(message_callback=received.append)
+    session._on_lxmf_delivery(MalformedMessage())
+    assert received == []
+    await session.stop()
+
+
 # ====================================================================
 # Post-stop callback guard
 # ====================================================================

@@ -54,16 +54,17 @@ meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE validation test"
 
 ## Environment Variables
 
-| Variable                     | Required | Default | Description                   |
-| ---------------------------- | -------- | ------- | ----------------------------- |
-| `MESHTASTIC_CONNECTION_TYPE` | Yes      |         | `tcp`, `serial`, or `ble`     |
-| `MESHTASTIC_HOST`            | TCP      |         | Node hostname or IP           |
-| `MESHTASTIC_PORT`            | TCP      | `4403`  | TCP port                      |
-| `MESHTASTIC_SERIAL_PORT`     | Serial   |         | Serial device path            |
-| `MESHTASTIC_BLE_ADDRESS`     | BLE      |         | BLE MAC address               |
-| `MESHTASTIC_CHANNEL_INDEX`   | No       | `0`     | Channel for test messages     |
-| `MESHTASTIC_NODE_ID`         | No       |         | Meshtastic node ID            |
-| `MESHTASTIC_LIVE_SEND`       | TX       |         | `1` to enable RF transmission |
+| Variable                     | Required | Default | Description                             |
+| ---------------------------- | -------- | ------- | --------------------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | Yes      |         | `tcp`, `serial`, or `ble`               |
+| `MESHTASTIC_HOST`            | TCP      |         | Node hostname or IP                     |
+| `MESHTASTIC_PORT`            | TCP      | `4403`  | TCP port                                |
+| `MESHTASTIC_SERIAL_PORT`     | Serial   |         | Serial device path                      |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE      |         | BLE MAC address                         |
+| `MESHTASTIC_CHANNEL_INDEX`   | No       | `0`     | Channel for test messages               |
+| `MESHTASTIC_NODE_ID`         | No       |         | Meshtastic node ID                      |
+| `MESHTASTIC_LIVE_SEND`       | TX       |         | `1` to enable RF transmission           |
+| `MESHTASTIC_SOAK_CYCLES`     | No       | `10`    | Lifecycle cycles, valid range `1`–`100` |
 
 ## Evidence Tiers Achieved
 
@@ -94,6 +95,27 @@ Based on CLI-level serial validation:
 - Encrypted channel support: NOT EXECUTED.
 - BLE connectivity: NOT EXECUTED.
 - Docker inbound via pubsub: not proven (meshtasticd simulation mode limitation).
+
+## Hardware Soak Harness
+
+Physical-radio lifecycle endurance is opt-in and never runs in the default
+suite. Configure the same connection variables as the live smoke tests, then:
+
+```bash
+pip install -e ".[meshtastic,dev]"
+export MESHTASTIC_SOAK_CYCLES=10
+pytest tests/test_meshtastic_hardware_soak.py \
+  -m "hardware and live and soak and meshtastic_sdk" -v
+```
+
+The soak performs repeated MEDRE start/health/stop cycles without transmitting
+RF traffic. Pytest output records lifecycle results only; it does not by itself
+prove that a TCP endpoint is a physical radio.
+
+Before classifying a run as hardware evidence, the operator verifies that the
+endpoint is a physical device and archives the device identity/model, firmware
+version, MEDRE commit SHA, connection type, and pytest output with the evidence
+record. Runs without that independent device record remain lifecycle validation.
 
 ## See Also
 

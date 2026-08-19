@@ -142,3 +142,92 @@ jobs:
               ;;
           esac
           python -m pytest "$test_file" -v -m "$marker"
+
+  transport-local-integration:
+    name: transport-local-integration (${{ matrix.adapter }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [lxmf, meshcore]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install ${{ matrix.adapter }} local-integration dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[${{ matrix.adapter }},dev]"
+
+      - name: Run deterministic local integration
+        env:
+          ADAPTER: ${{ matrix.adapter }}
+        run: |
+          case "$ADAPTER" in
+            lxmf)
+              test_file="tests/integration/test_lxmf_local_integration.py"
+              sdk_marker="lxmf_sdk"
+              ;;
+            meshcore)
+              test_file="tests/integration/test_meshcore_local_integration.py"
+              sdk_marker="meshcore_sdk"
+              ;;
+            *)
+              echo "Unsupported local integration adapter: $ADAPTER" >&2
+              exit 2
+              ;;
+          esac
+          python -m pytest "$test_file" -v \
+            -m "local_integration and $sdk_marker and not soak"
+
+  transport-local-soak:
+    if: github.event_name == 'workflow_dispatch'
+    name: transport-local-soak (${{ matrix.adapter }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [lxmf, meshcore]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install ${{ matrix.adapter }} soak dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[${{ matrix.adapter }},dev]"
+
+      - name: Run local integration soak
+        env:
+          ADAPTER: ${{ matrix.adapter }}
+        run: |
+          case "$ADAPTER" in
+            lxmf)
+              test_file="tests/integration/test_lxmf_local_integration.py"
+              sdk_marker="lxmf_sdk"
+              ;;
+            meshcore)
+              test_file="tests/integration/test_meshcore_local_integration.py"
+              sdk_marker="meshcore_sdk"
+              ;;
+            *)
+              echo "Unsupported soak adapter: $ADAPTER" >&2
+              exit 2
+              ;;
+          esac
+          python -m pytest "$test_file" -v \
+            -m "local_integration and $sdk_marker and soak"

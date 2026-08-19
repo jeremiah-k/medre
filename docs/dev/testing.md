@@ -204,7 +204,7 @@ async def _cancel_immediately(*args, **kwargs):
 
 ## Adapter/Bridge Test Tiers
 
-Tests are classified into six tiers based on what they honestly prove. Never
+Tests are classified into seven tiers based on what they honestly prove. Never
 overclaim the evidence level of a test. If a test uses fake adapters, call it
 "fake pipeline", not "docker" or "live".
 
@@ -214,24 +214,43 @@ overclaim the evidence level of a test. If a test uses fake adapters, call it
 | 2    | `fake_adapter_callback` | `adapter.simulate_inbound()` produces the same results as direct injection             | Use `FakeMatrixAdapter.simulate_inbound()`, compare output with direct injection      |
 | 3    | `wrapper_callback`      | Real adapter SDK callback (e.g., `_on_room_message`) bridges to fake target            | Mock the SDK, test the wrapper callback through the pipeline to a fake target adapter |
 | 4    | `sdk_contract`          | Exact pinned optional SDK exposes the constructors, enums and callbacks MEDRE consumes | Dedicated `*_sdk` marker/job with the adapter extra installed                         |
-| 5    | `docker_sdk_boundary`   | Real SDK code paths work against containerized services (Synapse, meshtasticd)         | Docker Compose tests, gated by `@pytest.mark.docker`                                  |
-| 6    | `live_network`          | Real adapter against real endpoint or hardware                                         | `@pytest.mark.live`, requires environment variables                                   |
+| 5    | `local_integration`     | Real pinned SDK and MEDRE session run together against a deterministic local endpoint  | `@pytest.mark.local_integration` plus the adapter's `*_sdk` marker                    |
+| 6    | `docker_sdk_boundary`   | Real SDK code paths work against containerized services (Synapse, meshtasticd)         | Docker Compose tests, gated by `@pytest.mark.docker`                                  |
+| 7    | `live_network`          | Real adapter against real endpoint or hardware                                         | `@pytest.mark.live`; physical radios additionally use `@pytest.mark.hardware`         |
 
 ### Honest evidence reporting
 
 - Installed-SDK contract tests validate package surfaces without claiming a
   network/service integration result.
 - If a test uses Docker but not real hardware, label it **docker_sdk_boundary**
-  (tier 5), not "live".
+  (tier 6), not "live".
 - If a test uses fake adapters but a real pipeline, label it **fake_pipeline**
   (tier 1) or **fake_adapter_callback** (tier 2), not "docker".
 - If a test uses a real SDK but routes to a fake outbound target, label it
   **sdk_contract bridge smoke** (tier 4), not "live bridge". Reserve
-  **docker_sdk_boundary** (tier 5) for tests that actually use a containerized
+  **local_integration** (tier 5) for a deterministic local endpoint and
+  **docker_sdk_boundary** (tier 6) for tests that actually use a containerized
   service.
 
 The `medre smoke --json` report includes an `evidence_level` field set to
 `fake_bridge`. This is intentional. It does not overclaim.
+
+### Soak is an endurance dimension
+
+`soak` is intentionally **not** another evidence tier. It describes duration and
+repetition at one of the tiers above. A soak test therefore needs to carry the
+marker for the layer it exercises as well as `pytest.mark.soak`. Examples:
+
+- `local_integration + meshcore_sdk + soak` means repeated real-SDK/local-node
+  lifecycle and traffic without hardware.
+- `hardware + live + meshtastic_sdk + soak` means repeated MEDRE lifecycle
+  against a physical radio.
+- A fake-only soak remains synthetic evidence regardless of duration.
+
+The default suite excludes `local_integration` and `soak`. Pull requests run the
+deterministic local-integration layer separately; local-integration soak jobs are
+manual (`workflow_dispatch`) so they can be extended without making the normal
+feedback loop unbounded.
 
 ## Storage Tests
 

@@ -1,14 +1,12 @@
-"""Docker-based integration tests for MEDRE.
+"""Integration tests for MEDRE transport boundaries.
 
-Tests in this package require Docker and are tagged with ``pytest.mark.docker``.
-They are excluded from the default test run by the ``addopts`` in
-``pyproject.toml`` (``-m 'not live and not docker'``).
+This package contains both Docker-backed service integration and deterministic
+local real-SDK integration. Docker tests use ``pytest.mark.docker``; local
+endpoint/emulator tests use ``pytest.mark.local_integration`` plus the adapter's
+``*_sdk`` marker. Both are excluded from the default test run by ``pyproject``.
 
-To run these tests locally::
+Examples::
 
     pytest tests/integration/ -m docker -v
-
-Or to run all non-unit tests::
-
-    pytest -m ""  # includes both live and docker
+    pytest tests/integration/ -m "local_integration and not soak" -v
 """

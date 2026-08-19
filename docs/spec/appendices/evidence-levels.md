@@ -14,7 +14,7 @@ when tier-tagged evidence is available.
 
 | Tier label       | Legacy code | Meaning                                                                                                                                                                       | Allowed Claims                                                                                                                |
 | ---------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **historical**   | H           | *Archival documentation label.* Recorded during a prior development phase. Not a runtime evidence_tier value.                                                 | "On date D, behavior X was observed." No claim about current behavior. |
+| **historical**   | H           | _Archival documentation label._ Recorded during a prior development phase. Not a runtime evidence_tier value.                                                                 | "On date D, behavior X was observed." No claim about current behavior.                                                        |
 | **conformance**  | C           | Recorded against the current codebase at the current commit. Reproducible by re-running the same command.                                                                     | "At commit H, behavior X is confirmed."                                                                                       |
 | **synthetic**    | S           | Recorded using `FakeAdapter`, mock objects, or simulated transport. No real network or hardware involved.                                                                     | "The adapter's internal logic produces X when given input Y." No claim about real endpoint behavior.                          |
 | **docker**       | (was R)     | Tested against a local Docker container (e.g., Docker Synapse). Validates SDK integration and adapter wiring but not external network, federation, or real-world rate limits. | "SDK integration works in a containerized environment." Docker evidence does not prove external network or hardware behavior. |
@@ -39,6 +39,18 @@ The legacy codes H, C, S, R are accepted as shorthand in existing evidence table
 - Synthetic evidence (`synthetic`) may never be upgraded to `docker`, `live_service`, or `hardware` without a real endpoint or device run.
 - Docker evidence (`docker`) may not be upgraded to `live_service` or `hardware` without testing against an external service or physical device respectively.
 
+## 3.1 Test-layer labels versus evidence tiers
+
+The adapter test ladder also uses `sdk_contract` and `local_integration` labels.
+These labels describe **how a test is assembled**; they are not runtime evidence
+tiers. Installed-SDK contract tests and deterministic local endpoint/emulator
+tests are `conformance` evidence unless they also exercise a Docker service,
+external service, or physical device. `soak` describes duration/repetition and
+does not upgrade the evidence tier by itself.
+
+See [transport-realism.md](transport-realism.md) for the required ladder and
+scenario matrix.
+
 ## 4. Storage-Only Evidence Caveat
 
 Evidence stored in the SQLite database (receipts, outbox items, native refs) is a record of what the runtime observed and recorded. Stored evidence alone does not constitute validation of any tier. For example:
@@ -51,32 +63,33 @@ Evidence stored in the SQLite database (receipts, outbox items, native refs) is 
 
 ### Universal Fields (all transports, all evidence types)
 
-| Field                           | Required | Description                                                                                                                                      |
-| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Field                           | Required | Description                                                                                                                                                                                                                                                  |
+| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `tier`                          | Yes      | Evidence tier: `conformance`, `synthetic`, `docker`, `live_service`, or `hardware`. `historical` is accepted as an archival documentation label for prior test runs, not a valid runtime evidence_tier value (legacy codes H, C, S, R accepted as shorthand) |
-| `test_file`                     | Yes      | Path to the test file that produced this evidence                                                                                                |
-| `execution_date`                | Yes      | ISO date of execution, or `NOT EXECUTED`                                                                                                         |
-| `executor`                      | Yes      | Who/what ran the test                                                                                                                            |
-| `medre_commit`                  | Yes      | Git commit hash of the MEDRE codebase under test                                                                                                 |
-| `python_version`                | Yes      | Python version used                                                                                                                              |
-| `environment`                   | Yes      | Description of execution environment                                                                                                             |
-| `total_tests`                   | Yes      | Number of tests run                                                                                                                              |
-| `passed` / `failed` / `skipped` | Yes      | Test result counts                                                                                                                               |
-| `duration`                      | Yes      | Wall-clock duration of the test run                                                                                                              |
-| `caveats_observed`              | Yes      | Any unexpected behavior observed                                                                                                                 |
+| `test_file`                     | Yes      | Path to the test file that produced this evidence                                                                                                                                                                                                            |
+| `execution_date`                | Yes      | ISO date of execution, or `NOT EXECUTED`                                                                                                                                                                                                                     |
+| `executor`                      | Yes      | Who/what ran the test                                                                                                                                                                                                                                        |
+| `medre_commit`                  | Yes      | Git commit hash of the MEDRE codebase under test                                                                                                                                                                                                             |
+| `python_version`                | Yes      | Python version used                                                                                                                                                                                                                                          |
+| `environment`                   | Yes      | Description of execution environment                                                                                                                                                                                                                         |
+| `total_tests`                   | Yes      | Number of tests run                                                                                                                                                                                                                                          |
+| `passed` / `failed` / `skipped` | Yes      | Test result counts                                                                                                                                                                                                                                           |
+| `duration`                      | Yes      | Wall-clock duration of the test run                                                                                                                                                                                                                          |
+| `caveats_observed`              | Yes      | Any unexpected behavior observed                                                                                                                                                                                                                             |
 
 ## 6. Capability Status Definitions
 
-| Status                    | Meaning                                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `not started`             | No implementation exists. No tests. No code.                                                                          |
-| `designed`                | There is a spec, contract, or design document. No working code yet.                                                   |
-| `synthetic-tested`        | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
-| `conformance-tested`      | Tested against the current codebase with deterministic fixtures. Reproducible at the same commit.                     |
-| `docker-validated`        | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
-| `opt-in live test exists` | A test harness exists, gated by environment variables. Not yet run against a real transport with recorded results.    |
-| `live-validated`          | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
-| `blocked`                 | A known blocker prevents progress.                                                                                    |
+| Status                     | Meaning                                                                                                               |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `not started`              | No implementation exists. No tests. No code.                                                                          |
+| `designed`                 | There is a spec, contract, or design document. No working code yet.                                                   |
+| `implemented-not-executed` | Working harness exists, but no current-commit execution evidence is recorded.                                         |
+| `synthetic-tested`         | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
+| `conformance-tested`       | Tested against the current codebase with deterministic fixtures. Reproducible at the same commit.                     |
+| `docker-validated`         | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
+| `opt-in live test exists`  | A test harness exists, gated by environment variables. Not yet run against a real transport with recorded results.    |
+| `live-validated`           | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
+| `blocked`                  | A known blocker prevents progress.                                                                                    |
 
 ## 7. Policy
 

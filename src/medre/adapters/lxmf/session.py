@@ -407,6 +407,7 @@ class LxmfSession:
         "_reticulum",
         "_identity",
         "_router",
+        "_rns_transport",
         # Inbound callback
         "_message_callback",
         # Delivery state callback
@@ -454,6 +455,7 @@ class LxmfSession:
         self._reticulum: Any = None  # RNS.Reticulum instance
         self._identity: Any = None  # RNS.Identity instance
         self._router: Any = None  # LXMF.LXMRouter instance
+        self._rns_transport: Any = None  # RNS.Transport class used for cleanup
 
         # Inbound callback set via start().
         self._message_callback: MessageCallback | None = None
@@ -905,6 +907,7 @@ class LxmfSession:
             )
 
         RNS, lxmf = _require_lxmf()
+        self._rns_transport = RNS.Transport
 
         try:
             # 1. Initialise Reticulum — handle singleton constraint.
@@ -1048,6 +1051,7 @@ class LxmfSession:
         # Do *not* call RNS.Reticulum.exit_handler(): Reticulum is process-
         # global and may be shared by another consumer.
         router = self._router
+        transport = self._rns_transport
         if router is not None:
             try:
                 exit_handler = getattr(router, "exit_handler", None)
@@ -1059,6 +1063,64 @@ class LxmfSession:
                     self._adapter_id,
                     exc,
                 )
+
+            # RNS 1.4.2 keeps destinations and announce handlers in process-global
+            # Transport registries. LXMRouter.exit_handler() quiesces callbacks and
+            # links but does not deregister those registry entries. Remove only
+            # entries owned by this router so the same persistent identity can be
+            # started again without colliding with its previous destinations.
+            if transport is not None:
+                deregister_destination = getattr(
+                    transport, "deregister_destination", None
+                )
+                if callable(deregister_destination):
+                    owned_destinations: list[Any] = []
+                    for attr_name in ("propagation_destination", "control_destination"):
+                        destination = getattr(router, attr_name, None)
+                        if destination is not None:
+                            owned_destinations.append(destination)
+
+                    delivery_destinations = getattr(
+                        router, "delivery_destinations", None
+                    )
+                    if isinstance(delivery_destinations, dict):
+                        owned_destinations.extend(delivery_destinations.values())
+
+                    seen_destination_ids: set[int] = set()
+                    for destination in owned_destinations:
+                        destination_id = id(destination)
+                        if destination_id in seen_destination_ids:
+                            continue
+                        seen_destination_ids.add(destination_id)
+                        try:
+                            deregister_destination(destination)
+                        except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                            self._logger.warning(
+                                "LxmfSession %s: could not deregister owned "
+                                "Reticulum destination: %s",
+                                self._adapter_id,
+                                exc,
+                            )
+
+                deregister_announce_handler = getattr(
+                    transport, "deregister_announce_handler", None
+                )
+                announce_handlers = getattr(transport, "announce_handlers", None)
+                if callable(deregister_announce_handler) and isinstance(
+                    announce_handlers, list
+                ):
+                    for handler in tuple(announce_handlers):
+                        if getattr(handler, "lxmrouter", None) is not router:
+                            continue
+                        try:
+                            deregister_announce_handler(handler)
+                        except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                            self._logger.warning(
+                                "LxmfSession %s: could not deregister owned LXMF "
+                                "announce handler: %s",
+                                self._adapter_id,
+                                exc,
+                            )
 
             # LXMRouter registers the bound exit handler with atexit.  Once we
             # have explicitly run it, unregister it so stopped/reconnected
@@ -1083,6 +1145,7 @@ class LxmfSession:
         # Keeping the process singleton alive is intentional; the router exit
         # handler above is the adapter-owned lifecycle boundary.
         self._reticulum = None
+        self._rns_transport = None
 
     # ------------------------------------------------------------------
     # SDK callbacks

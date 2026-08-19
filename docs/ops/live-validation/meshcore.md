@@ -97,6 +97,22 @@ For a serial-first bring-up procedure that wires Matrix, Meshtastic, and
 MeshCore together with four additional one-way MeshCore routes, see
 [matrix-meshtastic-meshcore.md](matrix-meshtastic-meshcore.md).
 
+## Deterministic Local Integration
+
+Before hardware validation, run the real pinned MeshCore SDK against MEDRE's
+local companion-protocol endpoint:
+
+```bash
+pip install -e ".[meshcore,dev]"
+pytest tests/integration/test_meshcore_local_integration.py \
+  -m "local_integration and meshcore_sdk and not soak" -v
+```
+
+This layer proves SDK framing/APPSTART, inbound dispatch, outbound MSG_SENT,
+disconnect/reconnect, cancellation, and send serialization without claiming RF
+behavior. A manual repeated-cycle variant is available with
+`-m "local_integration and meshcore_sdk and soak"`.
+
 ## See Also
 
 - [matrix-meshtastic-meshcore.md](matrix-meshtastic-meshcore.md) -- serial-first 3-way bridge bring-up (Matrix + Meshtastic + MeshCore)
