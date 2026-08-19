@@ -321,7 +321,9 @@ def test_teardown_quiesces_router_without_stopping_reticulum() -> None:
     assert session._delivery_destination is None
 
 
-def test_teardown_registry_cleanup_is_best_effort(caplog: pytest.LogCaptureFixture) -> None:
+def test_teardown_registry_cleanup_is_best_effort(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Registry cleanup failures are logged without blocking session teardown."""
     config = LxmfConfig(adapter_id="lxmf-sdk-parity-cleanup-errors")
     session = LxmfSession(config=config, adapter_id=config.adapter_id)
@@ -338,9 +340,7 @@ def test_teardown_registry_cleanup_is_best_effort(caplog: pytest.LogCaptureFixtu
     owned_handler = MagicMock(name="owned_handler")
     owned_handler.lxmrouter = router
     transport.announce_handlers = [owned_handler]
-    transport.deregister_announce_handler.side_effect = RuntimeError(
-        "handler busy"
-    )
+    transport.deregister_announce_handler.side_effect = RuntimeError("handler busy")
     session._rns_transport = transport
 
     with patch("medre.adapters.lxmf.session.atexit.unregister"):
