@@ -20,8 +20,8 @@ from typing import (
     Awaitable,
     Callable,
     Literal,
-    TypeVar,
     TypedDict,
+    TypeVar,
     cast,
 )
 

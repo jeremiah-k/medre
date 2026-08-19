@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from medre.core.engine.pipeline import PipelineRunner
-from medre.core.engine.pipeline.runner import _bounded_ordered_map
 from medre.core.engine.pipeline.outbox_manager import OutboxContext
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
+from medre.core.engine.pipeline.runner import _bounded_ordered_map
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage

@@ -89,7 +89,7 @@ guard enforcing field-value parity across all four transport profiles.
 | `priority_delivery`   | `false`         | `False`         | `False`         | unsupported | No priority handling.                                                                                                                                          |
 | `max_text_bytes`      | `null`          | `None`          | `None`          | correct     | No hard byte limit at protocol level.                                                                                                                          |
 | `max_text_chars`      | `null`          | `None`          | `None`          | correct     | No hard char limit at protocol level.                                                                                                                          |
-| `threads`             | `"fallback"`   | `"fallback"`   | `"fallback"`   | correct     | Native Matrix threading is not yet verified; deterministic inline fallback is advertised.                                                                      |
+| `threads`             | `"fallback"`    | `"fallback"`    | `"fallback"`    | correct     | Native Matrix threading is not yet verified; deterministic inline fallback is advertised.                                                                      |
 
 ### 4.2 Meshtastic (Transport Adapter)
 
@@ -116,7 +116,7 @@ guard enforcing field-value parity across all four transport profiles.
 | `priority_delivery`   | `false`         | `False`         | `False`         | unsupported | No priority handling.                                                                                                                 |
 | `max_text_bytes`      | `227`           | `227` (default) | `227`           | correct     | Default from `MeshtasticConfig.max_text_bytes`. See §5.2.                                                                             |
 | `max_text_chars`      | `null`          | `None`          | `None`          | correct     | No char limit enforced.                                                                                                               |
-| `threads`             | `"fallback"`   | `"fallback"`   | `"fallback"`   | correct     | Meshtastic has no native thread model; deterministic inline fallback is advertised.                                                    |
+| `threads`             | `"fallback"`    | `"fallback"`    | `"fallback"`    | correct     | Meshtastic has no native thread model; deterministic inline fallback is advertised.                                                   |
 
 ### 4.3 MeshCore (Transport Adapter)
 
@@ -143,7 +143,7 @@ guard enforcing field-value parity across all four transport profiles.
 | `priority_delivery`   | `false`         | `False`         | `False`         | unsupported | No priority handling.                                                                             |
 | `max_text_bytes`      | `512`           | `512` (default) | `512`           | correct     | Default from `MeshCoreConfig.max_text_bytes`. Configurable per-instance.                          |
 | `max_text_chars`      | `null`          | `None`          | `None`          | correct     | No char limit; bytes are enforced.                                                                |
-| `threads`             | `"fallback"`   | `"fallback"`   | `"fallback"`   | correct     | MeshCore has no native thread model; deterministic inline fallback is advertised.                |
+| `threads`             | `"fallback"`    | `"fallback"`    | `"fallback"`    | correct     | MeshCore has no native thread model; deterministic inline fallback is advertised.                 |
 
 ### 4.4 LXMF (Transport Adapter)
 
@@ -170,7 +170,7 @@ guard enforcing field-value parity across all four transport profiles.
 | `priority_delivery`   | `false`         | `False`         | `False`         | unsupported | No priority handling.                                                                                                           |
 | `max_text_bytes`      | `null`          | `None`          | `None`          | correct     | No byte limit enforced by MEDRE.                                                                                                |
 | `max_text_chars`      | `16384`         | `16384`         | `16384`         | correct     | LXMF 16KB character limit.                                                                                                      |
-| `threads`             | `"fallback"`   | `"fallback"`   | `"fallback"`   | correct     | MEDRE does not use LXMF `FIELD_THREAD`; deterministic inline fallback is advertised.                                                                       |
+| `threads`             | `"fallback"`    | `"fallback"`    | `"fallback"`    | correct     | MEDRE does not use LXMF `FIELD_THREAD`; deterministic inline fallback is advertised.                                            |
 
 ## 5. Detailed Findings
 

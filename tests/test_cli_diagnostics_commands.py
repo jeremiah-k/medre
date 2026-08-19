@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from medre.cli.diagnostics_commands import _metrics_projection
-
 from tests.helpers.cli import (
     CONFIG_NO_ADAPTERS,
     _run_cli,

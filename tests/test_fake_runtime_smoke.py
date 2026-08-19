@@ -631,7 +631,7 @@ class TestRepeatedStartStopCycles:
                 )
                 await alpha.simulate_inbound(event)
                 await wait_until(
-                    lambda: len(beta.delivered_payloads) == 1, timeout=2.0
+                    lambda b=beta: len(b.delivered_payloads) == 1, timeout=2.0
                 )
 
                 # Verify delivery occurred.

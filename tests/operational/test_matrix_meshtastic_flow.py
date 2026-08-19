@@ -191,9 +191,9 @@ class _FakeStorage:
             object.__setattr__(item, "status", "abandoned")
 
 
-
 def test_fake_storage_satisfies_delivery_lifecycle_storage_contract() -> None:
     assert isinstance(_FakeStorage(), DeliveryLifecycleStorage)
+
 
 def _make_ctx(
     adapter_id: str = "fake",

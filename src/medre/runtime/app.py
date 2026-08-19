@@ -1187,15 +1187,9 @@ class MedreApp:
             except Exception as exc:
                 _logger.error("Error stopping durable ingress worker: %s", exc)
 
-        ingress_unfinished = (
-            self._ingress_worker is not None
-            and (
-                self._ingress_worker.running
-                or (
-                    ingress_stop_result is not None
-                    and not ingress_stop_result.stopped
-                )
-            )
+        ingress_unfinished = self._ingress_worker is not None and (
+            self._ingress_worker.running
+            or (ingress_stop_result is not None and not ingress_stop_result.stopped)
         )
         if ingress_unfinished:
             active_event_id = self._ingress_worker.active_event_id

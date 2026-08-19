@@ -242,12 +242,12 @@ queued → sent
        ↘ suppressed
 ```
 
-| Status          | Meaning                                                                                        |
-| --------------- | ---------------------------------------------------------------------------------------------- |
-| `queued`        | Delivery plan created, waiting for adapter execution.                                          |
-| `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means. |
-| `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                               |
-| `dead_lettered` | Exhausted all retries. Permanently failed.                                                     |
+| Status          | Meaning                                                                                                                                                                                                                                       |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `queued`        | Delivery plan created, waiting for adapter execution.                                                                                                                                                                                         |
+| `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means.                                                                                                                                                |
+| `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                                                                                                                                                                              |
+| `dead_lettered` | Exhausted all retries. Permanently failed.                                                                                                                                                                                                    |
 | `suppressed`    | Terminal for that delivery attempt. Policy/loop denials remain terminal; direct/replay capacity or shutdown rejection is also terminal for that attempt. Storage-backed live ingress instead defers its durable work row for a later attempt. |
 
 Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column distinguishes origin: `"live"`, `"retry"`, or `"replay"`.

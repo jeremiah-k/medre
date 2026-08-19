@@ -155,18 +155,22 @@ class DurableIngressWorker:
             self._consume_worker_result(task)
             return
         task.cancel()
-        # Give a cooperative coroutine one event-loop turn to observe cancellation.
-        # A cancellation-resistant pipeline remains retained in ``self._task`` and
-        # its eventual result is consumed by the callback below.
-        await asyncio.sleep(0)
+        # Give cooperative coroutines a bounded window to observe cancellation.
+        # One asyncio.sleep(0) is often not enough because nested awaits
+        # like ``asyncio.wait`` need multiple event-loop passes for full
+        # cleanup. A cancellation-resistant pipeline that intentionally
+        # suppresses cancellation remains retained in ``self._task`` and its
+        # eventual result is consumed by the callback below.
+        for _ in range(5):
+            if task.done():
+                break
+            await asyncio.sleep(0)
         if task.done():
             self._consume_worker_result(task)
         else:
             task.add_done_callback(self._consume_worker_result)
 
-    async def stop(
-        self, *, grace_seconds: float = 0.0
-    ) -> IngressWorkerStopResult:
+    async def stop(self, *, grace_seconds: float = 0.0) -> IngressWorkerStopResult:
         """Stop claiming new work and report whether the task terminated.
 
         ``grace_seconds`` bounds how long an already-claimed event may finish.
