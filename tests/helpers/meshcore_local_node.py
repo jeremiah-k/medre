@@ -80,8 +80,13 @@ class LocalMeshCoreNode:
     commands: list[bytes] = field(default_factory=list, init=False)
     send_commands: list[bytes] = field(default_factory=list, init=False)
     send_seen: asyncio.Event = field(default_factory=asyncio.Event, init=False)
+    send_receipts: asyncio.Queue[bytes] = field(
+        default_factory=asyncio.Queue,
+        init=False,
+    )
     release_sends: asyncio.Event = field(default_factory=asyncio.Event, init=False)
     _writers: set[asyncio.StreamWriter] = field(default_factory=set, init=False)
+    _command_tasks: set[asyncio.Task[None]] = field(default_factory=set, init=False)
 
     async def __aenter__(self) -> "LocalMeshCoreNode":
         self.server = await asyncio.start_server(self._handle_client, self.host, 0)
@@ -95,6 +100,12 @@ class LocalMeshCoreNode:
         await self.close()
 
     async def close(self) -> None:
+        for task in list(self._command_tasks):
+            task.cancel()
+        if self._command_tasks:
+            await asyncio.gather(*self._command_tasks, return_exceptions=True)
+        self._command_tasks.clear()
+
         for writer in list(self._writers):
             writer.close()
         for writer in list(self._writers):
@@ -117,6 +128,11 @@ class LocalMeshCoreNode:
                 await writer.wait_closed()
             except (ConnectionError, OSError):
                 pass
+        self._writers.difference_update(writers)
+
+    async def next_send_receipt(self) -> bytes:
+        """Wait for the next direct/channel send command read from the socket."""
+        return await self.send_receipts.get()
 
     async def inject_channel_message(
         self, text: str, *, channel_index: int = 0
@@ -158,7 +174,11 @@ class LocalMeshCoreNode:
                 size = int.from_bytes(header[1:], "little")
                 payload = await reader.readexactly(size)
                 self.commands.append(payload)
-                await self._handle_command(payload, writer)
+                if payload and payload[0] in {0x02, 0x03}:
+                    task = asyncio.create_task(self._handle_command(payload, writer))
+                    self._command_tasks.add(task)
+                else:
+                    await self._handle_command(payload, writer)
         except (asyncio.IncompleteReadError, ConnectionError, OSError):
             pass
         finally:
@@ -184,6 +204,7 @@ class LocalMeshCoreNode:
             return
         if command == 0x02:  # direct text message
             self.send_commands.append(payload)
+            self.send_receipts.put_nowait(payload)
             self.send_seen.set()
             if self.disconnect_on_next_send:
                 self.disconnect_on_next_send = False
@@ -201,6 +222,7 @@ class LocalMeshCoreNode:
             return
         if command == 0x03:  # channel text message
             self.send_commands.append(payload)
+            self.send_receipts.put_nowait(payload)
             self.send_seen.set()
             if self.stall_sends:
                 return

@@ -151,13 +151,28 @@ async def test_real_sdk_send_lock_applies_backpressure() -> None:
         await session.start(lambda _payload: None)
 
         first = asyncio.create_task(session.send_text("001122334455", "first"))
-        await asyncio.wait_for(node.send_seen.wait(), timeout=2.0)
-        second = asyncio.create_task(session.send_text("001122334455", "second"))
-        await asyncio.sleep(0)
-        assert len(node.send_commands) == 1
+        first_receipt = await asyncio.wait_for(node.next_send_receipt(), timeout=2.0)
+        assert first_receipt in node.send_commands
+
+        second_entered = asyncio.Event()
+
+        async def send_second() -> str | None:
+            second_entered.set()
+            return await session.send_text("001122334455", "second")
+
+        second = asyncio.create_task(send_second())
+        await asyncio.wait_for(second_entered.wait(), timeout=2.0)
+
+        # The local endpoint keeps reading while the first response is blocked.
+        # Without the MEDRE session lock, the second command would reach this
+        # receipt queue before the first response is released.
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(node.next_send_receipt(), timeout=0.1)
 
         node.release_sends.set()
         assert await first == "10203040"
+        second_receipt = await asyncio.wait_for(node.next_send_receipt(), timeout=2.0)
+        assert second_receipt in node.send_commands
         assert await second == "10203040"
         assert len(node.send_commands) == 2
         await session.stop()
