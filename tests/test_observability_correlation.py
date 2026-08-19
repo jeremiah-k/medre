@@ -13,7 +13,7 @@ from medre.core.observability.correlation import (
     correlation_scope,
     current_correlation,
 )
-from medre.core.observability.logging import setup_logging
+from medre.core.observability.logging import _DEPENDENCY_DEFAULTS, setup_logging
 
 
 def test_correlation_scope_nests_and_restores() -> None:
@@ -64,6 +64,13 @@ def test_json_logging_inherits_correlation(
     previous_medre_handlers = list(medre_logger.handlers)
     previous_medre_level = medre_logger.level
     previous_medre_propagate = medre_logger.propagate
+    previous_dependency_levels = {
+        name: logging.getLogger(name).level for name in _DEPENDENCY_DEFAULTS
+    }
+    previous_handler_state = [
+        (handler, handler.level, handler.formatter, list(handler.filters))
+        for handler in {*root.handlers, *medre_logger.handlers}
+    ]
     try:
         setup_logging(level="INFO", json_format=True)
         with correlation_scope(trace_id="trace-json", event_id="evt-json"):
@@ -80,3 +87,9 @@ def test_json_logging_inherits_correlation(
         medre_logger.handlers[:] = previous_medre_handlers
         medre_logger.setLevel(previous_medre_level)
         medre_logger.propagate = previous_medre_propagate
+        for handler, level, formatter, filters in previous_handler_state:
+            handler.setLevel(level)
+            handler.setFormatter(formatter)
+            handler.filters[:] = filters
+        for name, level in previous_dependency_levels.items():
+            logging.getLogger(name).setLevel(level)

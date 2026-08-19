@@ -144,6 +144,40 @@ async def test_worker_deferral_does_not_consume_terminal_budget_or_hot_loop() ->
     assert worker.terminal_failures == 0
 
 
+async def test_worker_polls_after_deferral_even_when_cycle_completed_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = _Storage([_work("evt-complete"), _work("evt-deferred")])
+
+    class _PartiallyDeferredPipeline:
+        async def process_admitted_event(self, event_id: str) -> None:
+            if event_id == "evt-deferred":
+                raise DurableIngressDeferredError(event_id, ("capacity_rejection",))
+
+    worker = DurableIngressWorker(
+        storage=storage,
+        pipeline=_PartiallyDeferredPipeline(),
+        batch_size=5,
+        interval_seconds=60,
+    )
+    poll_waited = asyncio.Event()
+
+    async def observe_poll_wait(awaitable, *, timeout: float):
+        assert timeout == 60
+        poll_waited.set()
+        worker._stop.set()
+        return await awaitable
+
+    monkeypatch.setattr(asyncio, "wait_for", observe_poll_wait)
+
+    await worker._run()
+
+    assert poll_waited.is_set()
+    assert storage.completed == ["evt-complete"]
+    assert [event_id for event_id, _error in storage.deferred] == ["evt-deferred"]
+    assert storage.claim_limits == [1, 1]
+
+
 async def test_worker_terminally_fails_poison_work_at_retry_budget() -> None:
     storage = _Storage([_work(attempts=5)])
     worker = DurableIngressWorker(

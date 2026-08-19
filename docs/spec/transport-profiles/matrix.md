@@ -35,7 +35,7 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 
 Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-capabilities.json)
 
-> Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2):
+> Capability levels map to the CapabilityLevel type alias (adapter-runtime.md §6.2):
 > `"native"` = `TRUE`, `"fallback"` = degraded inline text, and
 > `"unsupported"` = `FALSE`.
 

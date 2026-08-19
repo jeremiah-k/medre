@@ -35,7 +35,7 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 
 Machine-readable capability declaration: [`lxmf-capabilities.json`](lxmf-capabilities.json)
 
-> Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2):
+> Capability levels map to the CapabilityLevel type alias (adapter-runtime.md §6.2):
 > `"native"` = `TRUE`, `"fallback"` = degraded inline text, and
 > `"unsupported"` = `FALSE`.
 

@@ -92,6 +92,7 @@ class DurableIngressWorker:
         self._lost_leases = 0
         self._terminal_failures = 0
         self._deferrals = 0
+        self._deferred_this_cycle = False
         self._active_event_id: str | None = None
         self._forced_cancellations = 0
 
@@ -264,6 +265,7 @@ class DurableIngressWorker:
         another event while its lease is already counting down.
         """
         completed = 0
+        self._deferred_this_cycle = False
         for _ in range(self._batch_size):
             if self._stop.is_set():
                 break
@@ -343,6 +345,8 @@ class DurableIngressWorker:
                     )
             finally:
                 self._active_event_id = None
+            if deferred:
+                self._deferred_this_cycle = True
             if deferred or self._stop.is_set():
                 break
         return completed
@@ -357,7 +361,7 @@ class DurableIngressWorker:
                 self._failures += 1
                 processed = 0
                 self._logger.exception("Durable ingress claim cycle failed; retrying")
-            if processed == 0:
+            if processed == 0 or self._deferred_this_cycle:
                 try:
                     await asyncio.wait_for(
                         self._stop.wait(), timeout=self._interval_seconds

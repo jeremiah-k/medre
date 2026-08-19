@@ -131,8 +131,15 @@ async def test_re_render_prefers_live_evidence_over_later_delivery_sources(
 
 
 @pytest.mark.parametrize("accepted_status", ["queued", "sent"])
+@pytest.mark.parametrize(
+    ("stored_channel", "target_channel"),
+    [("room", "room"), ("", None)],
+)
 async def test_same_replay_run_suppresses_already_accepted_target(
-    temp_storage: SQLiteStorage, accepted_status: str
+    temp_storage: SQLiteStorage,
+    accepted_status: str,
+    stored_channel: str,
+    target_channel: str | None,
 ) -> None:
     event = make_event(
         event_id="core-reliability-replay-suppress", source_adapter="src"
@@ -143,7 +150,7 @@ async def test_same_replay_run_suppresses_already_accepted_target(
         source=RouteSource(
             adapter="src", event_kinds=("message.created",), channel=None
         ),
-        targets=[RouteTarget(adapter="dest", channel="room")],
+        targets=[RouteTarget(adapter="dest", channel=target_channel)],
     )
     plan = DeliveryPlan(
         plan_id="plan-replay",
@@ -157,7 +164,7 @@ async def test_same_replay_run_suppresses_already_accepted_target(
             event_id=event.event_id,
             delivery_plan_id=plan.plan_id,
             target_adapter="dest",
-            target_channel="room",
+            target_channel=stored_channel,
             route_id=route.id,
             status=accepted_status,  # type: ignore[arg-type]
             source="replay",

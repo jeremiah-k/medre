@@ -32,7 +32,7 @@ from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 _OUTBOX_RENEWAL_INTERVAL_SECONDS: int = 30  # seconds between lease renewals
 _OUTBOX_RENEWAL_DURATION_SECONDS: int = 60  # lease TTL (kept short; renewed)
-OUTBOX_CREATION_FAILED_REASON = "outbox_creation_failed"
+OUTBOX_CREATION_FAILED_REASON: str = "outbox_creation_failed"
 
 
 @dataclass(frozen=True)

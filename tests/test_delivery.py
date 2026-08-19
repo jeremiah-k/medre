@@ -547,6 +547,7 @@ class TestDeliveryFailureKind:
             DeliveryFailureKind.POLICY_SUPPRESSED,
             DeliveryFailureKind.CAPABILITY_SUPPRESSED,
             DeliveryFailureKind.OUTBOX_NOT_OWNED,
+            DeliveryFailureKind.REPLAY_DUPLICATE_SUPPRESSED,
         ]
         for kind in non_retryable:
             assert kind.is_retryable is False, f"{kind.name} should not be retryable"

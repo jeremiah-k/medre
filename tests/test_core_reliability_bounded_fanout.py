@@ -184,22 +184,55 @@ async def test_production_fanout_invokes_only_delivery_limit_acquires(
     ]
 
 
-async def test_bounded_worker_pool_cancels_siblings_after_failure() -> None:
+async def test_bounded_worker_pool_finishes_siblings_and_reraises_original() -> None:
     sibling_entered = asyncio.Event()
-    sibling_cancelled = asyncio.Event()
+    completed: set[int] = set()
 
     async def handle(item: int) -> int:
         if item == 0:
             await asyncio.wait_for(sibling_entered.wait(), timeout=1)
             raise RuntimeError("worker failed")
         sibling_entered.set()
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            sibling_cancelled.set()
-            raise
+        await asyncio.sleep(0)
+        completed.add(item)
+        return item
 
-    with pytest.raises(ExceptionGroup):
+    with pytest.raises(RuntimeError, match="worker failed"):
         await _bounded_ordered_map([0, 1, 2], handle, worker_limit=2)
 
-    await asyncio.wait_for(sibling_cancelled.wait(), timeout=1)
+    assert completed == {1, 2}
+
+
+async def test_bounded_worker_pool_reraises_direct_handler_cancellation() -> None:
+    async def handle(_item: int) -> int:
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await _bounded_ordered_map([0], handle, worker_limit=1)
+
+
+async def test_bounded_worker_pool_propagates_caller_cancellation() -> None:
+    both_started = asyncio.Event()
+    never = asyncio.Event()
+    started = 0
+    cancelled: set[int] = set()
+
+    async def handle(item: int) -> int:
+        nonlocal started
+        started += 1
+        if started == 2:
+            both_started.set()
+        try:
+            await never.wait()
+        except asyncio.CancelledError:
+            cancelled.add(item)
+            raise
+        return item
+
+    task = asyncio.create_task(_bounded_ordered_map([0, 1], handle, worker_limit=2))
+    await asyncio.wait_for(both_started.wait(), timeout=1)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled == {0, 1}

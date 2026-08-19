@@ -104,8 +104,9 @@ async def _bounded_ordered_map(
 ) -> list[_ResultT]:
     """Apply *handler* with bounded task creation and stable result ordering.
 
-    ``TaskGroup`` gives the pool structured cancellation: if one worker raises,
-    sibling workers are cancelled before this helper returns to its caller.
+    Per-item failures are retained until every sibling item finishes, then the
+    first failure in input order is re-raised unchanged.  Cancellation of the
+    caller still cancels the worker group immediately.
     """
     if not items:
         return []
@@ -124,7 +125,18 @@ async def _bounded_ordered_map(
                 index = next_index
                 next_index += 1
                 item = items[index]
-            results[index] = await handler(item)
+            try:
+                results[index] = await handler(item)
+            except asyncio.CancelledError as exc:
+                current_task = asyncio.current_task()
+                if current_task is not None and current_task.cancelling():
+                    raise
+                # A handler may raise CancelledError directly even though the
+                # worker itself was not cancelled.  TaskGroup otherwise treats
+                # that as normal child cancellation and loses the exception.
+                results[index] = exc
+            except Exception as exc:
+                results[index] = exc
 
     async with asyncio.TaskGroup() as task_group:
         for _ in range(worker_count):
@@ -132,6 +144,9 @@ async def _bounded_ordered_map(
 
     if any(result is sentinel for result in results):
         raise RuntimeError("bounded worker pool returned incomplete results")
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
     return cast(list[_ResultT], results)
 
 
@@ -1495,7 +1510,7 @@ class PipelineRunner:
                     and receipt.replay_run_id == replay_run_id
                     and receipt.delivery_plan_id == route_plan.plan_id
                     and receipt.target_adapter == adapter_id
-                    and receipt.target_channel == target.channel
+                    and (receipt.target_channel or None) == (target.channel or None)
                     and receipt.status in {"queued", "sent"}
                     for receipt in replay_receipts
                 )

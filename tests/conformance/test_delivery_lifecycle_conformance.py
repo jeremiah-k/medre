@@ -125,7 +125,9 @@ class _MemoryStorage:
         attempt_number: int | None = None,
     ) -> None:
         item = self._outbox.get(outbox_id)
-        if item is not None:
+        if item is not None and (
+            attempt_number is None or item.attempt_number == attempt_number
+        ):
             object.__setattr__(item, "status", "retry_wait")
 
     async def mark_outbox_dead_lettered(
@@ -138,7 +140,9 @@ class _MemoryStorage:
         attempt_number: int | None = None,
     ) -> None:
         item = self._outbox.get(outbox_id)
-        if item is not None:
+        if item is not None and (
+            attempt_number is None or item.attempt_number == attempt_number
+        ):
             object.__setattr__(item, "status", "dead_lettered")
 
     # -- Required by abstract protocol but unused in these tests --
@@ -163,6 +167,30 @@ class _MemoryStorage:
 
 def test_memory_storage_satisfies_delivery_lifecycle_storage_contract() -> None:
     assert isinstance(_MemoryStorage(), DeliveryLifecycleStorage)
+
+
+async def test_memory_storage_ignores_stale_outbox_attempt_updates() -> None:
+    storage = _MemoryStorage()
+    item = DeliveryOutboxItem(
+        outbox_id="obox-current-attempt",
+        event_id="evt-current-attempt",
+        route_id="route-current-attempt",
+        delivery_plan_id="plan-current-attempt",
+        target_adapter="matrix",
+        target_channel=None,
+        attempt_number=2,
+        status="in_progress",
+    )
+    await storage.create_outbox_item(item)
+
+    await storage.mark_outbox_retry_wait(
+        item.outbox_id,
+        "2026-08-19T00:00:00+00:00",
+        attempt_number=1,
+    )
+    await storage.mark_outbox_dead_lettered(item.outbox_id, attempt_number=1)
+
+    assert item.status == "in_progress"
 
 
 class TestDeliveryLifecycleConformance:

@@ -462,7 +462,7 @@ CREATE TABLE delivery_receipts (
     outbox_id TEXT,
     confirmation_level TEXT NOT NULL DEFAULT 'unknown'
         CHECK (confirmation_level IN (
-            'none', 'unknown', 'local_queue', 'local_transport',
+            'unknown', 'local_queue', 'local_transport',
             'remote_service', 'end_to_end'
         )),
     created_at TEXT NOT NULL
@@ -475,9 +475,9 @@ receipts).
 
 `outbox_id` is the internal correlation key joining a receipt to its durable
 outbox attempt when applicable. `confirmation_level` records the strongest
-transport handoff fact proven by the receipt: `none`, `unknown`,
-`local_queue`, `local_transport`, `remote_service`, or `end_to_end`. It
-is evidence strength and MUST NOT be inferred from `status` alone.
+transport handoff fact proven by the receipt: `unknown`, `local_queue`,
+`local_transport`, `remote_service`, or `end_to_end`. It is evidence strength
+and MUST NOT be inferred from `status` alone.
 
 `sequence` provides a strictly monotonic append order. It is used by the `delivery_status` view to deterministically find the latest receipt, avoiding timestamp collisions.
 
