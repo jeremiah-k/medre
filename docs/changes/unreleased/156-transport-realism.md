@@ -2,6 +2,8 @@
 
 - Added explicit transport test layers for exact-SDK local integration and soak
   endurance without changing runtime evidence-tier semantics.
+- Made LXMF real-session stop/restart release router-owned Reticulum destinations
+  and announce handlers so a persistent identity can restart in-process.
 - Added deterministic real-SDK local integration for MeshCore TCP and
   process-isolated real RNS/LXMRouter lifecycle integration for LXMF.
 - Added opt-in Meshtastic hardware lifecycle soak coverage and marked physical

@@ -301,7 +301,8 @@ State transitions are tracked via `_on_delivery_state_update` callbacks from `LX
    - Sets `_stop_requested` (prevents reconnect loops).
    - Cancels announce and reconnect tasks.
    - Unsubscribes callbacks.
-   - Tears down SDK objects in reverse order (router → identity → reticulum reference).
+   - Quiesces the owned router, deregisters its Reticulum destinations and
+     announce handlers, then releases identity/router/Reticulum references.
    - Clears outbound tracking and nulls loop/callback references so late SDK callbacks are dropped.
    - Idempotent.
 
@@ -363,9 +364,11 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 - **Reticulum singleton constraint.** `RNS.Reticulum()` raises `OSError` if already running; the session uses `get_instance()` to reuse existing instances. Multiple sessions share the same Reticulum transport.
 - **No LXMRouter delivery-callback deregistration API.** `_stop_requested`
   silences late callbacks and `_teardown_sdk()` runs the owned router
-  `exit_handler()` to detach delivery-destination callbacks/links before
-  dropping it. The router daemon job loop has no public join/stop primitive
-  and remains dormant until process exit.
+  `exit_handler()` to detach delivery-destination callbacks/links. MEDRE then
+  deregisters only that router's Reticulum destinations and announce handlers
+  so a persistent identity can restart in the same process. The router daemon
+  job loop has no public join/stop primitive and remains dormant until process
+  exit.
 - **stamp_cost follows the LXMF SDK range.** `0` disables stamps; positive
   values are limited to `1..254`.
 - **Propagated delivery requires an outbound node.** `LXMRouter` starts with
