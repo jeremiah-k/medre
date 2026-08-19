@@ -85,6 +85,15 @@ descriptive reason.
   communications during testing.  Messages are prefixed with
   ``MEDRE live smoke`` for easy identification.
 
+**Contract coverage notes:**
+
+- Startup backlog suppression is exercised by the dedicated Meshtastic backlog
+  tests rather than by this hardware smoke module.
+- The adapter capability profile declares outbound direct messages unsupported;
+  inbound direct-message metadata is preserved separately.
+- Native packet-ID generation is covered by the installed mtjk contract tests
+  and by the executable ``sendText``/``sendData`` live tests below.
+
 **Dependency notes:**
 
 - Requires the ``mtjk`` package installed: ``pip install mtjk``
@@ -304,34 +313,6 @@ def _connect_interface(config):
         pytest.skip(f"Connection type {ct!r} not yet supported in live harness")
 
     return iface
-
-
-def test_backlog_suppression_implemented_note() -> None:
-    """Document that startup backlog suppression is implemented.
-
-    ``startup_backlog_suppress_seconds`` is wired into the Meshtastic adapter's
-    inbound path. Cutoff comparison lives in the transport-neutral helper
-    ``medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog``,
-    while Meshtastic-specific rxTime extraction lives in
-    ``medre.adapters.meshtastic.startup_backlog``.
-    """
-
-
-def test_outbound_dm_not_supported_note() -> None:
-    """Document that outbound direct-message delivery is not supported.
-
-    The adapter declares ``direct_messages=False``. Inbound DM metadata is
-    preserved, but no outbound DM send path exists.
-    """
-
-
-def test_sendtext_returns_packet_with_id_note() -> None:
-    """Document that mtjk sendText/sendData return packets with native IDs.
-
-    Both calls return a ``MeshPacket`` protobuf whose ``id`` is populated by
-    the interface packet-ID generator. Raw live tests and installed-SDK
-    contract tests cover the executable behavior.
-    """
 
 
 # ---------------------------------------------------------------------------

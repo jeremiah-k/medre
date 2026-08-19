@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -68,7 +68,7 @@ def _context() -> AdapterContext:
         event_bus=None,
         publish_inbound=publish_inbound,
         logger=logging.getLogger("test.meshtastic.hardware-soak"),
-        clock=lambda: datetime.now(timezone.utc),
+        clock=lambda: datetime.now(UTC),
         shutdown_event=asyncio.Event(),
     )
 

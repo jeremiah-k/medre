@@ -8,5 +8,5 @@ endpoint/emulator tests use ``pytest.mark.local_integration`` plus the adapter's
 Examples::
 
     pytest tests/integration/ -m docker -v
-    pytest tests/integration/ -m local_integration -v
+    pytest tests/integration/ -m "local_integration and not soak" -v
 """
