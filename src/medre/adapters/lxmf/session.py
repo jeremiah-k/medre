@@ -121,8 +121,8 @@ objects are ever included in the normalised dict.
 
 from __future__ import annotations
 
-import atexit
 import asyncio
+import atexit
 import logging
 import random
 import signal

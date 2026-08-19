@@ -392,8 +392,8 @@
         {
           "if": {
             "properties": {
-              "connection_type": {"const": "reticulum"},
-              "default_delivery_method": {"const": "propagated"}
+              "connection_type": { "const": "reticulum" },
+              "default_delivery_method": { "const": "propagated" }
             },
             "required": ["connection_type", "default_delivery_method"]
           },

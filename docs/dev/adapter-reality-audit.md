@@ -1,6 +1,5 @@
 # Adapter Reality Audit
 
-
 > **Historical snapshot.** Version references in this document describe the
 > audit baseline at the time it was written. The current exact-pin contract is
 > `docs/dev/adapter-sdk-parity.md`.

@@ -1004,8 +1004,6 @@ class TestSelfInfoCapture:
             self._teardown_mock_module()
 
 
-
-
 def test_self_info_event_payload_is_captured() -> None:
     """Event-like SELF_INFO objects populate the same diagnostics as mappings."""
     config = _make_config()

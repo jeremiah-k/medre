@@ -178,8 +178,7 @@ class TestDeliveryMethodDefaultWiring:
         assert call_kwargs.kwargs.get("desired_method") == "PROPAGATED_CONST"
         # LXMF requires the local delivery RNS.Destination as source.
         assert (
-            call_kwargs.args[1]
-            is mock_router.register_delivery_identity.return_value
+            call_kwargs.args[1] is mock_router.register_delivery_identity.return_value
         )
         assert call_kwargs.args[1] is not mock_router
         await session.stop()

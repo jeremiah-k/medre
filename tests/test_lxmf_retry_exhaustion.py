@@ -61,9 +61,7 @@ class TestRetryExhaustionTransient:
             SINGLE = "single"
             hash = b"\x00" * 16
 
-            def __init__(
-                self, identity: Any, *args: Any, **kwargs: Any
-            ) -> None:
+            def __init__(self, identity: Any, *args: Any, **kwargs: Any) -> None:
                 pass
 
         class FakeLXMessage:

@@ -10,22 +10,22 @@ lifecycle behavior.
 
 ## Audited pins
 
-| Adapter | Distribution pin | Source/runtime basis |
-| --- | --- | --- |
-| Matrix | `mindroom-nio==0.40.0` | existing exact installed `matrix_sdk` CI contract from the earlier parity round; no runtime delta in this audit |
-| LXMF | `lxmf==1.1.1` | lockfile artifact + exact installed distribution in `lxmf_sdk` CI; upstream 1.1.0 mirror and 0.9.6 tag corroborate the consumed API where the public Git mirror does not expose 1.1.1 |
-| Reticulum | `rns==1.4.2` in the LXMF extra | exact upstream `1.4.2` source and exact installed distribution in `lxmf_sdk` CI |
-| Meshtastic | `mtjk==2.7.11.post5` | exact upstream fork tag plus exact installed distribution in `meshtastic_sdk` CI |
-| MeshCore | `meshcore==2.3.8` | exact upstream `v2.3.8` source plus exact installed distribution in `meshcore_sdk` CI |
+| Adapter    | Distribution pin               | Source/runtime basis                                                                                                                                                                  |
+| ---------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Matrix     | `mindroom-nio==0.40.0`         | existing exact installed `matrix_sdk` CI contract from the earlier parity round; no runtime delta in this audit                                                                       |
+| LXMF       | `lxmf==1.1.1`                  | lockfile artifact + exact installed distribution in `lxmf_sdk` CI; upstream 1.1.0 mirror and 0.9.6 tag corroborate the consumed API where the public Git mirror does not expose 1.1.1 |
+| Reticulum  | `rns==1.4.2` in the LXMF extra | exact upstream `1.4.2` source and exact installed distribution in `lxmf_sdk` CI                                                                                                       |
+| Meshtastic | `mtjk==2.7.11.post5`           | exact upstream fork tag plus exact installed distribution in `meshtastic_sdk` CI                                                                                                      |
+| MeshCore   | `meshcore==2.3.8`              | exact upstream `v2.3.8` source plus exact installed distribution in `meshcore_sdk` CI                                                                                                 |
 
 The lockfile records the exact source artifacts used when the pins were resolved:
 
-| Distribution | Locked sdist SHA-256 |
-| --- | --- |
-| `lxmf==1.1.1` | `f2f7ea17d793fcc32cab826e81e8e9824404d025d1fc71b143be3242d45e6a5e` |
-| `rns==1.4.2` | `275e4369819c99fbbdb8b70a0d4eb3fc9767716fca639fe7206856839fb3867a` |
+| Distribution         | Locked sdist SHA-256                                               |
+| -------------------- | ------------------------------------------------------------------ |
+| `lxmf==1.1.1`        | `f2f7ea17d793fcc32cab826e81e8e9824404d025d1fc71b143be3242d45e6a5e` |
+| `rns==1.4.2`         | `275e4369819c99fbbdb8b70a0d4eb3fc9767716fca639fe7206856839fb3867a` |
 | `mtjk==2.7.11.post5` | `3bd50eb5bd4db2daf8a2cbc0aa4e57322a809ac8a48ad5cab47c50b57fb7e27e` |
-| `meshcore==2.3.8` | `22d57dbb59186af6ed2303fd149635022989a4f8dc867c729a6f0abc34ad3aab` |
+| `meshcore==2.3.8`    | `22d57dbb59186af6ed2303fd149635022989a4f8dc867c729a6f0abc34ad3aab` |
 
 The LXMF extra pins `rns==1.4.2` explicitly in addition to `lxmf==1.1.1`;
 this keeps installed-SDK contract CI aligned with the lock instead of resolving

@@ -1,6 +1,5 @@
 # SDK Parity Opportunities Backlog
 
-
 > **Historical snapshot.** Version references in this document describe the
 > audit baseline at the time it was written. The current exact-pin contract is
 > `docs/dev/adapter-sdk-parity.md`.
@@ -149,7 +148,7 @@ to both `meshtastic.receive` and `meshtastic.connection.lost` via
 > `create_*()` calls `connect()`, and `connect()` performs `send_appstart()`. MEDRE
 > now disables SDK auto-reconnect explicitly and no longer sends a duplicate
 > APP_START after factory return. See `adapter-sdk-parity.md`.
-| Gap type  | Behavioral                                            |
+> | Gap type | Behavioral |
 
 **Historical MEDRE behavior before development-1**: The session previously
 extracted `expected_ack` from the `send_msg()` result (used as

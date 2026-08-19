@@ -41,7 +41,9 @@ def _sdk_environment() -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
     return rns, lxmf, router, destination
 
 
-def test_outbound_propagation_node_accepts_exact_destination_hash(tmp_path: Path) -> None:
+def test_outbound_propagation_node_accepts_exact_destination_hash(
+    tmp_path: Path,
+) -> None:
     """The configured node is the 16-byte destination hash LXMF expects."""
     node = "ab" * 16
     validated = _real_config(tmp_path, outbound_propagation_node=node).validate()
@@ -100,7 +102,9 @@ async def test_connect_configures_outbound_propagation_node(tmp_path: Path) -> N
         patch("medre.adapters.lxmf.session.signal.signal") as set_signal,
     ):
         await session.start()
-        router.set_outbound_propagation_node.assert_called_once_with(bytes.fromhex(node))
+        router.set_outbound_propagation_node.assert_called_once_with(
+            bytes.fromhex(node)
+        )
         assert set_signal.call_args_list == [
             call(signal.SIGINT, previous_int),
             call(signal.SIGTERM, previous_term),
@@ -108,7 +112,9 @@ async def test_connect_configures_outbound_propagation_node(tmp_path: Path) -> N
         await session.stop()
 
 
-async def test_propagated_send_without_node_fails_before_handoff(tmp_path: Path) -> None:
+async def test_propagated_send_without_node_fails_before_handoff(
+    tmp_path: Path,
+) -> None:
     """An explicit propagated send fails clearly when no node is selected."""
     config = _real_config(tmp_path)
     session = LxmfSession(config=config, adapter_id=config.adapter_id)
@@ -239,7 +245,9 @@ def test_adapter_schema_requires_node_for_real_propagated_default() -> None:
 
     from jsonschema import Draft202012Validator
 
-    schema_path = Path(__file__).resolve().parents[1] / "docs/schemas/adapter-config.schema.json"
+    schema_path = (
+        Path(__file__).resolve().parents[1] / "docs/schemas/adapter-config.schema.json"
+    )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     validator = Draft202012Validator(schema)
 
@@ -316,7 +324,10 @@ async def test_connect_survives_signal_restore_failure(tmp_path: Path) -> None:
     with (
         patch("medre.adapters.lxmf.session.HAS_LXMF", True),
         patch("medre.adapters.lxmf.session._require_lxmf", return_value=(rns, lxmf)),
-        patch("medre.adapters.lxmf.session.signal.getsignal", side_effect=[object(), object()]),
+        patch(
+            "medre.adapters.lxmf.session.signal.getsignal",
+            side_effect=[object(), object()],
+        ),
         patch(
             "medre.adapters.lxmf.session.signal.signal",
             side_effect=[OSError("restore failed"), None],
@@ -340,7 +351,9 @@ async def test_connect_rejects_delivery_registration_type_error(tmp_path: Path) 
     with (
         patch("medre.adapters.lxmf.session.HAS_LXMF", True),
         patch("medre.adapters.lxmf.session._require_lxmf", return_value=(rns, lxmf)),
-        pytest.raises(LxmfConnectionError, match="Failed to register local LXMF delivery identity"),
+        pytest.raises(
+            LxmfConnectionError, match="Failed to register local LXMF delivery identity"
+        ),
     ):
         await session.start()
 
@@ -360,7 +373,9 @@ async def test_propagated_send_reports_unavailable_node_lookup(tmp_path: Path) -
         patch("medre.adapters.lxmf.session._require_lxmf", return_value=(rns, lxmf)),
     ):
         await session.start()
-        with pytest.raises(LxmfSendError, match="propagation-node lookup is unavailable"):
+        with pytest.raises(
+            LxmfSendError, match="propagation-node lookup is unavailable"
+        ):
             await session.send_text(
                 "34" * 16,
                 "propagated without lookup",

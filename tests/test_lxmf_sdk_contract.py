@@ -25,7 +25,7 @@ def _load_sdks() -> tuple[object, object]:
 
 def _destination_stub(rns: object, value: int) -> object:
     """Create a side-effect-free real ``RNS.Destination`` instance shell."""
-    destination_type = getattr(rns, "Destination")
+    destination_type = rns.Destination
     destination = object.__new__(destination_type)
     destination.hash = bytes([value]) * 16
     return destination
