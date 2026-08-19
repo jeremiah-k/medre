@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from medre.core.ingress import DurableIngressWorker, IngressWorkItem
 from tests.helpers.async_utils import wait_until
 
@@ -199,3 +201,110 @@ async def test_worker_survives_claim_cycle_failure() -> None:
     assert worker.failures == 1
     assert storage.claims >= 2
     assert storage.completed == ["evt-1"]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"lease_seconds": 0}, "lease_seconds must be positive"),
+        ({"batch_size": 0}, "batch_size must be positive"),
+        ({"max_attempts": 0}, "max_attempts must be positive"),
+    ],
+)
+def test_worker_rejects_invalid_limits(kwargs: dict[str, int], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        DurableIngressWorker(storage=_Storage([]), pipeline=_Pipeline(), **kwargs)
+
+
+async def test_worker_start_stop_are_idempotent() -> None:
+    worker = DurableIngressWorker(
+        storage=_Storage([]), pipeline=_Pipeline(), interval_seconds=60
+    )
+
+    assert worker.running is False
+    await worker.stop()
+    await worker.start()
+    first_task = worker._task
+    assert worker.running is True
+    await worker.start()
+    assert worker._task is first_task
+    await worker.stop()
+    assert worker.running is False
+
+
+async def test_worker_detects_lease_loss_during_processing() -> None:
+    storage = _Storage([_work()])
+    entered = asyncio.Event()
+
+    class _BlockedPipeline:
+        async def process_admitted_event(self, _event_id: str) -> None:
+            entered.set()
+            await asyncio.Event().wait()
+
+    worker = DurableIngressWorker(
+        storage=storage, pipeline=_BlockedPipeline(), lease_seconds=0.03
+    )
+    task = asyncio.create_task(worker.run_once())
+    await entered.wait()
+    storage.owns = False
+
+    assert await asyncio.wait_for(task, timeout=1) == 0
+    assert worker.failures == 1
+    assert worker.lost_leases == 1
+    assert storage.completed == []
+
+
+@pytest.mark.parametrize("attempts", [1, 5])
+async def test_worker_counts_ownership_loss_when_failure_transition_is_stale(
+    attempts: int,
+) -> None:
+    storage = _Storage([_work(attempts=attempts)])
+    storage.owns = False
+    worker = DurableIngressWorker(
+        storage=storage, pipeline=_Pipeline(fail=True), max_attempts=5
+    )
+
+    assert await worker.run_once() == 0
+    assert worker.failures == 1
+    assert worker.lost_leases == 1
+    assert worker.terminal_failures == 0
+
+
+async def test_worker_run_once_propagates_cancellation() -> None:
+    storage = _Storage([_work()])
+    entered = asyncio.Event()
+
+    class _BlockedPipeline:
+        async def process_admitted_event(self, _event_id: str) -> None:
+            entered.set()
+            await asyncio.Event().wait()
+
+    worker = DurableIngressWorker(storage=storage, pipeline=_BlockedPipeline())
+    task = asyncio.create_task(worker.run_once())
+    await entered.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert storage.completed == []
+
+
+async def test_worker_treats_ended_lease_renewal_as_ownership_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = _Storage([_work()])
+
+    class _BlockedPipeline:
+        async def process_admitted_event(self, _event_id: str) -> None:
+            await asyncio.Event().wait()
+
+    worker = DurableIngressWorker(storage=storage, pipeline=_BlockedPipeline())
+
+    async def _ended_renewal(_event_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(worker, "_renew_lease", _ended_renewal)
+
+    assert await worker.run_once() == 0
+    assert worker.failures == 1
+    assert worker.lost_leases == 1
