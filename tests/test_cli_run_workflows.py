@@ -26,9 +26,17 @@ from tests.helpers.cli import (
 
 
 async def _trigger_shutdown_after_startup(
-    run_mod, stdout: io.StringIO, wait_timeout: float = 2.0
+    run_mod, stdout: io.StringIO, wait_timeout: float = 10.0
 ) -> None:
-    """Wait for startup completion marker, then trigger shutdown."""
+    """Wait for startup completion marker, then trigger shutdown.
+
+    The budget must tolerate slow CI runners: a loaded runner can take
+    several wall-clock seconds to boot the runtime (SQLite open, adapter
+    construction, banner) even though healthy runners finish in
+    milliseconds — a 2s budget flaked exactly there. ``wait_until``
+    returns as soon as the marker appears, so the larger default costs
+    nothing on the happy path.
+    """
     marker = "Run `medre diagnostics --refresh-health` for live adapter health"
     ok = await wait_until(lambda: marker in stdout.getvalue(), timeout=wait_timeout)
     assert ok, (
