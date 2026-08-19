@@ -11,6 +11,9 @@ import asyncio
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from medre.adapters.lxmf.errors import LxmfConnectionError, LxmfSendError
 from medre.adapters.lxmf.session import LxmfSession
 from medre.config.adapters.lxmf import LxmfConfig
 
@@ -265,6 +268,10 @@ async def test_delivery_identity_registered_in_connect() -> None:
         await session.start()
 
     mock_router.register_delivery_identity.assert_called_once()
+    assert (
+        session._delivery_destination
+        is mock_router.register_delivery_identity.return_value
+    )
     assert session._delivery_destination_hash == b"\xab" * 16
 
     await session.stop()
@@ -277,6 +284,7 @@ async def test_no_delivery_identity_in_fake_mode() -> None:
         announce_interval_seconds=600,
     )
     await session.start()
+    assert session._delivery_destination is None
     assert session._delivery_destination_hash is None
     await session.stop()
 
@@ -302,14 +310,36 @@ async def test_delivery_hash_cleared_before_register_attempt() -> None:
     # (e.g. another identity already registered)
     mock_router.register_delivery_identity.return_value = None
 
-    with _patch_lxmf_env(mock_rns, mock_lxmf):
+    with (
+        _patch_lxmf_env(mock_rns, mock_lxmf),
+        pytest.raises(
+            LxmfConnectionError,
+            match="did not register the local delivery identity",
+        ),
+    ):
         await session.start()
 
-    # Hash must be None because we cleared it before the attempt and
-    # the new attempt returned None.
+    # Failed startup must not retain a previous lifecycle's destination state.
+    assert session._delivery_destination is None
     assert session._delivery_destination_hash is None
+    assert session.connected is False
 
-    await session.stop()
+
+async def test_send_requires_registered_local_delivery_destination() -> None:
+    """The private real-send guard rejects an impossible half-started state."""
+    session = _make_session(
+        connection_type="reticulum",
+        announce_interval_seconds=0,
+    )
+    session._router = MagicMock()
+
+    with pytest.raises(
+        LxmfSendError,
+        match="local LXMF delivery destination is not registered",
+    ) as exc_info:
+        await session._send_real("ab" * 16, "hello")
+
+    assert exc_info.value.transient is False
 
 
 # ===================================================================

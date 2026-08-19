@@ -328,13 +328,20 @@
           "type": "integer",
           "default": 8,
           "minimum": 0,
-          "description": "Default stamp cost. 0 means no stamp required."
+          "maximum": 254,
+          "description": "LXMF inbound stamp cost. 0 disables stamps; valid positive range is 1..254."
         },
         "default_delivery_method": {
           "type": "string",
           "enum": ["direct", "opportunistic", "propagated", "paper"],
           "default": "direct",
           "description": "Default LXMF delivery method."
+        },
+        "outbound_propagation_node": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9A-Fa-f]{32}$",
+          "default": null,
+          "description": "Optional 16-byte outbound LXMF propagation-node destination hash as 32 hexadecimal characters."
         },
         "origin_label": {
           "type": "string",
@@ -381,6 +388,26 @@
         }
       },
       "required": ["adapter_id"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "connection_type": {"const": "reticulum"},
+              "default_delivery_method": {"const": "propagated"}
+            },
+            "required": ["connection_type", "default_delivery_method"]
+          },
+          "then": {
+            "properties": {
+              "outbound_propagation_node": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{32}$"
+              }
+            },
+            "required": ["outbound_propagation_node"]
+          }
+        }
+      ],
       "additionalProperties": false
     }
   ]

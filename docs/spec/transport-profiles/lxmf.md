@@ -17,8 +17,9 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 | `adapter_id`                | `str`                                                    | _(required)_ | Unique adapter instance identifier                                                                                                                  |
 | `connection_type`           | `Literal["fake","reticulum"]`                            | `"fake"`     | Connection mode                                                                                                                                     |
 | `display_name`              | `str`                                                    | `""`         | Display name for LXMF announces                                                                                                                     |
-| `stamp_cost`                | `int`                                                    | `8`          | Default stamp cost (0 = no stamp; non-zero must be positive int)                                                                                    |
+| `stamp_cost`                | `int`                                                    | `8`          | Inbound stamp cost (0 = no stamp; valid range 0..254)                                                                                    |
 | `default_delivery_method`   | `Literal["direct","opportunistic","propagated","paper"]` | `"direct"`   | Default LXMF delivery method                                                                                                                        |
+| `outbound_propagation_node` | `str \| None`                                             | `None`       | 16-byte outbound propagation-node destination hash encoded as 32 hex characters                                                                    |
 | `origin_label`              | `str`                                                    | `""`         | Platform-neutral operator-defined source label for relay prefixes                                                                                   |
 | `default_channel`           | `int`                                                    | `0`          | Default channel index (informational; LXMF has no channel concept)                                                                                  |
 | `message_delay_seconds`     | `float`                                                  | `0.5`        | Minimum delay between outbound messages (pacing)                                                                                                    |
@@ -360,8 +361,17 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 - **Attachment-only messages are classified but not relayed.** `has_fields` without `content` yields `"unsupported"` category.
 - **No channel concept.** LXMF uses point-to-point identity hashes; `channels=False` and `channel_index` is always `None`.
 - **Reticulum singleton constraint.** `RNS.Reticulum()` raises `OSError` if already running; the session uses `get_instance()` to reuse existing instances. Multiple sessions share the same Reticulum transport.
-- **No LXMRouter callback deregistration API.** Callbacks are silenced by `_stop_requested` guard and `_teardown_sdk()` nulling the router reference rather than explicit deregistration.
-- **stamp_cost validation is minimal.** Non-zero values must be positive integers, but no upper bound is enforced.
+- **No LXMRouter delivery-callback deregistration API.** `_stop_requested`
+  silences late callbacks and `_teardown_sdk()` runs the owned router
+  `exit_handler()` to detach delivery-destination callbacks/links before
+  dropping it. The router daemon job loop has no public join/stop primitive
+  and remains dormant until process exit.
+- **stamp_cost follows the LXMF SDK range.** `0` disables stamps; positive
+  values are limited to `1..254`.
+- **Propagated delivery requires an outbound node.** `LXMRouter` starts with
+  no outbound propagation node selected. MEDRE configures
+  `outbound_propagation_node` through `set_outbound_propagation_node()` and
+  rejects a propagated send when no node is selected.
 - **16-byte identity hashes are not human-readable.** The announce-cache lookup resolves display names for locally-known senders; when the sender is unknown to the announce cache, the hash remains the only identifier and is exposed via `source_sender_id` (`{sender_id}`).
 
 ---
@@ -374,7 +384,12 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 
 ## Validation Status
 
-- Config validation enforces: non-empty `adapter_id`, valid `connection_type` (`fake`/`reticulum`), valid `default_delivery_method`, non-negative numerics, `stamp_cost` integer check, `identity_path` string-or-None, `storage_path` required for `reticulum` mode.
+- Config validation enforces: non-empty `adapter_id`, valid `connection_type`
+  (`fake`/`reticulum`), valid `default_delivery_method`, non-negative numerics,
+  `stamp_cost` range `0..254`, optional 32-hex-character
+  `outbound_propagation_node`, a required outbound node for real-mode propagated
+  defaults, `identity_path` string-or-None, and `storage_path` required for
+  `reticulum` mode.
 - Classifier tests cover text, unsupported (attachment-only), and unknown categories; bytes/str/bytearray content normalisation; hex string conversion for source_hash and message_id.
 - Codec tests cover text decode, title extraction, metadata construction, MEDRE envelope extraction from fields.
 - Renderer tests cover text/title rendering, metadata embedding toggle, envelope structure.

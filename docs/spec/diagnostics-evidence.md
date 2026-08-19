@@ -165,7 +165,7 @@ Session sub-dict keys (`session.*`):
 | `router_running`         | `bool`         | LXMRouter is active                  |
 | `last_message_time`      | `str or None`  | ISO 8601 timestamp                   |
 | `known_path_count`       | `int or None`  | Reticulum path table entries         |
-| `propagation_enabled`    | `bool or None` | LXMF propagation node state          |
+| `propagation_enabled`    | `bool or None` | Local LXMF propagation-server state  |
 | `pending_delivery_count` | `int or None`  | Outbound deliveries not yet terminal |
 | `mode`                   | `str`          | `"fake"` or `"reticulum"`            |
 

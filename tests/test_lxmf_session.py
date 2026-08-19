@@ -543,6 +543,7 @@ class TestSendRealFieldsPreservation:
         # Patch internals to simulate real mode with mocked SDK objects.
         session._config = _make_config(connection_type="reticulum")
         session._diag.connected = True
+        session._delivery_destination = MagicMock()
 
         captured_kwargs: dict[str, Any] = {}
 
@@ -554,7 +555,7 @@ class TestSendRealFieldsPreservation:
             DELIVERED = 4
             FAILED = 5
 
-            def __init__(self, dest, router, content, **kwargs):
+            def __init__(self, dest, source, content, **kwargs):
                 self.state = self.OUTBOUND
                 self.hash = b"\xab" * 16
                 self.fields = kwargs.get("fields", None)
@@ -597,13 +598,14 @@ class TestSendRealFieldsPreservation:
         await session.start()
         session._config = _make_config(connection_type="reticulum")
         session._diag.connected = True
+        session._delivery_destination = MagicMock()
 
         captured_fields: list = [None]
 
         class FakeLXMessage:
             OUTBOUND = 1
 
-            def __init__(self, dest, router, content, **kwargs):
+            def __init__(self, dest, source, content, **kwargs):
                 self.state = self.OUTBOUND
                 self.hash = b"\xcd" * 16
                 captured_fields[0] = kwargs.get("fields")
@@ -643,13 +645,14 @@ class TestSendRealFieldsPreservation:
         await session.start()
         session._config = _make_config(connection_type="reticulum")
         session._diag.connected = True
+        session._delivery_destination = MagicMock()
 
         captured_fields: list = [None]
 
         class FakeLXMessage:
             OUTBOUND = 1
 
-            def __init__(self, dest, router, content, **kwargs):
+            def __init__(self, dest, source, content, **kwargs):
                 self.state = self.OUTBOUND
                 self.hash = b"\xef" * 16
                 captured_fields[0] = kwargs.get("fields")
@@ -698,13 +701,14 @@ class TestSendRealFieldsPreservation:
         await session.start()
         session._config = _make_config(connection_type="reticulum")
         session._diag.connected = True
+        session._delivery_destination = MagicMock()
 
         captured_fields: list = [None]
 
         class FakeLXMessage:
             OUTBOUND = 1
 
-            def __init__(self, dest, router, content, **kwargs):
+            def __init__(self, dest, source, content, **kwargs):
                 self.state = self.OUTBOUND
                 self.hash = b"\xaa" * 16
                 captured_fields[0] = kwargs.get("fields")
@@ -772,6 +776,7 @@ class TestSendRealDestinationRecall:
         await session.start()
         session._config = _make_config(connection_type="reticulum")
         session._diag.connected = True
+        session._delivery_destination = MagicMock()
 
         mock_rns = MagicMock()
         mock_rns.Identity.recall.return_value = None  # identity not found
@@ -804,6 +809,7 @@ class TestSendRealDestinationRecall:
         await session.start()
         session._config = _make_config(connection_type="reticulum")
         session._diag.connected = True
+        session._delivery_destination = MagicMock()
 
         recalled_identity = MagicMock()
 
@@ -820,7 +826,7 @@ class TestSendRealDestinationRecall:
         class FakeLXMessage:
             OUTBOUND = 1
 
-            def __init__(self, dest, router, content, **kwargs):
+            def __init__(self, dest, source, content, **kwargs):
                 self.dest = dest  # Capture for assertion
                 created_lxmessages.append(self)
                 self.state = self.OUTBOUND

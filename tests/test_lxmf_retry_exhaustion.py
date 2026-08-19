@@ -52,6 +52,7 @@ class TestRetryExhaustionTransient:
         await session.start()
         session._config = _make_config(connection_type="reticulum")
         session._diag.connected = True
+        session._delivery_destination = MagicMock()
 
         recalled_identity = MagicMock()
 
@@ -60,16 +61,20 @@ class TestRetryExhaustionTransient:
             SINGLE = "single"
             hash = b"\x00" * 16
 
-            def __init__(self, identity, *args, **kwargs):
+            def __init__(
+                self, identity: Any, *args: Any, **kwargs: Any
+            ) -> None:
                 pass
 
         class FakeLXMessage:
             OUTBOUND = 1
 
-            def __init__(self, dest, router, content, **kwargs):
+            def __init__(
+                self, dest: Any, source: Any, content: Any, **kwargs: Any
+            ) -> None:
                 pass
 
-            def register_delivery_callback(self, cb):
+            def register_delivery_callback(self, cb: Any) -> None:
                 pass
 
         mock_rns = MagicMock()
