@@ -20,6 +20,8 @@
 - Add Prometheus text export for a bounded aggregate projection of numeric/boolean
   diagnostics without labels, configured identifiers, or string-valued data.
 - Extend conformance coverage and specifications for the new reliability guarantees.
+- Centralize the delivery-confirmation vocabulary and expose structured outcome
+  detail for durable deferral decisions instead of parsing diagnostic error text.
 
 > **Storage compatibility note:** this change adds the required
 > `delivery_receipts.confirmation_level` column without bumping prerelease schema

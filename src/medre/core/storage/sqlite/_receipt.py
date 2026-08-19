@@ -18,11 +18,9 @@ Authority surface:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import get_args
 
-from medre.core.contracts import DeliveryConfirmationLevel
 from medre.core.engine.pipeline.delivery_state import RECEIPT_STATUSES
-from medre.core.events import DeliveryReceipt
+from medre.core.events import DELIVERY_CONFIRMATION_LEVEL_VALUES, DeliveryReceipt
 from medre.core.storage.sqlite.serde import _row_to_receipt
 from medre.core.storage.sqlite.statements import (
     _DELIVERY_RECEIPT_LATEST_BY_CHANNEL,
@@ -32,8 +30,6 @@ from medre.core.storage.sqlite.statements import (
     _SELECT_RECEIPTS_FOR_EVENT,
     _SELECT_RECEIPTS_FOR_PLAN,
 )
-
-_CONFIRMATION_LEVELS = frozenset(get_args(DeliveryConfirmationLevel))
 
 
 class _ReceiptMixin:
@@ -65,11 +61,11 @@ class _ReceiptMixin:
                 f"expected one of {sorted(RECEIPT_STATUSES)}"
             )
         if not isinstance(receipt.confirmation_level, str) or (
-            receipt.confirmation_level not in _CONFIRMATION_LEVELS
+            receipt.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES
         ):
             raise ValueError(
                 f"Unknown confirmation level {receipt.confirmation_level!r}; "
-                f"expected one of {sorted(_CONFIRMATION_LEVELS)}"
+                f"expected one of {sorted(DELIVERY_CONFIRMATION_LEVEL_VALUES)}"
             )
 
         # Normalise empty-string target_channel to NULL.

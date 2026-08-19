@@ -50,7 +50,6 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContract,
     AdapterDeliveryResult,
-    DeliveryConfirmationLevel,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
@@ -58,6 +57,10 @@ from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
     NativeMessageRef,
+)
+from medre.core.events.delivery import (
+    DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DeliveryConfirmationLevel,
 )
 from medre.core.observability.correlation import correlation_scope
 from medre.core.observability.metrics import Diagnostician
@@ -79,10 +82,6 @@ from medre.core.storage.backend import StorageBackend
 # ---------------------------------------------------------------------------
 
 _VALID_CAPABILITY_LEVELS: frozenset[str] = frozenset(get_args(_CapLevel))
-_VALID_CONFIRMATION_LEVELS: frozenset[str] = frozenset(
-    get_args(DeliveryConfirmationLevel)
-)
-
 # ---------------------------------------------------------------------------
 # Logger
 # ---------------------------------------------------------------------------
@@ -790,29 +789,14 @@ class TargetDeliveryService:
         # Populate adapter_message_id only when delivery succeeded and
         # the adapter returned a native_message_id.  Never fabricate IDs.
         _adapter_message_id: str | None = None
-        _confirmation_level: Literal[
-            "unknown",
-            "local_queue",
-            "local_transport",
-            "remote_service",
-            "end_to_end",
-        ] = "unknown"
+        _confirmation_level: DeliveryConfirmationLevel = "unknown"
         if status in ("sent", "queued") and adapter_result is not None:
             raw_confirmation = adapter_result.confirmation_level
             if (
                 isinstance(raw_confirmation, str)
-                and raw_confirmation in _VALID_CONFIRMATION_LEVELS
+                and raw_confirmation in DELIVERY_CONFIRMATION_LEVEL_VALUES
             ):
-                _confirmation_level = cast(
-                    Literal[
-                        "unknown",
-                        "local_queue",
-                        "local_transport",
-                        "remote_service",
-                        "end_to_end",
-                    ],
-                    raw_confirmation,
-                )
+                _confirmation_level = cast(DeliveryConfirmationLevel, raw_confirmation)
             else:
                 self._log.warning(
                     "Adapter %s returned invalid confirmation_level=%r; "

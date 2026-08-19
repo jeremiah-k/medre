@@ -30,6 +30,10 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 
 from medre.core.events.canonical import CanonicalEvent
+from medre.core.events.delivery import (
+    DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DeliveryConfirmationLevel,
+)
 
 if TYPE_CHECKING:
     from medre.core.ingress import AdapterCheckpoint, AdmissionResult, IngressProvenance
@@ -80,16 +84,6 @@ class AdapterPermanentError(AdapterSendError):
 # ---------------------------------------------------------------------------
 # Adapter delivery result
 # ---------------------------------------------------------------------------
-
-
-DeliveryConfirmationLevel = Literal[
-    "unknown",
-    "local_queue",
-    "local_transport",
-    "remote_service",
-    "end_to_end",
-]
-"""Strongest delivery fact an adapter can prove at hand-off time."""
 
 
 @dataclass(frozen=True)
@@ -403,13 +397,9 @@ class OutboundNativeRefRecord:
             raise ValueError(
                 "OutboundNativeRefRecord.native_message_id must be a non-empty string"
             )
-        if self.confirmation_level not in {
-            "unknown",
-            "local_queue",
-            "local_transport",
-            "remote_service",
-            "end_to_end",
-        }:
+        if not isinstance(self.confirmation_level, str) or (
+            self.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES
+        ):
             raise ValueError(
                 "OutboundNativeRefRecord.confirmation_level must be a valid "
                 "delivery confirmation level"

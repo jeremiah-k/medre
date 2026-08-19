@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
-from medre.core.events.canonical import DeliveryReceipt
+from medre.core.events.canonical import DeliveryConfirmationLevel, DeliveryReceipt
 
 __all__ = ["build_delivery_receipt"]
 
@@ -39,13 +39,7 @@ def build_delivery_receipt(
     retry_jitter: bool | None = None,
     rendering_evidence: str | None = None,
     outbox_id: str | None = None,
-    confirmation_level: Literal[
-        "unknown",
-        "local_queue",
-        "local_transport",
-        "remote_service",
-        "end_to_end",
-    ] = "unknown",
+    confirmation_level: DeliveryConfirmationLevel = "unknown",
     sequence: int = 0,
     receipt_id: str | None = None,
     created_at: datetime | None = None,

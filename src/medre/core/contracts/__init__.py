@@ -14,9 +14,9 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    DeliveryConfirmationLevel,
     OutboundNativeRefRecord,
 )
+from medre.core.events.delivery import DeliveryConfirmationLevel
 
 __all__ = [
     "AdapterCapabilities",

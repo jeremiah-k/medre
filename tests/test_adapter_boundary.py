@@ -35,7 +35,6 @@ from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
 )
 from medre.core.rendering.renderer import RenderingResult
-from tests.helpers.pipeline import make_event
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1233,5 +1232,6 @@ def test_invalid_confirmation_level_rejected() -> None:
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="42",
+            # Deliberately outside the Literal to exercise runtime validation.
             confirmation_level="delivered",  # type: ignore[arg-type]
         )

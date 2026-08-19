@@ -838,9 +838,13 @@ class DeliveryOutcome:
     receipt: DeliveryReceipt | None = None
     error: str | None = None
     duration_ms: float = 0.0
+    failure_kind_detail: str | None = None
 ```
 
 `failure_kind` is `None` on success. On failure, it carries the specific taxonomy member.
+`failure_kind_detail` is an optional stable refinement used when control flow must
+distinguish causes within one broad failure kind. Human-readable `error` text is
+diagnostic only and MUST NOT be parsed for control-flow decisions.
 
 ### 11.1 Per-Destination Independence
 

@@ -507,6 +507,7 @@ async def test_non_string_confirmation_level_degrades_to_unknown() -> None:
     adapter = _FakeAdapter(
         result=AdapterDeliveryResult(
             native_message_id="$id",
+            # Deliberately outside the Literal to exercise defensive normalization.
             confirmation_level=[],  # type: ignore[arg-type]
         )
     )

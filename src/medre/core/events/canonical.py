@@ -20,6 +20,7 @@ from typing import Literal
 import msgspec
 from msgspec.structs import force_setattr
 
+from medre.core.events.delivery import DeliveryConfirmationLevel
 from medre.core.events.metadata import EventMetadata, _FrozenDict
 
 # Re-export canonical constants from schema to avoid circular imports.
@@ -261,13 +262,7 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     retry_jitter: bool | None = None
     rendering_evidence: str | None = None
     outbox_id: str | None = None
-    confirmation_level: Literal[
-        "unknown",
-        "local_queue",
-        "local_transport",
-        "remote_service",
-        "end_to_end",
-    ] = "unknown"
+    confirmation_level: DeliveryConfirmationLevel = "unknown"
     created_at: datetime = msgspec.field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

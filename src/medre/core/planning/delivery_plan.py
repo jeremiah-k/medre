@@ -667,6 +667,10 @@ class DeliveryOutcome:
         Human-readable error description on failure; ``None`` on success.
     duration_ms:
         Wall-clock time spent on this delivery attempt in milliseconds.
+    failure_kind_detail:
+        Stable machine-readable detail refining ``failure_kind`` when the
+        broad taxonomy is insufficient.  Control flow must use this field,
+        never parse the human-readable ``error`` text.
     """
 
     event_id: str
@@ -685,3 +689,4 @@ class DeliveryOutcome:
     receipt: DeliveryReceipt | None = None
     error: str | None = None
     duration_ms: float = 0.0
+    failure_kind_detail: str | None = None

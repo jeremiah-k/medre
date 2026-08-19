@@ -116,6 +116,7 @@ async def test_append_receipt_rejects_invalid_confirmation_level(
         delivery_plan_id="plan-invalid-confirmation",
         target_adapter="matrix",
         status="sent",
+        # Deliberately outside the Literal to exercise storage validation.
         confirmation_level="delivered",  # type: ignore[arg-type]
     )
 

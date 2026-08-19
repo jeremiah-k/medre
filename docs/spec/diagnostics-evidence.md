@@ -607,9 +607,9 @@ payloads.
 
 **What replay execution does _not_ provide:**
 
-- Complete reconstruction when legacy receipts lack individual rendering-context
-  fields. `RE_RENDER` restores the context fields available in persisted receipt
-  evidence and uses defined fallbacks for missing legacy fields.
+- Reconstruction when no valid persisted rendering evidence exists for the event.
+  `RE_RENDER` requires at least one such receipt; once evidence exists, it restores
+  the available context and uses defined fallbacks for missing legacy fields.
 - Cross-process or cross-restart replay-job recovery.
 - An exactly-once delivery guarantee. A non-empty run ID suppresses targets with
   visible acceptance evidence from the same run, but different/empty run IDs and

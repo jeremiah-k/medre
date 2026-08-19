@@ -839,8 +839,7 @@ class PipelineRunner:
                 continue
             if (
                 outcome.failure_kind is DeliveryFailureKind.OUTBOX_NOT_OWNED
-                and outcome.error
-                and OUTBOX_CREATION_FAILED_REASON in outcome.error
+                and outcome.failure_kind_detail == OUTBOX_CREATION_FAILED_REASON
             ):
                 deferred_reasons.append(OUTBOX_CREATION_FAILED_REASON)
         if deferred_reasons:
@@ -1918,6 +1917,7 @@ class PipelineRunner:
                     receipt=None,
                     error=f"outbox row not owned: {_outbox_ctx.skip_reason}",
                     duration_ms=elapsed,
+                    failure_kind_detail=_outbox_ctx.skip_reason,
                 )
 
             # ── Phase 3.75: Lease renewal background task ────────────
