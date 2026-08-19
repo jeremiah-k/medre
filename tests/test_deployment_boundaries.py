@@ -155,7 +155,9 @@ def _has_live_marker(path: Path) -> bool:
 
 def _has_sdk_opt_in_marker(path: Path) -> bool:
     """Return whether SDK imports are gated from the default suite."""
-    return not declared_pytest_markers(path).isdisjoint({"live", "matrix_sdk"})
+    return not declared_pytest_markers(path).isdisjoint(
+        {"live", "matrix_sdk", "lxmf_sdk", "meshtastic_sdk", "meshcore_sdk"}
+    )
 
 
 def _has_hardware_marker(path: Path) -> bool:
@@ -620,7 +622,7 @@ class TestSoakFrameworkFakeOnly:
 
 class TestNoLiveTestsRunByDefault:
     """Enforce that the default ``pytest`` invocation does not run live
-    tests and that SDK-importing files carry ``live`` or ``matrix_sdk``.
+    tests and that SDK-importing files carry an explicit SDK opt-in marker.
     Also enforces the ``hardware`` marker discipline.
     """
 
@@ -714,7 +716,7 @@ class TestNoLiveTestsRunByDefault:
         ), f"{filename} is a live test file but is missing pytest.mark.live"
 
     def test_non_live_test_files_no_sdk_imports(self) -> None:
-        """SDK imports require an explicit ``live`` or ``matrix_sdk`` tier.
+        """SDK imports require an explicit live or installed-SDK contract tier.
 
         Scans all ``test_*.py`` files for SDK imports.  Any file that
         imports an SDK must be excluded from the default suite.
@@ -872,7 +874,15 @@ class TestHardwareMarkerDiscipline:
         """``pyproject.toml`` must exclude every opt-in test tier."""
         pyproject = _REPO_ROOT / "pyproject.toml"
         expression = pytest_addopts_marker_expression(pyproject)
-        for marker in ("live", "docker", "hardware", "matrix_sdk"):
+        for marker in (
+            "live",
+            "docker",
+            "hardware",
+            "matrix_sdk",
+            "lxmf_sdk",
+            "meshtastic_sdk",
+            "meshcore_sdk",
+        ):
             assert marker_is_explicitly_excluded(
                 expression, marker
             ), f"pyproject.toml addopts must exclude '{marker}' marker"

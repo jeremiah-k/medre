@@ -9,6 +9,9 @@ real transport behavior.
 The normative adapter contracts live in [docs/spec/](../spec/). If this
 document conflicts with the spec, the spec takes precedence.
 
+The current exact-pin follow-up is documented in
+[Adapter SDK Parity Audit](adapter-sdk-parity.md).
+
 ## Audit Sources
 
 | Audit                            | Scope                                      | Date       |
@@ -99,6 +102,12 @@ of MMRelay's 3-action model (`RELAY`, `PLUGIN_ONLY`, `DROP`). Key differences:
 The LXMF audit verified assumptions against the LXMF Python library (v0.9.6)
 and Reticulum network stack.
 
+> **SDK parity note:** the 0.9.6 source already required
+> `LXMessage.source` to be an `RNS.Destination` (or `None`) and
+> `register_delivery_identity()` already returned that destination. The original
+> audit did not catch MEDRE passing `LXMRouter` as the outbound source. See
+> `adapter-sdk-parity.md` for the corrected exact-pin contract.
+
 **Identity/addressing confirmed:**
 
 - Identity hash: 16-byte truncated SHA-256 of public key, displayed as 32
@@ -139,7 +148,7 @@ and Reticulum network stack.
 
 The LXMF session underwent specific hardening:
 
-- Delivery state model maps all 9 LXMF states with explicit untracking tests
+- Delivery state model maps all eight LXMF states with explicit untracking tests
 - Bounded outbound tracking (`_MAX_OUTBOUND_DELIVERIES = 1000`) with FIFO eviction
 - Inbound normalization handles bytes, str, and missing attributes for all fields
 - Thread-to-asyncio bridge uses `call_soon_threadsafe` (not `create_task`)

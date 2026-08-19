@@ -4,14 +4,14 @@ Setting up and running the MEDRE LXMF adapter against a real Reticulum network. 
 
 ## Prerequisites
 
-| Requirement         | Details                                                                                                                                                                         |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reticulum instance  | A running Reticulum transport layer (local `rnsd`, `AutoInterface` on LAN, or TCP to remote node)                                                                               |
-| LXMF router storage | A writable directory for `LXMRouter` persistent state                                                                                                                           |
-| Reticulum identity  | A 64-byte private key file. Created on first run if none exists.                                                                                                                |
-| Python              | 3.12 or later                                                                                                                                                                   |
-| Package install     | Core: `pip install -e .` (fake mode). Real connectivity: `pip install lxmf` (installs `rns` as dependency). Alternative: `pip install rnspure` for pure-Python crypto (slower). |
-| Network access      | At least one Reticulum transport interface configured                                                                                                                           |
+| Requirement         | Details                                                                                                                      |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Reticulum instance  | A running Reticulum transport layer (local `rnsd`, `AutoInterface` on LAN, or TCP to remote node)                            |
+| LXMF router storage | A writable directory for `LXMRouter` persistent state                                                                        |
+| Reticulum identity  | A 64-byte private key file. Created on first run if none exists.                                                             |
+| Python              | 3.12 or later                                                                                                                |
+| Package install     | Core: `pip install -e .` (fake mode). Real connectivity: `pip install -e ".[lxmf]"` (`lxmf==1.1.1` + explicit `rns==1.4.2`). |
+| Network access      | At least one Reticulum transport interface configured                                                                        |
 
 Fake mode is the default and recommended path for all development and testing. Real Reticulum connectivity is opt-in for live validation.
 
@@ -82,9 +82,15 @@ LXMF supports four delivery methods. The semantics are fundamentally asynchronou
 ```python
 config = LxmfConfig(
     adapter_id="lxmf-alpha",
-    default_delivery_method="direct",  # "direct" | "opportunistic" | "propagated" | "paper"
+    default_delivery_method="direct",  # direct | opportunistic | propagated | paper
+    # Required when selecting propagated delivery in real mode:
+    # outbound_propagation_node="0123456789abcdef0123456789abcdef",
 )
 ```
+
+For propagated delivery, configure the outbound LXMF propagation-node destination
+hash explicitly. `LXMRouter` starts with no outbound propagation node selected;
+MEDRE will refuse a propagated handoff until one is configured.
 
 **DIRECT is the recommended default.** It provides the best reliability trade-off: link-based delivery with retries and proof receipts. However:
 
@@ -112,8 +118,11 @@ Outbound retry is bounded: 3 retries with short linear backoff. After exhaustion
 
 `RNS.Reticulum()` is a singleton per process. Calling it twice raises `OSError`. This means:
 
-- Only one LXMRouter instance per process.
-- Multiple adapters wanting separate identities need separate processes.
+- MEDRE reuses the process-global Reticulum instance when one already exists.
+- Each `LXMRouter` supports one registered delivery identity. Multiple real
+  LXMF adapters still share the process-global Reticulum instance and have not
+  yet been live-validated together; MEDRE immediately restores pre-existing
+  process signal handlers after each embedded router is constructed.
 - Test isolation requires custom config directories.
 
 ## Minimum Viable Reticulum Topology
@@ -156,6 +165,21 @@ On first run, Reticulum creates a default config at `~/.reticulum/config` with `
 
 Do not run rnsd during MEDRE live harness execution — the harness needs to own its Reticulum instance with a custom `configdir` for test isolation.
 
+### Router Shutdown Ownership
+
+MEDRE owns each `LXMRouter` it creates. Because the router constructor replaces
+SIGINT/SIGTERM handlers, MEDRE snapshots the handlers that existed immediately
+before construction and restores them as soon as construction returns. On
+stop/reconnect it runs the router's idempotent `exit_handler()` to detach
+delivery callbacks/links and persist router state, then unregisters that
+router's `atexit` callback. MEDRE deliberately does **not** call the
+process-global `RNS.Reticulum.exit_handler()`.
+
+LXMF 1.1.x does not expose a join/stop primitive for the router's daemon job
+loop. The loop is quiesced by `exit_handler_running` but remains dormant until
+process exit; repeated router recreation may therefore leave dormant daemon
+threads.
+
 ## Reconnect Behavior
 
 The `LxmfSession` implements bounded exponential backoff reconnection:
@@ -180,7 +204,9 @@ Legacy `MEDRE_LXMF_*` runtime config vars are unsupported. Migrate to `MEDRE_ADA
 
 1. **No synchronous delivery confirmation.** Even DIRECT's proof receipt is asynchronous.
 2. **Singleton constraint.** Only one `RNS.Reticulum()` per process.
-3. **No propagation node config in LxmfConfig yet.** Propagation requires manual router setup.
+3. **Propagation requires explicit node selection.** Configure
+   `outbound_propagation_node`; MEDRE rejects propagated handoff when no node
+   is selected.
 4. **No native reply mechanism.** Replies are rendered as plain text with optional quoted prefix.
 5. **Identity file is unencrypted.** Protect it as a secret.
 6. **Outbound state at return time is typically `OUTBOUND`, not `DELIVERED`.**

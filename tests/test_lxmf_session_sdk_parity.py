@@ -48,8 +48,7 @@ class TestStampCostWiring:
     """stamp_cost from LxmfConfig is propagated to LXMRouter on connect."""
 
     async def test_stamp_cost_set_on_connect(self) -> None:
-        """When stamp_cost > 0, _connect_real calls
-        router.set_inbound_stamp_cost(None, stamp_cost)."""
+        """Positive stamp cost is passed while registering the local identity."""
         session = _make_session(
             connection_type="reticulum",
             stamp_cost=12,
@@ -72,12 +71,16 @@ class TestStampCostWiring:
         ):
             await session.start()
 
-        mock_router.set_inbound_stamp_cost.assert_called_once_with(None, 12)
+        mock_router.register_delivery_identity.assert_called_once_with(
+            mock_rns.Identity.return_value,
+            display_name=None,
+            stamp_cost=12,
+        )
+        mock_router.set_inbound_stamp_cost.assert_not_called()
         await session.stop()
 
     async def test_stamp_cost_zero_is_noop(self) -> None:
-        """When stamp_cost == 0, no stamp cost method is called on the
-        router."""
+        """Zero stamp cost maps to the router's unset ``None`` value."""
         session = _make_session(
             connection_type="reticulum",
             stamp_cost=0,
@@ -100,42 +103,12 @@ class TestStampCostWiring:
         ):
             await session.start()
 
-        mock_router.set_inbound_stamp_cost.assert_not_called()
-        await session.stop()
-
-    async def test_stamp_cost_graceful_degradation(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """When router lacks set_inbound_stamp_cost, no crash occurs and a
-        debug message is logged."""
-        session = _make_session(
-            connection_type="reticulum",
-            stamp_cost=8,
+        mock_router.register_delivery_identity.assert_called_once_with(
+            mock_rns.Identity.return_value,
+            display_name=None,
+            stamp_cost=None,
         )
-
-        mock_rns = MagicMock()
-        mock_lxmf = MagicMock()
-        mock_router = MagicMock()
-        # Remove the stamp cost method to simulate older SDK.
-        del mock_router.set_inbound_stamp_cost
-        mock_rns.Reticulum.get_instance.return_value = None
-        mock_rns.Reticulum.return_value = MagicMock()
-        mock_rns.Identity.return_value = MagicMock()
-        mock_lxmf.LXMRouter.return_value = mock_router
-
-        with (
-            patch("medre.adapters.lxmf.session.HAS_LXMF", True),
-            patch(
-                "medre.adapters.lxmf.session._require_lxmf",
-                return_value=(mock_rns, mock_lxmf),
-            ),
-            caplog.at_level(logging.DEBUG),
-        ):
-            await session.start()
-
-        # Session should still be connected — graceful degradation.
-        assert session.connected is True
-        assert any("stamp_cost" in r.message.lower() for r in caplog.records)
+        mock_router.set_inbound_stamp_cost.assert_not_called()
         await session.stop()
 
 
@@ -154,11 +127,13 @@ class TestDeliveryMethodDefaultWiring:
         session = _make_session(
             connection_type="reticulum",
             default_delivery_method="propagated",
+            outbound_propagation_node="11" * 16,
         )
 
         mock_rns = MagicMock()
         mock_lxmf = MagicMock()
         mock_router = MagicMock()
+        mock_router.get_outbound_propagation_node.return_value = b"\x11" * 16
         mock_rns.Reticulum.get_instance.return_value = None
         mock_rns.Reticulum.return_value = MagicMock()
         mock_identity = MagicMock()
@@ -201,6 +176,11 @@ class TestDeliveryMethodDefaultWiring:
         call_kwargs = mock_lxmf.LXMessage.call_args
         # The desired_method kwarg should be the PROPAGATED constant.
         assert call_kwargs.kwargs.get("desired_method") == "PROPAGATED_CONST"
+        # LXMF requires the local delivery RNS.Destination as source.
+        assert (
+            call_kwargs.args[1] is mock_router.register_delivery_identity.return_value
+        )
+        assert call_kwargs.args[1] is not mock_router
         await session.stop()
 
     async def test_explicit_delivery_method_overrides_default(self) -> None:
@@ -213,6 +193,7 @@ class TestDeliveryMethodDefaultWiring:
         mock_rns = MagicMock()
         mock_lxmf = MagicMock()
         mock_router = MagicMock()
+        mock_router.get_outbound_propagation_node.return_value = b"\x11" * 16
         mock_rns.Reticulum.get_instance.return_value = None
         mock_rns.Reticulum.return_value = MagicMock()
         mock_identity = MagicMock()

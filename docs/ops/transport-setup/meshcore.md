@@ -4,14 +4,14 @@ Setting up and running the MEDRE MeshCore adapter against a real radio node. Pre
 
 ## Prerequisites
 
-| Requirement          | Details                                                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------ |
-| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                               |
-| Python               | 3.11 or later                                                                                    |
-| Package install      | Core: `pip install -e .` (fake mode). Real connectivity: `pip install meshcore` (v2.3.7 audited) |
-| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                        |
-| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                  |
-| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                               |
+| Requirement          | Details                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------- |
+| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                      |
+| Python               | 3.11 or later                                                                                           |
+| Package install      | Core: `pip install -e .` (fake mode). Real connectivity: `pip install meshcore==2.3.8` (pinned/audited) |
+| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                               |
+| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                         |
+| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                      |
 
 Fake mode is the default and recommended path for all development and testing. Real connectivity modes are opt-in for live validation only.
 
@@ -83,7 +83,7 @@ sudo usermod -aG bluetooth $USER
 # Log out and back in for group changes to take effect
 
 # Install the meshcore SDK (includes bleak)
-pip install meshcore==2.3.7
+pip install meshcore==2.3.8
 ```
 
 #### Pair the device first
@@ -184,7 +184,7 @@ The `meshcore` package depends on `bleak`, but if you installed MEDRE without
 the SDK:
 
 ```bash
-pip install meshcore==2.3.7
+pip install meshcore==2.3.8
 ```
 
 ##### `bluetoothctl scan on` does not show the node
@@ -206,7 +206,7 @@ sudo systemctl restart bluetooth
 
 ### Firmware Compatibility
 
-`meshcore` v2.3.7 is the audited SDK version. Verify installation:
+`meshcore` v2.3.8 is the pinned and audited SDK version. Verify installation:
 
 ```bash
 python -c "import meshcore; print(meshcore.__all__)"

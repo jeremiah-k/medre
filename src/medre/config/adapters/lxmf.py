@@ -71,11 +71,15 @@ class LxmfConfig:
     display_name:
         Optional display name for LXMF announces.
     stamp_cost:
-        Default stamp cost.  ``0`` means no stamp required.
-        If non-zero, must be a positive integer.
+        Default stamp cost. ``0`` means no stamp required. Positive values
+        must fit LXMF's one-byte cost range (``1..254``).
     default_delivery_method:
         Default LXMF delivery method: ``"direct"``, ``"opportunistic"``,
         ``"propagated"``, or ``"paper"``.  Defaults to ``"direct"``.
+    outbound_propagation_node:
+        Optional 16-byte LXMF propagation-node destination hash encoded as
+        32 hexadecimal characters. Required when real-mode default delivery
+        is ``"propagated"``.
     default_channel:
         Default radio channel index for outbound messages.
     message_delay_seconds:
@@ -116,6 +120,7 @@ class LxmfConfig:
     display_name: str = ""
     stamp_cost: int = 8
     default_delivery_method: str = "direct"
+    outbound_propagation_node: str | None = None
     origin_label: str = ""
     default_channel: int = 0
     message_delay_seconds: float = 0.5
@@ -157,6 +162,34 @@ class LxmfConfig:
                 f"got {self.default_delivery_method!r}"
             )
 
+        # --- outbound_propagation_node ---
+        if self.outbound_propagation_node is not None:
+            if not isinstance(self.outbound_propagation_node, str):
+                raise LxmfConfigError(
+                    "outbound_propagation_node must be a 32-character "
+                    "hex string or None"
+                )
+            node_hash = self.outbound_propagation_node
+            if len(node_hash) != 32:
+                raise LxmfConfigError(
+                    "outbound_propagation_node must encode a 16-byte "
+                    "destination hash (32 hex characters)"
+                )
+            if any(ch not in "0123456789abcdefABCDEF" for ch in node_hash):
+                raise LxmfConfigError(
+                    "outbound_propagation_node must contain only hexadecimal "
+                    "characters"
+                )
+        if (
+            self.connection_type == "reticulum"
+            and self.default_delivery_method == "propagated"
+            and self.outbound_propagation_node is None
+        ):
+            raise LxmfConfigError(
+                "outbound_propagation_node is required when real-mode "
+                "default_delivery_method='propagated'"
+            )
+
         # --- numeric fields ---
         if isinstance(self.message_delay_seconds, bool):
             raise LxmfConfigError(
@@ -190,9 +223,9 @@ class LxmfConfig:
             raise LxmfConfigError(
                 f"stamp_cost must be an integer, got {type(self.stamp_cost).__name__}"
             )
-        if self.stamp_cost < 0:
+        if not 0 <= self.stamp_cost <= 254:
             raise LxmfConfigError(
-                f"stamp_cost must be non-negative, got {self.stamp_cost}"
+                f"stamp_cost must be between 0 and 254, got {self.stamp_cost}"
             )
 
         # --- identity_path ---

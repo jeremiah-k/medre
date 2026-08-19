@@ -1,7 +1,7 @@
 """Tests for MeshCoreSession: mocked SDK startup and send wiring.
 
 Tests exercise the real connection wiring against a fake meshcore module
-that matches the PyPI meshcore 2.3.7 API surface. Covers:
+that matches the pinned meshcore 2.3.8 API surface. Covers:
 - Serial, TCP, BLE startup constructor args
 - Event subscription registration
 - Event callback payload forwarding
@@ -103,7 +103,9 @@ async def test_serial_constructor_args() -> None:
         await session.start(lambda _pkt: None)
 
     # create_serial should have been called with (port, baudrate).
-    mock_mc.MeshCore.create_serial.assert_awaited_once_with("/dev/ttyACM0", 57600)
+    mock_mc.MeshCore.create_serial.assert_awaited_once_with(
+        "/dev/ttyACM0", 57600, auto_reconnect=False
+    )
     assert session.connected is True
 
     # Cleanup.
@@ -126,7 +128,9 @@ async def test_serial_default_baudrate() -> None:
     ):
         await session.start(lambda _pkt: None)
 
-    mock_mc.MeshCore.create_serial.assert_awaited_once_with("/dev/ttyUSB0", 115200)
+    mock_mc.MeshCore.create_serial.assert_awaited_once_with(
+        "/dev/ttyUSB0", 115200, auto_reconnect=False
+    )
 
     await session.stop()
 
@@ -153,7 +157,9 @@ async def test_tcp_constructor_args() -> None:
     ):
         await session.start(lambda _pkt: None)
 
-    mock_mc.MeshCore.create_tcp.assert_awaited_once_with("meshcore.local", 4000)
+    mock_mc.MeshCore.create_tcp.assert_awaited_once_with(
+        "meshcore.local", 4000, auto_reconnect=False
+    )
     assert session.connected is True
 
     await session.stop()
@@ -176,7 +182,9 @@ async def test_tcp_default_port_when_none() -> None:
     ):
         await session.start(lambda _pkt: None)
 
-    mock_mc.MeshCore.create_tcp.assert_awaited_once_with("meshcore.local", 4000)
+    mock_mc.MeshCore.create_tcp.assert_awaited_once_with(
+        "meshcore.local", 4000, auto_reconnect=False
+    )
     assert session.connected is True
 
     await session.stop()
@@ -199,7 +207,9 @@ async def test_tcp_explicit_port_overrides_default() -> None:
     ):
         await session.start(lambda _pkt: None)
 
-    mock_mc.MeshCore.create_tcp.assert_awaited_once_with("meshcore.local", 12345)
+    mock_mc.MeshCore.create_tcp.assert_awaited_once_with(
+        "meshcore.local", 12345, auto_reconnect=False
+    )
     assert session.connected is True
 
     await session.stop()
@@ -573,6 +583,7 @@ async def test_ble_constructor_args() -> None:
     mock_mc.MeshCore.create_ble.assert_awaited_once_with(
         address="AA:BB:CC:DD:EE:FF",
         device=None,
+        auto_reconnect=False,
     )
     assert session.connected is True
 
@@ -638,6 +649,7 @@ async def test_ble_pin_passed_to_create_ble() -> None:
         address="AA:BB:CC:DD:EE:FF",
         device=None,
         pin="190714",
+        auto_reconnect=False,
     )
     assert session.connected is True
 
@@ -665,6 +677,7 @@ async def test_ble_pin_not_passed_when_none() -> None:
     mock_mc.MeshCore.create_ble.assert_awaited_once_with(
         address="AA:BB:CC:DD:EE:FF",
         device=None,
+        auto_reconnect=False,
     )
     assert session.connected is True
 
@@ -891,57 +904,46 @@ async def test_send_chan_msg_returns_none_for_ok() -> None:
 
 
 # ===================================================================
-# send_appstart failure cleanup (lines 529-533)
+# SDK factory APP_START ownership
 # ===================================================================
 
 
-async def test_appstart_error_disconnects_and_clears_state() -> None:
-    """send_appstart raising causes disconnect, _meshcore=None, subscriptions cleared."""
-    mock_mc, mock_inst = build_mock_meshcore_module()
-    # Make send_appstart raise an exception.
-    mock_inst.commands.send_appstart.side_effect = RuntimeError("appstart rejected")
+async def test_factory_none_after_sdk_appstart_failure_clears_state() -> None:
+    """A factory that rejects its own APP_START leaves no half-connected client."""
+    mock_mc, _mock_inst = build_mock_meshcore_module()
+    mock_mc.MeshCore.create_tcp.return_value = None
 
     config = _make_config(connection_type="tcp", host="localhost")
-    session = MeshCoreSession(config, "appstart-fail-test")
+    session = MeshCoreSession(config, "factory-appstart-fail-test")
 
     with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
         patch.dict(sys.modules, {"meshcore": mock_mc}),
+        pytest.raises(MeshCoreConnectionError, match="No response"),
     ):
-        with pytest.raises(MeshCoreConnectionError, match="send_appstart failed"):
-            await session.start(lambda _pkt: None)
+        await session.start(lambda _pkt: None)
 
-    # _meshcore must be cleaned up (set to None).
     assert session._meshcore is None
-    # Connected flag must be False.
     assert session.connected is False
-    # Subscriptions must be cleared.
     assert len(session._subscriptions) == 0
-    # SDK disconnect should have been called.
-    mock_inst.disconnect.assert_awaited_once()
-    # last_error must reflect the failure.
-    assert session.last_error is not None
-    assert "appstart rejected" in str(session.last_error)
 
 
-async def test_appstart_disconnect_error_suppressed() -> None:
-    """When send_appstart fails AND disconnect also fails, no secondary exception."""
+async def test_factory_exception_does_not_trigger_second_appstart() -> None:
+    """MEDRE never tries a second APP_START when an SDK factory raises."""
     mock_mc, mock_inst = build_mock_meshcore_module()
-    mock_inst.commands.send_appstart.side_effect = RuntimeError("appstart boom")
-    # disconnect also raises — should be suppressed.
-    mock_inst.disconnect.side_effect = OSError("socket closed")
+    mock_mc.MeshCore.create_tcp.side_effect = RuntimeError("appstart boom")
 
     config = _make_config(connection_type="tcp", host="localhost")
-    session = MeshCoreSession(config, "appstart-dc-err-test")
+    session = MeshCoreSession(config, "factory-appstart-exc-test")
 
     with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
         patch.dict(sys.modules, {"meshcore": mock_mc}),
+        pytest.raises(MeshCoreConnectionError, match="appstart boom"),
     ):
-        with pytest.raises(MeshCoreConnectionError, match="send_appstart failed"):
-            await session.start(lambda _pkt: None)
+        await session.start(lambda _pkt: None)
 
-    # Despite disconnect error, cleanup still occurs.
+    mock_inst.commands.send_appstart.assert_not_awaited()
     assert session._meshcore is None
     assert session.connected is False
 
@@ -973,7 +975,7 @@ async def test_ble_all_attempts_fail_sets_sanitized_last_error() -> None:
 
     with _patch_ble_helpers():
         with (
-            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
             patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
         ):
@@ -999,7 +1001,7 @@ async def test_tcp_create_returns_none_sets_useful_last_error() -> None:
     session = MeshCoreSession(config, "tcp-none-lasterr-test")
 
     with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
         patch.dict(sys.modules, {"meshcore": mock_mc}),
     ):
         with pytest.raises(MeshCoreConnectionError, match="No response.*TCP"):
@@ -1030,7 +1032,7 @@ async def test_meshcore_connection_error_not_double_wrapped() -> None:
 
     with _patch_ble_helpers():
         with (
-            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
             patch("medre.adapters.meshcore.session.asyncio.sleep", new=AsyncMock()),
         ):
@@ -1073,7 +1075,7 @@ async def test_stop_awaits_auto_message_fetching_before_disconnect() -> None:
     session = MeshCoreSession(config, "stop-order-test")
 
     with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
         patch.dict(sys.modules, {"meshcore": mock_mc}),
     ):
         await session.start(lambda _pkt: None)
@@ -1100,7 +1102,7 @@ async def test_stop_auto_fetch_timeout_does_not_block_disconnect() -> None:
     session = MeshCoreSession(config, "stop-fetch-timeout-test")
 
     with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
         patch.dict(sys.modules, {"meshcore": mock_mc}),
     ):
         await session.start(lambda _pkt: None)
@@ -1128,7 +1130,7 @@ async def test_stop_auto_fetch_error_does_not_block_disconnect() -> None:
     session = MeshCoreSession(config, "stop-fetch-err-test")
 
     with (
-        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
         patch.dict(sys.modules, {"meshcore": mock_mc}),
     ):
         await session.start(lambda _pkt: None)

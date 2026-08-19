@@ -166,6 +166,19 @@ class TestLxmfConfigStampCost:
             config.validate()
 
 
+def test_maximum_lxmf_stamp_cost_is_valid() -> None:
+    """LXMF accepts inbound stamp costs through 254 inclusive."""
+    config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=254)
+    assert config.validate().stamp_cost == 254
+
+
+def test_lxmf_stamp_cost_above_sdk_limit_is_rejected() -> None:
+    """Reject costs that the pinned LXMRouter cannot apply."""
+    config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=255)
+    with pytest.raises(LxmfConfigError, match="between 0 and 254"):
+        config.validate()
+
+
 class TestLxmfConfigInvalid:
     """Other invalid LxmfConfig cases."""
 

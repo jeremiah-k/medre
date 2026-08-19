@@ -50,7 +50,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           python -m pytest tests/ -v \
-            -m "not live and not docker and not matrix_sdk" \
+            -m "not live and not docker and not hardware and not matrix_sdk and not lxmf_sdk and not meshtastic_sdk and not meshcore_sdk" \
             --cov \
             --cov-report=xml \
             --cov-report=html \
@@ -94,3 +94,51 @@ jobs:
         run: |
           python -m pytest tests/test_matrix_sync_recovery_sdk_contract.py -v \
             -m matrix_sdk
+
+  adapter-sdk-contract:
+    name: adapter-sdk-contract (${{ matrix.adapter }}, py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        adapter: [lxmf, meshtastic, meshcore]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install ${{ matrix.adapter }} SDK contract dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[${{ matrix.adapter }},dev]"
+
+      - name: Verify pinned ${{ matrix.adapter }} SDK contract
+        env:
+          ADAPTER: ${{ matrix.adapter }}
+        run: |
+          case "$ADAPTER" in
+            lxmf)
+              test_file="tests/test_lxmf_sdk_contract.py"
+              marker="lxmf_sdk"
+              ;;
+            meshtastic)
+              test_file="tests/test_meshtastic_sdk_contract.py"
+              marker="meshtastic_sdk"
+              ;;
+            meshcore)
+              test_file="tests/test_meshcore_pinned_sdk_contract.py"
+              marker="meshcore_sdk"
+              ;;
+            *)
+              echo "Unsupported adapter contract: $ADAPTER" >&2
+              exit 2
+              ;;
+          esac
+          python -m pytest "$test_file" -v -m "$marker"

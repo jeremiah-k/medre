@@ -840,28 +840,65 @@ class TestP09MeshtasticQueueWatermarkMonitoring:
 
 
 class TestP10MeshCoreAppstartValidation:
-    """Confirm P-10: send_appstart is correctly issued on connect/reconnect.
+    """Confirm P-10 ownership against the pinned meshcore 2.3.8 factories.
 
-    This item was validated as complete in the adapter-reality-audit (R4).
-    These tests guard against regression.
+    ``MeshCore.create_*()`` performs ``connect()``, and the SDK's ``connect()``
+    performs ``send_appstart()``. MEDRE must therefore recreate the SDK client
+    on reconnect without issuing a duplicate command itself.
     """
 
-    def test_connect_real_includes_appstart(self) -> None:
-        """_connect_real source includes send_appstart call."""
+    def test_connect_real_delegates_appstart_to_factory(self) -> None:
+        """MEDRE does not issue a second send_appstart after factory return."""
         source = inspect.getsource(
             meshcore_session_mod.MeshCoreSession._connect_real,
         )
-        assert "send_appstart" in source
+        assert ".commands.send_appstart(" not in source
+        assert "auto_reconnect=False" in source
 
-    def test_connect_real_includes_subscribe_events(self) -> None:
-        """_connect_real subscribes to events before sending appstart."""
-        source = inspect.getsource(
-            meshcore_session_mod.MeshCoreSession._connect_real,
+    async def test_connect_real_subscribes_after_factory_connect(self) -> None:
+        """Factory completion precedes the first MEDRE SDK subscription."""
+        from tests.helpers.meshcore_session import (
+            build_mock_meshcore_module,
+            install_mock_module,
+            remove_mock_module,
         )
-        assert "_subscribe_events" in source
+
+        config = _make_meshcore_config(
+            connection_type="tcp",
+            host="127.0.0.1",
+            port=4000,
+        )
+        session = meshcore_session_mod.MeshCoreSession(
+            config=config,
+            adapter_id=config.adapter_id,
+        )
+        mock_mc, instance = build_mock_meshcore_module()
+        timeline: list[str] = []
+
+        async def _factory(*_args: object, **_kwargs: object) -> MagicMock:
+            timeline.append("factory-complete")
+            return instance
+
+        def _subscribe(*_args: object, **_kwargs: object) -> MagicMock:
+            timeline.append("subscribe")
+            return MagicMock()
+
+        mock_mc.MeshCore.create_tcp.side_effect = _factory
+        instance.subscribe.side_effect = _subscribe
+        install_mock_module(mock_mc)
+        try:
+            with patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True):
+                await session.start(message_callback=MagicMock())
+
+            assert timeline[0] == "factory-complete"
+            assert "subscribe" in timeline
+            assert timeline.index("factory-complete") < timeline.index("subscribe")
+        finally:
+            await session.stop()
+            remove_mock_module()
 
     def test_reconnect_loop_uses_connect_real(self) -> None:
-        """_reconnect_loop delegates to _connect_real (shared path)."""
+        """_reconnect_loop recreates the SDK client through _connect_real."""
         source = inspect.getsource(
             meshcore_session_mod.MeshCoreSession._reconnect_loop,
         )

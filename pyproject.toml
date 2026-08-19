@@ -40,8 +40,9 @@ meshtastic = ["mtjk==2.7.11.post5", "PyPubSub==4.0.7"]
 # Transitive deps: bleak, pyserial-asyncio-fast, pycayennelpp, pycryptodome.
 meshcore = ["meshcore==2.3.8"]
 # lxmf v1.1.1.
-# Requires Reticulum (rns) as a transitive dep (v1.4.2 at time of pin).
-lxmf = ["lxmf==1.1.1"]
+# Reticulum is pinned explicitly so pip-based SDK contract CI cannot drift
+# away from the lockfile-compatible RNS surface.
+lxmf = ["lxmf==1.1.1", "rns==1.4.2"]
 
 [project.scripts]
 medre = "medre.cli:main"
@@ -65,7 +66,10 @@ markers = [
   "live: tests that connect to a real service or hardware (skipped by default)",
   "docker: tests requiring Docker services like Synapse or meshtasticd (skipped by default)",
   "matrix_sdk: tests requiring the pinned mindroom-nio Matrix SDK (skipped by default)",
+  "lxmf_sdk: tests requiring the pinned LXMF/RNS SDKs (skipped by default)",
+  "meshtastic_sdk: tests requiring the pinned mtjk Meshtastic SDK (skipped by default)",
+  "meshcore_sdk: tests requiring the pinned meshcore SDK (skipped by default)",
   "hardware: tests requiring physical hardware (serial/BLE Meshtastic radios, etc.) — implies live (skipped by default)",
 ]
-addopts = "-m 'not live and not docker and not hardware and not matrix_sdk'"
+addopts = "-m 'not live and not docker and not hardware and not matrix_sdk and not lxmf_sdk and not meshtastic_sdk and not meshcore_sdk'"
 filterwarnings = ["error"]

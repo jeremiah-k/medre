@@ -62,7 +62,7 @@ class _FakeDestination:
 class _FakeLXMessage:
     OUTBOUND = 1
 
-    def __init__(self, dest: Any, router: Any, content: Any, **kwargs: Any) -> None:
+    def __init__(self, dest: Any, source: Any, content: Any, **kwargs: Any) -> None:
         # Use string state so _map_delivery_state resolves via the
         # string-to-enum branch (HAS_LXMF is False in tests, so the
         # integer state-map is empty and an int would map to UNMAPPED).
@@ -96,6 +96,7 @@ async def _start_real_mocked_session(
     await session.start()
     session._config = _make_config(connection_type="reticulum")
     session._diag.connected = True
+    session._delivery_destination = MagicMock()
 
     mock_rns, mock_lxmf = _mock_rns_lxmf()
     mock_router = MagicMock()

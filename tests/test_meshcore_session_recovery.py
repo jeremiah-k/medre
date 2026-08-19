@@ -3,14 +3,14 @@ normalization, sync callback support, failed-start cleanup, and adapter
 reality audit fixes (send_appstart, expected_ack).
 
 Tests exercise the real connection wiring against a fake meshcore module
-that matches the PyPI meshcore 2.3.7 API surface.
+that matches the pinned meshcore 2.3.8 API surface.
 """
 
 from __future__ import annotations
 
 import logging
 import sys
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -567,121 +567,42 @@ class TestFailedStartCleanup:
 # ===================================================================
 
 
-class TestSendAppstart:
-    """Verify send_appstart is called after connect and cleans up on failure."""
+async def test_medre_does_not_duplicate_factory_appstart() -> None:
+    """_connect_real delegates APP_START to the pinned SDK factory."""
+    mock_mc, mock_inst = build_mock_meshcore_module()
+    config = _make_config(connection_type="tcp", host="localhost")
+    session = MeshCoreSession(config, "appstart-owner-test")
 
-    async def test_send_appstart_called_after_connect(self) -> None:
-        """send_appstart is called once during _connect_real()."""
-        mock_mc, mock_inst = build_mock_meshcore_module()
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+    ):
+        await session.start(lambda _pkt: None)
 
-        config = _make_config(connection_type="tcp", host="localhost")
-        session = MeshCoreSession(config, "appstart-test")
+    mock_inst.commands.send_appstart.assert_not_awaited()
+    assert session.connected is True
+    await session.stop()
 
-        with (
-            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-            patch.dict(sys.modules, {"meshcore": mock_mc}),
-        ):
-            await session.start(lambda _pkt: None)
 
-        mock_inst.commands.send_appstart.assert_awaited_once()
-        assert session.connected is True
+async def test_reconnect_recreates_sdk_client_without_direct_appstart() -> None:
+    """Reconnect re-enters the SDK factory without a second APP_START."""
+    mock_mc, mock_inst = build_mock_meshcore_module()
+    config = _make_config(connection_type="tcp", host="localhost")
+    session = MeshCoreSession(config, "reconnect-appstart-owner-test")
 
-        await session.stop()
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+    ):
+        await session.start(lambda _pkt: None)
+        initial_factory_calls = mock_mc.MeshCore.create_tcp.await_count
+        session._diag.connected = False
+        await session._connect_real()
 
-    async def test_send_appstart_failure_cleans_up(self) -> None:
-        """send_appstart failure raises MeshCoreConnectionError and cleans up."""
-        mock_mc, mock_inst = build_mock_meshcore_module()
-
-        # Make send_appstart return an error event.
-        error_event = MockEvent(
-            event_type=MockEventType.ERROR,
-            payload={"reason": "firmware rejected"},
-        )
-        mock_inst.commands.send_appstart = AsyncMock(return_value=error_event)
-
-        config = _make_config(connection_type="tcp", host="localhost")
-        session = MeshCoreSession(config, "appstart-fail-test")
-
-        with (
-            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-            patch.dict(sys.modules, {"meshcore": mock_mc}),
-        ):
-            with pytest.raises(MeshCoreConnectionError, match="send_appstart"):
-                await session.start(lambda _pkt: None)
-
-        assert session._meshcore is None
-        assert session.connected is False
-        assert len(session._subscriptions) == 0
-
-    async def test_send_appstart_exception_cleans_up(self) -> None:
-        """send_appstart raising an exception triggers full cleanup."""
-        mock_mc, mock_inst = build_mock_meshcore_module()
-
-        mock_inst.commands.send_appstart = AsyncMock(
-            side_effect=OSError("serial write timeout")
-        )
-
-        config = _make_config(connection_type="serial", serial_port="/dev/ttyUSB0")
-        session = MeshCoreSession(config, "appstart-exc-test")
-
-        with (
-            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-            patch.dict(sys.modules, {"meshcore": mock_mc}),
-        ):
-            with pytest.raises(MeshCoreConnectionError, match="send_appstart failed"):
-                await session.start(lambda _pkt: None)
-
-        assert session._meshcore is None
-        assert session.connected is False
-
-    async def test_reconnect_calls_appstart(self) -> None:
-        """Reconnect goes through _connect_real which sends appstart."""
-        import medre.adapters.meshcore.session as session_mod
-
-        orig_base = session_mod._RECONNECT_BASE_DELAY
-        orig_max_delay = session_mod._RECONNECT_MAX_DELAY
-        orig_max_attempts = session_mod._RECONNECT_MAX_ATTEMPTS
-        orig_jitter = session_mod._RECONNECT_JITTER_FRACTION
-
-        session_mod._RECONNECT_BASE_DELAY = 0.01
-        session_mod._RECONNECT_MAX_DELAY = 0.02
-        session_mod._RECONNECT_MAX_ATTEMPTS = 10
-        session_mod._RECONNECT_JITTER_FRACTION = 0.0
-
-        try:
-            mock_mc, mock_inst = build_mock_meshcore_module()
-
-            config = _make_config(connection_type="tcp", host="localhost")
-            session = MeshCoreSession(config, "reconnect-appstart-test")
-
-            with (
-                patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-                patch.dict(sys.modules, {"meshcore": mock_mc}),
-            ):
-                await session.start(lambda _pkt: None)
-
-            # Reset appstart call count from initial connect.
-            mock_inst.commands.send_appstart.reset_mock()
-
-            # Simulate disconnect + reconnect via _connect_real directly.
-            session._diag.connected = False
-            session._diag.reconnect_attempts = 0
-            with (
-                patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
-                patch.dict(sys.modules, {"meshcore": mock_mc}),
-            ):
-                await session._connect_real()
-
-            # Appstart should have been called again on reconnect.
-            mock_inst.commands.send_appstart.assert_awaited_once()
-            assert session.connected is True
-
-            await session.stop()
-        finally:
-            session_mod._RECONNECT_BASE_DELAY = orig_base
-            session_mod._RECONNECT_MAX_DELAY = orig_max_delay
-            session_mod._RECONNECT_MAX_ATTEMPTS = orig_max_attempts
-            session_mod._RECONNECT_JITTER_FRACTION = orig_jitter
+    assert mock_mc.MeshCore.create_tcp.await_count == initial_factory_calls + 1
+    mock_inst.commands.send_appstart.assert_not_awaited()
+    assert session.connected is True
+    await session.stop()
 
 
 class TestExpectedAckAsNativeId:
@@ -700,7 +621,7 @@ class TestExpectedAckAsNativeId:
         session = MeshCoreSession(config, "ack-test")
 
         with (
-            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
             await session.start(lambda _pkt: None)
@@ -724,7 +645,7 @@ class TestExpectedAckAsNativeId:
         session = MeshCoreSession(config, "chan-no-id-test")
 
         with (
-            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
             await session.start(lambda _pkt: None)
@@ -750,7 +671,7 @@ class TestExpectedAckAsNativeId:
         session = MeshCoreSession(config, "attr-ack-test")
 
         with (
-            patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
             patch.dict(sys.modules, {"meshcore": mock_mc}),
         ):
             await session.start(lambda _pkt: None)

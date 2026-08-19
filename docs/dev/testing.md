@@ -204,26 +204,31 @@ async def _cancel_immediately(*args, **kwargs):
 
 ## Adapter/Bridge Test Tiers
 
-Tests are classified into five tiers based on what they honestly prove. Never
+Tests are classified into six tiers based on what they honestly prove. Never
 overclaim the evidence level of a test. If a test uses fake adapters, call it
 "fake pipeline", not "docker" or "live".
 
-| Tier | Label                   | What it proves                                                                 | How to test                                                                           |
-| ---- | ----------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| 1    | `fake_pipeline`         | `PipelineRunner.handle_ingress()` works with direct `CanonicalEvent` injection | Import `CanonicalEvent`, construct it, call `runner.handle_ingress()` directly        |
-| 2    | `fake_adapter_callback` | `adapter.simulate_inbound()` produces the same results as direct injection     | Use `FakeMatrixAdapter.simulate_inbound()`, compare output with direct injection      |
-| 3    | `wrapper_callback`      | Real adapter SDK callback (e.g., `_on_room_message`) bridges to fake target    | Mock the SDK, test the wrapper callback through the pipeline to a fake target adapter |
-| 4    | `docker_sdk_boundary`   | Real SDK code paths work against containerized services (Synapse, meshtasticd) | Docker Compose tests, gated by `@pytest.mark.docker`                                  |
-| 5    | `live_network`          | Real adapter against real endpoint or hardware                                 | `@pytest.mark.live`, requires environment variables                                   |
+| Tier | Label                   | What it proves                                                                         | How to test                                                                           |
+| ---- | ----------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 1    | `fake_pipeline`         | `PipelineRunner.handle_ingress()` works with direct `CanonicalEvent` injection         | Import `CanonicalEvent`, construct it, call `runner.handle_ingress()` directly        |
+| 2    | `fake_adapter_callback` | `adapter.simulate_inbound()` produces the same results as direct injection             | Use `FakeMatrixAdapter.simulate_inbound()`, compare output with direct injection      |
+| 3    | `wrapper_callback`      | Real adapter SDK callback (e.g., `_on_room_message`) bridges to fake target            | Mock the SDK, test the wrapper callback through the pipeline to a fake target adapter |
+| 4    | `sdk_contract`          | Exact pinned optional SDK exposes the constructors, enums and callbacks MEDRE consumes | Dedicated `*_sdk` marker/job with the adapter extra installed                         |
+| 5    | `docker_sdk_boundary`   | Real SDK code paths work against containerized services (Synapse, meshtasticd)         | Docker Compose tests, gated by `@pytest.mark.docker`                                  |
+| 6    | `live_network`          | Real adapter against real endpoint or hardware                                         | `@pytest.mark.live`, requires environment variables                                   |
 
 ### Honest evidence reporting
 
+- Installed-SDK contract tests validate package surfaces without claiming a
+  network/service integration result.
 - If a test uses Docker but not real hardware, label it **docker_sdk_boundary**
-  (tier 4), not "live".
+  (tier 5), not "live".
 - If a test uses fake adapters but a real pipeline, label it **fake_pipeline**
   (tier 1) or **fake_adapter_callback** (tier 2), not "docker".
 - If a test uses a real SDK but routes to a fake outbound target, label it
-  **docker_sdk_boundary bridge smoke** (tier 4), not "live bridge".
+  **sdk_contract bridge smoke** (tier 4), not "live bridge". Reserve
+  **docker_sdk_boundary** (tier 5) for tests that actually use a containerized
+  service.
 
 The `medre smoke --json` report includes an `evidence_level` field set to
 `fake_bridge`. This is intentional. It does not overclaim.

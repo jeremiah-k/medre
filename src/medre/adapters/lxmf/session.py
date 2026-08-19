@@ -122,8 +122,10 @@ objects are ever included in the normalised dict.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import logging
 import random
+import signal
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -425,7 +427,9 @@ class LxmfSession:
         "_delivery_insert_order",
         # Announce timer
         "_announce_task",
-        # Delivery destination hash (from register_delivery_identity)
+        # Local delivery destination returned by register_delivery_identity.
+        "_delivery_destination",
+        # Delivery destination hash used for announces/diagnostics.
         "_delivery_destination_hash",
         # Send serialization
         "_send_lock",
@@ -467,6 +471,7 @@ class LxmfSession:
         self._stop_requested: bool = False
         self._reconnect_task: asyncio.Task | None = None
         self._announce_task: asyncio.Task | None = None
+        self._delivery_destination: Any = None  # RNS.Destination
         self._delivery_destination_hash: bytes | None = None
 
         # Diagnostics.
@@ -727,6 +732,7 @@ class LxmfSession:
         self._diag.announces_sent = 0
         self._diag.announce_failures = 0
         self._diag.last_announce_error = None
+        self._delivery_destination = None
         self._delivery_destination_hash = None
         # Clear callback and loop references so late SDK callbacks
         # (fired on Reticulum threads after teardown) are dropped.
@@ -929,21 +935,45 @@ class LxmfSession:
                     "storage_path is required for LXMRouter construction "
                     "(validated LXMF LXMRouter behavior raises ValueError without it)"
                 )
-            self._router = lxmf.LXMRouter(
-                identity=self._identity,
-                storagepath=storagepath,
-            )
+            # LXMRouter installs its own process SIGINT/SIGTERM handlers in
+            # its constructor. MEDRE is embedding the router inside a larger
+            # process and may host multiple LXMF adapters, so preserve the
+            # handlers that were already authoritative and restore them
+            # immediately after construction. The router's atexit handler
+            # remains registered for process-exit persistence.
+            previous_signal_handlers: dict[int, Any] = {}
+            try:
+                previous_signal_handlers = {
+                    signal.SIGINT: signal.getsignal(signal.SIGINT),
+                    signal.SIGTERM: signal.getsignal(signal.SIGTERM),
+                }
+            except (AttributeError, OSError, ValueError) as exc:
+                self._logger.debug(
+                    "LxmfSession %s: could not snapshot process signal "
+                    "handlers before LXMRouter construction: %s",
+                    self._adapter_id,
+                    exc,
+                )
 
-            # 4. Propagate configured stamp cost to the local router.
-            if self._config.stamp_cost > 0:
-                try:
-                    self._router.set_inbound_stamp_cost(None, self._config.stamp_cost)
-                except (AttributeError, TypeError):
-                    self._logger.debug(
-                        "LXMF router does not support stamp_cost configuration"
-                    )
+            try:
+                self._router = lxmf.LXMRouter(
+                    identity=self._identity,
+                    storagepath=storagepath,
+                )
+            finally:
+                for signum, previous_handler in previous_signal_handlers.items():
+                    try:
+                        signal.signal(signum, previous_handler)
+                    except (AttributeError, OSError, TypeError, ValueError) as exc:
+                        self._logger.debug(
+                            "LxmfSession %s: could not restore process signal "
+                            "handler %s after LXMRouter construction: %s",
+                            self._adapter_id,
+                            signum,
+                            exc,
+                        )
 
-            # 5. Register delivery callback.
+            # 4. Register delivery callback.
             try:
                 self._router.register_delivery_callback(self._on_lxmf_delivery)
             except (AttributeError, TypeError) as exc:
@@ -951,35 +981,42 @@ class LxmfSession:
                     f"Failed to register delivery callback on LXMRouter: {exc}"
                 ) from exc
 
-            # 6. Register delivery identity — creates the inbound
+            # 5. Register delivery identity — creates the inbound
             #    destination that remote peers can address.  Also
             #    required for router.announce() to work (announce
             #    looks up the hash in delivery_destinations).
-            #    Clear stale hash before each attempt so a None return
-            #    does not leave a previous lifecycle's value in place.
+            #    Keep the returned RNS.Destination: LXMessage requires its
+            #    source argument to be an RNS.Destination (or None), not the
+            #    LXMRouter. Clear stale lifecycle state before each attempt.
+            self._delivery_destination = None
             self._delivery_destination_hash = None
             try:
                 delivery_dest = self._router.register_delivery_identity(
                     self._identity,
                     display_name=self._config.display_name or None,
+                    stamp_cost=(
+                        self._config.stamp_cost if self._config.stamp_cost > 0 else None
+                    ),
                 )
-                if delivery_dest is not None:
-                    self._delivery_destination_hash = delivery_dest.hash
-                else:
-                    self._logger.warning(
-                        "LxmfSession %s: register_delivery_identity returned "
-                        "None (another identity may already be registered)",
-                        self._adapter_id,
+                if delivery_dest is None:
+                    raise LxmfConnectionError(
+                        "LXMRouter did not register the local delivery identity"
                     )
+                self._delivery_destination = delivery_dest
+                self._delivery_destination_hash = delivery_dest.hash
+
+                # Propagated delivery requires an explicit outbound propagation
+                # node. LXMRouter starts with no outbound node selected.
+                if self._config.outbound_propagation_node is not None:
+                    self._router.set_outbound_propagation_node(
+                        bytes.fromhex(self._config.outbound_propagation_node)
+                    )
+            except LxmfConnectionError:
+                raise
             except (AttributeError, TypeError) as exc:
-                # Non-fatal: delivery and announce still work without
-                # a local delivery identity, but inbound direct
-                # messages will not be received.
-                self._logger.warning(
-                    "LxmfSession %s: register_delivery_identity failed: %s",
-                    self._adapter_id,
-                    exc,
-                )
+                raise LxmfConnectionError(
+                    f"Failed to register local LXMF delivery identity: {exc}"
+                ) from exc
 
         except LxmfConnectionError:
             raise
@@ -1004,15 +1041,48 @@ class LxmfSession:
         self._diag.connected = False
         self._diag.router_running = False
 
-        # Router → Identity → Reticulum
+        # Delivery destination → Router → Identity → Reticulum.  LXMRouter
+        # owns delivery callbacks, link state, persistent queues, an atexit
+        # registration, process signal handlers, and a daemon maintenance
+        # loop.  Quiesce that per-router state before dropping the reference.
+        # Do *not* call RNS.Reticulum.exit_handler(): Reticulum is process-
+        # global and may be shared by another consumer.
+        router = self._router
+        if router is not None:
+            try:
+                exit_handler = getattr(router, "exit_handler", None)
+                if callable(exit_handler):
+                    exit_handler()
+            except Exception as exc:  # noqa: BLE001 - best-effort teardown
+                self._logger.warning(
+                    "LxmfSession %s: LXMRouter exit handler failed: %s",
+                    self._adapter_id,
+                    exc,
+                )
+
+            # LXMRouter registers the bound exit handler with atexit.  Once we
+            # have explicitly run it, unregister it so stopped/reconnected
+            # routers are not retained until process exit.
+            try:
+                exit_handler = getattr(router, "exit_handler", None)
+                if callable(exit_handler):
+                    atexit.unregister(exit_handler)
+            except (AttributeError, TypeError, ValueError) as exc:
+                self._logger.debug(
+                    "LxmfSession %s: could not unregister LXMRouter atexit "
+                    "handler: %s",
+                    self._adapter_id,
+                    exc,
+                )
+
+        self._delivery_destination = None
+        self._delivery_destination_hash = None
         self._router = None
         self._identity = None
-        # Reticulum teardown: the RNS.Reticulum singleton has no stop()
-        # method (as of RNS 0.9.x).  It persists across session
-        # lifetimes by design — calling exit_handler() would tear down
-        # shared transport for all sessions.  We only drop our reference.
-        if self._reticulum is not None:
-            self._reticulum = None
+        # Reticulum itself has no per-instance stop primitive in RNS 1.4.2.
+        # Keeping the process singleton alive is intentional; the router exit
+        # handler above is the adapter-owned lifecycle boundary.
+        self._reticulum = None
 
     # ------------------------------------------------------------------
     # SDK callbacks
@@ -1432,14 +1502,35 @@ class LxmfSession:
         fields: dict[int, Any] | None = None,
     ) -> tuple[str | None, LxmfDeliveryState]:
         """Send via the real LXMF router with bounded retry."""
-        RNS, lxmf = _require_lxmf()
-
         if self._router is None:
             raise LxmfSendError("LXMRouter is not initialised", transient=False)
+        if self._delivery_destination is None:
+            raise LxmfSendError(
+                "local LXMF delivery destination is not registered; cannot "
+                "construct an outbound LXMessage source",
+                transient=False,
+            )
+
+        RNS, lxmf = _require_lxmf()
 
         # Determine delivery method.
         method_str = delivery_method or self._config.default_delivery_method
-        method_const = self._resolve_method_constant(lxmf, method_str)
+        method_key = method_str.lower()
+        method_const = self._resolve_method_constant(lxmf, method_key)
+
+        if method_key == "propagated":
+            try:
+                propagation_node = self._router.get_outbound_propagation_node()
+            except (AttributeError, TypeError) as exc:
+                raise LxmfSendError(
+                    f"LXMF propagation-node lookup is unavailable: {exc}",
+                    transient=False,
+                ) from exc
+            if propagation_node is None:
+                raise LxmfSendError(
+                    "propagated LXMF delivery requires outbound_propagation_node",
+                    transient=False,
+                )
 
         # Parse destination hash.
         try:
@@ -1489,7 +1580,7 @@ class LxmfSession:
                     # is preserved through serialisation (pack()).
                     lxm = lxmf.LXMessage(
                         dest,
-                        self._router,
+                        self._delivery_destination,
                         content,
                         title=title,
                         fields=fields,
@@ -1610,16 +1701,12 @@ class LxmfSession:
     def _unsubscribe_callbacks(self) -> None:
         """Unsubscribe all registered SDK callbacks.
 
-        LXMRouter does not expose an unregister/deregister API.
-        Callbacks are effectively silenced because:
-
-        1. ``_stop_requested`` is set before this method is called,
-           preventing reconnect loops from re-registering.
-        2. ``_teardown_sdk()`` nulls ``_router`` immediately after,
-           so the router's callback references become unreachable.
-
-        This method exists as a seam for future SDK versions that
-        may provide deregistration.
+        LXMRouter does not expose a delivery-callback deregistration API.
+        ``_stop_requested`` prevents late callbacks from doing work, and the
+        subsequent ``_teardown_sdk()`` invokes the router's per-instance
+        ``exit_handler()`` to detach delivery-destination callbacks and links
+        before dropping the router reference. This method remains a seam for a
+        future explicit callback-deregistration API.
         """
 
     # ------------------------------------------------------------------
@@ -1633,6 +1720,7 @@ class LxmfSession:
         accesses identity material, secret keys, or peer dumps.
         """
         if self._router is None:
+            self._diag.propagation_enabled = None
             return
 
         try:
@@ -1649,14 +1737,10 @@ class LxmfSession:
             pass
 
         try:
-            # Propagation enabled — boolean, non-sensitive.
-            prop_node = getattr(self._router, "propagation_node", None)
-            if prop_node is not None:
-                self._diag.propagation_enabled = True
-            else:
-                self._diag.propagation_enabled = False
+            # Local propagation-server state — boolean and non-sensitive.
+            self._diag.propagation_enabled = bool(self._router.propagation_node)
         except Exception:
-            pass
+            self._diag.propagation_enabled = None
 
     # ------------------------------------------------------------------
     # Periodic announce

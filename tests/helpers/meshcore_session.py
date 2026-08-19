@@ -63,6 +63,7 @@ def build_mock_meshcore_module() -> tuple[MagicMock, AsyncMock]:
     instance.commands.send_appstart = AsyncMock(
         return_value=MockEvent(event_type=MockEventType.OK, payload={})
     )
+    instance.self_info = {}
 
     # Auto message fetching methods.
     instance.start_auto_message_fetching = AsyncMock()
