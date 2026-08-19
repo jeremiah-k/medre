@@ -438,6 +438,16 @@ class TestCliWorkflowsRuntimeLayerOnly:
 # ===================================================================
 
 
+def test_pytest_config_excludes_matrix_sdk_marker() -> None:
+    """``pyproject.toml`` must exclude SDK-contract tests by default."""
+    pyproject = _TESTS_DIR.parent / "pyproject.toml"
+    assert pyproject.exists(), "pyproject.toml not found"
+    expression = pytest_addopts_marker_expression(pyproject)
+    assert marker_is_explicitly_excluded(
+        expression, "matrix_sdk"
+    ), "pyproject.toml addopts must exclude matrix_sdk marker"
+
+
 class TestNoLiveTestsRunByDefault:
     """Enforce that the default ``pytest`` invocation does not run live
     tests and that SDK-importing files carry ``live`` or ``matrix_sdk``.
@@ -463,15 +473,6 @@ class TestNoLiveTestsRunByDefault:
             "pyproject.toml addopts must exclude hardware marker "
             "(expected: addopts = \"-m 'not live and not docker and not hardware'\")"
         )
-
-    def test_pytest_config_excludes_matrix_sdk_marker(self) -> None:
-        """``pyproject.toml`` must exclude SDK-contract tests by default."""
-        pyproject = _TESTS_DIR.parent / "pyproject.toml"
-        assert pyproject.exists(), "pyproject.toml not found"
-        expression = pytest_addopts_marker_expression(pyproject)
-        assert marker_is_explicitly_excluded(
-            expression, "matrix_sdk"
-        ), "pyproject.toml addopts must exclude matrix_sdk marker"
 
     def test_hardware_marker_registered(self) -> None:
         """``pyproject.toml`` must register the ``hardware`` marker."""

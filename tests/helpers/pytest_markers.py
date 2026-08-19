@@ -65,15 +65,35 @@ def _assigned_value(statement: ast.stmt, target_name: str) -> ast.AST | None:
     return None
 
 
-def _pytestmark_values(statements: list[ast.stmt]) -> list[ast.AST]:
-    values: list[ast.AST] = []
+def _scope_assignments(statements: list[ast.stmt]) -> dict[str, ast.AST]:
+    assignments: dict[str, ast.AST] = {}
+    for statement in statements:
+        if isinstance(statement, ast.Assign):
+            for target in statement.targets:
+                if isinstance(target, ast.Name):
+                    assignments[target.id] = statement.value
+        elif (
+            isinstance(statement, ast.AnnAssign)
+            and isinstance(statement.target, ast.Name)
+            and statement.value is not None
+        ):
+            assignments[statement.target.id] = statement.value
+    return assignments
+
+
+def _pytestmark_markers(
+    statements: list[ast.stmt], inherited: dict[str, ast.AST] | None = None
+) -> set[str]:
+    assignments = dict(inherited or {})
+    assignments.update(_scope_assignments(statements))
+    markers: set[str] = set()
     for statement in statements:
         value = _assigned_value(statement, "pytestmark")
         if value is not None:
-            values.append(value)
+            markers.update(_markers_in_expression(value, assignments))
         if isinstance(statement, ast.ClassDef):
-            values.extend(_pytestmark_values(statement.body))
-    return values
+            markers.update(_pytestmark_markers(statement.body, assignments))
+    return markers
 
 
 def declared_pytest_markers(path: Path) -> frozenset[str]:
@@ -83,26 +103,7 @@ def declared_pytest_markers(path: Path) -> frozenset[str]:
     constants from satisfying the opt-in boundary checks.
     """
     tree = ast.parse(path.read_text(), filename=str(path))
-    markers: set[str] = set()
-    assignments = {
-        target.id: statement.value
-        for statement in tree.body
-        if isinstance(statement, ast.Assign)
-        for target in statement.targets
-        if isinstance(target, ast.Name)
-    }
-    assignments.update(
-        {
-            statement.target.id: statement.value
-            for statement in tree.body
-            if isinstance(statement, ast.AnnAssign)
-            and isinstance(statement.target, ast.Name)
-            and statement.value is not None
-        }
-    )
-
-    for value in _pytestmark_values(tree.body):
-        markers.update(_markers_in_expression(value, assignments))
+    markers = _pytestmark_markers(tree.body)
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):

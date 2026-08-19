@@ -902,6 +902,17 @@ def test_sdk_opt_in_marker_requires_a_real_declaration(
     assert _has_sdk_opt_in_marker(path) is expected
 
 
+def test_declared_markers_resolve_class_local_alias(tmp_path: Path) -> None:
+    path = tmp_path / "test_marker.py"
+    path.write_text(
+        "class TestHardware:\n"
+        "    tier = pytest.mark.hardware\n"
+        "    pytestmark = tier\n"
+    )
+
+    assert declared_pytest_markers(path) == frozenset({"hardware"})
+
+
 def test_addopts_parser_ignores_marker_text_outside_addopts(tmp_path: Path) -> None:
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text("""\
