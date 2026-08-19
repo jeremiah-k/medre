@@ -15,6 +15,22 @@ Hierarchy::
 from __future__ import annotations
 
 
+MATRIX_PERMANENT_ERRCODES: frozenset[str] = frozenset(
+    {
+        "M_FORBIDDEN",
+        "M_NOT_FOUND",
+        "M_UNKNOWN",
+        "M_UNAUTHORIZED",
+        "M_UNKNOWN_TOKEN",
+        "M_USER_DEACTIVATED",
+        "M_BAD_JSON",
+        "M_NOT_JSON",
+        "M_INVALID_PARAM",
+        "M_DUPLICATE_ANNOTATION",
+    }
+)
+
+
 class MatrixError(Exception):
     """Base exception for all Matrix adapter errors."""
 

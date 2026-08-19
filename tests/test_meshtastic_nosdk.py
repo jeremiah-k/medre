@@ -431,6 +431,8 @@ class TestMeshtasticDiagnostics:
                 "channel_count",
                 "transient_delivery_failures",
                 "permanent_delivery_failures",
+                "stale_receive_callbacks",
+                "stale_disconnect_callbacks",
                 "last_error",
             }
             actual_keys = set(session.keys())

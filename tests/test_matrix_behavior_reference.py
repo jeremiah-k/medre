@@ -228,16 +228,19 @@ async def test_live_missing_room_key_request_retries_transient_failure_then_succ
     )
     room = SimpleNamespace(room_id="!room:example.test")
 
-    with patch("medre.adapters.matrix.session.asyncio.sleep", new=AsyncMock()) as sleep:
+    with patch("medre.adapters.matrix.session._sleep", new=AsyncMock()) as sleep:
         await session._on_megolm_event(room, event)
+        tasks = list(session._room_key_request_tasks.values())
+        if tasks:
+            await asyncio.gather(*tasks)
 
     assert event.room_id == "!room:example.test"
     assert to_device.await_count == 2
     sleep.assert_awaited_once_with(2.0)
     diagnostics = session.diagnostics()
-    assert diagnostics.room_key_request_attempts == 2
-    assert diagnostics.room_key_request_successes == 1
-    assert diagnostics.room_key_request_failures == 0
+    assert diagnostics.megolm_recovery_attempts == 2
+    assert diagnostics.megolm_recovery_successes == 1
+    assert diagnostics.megolm_recovery_failures == 0
 
 
 async def test_missing_room_key_request_is_bounded_on_explicit_provider_errors() -> (
@@ -260,7 +263,7 @@ async def test_missing_room_key_request_is_bounded_on_explicit_provider_errors()
         as_key_request=MagicMock(return_value={"request": "missing-key"}),
     )
 
-    with patch("medre.adapters.matrix.session.asyncio.sleep", new=AsyncMock()) as sleep:
+    with patch("medre.adapters.matrix.session._sleep", new=AsyncMock()) as sleep:
         await session._request_missing_room_key(
             event=event,
             event_id="$encrypted",
@@ -272,9 +275,9 @@ async def test_missing_room_key_request_is_bounded_on_explicit_provider_errors()
     assert sleep.await_args_list[0].args == (2.0,)
     assert sleep.await_args_list[1].args == (4.0,)
     diagnostics = session.diagnostics()
-    assert diagnostics.room_key_request_attempts == 3
-    assert diagnostics.room_key_request_successes == 0
-    assert diagnostics.room_key_request_failures == 1
+    assert diagnostics.megolm_recovery_attempts == 3
+    assert diagnostics.megolm_recovery_successes == 0
+    assert diagnostics.megolm_recovery_failures == 1
 
 
 async def test_missing_room_key_request_noops_without_crypto_or_device_identity() -> (
@@ -397,7 +400,7 @@ async def test_startup_undecryptable_event_does_not_request_historical_keys() ->
 
     to_device.assert_not_awaited()
     event.as_key_request.assert_not_called()
-    assert session.diagnostics().room_key_request_attempts == 0
+    assert session.diagnostics().megolm_recovery_attempts == 0
 
 
 async def test_duplicate_live_undecryptable_event_requests_keys_once_per_window() -> (
@@ -422,10 +425,170 @@ async def test_duplicate_live_undecryptable_event_requests_keys_once_per_window(
     room = SimpleNamespace(room_id="!room:example.test")
 
     await session._on_megolm_event(room, event)
+    tasks = list(session._room_key_request_tasks.values())
+    if tasks:
+        await asyncio.gather(*tasks)
     await session._on_megolm_event(room, event)
 
     to_device.assert_awaited_once()
-    assert session.diagnostics().room_key_request_attempts == 1
+    assert session.diagnostics().megolm_recovery_attempts == 1
+
+
+async def test_megolm_callback_detaches_recovery_from_sync_processing() -> None:
+    session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
+    session._crypto_enabled = True
+    session._live_sync_started = True
+    request_started = asyncio.Event()
+    release_request = asyncio.Event()
+
+    async def _to_device(_request: object) -> object:
+        request_started.set()
+        await release_request.wait()
+        return SimpleNamespace()
+
+    session._client = SimpleNamespace(
+        device_id="DEVICE42",
+        user_id="@relay:example.test",
+        to_device=_to_device,
+        olm=None,
+        store=None,
+    )
+    event = SimpleNamespace(
+        event_id="$encrypted",
+        session_id="detached-session",
+        as_key_request=MagicMock(return_value={"request": "missing-key"}),
+    )
+
+    await session._on_megolm_event(
+        SimpleNamespace(room_id="!room:example.test"),
+        event,
+    )
+
+    assert len(session._room_key_request_tasks) == 1
+    await request_started.wait()
+    task = next(iter(session._room_key_request_tasks.values()))
+    assert task.done() is False
+
+    release_request.set()
+    await task
+
+
+async def test_stop_cancels_detached_megolm_recovery() -> None:
+    session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
+    session._crypto_enabled = True
+    session._live_sync_started = True
+    request_started = asyncio.Event()
+
+    async def _to_device(_request: object) -> object:
+        request_started.set()
+        await asyncio.Event().wait()
+        return SimpleNamespace()
+
+    client = SimpleNamespace(
+        device_id="DEVICE42",
+        user_id="@relay:example.test",
+        to_device=_to_device,
+        olm=None,
+        store=None,
+        close=AsyncMock(),
+        stop_sync_forever=MagicMock(),
+    )
+    session._client = client
+    session._closed = False
+    event = SimpleNamespace(
+        event_id="$encrypted",
+        session_id="shutdown-session",
+        as_key_request=MagicMock(return_value={"request": "missing-key"}),
+    )
+
+    await session._on_megolm_event(
+        SimpleNamespace(room_id="!room:example.test"),
+        event,
+    )
+    await request_started.wait()
+    task = next(iter(session._room_key_request_tasks.values()))
+
+    await session.stop()
+
+    assert task.cancelled() is True
+    assert session._room_key_request_tasks == {}
+    client.close.assert_awaited_once()
+
+
+async def test_missing_room_key_request_stops_on_permanent_errcode() -> None:
+    session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
+    session._crypto_enabled = True
+    error_type = type("ToDeviceError", (), {})
+    response = error_type()
+    response.errcode = "M_FORBIDDEN"
+    to_device = AsyncMock(return_value=response)
+    session._client = SimpleNamespace(
+        device_id="DEVICE42",
+        user_id="@relay:example.test",
+        to_device=to_device,
+        olm=None,
+        store=None,
+    )
+    event = SimpleNamespace(
+        as_key_request=MagicMock(return_value={"request": "missing-key"}),
+    )
+
+    with patch("medre.adapters.matrix.session._sleep", new=AsyncMock()) as sleep:
+        await session._request_missing_room_key(
+            event=event,
+            event_id="$encrypted",
+            room_id="!room:example.test",
+            session_id_tag="redacted",
+        )
+
+    to_device.assert_awaited_once()
+    sleep.assert_not_awaited()
+    diagnostics = session.diagnostics()
+    assert diagnostics.megolm_recovery_attempts == 1
+    assert diagnostics.megolm_recovery_successes == 0
+    assert diagnostics.megolm_recovery_failures == 1
+
+
+async def test_megolm_event_without_valid_room_id_skips_recovery_request() -> None:
+    session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
+    session._crypto_enabled = True
+    session._live_sync_started = True
+    to_device = AsyncMock()
+    session._client = SimpleNamespace(
+        device_id="DEVICE42",
+        user_id="@relay:example.test",
+        to_device=to_device,
+        olm=None,
+        store=None,
+    )
+    event = SimpleNamespace(
+        event_id="$encrypted",
+        session_id="unknown-room-session",
+        as_key_request=MagicMock(),
+    )
+
+    await session._on_megolm_event(None, event)
+
+    assert session._room_key_request_tasks == {}
+    event.as_key_request.assert_not_called()
+    to_device.assert_not_awaited()
+
+
+async def test_missing_room_key_helper_rejects_invalid_room_id() -> None:
+    """The recovery helper never constructs a request for a placeholder room."""
+    session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
+    session._crypto_enabled = True
+    session._client = MagicMock()
+    event = MagicMock()
+
+    await session._request_missing_room_key(
+        event=event,
+        event_id="$encrypted",
+        room_id="<unknown>",
+        session_id_tag="unknown",
+    )
+
+    event.as_key_request.assert_not_called()
 
 
 async def test_matrix_self_message_is_suppressed_before_canonical_publish() -> None:

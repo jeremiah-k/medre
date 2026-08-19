@@ -364,13 +364,17 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 **Callback ownership:** Meshtastic pubsub callbacks identify the interface that emitted
 the event. A packet or disconnect callback from an interface replaced by reconnect is
-stale and is ignored. Stale callbacks cannot update packet timestamps, publish ingress,
+stale and is ignored. Client validation and synchronous callback dispatch are serialized
+with client replacement. Each active client state has a connection generation; packet
+publish and disconnect-reconnect work MUST revalidate the captured generation when the
+event-loop task begins. Stale callbacks cannot update packet timestamps, publish ingress,
 or start another reconnect.
 
 **Thread bridging:** `_on_packet` is called from the Meshtastic SDK reader thread. The
 adapter uses `asyncio.run_coroutine_threadsafe` to bridge onto the event loop; futures
 are tracked and cancelled on stop. Connection-loss callbacks use
-`loop.call_soon_threadsafe` before creating reconnect tasks.
+`loop.call_soon_threadsafe` and carry the connection generation before creating reconnect
+tasks.
 
 ---
 

@@ -300,10 +300,14 @@ access token under the wrong account identity.
 
 A live undecryptable `MegolmEvent` is recorded but never forwarded into the canonical
 event pipeline. If crypto, user ID, and device ID are available, MEDRE builds the
-provider's missing-room-key request and sends it with at most three attempts and a
-ten-second per-attempt timeout. Retryable transport or explicit to-device failures use
-2 s then 4 s backoff; cancellation propagates. Startup-history events and repeated
-room/session failures inside the warning dedup window do not trigger duplicate requests.
+provider's missing-room-key request in a tracked background task with at most three
+attempts and a ten-second per-attempt timeout. The nio sync callback MUST return without
+waiting for this recovery task. Retryable transport or explicit to-device failures use
+2 s then 4 s backoff; cancellation propagates, and permanent Matrix errcodes terminate
+recovery immediately. Startup-history events do not trigger recovery requests. Live
+undecryptable events are deduplicated for 60 seconds by the pair `(room_id, session_id)`;
+within that window MEDRE emits neither a duplicate warning nor a duplicate recovery task.
+Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 
 ---
 
@@ -324,9 +328,9 @@ room/session failures inside the warning dedup window do not trigger duplicate r
 | `last_crypto_error`                        | `str \| None`   | Last crypto error                                    |
 | `encrypted_room_seen`                      | `bool`          | At least one encrypted room detected                 |
 | `undecryptable_event_count`                | `int`           | MegolmEvents that could not be decrypted             |
-| `room_key_request_attempts`                | `int`           | Missing-room-key to-device send attempts             |
-| `room_key_request_successes`               | `int`           | Missing-room-key requests accepted by the provider   |
-| `room_key_request_failures`                | `int`           | Terminal missing-room-key request failures           |
+| `megolm_recovery_attempts`                | `int`           | Missing-room-key to-device send attempts             |
+| `megolm_recovery_successes`               | `int`           | Missing-room-key requests accepted by the provider   |
+| `megolm_recovery_failures`                | `int`           | Terminal missing-room-key request failures           |
 | `sync_running`                             | `bool`          | Sync loop active                                     |
 | `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
 | `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |

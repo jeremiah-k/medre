@@ -30,7 +30,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, cast
 
 import medre.adapters.matrix.compat as _compat_mod
-from medre.adapters.matrix.errors import MatrixConnectionError
+from medre.adapters.matrix.errors import (
+    MATRIX_PERMANENT_ERRCODES,
+    MatrixConnectionError,
+)
 from medre.adapters.matrix.identity import (
     MatrixCrossSigningDiagnostics,
     MatrixCrossSigningService,
@@ -39,6 +42,7 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.core.ingress import INGRESS_PROVENANCE_VALUES, IngressProvenance
 
 _logger = logging.getLogger(__name__)
+_sleep = asyncio.sleep
 
 # Type alias for room encryption state tracking.
 RoomEncryptionState = Literal["unknown", "encrypted", "plaintext"]
@@ -62,7 +66,6 @@ _MAX_ROOM_STATES: int = 10_000
 # undecryptable event never stalls the sync loop indefinitely.
 _ROOM_KEY_REQUEST_MAX_ATTEMPTS: int = 3
 _ROOM_KEY_REQUEST_BASE_DELAY_SECONDS: float = 2.0
-_ROOM_KEY_REQUEST_MAX_DELAY_SECONDS: float = 30.0
 _ROOM_KEY_REQUEST_TIMEOUT_SECONDS: float = 10.0
 
 
@@ -134,9 +137,9 @@ class MatrixSessionDiagnostics:
     last_crypto_error: str | None
     encrypted_room_seen: bool
     undecryptable_event_count: int
-    room_key_request_attempts: int
-    room_key_request_successes: int
-    room_key_request_failures: int
+    megolm_recovery_attempts: int
+    megolm_recovery_successes: int
+    megolm_recovery_failures: int
     # Sync recovery diagnostics
     sync_running: bool
     reconnecting: bool
@@ -213,6 +216,7 @@ class MatrixSession:
         "_room_key_request_attempts",
         "_room_key_request_successes",
         "_room_key_request_failures",
+        "_room_key_request_tasks",
         "_last_crypto_error",
         # Sync recovery
         "_reconnect_attempts",
@@ -284,6 +288,7 @@ class MatrixSession:
         self._room_key_request_attempts: int = 0
         self._room_key_request_successes: int = 0
         self._room_key_request_failures: int = 0
+        self._room_key_request_tasks: dict[str, asyncio.Task[None]] = {}
         # Sync recovery
         self._reconnect_attempts: int = 0
         self._reconnecting: bool = False
@@ -553,8 +558,12 @@ class MatrixSession:
         """Build the pinned mindroom-nio sync and peer-device trust policy.
 
         MEDRE owns durable Classic Sync checkpoints when storage callbacks are
-        available.  For encrypted sessions it also permits rotated peer device
-        keys, matching MEDRE's existing permissive bot trust policy
+        available.  The pinned mindroom-nio provider exposes
+        ``replace_rotated_device_keys`` and the installed-SDK contract requires
+        it.  The defensive attribute/update guards remain intentional for
+        lightweight test doubles and provider configuration objects that may be
+        immutable.  Encrypted sessions permit rotated peer device keys, matching
+        MEDRE's existing permissive bot trust policy
         (``ignore_unverified_devices=True`` on send).  Own-device cross-signing
         remains a separate policy and is never rotated here.
         """
@@ -1388,12 +1397,38 @@ class MatrixSession:
         )
         self._undecryptable_dedup[key] = now
 
-        await self._request_missing_room_key(
-            event=event,
-            event_id=event_id,
-            room_id=room_id,
-            session_id_tag=session_id_tag,
+        # nio awaits async event callbacks while processing a sync response.
+        # Missing-key recovery may spend tens of seconds in bounded network
+        # retries, so detach it from the sync callback and track the task for
+        # deterministic shutdown.  The warning dedup key also prevents a second
+        # task for the same room/session during the dedup window.
+        if not isinstance(room_id, str) or not room_id.startswith("!"):
+            self._logger.debug(
+                "Skipping missing room-key request for event %s without a valid room ID",
+                event_id,
+            )
+            return
+        task = asyncio.create_task(
+            self._request_missing_room_key(
+                event=event,
+                event_id=event_id,
+                room_id=room_id,
+                session_id_tag=session_id_tag,
+            )
         )
+        self._room_key_request_tasks[key] = task
+        task.add_done_callback(
+            lambda done, request_key=key: self._discard_room_key_request_task(
+                request_key, done
+            )
+        )
+
+    def _discard_room_key_request_task(
+        self, request_key: str, task: asyncio.Task[None]
+    ) -> None:
+        """Forget a completed Megolm recovery task without removing a replacement."""
+        if self._room_key_request_tasks.get(request_key) is task:
+            self._room_key_request_tasks.pop(request_key, None)
 
     async def _request_missing_room_key(
         self,
@@ -1407,9 +1442,11 @@ class MatrixSession:
 
         The callback must never make the sync loop unbounded.  Communication
         failures and explicit to-device error responses are retried with
-        capped exponential backoff.  Cancellation always propagates.
+        bounded exponential backoff.  Cancellation always propagates.
         """
         if not self._crypto_enabled or self._client is None:
+            return
+        if not isinstance(room_id, str) or not room_id.startswith("!"):
             return
 
         device_id = getattr(self._client, "device_id", None)
@@ -1439,6 +1476,17 @@ class MatrixSession:
                 )
                 response_name = type(response).__name__
                 errcode = getattr(response, "errcode", None)
+                normalized_errcode = (
+                    errcode.upper() if isinstance(errcode, str) else None
+                )
+                if normalized_errcode in MATRIX_PERMANENT_ERRCODES:
+                    self._room_key_request_failures += 1
+                    self._logger.debug(
+                        "Missing room-key request permanently rejected for %s (%s)",
+                        event_id,
+                        normalized_errcode,
+                    )
+                    return
                 retryable = bool(
                     response_name.endswith("Error")
                     or (isinstance(errcode, str) and errcode)
@@ -1478,11 +1526,8 @@ class MatrixSession:
                 )
                 return
 
-            delay = min(
-                _ROOM_KEY_REQUEST_BASE_DELAY_SECONDS * (2**attempt),
-                _ROOM_KEY_REQUEST_MAX_DELAY_SECONDS,
-            )
-            await asyncio.sleep(delay)
+            delay = _ROOM_KEY_REQUEST_BASE_DELAY_SECONDS * (2**attempt)
+            await _sleep(delay)
 
     def _prune_undecryptable_dedup(self, now: float) -> None:
         """Evict expired entries from the live undecryptable dedup cache.
@@ -1662,6 +1707,18 @@ class MatrixSession:
             if callable(stop_sync):
                 stop_sync()
 
+        # Cancel detached Megolm recovery before closing the client.
+        recovery_tasks = list(self._room_key_request_tasks.values())
+        if recovery_tasks:
+            for task in recovery_tasks:
+                task.cancel()
+            self._room_key_request_tasks.clear()
+            await asyncio.gather(*recovery_tasks, return_exceptions=True)
+            self._logger.debug(
+                "Cancelled %d outstanding Megolm recovery task(s)",
+                len(recovery_tasks),
+            )
+
         # Cancel outstanding join tasks before closing the client.
         join_tasks = list(self._joining_rooms.values())
         if join_tasks:
@@ -1832,9 +1889,9 @@ class MatrixSession:
             last_crypto_error=self._last_crypto_error,
             encrypted_room_seen=self._encrypted_room_seen,
             undecryptable_event_count=self._undecryptable_event_count,
-            room_key_request_attempts=self._room_key_request_attempts,
-            room_key_request_successes=self._room_key_request_successes,
-            room_key_request_failures=self._room_key_request_failures,
+            megolm_recovery_attempts=self._room_key_request_attempts,
+            megolm_recovery_successes=self._room_key_request_successes,
+            megolm_recovery_failures=self._room_key_request_failures,
             # Sync recovery
             sync_running=self.sync_running,
             reconnecting=self._reconnecting,

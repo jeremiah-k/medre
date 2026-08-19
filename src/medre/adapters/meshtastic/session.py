@@ -14,6 +14,7 @@ import asyncio
 import inspect
 import logging
 import random
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -113,6 +114,8 @@ class MeshtasticSession:
         "_adapter_id",
         "_platform",
         "_client",
+        "_client_state_lock",
+        "_connection_generation",
         "_message_callback",
         "_logger",
         "_started",
@@ -147,6 +150,8 @@ class MeshtasticSession:
         self._adapter_id = adapter_id
         self._platform = platform
         self._client: Any = None
+        self._client_state_lock = threading.RLock()
+        self._connection_generation: int = 0
         self._message_callback: Callable[[dict[str, Any]], None] | None = None
         self._logger: logging.Logger = logger if logger is not None else _logger
         self._started: bool = False
@@ -177,9 +182,12 @@ class MeshtasticSession:
         Older/fake clients may not expose ``isConnected``; for those, client
         ownership plus the started lifecycle remains the compatibility signal.
         """
-        if self._client is None or not self._started:
+        with self._client_state_lock:
+            client = self._client
+            started = self._started
+        if client is None or not started:
             return False
-        connected_event = getattr(self._client, "isConnected", None)
+        connected_event = getattr(client, "isConnected", None)
         is_set = getattr(connected_event, "is_set", None)
         if callable(is_set):
             try:
@@ -187,6 +195,35 @@ class MeshtasticSession:
             except Exception:
                 return False
         return True
+
+    @property
+    def connection_generation(self) -> int:
+        """Generation of the active SDK client ownership state."""
+        with self._client_state_lock:
+            return self._connection_generation
+
+    def is_connection_generation_current(self, generation: int) -> bool:
+        """Return whether *generation* still names the active client state."""
+        with self._client_state_lock:
+            return (
+                not self._stop_requested
+                and generation == self._connection_generation
+            )
+
+    def _activate_client(self, client: Any) -> None:
+        """Install a new SDK client and advance the connection generation."""
+        with self._client_state_lock:
+            self._client = client
+            self._connection_generation += 1
+
+    def _invalidate_client(self) -> Any:
+        """Detach the active SDK client and invalidate callbacks that captured it."""
+        with self._client_state_lock:
+            client = self._client
+            self._client = None
+            self._node_id = None
+            self._connection_generation += 1
+            return client
 
     @property
     def reconnecting(self) -> bool:
@@ -323,7 +360,8 @@ class MeshtasticSession:
                 raise MeshtasticConnectionError(
                     "mtjk not installed; pip install 'medre[meshtastic]'"
                 )
-            self._client = self._create_client()
+            client = self._create_client()
+            self._activate_client(client)
 
             try:
                 self._subscribe_callbacks()
@@ -336,7 +374,7 @@ class MeshtasticSession:
                         close_fn()
                 except Exception:
                     pass
-                self._client = None
+                self._invalidate_client()
                 raise
 
         self._started = True
@@ -375,16 +413,15 @@ class MeshtasticSession:
 
         self._unsubscribe_callbacks()
 
-        if self._client is not None:
+        client = self._invalidate_client()
+        if client is not None:
             try:
-                close_fn = getattr(self._client, "close", None)
+                close_fn = getattr(client, "close", None)
                 if close_fn is not None:
                     close_fn()
             except Exception:
                 pass
 
-        self._client = None
-        self._node_id = None
         self._started = False
         self._loop = None
         self._logger.info("MeshtasticSession %s stopped", self._adapter_id)
@@ -794,13 +831,15 @@ class MeshtasticSession:
         myInfo).  Safe to call multiple times; refreshes from current
         interface state.
         """
-        self._node_id = None
-        if self._client is None:
-            return
-        my_info = getattr(self._client, "myInfo", None)
-        node_num = getattr(my_info, "myNodeNum", None)
-        if isinstance(node_num, int) and node_num >= 0:
-            self._node_id = f"!{node_num:08x}"
+        with self._client_state_lock:
+            self._node_id = None
+            client = self._client
+            if client is None:
+                return
+            my_info = getattr(client, "myInfo", None)
+            node_num = getattr(my_info, "myNodeNum", None)
+            if isinstance(node_num, int) and node_num >= 0:
+                self._node_id = f"!{node_num:08x}"
 
     def _on_receive(self, packet: dict[str, Any], interface: Any = None) -> None:
         """Pubsub callback for inbound packets from the active SDK client.
@@ -809,24 +848,28 @@ class MeshtasticSession:
         This matters because pypubsub delivery can race unsubscribe/close and
         a stale interface must never inject packets into the new session.
         """
-        if self._stop_requested:
-            return
-        if interface is not None and interface is not self._client:
-            self._stale_receive_callbacks += 1
-            self._logger.debug(
-                "MeshtasticSession %s ignored packet from stale interface",
-                self._adapter_id,
-            )
-            return
+        # The SDK invokes this callback from its reader thread.  Hold the
+        # ownership lock through validation, state mutation, and synchronous
+        # dispatch so reconnect cannot replace the client between the check and
+        # the adapter capturing ``connection_generation``.  The adapter then
+        # revalidates that generation when its event-loop publish coroutine runs.
+        with self._client_state_lock:
+            if self._stop_requested:
+                return
+            active_client = self._client
+            if interface is not None and interface is not active_client:
+                self._stale_receive_callbacks += 1
+                self._logger.debug(
+                    "MeshtasticSession %s ignored packet from stale interface",
+                    self._adapter_id,
+                )
+                return
 
-        self._last_packet_time = time.monotonic()
-        # Lazy refresh: if myInfo was not available at connect time,
-        # try again on each inbound packet until it succeeds.  Once
-        # _node_id is set this is a no-op (cheap branch only).
-        if self._node_id is None and self._client is not None:
-            self._refresh_node_id()
-        if self._message_callback is not None:
-            self._message_callback(packet)
+            self._last_packet_time = time.monotonic()
+            if self._node_id is None and active_client is not None:
+                self._refresh_node_id()
+            if self._message_callback is not None:
+                self._message_callback(packet)
 
     # -- Reconnection ---------------------------------------------------------
 
@@ -846,39 +889,48 @@ class MeshtasticSession:
         **kwargs:
             Additional pubsub keyword arguments (ignored).
         """
-        # Guard: ignore stale events after stop() cleared _started or
-        # set _stop_requested.  These checks run in the SDK reader thread,
-        # so they must be simple flag reads (no async operations).
-        if self._stop_requested or not self._started:
-            return
-        if interface is not None and interface is not self._client:
-            self._stale_disconnect_callbacks += 1
-            self._logger.debug(
-                "MeshtasticSession %s ignored disconnect from stale interface",
-                self._adapter_id,
-            )
-            return
-        self.notify_connection_lost()
+        # Guard SDK-reader-thread callbacks with the same ownership lock used
+        # for client replacement, then carry the captured generation onto the
+        # event loop before scheduling reconnect work.
+        with self._client_state_lock:
+            if self._stop_requested or not self._started:
+                return
+            if interface is not None and interface is not self._client:
+                self._stale_disconnect_callbacks += 1
+                self._logger.debug(
+                    "MeshtasticSession %s ignored disconnect from stale interface",
+                    self._adapter_id,
+                )
+                return
+            generation = self._connection_generation
+        self.notify_connection_lost(expected_generation=generation)
 
-    def notify_connection_lost(self) -> None:
+    def notify_connection_lost(
+        self, *, expected_generation: int | None = None
+    ) -> None:
         """Called when a connection loss is detected.
 
         Schedules the bounded reconnect loop on the session's event loop.
         Thread-safe: may be called from the SDK reader thread or from
         any async context.
         """
-        if self._stop_requested or self._reconnecting:
-            return
-        self._node_id = None
-        self._last_error = "Connection lost"
+        with self._client_state_lock:
+            generation = self._connection_generation
+            if expected_generation is not None and expected_generation != generation:
+                self._stale_disconnect_callbacks += 1
+                return
+            if self._stop_requested or self._reconnecting:
+                return
+            self._node_id = None
+            self._last_error = "Connection lost"
+            loop = self._loop
         self._logger.warning("MeshtasticSession %s connection lost", self._adapter_id)
 
-        # Schedule the reconnect task on the session's event loop.
-        # The SDK calls this from its reader thread, so we must use
-        # call_soon_threadsafe to bridge to the async event loop.
-        loop = self._loop
+        # Schedule the reconnect task on the session's event loop.  Pass the
+        # generation captured in the SDK thread and revalidate it on the loop so
+        # a replacement client cannot inherit an old disconnect notification.
         if loop is not None and not loop.is_closed():
-            loop.call_soon_threadsafe(self._start_reconnect_task)
+            loop.call_soon_threadsafe(self._start_reconnect_task, generation)
         else:
             self._logger.warning(
                 "MeshtasticSession %s: cannot schedule reconnect; "
@@ -886,7 +938,7 @@ class MeshtasticSession:
                 self._adapter_id,
             )
 
-    def _start_reconnect_task(self) -> None:
+    def _start_reconnect_task(self, expected_generation: int | None = None) -> None:
         """Create the reconnect task (must run on the event loop thread).
 
         Separated from :meth:`notify_connection_lost` so that
@@ -897,12 +949,19 @@ class MeshtasticSession:
         Idempotent: if a reconnect task is already running or scheduled,
         the duplicate notification is silently dropped.
         """
-        if self._stop_requested or self._reconnecting:
-            return
-        if self._reconnect_task is not None and not self._reconnect_task.done():
-            return
-        self._reconnecting = True
-        self._reconnect_task = asyncio.ensure_future(self._reconnect_loop())
+        with self._client_state_lock:
+            if (
+                expected_generation is not None
+                and expected_generation != self._connection_generation
+            ):
+                self._stale_disconnect_callbacks += 1
+                return
+            if self._stop_requested or self._reconnecting:
+                return
+            if self._reconnect_task is not None and not self._reconnect_task.done():
+                return
+            self._reconnecting = True
+            self._reconnect_task = asyncio.ensure_future(self._reconnect_loop())
 
     async def _reconnect_loop(self) -> None:
         """Bounded exponential backoff reconnect loop.
@@ -961,19 +1020,21 @@ class MeshtasticSession:
 
                 # Attempt reconnect
                 try:
-                    # Close old client if present
-                    if self._client is not None:
+                    # Invalidate ownership before closing the old client so
+                    # reader-thread callbacks cannot pass validation during the
+                    # replacement window.
+                    old_client = self._invalidate_client()
+                    self._unsubscribe_callbacks()
+                    if old_client is not None:
                         try:
-                            close_fn = getattr(self._client, "close", None)
+                            close_fn = getattr(old_client, "close", None)
                             if close_fn is not None:
                                 close_fn()
                         except Exception:
                             pass
-                        self._client = None
-                        self._node_id = None
 
-                    self._unsubscribe_callbacks()
-                    self._client = self._create_client()
+                    new_client = self._create_client()
+                    self._activate_client(new_client)
                     self._subscribe_callbacks()
                     self._refresh_node_id()
 

@@ -77,11 +77,11 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 | `last_crypto_error`          | `str or None`   | Last E2EE failure reason                                    |
 | `encrypted_room_seen`        | `bool`          | At least one encrypted room encountered                     |
 | `undecryptable_event_count`  | `int`           | Messages that failed decryption                             |
-| `room_key_request_attempts`  | `int`           | Missing-room-key to-device send attempts                    |
-| `room_key_request_successes` | `int`           | Missing-room-key requests accepted by the provider          |
-| `room_key_request_failures`  | `int`           | Terminal missing-room-key request failures                  |
+| `megolm_recovery_attempts`  | `int`           | Missing-room-key to-device send attempts                    |
+| `megolm_recovery_successes` | `int`           | Missing-room-key requests accepted by the provider          |
+| `megolm_recovery_failures`  | `int`           | Terminal missing-room-key request failures                  |
 | `sync_running`               | `bool`          | Sync loop state                                             |
-| `last_successful_sync`       | `float or None` | Epoch timestamp of last successful sync                     |
+| `last_successful_sync`       | `float or None` | Monotonic time of last successful sync                       |
 | `crypto_store_loaded`        | `bool`          | Crypto database loaded (olm and store both present)         |
 | `encrypted_room_count`       | `int`           | Count only. No room IDs exposed.                            |
 | `plaintext_room_count`       | `int`           | Count only. No room IDs exposed.                            |
@@ -113,9 +113,11 @@ Session sub-dict keys (`session.*`):
 | -------------------------- | --------------- | ----------------------------- |
 | `session.node_id`          | `str or None`   | Local node number             |
 | `session.channel_count`    | `int`           | Configured channels           |
-| `session.last_packet_time` | `float or None` | Epoch of last received packet |
+| `session.last_packet_time`           | `float or None` | Monotonic time of last received packet             |
+| `session.stale_receive_callbacks`    | `int`           | Packet callbacks ignored from replaced SDK clients |
+| `session.stale_disconnect_callbacks` | `int`           | Disconnect callbacks ignored from replaced clients |
 
-### 3.3 MeshCore (adapter-level: 17 keys; session sub-dict: 15 keys)
+### 3.3 MeshCore (adapter-level: 17 keys; session sub-dict: 17 keys)
 
 All 8 common keys are present. The `health` key is reported via the adapter-level diagnostics dict as well as via `health_check()`.
 
@@ -151,8 +153,6 @@ Session sub-dict keys (`session.*`):
 | `session.last_error`                  | `str or None`   | Last exception string                                                                                                                  |
 | `session.transient_delivery_failures` | `int`           | Cumulative transient delivery failures                                                                                                 |
 | `session.permanent_delivery_failures` | `int`           | Cumulative permanent delivery failures                                                                                                 |
-| `session.stale_receive_callbacks`     | `int`           | Packet callbacks ignored from replaced SDK interfaces                                                                                  |
-| `session.stale_disconnect_callbacks`  | `int`           | Disconnect callbacks ignored from replaced SDK interfaces                                                                              |
 | `session.last_message_time`           | `str or None`   | ISO 8601 timestamp                                                                                                                     |
 | `session.device_name`                 | `str or None`   | Device name from appstart (default `None`)                                                                                             |
 | `session.public_key_prefix`           | `str or None`   | Public key hex prefix, max 12 hex chars (default `None`)                                                                               |

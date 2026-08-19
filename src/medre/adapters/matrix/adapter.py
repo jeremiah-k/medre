@@ -23,7 +23,11 @@ import msgspec
 
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
-from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
+from medre.adapters.matrix.errors import (
+    MATRIX_PERMANENT_ERRCODES,
+    MatrixConnectionError,
+    MatrixSendError,
+)
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import MatrixRelationHandler
 from medre.adapters.matrix.session import MatrixSession
@@ -71,22 +75,6 @@ _DELIVERY_BACKOFF_JITTER: float = 0.25
 # successful sync is older than this threshold (seconds).  Configurable
 # via module constant so tests can patch it without reaching into internals.
 _SYNC_STALE_THRESHOLD_SECONDS: float = 300.0
-
-_PERMANENT_ERRCODES = frozenset(
-    {
-        "M_FORBIDDEN",
-        "M_NOT_FOUND",
-        "M_UNKNOWN",
-        "M_UNAUTHORIZED",
-        "M_UNKNOWN_TOKEN",
-        "M_USER_DEACTIVATED",
-        "M_BAD_JSON",
-        "M_NOT_JSON",
-        "M_INVALID_PARAM",
-        "M_DUPLICATE_ANNOTATION",  # HTTP 400: reaction already exists for this key
-    }
-)
-
 
 class _NioRateLimitError(Exception):
     """Internal sentinel for nio rate-limit responses.
@@ -182,7 +170,7 @@ def _is_nio_rate_limited_response(response: Any) -> bool:
 def _is_nio_permanent_response(response: Any) -> bool:
     """Return True if a nio response indicates a permanent error.
 
-    Checks for errcodes in :data:`_PERMANENT_ERRCODES` (including
+    Checks for errcodes in :data:`MATRIX_PERMANENT_ERRCODES` (including
     ``M_FORBIDDEN``, ``M_NOT_FOUND``, ``M_DUPLICATE_ANNOTATION``, etc.)
     or ``NOT_FOUND``/``FORBIDDEN`` in the string representation, on
     response objects that lack an ``event_id``.
@@ -190,7 +178,7 @@ def _is_nio_permanent_response(response: Any) -> bool:
     if hasattr(response, "event_id"):
         return False
     errcode = str(getattr(response, "errcode", "") or "").upper()
-    if errcode in _PERMANENT_ERRCODES:
+    if errcode in MATRIX_PERMANENT_ERRCODES:
         return True
     msg = str(response).upper()
     if "NOT_FOUND" in msg or "FORBIDDEN" in msg:
@@ -927,9 +915,9 @@ class MatrixAdapter(AdapterContract):
                 "last_crypto_error": diag.last_crypto_error,
                 "encrypted_room_seen": diag.encrypted_room_seen,
                 "undecryptable_event_count": diag.undecryptable_event_count,
-                "room_key_request_attempts": diag.room_key_request_attempts,
-                "room_key_request_successes": diag.room_key_request_successes,
-                "room_key_request_failures": diag.room_key_request_failures,
+                "megolm_recovery_attempts": diag.megolm_recovery_attempts,
+                "megolm_recovery_successes": diag.megolm_recovery_successes,
+                "megolm_recovery_failures": diag.megolm_recovery_failures,
                 # Sync recovery
                 "sync_running": diag.sync_running,
                 "reconnecting": diag.reconnecting,
@@ -999,9 +987,9 @@ class MatrixAdapter(AdapterContract):
             "last_crypto_error": None,
             "encrypted_room_seen": False,
             "undecryptable_event_count": 0,
-            "room_key_request_attempts": 0,
-            "room_key_request_successes": 0,
-            "room_key_request_failures": 0,
+            "megolm_recovery_attempts": 0,
+            "megolm_recovery_successes": 0,
+            "megolm_recovery_failures": 0,
             # Sync recovery
             "sync_running": False,
             "reconnecting": False,

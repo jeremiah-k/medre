@@ -504,8 +504,8 @@ Look for `queue_total_sent`, `queue_total_failed`, `queue_total_rejected`.
 ### "Matrix E2EE blocked"
 
 Check diagnostics for `undecryptable_event_count`. Non-zero indicates E2EE decryption
-failures. Compare `room_key_request_attempts`, `room_key_request_successes`, and
-`room_key_request_failures` to determine whether live missing-key recovery is being
+failures. Compare `megolm_recovery_attempts`, `megolm_recovery_successes`, and
+`megolm_recovery_failures` to determine whether live missing-key recovery is being
 accepted by the provider. Also inspect `cross_signing_chain_status`,
 `cross_signing_current_device_self_signed`, and `cross_signing_reset_required`.
 Cross-signing establishes MEDRE's own device identity but does not replace room-key

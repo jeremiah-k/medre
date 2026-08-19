@@ -12,7 +12,7 @@ import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
@@ -73,7 +73,7 @@ def test_stale_receive_callback_is_rejected_after_interface_replacement() -> Non
     active = object()
     stale = object()
     received: list[dict[str, Any]] = []
-    session._client = active
+    session._activate_client(active)
     session._started = True
     session._message_callback = received.append
 
@@ -89,14 +89,16 @@ def test_stale_disconnect_callback_does_not_start_reconnect() -> None:
     session = _session()
     active = object()
     stale = object()
-    session._client = active
+    session._activate_client(active)
     session._started = True
 
     with patch.object(MeshtasticSession, "notify_connection_lost") as notify:
         session._on_connection_lost(interface=stale)
         notify.assert_not_called()
         session._on_connection_lost(interface=active)
-        notify.assert_called_once_with()
+        notify.assert_called_once_with(
+            expected_generation=session.connection_generation
+        )
 
     assert session.diagnostics().stale_disconnect_callbacks == 1
 
@@ -131,11 +133,14 @@ def test_connection_loss_crosses_reader_thread_boundary_with_call_soon_threadsaf
     loop.is_closed.return_value = False
     session._loop = loop
     session._started = True
-    session._client = object()
+    session._activate_client(object())
+    generation = session.connection_generation
 
     session.notify_connection_lost()
 
-    loop.call_soon_threadsafe.assert_called_once_with(session._start_reconnect_task)
+    loop.call_soon_threadsafe.assert_called_once_with(
+        session._start_reconnect_task, generation
+    )
     assert session.diagnostics().last_error == "Connection lost"
 
 
@@ -171,7 +176,12 @@ def test_receive_callback_adapter_boundary_uses_threadsafe_coroutine_submission(
         clock=lambda: datetime.now(UTC),
         shutdown_event=asyncio.Event(),
     )
-    adapter._session = SimpleNamespace(node_id=None, get_node_info=lambda _node: None)
+    adapter._session = SimpleNamespace(
+        node_id=None,
+        connection_generation=1,
+        is_connection_generation_current=lambda _generation: True,
+        get_node_info=lambda _node: None,
+    )
     future = MagicMock()
 
     packet = {
@@ -195,6 +205,85 @@ def test_receive_callback_adapter_boundary_uses_threadsafe_coroutine_submission(
     # Avoid an unawaited-coroutine warning from the mocked submission boundary.
     submitted = submit.call_args.args[0]
     submitted.close()
+
+
+async def test_receive_generation_is_revalidated_before_publish() -> None:
+    adapter = MeshtasticAdapter(_config())
+    session = _session()
+    old_client = object()
+    new_client = object()
+    session._activate_client(old_client)
+    session._started = True
+    session._loop = asyncio.get_running_loop()
+    adapter._session = session
+    adapter._loop = asyncio.get_running_loop()
+    adapter._started = True
+    adapter._adapter_start_epoch = None
+    publish = AsyncMock()
+    adapter.ctx = AdapterContext(
+        adapter_id="mesh-reference",
+        event_bus=None,
+        publish_inbound=publish,
+        logger=logging.getLogger("test.meshtastic.reference.interleave"),
+        clock=lambda: datetime.now(UTC),
+        shutdown_event=asyncio.Event(),
+    )
+    session._message_callback = adapter._on_packet
+    packet = {
+        "fromId": "!00000001",
+        "toId": "^all",
+        "channel": 0,
+        "id": 77,
+        "rxTime": int(datetime.now(UTC).timestamp()),
+        "decoded": {"portnum": "TEXT_MESSAGE_APP", "text": "stale"},
+    }
+
+    session._on_receive(packet, interface=old_client)
+    futures = list(adapter._inbound_futures)
+    assert len(futures) == 1
+    session._activate_client(new_client)
+    await asyncio.wrap_future(futures[0])
+
+    publish.assert_not_awaited()
+    assert adapter._inbound_published == 0
+
+
+def test_disconnect_generation_is_revalidated_on_event_loop() -> None:
+    session = _session()
+    old_client = object()
+    new_client = object()
+    session._activate_client(old_client)
+    session._started = True
+    loop = MagicMock()
+    loop.is_closed.return_value = False
+    session._loop = loop
+
+    session._on_connection_lost(interface=old_client)
+    callback, generation = loop.call_soon_threadsafe.call_args.args
+    session._activate_client(new_client)
+    callback(generation)
+
+    assert session._reconnect_task is None
+    assert session.reconnecting is False
+    assert session.diagnostics().stale_disconnect_callbacks == 1
+
+
+def test_notify_connection_lost_rejects_stale_generation() -> None:
+    """A stale SDK generation cannot mutate reconnect state or schedule work."""
+    session = _session()
+    client = MagicMock()
+    session._activate_client(client)
+    stale_generation = session.connection_generation
+    session._activate_client(MagicMock())
+    loop = MagicMock()
+    session._loop = loop
+    session._started = True
+
+    session.notify_connection_lost(expected_generation=stale_generation)
+
+    assert session.diagnostics().stale_disconnect_callbacks == 1
+    assert session._last_error is None
+    loop.call_soon_threadsafe.assert_not_called()
 
 
 async def test_shutdown_unsubscribes_before_closing_active_interface() -> None:
