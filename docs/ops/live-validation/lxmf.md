@@ -127,6 +127,23 @@ config = LxmfConfig(
 - `RNS.Reticulum` and `LXMF` packages available locally at `/home/jeremiah/dev` but live path setup pending.
 - No native reply mechanism — replies rendered as plain text.
 
+
+## Deterministic Local Integration
+
+Run the real pinned RNS/LXMF stack in a process-isolated local probe before
+external Reticulum testing:
+
+```bash
+pip install -e ".[lxmf,dev]"
+pytest tests/integration/test_lxmf_local_integration.py \
+  -m "local_integration and lxmf_sdk and not soak" -v
+```
+
+The probe verifies repeated real-router lifecycle, persisted identity/delivery
+destination, malformed and late callback containment, and cleanup after a
+partial startup failure. It intentionally does not claim remote delivery or
+multi-hop behavior. The `soak` selection repeats the real-router lifecycle.
+
 ## See Also
 
 - [transport-setup/lxmf.md](../transport-setup/lxmf.md) — adapter setup, delivery modes, Reticulum topology

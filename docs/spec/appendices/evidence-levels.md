@@ -39,6 +39,19 @@ The legacy codes H, C, S, R are accepted as shorthand in existing evidence table
 - Synthetic evidence (`synthetic`) may never be upgraded to `docker`, `live_service`, or `hardware` without a real endpoint or device run.
 - Docker evidence (`docker`) may not be upgraded to `live_service` or `hardware` without testing against an external service or physical device respectively.
 
+
+## 3.1 Test-layer labels versus evidence tiers
+
+The adapter test ladder also uses `sdk_contract` and `local_integration` labels.
+These labels describe **how a test is assembled**; they are not runtime evidence
+tiers. Installed-SDK contract tests and deterministic local endpoint/emulator
+tests are `conformance` evidence unless they also exercise a Docker service,
+external service, or physical device. `soak` describes duration/repetition and
+does not upgrade the evidence tier by itself.
+
+See [transport-realism.md](transport-realism.md) for the required ladder and
+scenario matrix.
+
 ## 4. Storage-Only Evidence Caveat
 
 Evidence stored in the SQLite database (receipts, outbox items, native refs) is a record of what the runtime observed and recorded. Stored evidence alone does not constitute validation of any tier. For example:

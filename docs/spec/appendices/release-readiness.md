@@ -35,6 +35,9 @@ commitment.
 | Live validation recorded            | live-validated                       | not started        | not started      | not started      |
 | Local delivery outbox               | synthetic-tested                     | synthetic-tested   | synthetic-tested | synthetic-tested |
 | Matrix live adapter (local Synapse) | live-validated (Docker SDK-boundary) |                    |                  |                  |
+| Installed-SDK contract              | conformance-tested                    | conformance-tested      | conformance-tested | conformance-tested |
+| Deterministic local integration     | docker-validated                      | docker-validated        | designed           | designed           |
+| Transport soak harness              | synthetic-tested                     | opt-in live test exists | designed           | designed           |
 
 ## 2. Status Definitions
 
@@ -80,6 +83,9 @@ not external network behavior, federation, or real-world rate limits.
 - [ ] Live validation against physical radio
 - [ ] Inbound processing beyond text messages
 - [ ] Delivery reliability with real hardware
+- [x] Installed-SDK contract matrix
+- [x] Docker local-integration boundary (lifecycle/outbound)
+- [x] Opt-in hardware lifecycle soak harness
 
 ### 3.3 MeshCore
 
@@ -87,6 +93,10 @@ not external network behavior, federation, or real-world rate limits.
 - [x] Fake lifecycle
 - [x] Session lifecycle code source-audited
 - [x] Renderer byte-budget (mock-tested)
+- [x] Installed-SDK contract matrix
+- [x] Deterministic real-SDK TCP local-integration harness
+- [x] Local-integration lifecycle/send soak harness
+- [ ] Record current-commit execution of local-integration harness
 - [ ] Live validation against physical node
 - [ ] BLE hardware validation
 - [ ] Delivery reliability with real hardware
@@ -96,14 +106,20 @@ not external network behavior, federation, or real-world rate limits.
 - [x] Config load and validation
 - [x] Fake lifecycle
 - [x] Session lifecycle code source-audited
+- [x] Installed-SDK contract matrix
+- [x] Process-isolated real RNS/LXMRouter local-integration harness
+- [x] Local-integration repeated lifecycle soak harness
+- [ ] Record current-commit execution of local-integration harness
 - [ ] Live validation against Reticulum network
 - [ ] Multi-hop delivery testing
 - [ ] Delivery state progression observation
 
 ## 4. Known Blockers
 
-No capabilities are currently `blocked`. The primary gap is hardware access for
-live validation of Meshtastic, MeshCore, and LXMF transports.
+No capabilities are currently `blocked`. The primary remaining gaps are
+current-commit execution of the new MeshCore/LXMF local-integration gates,
+physical Meshtastic and MeshCore devices, and an external LXMF peer/network for
+remote delivery and multi-hop observation.
 
 ## 5. Pre-Release Status
 
@@ -145,6 +161,7 @@ executed at the current commit.
 | Adapter boundary tests (parity, lifecycle authority)             | S-tier          | Pass   |
 | Doc structure tests (single authority, status vocabulary)        | S-tier          | Pass   |
 | Matrix Docker SDK-boundary validation                            | R-tier (docker) | Pass   |
+| Meshtastic Docker local integration                             | R-tier (docker) | Pass   |
 
 ### 7.2 Not-executed gates (no evidence at any tier)
 
@@ -156,6 +173,8 @@ executed at the current commit.
 | Meshtastic live validation (radio)   | Meshtastic release     | NOT EXECUTED |
 | MeshCore live validation (node)      | MeshCore release       | NOT EXECUTED |
 | LXMF live validation (Reticulum)     | LXMF release           | NOT EXECUTED |
+| MeshCore deterministic local integration | MeshCore prerelease | NOT EXECUTED |
+| LXMF process-isolated local integration | LXMF prerelease | NOT EXECUTED |
 | Hardware byte-budget measurement     | Constrained transports | NOT EXECUTED |
 
 ### 7.3 Future release gates (not required for prerelease)

@@ -95,6 +95,23 @@ Based on CLI-level serial validation:
 - BLE connectivity: NOT EXECUTED.
 - Docker inbound via pubsub: not proven (meshtasticd simulation mode limitation).
 
+
+## Hardware Soak Harness
+
+Physical-radio lifecycle endurance is opt-in and never runs in the default
+suite. Configure the same connection variables as the live smoke tests, then:
+
+```bash
+pip install -e ".[meshtastic,dev]"
+export MESHTASTIC_SOAK_CYCLES=10
+pytest tests/test_meshtastic_hardware_soak.py \
+  -m "hardware and live and soak and meshtastic_sdk" -v
+```
+
+The soak performs repeated MEDRE start/health/stop cycles without transmitting
+RF traffic. It records hardware evidence only when actually executed against a
+physical radio at the current commit.
+
 ## See Also
 
 - [transport-setup/meshtastic.md](../transport-setup/meshtastic.md) — adapter setup, config, delivery semantics
