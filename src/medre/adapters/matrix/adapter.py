@@ -927,6 +927,9 @@ class MatrixAdapter(AdapterContract):
                 "last_crypto_error": diag.last_crypto_error,
                 "encrypted_room_seen": diag.encrypted_room_seen,
                 "undecryptable_event_count": diag.undecryptable_event_count,
+                "room_key_request_attempts": diag.room_key_request_attempts,
+                "room_key_request_successes": diag.room_key_request_successes,
+                "room_key_request_failures": diag.room_key_request_failures,
                 # Sync recovery
                 "sync_running": diag.sync_running,
                 "reconnecting": diag.reconnecting,
@@ -996,6 +999,9 @@ class MatrixAdapter(AdapterContract):
             "last_crypto_error": None,
             "encrypted_room_seen": False,
             "undecryptable_event_count": 0,
+            "room_key_request_attempts": 0,
+            "room_key_request_successes": 0,
+            "room_key_request_failures": 0,
             # Sync recovery
             "sync_running": False,
             "reconnecting": False,
