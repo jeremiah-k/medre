@@ -39,6 +39,13 @@ def build_delivery_receipt(
     retry_jitter: bool | None = None,
     rendering_evidence: str | None = None,
     outbox_id: str | None = None,
+    confirmation_level: Literal[
+        "unknown",
+        "local_queue",
+        "local_transport",
+        "remote_service",
+        "end_to_end",
+    ] = "unknown",
     sequence: int = 0,
     receipt_id: str | None = None,
     created_at: datetime | None = None,
@@ -93,6 +100,9 @@ def build_delivery_receipt(
     outbox_id:
         Internal correlation key linking this receipt to the durable
         outbox item tracking this delivery attempt.
+    confirmation_level:
+        Strongest delivery fact proven by this receipt.  This is independent
+        of the receipt status and defaults to ``"unknown"``.
     sequence:
         Monotonically increasing sequence number within the plan.
     receipt_id:
@@ -135,5 +145,6 @@ def build_delivery_receipt(
         retry_jitter=retry_jitter,
         rendering_evidence=rendering_evidence,
         outbox_id=outbox_id,
+        confirmation_level=confirmation_level,
         created_at=created_at,
     )

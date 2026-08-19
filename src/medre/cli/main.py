@@ -74,6 +74,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     diag_p.add_argument("--config", default=None, help="Path to config file")
     diag_p.add_argument(
+        "--format",
+        choices=("json", "prometheus"),
+        default="json",
+        help="Diagnostics output format (default: json)",
+    )
+    diag_p.add_argument(
         "--refresh-health",
         action="store_true",
         default=False,
@@ -495,9 +501,9 @@ def main(argv: list[str] | None = None) -> None:
         from .diagnostics_commands import _diagnostics, _diagnostics_refresh
 
         if getattr(args, "refresh_health", False):
-            asyncio.run(_diagnostics_refresh(args.config))
+            asyncio.run(_diagnostics_refresh(args.config, output_format=args.format))
         else:
-            _diagnostics(args.config)
+            _diagnostics(args.config, output_format=args.format)
     elif args.command == "routes":
         from .route_commands import (
             _routes_list,

@@ -283,6 +283,7 @@ class TestRenderingEvidenceConformance:
             "conversation_id",
             "root_event_id",
             "relation_evidence",
+            "source_origin_label",
         }
         assert set(d.keys()) == expected_keys
 

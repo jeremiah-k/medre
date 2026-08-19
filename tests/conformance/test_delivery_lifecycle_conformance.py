@@ -33,7 +33,10 @@ from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
     OutboundNativeRefRecord,
 )
-from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
+from medre.core.engine.pipeline.delivery_lifecycle import (
+    DeliveryLifecycleService,
+    DeliveryLifecycleStorage,
+)
 from medre.core.engine.pipeline.target_delivery import TargetDeliveryService
 from medre.core.events.canonical import (
     CanonicalEvent,
@@ -50,14 +53,14 @@ from medre.core.planning.delivery_plan import (
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
-from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem
 
 # ---------------------------------------------------------------------------
 # In-memory storage for receipt inspection
 # ---------------------------------------------------------------------------
 
 
-class _MemoryStorage(StorageBackend):
+class _MemoryStorage:
     """Minimal in-memory storage for delivery lifecycle conformance tests."""
 
     def __init__(self) -> None:
@@ -111,6 +114,33 @@ class _MemoryStorage(StorageBackend):
         ):
             object.__setattr__(item, "status", "sent")
 
+    async def mark_outbox_retry_wait(
+        self,
+        outbox_id: str,
+        next_attempt_at: str,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "retry_wait")
+
+    async def mark_outbox_dead_lettered(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "dead_lettered")
+
     # -- Required by abstract protocol but unused in these tests --
 
     async def append(self, event) -> None:
@@ -129,6 +159,10 @@ class _MemoryStorage(StorageBackend):
 # ---------------------------------------------------------------------------
 # Delivery lifecycle conformance
 # ---------------------------------------------------------------------------
+
+
+def test_memory_storage_satisfies_delivery_lifecycle_storage_contract() -> None:
+    assert isinstance(_MemoryStorage(), DeliveryLifecycleStorage)
 
 
 class TestDeliveryLifecycleConformance:

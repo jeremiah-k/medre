@@ -533,12 +533,7 @@ class TestAllNoneFailClosedConformance:
 
 
 class TestThreadRelationFallbackResolverConformance:
-    """Verify that thread relations produce direct strategy via FallbackResolver.
-
-    Thread capability is deferred: thread relations do not produce a
-    capability candidate.  The FallbackResolver must return direct
-    for thread-carrying events.
-    """
+    """Verify thread relations participate in fallback resolution."""
 
     def test_thread_only_relation_fallback_resolver_direct(self) -> None:
         """Thread-only relation → direct via FallbackResolver."""
@@ -553,7 +548,7 @@ class TestThreadRelationFallbackResolverConformance:
             key=None,
             fallback_text=None,
         )
-        caps = AdapterCapabilities()
+        caps = AdapterCapabilities(threads="fallback")
         fb = FallbackResolver()
         event = CanonicalEvent(
             event_id=str(uuid.uuid4()),
@@ -570,7 +565,7 @@ class TestThreadRelationFallbackResolverConformance:
             metadata=EventMetadata(),
         )
         strategy = fb.resolve_fallback(event, _DEFAULT_TARGET, caps).primary_strategy
-        assert strategy.method == "direct"
+        assert strategy.method == "fallback_text"
 
     def test_thread_with_unsupported_reply_reply_wins(self) -> None:
         """Thread + reply where reply is unsupported → skip (reply wins)."""
@@ -596,7 +591,7 @@ class TestThreadRelationFallbackResolverConformance:
             key=None,
             fallback_text=None,
         )
-        caps = AdapterCapabilities(replies="unsupported")
+        caps = AdapterCapabilities(threads="fallback", replies="unsupported")
         fb = FallbackResolver()
         event = CanonicalEvent(
             event_id=str(uuid.uuid4()),
@@ -628,7 +623,7 @@ class TestThreadRelationFallbackResolverConformance:
             key=None,
             fallback_text=None,
         )
-        caps = AdapterCapabilities()
+        caps = AdapterCapabilities(threads="fallback")
         event = CanonicalEvent(
             event_id=str(uuid.uuid4()),
             event_kind="plugin.custom",
@@ -645,11 +640,10 @@ class TestThreadRelationFallbackResolverConformance:
         )
         decision = _resolver.decide(event, caps)
 
-        assert decision.capability_level == "native"
-        assert decision.delivery_strategy == "direct"
+        assert decision.capability_level == "fallback"
+        assert decision.delivery_strategy == "fallback_text"
         assert decision.supported is True
-        assert decision.capability_field is None
-        assert decision.reason is None
+        assert decision.capability_field == "threads"
 
 
 # ---------------------------------------------------------------------------

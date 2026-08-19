@@ -8,7 +8,11 @@ import uuid
 from contextlib import suppress
 from typing import Protocol
 
-from medre.core.ingress.types import IngressWorkItem
+from medre.core.ingress.types import (
+    DurableIngressDeferredError,
+    IngressWorkerStopResult,
+    IngressWorkItem,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -21,6 +25,10 @@ class _IngressStorage(Protocol):
     async def complete_ingress_work(self, event_id: str, *, worker_id: str) -> bool: ...
 
     async def release_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str
+    ) -> bool: ...
+
+    async def defer_ingress_work(
         self, event_id: str, *, worker_id: str, error: str
     ) -> bool: ...
 
@@ -44,8 +52,10 @@ class _IngressLeaseLostError(RuntimeError):
 class DurableIngressWorker:
     """Claim and process persisted ingress work until stopped.
 
-    Work is retried only up to ``max_attempts`` and then moved to terminal
-    ``failed`` state.  A heartbeat renews ownership while routing is active,
+    Processing failures are retried only up to ``max_attempts`` and then moved
+    to terminal ``failed`` state.  Operational deferrals caused by capacity or
+    shutdown do not consume that terminal failure budget.  A heartbeat renews
+    ownership while routing is active,
     preventing a long-running event from being reclaimed by another worker
     generation merely because the original lease interval elapsed.
     """
@@ -81,10 +91,13 @@ class DurableIngressWorker:
         self._failures = 0
         self._lost_leases = 0
         self._terminal_failures = 0
+        self._deferrals = 0
+        self._active_event_id: str | None = None
+        self._forced_cancellations = 0
 
     @property
     def running(self) -> bool:
-        """Return whether the worker task is alive."""
+        """Return whether the worker task is still alive."""
         return self._task is not None and not self._task.done()
 
     @property
@@ -107,6 +120,21 @@ class DurableIngressWorker:
         """Return rows moved to terminal ``failed`` state."""
         return self._terminal_failures
 
+    @property
+    def deferrals(self) -> int:
+        """Return capacity/shutdown deferrals retained for later processing."""
+        return self._deferrals
+
+    @property
+    def active_event_id(self) -> str | None:
+        """Return the event currently being processed, if any."""
+        return self._active_event_id
+
+    @property
+    def forced_cancellations(self) -> int:
+        """Return shutdowns that exceeded the worker grace period."""
+        return self._forced_cancellations
+
     async def start(self) -> None:
         """Start the background claim loop idempotently."""
         if self.running:
@@ -114,18 +142,73 @@ class DurableIngressWorker:
         self._stop.clear()
         self._task = asyncio.create_task(self._run(), name="medre-durable-ingress")
 
-    async def stop(self) -> None:
-        """Stop claiming new work and cancel any active processing wait."""
-        self._stop.set()
-        task = self._task
-        self._task = None
-        if task is None:
+    def _consume_worker_result(self, task: asyncio.Task[None]) -> None:
+        """Clear a retained worker task and consume its terminal exception."""
+        if self._task is task:
+            self._task = None
+        with suppress(asyncio.CancelledError):
+            task.exception()
+
+    async def _request_worker_cancellation(self, task: asyncio.Task[None]) -> None:
+        """Request cancellation without waiting indefinitely for cooperation."""
+        if task.done():
+            self._consume_worker_result(task)
             return
         task.cancel()
+        # Give a cooperative coroutine one event-loop turn to observe cancellation.
+        # A cancellation-resistant pipeline remains retained in ``self._task`` and
+        # its eventual result is consumed by the callback below.
+        await asyncio.sleep(0)
+        if task.done():
+            self._consume_worker_result(task)
+        else:
+            task.add_done_callback(self._consume_worker_result)
+
+    async def stop(
+        self, *, grace_seconds: float = 0.0
+    ) -> IngressWorkerStopResult:
+        """Stop claiming new work and report whether the task terminated.
+
+        ``grace_seconds`` bounds how long an already-claimed event may finish.
+        No new row is claimed after the stop signal. When the grace period
+        expires, cancellation is requested without waiting indefinitely afterward.
+        If processing suppresses cancellation, the worker task remains retained and
+        the returned ``stopped`` flag is false. Shared runtime dependencies must not
+        be torn down while that retained task can still perform side effects.
+        """
+        if grace_seconds < 0:
+            raise ValueError("grace_seconds must be non-negative")
+        self._stop.set()
+        task = self._task
+        if task is None:
+            return IngressWorkerStopResult(
+                stopped=True, cancellation_requested=False, active_event_id=None
+            )
+        cancellation_requested = False
         try:
-            await task
+            if grace_seconds > 0 and not task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=grace_seconds)
+                except TimeoutError:
+                    pass
+            if not task.done():
+                if self._active_event_id is not None:
+                    self._forced_cancellations += 1
+                cancellation_requested = True
+                await self._request_worker_cancellation(task)
         except asyncio.CancelledError:
-            pass
+            if not task.done():
+                await self._request_worker_cancellation(task)
+            raise
+        finally:
+            if task.done():
+                self._consume_worker_result(task)
+        stopped = task.done()
+        return IngressWorkerStopResult(
+            stopped=stopped,
+            cancellation_requested=cancellation_requested,
+            active_event_id=None if stopped else self._active_event_id,
+        )
 
     async def _renew_lease(self, event_id: str) -> None:
         interval = max(0.01, self._lease_seconds / 3.0)
@@ -178,6 +261,8 @@ class DurableIngressWorker:
         """
         completed = 0
         for _ in range(self._batch_size):
+            if self._stop.is_set():
+                break
             work = await self._storage.claim_ingress_work(
                 worker_id=self._worker_id,
                 limit=1,
@@ -186,6 +271,8 @@ class DurableIngressWorker:
             if not work:
                 break
             item = work[0]
+            self._active_event_id = item.event_id
+            deferred = False
             try:
                 await self._process_with_lease(item)
             except asyncio.CancelledError:
@@ -198,6 +285,23 @@ class DurableIngressWorker:
                     item.event_id,
                     item.attempts,
                 )
+            except DurableIngressDeferredError as exc:
+                deferred = True
+                self._deferrals += 1
+                error = f"{type(exc).__name__}: {exc}"
+                changed = await self._storage.defer_ingress_work(
+                    item.event_id, worker_id=self._worker_id, error=error
+                )
+                if not changed:
+                    self._lost_leases += 1
+                else:
+                    self._logger.info(
+                        "Durable ingress deferred without consuming retry budget: "
+                        "event_id=%s attempt=%d reasons=%s",
+                        item.event_id,
+                        item.attempts,
+                        ",".join(exc.reasons),
+                    )
             except Exception as exc:
                 self._failures += 1
                 error = f"{type(exc).__name__}: {exc}"
@@ -233,6 +337,10 @@ class DurableIngressWorker:
                         "Durable ingress completion lost ownership: event_id=%s",
                         item.event_id,
                     )
+            finally:
+                self._active_event_id = None
+            if deferred or self._stop.is_set():
+                break
         return completed
 
     async def _run(self) -> None:

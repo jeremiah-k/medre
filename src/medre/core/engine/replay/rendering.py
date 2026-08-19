@@ -15,6 +15,19 @@ _logger = logging.getLogger(__name__)
 class _ReplayRenderingMixin:
     """Mixin providing the render stage for replay execution."""
 
+    def _explicit_pipeline_method(self, name: str):
+        """Return a real/explicit pipeline method without mock phantom attrs."""
+        if self._pipeline is None:
+            return None
+        if getattr(type(self._pipeline), name, None) is not None:
+            candidate = getattr(self._pipeline, name)
+        else:
+            try:
+                candidate = vars(self._pipeline).get(name)
+            except TypeError:
+                candidate = None
+        return candidate if callable(candidate) else None
+
     async def _stage_render(
         self,
         event: CanonicalEvent,
@@ -22,9 +35,10 @@ class _ReplayRenderingMixin:
     ) -> ReplayResult:
         """Re-run transforms and rendering on *event*.
 
-        Applies transforms first (via ``pipeline.transform_event``) and
-        then renders the transformed event (via ``pipeline.render_event``).
-        Captures the rendering output without delivering it.  Read-only.
+        Applies an explicit ``pipeline.transform_event`` when available, then
+        uses ``pipeline.render_replay_event`` for context-faithful replay (or
+        an explicit legacy ``pipeline.render_event`` fallback).  Captures the
+        rendering output without delivering it.  Read-only.
         """
         t0 = time.monotonic()
         if self._pipeline is None:
@@ -36,8 +50,9 @@ class _ReplayRenderingMixin:
                 duration_ms=_elapsed_ms(t0),
             )
         try:
-            if hasattr(self._pipeline, "transform_event"):
-                transformed = await self._pipeline.transform_event(event)
+            transform_event = self._explicit_pipeline_method("transform_event")
+            if transform_event is not None:
+                transformed = await transform_event(event)
             else:
                 _logger.debug(
                     "Pipeline has no transform_event; skipping transform "
@@ -45,14 +60,17 @@ class _ReplayRenderingMixin:
                     event.event_id,
                 )
                 transformed = event
-            if hasattr(self._pipeline, "render_event"):
-                rendered = await self._pipeline.render_event(transformed)
+            render_replay_event = self._explicit_pipeline_method("render_replay_event")
+            render_event = self._explicit_pipeline_method("render_event")
+            if render_replay_event is not None:
+                rendered = await render_replay_event(transformed)
+            elif render_event is not None:
+                rendered = await render_event(transformed)
             else:
-                _logger.debug(
-                    "Pipeline has no render_event; skipping render for event_id=%s",
-                    event.event_id,
+                raise RuntimeError(
+                    "Pipeline has no replay rendering implementation; "
+                    f"event_id={event.event_id}"
                 )
-                rendered = transformed
             return ReplayResult(
                 event_id=event.event_id,
                 stage="render",

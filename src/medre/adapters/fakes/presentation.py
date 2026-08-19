@@ -50,6 +50,7 @@ _FAKE_PRESENTATION_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
+    threads="fallback",
     reactions="native",
     edits="unsupported",
     deletes="unsupported",

@@ -87,7 +87,9 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     retry_jitter INTEGER,
     rendering_evidence TEXT,
     outbox_id TEXT,
-    created_at TEXT NOT NULL
+    confirmation_level TEXT NOT NULL DEFAULT 'unknown',
+    created_at TEXT NOT NULL,
+    CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
 -- delivery_status view: one row per unique (delivery_plan_id, target_adapter,
@@ -106,7 +108,7 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.parent_receipt_id, dr.source, dr.replay_run_id,
        dr.retry_max_attempts, dr.retry_backoff_base,
        dr.retry_max_delay, dr.retry_jitter, dr.rendering_evidence,
-       dr.outbox_id, dr.created_at
+       dr.outbox_id, dr.confirmation_level, dr.created_at
 FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
@@ -325,6 +327,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "retry_jitter",
             "rendering_evidence",
             "outbox_id",
+            "confirmation_level",
             "created_at",
         }
     ),

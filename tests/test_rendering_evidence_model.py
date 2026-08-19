@@ -40,6 +40,22 @@ from tests.helpers.rendering_evidence import (
 # ===================================================================
 
 
+def test_evidence_captures_source_origin_label() -> None:
+    ctx = make_context(source_origin_label="Field Ops")
+    result = RenderingResult(
+        event_id="evt-origin",
+        target_adapter="target-adapter",
+        target_channel=None,
+        payload={"text": "hello"},
+        metadata={"renderer": "text"},
+    )
+    evidence = RenderingEvidence.from_context_and_result(
+        renderer_name="text", ctx=ctx, result=result
+    )
+    assert evidence.source_origin_label == "Field Ops"
+    assert evidence.to_dict()["source_origin_label"] == "Field Ops"
+
+
 class TestRenderingEvidenceModel:
     """Tests for the RenderingEvidence model itself."""
 
@@ -207,6 +223,7 @@ class TestRenderingEvidenceModel:
             "conversation_id",
             "root_event_id",
             "relation_evidence",
+            "source_origin_label",
         }
         assert set(d.keys()) == expected_keys
 

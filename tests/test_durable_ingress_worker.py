@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 
 import pytest
 
-from medre.core.ingress import DurableIngressWorker, IngressWorkItem
+from medre.core.ingress import (
+    DurableIngressDeferredError,
+    DurableIngressWorker,
+    IngressWorkItem,
+)
 from tests.helpers.async_utils import wait_until
 
 
@@ -28,6 +33,7 @@ class _Storage:
         self.work = work
         self.completed: list[str] = []
         self.released: list[tuple[str, str]] = []
+        self.deferred: list[tuple[str, str]] = []
         self.failed: list[tuple[str, str]] = []
         self.renewed: list[str] = []
         self.claim_limits: list[int] = []
@@ -51,6 +57,14 @@ class _Storage:
         if not self.owns:
             return False
         self.released.append((event_id, error))
+        return True
+
+    async def defer_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str
+    ) -> bool:
+        if not self.owns:
+            return False
+        self.deferred.append((event_id, error))
         return True
 
     async def fail_ingress_work(
@@ -100,6 +114,34 @@ async def test_worker_releases_failed_ingress_for_retry() -> None:
     assert storage.released == [("evt-1", "RuntimeError: planner unavailable")]
     assert storage.failed == []
     assert worker.failures == 1
+
+
+async def test_worker_deferral_does_not_consume_terminal_budget_or_hot_loop() -> None:
+    storage = _Storage([_work("evt-deferred", attempts=5), _work("evt-next")])
+
+    class _DeferredPipeline:
+        async def process_admitted_event(self, event_id: str) -> None:
+            raise DurableIngressDeferredError(event_id, ("capacity_rejection",))
+
+    worker = DurableIngressWorker(
+        storage=storage, pipeline=_DeferredPipeline(), batch_size=5, max_attempts=5
+    )
+
+    assert await worker.run_once() == 0
+    assert storage.failed == []
+    assert storage.released == []
+    assert storage.deferred == [
+        (
+            "evt-deferred",
+            "DurableIngressDeferredError: durable ingress deferred for "
+            "evt-deferred: capacity_rejection",
+        )
+    ]
+    assert [item.event_id for item in storage.work] == ["evt-next"]
+    assert storage.claim_limits == [1]
+    assert worker.deferrals == 1
+    assert worker.failures == 0
+    assert worker.terminal_failures == 0
 
 
 async def test_worker_terminally_fails_poison_work_at_retry_budget() -> None:
@@ -249,9 +291,7 @@ async def test_worker_detects_lease_loss_during_processing() -> None:
         # Deterministic ownership loss: no wall-clock lease interval — the
         # lease is revoked the moment the pipeline starts processing.
         await entered.wait()
-        raise _IngressLeaseLostError(
-            f"durable ingress lease lost for event {event_id}"
-        )
+        raise _IngressLeaseLostError(f"durable ingress lease lost for event {event_id}")
 
     worker._renew_lease = _lose_lease_once_processing  # type: ignore[method-assign]
     task = asyncio.create_task(worker.run_once())
@@ -316,3 +356,104 @@ async def test_worker_treats_ended_lease_renewal_as_ownership_loss(
     assert await worker.run_once() == 0
     assert worker.failures == 1
     assert worker.lost_leases == 1
+
+
+async def test_worker_graceful_stop_finishes_current_item_without_claiming_next() -> (
+    None
+):
+    storage = _Storage([_work("evt-1"), _work("evt-2")])
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class _SlowPipeline:
+        async def process_admitted_event(self, event_id: str) -> None:
+            if event_id == "evt-1":
+                entered.set()
+                await release.wait()
+
+    worker = DurableIngressWorker(
+        storage=storage, pipeline=_SlowPipeline(), batch_size=2, lease_seconds=0.2
+    )
+    await worker.start()
+    await entered.wait()
+    stop_task = asyncio.create_task(worker.stop(grace_seconds=0.5))
+    assert worker.active_event_id == "evt-1"
+    release.set()
+    result = await stop_task
+
+    assert result.stopped is True
+    assert result.cancellation_requested is False
+    assert result.active_event_id is None
+    assert storage.completed == ["evt-1"]
+    assert [item.event_id for item in storage.work] == ["evt-2"]
+    assert worker.forced_cancellations == 0
+    assert worker.running is False
+
+
+async def test_worker_forces_active_item_after_shutdown_grace_expires() -> None:
+    storage = _Storage([_work("evt-blocked")])
+    entered = asyncio.Event()
+    never = asyncio.Event()
+
+    class _BlockedPipeline:
+        async def process_admitted_event(self, _event_id: str) -> None:
+            entered.set()
+            await never.wait()
+
+    worker = DurableIngressWorker(
+        storage=storage, pipeline=_BlockedPipeline(), lease_seconds=0.2
+    )
+    await worker.start()
+    await entered.wait()
+    result = await worker.stop(grace_seconds=0.001)
+
+    assert result.stopped is True
+    assert result.cancellation_requested is True
+    assert result.active_event_id is None
+    assert storage.completed == []
+    assert storage.released == []
+    assert worker.forced_cancellations == 1
+    assert worker.active_event_id is None
+    assert worker.running is False
+
+
+async def test_worker_stop_is_bounded_when_processing_suppresses_cancellation() -> None:
+    storage = _Storage([_work("evt-cancellation-resistant")])
+    entered = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+    release = asyncio.Event()
+
+    class _CancellationResistantPipeline:
+        async def process_admitted_event(self, _event_id: str) -> None:
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancellation_seen.set()
+                await release.wait()
+
+    worker = DurableIngressWorker(
+        storage=storage,
+        pipeline=_CancellationResistantPipeline(),
+        lease_seconds=0.2,
+    )
+    await worker.start()
+    await asyncio.wait_for(entered.wait(), timeout=1)
+
+    result = await asyncio.wait_for(worker.stop(grace_seconds=0.001), timeout=0.25)
+    await asyncio.wait_for(cancellation_seen.wait(), timeout=0.25)
+
+    assert result.stopped is False
+    assert result.cancellation_requested is True
+    assert result.active_event_id == "evt-cancellation-resistant"
+    retained_task = worker._task
+    assert retained_task is not None
+    assert not retained_task.done()
+    assert worker.running is True
+    assert worker.active_event_id == "evt-cancellation-resistant"
+    assert worker.forced_cancellations == 1
+
+    release.set()
+    with suppress(asyncio.CancelledError):
+        await asyncio.wait_for(asyncio.shield(retained_task), timeout=1)
+    assert worker.running is False

@@ -33,6 +33,12 @@ from medre.runtime.reporting import (
 
 # Maximum timeline entries returned by assembly functions.
 _MAX_TIMELINE_ENTRIES: int = 1000
+_REPLAY_DUPLICATE_CAVEAT = (
+    "A non-empty replay run ID suppresses targets already accepted in that "
+    "same run after their receipt is visible. Replay does not deduplicate "
+    "prior live delivery, different/empty run IDs, or concurrent attempts "
+    "that race before acceptance evidence is committed."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -257,10 +263,7 @@ def assemble_replay_timeline(
             "receipt_count": 0,
             "event_ids": [],
             "missing_event_ids": [],
-            "duplicate_send_caveat": (
-                "Replay does not deduplicate.  Adapters that already "
-                "delivered an event may produce duplicate sends."
-            ),
+            "duplicate_send_caveat": _REPLAY_DUPLICATE_CAVEAT,
             "timeline": [],
         }
 
@@ -315,10 +318,7 @@ def assemble_replay_timeline(
         "receipt_count": len(receipts),
         "event_ids": event_ids,
         "missing_event_ids": missing,
-        "duplicate_send_caveat": (
-            "Replay does not deduplicate.  Adapters that already "
-            "delivered an event may produce duplicate sends."
-        ),
+        "duplicate_send_caveat": _REPLAY_DUPLICATE_CAVEAT,
         "timeline": timeline_entries,
     }
 

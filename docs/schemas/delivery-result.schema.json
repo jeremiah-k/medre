@@ -6,22 +6,34 @@
   "type": "object",
   "properties": {
     "native_message_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Platform-native message ID (e.g. a Matrix event_id). None when not yet available."
     },
     "native_channel_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Platform-native channel/room/conversation ID."
     },
     "native_thread_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Platform-native thread or parent message ID. Reserved — always None at runtime."
     },
     "native_relation_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Platform-native ID of the related entity. Reserved — always None at runtime."
     },
@@ -32,15 +44,35 @@
     },
     "delivery_status": {
       "type": "string",
-      "enum": ["sent", "enqueued"],
+      "enum": [
+        "sent",
+        "enqueued"
+      ],
       "default": "sent",
       "description": "Adapter delivery fact: 'sent' (synchronous) or 'enqueued' (queue-based). Reports what the adapter did, not the final lifecycle state of the message. The pipeline maps this to receipt status; it is not lifecycle authority."
+    },
+    "confirmation_level": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "local_queue",
+        "local_transport",
+        "remote_service",
+        "end_to_end"
+      ],
+      "default": "unknown",
+      "description": "Strongest delivery fact proven by the adapter or receipt; independent of lifecycle status."
     },
     "metadata": {
       "type": "object",
       "propertyNames": {
         "not": {
-          "enum": ["delivery_status", "adapter_status", "status", "state"]
+          "enum": [
+            "delivery_status",
+            "adapter_status",
+            "status",
+            "state"
+          ]
         }
       },
       "additionalProperties": true,

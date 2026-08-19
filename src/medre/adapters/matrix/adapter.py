@@ -53,6 +53,7 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
+    threads="fallback",
     reactions="native",
     edits="unsupported",
     deletes="unsupported",
@@ -677,6 +678,7 @@ class MatrixAdapter(AdapterContract):
                 return AdapterDeliveryResult(
                     native_message_id=event_id,
                     native_channel_id=room_id,
+                    confirmation_level="remote_service",
                     metadata=MappingProxyType(
                         {"matrix": MappingProxyType({"txn_id": txn_id})}
                     ),

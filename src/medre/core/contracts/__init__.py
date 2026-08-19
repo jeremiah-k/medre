@@ -14,6 +14,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
+    DeliveryConfirmationLevel,
     OutboundNativeRefRecord,
 )
 
@@ -24,6 +25,7 @@ __all__ = [
     "AdapterContract",
     "AdapterDeliveryResult",
     "AdapterInfo",
+    "DeliveryConfirmationLevel",
     "AdapterPermanentError",
     "AdapterRole",
     "AdapterSendError",

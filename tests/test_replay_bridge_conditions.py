@@ -2,8 +2,8 @@
 
 Tests verify that BEST_EFFORT replay of events previously delivered via a
 live bridge session produces distinguishable receipts with correct source
-and replay_run_id fields.  Replay is NOT dedupe — each replay run creates
-new receipt rows per design.
+and replay_run_id fields. Distinct or empty replay run IDs remain repeatable;
+a matching non-empty run ID suppresses targets after visible acceptance evidence.
 
 Uses the same RuntimeBuilder / fake-adapter infrastructure as
 test_replay_pipeline_integration.py, exercising the full
@@ -12,9 +12,10 @@ replaying via ReplayEngine.
 
 Tests
 -----
-* test_replay_after_fake_bridge — live receipt vs replay receipt distinguishable
-* test_replay_receipt_distinguishable — two replay runs produce distinct run_ids
-* test_duplicate_send_caveat_reflected — replay is not dedupe (3 receipts for 1 event)
+* test_replay_after_fake_bridge - live receipt vs replay receipt distinguishable
+* test_replay_receipt_distinguishable - two replay runs produce distinct run_ids
+* test_duplicate_send_caveat_reflected - qualified suppression boundaries with
+  at least 3 receipts for 1 event
 """
 
 from __future__ import annotations
@@ -299,14 +300,14 @@ async def test_replay_receipt_distinguishable(bridge_env) -> None:
 
 @pytest.mark.asyncio
 async def test_duplicate_send_caveat_reflected(bridge_env) -> None:
-    """BEST_EFFORT replay creates new receipts each time (no dedup).
+    """BEST_EFFORT replay remains repeatable across distinct replay runs.
 
-    CAVEAT: Each BEST_EFFORT replay of the same event produces additional
-    receipt rows.  This is expected per design — replay does not deduplicate.
-    Operators must use application-level dedup or run_id tracking.
+    Different or empty run IDs may produce additional outbound deliveries. A
+    repeated non-empty run ID suppresses targets with visible ``queued`` or
+    ``sent`` acceptance evidence from that same run.
 
-    After 1 live delivery + 2 BEST_EFFORT replays: 3+ receipt rows total,
-    each independently persisted.
+    After 1 live delivery + 2 distinct BEST_EFFORT replay runs: at least 3
+    receipt rows exist, each independently persisted.
     """
     env = bridge_env
     event, _ = await env.seed_live()
@@ -342,13 +343,13 @@ async def test_duplicate_send_caveat_reflected(bridge_env) -> None:
         (event_id,),
     )
 
-    # No dedup: each replay adds new receipts.
-    # live_count (live) + at least 1 per replay run = at least 3.
+    # Different replay run IDs remain repeatable, so each run adds evidence.
+    # live_count (live) + at least 1 per distinct replay run = at least 3.
     expected_min = live_count + 2
     assert len(all_rows) >= expected_min, (
         f"Expected at least {expected_min} receipts "
         f"(1 live + 1 replay-1 + 1 replay-2), got {len(all_rows)}. "
-        "Replay is not dedupe — duplicate-send risk remains."
+        "Distinct replay run IDs remain intentionally repeatable."
     )
 
     # Verify that replay_run_id is populated and distinct per run.

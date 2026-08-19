@@ -8,6 +8,7 @@ and rendering_evidence persistence round-trip.
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime, timezone
 
 import pytest
@@ -23,6 +24,7 @@ from medre.core.rendering.evidence import (
     RenderingEvidence,
 )
 from medre.core.storage.backend import EventFilter
+from medre.core.storage.sqlite.schema import _SCHEMA
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
@@ -81,6 +83,70 @@ class TestReceipts:
     ) -> None:
         status = await temp_storage.delivery_status("no-plan", "no-adapter")
         assert status is None
+
+
+async def test_confirmation_level_round_trips(temp_storage: SQLiteStorage) -> None:
+    event = make_storage_event(event_id="evt-confirmation")
+    await temp_storage.append(event)
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-confirmation",
+        event_id=event.event_id,
+        delivery_plan_id="plan-confirmation",
+        target_adapter="matrix",
+        status="sent",
+        confirmation_level="remote_service",
+    )
+    await temp_storage.append_receipt(receipt)
+
+    receipts = await temp_storage.list_receipts_for_event(event.event_id)
+    assert receipts[0].confirmation_level == "remote_service"
+    status = await temp_storage.delivery_status("plan-confirmation", "matrix")
+    assert status is not None
+    assert status.confirmation_level == "remote_service"
+
+
+async def test_append_receipt_rejects_invalid_confirmation_level(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event = make_storage_event(event_id="evt-invalid-confirmation")
+    await temp_storage.append(event)
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-invalid-confirmation",
+        event_id=event.event_id,
+        delivery_plan_id="plan-invalid-confirmation",
+        target_adapter="matrix",
+        status="sent",
+        confirmation_level="delivered",  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="confirmation level"):
+        await temp_storage.append_receipt(receipt)
+
+
+def test_receipt_schema_rejects_invalid_confirmation_level() -> None:
+    db = sqlite3.connect(":memory:")
+    try:
+        db.executescript(_SCHEMA)
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            db.execute(
+                """
+                INSERT INTO delivery_receipts (
+                    receipt_id, event_id, delivery_plan_id, target_adapter,
+                    status, confirmation_level, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "rcpt-invalid-schema-confirmation",
+                    "evt-invalid-schema-confirmation",
+                    "plan-invalid-schema-confirmation",
+                    "matrix",
+                    "sent",
+                    "delivered",
+                    "2026-08-19T00:00:00+00:00",
+                ),
+            )
+    finally:
+        db.close()
 
 
 # ===================================================================

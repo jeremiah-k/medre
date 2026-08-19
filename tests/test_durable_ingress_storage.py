@@ -29,9 +29,7 @@ class _AsyncCursor:
     async def __aenter__(self) -> _AsyncCursor:
         return self
 
-    async def __aexit__(
-        self, _exc_type: object, _exc: object, _tb: object
-    ) -> None:
+    async def __aexit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         self._cursor.close()
 
     @property
@@ -50,9 +48,7 @@ class _AsyncConnection:
         self._db = db
         self._fail_rollback = fail_rollback
 
-    def execute(
-        self, sql: str, params: tuple[object, ...] = ()
-    ) -> _AsyncCursor:
+    def execute(self, sql: str, params: tuple[object, ...] = ()) -> _AsyncCursor:
         return _AsyncCursor(self._db.execute(sql, params))
 
     async def commit(self) -> None:
@@ -396,10 +392,59 @@ async def test_work_lifecycle_renews_releases_reclaims_and_completes(tmp_path) -
             worker_id="worker-2", limit=1, lease_seconds=30
         )
         assert second.attempts == 2
-        assert await storage.complete_ingress_work(
-            event.event_id, worker_id="worker-2"
-        )
+        assert await storage.complete_ingress_work(event.event_id, worker_id="worker-2")
         assert await storage.count_ingress_work_by_status() == {"completed": 1}
+    finally:
+        await storage.close()
+
+
+async def test_operational_deferral_rolls_back_claim_attempt(tmp_path) -> None:
+    storage = SQLiteStorage(str(tmp_path / "medre.db"))
+    await storage.initialize()
+    try:
+        event = _event("evt-deferred", "$deferred")
+        await storage.admit_ingress(event, _ref(event.event_id, "$deferred"), "live")
+
+        [first] = await storage.claim_ingress_work(
+            worker_id="worker-1", limit=1, lease_seconds=30
+        )
+        assert first.attempts == 1
+        assert not await storage.defer_ingress_work(
+            event.event_id, worker_id="other", error="wrong owner"
+        )
+        assert await storage.defer_ingress_work(
+            event.event_id, worker_id="worker-1", error="capacity"
+        )
+        row = await storage._read_one(
+            "SELECT status, attempts, last_error FROM durable_ingress_work WHERE event_id=?",
+            (event.event_id,),
+        )
+        assert row == {"status": "pending", "attempts": 0, "last_error": "capacity"}
+
+        [second] = await storage.claim_ingress_work(
+            worker_id="worker-2", limit=1, lease_seconds=30
+        )
+        assert second.attempts == 1
+        assert await storage.defer_ingress_work(
+            event.event_id, worker_id="worker-2", error="shutdown"
+        )
+        row = await storage._read_one(
+            "SELECT status, attempts FROM durable_ingress_work WHERE event_id=?",
+            (event.event_id,),
+        )
+        assert row == {"status": "pending", "attempts": 0}
+
+        [third] = await storage.claim_ingress_work(
+            worker_id="worker-3", limit=1, lease_seconds=30
+        )
+        assert third.attempts == 1
+        assert await storage.release_ingress_work(
+            event.event_id, worker_id="worker-3", error="processing failed"
+        )
+        [fourth] = await storage.claim_ingress_work(
+            worker_id="worker-4", limit=1, lease_seconds=30
+        )
+        assert fourth.attempts == 2
     finally:
         await storage.close()
 
@@ -459,9 +504,7 @@ async def test_aiosqlite_path_admits_deduplicates_claims_and_checkpoints() -> No
         await storage.put_adapter_checkpoint(
             "matrix-main", "classic_sync", "s1", metadata_json='{"ok":true}'
         )
-        checkpoint = await storage.get_adapter_checkpoint(
-            "matrix-main", "classic_sync"
-        )
+        checkpoint = await storage.get_adapter_checkpoint("matrix-main", "classic_sync")
         assert checkpoint is not None and checkpoint.cursor == "s1"
 
         [item] = await storage.claim_ingress_work(
@@ -512,9 +555,7 @@ async def test_aiosqlite_path_rolls_back_admission_and_rowcount_errors() -> None
     storage = _async_storage()
     try:
         first = _event("evt-async-first", "$first")
-        await storage.admit_ingress(
-            first, _ref(first.event_id, "$first"), "live"
-        )
+        await storage.admit_ingress(first, _ref(first.event_id, "$first"), "live")
         second = _event("evt-async-second", "$second")
         colliding_ref = NativeMessageRef(
             id=f"nref-{first.event_id}",

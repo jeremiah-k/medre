@@ -18,7 +18,9 @@ Authority surface:
 from __future__ import annotations
 
 from datetime import datetime
+from typing import get_args
 
+from medre.core.contracts import DeliveryConfirmationLevel
 from medre.core.engine.pipeline.delivery_state import RECEIPT_STATUSES
 from medre.core.events import DeliveryReceipt
 from medre.core.storage.sqlite.serde import _row_to_receipt
@@ -30,6 +32,8 @@ from medre.core.storage.sqlite.statements import (
     _SELECT_RECEIPTS_FOR_EVENT,
     _SELECT_RECEIPTS_FOR_PLAN,
 )
+
+_CONFIRMATION_LEVELS = frozenset(get_args(DeliveryConfirmationLevel))
 
 
 class _ReceiptMixin:
@@ -59,6 +63,13 @@ class _ReceiptMixin:
             raise ValueError(
                 f"Unknown receipt status {receipt.status!r}; "
                 f"expected one of {sorted(RECEIPT_STATUSES)}"
+            )
+        if not isinstance(receipt.confirmation_level, str) or (
+            receipt.confirmation_level not in _CONFIRMATION_LEVELS
+        ):
+            raise ValueError(
+                f"Unknown confirmation level {receipt.confirmation_level!r}; "
+                f"expected one of {sorted(_CONFIRMATION_LEVELS)}"
             )
 
         # Normalise empty-string target_channel to NULL.
@@ -91,6 +102,7 @@ class _ReceiptMixin:
                 ),
                 receipt.rendering_evidence,
                 receipt.outbox_id,
+                receipt.confirmation_level,
                 receipt.created_at.isoformat(),
             ),
         )

@@ -31,7 +31,10 @@
       "description": "Name of the adapter the event is being delivered to."
     },
     "target_channel": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Target channel/conversation ID at the destination adapter."
     },
@@ -42,27 +45,45 @@
     },
     "status": {
       "type": "string",
-      "enum": ["queued", "sent", "failed", "dead_lettered", "suppressed"],
+      "enum": [
+        "queued",
+        "sent",
+        "failed",
+        "dead_lettered",
+        "suppressed"
+      ],
       "default": "queued",
       "description": "Current delivery status."
     },
     "error": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Error message if the delivery failed."
     },
     "failure_kind": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Classification of the failure (e.g. 'adapter_permanent', 'adapter_transient')."
     },
     "adapter_message_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Native message ID assigned by the target adapter after adapter-reported handoff, when available."
     },
     "next_retry_at": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "format": "date-time",
       "default": null,
       "description": "Scheduled time for the next retry attempt, if applicable."
@@ -73,7 +94,10 @@
       "description": "1-indexed attempt number for this receipt. The first delivery attempt is 1."
     },
     "parent_receipt_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Receipt ID of the preceding attempt in this delivery chain. None for the first attempt."
     },
@@ -83,39 +107,72 @@
       "description": "Origin of this receipt: 'live', 'retry', or 'replay'."
     },
     "replay_run_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "When source='replay', the run_id of the replay execution. None for live/retry."
     },
     "retry_max_attempts": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "default": null,
       "description": "Maximum total delivery attempts from the route retry policy, if applicable."
     },
     "retry_backoff_base": {
-      "type": ["number", "null"],
+      "type": [
+        "number",
+        "null"
+      ],
       "default": null,
       "description": "Backoff base in seconds from the route retry policy, if applicable."
     },
     "retry_max_delay": {
-      "type": ["number", "null"],
+      "type": [
+        "number",
+        "null"
+      ],
       "default": null,
       "description": "Maximum backoff delay in seconds from the route retry policy, if applicable."
     },
     "retry_jitter": {
-      "type": ["boolean", "null"],
+      "type": [
+        "boolean",
+        "null"
+      ],
       "default": null,
       "description": "Whether jitter is enabled from the route retry policy, if applicable."
     },
     "rendering_evidence": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Serialized rendering evidence (JSON string) attached only on sent or queued deliveries. None for suppressed, rendering-failure, and adapter-failure receipts. Pre-outbox skip paths produce no receipt."
     },
     "outbox_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null,
       "description": "Internal correlation key linking this receipt to the durable outbox item tracking this delivery attempt."
+    },
+    "confirmation_level": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "local_queue",
+        "local_transport",
+        "remote_service",
+        "end_to_end"
+      ],
+      "default": "unknown",
+      "description": "Strongest delivery fact proven by the adapter or receipt; independent of lifecycle status."
     },
     "created_at": {
       "type": "string",

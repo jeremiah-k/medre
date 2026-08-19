@@ -1274,6 +1274,7 @@ class TestDelayedOutboundNativeRef:
         delivery = AdapterDeliveryResult(
             native_message_id="987654321",
             native_channel_id="0",
+            confirmation_level="local_transport",
             metadata=MappingProxyType(
                 {
                     "meshtastic": {"packet_id": 987654321, "channel": 0},
@@ -1294,6 +1295,7 @@ class TestDelayedOutboundNativeRef:
         assert ref.adapter == "mesh-1"
         assert ref.native_channel_id == "0"
         assert ref.native_message_id == "987654321"
+        assert ref.confirmation_level == "local_transport"
 
         # Metadata includes the merged delivery snapshot + payload context.
         assert ref.metadata["meshtastic"]["packet_id"] == 987654321

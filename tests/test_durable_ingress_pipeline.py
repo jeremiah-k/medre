@@ -8,6 +8,8 @@ import pytest
 
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import NativeRef
+from medre.core.ingress import DurableIngressDeferredError
+from medre.core.planning.delivery_plan import DeliveryFailureKind, DeliveryOutcome
 from medre.core.routing import Router
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
@@ -55,9 +57,12 @@ async def test_admit_ingress_tracks_created_duplicate_and_history(
     assert history.work_status == "suppressed_history"
     assert accounting.snapshot()["inbound_accepted"] == 2
     assert accounting.snapshot()["loop_prevented"] == 1
-    assert await temp_storage.resolve_native_ref(
-        "matrix-main", "!room:example.org", "$same"
-    ) == first.event_id
+    assert (
+        await temp_storage.resolve_native_ref(
+            "matrix-main", "!room:example.org", "$same"
+        )
+        == first.event_id
+    )
 
 
 async def test_admit_ingress_without_native_ref_creates_pending_work(
@@ -137,7 +142,14 @@ async def test_process_admitted_event_delivers_routed_targets(
     event = make_event(event_id="evt-routed")
     await temp_storage.append(event)
     delivery = object()
-    outcome = object()
+    outcome = DeliveryOutcome(
+        event_id=event.event_id,
+        target_adapter="target",
+        target_channel=None,
+        route_id="route-1",
+        delivery_plan_id="plan-1",
+        status="success",
+    )
     monkeypatch.setattr(
         runner, "_is_reaction_to_reaction", AsyncMock(return_value=False)
     )
@@ -149,3 +161,90 @@ async def test_process_admitted_event_delivers_routed_targets(
 
     assert await runner.process_admitted_event(event.event_id) == [outcome]
     deliver.assert_awaited_once_with(event, [delivery])
+
+
+@pytest.mark.parametrize(
+    "failure_kind,status,error,expected_reason",
+    [
+        (
+            DeliveryFailureKind.CAPACITY_REJECTION,
+            "permanent_failure",
+            "delivery_capacity_exceeded",
+            "capacity_rejection",
+        ),
+        (
+            DeliveryFailureKind.SHUTDOWN_REJECTION,
+            "permanent_failure",
+            "delivery_rejected_shutdown",
+            "shutdown_rejection",
+        ),
+        (
+            DeliveryFailureKind.OUTBOX_NOT_OWNED,
+            "skipped",
+            "outbox row not owned: outbox_creation_failed",
+            "outbox_creation_failed",
+        ),
+    ],
+)
+async def test_process_admitted_event_defers_when_delivery_responsibility_not_transferred(
+    temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_kind: DeliveryFailureKind,
+    status: str,
+    error: str,
+    expected_reason: str,
+) -> None:
+    runner = _runner(temp_storage)
+    event = make_event(event_id="evt-deferred")
+    await temp_storage.append(event)
+    delivery = object()
+    monkeypatch.setattr(
+        runner, "_is_reaction_to_reaction", AsyncMock(return_value=False)
+    )
+    monkeypatch.setattr(
+        runner, "route_event", AsyncMock(return_value=(event, [delivery]))
+    )
+    outcome = DeliveryOutcome(
+        event_id=event.event_id,
+        target_adapter="target",
+        target_channel=None,
+        route_id="route-1",
+        delivery_plan_id="plan-1",
+        status=status,
+        failure_kind=failure_kind,
+        error=error,
+    )
+    monkeypatch.setattr(runner, "deliver_to_targets", AsyncMock(return_value=[outcome]))
+
+    with pytest.raises(DurableIngressDeferredError, match="evt-deferred") as exc_info:
+        await runner.process_admitted_event(event.event_id)
+
+    assert exc_info.value.reasons == (expected_reason,)
+
+
+async def test_process_admitted_event_accepts_terminal_existing_outbox_skip(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _runner(temp_storage)
+    event = make_event(event_id="evt-terminal-outbox")
+    await temp_storage.append(event)
+    delivery = object()
+    monkeypatch.setattr(
+        runner, "_is_reaction_to_reaction", AsyncMock(return_value=False)
+    )
+    monkeypatch.setattr(
+        runner, "route_event", AsyncMock(return_value=(event, [delivery]))
+    )
+    outcome = DeliveryOutcome(
+        event_id=event.event_id,
+        target_adapter="target",
+        target_channel=None,
+        route_id="route-1",
+        delivery_plan_id="plan-1",
+        status="skipped",
+        failure_kind=DeliveryFailureKind.OUTBOX_NOT_OWNED,
+        error="outbox row not owned: terminal",
+    )
+    monkeypatch.setattr(runner, "deliver_to_targets", AsyncMock(return_value=[outcome]))
+
+    assert await runner.process_admitted_event(event.event_id) == [outcome]

@@ -936,6 +936,7 @@ class TestOutboundNativeRefRecordMessageIdValidation:
             native_message_id="42",
         )
         assert record.native_message_id == "42"
+        assert record.confirmation_level == "unknown"
 
     def test_metadata_still_frozen_after_valid_id(self) -> None:
         record = OutboundNativeRefRecord(
@@ -1223,3 +1224,14 @@ class TestPipelineMetadataIgnoredForLifecycle:
         else:
             result = AdapterDeliveryResult(delivery_status=delivery_status)
             assert _classify_delivery_status(result) == expected
+
+
+def test_invalid_confirmation_level_rejected() -> None:
+    with pytest.raises(ValueError, match="confirmation_level"):
+        OutboundNativeRefRecord(
+            event_id="evt-1",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="42",
+            confirmation_level="delivered",  # type: ignore[arg-type]
+        )

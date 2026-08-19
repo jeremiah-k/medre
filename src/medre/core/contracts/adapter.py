@@ -82,6 +82,16 @@ class AdapterPermanentError(AdapterSendError):
 # ---------------------------------------------------------------------------
 
 
+DeliveryConfirmationLevel = Literal[
+    "unknown",
+    "local_queue",
+    "local_transport",
+    "remote_service",
+    "end_to_end",
+]
+"""Strongest delivery fact an adapter can prove at hand-off time."""
+
+
 @dataclass(frozen=True)
 class AdapterDeliveryResult:
     """Immutable result returned by adapters after successful delivery.
@@ -129,11 +139,16 @@ class AdapterDeliveryResult:
         Human-readable context about the delivery.  Used by queue-based
         adapters to explain local-acceptance without a native ACK.
     delivery_status:
-        Adapter delivery fact: ``"sent"`` (default, synchronous adapters)
+        Adapter lifecycle fact: ``"sent"`` (default, synchronous adapters)
         or ``"enqueued"`` (queue-based adapters that accepted locally but
-        have not yet sent to the platform). This is a narrow adapter
-        fact — the pipeline maps it to receipt status; it is not
-        lifecycle authority.
+        have not yet sent to the platform). The pipeline maps this to receipt
+        status; it is not recipient-delivery authority.
+    confirmation_level:
+        Strongest delivery fact actually proven by the adapter.  This is
+        intentionally separate from ``delivery_status``: a ``"sent"``
+        receipt may prove only local transport acceptance, while Matrix can
+        prove remote homeserver acceptance.  No built-in adapter currently
+        claims ``"end_to_end"`` recipient delivery.
     metadata:
         Immutable, namespaced delivery metadata.  Transport-specific data
         MUST live under ``metadata[<transport>]`` (e.g. ``metadata.matrix``,
@@ -146,6 +161,7 @@ class AdapterDeliveryResult:
     native_relation_id: str | None = None
     delivery_note: str = ""
     delivery_status: str = "sent"
+    confirmation_level: DeliveryConfirmationLevel = "unknown"
     metadata: MappingProxyType[str, object] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -235,6 +251,10 @@ class AdapterCapabilities:
         Maximum text payload size in bytes, or ``None`` for unlimited.
     max_text_chars:
         Maximum text payload size in characters, or ``None`` for unlimited.
+    threads:
+        Thread support with the same three-level semantics as *replies*.
+        Appended after the original capability fields so positional construction
+        retains its historical argument mapping.
     """
 
     text: bool = True
@@ -258,6 +278,7 @@ class AdapterCapabilities:
     priority_delivery: bool = False
     max_text_bytes: int | None = None
     max_text_chars: int | None = None
+    threads: str = "unsupported"
 
 
 @dataclass(frozen=True)
@@ -349,6 +370,10 @@ class OutboundNativeRefRecord:
         Queue adapters MUST populate this field; callbacks without
         ``outbox_id`` are hard-rejected.
         **Not wire metadata, not public API.**
+    confirmation_level:
+        Strongest delivery fact proven by the delayed callback.  Queue
+        adapters normally report ``"local_transport"`` once the SDK accepts
+        the send; this is not an end-to-end recipient acknowledgement.
     attempt_number:
         **Required** 1-indexed delivery attempt number from pipeline
         retry lineage.  Used alongside ``outbox_id`` for stale-callback
@@ -367,6 +392,7 @@ class OutboundNativeRefRecord:
     delivery_plan_id: str | None = None
     outbox_id: str | None = None
     attempt_number: int | None = None
+    confirmation_level: DeliveryConfirmationLevel = "unknown"
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -376,6 +402,17 @@ class OutboundNativeRefRecord:
         ):
             raise ValueError(
                 "OutboundNativeRefRecord.native_message_id must be a non-empty string"
+            )
+        if self.confirmation_level not in {
+            "unknown",
+            "local_queue",
+            "local_transport",
+            "remote_service",
+            "end_to_end",
+        }:
+            raise ValueError(
+                "OutboundNativeRefRecord.confirmation_level must be a valid "
+                "delivery confirmation level"
             )
 
         # Recursively unwrap any nested MappingProxyType to plain dicts
@@ -520,12 +557,8 @@ class AdapterContext:
     admit_inbound: (
         Callable[[CanonicalEvent, IngressProvenance], Awaitable[AdmissionResult]] | None
     ) = None
-    load_checkpoint: (
-        Callable[[str], Awaitable[AdapterCheckpoint | None]] | None
-    ) = None
-    commit_checkpoint: (
-        Callable[[str, str, str], Awaitable[None]] | None
-    ) = None
+    load_checkpoint: Callable[[str], Awaitable[AdapterCheckpoint | None]] | None = None
+    commit_checkpoint: Callable[[str, str, str], Awaitable[None]] | None = None
     record_outbound_native_ref: (
         Callable[[OutboundNativeRefRecord], Awaitable[None]] | None
     ) = None

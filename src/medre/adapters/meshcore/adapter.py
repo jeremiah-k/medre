@@ -84,6 +84,7 @@ _MESHCORE_CAPS_BASE = AdapterCapabilities(
     text=True,
     title=False,
     replies="unsupported",
+    threads="fallback",
     reactions="unsupported",
     edits="unsupported",
     deletes="unsupported",
@@ -504,6 +505,7 @@ class MeshCoreAdapter(AdapterContract):
                 else None
             ),
             delivery_note=delivery_note,
+            confirmation_level="local_transport",
             metadata=MappingProxyType(
                 {
                     "meshcore": MappingProxyType({"local_acceptance": True}),

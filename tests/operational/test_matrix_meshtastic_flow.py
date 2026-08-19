@@ -33,6 +33,7 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
 )
+from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleStorage
 from medre.core.engine.pipeline.runner import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
@@ -53,14 +54,14 @@ from medre.core.rendering.renderer import (
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem
 
 # ---------------------------------------------------------------------------
 # Local fakes / helpers
 # ---------------------------------------------------------------------------
 
 
-class _FakeStorage(StorageBackend):
+class _FakeStorage:
     """Minimal in-memory storage for operational tests.
 
     Supports outbox methods as no-ops for PipelineRunner compatibility.
@@ -189,6 +190,10 @@ class _FakeStorage(StorageBackend):
         if item is not None:
             object.__setattr__(item, "status", "abandoned")
 
+
+
+def test_fake_storage_satisfies_delivery_lifecycle_storage_contract() -> None:
+    assert isinstance(_FakeStorage(), DeliveryLifecycleStorage)
 
 def _make_ctx(
     adapter_id: str = "fake",

@@ -480,6 +480,9 @@ class MedreApp:
                     "failures": self._ingress_worker.failures,
                     "lost_leases": self._ingress_worker.lost_leases,
                     "terminal_failures": self._ingress_worker.terminal_failures,
+                    "deferrals": self._ingress_worker.deferrals,
+                    "active_event_id": self._ingress_worker.active_event_id,
+                    "forced_cancellations": self._ingress_worker.forced_cancellations,
                 }
                 if self._ingress_worker is not None
                 else {
@@ -488,6 +491,9 @@ class MedreApp:
                     "failures": 0,
                     "lost_leases": 0,
                     "terminal_failures": 0,
+                    "deferrals": 0,
+                    "active_event_id": None,
+                    "forced_cancellations": 0,
                 }
             ),
             "shutdown_drain_timeout_seconds": (
@@ -1149,23 +1155,29 @@ class MedreApp:
 
         # Deferred cancellation: saved here and re-raised after core
         # cleanup so pipeline_runner.stop() and storage.close() always
-        # run, even when an external cancellation arrives during Phase 1
-        # (retry worker stop) or adapter stops.
+        # run, even when an external cancellation arrives while ingress/retry
+        # workers or adapters are stopping.
         _cancelled: asyncio.CancelledError | None = None
         _deferred_cancel_count: int = 0
 
-        # Phase 1: Stop accepting new work.
-        if self._capacity_controller is not None:
-            self._capacity_controller.stop_accepting()
+        # Stop replay, then quiesce durable ingress before closing delivery
+        # capacity. Ingress grace and the subsequent capacity drain share one
+        # deadline so congestion cannot spend the configured drain timeout
+        # twice. Adapters remain live while ingress drains; newly admitted
+        # events stay durably pending for the next run.
+        drain_deadline = (
+            _time.monotonic() + self.config.limits.shutdown_drain_timeout_seconds
+        )
         if self._replay_engine is not None:
             self._replay_engine.cancel()
-            _logger.info("Runtime stopping — replay engine cancelled, capacity stopped")
+            _logger.info("Runtime stopping — replay engine cancelled")
 
-        # Stop the durable ingress worker before adapters are drained. Any
-        # event admitted after this point remains persisted for the next run.
+        ingress_stop_result = None
         if self._ingress_worker is not None:
             try:
-                await self._ingress_worker.stop()
+                ingress_stop_result = await self._ingress_worker.stop(
+                    grace_seconds=max(0.0, drain_deadline - _time.monotonic())
+                )
             except asyncio.CancelledError as c_exc:
                 _cancelled = c_exc
                 _deferred_cancel_count += _drain_pending_cancellations()
@@ -1174,6 +1186,40 @@ class MedreApp:
                 )
             except Exception as exc:
                 _logger.error("Error stopping durable ingress worker: %s", exc)
+
+        ingress_unfinished = (
+            self._ingress_worker is not None
+            and (
+                self._ingress_worker.running
+                or (
+                    ingress_stop_result is not None
+                    and not ingress_stop_result.stopped
+                )
+            )
+        )
+        if ingress_unfinished:
+            active_event_id = self._ingress_worker.active_event_id
+            self._set_state(RuntimeState.FAILED)
+            _logger.error(
+                "Durable ingress worker remains active after cancellation; "
+                "runtime dependencies remain available: active_event_id=%s",
+                active_event_id,
+            )
+            if _cancelled is not None:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(_deferred_cancel_count):
+                        current.cancel()
+                raise _cancelled
+            raise RuntimeShutdownError(
+                "Durable ingress worker remains active after shutdown cancellation; "
+                f"active_event_id={active_event_id!r}. Pipeline, adapters, and "
+                "storage were left running; call stop() again after ingress "
+                "processing terminates."
+            )
+
+        if self._capacity_controller is not None:
+            self._capacity_controller.stop_accepting()
 
         # Stop the retry worker before draining work.
         if self._retry_worker is not None:
@@ -1204,11 +1250,8 @@ class MedreApp:
 
         _logger.info("Runtime stopping — accepting no new work")
 
-        # Phase 2: Drain in-flight work with timeout.
+        # Drain remaining in-flight work within the shared shutdown deadline.
         if self._capacity_controller is not None:
-            drain_deadline = (
-                _time.monotonic() + self.config.limits.shutdown_drain_timeout_seconds
-            )
             drain_snap: dict | None = None
             while _time.monotonic() < drain_deadline:
                 drain_snap = self._capacity_controller.snapshot()
@@ -1885,7 +1928,8 @@ class MedreApp:
         cancellation is drained so that the pipeline runner and storage
         cleanup below still execute.  The deferred cancellation is then
         re-raised to the caller so the original cancellation propagates
-        correctly.  This mirrors the Phase 1 pattern in ``MedreApp.stop()``.
+        correctly. This mirrors the bounded ingress-shutdown pattern in
+        ``MedreApp.stop()``.
 
         Other cleanup errors are logged and suppressed so the original
         startup failure remains the raised exception.
@@ -2056,17 +2100,25 @@ class MedreApp:
         return _admit
 
     def _make_publish_inbound(self) -> Any:
-        """Return a publish_inbound callable wired to the pipeline runner.
+        """Return the default adapter ingress admission callable.
 
-        Wraps :meth:`PipelineRunner.handle_ingress` so that the return
-        value (``list[DeliveryOutcome]``) is discarded, matching the
-        ``Callable[[CanonicalEvent], Awaitable[None]]`` protocol expected
-        by :class:`AdapterContext`.
+        Normal live adapter ingress crosses the same durable admission
+        boundary used by protocol-aware recovery paths: canonical event,
+        inbound native reference, and pending work marker are committed before
+        this callback returns.  The durable ingress worker owns routing and
+        delivery afterwards.
+
+        A storage-less app can still be constructed directly in focused tests;
+        that narrow compatibility path falls back to inline processing.
         """
 
         runner = self.pipeline_runner
+        storage = self.storage
 
         async def _publish(event: Any) -> None:
-            await runner.handle_ingress(event)
+            if storage is not None:
+                await runner.admit_ingress(event, "live")
+            else:
+                await runner.handle_ingress(event)
 
         return _publish

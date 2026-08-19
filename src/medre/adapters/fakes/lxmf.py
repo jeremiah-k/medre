@@ -139,6 +139,7 @@ _FAKE_LXMF_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=True,
     replies="unsupported",
+    threads="fallback",
     reactions="unsupported",
     edits="unsupported",
     deletes="unsupported",

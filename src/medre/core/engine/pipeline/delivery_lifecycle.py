@@ -73,7 +73,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.engine.pipeline.delivery_state import (
@@ -90,13 +90,66 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
     RetryPolicy,
 )
-from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from medre.core.storage.backend import DeliveryOutboxItem
 
 # ---------------------------------------------------------------------------
 # Logger
 # ---------------------------------------------------------------------------
 
 _logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Delivery lifecycle storage contract
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class DeliveryLifecycleStorage(Protocol):
+    """Storage surface required by :class:`DeliveryLifecycleService`."""
+
+    async def append_receipt(self, receipt: DeliveryReceipt) -> None: ...
+
+    async def list_receipts_for_event(
+        self, event_id: str
+    ) -> list[DeliveryReceipt]: ...
+
+    async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None: ...
+
+    async def mark_outbox_sent(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None: ...
+
+    async def mark_outbox_queued(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None: ...
+
+    async def mark_outbox_retry_wait(
+        self,
+        outbox_id: str,
+        next_attempt_at: str,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None: ...
+
+    async def mark_outbox_dead_lettered(
+        self,
+        outbox_id: str,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None,
+        attempt_number: int | None = None,
+    ) -> None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +377,7 @@ class DeliveryLifecycleService:
 
     async def build_and_persist_dead_letter_receipt(
         self,
-        storage: StorageBackend,
+        storage: DeliveryLifecycleStorage,
         *,
         event_id: str,
         delivery_plan_id: str,
@@ -398,7 +451,7 @@ class DeliveryLifecycleService:
 
     async def build_and_persist_suppression_receipt(
         self,
-        storage: StorageBackend,
+        storage: DeliveryLifecycleStorage,
         *,
         event_id: str,
         delivery_plan_id: str,
@@ -547,7 +600,7 @@ class DeliveryLifecycleService:
 
     async def append_queued_to_sent_receipt(
         self,
-        storage: StorageBackend,
+        storage: DeliveryLifecycleStorage,
         record: OutboundNativeRefRecord,
         now: datetime,
     ) -> None:
@@ -834,6 +887,7 @@ class DeliveryLifecycleService:
             retry_jitter=queued_receipt.retry_jitter,
             rendering_evidence=queued_receipt.rendering_evidence,
             outbox_id=record.outbox_id,
+            confirmation_level=record.confirmation_level,
         )
         await storage.append_receipt(supplemental)
 
@@ -860,7 +914,7 @@ class DeliveryLifecycleService:
 
     async def finalize_outbox_outcome(
         self,
-        storage: StorageBackend,
+        storage: DeliveryLifecycleStorage,
         outbox_id: str | None,
         outbox_created: bool,
         receipt: DeliveryReceipt | None,

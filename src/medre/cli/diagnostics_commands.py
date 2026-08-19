@@ -16,7 +16,38 @@ from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
 logger = logging.getLogger("medre")
 
 
-def _diagnostics(config_path: str | None) -> None:
+def _metrics_projection(snapshot: dict, runtime_diagnostics: dict) -> dict:
+    """Return the bounded, identifier-free subset exported as metrics."""
+    accounting = snapshot.get("accounting") or {}
+    capacity = snapshot.get("capacity") or {}
+    health = snapshot.get("health") or {}
+    live_health = health.get("live_health") or {}
+    outbox = snapshot.get("outbox") or {}
+    replay = snapshot.get("replay") or {}
+    replay_counters = replay.get("counters") or {}
+    routes = snapshot.get("routes") or {}
+    route_stats = routes.get("stats") or {}
+    retry = snapshot.get("retry") or {}
+    lifecycle = snapshot.get("lifecycle") or {}
+    return {
+        "schema_version": snapshot.get("schema_version"),
+        "accounting": {"counters": accounting.get("counters")},
+        "capacity": {"state": capacity.get("state")},
+        "health": {"adapter_summary": live_health.get("adapter_summary")},
+        "lifecycle": {"uptime_seconds": lifecycle.get("uptime_seconds")},
+        "limits": snapshot.get("limits"),
+        "outbox": {"counts": outbox.get("counts")},
+        "replay": {
+            "available": replay.get("available"),
+            "counters": {"global": replay_counters.get("global")},
+        },
+        "retry": retry,
+        "routes": {"live_refresh": route_stats.get("live_refresh")},
+        "runtime_diagnostics": runtime_diagnostics,
+    }
+
+
+def _diagnostics(config_path: str | None, *, output_format: str = "json") -> None:
     """Print runtime snapshot JSON using local config/process construction only.
 
     This command builds the runtime from configuration but does **not** start
@@ -72,14 +103,22 @@ def _diagnostics(config_path: str | None) -> None:
         snapshot_scope="build",
     )
 
-    print(json.dumps(snapshot, sort_keys=True, indent=2))
+    if output_format == "prometheus":
+        from medre.core.observability.export import snapshot_to_prometheus
+
+        metrics_snapshot = _metrics_projection(snapshot, app.diagnostic_snapshot())
+        print(snapshot_to_prometheus(metrics_snapshot), end="")
+    else:
+        print(json.dumps(snapshot, sort_keys=True, indent=2))
 
     # Process exit cleans up resources — adapter stop and storage close
     # are async and this is a sync CLI command.  No explicit cleanup
     # needed since ``sys.exit`` follows in normal usage.
 
 
-async def _diagnostics_refresh(config_path: str | None) -> None:
+async def _diagnostics_refresh(
+    config_path: str | None, *, output_format: str = "json"
+) -> None:
     """Start runtime, refresh adapter health once, print live snapshot JSON.
 
     Builds the runtime via the same :class:`RuntimeBuilder` path as
@@ -161,7 +200,13 @@ async def _diagnostics_refresh(config_path: str | None) -> None:
         from medre.runtime.snapshot import build_runtime_snapshot
 
         snapshot = build_runtime_snapshot(app, snapshot_scope="live")
-        print(json.dumps(snapshot, sort_keys=True, indent=2))
+        if output_format == "prometheus":
+            from medre.core.observability.export import snapshot_to_prometheus
+
+            metrics_snapshot = _metrics_projection(snapshot, app.diagnostic_snapshot())
+            print(snapshot_to_prometheus(metrics_snapshot), end="")
+        else:
+            print(json.dumps(snapshot, sort_keys=True, indent=2))
     finally:
         # Always attempt clean shutdown after a successful start.
         try:

@@ -9,6 +9,7 @@ Single-target delivery execution is delegated to
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -19,6 +20,7 @@ from typing import (
     Awaitable,
     Callable,
     Literal,
+    TypeVar,
     TypedDict,
     cast,
 )
@@ -35,7 +37,11 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.engine.pipeline.delivery_state import (
     is_accepted_outcome_status as _is_accepted_outcome_status,
 )
-from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
+from medre.core.engine.pipeline.outbox_manager import (
+    OUTBOX_CREATION_FAILED_REASON,
+    OutboxContext,
+    OutboxManager,
+)
 from medre.core.engine.pipeline.target_delivery import (
     TargetDeliveryService,
     _AdapterDeliveryError,
@@ -48,7 +54,12 @@ from medre.core.events.canonical import (
     NativeMessageRef,
 )
 from medre.core.events.kinds import EventKind
-from medre.core.ingress import AdmissionResult, IngressProvenance
+from medre.core.ingress import (
+    AdmissionResult,
+    DurableIngressDeferredError,
+    IngressProvenance,
+)
+from medre.core.observability.correlation import correlation_scope
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import (
     resolve_adapter_capabilities,
@@ -64,7 +75,7 @@ from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_enricher import RelationEnricher, SenderProjectionFn
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.policies.route_policy import BLOCKED_VALUE_CUTOFF, evaluate_route_policy
-from medre.core.rendering.renderer import RenderingPipeline
+from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.routing.router import Router
@@ -80,6 +91,49 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 _logger = logging.getLogger(__name__)
+
+_ItemT = TypeVar("_ItemT")
+_ResultT = TypeVar("_ResultT")
+
+
+async def _bounded_ordered_map(
+    items: list[_ItemT],
+    handler: Callable[[_ItemT], Awaitable[_ResultT]],
+    *,
+    worker_limit: int,
+) -> list[_ResultT]:
+    """Apply *handler* with bounded task creation and stable result ordering.
+
+    ``TaskGroup`` gives the pool structured cancellation: if one worker raises,
+    sibling workers are cancelled before this helper returns to its caller.
+    """
+    if not items:
+        return []
+    worker_count = min(max(1, worker_limit), len(items))
+    sentinel = object()
+    results: list[object] = [sentinel] * len(items)
+    next_index = 0
+    index_lock = asyncio.Lock()
+
+    async def _worker() -> None:
+        nonlocal next_index
+        while True:
+            async with index_lock:
+                if next_index >= len(items):
+                    return
+                index = next_index
+                next_index += 1
+                item = items[index]
+            results[index] = await handler(item)
+
+    async with asyncio.TaskGroup() as task_group:
+        for _ in range(worker_count):
+            task_group.create_task(_worker())
+
+    if any(result is sentinel for result in results):
+        raise RuntimeError("bounded worker pool returned incomplete results")
+    return cast(list[_ResultT], results)
+
 
 # ---------------------------------------------------------------------------
 # Pipeline config
@@ -254,9 +308,10 @@ class PipelineRunner:
     ingress → store → route → plan → deliver → receipt.
 
     The runner is started and stopped via :meth:`start` and :meth:`stop`.
-    Adapters publish events into the pipeline by calling the
-    :attr:`ingress_handler` callable (which is wired into
-    :class:`AdapterContext.publish_inbound`).
+    Runtime adapters publish through :class:`MedreApp`'s durable admission
+    callback; routing and delivery are resumed by the durable ingress worker.
+    :attr:`ingress_handler` remains an inline pipeline entry point for focused
+    tests and integrations that intentionally bypass runtime durability.
 
     Error isolation
     ~~~~~~~~~~~~~~~
@@ -275,7 +330,7 @@ class PipelineRunner:
     ... )
     >>> runner = PipelineRunner(config)
     >>> await runner.start()
-    >>> # Wire runner.ingress_handler into AdapterContext.publish_inbound
+    >>> # RuntimeBuilder/MedreApp wires durable adapter ingress in production.
     """
 
     def __init__(self, config: PipelineConfig) -> None:
@@ -350,7 +405,7 @@ class PipelineRunner:
     async def start(self) -> None:
         """Register pipeline middleware with the event bus.
 
-        Call this before any adapter calls :attr:`ingress_handler`.
+        Call this before runtime delivery workers or direct pipeline ingress run.
 
         On startup the runner populates the rendering pipeline's platform
         registry from the configured adapters so that renderer selection
@@ -442,10 +497,11 @@ class PipelineRunner:
 
     @property
     def ingress_handler(self):
-        """Return a callable suitable for ``AdapterContext.publish_inbound``.
+        """Return the legacy inline ingress callable.
 
-        The returned coroutine function accepts a single
-        :class:`CanonicalEvent` and feeds it into the pipeline.
+        Production runtime adapters use ``MedreApp._make_publish_inbound()``,
+        which durably admits before routing.  This property intentionally
+        preserves direct pipeline execution for focused integrations/tests.
         """
         return self.handle_ingress
 
@@ -697,28 +753,32 @@ class PipelineRunner:
         native reference, and durable work marker in one transaction.
         """
         self._validate_event(event)
-        event = await self._resolve_relations(event)
-        event = await self._assign_conversation_identity(
-            event, get_fn=self._config.storage.get
-        )
-        inbound_ref = self._build_inbound_native_ref(event)
-        suppress_routing = provenance == "history"
-        result = await self._config.storage.admit_ingress(
-            event,
-            inbound_ref,
-            provenance,
-            suppress_routing=suppress_routing,
-        )
-        if self._runtime_accounting is not None:
-            if result.created:
-                self._runtime_accounting.record_inbound_accepted()
-            else:
-                self._runtime_accounting.record_loop_prevented()
-        return result
+        with correlation_scope(
+            trace_id=event.trace_id,
+            event_id=event.event_id,
+            source="ingress",
+        ):
+            event = await self._resolve_relations(event)
+            event = await self._assign_conversation_identity(
+                event, get_fn=self._config.storage.get
+            )
+            with correlation_scope(conversation_id=event.conversation_id):
+                inbound_ref = self._build_inbound_native_ref(event)
+                suppress_routing = provenance == "history"
+                result = await self._config.storage.admit_ingress(
+                    event,
+                    inbound_ref,
+                    provenance,
+                    suppress_routing=suppress_routing,
+                )
+                if self._runtime_accounting is not None:
+                    if result.created:
+                        self._runtime_accounting.record_inbound_accepted()
+                    else:
+                        self._runtime_accounting.record_loop_prevented()
+                return result
 
-    async def process_admitted_event(
-        self, event_id: str
-    ) -> list[DeliveryOutcome]:
+    async def process_admitted_event(self, event_id: str) -> list[DeliveryOutcome]:
         """Route and deliver a previously admitted durable ingress event.
 
         This method deliberately performs no event/native-ref persistence.
@@ -730,7 +790,17 @@ class PipelineRunner:
         event = await self._config.storage.get(event_id)
         if event is None:
             raise RuntimeError(f"admitted ingress event is missing: {event_id}")
+        with correlation_scope(
+            trace_id=event.trace_id,
+            event_id=event.event_id,
+            conversation_id=event.conversation_id,
+            source="live",
+        ):
+            return await self._process_admitted_event_scoped(event)
 
+    async def _process_admitted_event_scoped(
+        self, event: CanonicalEvent
+    ) -> list[DeliveryOutcome]:
         if await self._is_reaction_to_reaction(event):
             self._log.info(
                 "Reaction-to-reaction suppressed from durable ingress: event_id=%s",
@@ -743,7 +813,106 @@ class PipelineRunner:
             self._log.info("No routes matched for event_id=%s", event.event_id)
             return []
 
-        return await self.deliver_to_targets(event, deliveries)
+        outcomes = await self.deliver_to_targets(event, deliveries)
+        deferred_reasons: list[str] = []
+        for outcome in outcomes:
+            if outcome.failure_kind in {
+                DeliveryFailureKind.CAPACITY_REJECTION,
+                DeliveryFailureKind.SHUTDOWN_REJECTION,
+            }:
+                deferred_reasons.append(outcome.failure_kind.value)
+                continue
+            if (
+                outcome.failure_kind is DeliveryFailureKind.OUTBOX_NOT_OWNED
+                and outcome.error
+                and OUTBOX_CREATION_FAILED_REASON in outcome.error
+            ):
+                deferred_reasons.append(OUTBOX_CREATION_FAILED_REASON)
+        if deferred_reasons:
+            raise DurableIngressDeferredError(
+                event.event_id, tuple(sorted(set(deferred_reasons)))
+            )
+        return outcomes
+
+    async def render_replay_event(self, event: CanonicalEvent) -> list[RenderingResult]:
+        """Re-render *event* using persisted live-delivery context.
+
+        RE_RENDER deliberately does not re-route or re-plan.  Instead it
+        reconstructs one deterministic rendering context per historical
+        delivery identity from append-only receipt rendering evidence.
+        Older evidence that predates a context field falls back only for that
+        field; no current route defaults are substituted.
+        """
+        receipts = await self._config.storage.list_receipts_for_event(event.event_id)
+        contexts: dict[tuple[str, str, str | None, str], dict[str, object]] = {}
+        context_precedence: dict[tuple[str, str, str | None, str], int] = {}
+        source_precedence = {"live": 3, "retry": 2, "replay": 1}
+        for receipt in receipts:
+            raw = receipt.rendering_evidence
+            if not raw:
+                continue
+            try:
+                evidence = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(evidence, dict):
+                continue
+            # The append-only receipt is authoritative for target identity.
+            # Rendering evidence supplies historical presentation inputs only;
+            # older evidence may omit or contain stale target metadata. Prefer
+            # the original live context over later retry/replay evidence.
+            key = (
+                receipt.delivery_plan_id,
+                receipt.target_adapter,
+                receipt.target_channel,
+                receipt.route_id,
+            )
+            precedence = source_precedence.get(receipt.source, 0)
+            if key not in contexts or precedence > context_precedence[key]:
+                contexts[key] = evidence
+                context_precedence[key] = precedence
+
+        if not contexts:
+            raise ValueError(
+                f"No persisted rendering context for event_id={event.event_id}"
+            )
+
+        rendered: list[RenderingResult] = []
+        for key in sorted(contexts, key=lambda item: tuple(x or "" for x in item)):
+            evidence = contexts[key]
+            _plan_id, adapter, channel, _route_id = key
+            enriched = await self._enrich_relations_for_target(event, adapter, channel)
+            strategy_raw = evidence.get("delivery_strategy")
+            strategy: Literal["direct", "fallback_text"] = (
+                "fallback_text" if strategy_raw == "fallback_text" else "direct"
+            )
+            capability_raw = evidence.get("capability_level")
+            capability: Literal["native", "fallback", "unsupported"] = (
+                capability_raw
+                if isinstance(capability_raw, str)
+                and capability_raw in {"native", "fallback", "unsupported"}
+                else "native"
+            )
+            platform_raw = evidence.get("target_platform")
+            platform = platform_raw if isinstance(platform_raw, str) else None
+            max_chars = evidence.get("max_text_chars")
+            max_bytes = evidence.get("max_text_bytes")
+            origin_raw = evidence.get("source_origin_label")
+            origin = origin_raw if isinstance(origin_raw, str) else None
+            rendered.append(
+                await self._rendering_pipeline.render(
+                    enriched,
+                    adapter,
+                    channel,
+                    target_platform=platform,
+                    max_text_chars=max_chars if type(max_chars) is int else None,
+                    max_text_bytes=max_bytes if type(max_bytes) is int else None,
+                    delivery_strategy=strategy,
+                    capability_level=capability,
+                    source_origin_label=origin,
+                )
+            )
+        return rendered
 
     # -- Stage 1: Validation -----------------------------------------------
 
@@ -1279,8 +1448,82 @@ class PipelineRunner:
             route: Route, route_plan: DeliveryPlan
         ) -> DeliveryOutcome:
             target = route_plan.target
+            with correlation_scope(
+                trace_id=event.trace_id,
+                event_id=event.event_id,
+                conversation_id=event.conversation_id,
+                route_id=route.id,
+                delivery_plan_id=route_plan.plan_id,
+                target_adapter=target.adapter,
+                source=source,
+                replay_run_id=replay_run_id,
+            ):
+                return await _deliver_single_target_scoped(route, route_plan)
+
+        async def _deliver_single_target_scoped(
+            route: Route, route_plan: DeliveryPlan
+        ) -> DeliveryOutcome:
+            target = route_plan.target
             adapter_id = target.adapter or ""
             t0 = time.monotonic()
+
+            replay_receipts: list[DeliveryReceipt] = []
+            if source == "replay":
+                try:
+                    replay_receipts = (
+                        await self._config.storage.list_receipts_for_event(
+                            event.event_id
+                        )
+                    )
+                except Exception:
+                    # Same-run suppression is a safety boundary: if a non-empty
+                    # run ID cannot be checked, fail closed rather than risk a
+                    # duplicate delivery.  Empty run IDs remain best-effort.
+                    if replay_run_id:
+                        raise
+                    self._log.debug(
+                        "Failed to load replay receipt history; proceeding "
+                        "without attempt lineage: event_id=%s adapter=%s",
+                        event.event_id,
+                        adapter_id,
+                        exc_info=True,
+                    )
+
+            if replay_run_id:
+                prior_accepted = any(
+                    receipt.source == "replay"
+                    and receipt.replay_run_id == replay_run_id
+                    and receipt.delivery_plan_id == route_plan.plan_id
+                    and receipt.target_adapter == adapter_id
+                    and receipt.target_channel == target.channel
+                    and receipt.status in {"queued", "sent"}
+                    for receipt in replay_receipts
+                )
+                if prior_accepted:
+                    error = "replay_duplicate_suppressed: run target already accepted"
+                    receipt = await self._persist_suppression_receipt(
+                        event_id=event.event_id,
+                        delivery_plan_id=route_plan.plan_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        failure_kind=DeliveryFailureKind.REPLAY_DUPLICATE_SUPPRESSED,
+                        error=error,
+                        source=source,
+                        replay_run_id=replay_run_id,
+                    )
+                    return DeliveryOutcome(
+                        event_id=event.event_id,
+                        target_adapter=adapter_id,
+                        target_channel=target.channel,
+                        route_id=route.id,
+                        delivery_plan_id=route_plan.plan_id,
+                        status="skipped",
+                        failure_kind=DeliveryFailureKind.REPLAY_DUPLICATE_SUPPRESSED,
+                        receipt=receipt,
+                        error=error,
+                        duration_ms=(time.monotonic() - t0) * 1000.0,
+                    )
 
             # ── Phase 1: Loop checks (no state mutation) ──────────────
 
@@ -1708,33 +1951,18 @@ class PipelineRunner:
                     # attempt_number instead of always 1.
                     _previous_receipt: DeliveryReceipt | None = None
                     if source == "replay":
-                        try:
-                            _existing_receipts = (
-                                await self._config.storage.list_receipts_for_event(
-                                    event.event_id,
-                                )
-                            )
-                            _matching = [
-                                r
-                                for r in _existing_receipts
-                                if r.delivery_plan_id == route_plan.plan_id
-                                and r.target_adapter == adapter_id
-                                and (r.target_channel or None)
-                                == (target.channel or None)
-                            ]
-                            if _matching:
-                                _previous_receipt = max(
-                                    _matching,
-                                    key=lambda r: r.attempt_number,
-                                )
-                        except Exception:
-                            self._log.debug(
-                                "Failed to look up previous receipt for "
-                                "replay delivery; proceeding without "
-                                "attempt lineage: event_id=%s adapter=%s",
-                                event.event_id,
-                                adapter_id,
-                                exc_info=True,
+                        _matching = [
+                            receipt
+                            for receipt in replay_receipts
+                            if receipt.delivery_plan_id == route_plan.plan_id
+                            and receipt.target_adapter == adapter_id
+                            and (receipt.target_channel or None)
+                            == (target.channel or None)
+                        ]
+                        if _matching:
+                            _previous_receipt = max(
+                                _matching,
+                                key=lambda receipt: receipt.attempt_number,
                             )
 
                     receipt = await self.deliver_to_target(
@@ -1898,10 +2126,26 @@ class PipelineRunner:
                     self._inflight_deliveries.pop(_inflight_key, None)
                     await self._capacity_controller.release_delivery()
 
-        return list(
-            await asyncio.gather(
-                *[_deliver_single_target(r, p) for r, p in route_targets]
-            )
+        if not route_targets:
+            return []
+
+        # Bound *task creation* as well as active adapter I/O.  A semaphore
+        # alone would still allocate one waiting task per configured target.
+        # The durable ingress row is our queue; fan-out uses at most the
+        # delivery capacity as fixed workers and preserves input ordering.
+        worker_limit = (
+            self._capacity_controller.delivery_limit
+            if self._capacity_controller is not None
+            else 1
+        )
+
+        async def _deliver_item(
+            item: tuple[Route, DeliveryPlan],
+        ) -> DeliveryOutcome:
+            return await _deliver_single_target(*item)
+
+        return await _bounded_ordered_map(
+            route_targets, _deliver_item, worker_limit=worker_limit
         )
 
     async def deliver_to_target(
@@ -1979,7 +2223,20 @@ class PipelineRunner:
                 )
                 return None
 
-        return list(await asyncio.gather(*[_safe_deliver(r, p) for r, p in deliveries]))
+        worker_limit = (
+            self._capacity_controller.delivery_limit
+            if self._capacity_controller is not None
+            else 1
+        )
+
+        async def _deliver_item(
+            item: tuple[Route, DeliveryPlan],
+        ) -> DeliveryReceipt | None:
+            return await _safe_deliver(*item)
+
+        return await _bounded_ordered_map(
+            deliveries, _deliver_item, worker_limit=worker_limit
+        )
 
     def _get_adapter_capabilities(self, target: RouteTarget) -> AdapterCapabilities:
         """Retrieve the :class:`AdapterCapabilities` for a target adapter.

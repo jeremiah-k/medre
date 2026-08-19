@@ -526,6 +526,7 @@ class TestDeliveryFailureKind:
             "POLICY_SUPPRESSED",
             "CAPABILITY_SUPPRESSED",
             "OUTBOX_NOT_OWNED",
+            "REPLAY_DUPLICATE_SUPPRESSED",
         }
         actual = {m.name for m in DeliveryFailureKind}
         assert actual == expected

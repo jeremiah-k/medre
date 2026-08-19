@@ -4,6 +4,7 @@
     "text": true,
     "title": false,
     "replies": "unsupported",
+    "threads": "fallback",
     "reactions": "unsupported",
     "edits": "unsupported",
     "deletes": "unsupported",

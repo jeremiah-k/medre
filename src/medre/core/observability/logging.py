@@ -22,6 +22,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+from medre.core.observability.correlation import correlation_fields
 from medre.core.observability.log_levels import VALID_LEVEL_NAMES
 from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 
@@ -46,6 +47,7 @@ _DEPENDENCY_DEFAULTS: dict[str, int] = {
 # Private attribute used to mark the MEDRE-managed console handler on the
 # root logger so it can be identified and updated across repeated calls.
 _MEDRE_HANDLER_ATTR = "_medre_console_handler"
+_MEDRE_CORRELATION_FILTER_ATTR = "_medre_correlation_filter"
 
 # ---------------------------------------------------------------------------
 # Log-record internals filter
@@ -79,6 +81,16 @@ _LOG_RECORD_INTERNALS: frozenset[str] = frozenset(
         "taskName",
     }
 )
+
+
+class _CorrelationFilter(logging.Filter):
+    """Attach task-local correlation identifiers to every handled record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        for key, value in correlation_fields().items():
+            if not hasattr(record, key):
+                setattr(record, key, value)
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +222,13 @@ def setup_logging(
         setattr(medre_handler, _MEDRE_HANDLER_ATTR, True)
         medre_handler.setLevel(logging.NOTSET)
         root.addHandler(medre_handler)
+
+    if not any(
+        getattr(f, _MEDRE_CORRELATION_FILTER_ATTR, False) for f in medre_handler.filters
+    ):
+        correlation_filter = _CorrelationFilter()
+        setattr(correlation_filter, _MEDRE_CORRELATION_FILTER_ATTR, True)
+        medre_handler.addFilter(correlation_filter)
 
     # 2. Update formatter (supports repeated calls with different modes).
     if json_format:
