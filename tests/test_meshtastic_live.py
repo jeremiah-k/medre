@@ -652,6 +652,7 @@ class TestMeshtasticLiveSmoke:
             finally:
                 await asyncio.wait_for(adapter.stop(), timeout=10.0)
 
+
 # ---------------------------------------------------------------------------
 # Helpers for bounded live tests
 # ---------------------------------------------------------------------------

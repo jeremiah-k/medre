@@ -164,7 +164,9 @@ def main() -> int:
         result = asyncio.run(_run_soak(base))
     else:
         raise SystemExit(f"unknown scenario: {scenario}")
-    print("MEDRE_LOCAL_INTEGRATION_RESULT=" + json.dumps(asdict(result), sort_keys=True))
+    print(
+        "MEDRE_LOCAL_INTEGRATION_RESULT=" + json.dumps(asdict(result), sort_keys=True)
+    )
     return 0
 
 

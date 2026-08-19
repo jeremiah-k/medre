@@ -54,16 +54,16 @@ meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE validation test"
 
 ## Environment Variables
 
-| Variable                     | Required | Default | Description                   |
-| ---------------------------- | -------- | ------- | ----------------------------- |
-| `MESHTASTIC_CONNECTION_TYPE` | Yes      |         | `tcp`, `serial`, or `ble`     |
-| `MESHTASTIC_HOST`            | TCP      |         | Node hostname or IP           |
-| `MESHTASTIC_PORT`            | TCP      | `4403`  | TCP port                      |
-| `MESHTASTIC_SERIAL_PORT`     | Serial   |         | Serial device path            |
-| `MESHTASTIC_BLE_ADDRESS`     | BLE      |         | BLE MAC address               |
-| `MESHTASTIC_CHANNEL_INDEX`   | No       | `0`     | Channel for test messages     |
-| `MESHTASTIC_NODE_ID`         | No       |         | Meshtastic node ID            |
-| `MESHTASTIC_LIVE_SEND`       | TX       |         | `1` to enable RF transmission |
+| Variable                     | Required | Default | Description                             |
+| ---------------------------- | -------- | ------- | --------------------------------------- |
+| `MESHTASTIC_CONNECTION_TYPE` | Yes      |         | `tcp`, `serial`, or `ble`               |
+| `MESHTASTIC_HOST`            | TCP      |         | Node hostname or IP                     |
+| `MESHTASTIC_PORT`            | TCP      | `4403`  | TCP port                                |
+| `MESHTASTIC_SERIAL_PORT`     | Serial   |         | Serial device path                      |
+| `MESHTASTIC_BLE_ADDRESS`     | BLE      |         | BLE MAC address                         |
+| `MESHTASTIC_CHANNEL_INDEX`   | No       | `0`     | Channel for test messages               |
+| `MESHTASTIC_NODE_ID`         | No       |         | Meshtastic node ID                      |
+| `MESHTASTIC_LIVE_SEND`       | TX       |         | `1` to enable RF transmission           |
 | `MESHTASTIC_SOAK_CYCLES`     | No       | `10`    | Lifecycle cycles, valid range `1`–`100` |
 
 ## Evidence Tiers Achieved

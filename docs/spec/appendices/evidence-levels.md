@@ -79,17 +79,17 @@ Evidence stored in the SQLite database (receipts, outbox items, native refs) is 
 
 ## 6. Capability Status Definitions
 
-| Status                    | Meaning                                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `not started`             | No implementation exists. No tests. No code.                                                                          |
-| `designed`                | There is a spec, contract, or design document. No working code yet.                                                   |
-| `implemented-not-executed` | Working harness exists, but no current-commit execution evidence is recorded.                                          |
-| `synthetic-tested`        | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
-| `conformance-tested`      | Tested against the current codebase with deterministic fixtures. Reproducible at the same commit.                     |
-| `docker-validated`        | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
-| `opt-in live test exists` | A test harness exists, gated by environment variables. Not yet run against a real transport with recorded results.    |
-| `live-validated`          | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
-| `blocked`                 | A known blocker prevents progress.                                                                                    |
+| Status                     | Meaning                                                                                                               |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `not started`              | No implementation exists. No tests. No code.                                                                          |
+| `designed`                 | There is a spec, contract, or design document. No working code yet.                                                   |
+| `implemented-not-executed` | Working harness exists, but no current-commit execution evidence is recorded.                                         |
+| `synthetic-tested`         | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
+| `conformance-tested`       | Tested against the current codebase with deterministic fixtures. Reproducible at the same commit.                     |
+| `docker-validated`         | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
+| `opt-in live test exists`  | A test harness exists, gated by environment variables. Not yet run against a real transport with recorded results.    |
+| `live-validated`           | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
+| `blocked`                  | A known blocker prevents progress.                                                                                    |
 
 ## 7. Policy
 

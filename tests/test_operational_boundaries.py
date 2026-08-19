@@ -495,9 +495,9 @@ def test_soak_tests_also_declare_an_evidence_layer() -> None:
         markers = declared_pytest_markers(path)
         if "soak" in markers and markers.isdisjoint(evidence_markers):
             violations.append(str(path.relative_to(_REPO_ROOT)))
-    assert violations == [], (
-        "soak tests must also declare their evidence layer: " + ", ".join(violations)
-    )
+    assert (
+        violations == []
+    ), "soak tests must also declare their evidence layer: " + ", ".join(violations)
 
 
 class TestNoLiveTestsRunByDefault:
