@@ -166,6 +166,35 @@ class TestMockedSDKErrorClassification:
 
         await session.stop()
 
+    async def test_sdk_no_event_error_is_transient_then_recovers(self) -> None:
+        """Pinned-SDK no-response events use the bounded transient retry path."""
+        mock_mc, mock_inst = build_mock_meshcore_module()
+        mock_inst.commands.send_msg.side_effect = [
+            MockEvent(
+                event_type=MockEventType.ERROR,
+                payload={"reason": "no_event_received"},
+            ),
+            MockEvent(
+                event_type=MockEventType.MSG_SENT,
+                payload={"expected_ack": b"\x00\x00\x00\x02"},
+            ),
+        ]
+
+        config = _make_config(connection_type="tcp", host="localhost")
+        session = MeshCoreSession(config, "timeout-event-test")
+        with (
+            patch("medre.adapters.meshcore.session.HAS_MESHCORE", new=True),
+            patch.dict(sys.modules, {"meshcore": mock_mc}),
+        ):
+            await session.start(lambda _pkt: None)
+
+        native_id = await session.send_text("aabbcc", "retry SDK timeout")
+        assert native_id == "00000002"
+        assert mock_inst.commands.send_msg.await_count == 2
+        assert session.transient_delivery_failures == 1
+        assert session.permanent_delivery_failures == 0
+        await session.stop()
+
     async def test_oserror_is_transient_then_permanent(self) -> None:
         """Transient OSError exhausts retries, then becomes permanent."""
         mock_mc, mock_inst = build_mock_meshcore_module()

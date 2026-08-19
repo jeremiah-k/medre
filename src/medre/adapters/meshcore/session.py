@@ -114,6 +114,13 @@ _RECONNECT_JITTER_FRACTION: float = 0.25  # ±25 %
 # Outbound delivery retry.
 _SEND_MAX_RETRIES: int = 3
 
+# ``meshcore`` reports command-response timeouts as EventType.ERROR payloads
+# instead of raising. These reasons describe transport uncertainty, not a
+# permanent remote rejection, so MEDRE keeps them retryable.
+_TRANSIENT_SDK_SEND_REASONS: frozenset[str] = frozenset(
+    {"no_event_received", "timeout"}
+)
+
 # Timeout for external SDK lifecycle calls (auto-fetch start/stop).
 _SDK_LIFECYCLE_TIMEOUT: float = 5.0  # seconds
 
@@ -1357,6 +1364,12 @@ class MeshCoreSession:
                             if isinstance(result.payload, dict)
                             else "unknown"
                         )
+                        if reason in _TRANSIENT_SDK_SEND_REASONS:
+                            # The pinned SDK converts command-response timeout/no-event
+                            # conditions into ERROR events. Raise a transport-like
+                            # exception here so the existing bounded retry path handles
+                            # the uncertainty and preserves cancellation semantics.
+                            raise TimeoutError(f"SDK send error: {reason}")
                         self._diag.permanent_delivery_failures += 1
                         raise MeshCoreSendError(
                             f"SDK send error: {reason}",

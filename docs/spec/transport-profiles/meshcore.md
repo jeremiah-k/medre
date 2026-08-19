@@ -219,7 +219,20 @@ for the cross-transport policy.
 
 ## Delivery Semantics
 
-**Local acceptance:** `deliver()` delegates to `session.send_text()`. The session sends via the SDK with bounded retry (3 attempts). DM sends MAY use the `suggested_timeout` value returned by the meshcore_py SDK for the target contact; this value is in milliseconds from the SDK and is converted to seconds internally, then clamped. `suggested_timeout` hints are cached per normalized contact. Channel sends do not use DM `suggested_timeout` hints. Local acceptance does not constitute RF end-to-end delivery. Success returns a `native_message_id` (if the SDK provides one). The `delivery_note` varies by send type: channel sends report `"MeshCore: channel send local-accepted only (no ACK protocol)"`; DM sends report `"MeshCore: DM sent with expected_ack captured as native_id; delivery confirmation not tracked"`.
+**Local acceptance:** `deliver()` delegates to `session.send_text()`. The session
+sends via the SDK with bounded retry (3 attempts). DM sends MAY use the
+`suggested_timeout` value returned by the meshcore_py SDK for the target contact;
+this value is in milliseconds from the SDK and is converted to seconds internally,
+then clamped. `suggested_timeout` hints are cached per normalized contact. Channel
+sends do not use DM `suggested_timeout` hints. The pinned SDK reports
+command-response timeout/no-event conditions as `ERROR` events with reasons
+`"timeout"` or `"no_event_received"`; MEDRE treats those two reasons as transient
+transport uncertainty and keeps them on the bounded retry path. Other explicit SDK
+`ERROR` responses remain permanent rejections. Local acceptance does not constitute
+RF end-to-end delivery. Success returns a `native_message_id` (if the SDK provides
+one). The `delivery_note` varies by send type: channel sends report `"MeshCore:
+channel send local-accepted only (no ACK protocol)"`; DM sends report `"MeshCore:
+DM sent with expected_ack captured as native_id; delivery confirmation not tracked"`.
 
 **No end-to-end confirmation.** The current MeshCore SDK does not provide delivery ACKs. The adapter reports `delivery_status="sent"` (the default adapter-level value) and carries `metadata["meshcore"]["local_acceptance"]=True` to indicate the message was accepted by the local SDK without network confirmation. Consumers MUST be tolerant of delivery uncertainty.
 
@@ -230,7 +243,16 @@ for the cross-transport policy.
 ## Session Lifecycle
 
 1. **Disconnected** — Initial state; `_meshcore=None`.
-2. **Connecting** — `session.start()` calls `_connect_real()` which uses SDK factory methods (`MeshCore.create_tcp`, `MeshCore.create_serial`, `MeshCore.create_ble`). Subscribes to `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, and `DISCONNECTED` event types. After subscriptions, the session issues `commands.send_appstart()` (CMD_APP_START) so the firmware accepts further commands. This MUST be called on every connect and reconnect. The appstart payload (`self_info`) is captured into session diagnostics: `device_name`, `public_key_prefix`, `radio_freq`. After appstart, the session calls `start_auto_message_fetching()` best-effort (subscribes to `MESSAGES_WAITING` and drains buffered messages from the device queue).
+2. **Connecting** — `session.start()` calls `_connect_real()` which uses SDK factory
+   methods (`MeshCore.create_tcp`, `MeshCore.create_serial`,
+   `MeshCore.create_ble`) with SDK auto-reconnect disabled. Each pinned-SDK factory
+   performs the transport connect and required `APP_START` handshake before
+   returning. MEDRE then subscribes to `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, and
+   `DISCONNECTED`, reads the SDK-populated `self_info` into diagnostics
+   (`device_name`, `public_key_prefix`, `radio_freq`), and starts auto-message
+   fetching best-effort. MEDRE reconnect creates a fresh SDK client through the same
+   factory path, so each transport connection receives exactly one SDK-owned
+   `APP_START`.
 3. **Connected** — Client created, subscribed, appstart succeeded, auto-fetch attempted (best-effort); `_diag.connected=True`. Inbound events flow via `_on_sdk_event` → `_message_callback`.
 4. **Reconnecting** — SDK `DISCONNECTED` event triggers bounded exponential backoff (1 s → 2 s → 4 s → … capped at 30 s, ±25 % jitter, max 10 attempts). On success, re-subscribes.
 5. **Stopped** — `stop()` sets `_stop_requested`, stops auto-message-fetching (with bounded timeout), unsubscribes, disconnects SDK client, nulls references. Idempotent.
@@ -319,7 +341,10 @@ If a future profile revision or a directly constructed `RenderingContext` suppli
 - Classifier tests cover all classification branches (ACK, text, DM, empty, unknown, malformed).
 - Codec tests cover text and DM decode.
 - Renderer tests cover text rendering and UTF-8 truncation.
-- Session tests cover lifecycle, reconnect, and send retry.
+- Session tests cover lifecycle, reconnect, send retry, and SDK timeout/no-response classification.
+- Deterministic local integration drives the pinned SDK over TCP for APPSTART,
+  inbound parsing, malformed-frame resynchronization, outbound send/reconnect,
+  cancellation, serialization, and repeated lifecycle.
 
 ---
 
