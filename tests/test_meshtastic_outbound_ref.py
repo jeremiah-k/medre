@@ -115,6 +115,7 @@ class TestSupplementalReceiptChannelCorrelation:
             delivery_plan_id="plan-ch0",
             outbox_id="obox-ch0",
             attempt_number=1,
+            confirmation_level="local_transport",
         )
         await runner._append_queued_to_sent_receipt(record=record_ch0, now=now)
 
@@ -127,6 +128,7 @@ class TestSupplementalReceiptChannelCorrelation:
             delivery_plan_id="plan-ch1",
             outbox_id="obox-ch1",
             attempt_number=1,
+            confirmation_level="local_transport",
         )
         await runner._append_queued_to_sent_receipt(record=record_ch1, now=now)
 
@@ -142,6 +144,7 @@ class TestSupplementalReceiptChannelCorrelation:
         assert sent_ch0[0].delivery_plan_id == "plan-ch0"
         assert sent_ch0[0].route_id == "route-a"
         assert sent_ch0[0].adapter_message_id == "packet-0"
+        assert sent_ch0[0].confirmation_level == "local_transport"
 
         # Channel 1 sent receipt → parents ch1 queued receipt.
         sent_ch1 = [r for r in sent_receipts if r.target_channel == "1"]
@@ -150,6 +153,7 @@ class TestSupplementalReceiptChannelCorrelation:
         assert sent_ch1[0].delivery_plan_id == "plan-ch1"
         assert sent_ch1[0].route_id == "route-b"
         assert sent_ch1[0].adapter_message_id == "packet-1"
+        assert sent_ch1[0].confirmation_level == "local_transport"
 
     async def test_ambiguous_no_channel_produces_no_receipt(self, temp_storage) -> None:
         """Multiple queued candidates + no channel on record → no receipt."""

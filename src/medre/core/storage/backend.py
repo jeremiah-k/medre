@@ -16,17 +16,17 @@ from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
-from medre.core.ingress import (
-    AdapterCheckpoint,
-    AdmissionResult,
-    IngressProvenance,
-    IngressWorkItem,
-)
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
     EventRelation,
     NativeMessageRef,
+)
+from medre.core.ingress import (
+    AdapterCheckpoint,
+    AdmissionResult,
+    IngressProvenance,
+    IngressWorkItem,
 )
 
 # ---------------------------------------------------------------------------
@@ -432,9 +432,7 @@ class StorageBackend(Protocol):
         """
         ...
 
-    async def complete_ingress_work(
-        self, event_id: str, *, worker_id: str
-    ) -> bool:
+    async def complete_ingress_work(self, event_id: str, *, worker_id: str) -> bool:
         """Mark owned durable ingress work complete.
 
         Authority: **mark** (status transition). Returns whether ownership
@@ -446,6 +444,19 @@ class StorageBackend(Protocol):
         self, event_id: str, *, worker_id: str, error: str
     ) -> bool:
         """Release failed durable ingress work for a later retry.
+
+        Authority: **mark** (status transition).
+        """
+        ...
+
+    async def defer_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str
+    ) -> bool:
+        """Return operationally deferred ingress work to pending.
+
+        Unlike :meth:`release_ingress_work`, this transition MUST undo the
+        current claim's attempt increment so capacity/shutdown deferrals do not
+        consume the poison-work processing-failure budget.
 
         Authority: **mark** (status transition).
         """

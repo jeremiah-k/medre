@@ -1,6 +1,8 @@
 # Changes
 
-Unreleased changes are tracked in a single file: [`unreleased.md`](unreleased.md).
+New unreleased changes are tracked as numbered Markdown fragments under
+[`unreleased/`](unreleased/).
 
-Append new entries to the bottom of that file. Do not create per-commit
-fragment files.
+Use `NNN-brief-description.md`, where `NNN` is the next available sequence.
+[`unreleased.md`](unreleased.md) is the legacy aggregate changelog and remains
+available for historical context; do not append new changes to it.

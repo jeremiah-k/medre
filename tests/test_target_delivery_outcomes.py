@@ -501,3 +501,21 @@ class TestPersistenceTimestamps:
 
         nref = storage.native_refs[0]
         assert before <= nref.created_at <= after
+
+
+async def test_non_string_confirmation_level_degrades_to_unknown() -> None:
+    adapter = _FakeAdapter(
+        result=AdapterDeliveryResult(
+            native_message_id="$id",
+            # Deliberately outside the Literal to exercise defensive normalization.
+            confirmation_level=[],  # type: ignore[arg-type]
+        )
+    )
+    service, _storage = _make_service(adapters={"test_adapter": adapter})
+    event = _make_event()
+    route, plan = _make_route_and_plan()
+
+    receipt = await service.deliver_to_target(event, route, plan)
+
+    assert receipt.status == "sent"
+    assert receipt.confirmation_level == "unknown"

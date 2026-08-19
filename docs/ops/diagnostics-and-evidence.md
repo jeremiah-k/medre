@@ -128,7 +128,9 @@ The `replay` command requires `--config`; `recover` requires `--storage-path` (r
 | `medre inspect receipts --replay-run <id> --storage-path <db>`                 | Opens SQLite (RO) | No                 | Receipt array JSON               | 0=found, 2=no SQLite                    |
 | `medre inspect native-ref --adapter <name> --message <id> --storage-path <db>` | Opens SQLite (RO) | No                 | Ref JSON                         | 0=found, 2=no SQLite                    |
 | `medre diagnostics --config <path>`                                            | None              | No                 | Build-time snapshot JSON         | 0=success, 2=config, 3=build            |
+| `medre diagnostics --config <path> --format prometheus`                        | None              | No                 | Numeric/boolean gauges           | 0=success, 2=config, 3=build            |
 | `medre diagnostics --refresh-health --config <path>`                           | None              | Yes (real or fake) | Live health snapshot JSON        | 0=success, 2=config, 3=build, 4=startup |
+| `medre diagnostics --refresh-health --config <path> --format prometheus`       | None              | Yes (real or fake) | Live numeric/boolean gauges      | 0=success, 2=config, 3=build, 4=startup |
 
 ## Report Shapes
 
@@ -282,6 +284,17 @@ runtime, start all enabled adapters, poll each adapter's `health_check()`
 once, capture the snapshot, and then stop the runtime cleanly. With real
 adapters, this opens real connections (Matrix TCP to homeserver, Meshtastic
 serial/TCP to local node, etc.).
+
+Use `--format prometheus` for scraper-friendly gauges. Prometheus output
+contains no labels and emits only numeric/boolean leaves from a bounded
+aggregate projection. Per-adapter and per-route maps are excluded before export,
+so configured identifiers do not become metric-name segments. Use the default JSON
+output when identifiers or diagnostic text are required.
+
+The Prometheus view also merges `MedreApp.diagnostic_snapshot()` under the
+`runtime_diagnostics` prefix, exposing numeric durable-ingress and capacity
+counters (including deferrals and forced shutdown cancellations) without changing
+the JSON snapshot schema.
 
 ### Inspect Output Interpretation
 

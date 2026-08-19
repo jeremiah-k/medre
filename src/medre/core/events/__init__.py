@@ -13,6 +13,8 @@ Package-level imports
   ``NativeMessageRef``, ``DeliveryReceipt``, ``EventRecordKind``.
 * From :mod:`~medre.core.events.kinds`:
   ``EventKind``, ``KNOWN_KINDS``, ``is_registered``.
+* From :mod:`~medre.core.events.delivery`:
+  ``DeliveryConfirmationLevel``, ``DELIVERY_CONFIRMATION_LEVEL_VALUES``.
 * From :mod:`~medre.core.events.metadata`:
   ``EventMetadata``, ``TransportMetadata``, ``RoutingMetadata``,
   ``RadioMetadata``, ``TelemetryMetadata``, ``NativeMetadata``,
@@ -30,6 +32,10 @@ from medre.core.events.canonical import (
     EventRelation,
     NativeMessageRef,
     NativeRef,
+)
+from medre.core.events.delivery import (
+    DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DeliveryConfirmationLevel,
 )
 from medre.core.events.kinds import (
     KNOWN_KINDS,
@@ -63,6 +69,9 @@ __all__ = [
     "EventRelation",
     "NativeMessageRef",
     "NativeRef",
+    # delivery
+    "DELIVERY_CONFIRMATION_LEVEL_VALUES",
+    "DeliveryConfirmationLevel",
     # kinds
     "EventKind",
     "KNOWN_KINDS",

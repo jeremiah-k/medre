@@ -308,6 +308,10 @@ class DeliveryFailureKind(Enum):
         The outbox row already exists in a terminal or active state
         owned by another worker.  The pipeline must not attempt
         adapter delivery or lease renewal.  Not retryable.
+    REPLAY_DUPLICATE_SUPPRESSED:
+        A replay target with a non-empty run ID already has visible
+        ``queued`` or ``sent`` acceptance evidence from that same run.
+        The duplicate target is suppressed rather than delivered again.
     """
 
     PLANNER_FAILURE = "planner_failure"
@@ -322,6 +326,7 @@ class DeliveryFailureKind(Enum):
     POLICY_SUPPRESSED = "policy_suppressed"
     CAPABILITY_SUPPRESSED = "capability_suppressed"
     OUTBOX_NOT_OWNED = "outbox_not_owned"
+    REPLAY_DUPLICATE_SUPPRESSED = "replay_duplicate_suppressed"
 
     @property
     def is_retryable(self) -> bool:
@@ -662,6 +667,10 @@ class DeliveryOutcome:
         Human-readable error description on failure; ``None`` on success.
     duration_ms:
         Wall-clock time spent on this delivery attempt in milliseconds.
+    failure_kind_detail:
+        Stable machine-readable detail refining ``failure_kind`` when the
+        broad taxonomy is insufficient.  Control flow must use this field,
+        never parse the human-readable ``error`` text.
     """
 
     event_id: str
@@ -680,3 +689,4 @@ class DeliveryOutcome:
     receipt: DeliveryReceipt | None = None
     error: str | None = None
     duration_ms: float = 0.0
+    failure_kind_detail: str | None = None

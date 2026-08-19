@@ -73,6 +73,7 @@ _LXMF_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=True,
     replies="unsupported",
+    threads="fallback",
     reactions="unsupported",
     edits="unsupported",
     deletes="unsupported",
@@ -548,6 +549,7 @@ class LxmfAdapter(AdapterContract):
             native_message_id=native_id,
             native_channel_id=str(destination_hash) if destination_hash else None,
             delivery_note="accepted by LXMRouter — async delivery pending",
+            confirmation_level="local_queue",
             metadata=MappingProxyType(
                 {
                     "lxmf": MappingProxyType(

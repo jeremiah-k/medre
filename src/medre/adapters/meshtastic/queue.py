@@ -468,6 +468,7 @@ class MeshtasticOutboundQueue:
             native_message_id=native_id,
             native_channel_id=str(channel_index),
             delivery_status="sent",
+            confirmation_level="local_transport",
             metadata=metadata,
         )
 

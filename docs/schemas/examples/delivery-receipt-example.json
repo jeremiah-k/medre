@@ -19,5 +19,6 @@
   "retry_backoff_base": 2.0,
   "retry_max_delay": 60.0,
   "retry_jitter": false,
+  "confirmation_level": "remote_service",
   "created_at": "2026-05-27T12:00:01Z"
 }

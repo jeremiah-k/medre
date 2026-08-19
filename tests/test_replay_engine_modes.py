@@ -604,3 +604,23 @@ class TestReplayEventsAndRelations:
         assert stored is not None
         assert len(stored.relations) == 1
         assert stored.relations[0].relation_type == "reply"
+
+
+async def test_re_render_handles_slot_only_pipeline_without_dynamic_attributes(
+    temp_storage: SQLiteStorage, sample_event: CanonicalEvent
+) -> None:
+    class SlotOnlyPipeline:
+        __slots__ = ()
+
+    await temp_storage.append(sample_event)
+    engine = make_engine(temp_storage, pipeline=SlotOnlyPipeline())
+    results = [
+        result
+        async for result in engine.replay(
+            ReplayRequest(event_kinds=["message.created"], mode=ReplayMode.RE_RENDER)
+        )
+    ]
+
+    assert results[-1].stage == "render"
+    assert results[-1].status == "error"
+    assert "no replay rendering implementation" in (results[-1].error or "").lower()

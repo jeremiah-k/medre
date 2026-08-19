@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from medre.cli.diagnostics_commands import _metrics_projection
 from tests.helpers.cli import (
     CONFIG_NO_ADAPTERS,
     _run_cli,
@@ -71,6 +72,52 @@ def config_no_adapters(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # diagnostics
 # ---------------------------------------------------------------------------
+
+
+def test_diagnostics_prometheus_exports_numeric_gauges(
+    config_with_routes: Path,
+) -> None:
+    output = _run_cli(
+        "diagnostics",
+        "--config",
+        str(config_with_routes),
+        "--format",
+        "prometheus",
+    )
+    assert "# TYPE medre_" in output
+    assert " gauge\n" in output
+    assert "medre_runtime_diagnostics_durable_ingress_deferrals 0" in output
+    assert "tok" not in output
+    assert "matrix.test" not in output
+    assert "!room:test" not in output
+    assert "matrix_to_radio" not in output
+    assert "_main_" not in output
+    assert "_radio_" not in output
+    assert "https://" not in output
+    assert "@bot:test" not in output
+    assert "/dev/ttyACM0" not in output
+    assert "TestMesh" not in output
+
+
+def test_metrics_projection_excludes_replay_route_identifiers() -> None:
+    projected = _metrics_projection(
+        {
+            "replay": {
+                "available": True,
+                "counters": {
+                    "global": {"runs": 3},
+                    "by_route": {"sensitive-route-id": {"runs": 2}},
+                },
+            }
+        },
+        {},
+    )
+
+    assert projected["replay"] == {
+        "available": True,
+        "counters": {"global": {"runs": 3}},
+    }
+    assert "sensitive-route-id" not in json.dumps(projected)
 
 
 class TestDiagnostics:

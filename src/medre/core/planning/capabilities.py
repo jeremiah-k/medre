@@ -6,7 +6,7 @@ resolution logic.  :func:`capability_unsupported` is a thin wrapper
 around :class:`CapabilityDecisionResolver` that preserves its
 return contract (``None`` when deliverable, reason string
 when unsupported) while using the resolver's full relation coverage
-(reply, reaction, edit, delete).
+(reply, thread, reaction, edit, delete).
 
 Capability level semantics (three-level string fields):
 
@@ -48,7 +48,7 @@ def capability_unsupported(
     :meth:`CapabilityDecisionResolver.decide` and returns the decision's
     ``reason`` when unsupported, ``None`` otherwise.  The wrapper
     preserves the original return contract while using the resolver's
-    full relation coverage (reply, reaction, edit, delete).
+    full relation coverage (reply, thread, reaction, edit, delete).
 
     Parameters
     ----------

@@ -190,6 +190,18 @@ class TestRenderingEvidence:
         assert r.rendering_evidence is None
 
 
+def test_default_confirmation_level_is_unknown() -> None:
+    receipt = build_delivery_receipt(**_base_kwargs())
+    assert receipt.confirmation_level == "unknown"
+
+
+def test_confirmation_level_is_preserved() -> None:
+    receipt = build_delivery_receipt(
+        **_base_kwargs(confirmation_level="remote_service")
+    )
+    assert receipt.confirmation_level == "remote_service"
+
+
 class TestErrorPassthrough:
     """error and failure_kind are passed through without classification."""
 

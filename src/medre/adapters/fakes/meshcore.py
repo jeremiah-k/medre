@@ -126,6 +126,7 @@ _FAKE_MESHCORE_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="unsupported",
+    threads="fallback",
     reactions="unsupported",
     edits="unsupported",
     deletes="unsupported",

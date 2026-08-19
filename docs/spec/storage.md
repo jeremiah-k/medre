@@ -459,11 +459,25 @@ CREATE TABLE delivery_receipts (
     retry_max_delay REAL,
     retry_jitter INTEGER,
     rendering_evidence TEXT,
+    outbox_id TEXT,
+    confirmation_level TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (confirmation_level IN (
+            'unknown', 'local_queue', 'local_transport',
+            'remote_service', 'end_to_end'
+        )),
     created_at TEXT NOT NULL
 );
 ```
 
-`rendering_evidence` stores the serialized rendering evidence JSON string for the delivery. `NULL` when no evidence is available (suppressed, failed, or skipped receipts).
+`rendering_evidence` stores the serialized rendering evidence JSON string for the
+delivery. `NULL` when no evidence is available (suppressed, failed, or skipped
+receipts).
+
+`outbox_id` is the internal correlation key joining a receipt to its durable
+outbox attempt when applicable. `confirmation_level` records the strongest
+transport handoff fact proven by the receipt: `unknown`, `local_queue`,
+`local_transport`, `remote_service`, or `end_to_end`. It is evidence strength
+and MUST NOT be inferred from `status` alone.
 
 `sequence` provides a strictly monotonic append order. It is used by the `delivery_status` view to deterministically find the latest receipt, avoiding timestamp collisions.
 
@@ -505,7 +519,7 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.failure_kind, dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
        dr.parent_receipt_id, dr.source, dr.replay_run_id,
        dr.retry_max_attempts, dr.retry_backoff_base, dr.retry_max_delay, dr.retry_jitter,
-       dr.rendering_evidence, dr.created_at
+       dr.rendering_evidence, dr.outbox_id, dr.confirmation_level, dr.created_at
 FROM delivery_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
@@ -829,6 +843,10 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 - Inserts a new row into `delivery_receipts`.
 - **MUST NOT** update an existing row. Every call creates a new row.
 - `source` defaults to `"live"`. Retry deliveries set `"retry"`. Replay deliveries set `"replay"` and populate `replay_run_id`.
+- `confirmation_level` uses `"unknown"` when no stronger delivery fact is available,
+  including missing legacy evidence and non-success receipts. Successful adapter
+  handoffs record the strongest fact actually proven and never infer end-to-end
+  delivery from lifecycle status.
 
 ### 8.9 delivery_status(delivery_plan_id, target_adapter, target_channel)
 
@@ -933,6 +951,12 @@ automatic migration is available.
 
 This validation catches old prerelease databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape validation is the primary guard against stale prerelease databases.
 
+This change adds the required `delivery_receipts.confirmation_level` column while
+the prerelease schema version remains `1`. A database created by an earlier
+prerelease build therefore fails required-column validation by design. Operators
+MUST back up/reset that prerelease database using §10.3; MEDRE does not perform an
+in-place migration.
+
 ### 10.3 Pre-Release Stale Database Reset
 
 When `initialize()` rejects a stale prerelease database, the operator **MUST** reset the database manually. No automatic deletion or recreation is performed. The required workflow is:
@@ -990,13 +1014,13 @@ All of these reset to zero or initial state on every startup. No history is reta
 
 The canonical event log supports replaying events through the pipeline. Replay is an ephemeral runtime operation, not a durable job system.
 
-| Property                   | Value                                                                            |
-| -------------------------- | -------------------------------------------------------------------------------- |
-| Replay request durability  | Not persisted. Replay runs are initiated in-memory and lost on crash.            |
-| Replay queue               | Does not exist.                                                                  |
-| Replay resume after crash  | Not supported. Must be re-initiated manually.                                    |
-| Replay deduplication       | Not provided. Re-running replay **MAY** produce duplicate deliveries.            |
-| Replay receipt persistence | Yes. Receipts produced by replay are persisted to SQLite like any other receipt. |
+| Property                   | Value                                                                                                           |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Replay request durability  | Not persisted. Replay runs are initiated in-memory and lost on crash.                                           |
+| Replay queue               | Does not exist.                                                                                                 |
+| Replay resume after crash  | Not supported. Must be re-initiated manually.                                                                   |
+| Replay deduplication       | Non-empty `run_id` suppresses targets already accepted in that same run; different/empty run IDs MAY redeliver. |
+| Replay receipt persistence | Yes. Receipts produced by replay are persisted to SQLite like any other receipt.                                |
 
 ### 13.2 Replay Modes
 
@@ -1018,7 +1042,11 @@ and no delivery receipts or native refs are created.
 
 ### 13.3 Replay Receipt Traceability
 
-Replay receipts carry `source='replay'` and a `replay_run_id` for run-level grouping. These fields support post-incident investigation and manual mitigation only; they do not prevent or detect duplicate sends at delivery time.
+Replay receipts carry `source='replay'` and a `replay_run_id` for run-level
+grouping. A non-empty `replay_run_id` also suppresses targets after a visible
+`queued` or `sent` receipt from that same run. Different or empty run IDs remain
+repeatable, and concurrent same-run executions can still race before acceptance
+evidence commits.
 
 Native message refs created during replay are not tagged with `source` or `replay_run_id`. Replay-produced native refs **MAY** be correlated to their replay origin through the associated `DeliveryReceipt` (which carries `source` and `replay_run_id`), then via the receipt's `delivery_plan_id` / `event_id` linkage.
 
@@ -1034,7 +1062,10 @@ Native message refs created during replay are not tagged with `source` or `repla
   the intersection of the requested stages and the mode-allowed stages. The
   default behaviour uses all mode-allowed stages. Operators **SHOULD** include
   `store` when they want integrity verification.
-- Traceability is not deduplication. Replaying an event that was previously delivered **WILL** produce a second delivery attempt.
+- Replay traceability is not global deduplication. A prior live delivery, a different
+  replay run ID, or an empty run ID MAY produce another delivery attempt. A non-empty
+  run ID suppresses targets with visible `queued` or `sent` acceptance evidence from
+  that same run; concurrent same-run executions can still race before evidence commits.
 
 ### 13.5 Crash Recovery
 

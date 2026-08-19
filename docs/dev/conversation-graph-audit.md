@@ -56,9 +56,13 @@ It records what exists today — types, ownership, lookup paths, and boundaries 
 | `fallback_text`     | `str \| None`                                          | Degraded text when target cannot render natively        |
 | `metadata`          | `dict` (frozen)                                        | Arbitrary key-value (MMRelay keys, original text, etc.) |
 
-Valid relation types: `{"reply", "reaction", "edit", "delete", "thread"}` (defined in `src/medre/core/events/schema.py:VALID_RELATION_TYPES`).
+Valid relation types: `{"reply", "reaction", "edit", "delete", "thread"}`
+(defined in `src/medre/core/events/schema.py:VALID_RELATION_TYPES`).
 
-**Thread deferral**: `"thread"` is accepted by the constructor but no adapter renders thread relations. Thread capability requires future `AdapterCapabilities.threads` and planner-level routing support.
+**Thread capability**: `"thread"` is capability-gated through
+`AdapterCapabilities.threads`. All built-in adapters currently advertise `fallback`,
+so thread relations are preserved canonically and degraded to deterministic inline
+text rather than treated as unverified native support.
 
 ---
 
@@ -263,9 +267,13 @@ Reserved on `NativeRef`, `NativeMessageRef`, and `OutboundNativeRefRecord`. No a
 
 **Impact**: Thread-aware rendering cannot use native thread IDs until adapters decode and report them.
 
-### 8.5 Thread relation type accepted but unused
+### 8.5 Thread relations use capability-gated fallback
 
-`"thread"` is valid in `VALID_RELATION_TYPES` but no adapter codec creates thread relations and no renderer handles them. The event model is ready; the pipeline is not.
+`"thread"` is valid in `VALID_RELATION_TYPES` and is capability-gated through
+`AdapterCapabilities.threads`. Built-in adapters advertise `fallback`, so a
+canonical thread relation can be rendered as deterministic inline text. No built-in
+adapter currently emits or consumes native thread relations, and `native_thread_id`
+remains reserved.
 
 ### 8.6 MMRelay cross-transport metadata is fragile
 
@@ -280,12 +288,12 @@ This document does **not** include:
 - Diverging `conversation_id` from `root_event_id` (they are currently equal)
 - Retroactively repairing `root_event_id` on events that self-rooted due to out-of-order arrival
 - Creating reverse relation indexes on `event_relations.target_event_id`
-- Implementing thread relation rendering in any adapter
+- Implementing native thread relation rendering in any adapter
 - Changing the relation type vocabulary
 - Modifying adapter source code or test files
 - Introducing conversation-level query APIs on the storage backend
 - Populating `native_thread_id` on any type
-- Adding `AdapterCapabilities.threads` or planner-level thread routing
+- Advertising verified native thread support in a built-in adapter
 
 ---
 

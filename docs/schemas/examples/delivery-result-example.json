@@ -5,6 +5,7 @@
   "native_relation_id": null,
   "delivery_note": "Message delivered to Matrix room via long-poll sync",
   "delivery_status": "sent",
+  "confirmation_level": "remote_service",
   "metadata": {
     "matrix": {
       "txn_id": "txn_1717401600000"

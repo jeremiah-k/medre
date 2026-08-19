@@ -2,8 +2,8 @@
 authoritative runtime truth and do not overclaim.
 
 Turns the capability audit (``docs/dev/capability-truth-audit.md``)
-into machine-checked conformance proof.  The audit found 84 declarations
-(4 adapters × 21 fields) that all pass, with 0 overclaims and 0 actionable
+into machine-checked conformance proof.  The audit found 88 declarations
+(4 adapters × 22 fields) that all pass, with 0 overclaims and 0 actionable
 underclaims.  These tests lock that finding in place.
 
 Evidence tiers: ``fake_pipeline`` (tier 1) and ``fake_adapter_callback`` (tier 2).
@@ -20,7 +20,7 @@ Covers:
 - Semantic honesty: LXMF delivery_receipts=False despite SDK delivery state,
   Matrix delivery_receipts=True as server-ACK only, MeshCore E2EE vs
   identity_encryption, Meshtastic store_and_forward vs firmware support.
-- Audit summary invariant: 4 × 21 = 84, zero overclaims.
+- Audit summary invariant: 4 × 22 = 88, zero overclaims.
 """
 
 from __future__ import annotations
@@ -43,9 +43,9 @@ from medre.core.contracts.adapter import AdapterCapabilities
 TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
 
 FIELD_COUNT = len(dataclass_fields(AdapterCapabilities))
-# 21 fields as of the audit date.
-assert FIELD_COUNT == 21, (
-    f"AdapterCapabilities has {FIELD_COUNT} fields, expected 21. "
+# 22 fields as of the audit date.
+assert FIELD_COUNT == 22, (
+    f"AdapterCapabilities has {FIELD_COUNT} fields, expected 22. "
     "Update this test and the audit document together."
 )
 
@@ -229,8 +229,8 @@ def test_real_adapter_matches_fake_for_every_field(transport: str) -> None:
 
 
 def test_audit_total_declaration_count() -> None:
-    """4 transports × 21 fields = 84 capability declarations."""
-    assert len(TRANSPORTS) * FIELD_COUNT == 84
+    """4 transports × 22 fields = 88 capability declarations."""
+    assert len(TRANSPORTS) * FIELD_COUNT == 88
 
 
 def test_every_transport_profile_json_exists() -> None:

@@ -56,6 +56,7 @@ def make_context(
     target_channel: str | None = None,
     max_text_bytes: int | None = None,
     max_text_chars: int | None = None,
+    source_origin_label: str | None = None,
 ) -> RenderingContext:
     """Create a RenderingContext with sensible defaults."""
     return RenderingContext(
@@ -65,6 +66,7 @@ def make_context(
         target_platform=target_platform,
         max_text_bytes=max_text_bytes,
         max_text_chars=max_text_chars,
+        source_origin_label=source_origin_label,
     )
 
 

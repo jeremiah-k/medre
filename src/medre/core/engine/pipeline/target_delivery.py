@@ -58,6 +58,11 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
     NativeMessageRef,
 )
+from medre.core.events.delivery import (
+    DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DeliveryConfirmationLevel,
+)
+from medre.core.observability.correlation import correlation_scope
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import resolve_adapter_capabilities
 from medre.core.planning.delivery_plan import (
@@ -77,7 +82,6 @@ from medre.core.storage.backend import StorageBackend
 # ---------------------------------------------------------------------------
 
 _VALID_CAPABILITY_LEVELS: frozenset[str] = frozenset(get_args(_CapLevel))
-
 # ---------------------------------------------------------------------------
 # Logger
 # ---------------------------------------------------------------------------
@@ -310,6 +314,46 @@ class TargetDeliveryService:
         replay_run_id: str | None = None,
         outbox_id: str | None = None,
     ) -> DeliveryReceipt:
+        """Deliver one target inside a structured correlation scope."""
+        receipt_id = f"rcpt-{uuid.uuid4()}"
+        target = plan.target
+        with correlation_scope(
+            trace_id=event.trace_id,
+            event_id=event.event_id,
+            conversation_id=event.conversation_id,
+            route_id=route.id,
+            delivery_plan_id=plan.plan_id,
+            target_adapter=target.adapter,
+            outbox_id=outbox_id,
+            receipt_id=receipt_id,
+            source=source,
+            replay_run_id=replay_run_id,
+        ):
+            return await self._deliver_to_target_scoped(
+                event,
+                route,
+                plan,
+                render_event=render_event,
+                previous_receipt=previous_receipt,
+                source=source,
+                replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
+                _receipt_id=receipt_id,
+            )
+
+    async def _deliver_to_target_scoped(
+        self,
+        event: CanonicalEvent,
+        route: Route,
+        plan: DeliveryPlan,
+        *,
+        render_event: CanonicalEvent | None = None,
+        previous_receipt: DeliveryReceipt | None = None,
+        source: str = "live",
+        replay_run_id: str | None = None,
+        outbox_id: str | None = None,
+        _receipt_id: str | None = None,
+    ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
 
         Steps:
@@ -361,7 +405,7 @@ class TargetDeliveryService:
         """
         target = plan.target
         adapter_id = target.adapter
-        receipt_id = f"rcpt-{uuid.uuid4()}"
+        receipt_id = _receipt_id or f"rcpt-{uuid.uuid4()}"
 
         # Compute attempt number and parent receipt for lineage.
         attempt_number, parent_receipt_id = self._lifecycle.compute_attempt_context(
@@ -745,6 +789,22 @@ class TargetDeliveryService:
         # Populate adapter_message_id only when delivery succeeded and
         # the adapter returned a native_message_id.  Never fabricate IDs.
         _adapter_message_id: str | None = None
+        _confirmation_level: DeliveryConfirmationLevel = "unknown"
+        if status in ("sent", "queued") and adapter_result is not None:
+            raw_confirmation = adapter_result.confirmation_level
+            if (
+                isinstance(raw_confirmation, str)
+                and raw_confirmation in DELIVERY_CONFIRMATION_LEVEL_VALUES
+            ):
+                _confirmation_level = cast(DeliveryConfirmationLevel, raw_confirmation)
+            else:
+                self._log.warning(
+                    "Adapter %s returned invalid confirmation_level=%r; "
+                    "persisting unknown",
+                    adapter_id,
+                    raw_confirmation,
+                )
+                _confirmation_level = "unknown"
         if (
             status == "sent"
             and adapter_result is not None
@@ -790,6 +850,7 @@ class TargetDeliveryService:
             **self._lifecycle.extract_retry_fields(plan),
             rendering_evidence=_rendering_evidence,
             outbox_id=outbox_id,
+            confirmation_level=_confirmation_level,
         )
         await self._storage.append_receipt(receipt)
 

@@ -24,7 +24,7 @@ Boolean capability fields (``text``, ``attachments``, ``presence``,
 ``False`` -> unsupported.
 
 Three-level string fields (``reactions``, ``edits``, ``deletes``,
-``replies``) map directly: ``"native"`` -> native, ``"fallback"`` ->
+``replies``, ``threads``) map directly: ``"native"`` -> native, ``"fallback"`` ->
 fallback, ``"unsupported"`` -> unsupported.
 
 Event-kind to capability field mapping
@@ -45,9 +45,7 @@ Relation to capability field mapping
 * ``reaction`` -> ``reactions``
 * ``edit``     -> ``edits``
 * ``delete``   -> ``deletes``
-* ``thread``   -> **DEFERRED** - thread capability is not yet modelled.
-  Thread relations do not produce a capability candidate; current
-  behaviour (native / direct, no ``capability_field``) is preserved.
+* ``thread``   -> ``threads``
 
 Multiple-relation precedence
 -----------------------------
@@ -66,15 +64,12 @@ This ensures that ``unsupported`` always wins over ``fallback`` or
 ``native``, regardless of ordering, while preserving deterministic
 tie-breaking for equal-severity candidates.
 
-Thread capability deferral
---------------------------
-``AdapterCapabilities.threads`` does not exist.  Thread relations are
-not mapped to a capability field.  The resolver preserves current
-behaviour: thread-carrying events receive native / direct delivery
-with ``capability_field=None`` and ``reason=None``.  Thread relations
-do not produce a capability candidate; if no other event-kind or
-relation candidate determines the decision, the resolver returns a
-passthrough decision (``capability_field=None``, ``reason=None``).
+Thread capability
+-----------------
+Thread relations are resolved through ``AdapterCapabilities.threads``.
+Built-in adapters currently advertise fallback rather than native support,
+so thread semantics are never silently treated as first-class when the
+transport implementation only emits degraded text.
 
 Public symbols
 --------------
@@ -122,20 +117,21 @@ _BOOLEAN_FIELDS: frozenset[str] = frozenset(
 )
 
 #: Three-level string capability fields: ``"native"``, ``"fallback"``, ``"unsupported"``.
-_STRING_FIELDS: frozenset[str] = frozenset({"reactions", "edits", "deletes", "replies"})
+_STRING_FIELDS: frozenset[str] = frozenset(
+    {"reactions", "edits", "deletes", "replies", "threads"}
+)
 
 # ---------------------------------------------------------------------------
 # Relation → capability field mapping
 # ---------------------------------------------------------------------------
 
 #: Maps relation type strings to the corresponding AdapterCapabilities field.
-#: ``"thread"`` is intentionally absent (capability deferred).
 _RELATION_FIELDS: dict[str, str] = {
     "reply": "replies",
+    "thread": "threads",
     "reaction": "reactions",
     "edit": "edits",
     "delete": "deletes",
-    # thread: DEFERRED - no AdapterCapabilities.threads field.
 }
 
 # ---------------------------------------------------------------------------
@@ -189,8 +185,9 @@ def _resolve_field_level(
     * **Boolean fields**: ``True`` -> native, ``False`` -> unsupported.
     * **String fields**: ``"native"`` / ``"fallback"`` / ``"unsupported"``
       accepted; any other string or type raises :class:`ValueError`.
-    * **Thread relation** remains deferred (native/direct, no capability
-      field).  See :attr:`_RELATION_FIELDS`.
+    * **Thread relations** resolve through the three-level ``threads`` field.
+      Built-in adapters currently advertise fallback rather than unverified
+      native thread semantics.
     * **Unknown/unmapped event kinds** produce no candidate and default to
       native/direct passthrough at the resolver level (not here).
     """
@@ -392,10 +389,7 @@ class CapabilityDecisionResolver:
             for rel in event.relations:
                 rel_field = _RELATION_FIELDS.get(rel.relation_type)
                 if rel_field is None:
-                    if rel.relation_type == "thread":
-                        # Thread capability is deferred — no candidate.
-                        continue
-                    # Unknown non-thread relation: fail closed.
+                    # Unknown relation: fail closed.
                     candidates.append(
                         _Candidate(
                             capability_level="unsupported",

@@ -22,6 +22,29 @@ This specification governs:
 - Limitations of what evidence can and cannot prove.
 - Pre-release contractual guarantees.
 
+## Structured correlation and metric export
+
+MEDRE-managed structured JSON logs inherit execution correlation from a task-local
+context. Available fields include `trace_id`, `event_id`,
+`conversation_id`, `route_id`, `delivery_plan_id`, `target_adapter`,
+`outbox_id`, `receipt_id`, `source`, and `replay_run_id`. Nested target
+fan-out scopes MUST restore their parent context and MUST NOT leak correlation
+fields across asyncio tasks. Potentially sensitive/high-cardinality target channel
+identifiers are not injected automatically.
+
+`medre diagnostics --format prometheus` and
+`medre diagnostics --refresh-health --format prometheus` expose the same runtime
+snapshot as Prometheus text exposition. The CLI first projects the runtime
+snapshot onto bounded aggregate sections, excluding per-adapter and per-route maps,
+then emits only numeric and boolean leaves as gauges without Prometheus labels.
+String-valued paths, identifiers, error text, lists, and `None` values are
+omitted. Operators that need identifiers or diagnostic text MUST use JSON. JSON
+remains the default format.
+The Prometheus view also merges `MedreApp.diagnostic_snapshot()` under the
+`runtime_diagnostics` prefix, exposing numeric durable-ingress and capacity
+counters (including deferrals and forced shutdown cancellations) without changing
+the JSON snapshot schema.
+
 ## 2. Common Diagnostic Keys
 
 Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics()` returning a plain dict. The following eight keys SHALL appear in the `diagnostics()` output of all four adapter families:
@@ -565,7 +588,14 @@ The `FallbackApplied` literal vocabulary (`"relation_reply"`, `"relation_reactio
 
 Rendering evidence is structured to support replay inspection. The frozen, deterministic nature of `RenderingContext` and `RenderingResult` means the same inputs produce the same outputs.
 
-**Current status:** Replay execution **is** implemented as an operator-initiated, in-memory runtime operation (see `medre.core.engine.replay`). Replay re-processes stored canonical events through selected pipeline stages via the `ReplayEngine`. It is **not** a durable job system — there is no automatic crash resume, no replay job queue, and no idempotent delivery guarantee. Replay receipts carry `source="replay"` and `replay_run_id` for audit traceability. `RenderingEvidence` on delivery receipts strengthens post-hoc diagnostics but does not itself replay payloads.
+**Current status:** Replay execution **is** implemented as an operator-initiated,
+in-memory runtime operation (see `medre.core.engine.replay`). Replay re-processes
+stored canonical events through selected pipeline stages via the `ReplayEngine`. It is
+**not** a durable job system — there is no automatic crash resume, no replay job
+queue, and no exactly-once delivery guarantee. Replay receipts carry
+`source="replay"` and `replay_run_id` for audit traceability. `RenderingEvidence` on
+delivery receipts strengthens post-hoc diagnostics but does not itself replay
+payloads.
 
 **What replay execution provides:**
 
@@ -575,11 +605,15 @@ Rendering evidence is structured to support replay inspection. The frozen, deter
 - Deterministic loop prevention and replay route attribution.
 - In-memory execution: no durable replay job queue, no automatic resume after crash.
 
-**What replay execution does _not_ provide (preserved from prior wording):**
+**What replay execution does _not_ provide:**
 
-- Reconstruction of `RenderingContext` from stored artifacts (re-executing rendering from stored evidence artifacts is not implemented).
-- Cross-process or cross-restart evidence replay.
-- Idempotent delivery guarantee (replay MAY produce duplicate sends; traceability is not deduplication).
+- Reconstruction when no valid persisted rendering evidence exists for the event.
+  `RE_RENDER` requires at least one such receipt; once evidence exists, it restores
+  the available context and uses defined fallbacks for missing legacy fields.
+- Cross-process or cross-restart replay-job recovery.
+- An exactly-once delivery guarantee. A non-empty run ID suppresses targets with
+  visible acceptance evidence from the same run, but different/empty run IDs and
+  concurrent same-run races may redeliver.
 
 Evidence completeness for post-hoc inspection and deterministic re-rendering given identical context are supported by the frozen nature of the data structures. Replay isolation from live delivery is guaranteed by the `source` and `replay_run_id` tagging on receipts.
 
@@ -643,7 +677,13 @@ The LXMF renderer enforces `max_text_chars` (default 16384) from `RenderingConte
 
 The `RenderingEvidence` snapshot captures the budget constraints (`max_text_chars`, `max_text_bytes`) and the outcome (`truncated`, `rendered_text_chars`, `rendered_text_bytes`, `original_text_chars`, `original_text_bytes`). Evidence metrics are bounded and payload-free: only character and byte counts are recorded, never the rendered text itself.
 
-> **Known gap.** The rendering budget enforcement is tested at the S-tier level (fake adapters and unit tests). No R-tier evidence exists for budget enforcement against a live LXMF router with real Reticulum transport. The `RE_RENDER` replay mode re-runs rendering but does not currently reconstruct a full capability-aware `RenderingContext` from stored artifacts; it uses whatever context the replay pipeline provides.
+> **Known gap.** The rendering budget enforcement is tested at the S-tier level
+> (fake adapters and unit tests). No R-tier evidence exists for budget enforcement
+> against a live LXMF router with real Reticulum transport. `RE_RENDER` reconstructs
+> the target rendering context from persisted receipt evidence, including historical
+> budgets, strategy, capability level, platform, and source-origin label. Older
+> receipts may lack individual context fields, so reconstruction falls back where
+> evidence is unavailable.
 
 ## 15. Queued-to-Sent Correlation Evidence
 

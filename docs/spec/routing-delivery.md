@@ -355,10 +355,13 @@ class CapabilityDecision:
 Boolean capability fields (`text`, `attachments`, `presence`,
 `metadata_fields`) map `True` → native, `False` → unsupported.
 
-Three-level string fields (`reactions`, `edits`, `deletes`, `replies`)
+Three-level string fields (`reactions`, `edits`, `deletes`, `replies`, `threads`)
 map directly: `"native"` → native, `"fallback"` → fallback, `"unsupported"` → unsupported.
 
-> **Known gap: fallback capability level is dormant in production transport profiles.** As of this writing, no production transport profile declares a three-level string field at `"fallback"`. All current profile declarations use `"native"` or `"unsupported"`. The fallback path (`"fallback_text"` strategy, inline text degradation) is exercised by tests with synthetic capability configurations but has not been validated against a live transport endpoint with a real adapter producing degraded output. The `CapabilityLevel.METADATA_NATIVE` and `CapabilityLevel.METADATA_NATIVE_OR_FALLBACK` enum values exist and map to the `"fallback"` decision level; they are not currently used in any transport profile. This gap does not affect correctness (the code path exists and is tested) but means the fallback rendering path has no R-tier evidence.
+All built-in adapters currently advertise `threads="fallback"`. Thread relations
+therefore exercise the production `fallback_text` path, but native thread
+emission has not yet been verified for any built-in transport. Live-service or
+hardware evidence for thread degradation remains a release-readiness gap.
 
 #### 6.3.3 Event-Kind Mapping
 
@@ -381,29 +384,26 @@ default to native/direct (passthrough).
 
 #### 6.3.4 Relation Mapping
 
-| Relation Type | Capability Field | Note                                                                                                           |
-| ------------- | ---------------- | -------------------------------------------------------------------------------------------------------------- |
-| `reply`       | `replies`        | Checked for every reply relation.                                                                              |
-| `reaction`    | `reactions`      | Checked for every reaction relation.                                                                           |
-| `edit`        | `edits`          | Checked for every edit relation.                                                                               |
-| `delete`      | `deletes`        | Checked for every delete relation.                                                                             |
-| `thread`      | —                | **Deferred.** No `AdapterCapabilities.threads` field exists. Thread relations produce no capability candidate. |
+| Relation Type | Capability Field | Note                                                                       |
+| ------------- | ---------------- | -------------------------------------------------------------------------- |
+| `reply`       | `replies`        | Checked for every reply relation.                                          |
+| `reaction`    | `reactions`      | Checked for every reaction relation.                                       |
+| `edit`        | `edits`          | Checked for every edit relation.                                           |
+| `delete`      | `deletes`        | Checked for every delete relation.                                         |
+| `thread`      | `threads`        | Checked for every thread relation; built-ins currently advertise fallback. |
 
-Relation-level capability checking for `reaction`, `edit`, and `delete`
-is intentionally centralized in the resolver alongside `reply`. All
-four relation types follow the same three-level semantics (native /
-fallback / unsupported) and the same precedence rules. The resolver
+Relation-level capability checking for `reaction`, `edit`, `delete`, and
+`thread` is intentionally centralized in the resolver alongside `reply`. All five
+relation types follow the same three-level semantics (native / fallback /
+unsupported) and the same precedence rules. The resolver
 evaluates every relation in `event.relations` order; there is no
 relation-type-specific short-circuit or special case.
 
-> **Fail-closed for unknown non-thread relation types.** `thread` is the only
-> deferred relation type: it produces no relation-level capability candidate
-> and does not suppress delivery. Any other relation type not in the mapping
-> table above is unsupported and MUST produce an unsupported/skip decision with
-> `capability_field="relation"` and reason `unsupported relation type ...`.
-> If a relation type requires first-class capability gating in the future, it
-> **MUST** be added to the table. Thread relations are explicitly deferred (see
-> § 6.3.6).
+Unknown relation types fail closed: any relation type not in the mapping table
+above MUST produce an unsupported/skip decision with
+`capability_field="relation"` and reason `unsupported relation type ...`. If a
+new relation type requires first-class capability gating, it MUST be added to the
+table before adapters can receive it.
 
 #### 6.3.5 Multiple-Relation Precedence
 
@@ -418,18 +418,20 @@ This ensures `unsupported` always wins over `fallback` or `native`,
 regardless of candidate ordering, while maintaining deterministic
 tie-breaking.
 
-#### 6.3.6 Thread Capability Deferral
+#### 6.3.6 Thread Capability Semantics
 
-`AdapterCapabilities.threads` does not exist. The thread relation itself
-does not introduce a capability candidate and MUST NOT be considered during
-capability evaluation. Events carrying a thread relation still participate
-in normal capability checks (event-kind, attachments, other relations) which
-can suppress or alter delivery. The resolver preserves current behaviour
-only insofar as the thread relation contributes no candidate: when no other
-candidate overrides, thread-carrying events receive native/direct delivery
-with `capability_field=None`. This deferral MUST NOT be interpreted as
-unconditional native thread support or as an override of other capability
-rules.
+`AdapterCapabilities.threads` is a three-level capability field. The planner
+MUST evaluate every `thread` relation through it exactly like replies, reactions,
+edits, and deletes. `native` permits direct thread rendering, `fallback`
+selects deterministic textual degradation, and `unsupported` suppresses the
+target before rendering.
+
+The current built-in adapters all advertise `threads="fallback"`. This is an
+intentional fail-closed posture: Matrix has an underlying native `m.thread`
+protocol but MEDRE has not yet verified native thread emission, while Meshtastic,
+MeshCore, and LXMF have no equivalent native conversation primitive. A future
+adapter MAY advertise `native` only after its renderer and transport path have
+conformance coverage for native thread semantics.
 
 #### 6.3.7 Rendering Evidence
 
@@ -621,6 +623,8 @@ class DeliveryReceipt:
     retry_jitter: bool | None = None       # Persisted retry policy: jitter enabled
     rendering_evidence: str | None = None  # Structured rendering evidence for this attempt
     outbox_id: str | None = None           # Internal correlation key — not wire metadata (see § 8.5.3)
+    confirmation_level: str = "unknown"     # Evidence strength, independent of
+                                            # lifecycle status
     created_at: datetime = ...             # Timestamp when this receipt was created
 ```
 
@@ -668,7 +672,10 @@ CREATE TABLE delivery_receipts (
     retry_jitter INTEGER,
     rendering_evidence TEXT,
     outbox_id TEXT,                         -- Internal correlation key (see § 8.5.3)
-    created_at TEXT NOT NULL
+    confirmation_level TEXT NOT NULL DEFAULT 'unknown',
+    created_at TEXT NOT NULL,
+    CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport',
+                                  'remote_service', 'end_to_end'))
 );
 ```
 
@@ -699,10 +706,10 @@ For the full rendering evidence semantics, payload vs evidence distinction, and 
 
 `DeliveryReceipt` carries two fields for receipt chain ordering:
 
-| Field               | Type                | Description                                  |
-| ------------------- | ------------------- | -------------------------------------------- | -------------------------------------------------------------- |
-| `attempt_number`    | `int` (default `1`) | 1-indexed attempt number. First attempt = 1. |
-| `parent_receipt_id` | `str                | None`(default`None`)                         | Receipt ID of the preceding attempt. `None` for first attempt. |
+| Field               | Type                           | Description                                                    |
+| ------------------- | ------------------------------ | -------------------------------------------------------------- |
+| `attempt_number`    | `int` (default `1`)            | 1-indexed attempt number. First attempt = 1.                   |
+| `parent_receipt_id` | `str \| None` (default `None`) | Receipt ID of the preceding attempt. `None` for first attempt. |
 
 When retries are exhausted, the receipt chain ends with a `dead_lettered` receipt:
 
@@ -831,9 +838,13 @@ class DeliveryOutcome:
     receipt: DeliveryReceipt | None = None
     error: str | None = None
     duration_ms: float = 0.0
+    failure_kind_detail: str | None = None
 ```
 
 `failure_kind` is `None` on success. On failure, it carries the specific taxonomy member.
+`failure_kind_detail` is an optional stable refinement used when control flow must
+distinguish causes within one broad failure kind. Human-readable `error` text is
+diagnostic only and MUST NOT be parsed for control-flow decisions.
 
 ### 11.1 Per-Destination Independence
 
@@ -952,55 +963,53 @@ derived event
 
 ## 13. Local Acceptance vs Remote Delivery
 
-### 13.1 Route Layer Preserves Adapter Semantics
+### 13.1 Lifecycle State and Evidence Strength Are Separate
 
-The routing layer does not alter the delivery semantics of any transport. Each adapter's `deliver()` method returns an `AdapterDeliveryResult`, and the pipeline records what the adapter reported — honestly and without upgrade.
+`status` answers whether MEDRE's delivery attempt is queued, sent, failed,
+dead-lettered, or suppressed. It does **not** answer how far a successful send
+was proven to travel. Successful receipts therefore also carry
+`confirmation_level`:
 
-| Transport  | Adapter reports              | Routing layer records            | Does routing upgrade?                    |
-| ---------- | ---------------------------- | -------------------------------- | ---------------------------------------- |
-| Matrix     | `event_id` from homeserver   | `sent` with `adapter_message_id` | No.                                      |
-| Meshtastic | Local node acceptance only   | `sent` without confirmation      | No. Radio best-effort stays best-effort. |
-| MeshCore   | Local node acceptance only   | `sent` without confirmation      | No. Radio best-effort stays best-effort. |
-| LXMF       | Local `LXMRouter` acceptance | `sent` without confirmation      | No. Store-and-forward stays eventual.    |
+| Level             | Proven fact                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------- |
+| `unknown`         | The adapter reported success but its proof strength is unavailable or invalid.                  |
+| `local_queue`     | A local adapter/router queue accepted responsibility.                                           |
+| `local_transport` | The local transport/node accepted the send operation.                                           |
+| `remote_service`  | A remote service acknowledged acceptance (for example a Matrix homeserver).                     |
+| `end_to_end`      | The ultimate recipient/device acknowledged delivery. No built-in adapter currently proves this. |
 
-### 13.2 Status Semantics Are Transport-Relative
+The pipeline MUST preserve the adapter-reported evidence level and MUST NOT
+upgrade it. Unknown adapter values are persisted as `unknown` rather than
+turning a successful handoff into a false stronger claim.
 
-| Status   | Matrix meaning           | Radio meaning            | LXMF meaning             |
-| -------- | ------------------------ | ------------------------ | ------------------------ |
-| `sent`   | Homeserver accepted      | Local node queued        | Local router accepted    |
-| `failed` | Adapter-reported failure | Adapter-reported failure | Adapter-reported failure |
+### 13.2 Built-In Adapter Evidence
 
-All adapters report `sent` on successful handoff; there is no separate `confirmed` status.
+| Transport              | Immediate successful handoff                                    | Receipt `confirmation_level` |
+| ---------------------- | --------------------------------------------------------------- | ---------------------------- |
+| Matrix                 | `room_send` returned a homeserver event ID                      | `remote_service`             |
+| Meshtastic enqueue     | MEDRE's bounded local outbound queue accepted the item          | `local_queue`                |
+| Meshtastic queue drain | SDK/local node accepted the packet send                         | `local_transport`            |
+| MeshCore               | Companion/local node accepted the command                       | `local_transport`            |
+| LXMF                   | Local `LXMRouter` accepted asynchronous delivery responsibility | `local_queue`                |
 
-### 13.3 Receipt Honesty
+A `sent` receipt with `local_queue` or `local_transport` is still a
+successful MEDRE handoff; it is not evidence that the remote recipient received
+the message. Matrix `remote_service` similarly proves homeserver acceptance,
+not end-client receipt.
 
-Receipts are the audit trail. They MUST be trustworthy. The runtime:
+### 13.3 Queued-to-Sent Evidence Progression
 
-- Records the adapter's reported status honestly.
-- MUST NOT upgrade a receipt status retroactively.
-- Records `attempt_number` and `parent_receipt_id` to form retry lineage.
-- Records `route_id` on every receipt for attribution.
+Queue-based adapters MAY strengthen evidence with a supplemental append-only
+receipt. Meshtastic initially emits `queued/local_queue`. When its queue worker
+obtains a real packet send result, the correlated supplemental receipt becomes
+`sent/local_transport`. The original receipt is never mutated.
 
 ### 13.4 Native Message ID Requirements
 
-`native_message_id` and `native_channel_id` on `AdapterDeliveryResult` MUST be platform-provided values. Adapters MUST NOT fabricate or backfill these values. The pipeline MUST NOT backfill `native_channel_id` or any other native ref field from route configuration.
-
-### 13.5 Per-Adapter Delivery Semantics
-
-| Adapter        | `deliver()` completion meaning                                      | `native_message_id` source                           | ACK limitation                                                                                          |
-| -------------- | ------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Matrix**     | SDK `room_send` returns `event_id`; homeserver accepted and stored  | Matrix event ID from `RoomSendResponse`              | Synchronous server ACK. Server received ≠ delivered to clients. No end-to-end delivery receipt.         |
-| **MeshCore**   | SDK `send_text()` / `send_data()` returns; message locally accepted | MeshCore message reference (timestamp-based)         | No end-to-end ACK. `delivery_note` documents local-acceptance only.                                     |
-| **Meshtastic** | Message locally enqueued to outbound queue                          | `None` — no native send confirmation at enqueue time | Local-acceptance only. Actual radio send is async via queue worker. No platform ACK returned to caller. |
-| **LXMF**       | LXMF message dispatched to `LXMRouter`                              | LXMF message hash (hex of `LXMessage.hash`)          | Store-and-forward eventual delivery. Async state progression through delivered/failed.                  |
-
-**Key asymmetries:**
-
-- Matrix is the only adapter where `deliver()` completion implies confirmed server-side storage.
-- Meshtastic is the only adapter where `native_message_id` is `None` at `deliver()` return time.
-- MeshCore returns a local reference but explicitly notes local-acceptance since there is no end-to-end ACK.
-- LXMF returns a content-addressed hash immediately, but actual delivery is asynchronous through the mesh.
-- All four adapters treat not-connected and SDK-not-initialized as **permanent** errors.
+`native_message_id` and `native_channel_id` on `AdapterDeliveryResult`
+MUST be platform-provided values. Adapters MUST NOT fabricate or backfill these
+values. The pipeline MUST NOT backfill `native_channel_id` or any other native
+ref field from route configuration.
 
 ## 14. Failure Taxonomy Per Transport
 
@@ -1595,9 +1604,14 @@ This specification explicitly does **not** provide:
 
 - **Exactly-once delivery.** No transport provides exactly-once semantics, and MEDRE does not synthesize them. Duplicates are a transport-level reality that consumers MUST tolerate.
 
-- **RF confirmation.** Meshtastic, MeshCore, and similar radio transports are fire-and-forget. No end-to-end delivery confirmation exists at the radio layer. A `sent` status means local acceptance only.
+- **RF end-to-end confirmation.** Meshtastic and MeshCore do not provide
+  recipient-level proof for text delivery. Their successful receipts remain at
+  `local_queue` or `local_transport` evidence strength.
 
-- **Universal ACKs.** ACK semantics differ fundamentally across transports (synchronous HTTP, asynchronous radio ACK, implicit, or none). MEDRE does not normalize these into a universal confirmation model.
+- **Synthetic universal ACKs.** ACK semantics differ fundamentally across
+  transports. MEDRE normalizes only the _strength of evidence_ into
+  `confirmation_level`; it does not synthesize an ACK or promote local acceptance
+  into remote/end-to-end confirmation.
 
 - **End-to-end delivery confirmation for any transport.** Matrix provides server-side confirmation only. The three constrained transports provide none. Even Matrix's confirmation does not guarantee delivery to end clients.
 

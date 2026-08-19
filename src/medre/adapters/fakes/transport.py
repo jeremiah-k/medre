@@ -60,6 +60,7 @@ _FAKE_TRANSPORT_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
+    threads="fallback",
     reactions="fallback",
     edits="unsupported",
     deletes="unsupported",

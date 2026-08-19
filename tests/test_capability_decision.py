@@ -7,7 +7,6 @@ Covers:
 - Relation to capability field mapping (reply → replies, reaction → reactions, etc.).
 - Multiple-relation precedence (unsupported > fallback > native).
 - Tie-breaking by first candidate in evaluation order.
-- Thread relation deferral (no capability_field, native/direct).
 - Passthrough for unknown/unmapped event kinds.
 - Reason string stability (matching existing user-visible strings).
 - ``supported`` field consistency.
@@ -95,19 +94,6 @@ _DELETE_RELATION = EventRelation(
     key=None,
     fallback_text=None,
 )
-
-_THREAD_RELATION = EventRelation(
-    relation_type="thread",
-    target_event_id="evt-parent",
-    target_native_ref=NativeRef(
-        adapter="test_adapter",
-        native_channel_id="ch-0",
-        native_message_id="native-thread-001",
-    ),
-    key=None,
-    fallback_text=None,
-)
-
 
 # ===================================================================
 # TestEventKindMapping
@@ -291,39 +277,6 @@ class TestRelationMapping:
         # No relations, no relation candidates → text is True by default → native.
         assert decision.capability_level == "native"
         assert decision.delivery_strategy == "direct"
-
-
-# ===================================================================
-# TestThreadDeferral
-# ===================================================================
-
-
-class TestThreadDeferral:
-    """Verify thread relation is deferred (no capability_field)."""
-
-    def test_thread_only_relation_is_passthrough(self) -> None:
-        """Thread relation does not produce a capability candidate."""
-        caps = AdapterCapabilities()
-        event = make_event(event_kind="message.text", relations=(_THREAD_RELATION,))
-        decision = resolver.decide(event, caps)
-
-        # Thread is deferred → no relation candidate.
-        # event_kind=message.text maps to "text" which defaults to True → native.
-        assert decision.capability_level == "native"
-        assert decision.delivery_strategy == "direct"
-        assert decision.supported is True
-
-    def test_thread_alongside_reply_reply_wins(self) -> None:
-        """Thread + reply: reply produces a candidate, thread is skipped."""
-        caps = AdapterCapabilities(replies="unsupported")
-        event = make_event(
-            event_kind="plugin.custom",
-            relations=(_THREAD_RELATION, _REPLY_RELATION),
-        )
-        decision = resolver.decide(event, caps)
-
-        assert decision.capability_level == "unsupported"
-        assert decision.capability_field == "replies"
 
 
 # ===================================================================
@@ -911,25 +864,6 @@ class TestFailClosedSemantics:
         assert decision.supported is True
         assert decision.capability_field is None
         assert decision.reason is None
-
-    def test_unknown_relation_not_treated_as_thread(self) -> None:
-        """Thread relation type produces no candidate and is not treated
-        as a mapped relation.  Only the four mapped relation types
-        (reply, reaction, edit, delete) produce candidates."""
-        caps = AdapterCapabilities()
-        event = make_event(
-            event_kind="plugin.custom",
-            relations=(_THREAD_RELATION,),
-        )
-        decision = resolver.decide(event, caps)
-
-        # Thread relation produces no candidate, event kind is unmapped,
-        # so the result is passthrough (native/direct) with no capability_field.
-        assert decision.capability_level == "native"
-        assert decision.delivery_strategy == "direct"
-        assert decision.capability_field is None
-        # This is NOT because thread was treated as a mapped relation;
-        # it is because thread produces no candidate at all.
 
     def test_unknown_non_thread_relation_is_unsupported(self) -> None:
         """An unmapped non-thread relation type (e.g. 'forward') produces

@@ -146,11 +146,10 @@ VALID_RELATION_TYPES: frozenset[str] = frozenset(
 The constructor validates `relation_type` at construction time. Values outside
 the five known types raise `ValueError`.
 
-**Thread deferral:** The `"thread"` type is valid in the data model and accepted
-by the constructor, but no adapter currently renders thread relations. Thread
-capability requires a future `AdapterCapabilities.threads` field and
-planner-level thread routing support. Until then, thread relations are carried
-through the pipeline but never exercised by any adapter's rendering path.
+**Thread capability:** The `"thread"` type participates in capability planning
+through `AdapterCapabilities.threads`. All current built-in adapters advertise
+`"fallback"` and degrade the relation to deterministic inline text. No built-in
+adapter currently advertises verified native thread emission.
 
 ### 2.4 Resolution Flow
 

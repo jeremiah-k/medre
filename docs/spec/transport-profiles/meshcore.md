@@ -39,12 +39,15 @@ The adapter delegates SDK client lifecycle to `MeshCoreSession`. The session own
 
 Machine-readable capability declaration: [`meshcore-capabilities.json`](meshcore-capabilities.json)
 
-> Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2): `"unsupported"` = `FALSE`.
+> Capability levels map to the CapabilityLevel type alias (adapter-runtime.md §6.2):
+> `"native"` = `TRUE`, `"fallback"` = degraded inline text, and
+> `"unsupported"` = `FALSE`.
 
 | Capability        | Value                                    |
 | ----------------- | ---------------------------------------- |
 | text              | `True`                                   |
 | title             | `False`                                  |
+| threads           | `"fallback"`                             |
 | replies           | `"unsupported"`                          |
 | reactions         | `"unsupported"`                          |
 | edits             | `"unsupported"`                          |
@@ -297,21 +300,26 @@ DM sent with expected_ack captured as native_id; delivery confirmation not track
 
 ## Relation Degradation Behavior
 
-MeshCore is a transport adapter with no native relation support. All relation types are unsupported.
+| Relation type | Capability level | Strategy        | Rendering path                                                                 |
+| ------------- | ---------------- | --------------- | ------------------------------------------------------------------------------ |
+| Replies       | `"unsupported"`  | `skip`          | No delivery. Reply-carrying events targeting this adapter are suppressed.      |
+| Reactions     | `"unsupported"`  | `skip`          | No delivery. Reaction events targeting this adapter are suppressed.            |
+| Edits         | `"unsupported"`  | `skip`          | No delivery. Edit events targeting this adapter are suppressed.                |
+| Deletes       | `"unsupported"`  | `skip`          | No delivery. Delete events targeting this adapter are suppressed.              |
+| Threads       | `"fallback"`     | `fallback_text` | Deterministic inline thread context; native thread emission is not advertised. |
 
-| Relation type | Capability level | Strategy | Rendering path                                                            |
-| ------------- | ---------------- | -------- | ------------------------------------------------------------------------- |
-| Replies       | `"unsupported"`  | `skip`   | No delivery. Reply-carrying events targeting this adapter are suppressed. |
-| Reactions     | `"unsupported"`  | `skip`   | No delivery. Reaction events targeting this adapter are suppressed.       |
-| Edits         | `"unsupported"`  | `skip`   | No delivery. Edit events targeting this adapter are suppressed.           |
-| Deletes       | `"unsupported"`  | `skip`   | No delivery. Delete events targeting this adapter are suppressed.         |
-| Threads       | _deferred_       | —        | Reserved. MeshCore has no thread concept.                                 |
+MeshCore has no verified native relation support. Replies, reactions, edits, and
+deletes remain unsupported planning-time skips, while `threads="fallback"`
+selects deterministic inline thread context during normal live planning. Plain
+message kinds continue to deliver directly.
 
-MeshCore does not currently declare the `"fallback"` capability level for any relation type in its capability JSON. All relations are unsupported. Events carrying relation context are skipped at the planning stage. Because the capability profile does not advertise fallback, the live planner will not normally select `fallback_text` for this adapter. Only `message.created` and `message.text` kinds are delivered, as they do not require relation support.
+When `fallback_text` is supplied for a relation, the MeshCore renderer produces its
+native payload format with the relation context embedded as inline text. This is a
+renderer contract, not a test-only quirk; any code path that populates
+`fallback_text` on a routed relation triggers the same inline-text rendering path.
 
-If a future profile revision or a directly constructed `RenderingContext` supplies `fallback_text` for a relation, the MeshCore renderer would produce its native payload format with the relation context embedded as inline text. This is a renderer contract, not a test-only quirk; any code path that populates `fallback_text` on a routed relation triggers the same inline-text rendering path.
-
-**Thread deferral:** The `"thread"` relation type is defined in the canonical event model (`VALID_RELATION_TYPES`), but no adapter currently renders thread relations natively. However, fallback-text rendering for threads is implemented: when `delivery_strategy == "fallback_text"`, thread relations are degraded into inline text (e.g. `[thread: {target}] {payload_text}`). Thread capability requires a future `AdapterCapabilities.threads` field and planner-level thread routing before any adapter can advertise or render threads natively.
+**Thread capability:** MeshCore has no native thread primitive; thread relations
+are deterministically degraded to inline fallback text.
 
 **Payload requirement:** The MeshCore renderer produces MeshCore-native payloads (text body, truncated to `max_text_bytes`, with `channel_index` or `contact_id`). The adapter dispatches these payloads via `session.send_text` without modification.
 

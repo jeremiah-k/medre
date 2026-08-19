@@ -10,10 +10,11 @@ are defined:
   that do not return :class:`DeliveryPlan` objects from
   ``route_event``.
 
-The replay engine dispatches between them at runtime via ``hasattr``
-detection (not ``isinstance``), so ``@runtime_checkable`` is intentionally
-omitted.  Adding it would encourage ``isinstance`` checks against a
-protocol that intentionally mixes mandatory and optional methods.
+The replay engine distinguishes production and stub collaborators through
+explicit method lookup rather than ``isinstance`` checks, so
+``@runtime_checkable`` is intentionally omitted.  Rendering prefers a callable
+``render_replay_event`` method, falls back to a callable legacy ``render_event``
+method, and reports an error when neither is explicitly implemented.
 """
 
 from __future__ import annotations
@@ -33,8 +34,9 @@ class _RealPipelineProtocol(Protocol):
     """Methods supplied by the production PipelineRunner.
 
     The replay engine calls only the methods it needs for the requested
-    replay mode.  ``transform_event`` and ``render_event`` are optional
-    at runtime — the engine checks via ``hasattr`` before calling.
+    replay mode. ``transform_event``, ``render_replay_event``, and the legacy
+    ``render_event`` fallback are optional at runtime and are invoked only when
+    explicit callable implementations are present.
     """
 
     async def route_event(
@@ -66,6 +68,10 @@ class _RealPipelineProtocol(Protocol):
 
     async def transform_event(self, event: CanonicalEvent) -> CanonicalEvent:
         """Apply registered transforms to *event* and return the result."""
+        ...
+
+    async def render_replay_event(self, event: CanonicalEvent) -> Any:
+        """Re-render using persisted historical target context."""
         ...
 
     async def render_event(self, event: CanonicalEvent) -> Any:

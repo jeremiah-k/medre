@@ -154,6 +154,7 @@ class MeshtasticAdapter(AdapterContract):
             text=True,
             title=False,
             replies="native",
+            threads="fallback",
             reactions="native",
             edits="unsupported",
             deletes="unsupported",
@@ -459,6 +460,7 @@ class MeshtasticAdapter(AdapterContract):
             native_channel_id=str(channel_index),
             delivery_note="locally enqueued",
             delivery_status="enqueued",
+            confirmation_level="local_queue",
             metadata=MappingProxyType(
                 {
                     "meshtastic": {
@@ -1437,6 +1439,7 @@ class MeshtasticAdapter(AdapterContract):
             delivery_plan_id=result.item.get("delivery_plan_id"),
             outbox_id=result.item.get("outbox_id"),
             attempt_number=result.item.get("attempt_number"),
+            confirmation_level=delivery.confirmation_level,
             metadata=send_meta,
         )
         callback = self.ctx.record_outbound_native_ref if self.ctx else None

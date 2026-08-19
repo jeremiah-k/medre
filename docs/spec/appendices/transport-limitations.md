@@ -27,20 +27,27 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
    M_LIMIT_EXCEEDED responses are classified as transient. Full adaptive
    transport backoff as runtime policy is not yet implemented.
 
-5. **Graceful shutdown is bounded, not fully durable.** On stop, the runtime
-   waits up to `limits.shutdown_drain_timeout_seconds` for in-flight delivery
-   to drain. Work still inside adapter SDK sync loops or adapter-local queues
-   may be abandoned after the drain timeout.
+5. **Graceful shutdown is bounded, not fully durable outside MEDRE-owned state.**
+   Durable-ingress grace and in-flight capacity drain share one
+   `limits.shutdown_drain_timeout_seconds` deadline. Work already admitted to
+   MEDRE remains persisted, but work still only inside an adapter SDK or
+   adapter-local queue can be abandoned when transport-specific shutdown
+   guarantees run out.
 
-6. **No inbound persistence.** Inbound events are published directly to the
-   pipeline. If the pipeline is slow or fails, the event is gone. No retry,
-   no redelivery at the inbound stage.
+6. **With runtime storage, durable ingress starts at canonical admission, not at
+   raw transport receipt.** When runtime storage is configured, normal live
+   callbacks atomically persist the canonical event, inbound native reference, and
+   pending work marker before returning. Without runtime storage, the fallback path
+   is non-durable and depends on transport checkpoint/recovery semantics. Failures
+   before canonical admission likewise depend on transport cursor/ACK/recovery.
 
-7. **No structured logging.** All log output is format-string based. No trace
-   IDs, no correlation across events, no structured fields.
+7. **Structured correlation is process-local execution context.** Managed JSON
+   logs inherit trace/event/route/plan/outbox/receipt correlation fields, but
+   MEDRE does not provide distributed tracing or an external log collector.
 
-8. **No metrics export.** Diagnostics counters exist in memory but there is no
-   Prometheus endpoint, no statsd, no external export.
+8. **Metrics export is snapshot-based.** `medre diagnostics --format prometheus`
+   emits numeric/boolean diagnostics as Prometheus text, but MEDRE does not run
+   a Prometheus HTTP endpoint or statsd exporter.
 
 9. **Single-operator only.** Everything is tested and documented for a single
    person on a single machine. Multi-node, multi-operator, and deployment
@@ -154,14 +161,23 @@ mechanisms:
 
 ## 6. Capability Semantics Known Gaps
 
-1. **Fallback capability level is dormant in production transport profiles.** No production transport profile (Matrix, Meshtastic, MeshCore, LXMF) currently declares a three-level string capability field at `"fallback"`. The fallback rendering path (`"fallback_text"` strategy) is tested with synthetic configurations but has no R-tier evidence from a live transport. See Routing and Delivery Specification § 6.3.2.
+1. **Thread fallback lacks live endpoint evidence.** Built-in profiles declare
+   `threads="fallback"` and exercise the normal planner fallback path, but no R-tier
+   live-service/hardware scenario validates degraded thread output end-to-end.
+   Native thread emission is intentionally not advertised.
 
-2. **No hardware or live validation of capability suppression.** All capability suppression, fallback rendering, and budget enforcement tests use fake adapters and synthetic capability configurations. No test exercises capability gating against a real transport endpoint.
+2. **No hardware or live validation of capability suppression.** Most capability
+   suppression, fallback rendering, and budget enforcement coverage remains
+   synthetic even though the same production planner path is exercised.
 
-3. **RE_RENDER replay mode does not reconstruct full capability-aware rendering context.** The `RE_RENDER` mode re-runs rendering through the pipeline but does not reconstruct `RenderingContext` from stored artifacts. The rendering context used during replay may not match the original context that governed the live render.
+3. **Replay same-run suppression is not a concurrency-safe exactly-once primitive.**
+   A non-empty replay run ID suppresses targets with durable prior acceptance evidence
+   for that same run, plan, and target, but concurrent executions can race before
+   either acceptance receipt commits.
 
-4. **Replay pre-filter suppressed evidence is in-memory only.** When replay capability filtering suppresses all plans for an event, the evidence records are carried in the in-memory `ReplayResult` output, not persisted to storage. Process crashes before operator inspection lose this evidence.
+4. **Some replay pre-filter evidence remains in-memory only.** Target-level same-run
+   duplicate suppression is durable, while capability-filter diagnostics that never
+   create a target receipt remain part of the replay result only.
 
-5. **Thread relation capability gating is deferred.** No `AdapterCapabilities.threads` field exists. Thread-carrying events receive native/direct delivery when no other capability candidate overrides. This is intentional but means thread relations are never capability-suppressed. See Routing and Delivery Specification § 6.3.6.
-
-6. **`RenderingContext.capability_policy` is reserved and unpopulated.** No test or production code path exercises this field.
+5. **`RenderingContext.capability_policy` is reserved and unpopulated.** No
+   production code path currently sets this field.

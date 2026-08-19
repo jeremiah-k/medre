@@ -50,6 +50,7 @@ from tests.helpers.fake_runtime import (
     make_cross_transport_config_with_route,
     make_multi_adapter_config,
     make_two_adapter_config_with_route,
+    wait_until,
 )
 
 # ---------------------------------------------------------------------------
@@ -198,6 +199,7 @@ class TestSyntheticEventRoutesThroughPipeline:
                 "Route this to beta", event_kind=EventKind.MESSAGE_TEXT
             )
             await alpha.simulate_inbound(event)
+            await wait_until(lambda: len(beta.delivered_payloads) == 1, timeout=2.0)
 
             # Alpha should have recorded the inbound.
             assert len(alpha.inbound_events) == 1
@@ -231,6 +233,7 @@ class TestSyntheticEventRoutesThroughPipeline:
 
             # Meshtastic adapter should have received the delivery.
             mesh = app.adapters["mesh_dst"]
+            await wait_until(lambda: len(mesh.delivered_payloads) == 1, timeout=2.0)
             assert len(mesh.delivered_payloads) == 1, (
                 f"Expected mesh_dst to receive exactly 1 delivery, "
                 f"got {len(mesh.delivered_payloads)}"
@@ -437,6 +440,9 @@ def test_durable_ingress_diagnostics_have_stable_disabled_shape(
         "failures": 0,
         "lost_leases": 0,
         "terminal_failures": 0,
+        "deferrals": 0,
+        "active_event_id": None,
+        "forced_cancellations": 0,
     }
 
 
@@ -624,6 +630,9 @@ class TestRepeatedStartStopCycles:
                     f"Soak cycle {cycle}", event_kind=EventKind.MESSAGE_TEXT
                 )
                 await alpha.simulate_inbound(event)
+                await wait_until(
+                    lambda b=beta: len(b.delivered_payloads) == 1, timeout=2.0
+                )
 
                 # Verify delivery occurred.
                 assert len(beta.delivered_payloads) == 1

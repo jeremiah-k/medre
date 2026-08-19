@@ -20,7 +20,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from medre.core.engine.pipeline.delivery_state import RECEIPT_STATUSES
-from medre.core.events import DeliveryReceipt
+from medre.core.events import DELIVERY_CONFIRMATION_LEVEL_VALUES, DeliveryReceipt
 from medre.core.storage.sqlite.serde import _row_to_receipt
 from medre.core.storage.sqlite.statements import (
     _DELIVERY_RECEIPT_LATEST_BY_CHANNEL,
@@ -60,6 +60,13 @@ class _ReceiptMixin:
                 f"Unknown receipt status {receipt.status!r}; "
                 f"expected one of {sorted(RECEIPT_STATUSES)}"
             )
+        if not isinstance(receipt.confirmation_level, str) or (
+            receipt.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES
+        ):
+            raise ValueError(
+                f"Unknown confirmation level {receipt.confirmation_level!r}; "
+                f"expected one of {sorted(DELIVERY_CONFIRMATION_LEVEL_VALUES)}"
+            )
 
         # Normalise empty-string target_channel to NULL.
         channel = receipt.target_channel or None
@@ -91,6 +98,7 @@ class _ReceiptMixin:
                 ),
                 receipt.rendering_evidence,
                 receipt.outbox_id,
+                receipt.confirmation_level,
                 receipt.created_at.isoformat(),
             ),
         )

@@ -20,6 +20,7 @@ from typing import Literal
 import msgspec
 from msgspec.structs import force_setattr
 
+from medre.core.events.delivery import DeliveryConfirmationLevel
 from medre.core.events.metadata import EventMetadata, _FrozenDict
 
 # Re-export canonical constants from schema to avoid circular imports.
@@ -224,6 +225,11 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         Internal correlation key linking this receipt to the durable
         outbox item tracking this delivery attempt.  ``None`` when not
         applicable (e.g., synchronous adapters, suppressed receipts).
+    confirmation_level:
+        Strongest transport delivery fact proven by this receipt.  One of
+        ``"unknown"``, ``"local_queue"``, ``"local_transport"``,
+        ``"remote_service"``, or ``"end_to_end"``.
+        This is evidence strength, not lifecycle state.
     created_at:
         Timestamp when this receipt was created.
     """
@@ -256,6 +262,7 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     retry_jitter: bool | None = None
     rendering_evidence: str | None = None
     outbox_id: str | None = None
+    confirmation_level: DeliveryConfirmationLevel = "unknown"
     created_at: datetime = msgspec.field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

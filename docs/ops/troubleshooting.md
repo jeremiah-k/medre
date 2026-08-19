@@ -811,7 +811,9 @@ Lifecycle convergence diagnostics are deterministic and read-only. They never ch
 4. **Cross-instance coordination.** Routes, attribution, and stats are local to the process.
 5. **Automatic route reconfiguration.** Route changes require a restart.
 6. **Delivery ordering guarantees.** Events are matched in route registration order, but async delivery means actual outbound ordering depends on transport latency.
-7. **Replay deduplication.** Replayed events may be delivered again if they match current routes.
+7. **Global replay deduplication.** Different or empty replay run IDs may deliver
+   matching events again. A non-empty run ID suppresses visible accepted targets
+   only within that same run; concurrent same-run executions can still race.
 8. **Persistent queue.** Runtime execution state (counters, gauges, route stats) is in-memory only. SQLite receipt and outbox evidence persists across restarts. In-flight adapter deliveries abandoned after drain timeout produce `suppressed` receipts with `failure_kind="shutdown_rejection"` and `error="shutdown_drain_timeout"`; non-terminal outbox items survive shutdown as resumable work.
 
 ## Support Bundles

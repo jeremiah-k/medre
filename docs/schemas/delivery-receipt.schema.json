@@ -117,6 +117,18 @@
       "default": null,
       "description": "Internal correlation key linking this receipt to the durable outbox item tracking this delivery attempt."
     },
+    "confirmation_level": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "local_queue",
+        "local_transport",
+        "remote_service",
+        "end_to_end"
+      ],
+      "default": "unknown",
+      "description": "Strongest delivery fact proven by the adapter or receipt; independent of lifecycle status."
+    },
     "created_at": {
       "type": "string",
       "format": "date-time",

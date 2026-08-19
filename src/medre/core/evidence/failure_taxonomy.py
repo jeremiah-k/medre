@@ -87,6 +87,7 @@ class FailureTaxon(Enum):
     LOOP_SUPPRESSED = "loop_suppressed"
     POLICY_SUPPRESSED = "policy_suppressed"
     OUTBOX_NOT_OWNED = "outbox_not_owned"
+    REPLAY_DUPLICATE_SUPPRESSED = "replay_duplicate_suppressed"
 
     # -- Operational -------------------------------------------------------
 
@@ -126,6 +127,7 @@ FAILURE_KIND_TO_TAXON: dict[str, FailureTaxon] = {
     "policy_suppressed": FailureTaxon.POLICY_SUPPRESSED,
     "capability_suppressed": FailureTaxon.CAPABILITY_SUPPRESSED,
     "outbox_not_owned": FailureTaxon.OUTBOX_NOT_OWNED,
+    "replay_duplicate_suppressed": FailureTaxon.REPLAY_DUPLICATE_SUPPRESSED,
 }
 """Identity mapping for all ``DeliveryFailureKind`` values.
 
@@ -323,6 +325,7 @@ _PERMANENT_TAXA: frozenset[FailureTaxon] = frozenset(
         FailureTaxon.ROUTE_DISABLED,
         FailureTaxon.ROUTE_LISTEN_ONLY,
         FailureTaxon.OUTBOX_NOT_OWNED,
+        FailureTaxon.REPLAY_DUPLICATE_SUPPRESSED,
     }
 )
 _OPERATIONAL_TAXA: frozenset[FailureTaxon] = frozenset(

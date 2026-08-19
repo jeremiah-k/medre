@@ -32,6 +32,7 @@ from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 _OUTBOX_RENEWAL_INTERVAL_SECONDS: int = 30  # seconds between lease renewals
 _OUTBOX_RENEWAL_DURATION_SECONDS: int = 60  # lease TTL (kept short; renewed)
+OUTBOX_CREATION_FAILED_REASON: str = "outbox_creation_failed"
 
 
 @dataclass(frozen=True)
@@ -221,7 +222,7 @@ class OutboxManager:
                 adapter_name,
             )
             # Non-fatal: pipeline continues without outbox tracking.
-            skip_reason = "outbox_creation_failed"
+            skip_reason = OUTBOX_CREATION_FAILED_REASON
         return OutboxContext(
             outbox_id=outbox_id,
             created=outbox_created,

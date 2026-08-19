@@ -42,6 +42,13 @@ def _all_defaults_caps() -> AdapterCapabilities:
     return AdapterCapabilities()
 
 
+def test_threads_field_is_appended_after_legacy_positional_fields() -> None:
+    names = [field.name for field in fields(AdapterCapabilities)]
+    assert names[-1] == "threads"
+    assert names[-2] == "max_text_chars"
+    assert names.index("reactions") == 3
+
+
 # ===================================================================
 # TransportCapabilities value object
 # ===================================================================

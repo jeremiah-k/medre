@@ -352,6 +352,10 @@ class RenderingEvidence:
         rendering decisions for each relation on the event.  Empty
         tuple when the event has no relations or when event data is
         unavailable at evidence construction time.
+    source_origin_label:
+        Explicit source attribution label from the historical rendering
+        context, or ``None`` when no label was supplied.  Raw rendered
+        content is never stored here.
     """
 
     # --- Schema ---
@@ -382,6 +386,7 @@ class RenderingEvidence:
     conversation_id: str | None = None
     root_event_id: str | None = None
     relation_evidence: tuple[RelationTargetEvidence, ...] = ()
+    source_origin_label: str | None = None
 
     # ------------------------------------------------------------------
     # Factory
@@ -450,6 +455,7 @@ class RenderingEvidence:
             conversation_id=conversation_id,
             root_event_id=root_event_id,
             relation_evidence=relation_evidence,
+            source_origin_label=ctx.source_origin_label,
         )
 
     # ------------------------------------------------------------------
@@ -485,4 +491,5 @@ class RenderingEvidence:
             "conversation_id": self.conversation_id,
             "root_event_id": self.root_event_id,
             "relation_evidence": [re.to_dict() for re in self.relation_evidence],
+            "source_origin_label": self.source_origin_label,
         }

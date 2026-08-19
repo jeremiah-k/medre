@@ -440,6 +440,22 @@ class _IngressMixin:
         )
         return changed == 1
 
+    async def defer_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str
+    ) -> bool:
+        """Return owned operationally deferred work without spending an attempt."""
+        changed = await self._write_rowcount(
+            """
+            UPDATE durable_ingress_work
+            SET status='pending', attempts=CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END,
+                updated_at=?, locked_at=NULL, lease_until=NULL, worker_id=NULL,
+                last_error=?
+            WHERE event_id=? AND status='processing' AND worker_id=?
+            """,
+            (_now_iso(), error[:1000], event_id, worker_id),
+        )
+        return changed == 1
+
     async def fail_ingress_work(
         self, event_id: str, *, worker_id: str, error: str
     ) -> bool:

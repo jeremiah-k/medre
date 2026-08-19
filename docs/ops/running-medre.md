@@ -242,13 +242,13 @@ queued → sent
        ↘ suppressed
 ```
 
-| Status          | Meaning                                                                                        |
-| --------------- | ---------------------------------------------------------------------------------------------- |
-| `queued`        | Delivery plan created, waiting for adapter execution.                                          |
-| `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means. |
-| `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                               |
-| `dead_lettered` | Exhausted all retries. Permanently failed.                                                     |
-| `suppressed`    | Terminal — delivery denied by policy (loop prevention, route policy, capacity, shutdown).      |
+| Status          | Meaning                                                                                                                                                                                                                                       |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `queued`        | Delivery plan created, waiting for adapter execution.                                                                                                                                                                                         |
+| `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means.                                                                                                                                                |
+| `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                                                                                                                                                                              |
+| `dead_lettered` | Exhausted all retries. Permanently failed.                                                                                                                                                                                                    |
+| `suppressed`    | Terminal for that delivery attempt. Policy/loop denials remain terminal; direct/replay capacity or shutdown rejection is also terminal for that attempt. Storage-backed live ingress instead defers its durable work row for a later attempt. |
 
 Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column distinguishes origin: `"live"`, `"retry"`, or `"replay"`.
 
@@ -402,7 +402,11 @@ runtime:
     delivery_acquire_timeout_seconds: 1.0
 ```
 
-The pipeline uses semaphores to bound concurrent delivery and replay. When capacity is exhausted, new deliveries are rejected with `error="delivery_capacity_exceeded"` — no retry.
+The pipeline uses bounded worker pools plus capacity semaphores to bound concurrent
+delivery and replay. Direct/replay work that cannot acquire a slot is rejected with
+`error="delivery_capacity_exceeded"`. Durably admitted live ingress instead returns
+to pending as an operational deferral without consuming its poison-work attempt
+budget.
 
 ### Diagnostics Counters
 
@@ -699,12 +703,17 @@ tar czf medre-state-backup.tar.gz /host/medre-data/state/
 MEDRE is best-effort. It explicitly does not provide:
 
 1. **Exactly-once delivery** — radio transports are probabilistic, Matrix is at-least-once, LXMF is at-least-once with eventual delivery.
-2. **Replay deduplication** — replayed events may be delivered again.
+2. **Global replay deduplication** — different or empty replay run IDs remain
+   repeatable. A non-empty run ID suppresses visible accepted targets only within
+   that same run, and concurrent same-run executions can race before acceptance.
 3. **Durable adapter-local queue** — Meshtastic outbound queue is in-memory, lost on shutdown.
 4. **Per-adapter restart** — only full runtime stop/start.
 5. **Distributed coordination** — state is local to the process.
 6. **Transactional fan-out** — each target in a fan-out is independent; partial delivery is normal.
-7. **Delivery completeness under pressure** — capacity bounds prevent unbounded memory growth but do not prevent data loss.
+7. **Delivery completeness under pressure** — direct/replay work can be rejected
+   when capacity is unavailable. Storage-backed live ingress is durably deferred
+   instead, but eventual delivery still depends on later processing and transport
+   behavior.
 
 ## Log File Location
 
@@ -757,7 +766,13 @@ The `CapacityController` manages two independent semaphores:
 | Delivery | `max_inflight_deliveries`    | 100           | Concurrent adapter `deliver()` calls across all adapters |
 | Replay   | `max_inflight_replay_events` | 100           | Concurrent replay event deliveries                       |
 
-When a delivery or replay event cannot acquire a slot within `delivery_acquire_timeout_seconds` (default 1.0s), the operation is rejected — permanent failure with diagnostics incremented. No retry.
+When a direct delivery or replay event cannot acquire a slot within
+`delivery_acquire_timeout_seconds` (default 1.0s), the operation is rejected and
+diagnostics are incremented. A delivery spawned from durably admitted live ingress
+is different: capacity/shutdown rejection defers the ingress row back to pending
+without spending the processing-failure attempt budget. Delivery fan-out creates at
+most `max_inflight_deliveries` worker tasks rather than allocating one waiting task
+per target.
 
 ### Adapter-Level Queue Bounds
 
