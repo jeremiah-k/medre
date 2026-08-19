@@ -65,34 +65,48 @@ def _assigned_value(statement: ast.stmt, target_name: str) -> ast.AST | None:
     return None
 
 
-def _scope_assignments(statements: list[ast.stmt]) -> dict[str, ast.AST]:
-    assignments: dict[str, ast.AST] = {}
+def _pytestmark_markers(
+    statements: list[ast.stmt],
+    inherited: dict[str, ast.AST] | None = None,
+    *,
+    class_body: bool = False,
+) -> set[str]:
+    """Resolve ``pytestmark`` markers with runtime name-resolution semantics.
+
+    Bindings are applied in statement order: a ``pytestmark`` statement is
+    resolved against only the names assigned *before* it, so a later
+    reassignment (``tier = pytest.mark.live`` after ``pytestmark = tier``)
+    cannot change what the parser reports — mirroring how Python evaluates
+    the module. Nested class bodies receive only the bindings of the
+    scope that encloses their parent class, because class bodies do not
+    close over outer class namespaces: a nested ``pytestmark =
+    outer_tier`` is a runtime ``NameError``, never a resolved marker.
+    """
+    markers: set[str] = set()
+    scope_base = dict(inherited or {})
+    bindings = dict(scope_base)
     for statement in statements:
+        value = _assigned_value(statement, "pytestmark")
+        if value is not None:
+            markers.update(_markers_in_expression(value, bindings))
+        if isinstance(statement, ast.ClassDef):
+            markers.update(
+                _pytestmark_markers(
+                    statement.body,
+                    scope_base if class_body else bindings,
+                    class_body=True,
+                )
+            )
         if isinstance(statement, ast.Assign):
             for target in statement.targets:
                 if isinstance(target, ast.Name):
-                    assignments[target.id] = statement.value
+                    bindings[target.id] = statement.value
         elif (
             isinstance(statement, ast.AnnAssign)
             and isinstance(statement.target, ast.Name)
             and statement.value is not None
         ):
-            assignments[statement.target.id] = statement.value
-    return assignments
-
-
-def _pytestmark_markers(
-    statements: list[ast.stmt], inherited: dict[str, ast.AST] | None = None
-) -> set[str]:
-    assignments = dict(inherited or {})
-    assignments.update(_scope_assignments(statements))
-    markers: set[str] = set()
-    for statement in statements:
-        value = _assigned_value(statement, "pytestmark")
-        if value is not None:
-            markers.update(_markers_in_expression(value, assignments))
-        if isinstance(statement, ast.ClassDef):
-            markers.update(_pytestmark_markers(statement.body, assignments))
+            bindings[statement.target.id] = statement.value
     return markers
 
 

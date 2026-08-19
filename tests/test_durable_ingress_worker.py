@@ -233,6 +233,8 @@ async def test_worker_start_stop_are_idempotent() -> None:
 
 
 async def test_worker_detects_lease_loss_during_processing() -> None:
+    from medre.core.ingress.worker import _IngressLeaseLostError
+
     storage = _Storage([_work()])
     entered = asyncio.Event()
 
@@ -241,12 +243,18 @@ async def test_worker_detects_lease_loss_during_processing() -> None:
             entered.set()
             await asyncio.Event().wait()
 
-    worker = DurableIngressWorker(
-        storage=storage, pipeline=_BlockedPipeline(), lease_seconds=0.03
-    )
+    worker = DurableIngressWorker(storage=storage, pipeline=_BlockedPipeline())
+
+    async def _lose_lease_once_processing(event_id: str) -> None:
+        # Deterministic ownership loss: no wall-clock lease interval — the
+        # lease is revoked the moment the pipeline starts processing.
+        await entered.wait()
+        raise _IngressLeaseLostError(
+            f"durable ingress lease lost for event {event_id}"
+        )
+
+    worker._renew_lease = _lose_lease_once_processing  # type: ignore[method-assign]
     task = asyncio.create_task(worker.run_once())
-    await entered.wait()
-    storage.owns = False
 
     assert await asyncio.wait_for(task, timeout=1) == 0
     assert worker.failures == 1

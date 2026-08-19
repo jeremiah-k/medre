@@ -17,38 +17,7 @@ from medre.core.storage.sqlite.connection import (
     sync_upsert_checkpoint,
     sync_write_rowcount,
 )
-
-_MINIMAL_SCHEMA = """
-CREATE TABLE canonical_events (event_id TEXT PRIMARY KEY);
-CREATE TABLE native_message_refs (
-    id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL,
-    adapter TEXT NOT NULL,
-    native_channel_id TEXT,
-    native_message_id TEXT NOT NULL,
-    UNIQUE(adapter, native_channel_id, native_message_id)
-);
-CREATE TABLE durable_ingress_work (
-    event_id TEXT PRIMARY KEY,
-    provenance TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    locked_at TEXT,
-    lease_until TEXT,
-    worker_id TEXT
-);
-CREATE TABLE adapter_checkpoints (
-    adapter_id TEXT NOT NULL,
-    stream TEXT NOT NULL,
-    cursor TEXT NOT NULL,
-    metadata TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY(adapter_id, stream)
-);
-"""
+from medre.core.storage.sqlite.schema import _SCHEMA
 
 
 class _RollbackFailingConnection:
@@ -65,7 +34,9 @@ class _RollbackFailingConnection:
 def ingress_db() -> Iterator[sqlite3.Connection]:
     db = sqlite3.connect(":memory:")
     db.row_factory = sqlite3.Row
-    db.executescript(_MINIMAL_SCHEMA)
+    # The production DDL: these primitives must run against the shipped
+    # table shapes, never a local copy that can silently drift.
+    db.executescript(_SCHEMA)
     try:
         yield db
     finally:
@@ -73,17 +44,49 @@ def ingress_db() -> Iterator[sqlite3.Connection]:
 
 
 def _event_ops(event_id: str) -> list[tuple[str, tuple[str, ...]]]:
-    return [("INSERT INTO canonical_events(event_id) VALUES (?)", (event_id,))]
+    # Satisfies every NOT NULL column of the production canonical_events
+    # DDL (see schema._SCHEMA) so these primitives run against shipped
+    # table shapes.
+    return [
+        (
+            """
+            INSERT INTO canonical_events
+                (event_id, event_kind, schema_version, timestamp,
+                 source_adapter, source_transport_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_id,
+                "message.text",
+                1,
+                "2026-08-18T23:00:00+00:00",
+                "matrix",
+                "matrix-main",
+                "2026-08-18T23:00:00+00:00",
+            ),
+        )
+    ]
 
 
 def _native_insert(event_id: str, native_id: str) -> tuple[str, tuple[str, ...]]:
     return (
         """
         INSERT INTO native_message_refs
-            (id, event_id, adapter, native_channel_id, native_message_id)
-        VALUES (?, ?, ?, ?, ?)
+            (id, event_id, adapter, native_channel_id, native_message_id,
+             native_thread_id, native_relation_id, direction, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (f"ref-{event_id}", event_id, "matrix-main", "!room", native_id),
+        (
+            f"ref-{event_id}",
+            event_id,
+            "matrix-main",
+            "!room",
+            native_id,
+            None,
+            None,
+            "inbound",
+            "2026-08-18T23:00:00+00:00",
+        ),
     )
 
 
@@ -300,7 +303,10 @@ def test_sync_write_rowcount_reports_matches_and_rolls_back_errors(
     ingress_db: sqlite3.Connection,
 ) -> None:
     lock = threading.Lock()
-    ingress_db.execute("INSERT INTO canonical_events(event_id) VALUES ('evt-1')")
+    ingress_db.execute(
+        "INSERT INTO canonical_events (event_id, event_kind, schema_version, timestamp, source_adapter, source_transport_id, created_at) "
+        "VALUES ('evt-1', 'message.text', 1, '2026-08-18T23:00:00+00:00', 'matrix', 'matrix-main', '2026-08-18T23:00:00+00:00')"
+    )
     ingress_db.commit()
 
     assert sync_write_rowcount(

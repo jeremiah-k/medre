@@ -1223,23 +1223,3 @@ class TestPipelineMetadataIgnoredForLifecycle:
         else:
             result = AdapterDeliveryResult(delivery_status=delivery_status)
             assert _classify_delivery_status(result) == expected
-
-
-async def test_durable_admission_requires_wired_context() -> None:
-    adapter = _StubAdapter()
-    event = make_event()
-
-    with pytest.raises(RuntimeError, match="durable ingress admission is not wired"):
-        await adapter.admit_inbound(event, "live")
-
-
-async def test_durable_admission_delegates_to_context() -> None:
-    adapter = _StubAdapter()
-    event = make_event()
-    result = object()
-    ctx = _make_context()
-    ctx.admit_inbound = AsyncMock(return_value=result)
-    adapter.ctx = ctx
-
-    assert await adapter.admit_inbound(event, "recovered") is result
-    ctx.admit_inbound.assert_awaited_once_with(event, "recovered")

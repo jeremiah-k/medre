@@ -913,6 +913,47 @@ def test_declared_markers_resolve_class_local_alias(tmp_path: Path) -> None:
     assert declared_pytest_markers(path) == frozenset({"hardware"})
 
 
+def test_declared_markers_resolve_in_statement_order(tmp_path: Path) -> None:
+    """A reassignment after ``pytestmark`` must not change the resolution.
+
+    At runtime ``pytestmark = tier`` evaluates ``tier`` as it stands at
+    that statement, so the module uses ``hardware``; a later ``tier =
+    pytest.mark.live`` rebinds only the name. The parser must agree —
+    resolving against final bindings would report ``live`` and silently
+    change default test selection.
+    """
+    path = tmp_path / "test_marker.py"
+    path.write_text(
+        "import pytest\n"
+        "tier = pytest.mark.hardware\n"
+        "pytestmark = tier\n"
+        "tier = pytest.mark.live\n"
+    )
+
+    assert declared_pytest_markers(path) == frozenset({"hardware"})
+
+
+def test_declared_markers_do_not_leak_class_scope_into_nested_classes(
+    tmp_path: Path,
+) -> None:
+    """A nested class cannot resolve the outer class's namespace.
+
+    Class bodies do not close over outer class namespaces, so the inner
+    ``pytestmark = tier`` is a runtime ``NameError``; the parser must not
+    resolve it through the outer class binding.
+    """
+    path = tmp_path / "test_marker.py"
+    path.write_text(
+        "class Outer:\n"
+        "    tier = pytest.mark.live\n"
+        "\n"
+        "    class Inner:\n"
+        "        pytestmark = tier\n"
+    )
+
+    assert declared_pytest_markers(path) == frozenset()
+
+
 def test_addopts_parser_ignores_marker_text_outside_addopts(tmp_path: Path) -> None:
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text("""\
