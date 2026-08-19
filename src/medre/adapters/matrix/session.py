@@ -1402,6 +1402,14 @@ class MatrixSession:
         # retries, so detach it from the sync callback and track the task for
         # deterministic shutdown.  The warning dedup key also prevents a second
         # task for the same room/session during the dedup window.
+        if self._stop_requested:
+            # Refuse new recovery during shutdown so stop()'s cancel-and-drain
+            # cannot miss a task created after its snapshot.
+            self._logger.debug(
+                "Skipping missing room-key recovery for %s: session is stopping",
+                event_id,
+            )
+            return
         if not isinstance(room_id, str) or not room_id.startswith("!"):
             self._logger.debug(
                 "Skipping missing room-key request for event %s without a valid room ID",
@@ -1707,16 +1715,21 @@ class MatrixSession:
             if callable(stop_sync):
                 stop_sync()
 
-        # Cancel detached Megolm recovery before closing the client.
-        recovery_tasks = list(self._room_key_request_tasks.values())
-        if recovery_tasks:
+        # Cancel detached Megolm recovery before closing the client. Drain in
+        # a loop: a sync callback racing stop() can register a task after a
+        # single snapshot (task creation also refuses during shutdown, so
+        # this converges immediately in practice).
+        drained = 0
+        while self._room_key_request_tasks:
+            recovery_tasks = list(self._room_key_request_tasks.values())
+            self._room_key_request_tasks.clear()
             for task in recovery_tasks:
                 task.cancel()
-            self._room_key_request_tasks.clear()
             await asyncio.gather(*recovery_tasks, return_exceptions=True)
+            drained += len(recovery_tasks)
+        if drained:
             self._logger.debug(
-                "Cancelled %d outstanding Megolm recovery task(s)",
-                len(recovery_tasks),
+                "Cancelled %d outstanding Megolm recovery task(s)", drained
             )
 
         # Cancel outstanding join tasks before closing the client.

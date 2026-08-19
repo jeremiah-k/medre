@@ -434,6 +434,102 @@ async def test_duplicate_live_undecryptable_event_requests_keys_once_per_window(
     assert session.diagnostics().megolm_recovery_attempts == 1
 
 
+async def test_stop_drains_recovery_task_registered_after_cancel_snapshot() -> None:
+    """A task registered after stop()'s snapshot is still cancelled.
+
+    Regression: stop() used to snapshot, clear, and gather once. A sync
+    callback racing shutdown could register a Megolm recovery task after
+    the snapshot — uncancelled, running against the closing client.
+    """
+    session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
+    session._crypto_enabled = True
+    session._live_sync_started = True
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    stop_entered = asyncio.Event()
+
+    async def _to_device(_request: object) -> object:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return SimpleNamespace()
+
+    session._client = SimpleNamespace(
+        device_id="DEVICE42",
+        user_id="@relay:example.test",
+        to_device=AsyncMock(side_effect=_to_device),
+        olm=None,
+        store=None,
+        stop_sync_forever=lambda: stop_entered.set(),
+    )
+    event = SimpleNamespace(
+        event_id="$late",
+        session_id="late-session",
+        as_key_request=MagicMock(return_value={"request": "missing-key"}),
+    )
+
+    # First recovery task exists before stop().
+    await session._on_megolm_event(
+        SimpleNamespace(room_id="!room:example.test"), event
+    )
+    await started.wait()
+
+    async def _late_callback() -> None:
+        # Simulates the race window: registers a second task after stop()
+        # has snapshotted and cleared the registry but before the drain
+        # finishes.
+        await stop_entered.wait()
+        late_event = SimpleNamespace(
+            event_id="$later",
+            session_id="later-session",
+            as_key_request=MagicMock(return_value={"request": "missing-key"}),
+        )
+        await session._on_megolm_event(
+            SimpleNamespace(room_id="!room:example.test"), late_event
+        )
+
+    late = asyncio.create_task(_late_callback())
+    await session.stop(timeout=2)
+    await late
+
+    assert cancelled.is_set(), "in-flight recovery task was not cancelled"
+    assert not session._room_key_request_tasks, (
+        "recovery registry not fully drained at stop"
+    )
+
+
+async def test_no_new_recovery_task_is_created_while_stopping() -> None:
+    """Task creation refuses once shutdown is signalled."""
+    session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
+    session._crypto_enabled = True
+    session._live_sync_started = True
+    session._stop_requested = True
+    to_device = AsyncMock()
+    session._client = SimpleNamespace(
+        device_id="DEVICE42",
+        user_id="@relay:example.test",
+        to_device=to_device,
+        olm=None,
+        store=None,
+    )
+    event = SimpleNamespace(
+        event_id="$stopping",
+        session_id="stopping-session",
+        as_key_request=MagicMock(return_value={"request": "missing-key"}),
+    )
+
+    await session._on_megolm_event(
+        SimpleNamespace(room_id="!room:example.test"), event
+    )
+
+    to_device.assert_not_awaited()
+    event.as_key_request.assert_not_called()
+    assert not session._room_key_request_tasks
+
+
 async def test_megolm_callback_detaches_recovery_from_sync_processing() -> None:
     session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
     session._crypto_enabled = True
