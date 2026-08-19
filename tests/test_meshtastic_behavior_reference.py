@@ -113,8 +113,6 @@ def test_sdk_connection_event_is_authoritative_when_available() -> None:
     assert session.connected is True
 
 
-
-
 def test_sdk_connection_state_failure_is_treated_as_disconnected() -> None:
     session = _session()
     state = MagicMock()
@@ -125,7 +123,9 @@ def test_sdk_connection_state_failure_is_treated_as_disconnected() -> None:
     assert session.connected is False
 
 
-def test_connection_loss_crosses_reader_thread_boundary_with_call_soon_threadsafe() -> None:
+def test_connection_loss_crosses_reader_thread_boundary_with_call_soon_threadsafe() -> (
+    None
+):
     session = _session()
     loop = MagicMock()
     loop.is_closed.return_value = False
@@ -139,7 +139,9 @@ def test_connection_loss_crosses_reader_thread_boundary_with_call_soon_threadsaf
     assert session.diagnostics().last_error == "Connection lost"
 
 
-async def test_health_check_uses_normal_reconnect_boundary_when_sdk_reports_down() -> None:
+async def test_health_check_uses_normal_reconnect_boundary_when_sdk_reports_down() -> (
+    None
+):
     adapter = MeshtasticAdapter(_config(connection_type="tcp", host="127.0.0.1"))
     session = MagicMock()
     session.connected = False
@@ -153,7 +155,9 @@ async def test_health_check_uses_normal_reconnect_boundary_when_sdk_reports_down
     session.notify_connection_lost.assert_called_once_with()
 
 
-def test_receive_callback_adapter_boundary_uses_threadsafe_coroutine_submission() -> None:
+def test_receive_callback_adapter_boundary_uses_threadsafe_coroutine_submission() -> (
+    None
+):
     adapter = MeshtasticAdapter(_config())
     loop = MagicMock()
     loop.is_closed.return_value = False
@@ -208,7 +212,9 @@ async def test_shutdown_unsubscribes_before_closing_active_interface() -> None:
         ordering.append("close")
 
     client.close.side_effect = _close
-    with patch.object(MeshtasticSession, "_unsubscribe_callbacks", side_effect=_unsubscribe):
+    with patch.object(
+        MeshtasticSession, "_unsubscribe_callbacks", side_effect=_unsubscribe
+    ):
         await session.stop()
 
     assert ordering == ["unsubscribe", "close"]

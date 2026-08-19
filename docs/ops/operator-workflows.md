@@ -834,7 +834,7 @@ These are aggregate counters, not per-packet records. They reset on adapter rest
 | Queued but RF-confirmed?     | Meshtastic `sent` means local node only                          | Yes (queue stats, but no RF ack)    |
 | Matrix tx_id used?           | Deterministic dedup reduces duplicates                           | Yes (receipt metadata)              |
 | Matrix tx_id exactly-once?   | No — homeserver dedup window is finite                           | No — this is not guaranteed         |
-| Matrix E2EE blocked?         | Undecryptable/key-request counters show recovery state            | Yes (E2EE diagnostics)              |
+| Matrix E2EE blocked?         | Undecryptable/key-request counters show recovery state           | Yes (E2EE diagnostics)              |
 | Meshtastic classifier stats? | Aggregate inbound skip counts                                    | Yes (diagnostics classifier\_\*)    |
 | Classifier stats per-packet? | No — aggregate only, reset on restart                            | No — in-memory counters only        |
 

@@ -110,7 +110,9 @@ async def test_device_discovery_rejects_authenticated_user_mismatch() -> None:
         await session._discover_device_id()
 
 
-async def test_encrypted_client_policy_combines_peer_recovery_and_medre_checkpoint() -> None:
+async def test_encrypted_client_policy_combines_peer_recovery_and_medre_checkpoint() -> (
+    None
+):
     admission = AsyncMock()
     loader = AsyncMock(return_value=None)
     committer = AsyncMock()
@@ -137,8 +139,6 @@ async def test_encrypted_client_policy_combines_peer_recovery_and_medre_checkpoi
     assert captured["backfill_limited_timelines"] is True
     assert captured["store_sync_tokens"] is False
     assert captured["backfill_persist_recovery"] is False
-
-
 
 
 def test_encrypted_client_policy_supports_frozen_provider_config() -> None:
@@ -178,7 +178,9 @@ def test_encrypted_client_policy_tolerates_unreplaceable_provider_config() -> No
     assert config.replace_rotated_device_keys is False
 
 
-async def test_runtime_cross_signing_reconciliation_never_bootstraps_missing_identity() -> None:
+async def test_runtime_cross_signing_reconciliation_never_bootstraps_missing_identity() -> (
+    None
+):
     response = SimpleNamespace(
         status=200,
         json=AsyncMock(return_value={"master_keys": {}, "device_keys": {}}),
@@ -204,7 +206,9 @@ async def test_runtime_cross_signing_reconciliation_never_bootstraps_missing_ide
     assert diagnostics.reset_required is False
 
 
-async def test_live_missing_room_key_request_retries_transient_failure_then_succeeds() -> None:
+async def test_live_missing_room_key_request_retries_transient_failure_then_succeeds() -> (
+    None
+):
     session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
     session._crypto_enabled = True
     session._live_sync_started = True
@@ -236,7 +240,9 @@ async def test_live_missing_room_key_request_retries_transient_failure_then_succ
     assert diagnostics.room_key_request_failures == 0
 
 
-async def test_missing_room_key_request_is_bounded_on_explicit_provider_errors() -> None:
+async def test_missing_room_key_request_is_bounded_on_explicit_provider_errors() -> (
+    None
+):
     session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
     session._crypto_enabled = True
     error_type = type("ToDeviceError", (), {})
@@ -271,9 +277,9 @@ async def test_missing_room_key_request_is_bounded_on_explicit_provider_errors()
     assert diagnostics.room_key_request_failures == 1
 
 
-
-
-async def test_missing_room_key_request_noops_without_crypto_or_device_identity() -> None:
+async def test_missing_room_key_request_noops_without_crypto_or_device_identity() -> (
+    None
+):
     session = MatrixSession(_matrix_config())
     event = SimpleNamespace(as_key_request=MagicMock())
 
@@ -394,7 +400,9 @@ async def test_startup_undecryptable_event_does_not_request_historical_keys() ->
     assert session.diagnostics().room_key_request_attempts == 0
 
 
-async def test_duplicate_live_undecryptable_event_requests_keys_once_per_window() -> None:
+async def test_duplicate_live_undecryptable_event_requests_keys_once_per_window() -> (
+    None
+):
     session = MatrixSession(_matrix_config(encryption_mode="e2ee_required"))
     session._crypto_enabled = True
     session._live_sync_started = True

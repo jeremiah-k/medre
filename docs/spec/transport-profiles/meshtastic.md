@@ -378,41 +378,41 @@ are tracked and cancelled on stop. Connection-loss callbacks use
 
 `adapter.diagnostics()` returns (no secrets, no raw protobuf):
 
-| Key                                     | Type    | Description                        |
-| --------------------------------------- | ------- | ---------------------------------- |
-| `adapter_id`                            | `str`   | Adapter identifier                 |
-| `started`                               | `bool`  | Adapter started flag               |
-| `connection_type`                       | `str`   | Config connection mode             |
-| `queue_pending`                         | `int`   | Items in outbound queue            |
-| `queue_total_sent`                      | `int`   | Successfully sent items            |
-| `queue_total_failed`                    | `int`   | Terminal failures                  |
-| `queue_total_enqueued`                  | `int`   | Total enqueue successes            |
-| `queue_total_dequeued`                  | `int`   | Total dequeue operations           |
-| `queue_total_rejected`                  | `int`   | Enqueue rejections (full queue)    |
-| `queue_total_requeued`                  | `int`   | Transient-failure front-requeues   |
-| `queue_total_exhausted`                 | `int`   | Items dropped after max attempts   |
-| `queue_total_permanent_failed`          | `int`   | Items dropped for permanent errors |
-| `queue_utilization_pct`                 | `float` | Queue fullness percentage          |
-| `drain_task_running`                    | `bool`  | Background drain task alive        |
-| `classifier_packets_seen`               | `int`   | Total classified                   |
-| `classifier_packets_relayed`            | `int`   | Relay action count                 |
-| `classifier_packets_ignored`            | `int`   | Ignore action count                |
-| `classifier_packets_dropped`            | `int`   | Drop action count                  |
-| `classifier_packets_deferred`           | `int`   | Deferred action count              |
-| `classifier_packets_encrypted_dropped`  | `int`   | Encrypted drop sub-counter         |
-| `classifier_packets_dm_ignored`         | `int`   | DM ignore sub-counter              |
-| `classifier_packets_empty_text_ignored` | `int`   | Empty text sub-counter             |
-| `inbound_published`                     | `int`   | Events published inbound           |
-| `startup_backlog_packets_suppressed`    | `int`   | Stale backlog suppressions         |
-| `outbound_mode`                         | `str`   | Current outbound mode              |
-| `outbound_gate_suppressed`              | `int`   | Listen-only suppressions           |
-| `session.connected`                     | `bool`  | Session connected                  |
-| `session.reconnecting`                  | `bool`  | Reconnect in progress              |
-| `session.reconnect_attempts`            | `int`   | Consecutive reconnect attempts     |
-| `session.transient_delivery_failures`   | `int`   | Transient send errors              |
-| `session.permanent_delivery_failures`   | `int`   | Permanent send errors              |
-| `session.stale_receive_callbacks`        | `int`   | Packets ignored from old interfaces |
-| `session.stale_disconnect_callbacks`     | `int`   | Disconnects ignored from old interfaces |
+| Key                                     | Type    | Description                             |
+| --------------------------------------- | ------- | --------------------------------------- |
+| `adapter_id`                            | `str`   | Adapter identifier                      |
+| `started`                               | `bool`  | Adapter started flag                    |
+| `connection_type`                       | `str`   | Config connection mode                  |
+| `queue_pending`                         | `int`   | Items in outbound queue                 |
+| `queue_total_sent`                      | `int`   | Successfully sent items                 |
+| `queue_total_failed`                    | `int`   | Terminal failures                       |
+| `queue_total_enqueued`                  | `int`   | Total enqueue successes                 |
+| `queue_total_dequeued`                  | `int`   | Total dequeue operations                |
+| `queue_total_rejected`                  | `int`   | Enqueue rejections (full queue)         |
+| `queue_total_requeued`                  | `int`   | Transient-failure front-requeues        |
+| `queue_total_exhausted`                 | `int`   | Items dropped after max attempts        |
+| `queue_total_permanent_failed`          | `int`   | Items dropped for permanent errors      |
+| `queue_utilization_pct`                 | `float` | Queue fullness percentage               |
+| `drain_task_running`                    | `bool`  | Background drain task alive             |
+| `classifier_packets_seen`               | `int`   | Total classified                        |
+| `classifier_packets_relayed`            | `int`   | Relay action count                      |
+| `classifier_packets_ignored`            | `int`   | Ignore action count                     |
+| `classifier_packets_dropped`            | `int`   | Drop action count                       |
+| `classifier_packets_deferred`           | `int`   | Deferred action count                   |
+| `classifier_packets_encrypted_dropped`  | `int`   | Encrypted drop sub-counter              |
+| `classifier_packets_dm_ignored`         | `int`   | DM ignore sub-counter                   |
+| `classifier_packets_empty_text_ignored` | `int`   | Empty text sub-counter                  |
+| `inbound_published`                     | `int`   | Events published inbound                |
+| `startup_backlog_packets_suppressed`    | `int`   | Stale backlog suppressions              |
+| `outbound_mode`                         | `str`   | Current outbound mode                   |
+| `outbound_gate_suppressed`              | `int`   | Listen-only suppressions                |
+| `session.connected`                     | `bool`  | Session connected                       |
+| `session.reconnecting`                  | `bool`  | Reconnect in progress                   |
+| `session.reconnect_attempts`            | `int`   | Consecutive reconnect attempts          |
+| `session.transient_delivery_failures`   | `int`   | Transient send errors                   |
+| `session.permanent_delivery_failures`   | `int`   | Permanent send errors                   |
+| `session.stale_receive_callbacks`       | `int`   | Packets ignored from old interfaces     |
+| `session.stale_disconnect_callbacks`    | `int`   | Disconnects ignored from old interfaces |
 
 ---
 

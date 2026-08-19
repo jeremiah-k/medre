@@ -66,32 +66,32 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 
 ### 3.1 Matrix (24 minimum keys)
 
-| Key                         | Type            | Semantics                                                   |
-| --------------------------- | --------------- | ----------------------------------------------------------- |
-| `logged_in`                 | `bool`          | nio login restoration state                                 |
-| `sync_task_running`         | `bool`          | Background sync loop alive                                  |
-| `store_path_configured`     | `bool`          | E2EE crypto store path present                              |
-| `device_id_configured`      | `bool`          | E2EE device ID present                                      |
-| `encryption_mode`           | `str`           | One of: `"plaintext"`, `"e2ee_optional"`, `"e2ee_required"` |
-| `crypto_enabled`            | `bool`          | vodozemac loaded and crypto active                          |
-| `last_crypto_error`         | `str or None`   | Last E2EE failure reason                                    |
-| `encrypted_room_seen`       | `bool`          | At least one encrypted room encountered                     |
-| `undecryptable_event_count` | `int`           | Messages that failed decryption                             |
-| `room_key_request_attempts` | `int`           | Missing-room-key to-device send attempts                    |
-| `room_key_request_successes` | `int`          | Missing-room-key requests accepted by the provider          |
-| `room_key_request_failures` | `int`           | Terminal missing-room-key request failures                  |
-| `sync_running`              | `bool`          | Sync loop state                                             |
-| `last_successful_sync`      | `float or None` | Epoch timestamp of last successful sync                     |
-| `crypto_store_loaded`       | `bool`          | Crypto database loaded (olm and store both present)         |
-| `encrypted_room_count`      | `int`           | Count only. No room IDs exposed.                            |
-| `plaintext_room_count`      | `int`           | Count only. No room IDs exposed.                            |
-| `olm_loaded`                | `bool`          | nio Olm machine is initialized                              |
-| `store_loaded`              | `bool`          | nio SQLite crypto store is loaded                           |
-| `device_keys_uploaded`      | `bool`          | `should_upload_keys` is False (keys present on server)      |
-| `key_query_needed`          | `bool`          | Outstanding device key queries pending                      |
-| `device_id_in_use`          | `str or None`   | Actual device_id in use (for identity verification)         |
-| `store_path_exists`         | `bool`          | Store directory exists on disk                              |
-| `initial_sync_completed`    | `bool`          | First successful full_state sync completed                  |
+| Key                          | Type            | Semantics                                                   |
+| ---------------------------- | --------------- | ----------------------------------------------------------- |
+| `logged_in`                  | `bool`          | nio login restoration state                                 |
+| `sync_task_running`          | `bool`          | Background sync loop alive                                  |
+| `store_path_configured`      | `bool`          | E2EE crypto store path present                              |
+| `device_id_configured`       | `bool`          | E2EE device ID present                                      |
+| `encryption_mode`            | `str`           | One of: `"plaintext"`, `"e2ee_optional"`, `"e2ee_required"` |
+| `crypto_enabled`             | `bool`          | vodozemac loaded and crypto active                          |
+| `last_crypto_error`          | `str or None`   | Last E2EE failure reason                                    |
+| `encrypted_room_seen`        | `bool`          | At least one encrypted room encountered                     |
+| `undecryptable_event_count`  | `int`           | Messages that failed decryption                             |
+| `room_key_request_attempts`  | `int`           | Missing-room-key to-device send attempts                    |
+| `room_key_request_successes` | `int`           | Missing-room-key requests accepted by the provider          |
+| `room_key_request_failures`  | `int`           | Terminal missing-room-key request failures                  |
+| `sync_running`               | `bool`          | Sync loop state                                             |
+| `last_successful_sync`       | `float or None` | Epoch timestamp of last successful sync                     |
+| `crypto_store_loaded`        | `bool`          | Crypto database loaded (olm and store both present)         |
+| `encrypted_room_count`       | `int`           | Count only. No room IDs exposed.                            |
+| `plaintext_room_count`       | `int`           | Count only. No room IDs exposed.                            |
+| `olm_loaded`                 | `bool`          | nio Olm machine is initialized                              |
+| `store_loaded`               | `bool`          | nio SQLite crypto store is loaded                           |
+| `device_keys_uploaded`       | `bool`          | `should_upload_keys` is False (keys present on server)      |
+| `key_query_needed`           | `bool`          | Outstanding device key queries pending                      |
+| `device_id_in_use`           | `str or None`   | Actual device_id in use (for identity verification)         |
+| `store_path_exists`          | `bool`          | Store directory exists on disk                              |
+| `initial_sync_completed`     | `bool`          | First successful full_state sync completed                  |
 
 ### 3.2 Meshtastic (adapter-level and session sub-dict)
 
