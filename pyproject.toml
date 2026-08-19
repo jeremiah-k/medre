@@ -69,7 +69,9 @@ markers = [
   "lxmf_sdk: tests requiring the pinned LXMF/RNS SDKs (skipped by default)",
   "meshtastic_sdk: tests requiring the pinned mtjk Meshtastic SDK (skipped by default)",
   "meshcore_sdk: tests requiring the pinned meshcore SDK (skipped by default)",
+  "local_integration: real pinned SDK plus deterministic local endpoint (skipped by default)",
+  "soak: extended-duration or repeated-cycle transport endurance tests (skipped by default)",
   "hardware: tests requiring physical hardware (serial/BLE Meshtastic radios, etc.) — implies live (skipped by default)",
 ]
-addopts = "-m 'not live and not docker and not hardware and not matrix_sdk and not lxmf_sdk and not meshtastic_sdk and not meshcore_sdk'"
+addopts = "-m 'not live and not docker and not hardware and not local_integration and not soak and not matrix_sdk and not lxmf_sdk and not meshtastic_sdk and not meshcore_sdk'"
 filterwarnings = ["error"]

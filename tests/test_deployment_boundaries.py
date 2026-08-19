@@ -156,7 +156,15 @@ def _has_live_marker(path: Path) -> bool:
 def _has_sdk_opt_in_marker(path: Path) -> bool:
     """Return whether SDK imports are gated from the default suite."""
     return not declared_pytest_markers(path).isdisjoint(
-        {"live", "matrix_sdk", "lxmf_sdk", "meshtastic_sdk", "meshcore_sdk"}
+        {
+            "live",
+            "hardware",
+            "local_integration",
+            "matrix_sdk",
+            "lxmf_sdk",
+            "meshtastic_sdk",
+            "meshcore_sdk",
+        }
     )
 
 
@@ -661,6 +669,13 @@ class TestNoLiveTestsRunByDefault:
         assert (
             "hardware:" in content
         ), "pyproject.toml must register 'hardware' marker in markers list"
+
+    @pytest.mark.parametrize("marker", ["local_integration", "soak"])
+    def test_extended_transport_markers_registered(self, marker: str) -> None:
+        """Realism/endurance markers must be registered explicitly."""
+        pyproject = _REPO_ROOT / "pyproject.toml"
+        content = _file_source(pyproject)
+        assert f"{marker}:" in content
 
     def test_hardware_marker_description_mentions_live(self) -> None:
         """The ``hardware`` marker description must state it implies live."""

@@ -139,7 +139,15 @@ def _has_live_marker(path: Path) -> bool:
 def _has_sdk_opt_in_marker(path: Path) -> bool:
     """Return whether SDK imports are gated from the default suite."""
     return not declared_pytest_markers(path).isdisjoint(
-        {"live", "matrix_sdk", "lxmf_sdk", "meshtastic_sdk", "meshcore_sdk"}
+        {
+            "live",
+            "hardware",
+            "local_integration",
+            "matrix_sdk",
+            "lxmf_sdk",
+            "meshtastic_sdk",
+            "meshcore_sdk",
+        }
     )
 
 
@@ -442,7 +450,7 @@ class TestCliWorkflowsRuntimeLayerOnly:
 
 @pytest.mark.parametrize(
     "marker",
-    ["matrix_sdk", "lxmf_sdk", "meshtastic_sdk", "meshcore_sdk"],
+    ["matrix_sdk", "lxmf_sdk", "meshtastic_sdk", "meshcore_sdk", "local_integration", "soak"],
 )
 def test_pytest_config_excludes_sdk_contract_markers(marker: str) -> None:
     """``pyproject.toml`` must exclude every SDK-contract tier by default."""
@@ -495,6 +503,26 @@ class TestNoLiveTestsRunByDefault:
         assert (
             "live:" in content
         ), "pyproject.toml must register 'live' marker in markers list"
+
+    @pytest.mark.parametrize("marker", ["local_integration", "soak"])
+    def test_extended_transport_markers_registered(self, marker: str) -> None:
+        """Realism/endurance markers must be registered explicitly."""
+        pyproject = _TESTS_DIR.parent / "pyproject.toml"
+        content = _file_source(pyproject)
+        assert f"{marker}:" in content
+
+    def test_soak_tests_also_declare_an_evidence_layer(self) -> None:
+        """``soak`` is an endurance overlay, never an SDK-import gate by itself."""
+        evidence_markers = {"local_integration", "live", "hardware", "docker"}
+        violations: list[str] = []
+        for path in sorted(_TESTS_DIR.rglob("test_*.py")):
+            markers = declared_pytest_markers(path)
+            if "soak" in markers and markers.isdisjoint(evidence_markers):
+                violations.append(str(path.relative_to(_REPO_ROOT)))
+        assert violations == [], (
+            "soak tests must also declare their evidence layer: "
+            + ", ".join(violations)
+        )
 
     @pytest.mark.parametrize(
         "filename",
