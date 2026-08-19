@@ -405,3 +405,28 @@ class TestAiosqliteCloseRestoresDbOnFailure:
             mock_conn.close.assert_awaited()
             assert storage._db is mock_conn
             assert storage._closed is False
+
+
+async def test_write_rowcount_closes_aiosqlite_cursor(tmp_path: Path) -> None:
+    """Heartbeat writes scope their aiosqlite cursor to one operation."""
+    cursor = MagicMock(rowcount=1)
+    cursor_context = MagicMock()
+    cursor_context.__aenter__ = AsyncMock(return_value=cursor)
+    cursor_context.__aexit__ = AsyncMock(return_value=None)
+    db = MagicMock()
+    db.execute.return_value = cursor_context
+    db.commit = AsyncMock()
+    db.rollback = AsyncMock()
+
+    storage = SQLiteStorage(db_path=_temp_db_path(tmp_path))
+    storage._db = db
+
+    changed = await storage._write_rowcount(
+        "UPDATE durable_ingress_work SET lease_until = ? WHERE event_id = ?",
+        ("later", "evt-1"),
+    )
+
+    assert changed == 1
+    db.execute.assert_called_once()
+    cursor_context.__aexit__.assert_awaited_once()
+    db.commit.assert_awaited_once_with()

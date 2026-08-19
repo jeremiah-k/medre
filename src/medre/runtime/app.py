@@ -281,6 +281,7 @@ class MedreApp:
     _capacity_controller: CapacityController | None = field(default=None, init=False)
     _replay_engine: ReplayEngine | None = field(default=None, init=False)
     _retry_worker: RetryWorker | None = field(default=None, init=False)
+    _ingress_worker: Any = field(default=None, init=False)
     _runtime_accounting: RuntimeAccounting | None = field(default=None, init=False)
     _startup_wall: str | None = field(default=None, init=False)
     _startup_monotonic: float | None = field(default=None, init=False)
@@ -472,6 +473,23 @@ class MedreApp:
                 else None
             ),
             "runtime_state": self._state.value,
+            "durable_ingress": (
+                {
+                    "worker_running": self._ingress_worker.running,
+                    "processed": self._ingress_worker.processed,
+                    "failures": self._ingress_worker.failures,
+                    "lost_leases": self._ingress_worker.lost_leases,
+                    "terminal_failures": self._ingress_worker.terminal_failures,
+                }
+                if self._ingress_worker is not None
+                else {
+                    "worker_running": False,
+                    "processed": 0,
+                    "failures": 0,
+                    "lost_leases": 0,
+                    "terminal_failures": 0,
+                }
+            ),
             "shutdown_drain_timeout_seconds": (
                 self.config.limits.shutdown_drain_timeout_seconds
             ),
@@ -722,6 +740,18 @@ class MedreApp:
                 f"Failed to start pipeline runner: {exc}"
             ) from exc
 
+        # 2.25. Construct the durable ingress worker, but defer processing
+        #        until adapter startup is complete. Cursor-owned adapters may
+        #        admit work during startup; the rows remain durable until all
+        #        available delivery targets have had a chance to start.
+        if self.storage is not None:
+            from medre.core.ingress import DurableIngressWorker
+
+            self._ingress_worker = DurableIngressWorker(
+                storage=self.storage,
+                pipeline=self.pipeline_runner,
+            )
+
         # 2.5. Start the retry worker (if enabled).
         if self.config.retry.enabled and self.storage is not None:
             from medre.runtime.retry import RetryWorker as _RW
@@ -776,6 +806,21 @@ class MedreApp:
                         adapter_id=adapter_id,
                         event_bus=self.event_bus,
                         publish_inbound=self._make_publish_inbound(),
+                        admit_inbound=(
+                            self._make_admit_inbound()
+                            if self.storage is not None
+                            else None
+                        ),
+                        load_checkpoint=(
+                            self._make_checkpoint_loader(adapter_id)
+                            if self.storage is not None
+                            else None
+                        ),
+                        commit_checkpoint=(
+                            self._make_checkpoint_committer(adapter_id)
+                            if self.storage is not None
+                            else None
+                        ),
                         logger=logging.getLogger(f"medre.adapters.{adapter_id}"),
                         clock=_utc_now,
                         shutdown_event=self.shutdown_event,
@@ -1043,6 +1088,9 @@ class MedreApp:
                 degradation_cause,
             )
 
+        if self._ingress_worker is not None:
+            await self._ingress_worker.start()
+
         self._set_state(RuntimeState.RUNNING)
 
         # -- Emit route eligibility events (passive observation) ---------------
@@ -1112,6 +1160,20 @@ class MedreApp:
         if self._replay_engine is not None:
             self._replay_engine.cancel()
             _logger.info("Runtime stopping — replay engine cancelled, capacity stopped")
+
+        # Stop the durable ingress worker before adapters are drained. Any
+        # event admitted after this point remains persisted for the next run.
+        if self._ingress_worker is not None:
+            try:
+                await self._ingress_worker.stop()
+            except asyncio.CancelledError as c_exc:
+                _cancelled = c_exc
+                _deferred_cancel_count += _drain_pending_cancellations()
+                _logger.debug(
+                    "Cancelled while stopping durable ingress worker (deferred)"
+                )
+            except Exception as exc:
+                _logger.error("Error stopping durable ingress worker: %s", exc)
 
         # Stop the retry worker before draining work.
         if self._retry_worker is not None:
@@ -1839,15 +1901,35 @@ class MedreApp:
         intercept the re-raised ``CancelledError``, drain the restored
         count, and fold it into the outer ``start()`` handler's total.
         """
+        _cancelled: asyncio.CancelledError | None = None
+        _cleared_cancels = 0
+
+        # Stop durable ingress worker if startup got far enough to create it.
+        if self._ingress_worker is not None:
+            try:
+                await self._ingress_worker.stop()
+            except asyncio.CancelledError as c_exc:
+                if _cancelled is None:
+                    _cancelled = c_exc
+                _cleared_cancels += _drain_pending_cancellations()
+                _logger.debug(
+                    "Cancelled while stopping durable ingress worker during startup cleanup"
+                )
+            except Exception as exc:
+                _logger.error(
+                    "Error stopping durable ingress worker during startup cleanup: %s",
+                    exc,
+                )
+
         # Stop retry worker if it was started.  Defer CancelledError so
         # pipeline runner stop and storage close can still run.
-        _cancelled: asyncio.CancelledError | None = None
         if self._retry_worker is not None:
             try:
                 await self._retry_worker.stop()
                 _logger.info("Retry worker stopped during startup cleanup")
             except asyncio.CancelledError as c_exc:
-                _cancelled = c_exc
+                if _cancelled is None:
+                    _cancelled = c_exc
                 _logger.debug("Cancelled while stopping retry worker (deferred)")
             except Exception as exc:
                 _logger.error(
@@ -1857,9 +1939,8 @@ class MedreApp:
         # If the retry worker stop raised CE, the task likely has a
         # pending cancellation request that would prevent the awaits
         # below from actually running.  Drain it.
-        _cleared_cancels = 0
         if _cancelled is not None:
-            _cleared_cancels = _drain_pending_cancellations()
+            _cleared_cancels += _drain_pending_cancellations()
 
         try:
             await self.pipeline_runner.stop()
@@ -1940,6 +2021,39 @@ class MedreApp:
 
         for d in dirs_to_create:
             d.mkdir(parents=True, exist_ok=True)
+
+    def _make_checkpoint_loader(self, adapter_id: str) -> Any:
+        """Return a checkpoint reader bound to one adapter instance."""
+        storage = self.storage
+
+        async def _load(stream: str) -> Any:
+            if storage is None:
+                return None
+            return await storage.get_adapter_checkpoint(adapter_id, stream)
+
+        return _load
+
+    def _make_checkpoint_committer(self, adapter_id: str) -> Any:
+        """Return a checkpoint writer bound to one adapter instance."""
+        storage = self.storage
+
+        async def _commit(stream: str, cursor: str, metadata_json: str) -> None:
+            if storage is None:
+                raise RuntimeError("checkpoint persistence requires storage")
+            await storage.put_adapter_checkpoint(
+                adapter_id, stream, cursor, metadata_json=metadata_json
+            )
+
+        return _commit
+
+    def _make_admit_inbound(self) -> Any:
+        """Return a protocol-provenance durable ingress admission callable."""
+        runner = self.pipeline_runner
+
+        async def _admit(event: Any, provenance: Any) -> Any:
+            return await runner.admit_ingress(event, provenance)
+
+        return _admit
 
     def _make_publish_inbound(self) -> Any:
         """Return a publish_inbound callable wired to the pipeline runner.

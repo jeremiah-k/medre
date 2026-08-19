@@ -382,6 +382,13 @@ No adapter, snapshot, or evidence path SHALL expose access tokens, private keys,
 | MeshCore   | No secrets, private keys, or raw SDK internals                               | Plain dict copy; no full pubkey material (first 12 hex chars only)         |
 | LXMF       | No secrets, private keys, identity material, or unsafe peer dumps            | Frozen dataclass; identity hashes not included; mode is string             |
 
+The process-local runtime diagnostics also expose `durable_ingress` with
+`worker_running`, `processed`, and `failures`. These values describe the current
+worker generation only; persisted `durable_ingress_work` rows remain authoritative
+across restarts. Matrix recovery-abandonment diagnostics expose only room counts and
+cause counts. Native Matrix room IDs may be retained in internal durable checkpoint
+metadata but MUST NOT be emitted through adapter diagnostics or evidence bundles.
+
 ### 9.2 No SDK Object Leakage
 
 No adapter SHALL expose the underlying SDK client object, connection handle, or crypto material through diagnostics. Specifically prohibited: protobuf objects, `LXMessage` instances, nio client references, `Event` objects, RNS Identity/Link/Destination object representations.

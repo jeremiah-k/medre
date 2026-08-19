@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -82,21 +83,44 @@ def build_mock_nio_module() -> MagicMock:
     client.logged_in = True
     client.restore_login = MagicMock()
     client.add_event_callback = MagicMock()
-    client.stop_sync_forever = MagicMock()
-    client.close = AsyncMock()
-    client.sync_forever = sync_forever_stub
+    response_callbacks: list[Callable[[Any], Awaitable[Any]]] = []
 
-    # sync returns a fake SyncResponse with next_batch for the manual
-    # sync loop used in _sync_with_reconnect.  Uses a real async stub
-    # that yields once so the event loop can schedule other tasks
-    # (prevents hot loops with immediate-return fakes).
-    async def _sync_stub(*args: object, **kwargs: object) -> MagicMock:
+    def _add_response_callback(
+        callback: Callable[[Any], Awaitable[Any]], *_classes: object
+    ) -> None:
+        response_callbacks.append(callback)
+
+    client.add_response_callback = MagicMock(side_effect=_add_response_callback)
+    stop_sync = asyncio.Event()
+    client.stop_sync_forever = MagicMock(side_effect=stop_sync.set)
+    client.close = AsyncMock()
+
+    # sync returns a fake SyncResponse with next_batch.  sync_forever delegates
+    # to this method so tests that replace client.sync continue to exercise the
+    # production supervisor after MEDRE handed Classic Sync iteration to nio.
+    async def _sync_stub(*_args: object, **_kwargs: object) -> MagicMock:
         await asyncio.sleep(0)
         resp = MagicMock(name="SyncResponse")
         resp.next_batch = "batch_token_123"
         return resp
 
     client.sync = _sync_stub
+
+    async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
+        stop_sync.clear()
+        current_kwargs = dict(kwargs)
+        while not stop_sync.is_set():
+            response = await client.sync(*args, **current_kwargs)
+            for callback in tuple(response_callbacks):
+                await callback(response)
+            if getattr(response, "next_batch", None):
+                # Match nio: initial-only arguments are cleared after the
+                # first successful response inside one sync_forever call.
+                current_kwargs["since"] = None
+                current_kwargs["full_state"] = None
+            await asyncio.sleep(0)
+
+    client.sync_forever = _sync_forever_stub
     client.room_send = AsyncMock()
     client.rooms = {}
     # whoami() returns a response with device_id for device discovery.

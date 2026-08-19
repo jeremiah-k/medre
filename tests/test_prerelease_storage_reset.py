@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -284,6 +285,22 @@ async def test_fresh_db_no_schema_mismatch() -> None:
         await storage.close()
     finally:
         os.unlink(db_path)
+
+
+async def test_corrupt_existing_db_raises_stable_initialization_error(
+    tmp_path: Path,
+) -> None:
+    """Pre-DDL inspection translates corrupt SQLite errors for operators."""
+    db_path = tmp_path / "corrupt.db"
+    db_path.write_bytes(b"this is not a sqlite database")
+    storage = SQLiteStorage(db_path=str(db_path))
+
+    with pytest.raises(
+        StorageInitializationError, match="unreadable or corrupt"
+    ) as exc_info:
+        await storage.initialize()
+
+    assert isinstance(exc_info.value.__cause__, sqlite3.Error)
 
 
 # ---------------------------------------------------------------------------

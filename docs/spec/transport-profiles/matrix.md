@@ -225,11 +225,54 @@ The Matrix renderer (`MatrixRenderer`) produces:
 ## Session Lifecycle
 
 1. **Disconnected** — Initial state; `session=None`.
-2. **Connecting** — `start()` creates `MatrixSession`, calls `session.start()`. Session creates nio `AsyncClient`, restores login via `restore_login()`, registers callbacks, starts sync task.
-3. **Live (pre-sync)** — After `start()` returns, the first sync is in progress. `session.is_live` is `False`; inbound events are suppressed as backlog.
-4. **Live (syncing)** — First successful sync with `next_batch` token sets `is_live = True`. Subsequent inbound events are processed normally.
-5. **Reconnecting** — Sync failure triggers bounded exponential backoff (1 s → 2 s → 4 s → … capped at 60 s, ±25 % jitter, max 10 consecutive attempts).
-6. **Stopped** — `stop()` cancels sync task, disconnects client, nulls session. Idempotent.
+2. **Connecting** — `start()` creates `MatrixSession`, restores login, registers
+   mindroom-nio admission/response callbacks, restores MEDRE's committed Classic
+   Sync cursor, and starts the supervised sync task.
+3. **Syncing** — mindroom-nio owns Classic Sync iteration, bounded request retries,
+   key sequencing, decryption, limited-timeline recovery, and event provenance.
+4. **Durable admission** — `LIVE` and `RECOVERED` timeline events are atomically
+   admitted for routing; `HISTORY` is durably recorded with routing suppressed. An
+   admission failure rejects the nio callback so the event remains replayable.
+5. **Checkpoint commit** — after a successful response has no unaccepted relevant
+   events, MEDRE persists `next_batch` and recovery-abandonment metadata, then calls
+   `acknowledge_classic_sync()`. nio does not persist the Classic cursor.
+6. **Reconnecting** — sync-loop failure resets uncommitted in-memory Classic state,
+   restores MEDRE's last committed cursor, and triggers bounded outer backoff
+   (1 s → 2 s → 4 s → … capped at 60 s, ±25 % jitter, max 10 attempts).
+7. **Stopped** — `stop()` asks nio to stop `sync_forever()`, cancels the supervisor,
+   closes the client, and nulls the session. Idempotent.
+
+### Classic Sync ownership and recovery
+
+MEDRE uses application-owned Classic Sync checkpointing when the adapter is created
+by the runtime with storage available. The pinned mindroom-nio client is configured with
+`backfill_limited_timelines=True`, `store_sync_tokens=False`,
+`backfill_persist_recovery=False`, and `max_timeouts=3`. This establishes one owner
+per concern:
+
+- mindroom-nio owns Matrix request retries, parsing/decryption, event ordering,
+  limited-timeline walking, and `LIVE`/`RECOVERED`/`HISTORY` provenance;
+- `MatrixSession` owns loop supervision, restart, and health;
+- MEDRE storage owns canonical admission, deduplication, pending ingress work, and
+  the committed Classic cursor; and
+- MEDRE's core pipeline owns routing, outbox creation, and delivery retries.
+
+When storage is unavailable, the runtime MUST omit all three durable callbacks
+(admission, checkpoint load, and checkpoint commit). In that non-durable mode,
+limited-timeline recovery is disabled and mindroom-nio retains ordinary Classic
+cursor ownership with `store_sync_tokens=True`; MEDRE MUST NOT advertise a partial
+durability mode that cannot commit its cursor.
+
+Protocol provenance is authoritative. The generic adapter-start timestamp filter does
+not override Matrix recovery evidence. `LIVE` and `RECOVERED` events are routed;
+`HISTORY` events are persisted as `suppressed_history` and are not routed. Recovery
+abandonment is persisted with the checkpoint and exposed through diagnostics before
+the cursor advances.
+
+The durability guarantee is intentionally narrower than exactly-once delivery: once
+Matrix ingress is accepted, MEDRE retains the canonical event and durable work state
+needed to resume processing after a crash. External delivery can still be at-least-once
+where a target transport cannot make send plus acknowledgement atomic.
 
 **E2EE modes and identity policy:**
 
@@ -272,6 +315,12 @@ bootstrap/rotate master or self-signing identity material.
 | `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
 | `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |
 | `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                     |
+| `checkpoint_owned_by_medre`                | `bool`          | MEDRE owns the Classic Sync checkpoint               |
+| `committed_checkpoint_present`             | `bool`          | A committed Classic cursor has been restored/stored  |
+| `recovered_event_count`                    | `int`           | Recovered timeline events seen at admission          |
+| `history_event_count`                      | `int`           | Cold-history timeline events seen at admission       |
+| `recovery_abandoned_room_count`            | `int`           | Rooms with recorded unrecoverable history            |
+| `recovery_last_abandonment`                | `str \| None`   | Identifier-free room/cause-count abandonment summary |
 | `crypto_store_loaded`                      | `bool`          | Olm/store initialised                                |
 | `olm_loaded`                               | `bool`          | Olm subsystem loaded                                 |
 | `encrypted_room_count`                     | `int`           | Rooms tracked as encrypted                           |
@@ -287,6 +336,7 @@ bootstrap/rotate master or self-signing identity material.
 | `transient_delivery_failures`              | `int`           | Transient outbound errors                            |
 | `permanent_delivery_failures`              | `int`           | Permanent outbound errors                            |
 | `inbound_published`                        | `int`           | Events published inbound                             |
+| `inbound_duplicate_admissions`             | `int`           | Duplicate durable admissions                         |
 | `inbound_suppressed_self`                  | `int`           | Self-message suppressions                            |
 | `inbound_suppressed_envelope`              | `int`           | MEDRE-origin loop hint suppressions                  |
 | `inbound_filtered_allowlist`               | `int`           | Room allowlist rejections                            |

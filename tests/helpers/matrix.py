@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -82,23 +83,38 @@ def build_mock_nio_module() -> MagicMock:
     client.logged_in = True
     client.restore_login = MagicMock()
     client.add_event_callback = MagicMock()
-    client.stop_sync_forever = MagicMock()
+    response_callbacks: list[Callable[[Any], Awaitable[Any]]] = []
+
+    def _add_response_callback(
+        callback: Callable[[Any], Awaitable[Any]], *_classes: object
+    ) -> None:
+        response_callbacks.append(callback)
+
+    client.add_response_callback = MagicMock(side_effect=_add_response_callback)
+    stop_sync = asyncio.Event()
+    client.stop_sync_forever = MagicMock(side_effect=stop_sync.set)
     client.close = AsyncMock()
     client.rooms = {}
 
-    async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            pass
-
-    client.sync_forever = _sync_forever_stub
-
-    async def _sync_stub(*args: object, **kwargs: object) -> SimpleNamespace:
+    async def _sync_stub(*_args: object, **_kwargs: object) -> SimpleNamespace:
         await asyncio.sleep(0)
         return SimpleNamespace(next_batch="mock_batch_token")
 
     client.sync = _sync_stub
+
+    async def _sync_forever_stub(*args: object, **kwargs: object) -> None:
+        stop_sync.clear()
+        current_kwargs = dict(kwargs)
+        while not stop_sync.is_set():
+            response = await client.sync(*args, **current_kwargs)
+            for callback in tuple(response_callbacks):
+                await callback(response)
+            if getattr(response, "next_batch", None):
+                current_kwargs["since"] = None
+                current_kwargs["full_state"] = None
+            await asyncio.sleep(0)
+
+    client.sync_forever = _sync_forever_stub
 
     async def _room_send(
         room_id: str, message_type: str, content: dict, **kwargs: object

@@ -348,8 +348,14 @@ class TestAdapterStartBehavior:
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
-            # Make ClientConfig raise so crypto setup fails
-            mock_nio.AsyncClientConfig.side_effect = TypeError("nope")
+            # Fail only the encrypted config. Plaintext config construction
+            # must remain available for the fallback path being exercised.
+            def _config_factory(**kwargs: object) -> MagicMock:
+                if kwargs.get("encryption_enabled") is True:
+                    raise TypeError("nope")
+                return MagicMock(name="plaintext_client_config")
+
+            mock_nio.AsyncClientConfig.side_effect = _config_factory
             config = make_matrix_config(
                 encryption_mode="e2ee_optional",
                 # no store_path, no device_id

@@ -320,12 +320,13 @@ While the test waits (30 s window), send a message from the second account. If n
 
 ### Diagnostics Counters
 
-| Counter                       | Description                                                  |
-| ----------------------------- | ------------------------------------------------------------ |
-| `inbound_published`           | Events successfully published via `publish_inbound()`        |
-| `inbound_suppressed_self`     | Events dropped because sender == bot user_id                 |
-| `inbound_suppressed_envelope` | Events dropped because MEDRE envelope source_adapter matched |
-| `inbound_filtered_allowlist`  | Events dropped because room was not in the allowlist         |
+| Counter                        | Description                                                  |
+| ------------------------------ | ------------------------------------------------------------ |
+| `inbound_published`            | Newly admitted/published canonical events                    |
+| `inbound_duplicate_admissions` | Durable replays mapped to an existing canonical event        |
+| `inbound_suppressed_self`      | Events dropped because sender == bot user_id                 |
+| `inbound_suppressed_envelope`  | Events dropped because MEDRE envelope source_adapter matched |
+| `inbound_filtered_allowlist`   | Events dropped because room was not in the allowlist         |
 
 ## Known Limitations
 
@@ -350,6 +351,25 @@ While the test waits (30 s window), send a message from the second account. If n
 | `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees    | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow |
 | `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                         |
 | `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                       | `pip install -e ".[matrix-e2e]"`                                                                         |
+
+## Classic Sync durability and recovery
+
+Runtime-managed Matrix adapters use MEDRE-owned Classic Sync checkpoints. The
+Matrix SDK may reconstruct a limited timeline before MEDRE sees its following live
+event, but the checkpoint does not advance until every relevant timeline event has
+passed durable admission. If admission fails, the SDK retains the event for replay.
+
+`LIVE` and `RECOVERED` events are admitted and routed. `HISTORY` is recorded as a
+durable suppression and is not routed. This replaces the older first-sync timestamp
+heuristic for runtime-managed Matrix adapters.
+
+With runtime storage available, the Matrix adapter intentionally does not enable
+nio-owned sync-token persistence or persisted recovery state. MEDRE stores the
+committed cursor in its primary SQLite database so plaintext and E2EE modes use the
+same checkpoint-ownership model. Recovery-abandonment metadata is stored with that
+checkpoint and exposed in adapter diagnostics. Without runtime storage, MEDRE omits
+the durable callbacks and mindroom-nio retains ordinary sync-token persistence; this
+fallback is non-durable and does not claim MEDRE-owned recovery.
 
 ## See Also
 

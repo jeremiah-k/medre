@@ -255,19 +255,13 @@ class TestP02MeshtasticConnectionLostSubscriptionResolved:
 
 
 # ===================================================================
-# P-03: Matrix - No sync token persistence across restarts
-# Gap type: Behavioral
+# P-03: Matrix - Explicit sync-token ownership across restarts
+# Gap type: Resolved behavioral
 # ===================================================================
 
 
-class TestP03MatrixNoSyncTokenPersistence:
-    """Characterize P-03: AsyncClientConfig does not set store_sync_tokens.
-
-    Without ``store_sync_tokens=True``, nio does not persist the
-    ``next_batch`` token to its store.  After restart, the sync starts
-    from the beginning, causing slow startup with a burst of initial
-    events.
-    """
+class TestP03MatrixSyncTokenOwnership:
+    """Verify that exactly one component owns the Classic sync token."""
 
     def test_e2ee_start_no_store_sync_tokens_in_config(self) -> None:
         """_start_e2ee_required creates AsyncClientConfig without
@@ -304,11 +298,7 @@ class TestP03MatrixNoSyncTokenPersistence:
     async def test_e2ee_config_construction_uses_only_encryption_enabled(
         self,
     ) -> None:
-        """AsyncClientConfig is constructed with encryption_enabled only.
-
-        When E2EE parity is implemented, this test should be updated to
-        verify store_sync_tokens=True is also passed.
-        """
+        """Non-durable sessions retain nio-owned checkpoint persistence."""
         from tests.helpers.matrix_session import build_mock_nio_module
 
         mock_nio = build_mock_nio_module()
@@ -328,18 +318,23 @@ class TestP03MatrixNoSyncTokenPersistence:
             patch("medre.adapters.matrix.compat.HAS_NIO", True),
             patch.dict("sys.modules", {"nio": mock_nio, "nio.events": mock_nio.events}),
         ):
-            # Record what AsyncClientConfig was called with.
-            await session.start()
+            try:
+                # Record what AsyncClientConfig was called with.
+                await session.start()
 
-        # The mock AsyncClientConfig is aliased as ClientConfig.
-        config_call = mock_nio.ClientConfig.call_args
-        assert config_call is not None, "AsyncClientConfig was never called"
-        kwargs = config_call.kwargs
-        # Current behavior: only encryption_enabled is passed.
-        assert kwargs.get("encryption_enabled") is True
-        # store_sync_tokens is NOT passed - this is the P-03 gap.
-        assert "store_sync_tokens" not in kwargs
-        await session.stop()
+                # The mock AsyncClientConfig is aliased as ClientConfig.
+                config_call = mock_nio.ClientConfig.call_args
+                assert config_call is not None, "AsyncClientConfig was never called"
+                kwargs = config_call.kwargs
+                assert kwargs == {
+                    "encryption_enabled": True,
+                    "max_timeouts": 3,
+                    "backfill_limited_timelines": False,
+                    "store_sync_tokens": True,
+                    "backfill_persist_recovery": False,
+                }
+            finally:
+                await session.stop()
 
 
 # ===================================================================

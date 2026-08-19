@@ -40,6 +40,7 @@ from medre.core.storage.backend import (
 # Mixin imports — method groups composed via multiple inheritance.
 from medre.core.storage.sqlite._count import _CountMixin
 from medre.core.storage.sqlite._event import _EventMixin
+from medre.core.storage.sqlite._ingress import _IngressMixin
 from medre.core.storage.sqlite._native_ref import _NativeRefMixin
 from medre.core.storage.sqlite._outbox import _OutboxMixin
 from medre.core.storage.sqlite._receipt import _ReceiptMixin
@@ -48,9 +49,11 @@ from medre.core.storage.sqlite.connection import (
     sync_create_indexes,
     sync_open,
     sync_open_readonly,
+    sync_find_schema_shape_mismatch,
     sync_read_all,
     sync_read_one,
     sync_write,
+    sync_write_rowcount,
     sync_write_batch,
 )
 from medre.core.storage.sqlite.schema import (
@@ -141,6 +144,19 @@ class _SQLiteStorageBase:
             (no silent migration or reset).
         """
         self._closed = False
+        try:
+            mismatch = await asyncio.to_thread(
+                sync_find_schema_shape_mismatch, self._db_path, _REQUIRED_COLUMNS
+            )
+        except sqlite3.Error as exc:
+            raise StorageInitializationError(
+                f"Storage database is unreadable or corrupt: {self._db_path}: {exc}"
+            ) from exc
+        if mismatch is not None:
+            table, missing = mismatch
+            raise PreReleaseSchemaMismatchError(
+                path=self._db_path, table=table, missing_columns=missing
+            )
         if self._use_aiosqlite:
             db = await aiosqlite.connect(self._db_path)  # type: ignore[union-attr]
             try:
@@ -491,6 +507,31 @@ class _SQLiteStorageBase:
         except sqlite3.Error as exc:
             raise StorageError(f"Database write failed: {exc}") from exc
 
+    async def _write_rowcount(
+        self, sql: str, params: tuple[Any, ...] = ()
+    ) -> int:
+        """Execute one write and return its affected-row count."""
+        db = self._require_db()
+        try:
+            if self._use_aiosqlite:
+                async with self._async_write_lock:
+                    try:
+                        async with db.execute(sql, params) as cursor:
+                            changed = int(cursor.rowcount)
+                        await db.commit()
+                        return changed
+                    except BaseException:
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
+                        raise
+            return await self._run_in_thread(
+                sync_write_rowcount, db, self._lock, sql, params
+            )
+        except sqlite3.Error as exc:
+            raise StorageError(f"Database write failed: {exc}") from exc
+
     async def _write_batch(self, ops: list[tuple[str, tuple[Any, ...]]]) -> None:
         """Execute multiple write statements in one transaction and commit."""
         db = self._require_db()
@@ -564,6 +605,7 @@ class _SQLiteStorageBase:
 
 class SQLiteStorage(
     _EventMixin,
+    _IngressMixin,
     _NativeRefMixin,
     _RelationMixin,
     _ReceiptMixin,

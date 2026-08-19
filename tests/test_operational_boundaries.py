@@ -27,6 +27,11 @@ from typing import Any
 import pytest
 
 from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
+from tests.helpers.pytest_markers import (
+    declared_pytest_markers,
+    marker_is_explicitly_excluded,
+    pytest_addopts_marker_expression,
+)
 from tests.helpers.sdk_constants import _SDK_INSTANTIATION_PATTERNS
 from tests.helpers.source_reader import source_of as _source_of
 
@@ -128,8 +133,12 @@ def _has_live_marker(path: Path) -> bool:
     - ``pytestmark = [ ..., pytest.mark.live, ... ]``
     - ``@pytest.mark.live`` decorator
     """
-    source = _file_source(path)
-    return bool(re.search(r"pytest\.mark\.live", source))
+    return "live" in declared_pytest_markers(path)
+
+
+def _has_sdk_opt_in_marker(path: Path) -> bool:
+    """Return whether SDK imports are gated from the default suite."""
+    return not declared_pytest_markers(path).isdisjoint({"live", "matrix_sdk"})
 
 
 # ===================================================================
@@ -429,9 +438,19 @@ class TestCliWorkflowsRuntimeLayerOnly:
 # ===================================================================
 
 
+def test_pytest_config_excludes_matrix_sdk_marker() -> None:
+    """``pyproject.toml`` must exclude SDK-contract tests by default."""
+    pyproject = _TESTS_DIR.parent / "pyproject.toml"
+    assert pyproject.exists(), "pyproject.toml not found"
+    expression = pytest_addopts_marker_expression(pyproject)
+    assert marker_is_explicitly_excluded(
+        expression, "matrix_sdk"
+    ), "pyproject.toml addopts must exclude matrix_sdk marker"
+
+
 class TestNoLiveTestsRunByDefault:
     """Enforce that the default ``pytest`` invocation does not run live
-    tests and that all SDK-importing test files carry the live marker.
+    tests and that SDK-importing files carry ``live`` or ``matrix_sdk``.
     Also enforces the ``hardware`` marker discipline.
     """
 
@@ -439,8 +458,8 @@ class TestNoLiveTestsRunByDefault:
         """``pyproject.toml`` must have ``addopts = "-m 'not live'"``."""
         pyproject = _TESTS_DIR.parent / "pyproject.toml"
         assert pyproject.exists(), "pyproject.toml not found"
-        content = _file_source(pyproject)
-        assert "not live" in content, (
+        expression = pytest_addopts_marker_expression(pyproject)
+        assert marker_is_explicitly_excluded(expression, "live"), (
             "pyproject.toml addopts must exclude live marker "
             "(expected: addopts = \"-m 'not live'\")"
         )
@@ -449,8 +468,8 @@ class TestNoLiveTestsRunByDefault:
         """``pyproject.toml`` must have ``addopts`` excluding ``hardware``."""
         pyproject = _TESTS_DIR.parent / "pyproject.toml"
         assert pyproject.exists(), "pyproject.toml not found"
-        content = _file_source(pyproject)
-        assert "not hardware" in content, (
+        expression = pytest_addopts_marker_expression(pyproject)
+        assert marker_is_explicitly_excluded(expression, "hardware"), (
             "pyproject.toml addopts must exclude hardware marker "
             "(expected: addopts = \"-m 'not live and not docker and not hardware'\")"
         )
@@ -503,10 +522,10 @@ class TestNoLiveTestsRunByDefault:
         ), f"{filename} is a live test file but is missing pytest.mark.live"
 
     def test_non_live_test_files_no_sdk_imports(self) -> None:
-        """Test files that import SDKs without a live marker are violations.
+        """SDK imports require an explicit ``live`` or ``matrix_sdk`` tier.
 
         Scans all ``test_*.py`` files for SDK imports.  Any file that
-        imports an SDK must have ``pytest.mark.live`` in its source.
+        imports an SDK must be excluded from the default suite.
 
         This test intentionally ignores:
         - ``test_*_boundaries.py`` files (they reference SDKs in string
@@ -551,12 +570,12 @@ class TestNoLiveTestsRunByDefault:
                 if has_sdk_import:
                     break
 
-            if has_sdk_import and not _has_live_marker(path):
+            if has_sdk_import and not _has_sdk_opt_in_marker(path):
                 violations.append(path.name)
 
         assert (
             violations == []
-        ), "Test files import transport SDKs without pytest.mark.live:\n" + "\n".join(
+        ), "Test files import transport SDKs without an opt-in marker:\n" + "\n".join(
             f"  - {v}" for v in violations
         )
 

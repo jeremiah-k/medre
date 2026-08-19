@@ -72,10 +72,9 @@ def _make_context(adapter_id="matrix-test") -> AdapterContext:
 async def _healthy_sync(*args: object, **kwargs: object) -> SimpleNamespace:
     """Stub for ``nio.AsyncClient.sync`` — yields once then returns a response.
 
-    The production reconnect loop calls ``await self._client.sync(...)`` in a
-    ``while`` loop.  Each call must yield (``asyncio.sleep(0)``) to avoid a
-    hot CPU loop and return a ``SimpleNamespace(next_batch=...)`` so the loop
-    can proceed.  The adapter's ``stop()`` cancels the sync task externally.
+    The fake ``sync_forever`` delegates to this method. Each call must yield
+    (``asyncio.sleep(0)``) to avoid a hot CPU loop and return a response so
+    registered callbacks can run. The adapter stops the outer task.
     """
     await asyncio.sleep(0)
     return SimpleNamespace(next_batch="batch_token")
@@ -94,9 +93,28 @@ def _build_mock_nio_module() -> MagicMock:
     client.logged_in = True
     client.restore_login = MagicMock()
     client.add_event_callback = MagicMock()
-    client.stop_sync_forever = MagicMock()
+    response_callbacks: list[Any] = []
+    client.add_response_callback = MagicMock(
+        side_effect=lambda callback, *_classes: response_callbacks.append(callback)
+    )
+    stop_sync = asyncio.Event()
+    client.stop_sync_forever = MagicMock(side_effect=stop_sync.set)
     client.close = AsyncMock()
     client.sync = _healthy_sync
+
+    async def _sync_forever(*args: object, **kwargs: object) -> None:
+        stop_sync.clear()
+        current_kwargs = dict(kwargs)
+        while not stop_sync.is_set():
+            response = await client.sync(*args, **current_kwargs)
+            for callback in tuple(response_callbacks):
+                await callback(response)
+            if getattr(response, "next_batch", None):
+                current_kwargs["since"] = None
+                current_kwargs["full_state"] = None
+            await asyncio.sleep(0)
+
+    client.sync_forever = _sync_forever
     client.room_send = AsyncMock()
     # whoami() is called by _discover_device_id() during _start_plaintext().
     _whoami_resp = MagicMock(name="whoami_response")
@@ -225,6 +243,46 @@ class TestMatrixAdapterStart:
             assert kwargs["store_path"] is None
         finally:
             await adapter.stop()
+
+
+async def test_checkpoint_only_context_falls_back_to_publish_inbound(mock_nio) -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    ctx = _make_context()
+    ctx.load_checkpoint = AsyncMock(return_value=None)
+    ctx.commit_checkpoint = AsyncMock()
+    ctx.admit_inbound = None
+
+    try:
+        await adapter.start(ctx)
+        session = adapter._session
+        assert session is not None
+        assert session._admission_callback is None
+        assert session._durable_sync_enabled is False
+        assert mock_nio.AsyncClient.return_value.add_event_callback.called
+        assert not mock_nio.AsyncClient.return_value.add_event_admission_callback.called
+        session._live_sync_started = True
+        callback = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list[
+            0
+        ].args[0]
+        await callback(
+            SimpleNamespace(room_id="!room:example.org"),
+            SimpleNamespace(
+                sender="@alice:example.org",
+                event_id="$fallback",
+                body="hello",
+                source={
+                    "event_id": "$fallback",
+                    "sender": "@alice:example.org",
+                    "type": "m.room.message",
+                    "content": {"msgtype": "m.text", "body": "hello"},
+                },
+            ),
+        )
+        ctx.publish_inbound.assert_awaited_once()
+        assert ctx.admit_inbound is None
+    finally:
+        await adapter.stop()
 
 
 # ===================================================================

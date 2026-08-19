@@ -35,6 +35,7 @@ from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
 )
 from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.pipeline import make_event
 
 # ---------------------------------------------------------------------------
 # Helpers

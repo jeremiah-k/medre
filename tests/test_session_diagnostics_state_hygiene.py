@@ -322,7 +322,8 @@ class TestMatrixReconnectErrorStateRecovery:
         Pre-sets stale ``_reconnect_attempts`` and ``_last_reconnect_error``
         (simulating state left by a prior failed reconnect), then drives
         the production recovery method with a fake client whose
-        ``sync()`` returns a successful response. Asserts the recovery
+        ``sync_forever()`` delivers a successful response to
+        ``_on_sync_response()``. Asserts the recovery
         code at ``src/medre/adapters/matrix/session.py`` clears both
         fields and drops the reconnecting flag.
         """
@@ -331,16 +332,15 @@ class TestMatrixReconnectErrorStateRecovery:
 
         # Minimal fake client — bypasses start() and the real nio SDK.
         fake_client = MagicMock()
-        fake_client.olm = None  # skip the E2EE key-management block
-        fake_client.send_to_device_messages = AsyncMock()
+        fake_client.olm = None
 
-        async def _sync_then_stop(**_kwargs: object) -> SimpleNamespace:
-            # Stop the loop after one successful iteration so the test
-            # exits cleanly instead of looping forever.
+        async def _sync_forever_then_stop(**_kwargs: object) -> None:
+            await session._on_sync_response(
+                SimpleNamespace(next_batch="recovered-token", abandoned_rooms={})
+            )
             session._stop_requested = True
-            return SimpleNamespace(next_batch="recovered-token")
 
-        fake_client.sync = _sync_then_stop
+        fake_client.sync_forever = _sync_forever_then_stop
         session._client = fake_client
 
         # Pre-condition: stale state from a prior failed reconnect.

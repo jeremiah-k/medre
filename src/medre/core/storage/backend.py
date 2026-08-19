@@ -16,6 +16,12 @@ from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
+from medre.core.ingress import (
+    AdapterCheckpoint,
+    AdmissionResult,
+    IngressProvenance,
+    IngressWorkItem,
+)
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -371,6 +377,102 @@ class StorageBackend(Protocol):
         :class:`AsyncGenerator` because calling an async generator function
         returns an ``AsyncGenerator`` directly, not a ``Coroutine`` wrapping
         one.
+        """
+        ...
+
+    # -- Durable ingress -----------------------------------------------------
+
+    async def admit_ingress(
+        self,
+        event: CanonicalEvent,
+        inbound_ref: NativeMessageRef | None,
+        provenance: IngressProvenance,
+        *,
+        suppress_routing: bool = False,
+    ) -> AdmissionResult:
+        """Atomically persist event, native identity, and pending work.
+
+        Authority: **create** (atomic).
+        """
+        ...
+
+    async def put_adapter_checkpoint(
+        self,
+        adapter_id: str,
+        stream: str,
+        cursor: str,
+        *,
+        metadata_json: str = "{}",
+    ) -> None:
+        """Persist an application-owned adapter stream cursor.
+
+        Authority: **create/update**.
+        """
+        ...
+
+    async def get_adapter_checkpoint(
+        self, adapter_id: str, stream: str
+    ) -> AdapterCheckpoint | None:
+        """Return the last committed cursor for an adapter stream.
+
+        Authority: **list/get** (read-only).
+        """
+        ...
+
+    async def claim_ingress_work(
+        self,
+        *,
+        worker_id: str,
+        limit: int = 25,
+        lease_seconds: float = 30.0,
+    ) -> list[IngressWorkItem]:
+        """Atomically claim pending or lease-expired ingress work.
+
+        Authority: **claim** (atomic).
+        """
+        ...
+
+    async def complete_ingress_work(
+        self, event_id: str, *, worker_id: str
+    ) -> bool:
+        """Mark owned durable ingress work complete.
+
+        Authority: **mark** (status transition). Returns whether ownership
+        still matched and the transition applied.
+        """
+        ...
+
+    async def release_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str
+    ) -> bool:
+        """Release failed durable ingress work for a later retry.
+
+        Authority: **mark** (status transition).
+        """
+        ...
+
+    async def fail_ingress_work(
+        self, event_id: str, *, worker_id: str, error: str
+    ) -> bool:
+        """Mark owned durable ingress work terminally failed.
+
+        Authority: **mark** (status transition).
+        """
+        ...
+
+    async def renew_ingress_work_lease(
+        self, event_id: str, *, worker_id: str, lease_seconds: float
+    ) -> bool:
+        """Renew an owned processing lease.
+
+        Authority: **claim** (atomic lease maintenance).
+        """
+        ...
+
+    async def count_ingress_work_by_status(self) -> dict[str, int]:
+        """Return durable ingress work counts grouped by status.
+
+        Authority: **list/get** (read-only).
         """
         ...
 

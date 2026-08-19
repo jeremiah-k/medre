@@ -15,10 +15,19 @@ Internal authority:
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 from typing import Any
 
+from medre.core.storage.sqlite.ingress_sql import (
+    CLAIM_INGRESS_SELECT,
+    CLAIM_INGRESS_UPDATE,
+    INSERT_INGRESS_WORK,
+    SELECT_CANONICAL_EVENT_ID,
+    SELECT_NATIVE_EVENT_ID,
+    claimed_ingress_row,
+)
 from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
 
 
@@ -76,6 +85,55 @@ def sync_write(
             raise
 
 
+def sync_write_rowcount(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    sql: str,
+    params: tuple[Any, ...] = (),
+) -> int:
+    """Execute a write and return the number of rows affected."""
+    with lock:
+        try:
+            cursor = db.execute(sql, params)
+            db.commit()
+            return int(cursor.rowcount)
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+
+
+def sync_find_schema_shape_mismatch(
+    db_path: str, required_columns: dict[str, frozenset[str]]
+) -> tuple[str, list[str]] | None:
+    """Inspect a stamped existing database before any schema DDL runs."""
+    if db_path == ":memory:" or not os.path.exists(db_path):
+        return None
+    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        meta = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_medre_schema_meta'"
+        ).fetchone()
+        if meta is None:
+            return None
+        version = db.execute(
+            "SELECT value FROM _medre_schema_meta WHERE key='schema_version'"
+        ).fetchone()
+        if version is None:
+            return None
+        for table, required in required_columns.items():
+            rows = db.execute(f"PRAGMA table_info({table})").fetchall()
+            existing = {str(row[1]) for row in rows}
+            missing = sorted(required - existing)
+            if missing:
+                return table, missing
+        return None
+    finally:
+        db.close()
+
+
 def sync_write_batch(
     db: sqlite3.Connection,
     lock: threading.Lock,
@@ -116,3 +174,132 @@ def sync_read_all(
     """Read all rows as dicts."""
     with lock:
         return [dict(r) for r in db.execute(sql, params).fetchall()]
+
+
+def sync_admit_ingress(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    *,
+    event_ops: list[tuple[str, tuple[Any, ...]]],
+    native_identity: tuple[str, str | None, str] | None,
+    native_insert: tuple[str, tuple[Any, ...]] | None,
+    event_id: str,
+    provenance: str,
+    work_status: str,
+    now_iso: str,
+) -> tuple[str, bool]:
+    """Atomically admit an event/native ref/work marker.
+
+    Existing native identities are repaired with a missing work row in the
+    same transaction so switching from legacy admission cannot silently mark
+    an event complete without ever routing it.
+    """
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            existing_event_id: str | None = None
+            if native_identity is not None:
+                row = db.execute(SELECT_NATIVE_EVENT_ID, native_identity).fetchone()
+                if row is not None:
+                    existing_event_id = str(row[0])
+            else:
+                row = db.execute(SELECT_CANONICAL_EVENT_ID, (event_id,)).fetchone()
+                if row is not None:
+                    existing_event_id = event_id
+            if existing_event_id is not None:
+                work_row = db.execute(
+                    "SELECT 1 FROM durable_ingress_work WHERE event_id = ?",
+                    (existing_event_id,),
+                ).fetchone()
+                if work_row is None:
+                    db.execute(
+                        INSERT_INGRESS_WORK,
+                        (existing_event_id, provenance, work_status, now_iso, now_iso),
+                    )
+                db.commit()
+                return existing_event_id, False
+
+            for sql, params in event_ops:
+                db.execute(sql, params)
+            if native_insert is not None:
+                db.execute(*native_insert)
+            db.execute(
+                INSERT_INGRESS_WORK,
+                (event_id, provenance, work_status, now_iso, now_iso),
+            )
+            db.commit()
+            return event_id, True
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+
+
+def sync_upsert_checkpoint(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    params: tuple[Any, ...],
+) -> None:
+    """Persist one application-owned adapter checkpoint."""
+    with lock:
+        try:
+            db.execute(
+                """
+                INSERT INTO adapter_checkpoints
+                    (adapter_id, stream, cursor, metadata, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(adapter_id, stream) DO UPDATE SET
+                    cursor=excluded.cursor,
+                    metadata=excluded.metadata,
+                    updated_at=excluded.updated_at
+                """,
+                params,
+            )
+            db.commit()
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+
+
+def sync_claim_ingress_work(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    *,
+    now_iso: str,
+    lease_until: str,
+    worker_id: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Atomically claim pending or stale durable-ingress work."""
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(CLAIM_INGRESS_SELECT, (now_iso, limit)).fetchall()
+            claimed: list[dict[str, Any]] = []
+            for row in rows:
+                event_id = str(row[0])
+                db.execute(
+                    CLAIM_INGRESS_UPDATE,
+                    (now_iso, lease_until, worker_id, now_iso, event_id),
+                )
+                claimed.append(
+                    claimed_ingress_row(
+                        row,
+                        now_iso=now_iso,
+                        lease_until=lease_until,
+                        worker_id=worker_id,
+                    )
+                )
+            db.commit()
+            return claimed
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise

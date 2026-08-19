@@ -20,13 +20,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib
+import json
 import logging
 import os
 import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal, cast
 
 import medre.adapters.matrix.compat as _compat_mod
 from medre.adapters.matrix.errors import MatrixConnectionError
@@ -35,6 +36,7 @@ from medre.adapters.matrix.identity import (
     MatrixCrossSigningService,
 )
 from medre.config.adapters.matrix import MatrixConfig
+from medre.core.ingress import INGRESS_PROVENANCE_VALUES, IngressProvenance
 
 _logger = logging.getLogger(__name__)
 
@@ -128,6 +130,12 @@ class MatrixSessionDiagnostics:
     reconnecting: bool
     reconnect_attempts: int
     last_successful_sync: float | None
+    checkpoint_owned_by_medre: bool
+    committed_checkpoint_present: bool
+    recovered_event_count: int
+    history_event_count: int
+    recovery_abandoned_room_count: int
+    recovery_last_abandonment: str | None
     # Crypto-store continuity
     crypto_store_loaded: bool
     # Room-state tracking counts (no room names/IDs)
@@ -176,6 +184,15 @@ class MatrixSession:
         "_sync_task",
         "_sync_failure",
         "_message_callback",
+        "_admission_callback",
+        "_checkpoint_loader",
+        "_checkpoint_committer",
+        "_durable_sync_enabled",
+        "_committed_sync_token",
+        "_recovered_event_count",
+        "_history_event_count",
+        "_recovery_abandoned_rooms",
+        "_recovery_last_abandonment",
         "_closed",
         "_logger",
         "_crypto_enabled",
@@ -216,6 +233,9 @@ class MatrixSession:
         self,
         config: MatrixConfig,
         message_callback: Callable[..., Any] | None = None,
+        admission_callback: Callable[..., Any] | None = None,
+        checkpoint_loader: Callable[..., Any] | None = None,
+        checkpoint_committer: Callable[..., Any] | None = None,
         logger: logging.Logger | None = None,
         auto_join_rooms: tuple[str, ...] = (),
     ) -> None:
@@ -224,6 +244,22 @@ class MatrixSession:
         self._sync_task: asyncio.Task | None = None
         self._sync_failure: Exception | None = None
         self._message_callback = message_callback
+        self._admission_callback = admission_callback
+        self._checkpoint_loader = checkpoint_loader
+        self._checkpoint_committer = checkpoint_committer
+        self._durable_sync_enabled = all(
+            callback is not None
+            for callback in (
+                admission_callback,
+                checkpoint_loader,
+                checkpoint_committer,
+            )
+        )
+        self._committed_sync_token: str | None = None
+        self._recovered_event_count = 0
+        self._history_event_count = 0
+        self._recovery_abandoned_rooms: dict[str, tuple[str, ...]] = {}
+        self._recovery_last_abandonment: str | None = None
         self._closed = False
         self._logger: logging.Logger = logger if logger is not None else _logger
         self._crypto_enabled: bool = False
@@ -461,6 +497,11 @@ class MatrixSession:
         self._reconnecting = False
         self._last_reconnect_error = None
         self._last_successful_sync = None
+        self._committed_sync_token = None
+        self._recovered_event_count = 0
+        self._history_event_count = 0
+        self._recovery_abandoned_rooms = {}
+        self._recovery_last_abandonment = None
         self._stop_requested = False
         # Reset crypto store state
         self._crypto_store_loaded = False
@@ -487,6 +528,16 @@ class MatrixSession:
         else:
             await self._start_plaintext()
 
+    def _build_client_config(self, nio_module: Any, *, encryption_enabled: bool) -> Any:
+        """Build the pinned mindroom-nio Classic Sync ownership policy."""
+        return nio_module.AsyncClientConfig(
+            encryption_enabled=encryption_enabled,
+            max_timeouts=3,
+            backfill_limited_timelines=self._durable_sync_enabled,
+            store_sync_tokens=not self._durable_sync_enabled,
+            backfill_persist_recovery=False,
+        )
+
     async def _start_plaintext(self) -> None:
         """Standard plaintext startup — no explicit crypto.
 
@@ -499,11 +550,13 @@ class MatrixSession:
         """
         import nio
 
+        client_config = self._build_client_config(nio, encryption_enabled=False)
         self._client = nio.AsyncClient(
             homeserver=self._config.homeserver,
             user=self._config.user_id,
             device_id=self._config.device_id or None,
             store_path=self._config.store_path,
+            config=client_config,
         )
         # Discover the actual device_id from the authenticated session
         device_id = await self._discover_device_id()
@@ -547,7 +600,7 @@ class MatrixSession:
         Path(store_path).mkdir(parents=True, exist_ok=True)
 
         try:
-            client_config: Any = nio.AsyncClientConfig(encryption_enabled=True)
+            client_config: Any = self._build_client_config(nio, encryption_enabled=True)
         except Exception as exc:
             raise MatrixConnectionError(f"Failed to configure E2EE: {exc}") from exc
 
@@ -835,6 +888,174 @@ class MatrixSession:
             self._track_room(room_id)
         await self._message_callback(normalized)
 
+    async def _on_nio_admission(self, room: Any, event: Any, provenance: Any) -> None:
+        """Durably admit a nio timeline event before ordinary callback fanout."""
+        if self._admission_callback is None:
+            return
+        normalized = self._normalize_event(room, event)
+        room_id = normalized.get("room_id")
+        if isinstance(room_id, str) and room_id:
+            self._track_room(room_id)
+        provenance_value = getattr(provenance, "value", str(provenance)).lower()
+        try:
+            if provenance_value not in INGRESS_PROVENANCE_VALUES:
+                raise ValueError(
+                    f"unsupported Matrix ingress provenance: {provenance_value!r}"
+                )
+            ingress_provenance = cast(IngressProvenance, provenance_value)
+            if provenance_value == "recovered":
+                self._recovered_event_count += 1
+            elif provenance_value == "history":
+                self._history_event_count += 1
+            await self._admission_callback(normalized, ingress_provenance)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            import nio
+
+            rejection = getattr(nio, "CallbackNotAcceptedError", None)
+            if rejection is None:
+                try:
+                    from nio.exceptions import CallbackNotAcceptedError as rejection
+                except ImportError:
+                    raise exc from None
+            if isinstance(exc, rejection):
+                raise
+            raise rejection(f"MEDRE durable ingress admission failed: {exc}") from exc
+
+    @staticmethod
+    def _abandonment_metadata(response: Any) -> dict[str, tuple[str, ...]]:
+        """Return durable recovery evidence keyed by native Matrix room ID."""
+        raw = getattr(response, "abandoned_rooms", None) or {}
+        result: dict[str, tuple[str, ...]] = {}
+        for room_id, reasons in raw.items():
+            values = []
+            for reason in reasons:
+                value = getattr(reason, "value", None)
+                values.append(str(value if value is not None else reason))
+            result[str(room_id)] = tuple(sorted(values))
+        return result
+
+    @staticmethod
+    def _abandonment_diagnostic(
+        abandoned: dict[str, tuple[str, ...]],
+    ) -> str | None:
+        """Return identifier-free abandonment diagnostics for operators."""
+        if not abandoned:
+            return None
+        cause_counts: dict[str, int] = {}
+        for reasons in abandoned.values():
+            for reason in reasons:
+                cause_counts[reason] = cause_counts.get(reason, 0) + 1
+        return json.dumps(
+            {"causes": cause_counts, "room_count": len(abandoned)},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    async def _on_sync_response(self, response: Any) -> None:
+        """Commit MEDRE's Classic cursor, then acknowledge it to nio."""
+        next_batch = getattr(response, "next_batch", None)
+        if not isinstance(next_batch, str) or not next_batch:
+            return
+
+        abandoned = self._abandonment_metadata(response)
+        merged = dict(self._recovery_abandoned_rooms)
+        for room_id, reasons in abandoned.items():
+            existing = set(merged.get(room_id, ()))
+            existing.update(reasons)
+            merged[room_id] = tuple(sorted(existing))
+        metadata_json = json.dumps(
+            {"abandoned_rooms": merged},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+        if self._durable_sync_enabled:
+            client = self._client
+            if client is None or self._stop_requested:
+                return
+            committer = self._checkpoint_committer
+            if committer is None:
+                raise RuntimeError("durable Matrix sync has no checkpoint committer")
+            await committer("classic_sync", next_batch, metadata_json)
+            client.acknowledge_classic_sync(next_batch)
+            self._committed_sync_token = next_batch
+            if abandoned:
+                settle = getattr(client, "acknowledge_unrecovered_rooms", None)
+                if callable(settle):
+                    try:
+                        settle(abandoned)
+                    except Exception:
+                        self._logger.warning(
+                            "Failed to settle recorded Matrix recovery abandonment",
+                            exc_info=True,
+                        )
+
+        self._recovery_abandoned_rooms = merged
+        self._recovery_last_abandonment = self._abandonment_diagnostic(merged)
+        if abandoned:
+            self._logger.warning(
+                "Matrix gap recovery abandoned history in %d room(s)", len(abandoned)
+            )
+        if not self._live_sync_started and self._suppressed_backlog_undecryptable:
+            self._logger.debug(
+                "Sync boundary reached — suppressed %d undecryptable backlog events",
+                self._suppressed_backlog_undecryptable,
+            )
+        self._initial_sync_done = True
+        self._live_sync_started = True
+        self._last_successful_sync = time.monotonic()
+        if self._reconnect_attempts:
+            self._logger.info(
+                "Sync recovered after %d reconnect attempts", self._reconnect_attempts
+            )
+        self._reconnect_attempts = 0
+        self._last_reconnect_error = None
+
+    async def _load_classic_checkpoint(self) -> None:
+        """Restore MEDRE's committed Classic cursor and recovery evidence."""
+        if not self._durable_sync_enabled:
+            return
+        loader = self._checkpoint_loader
+        if loader is None:
+            raise RuntimeError("durable Matrix sync has no checkpoint loader")
+        checkpoint = await loader("classic_sync")
+        self._committed_sync_token = (
+            checkpoint.cursor if checkpoint is not None else None
+        )
+        self._recovery_abandoned_rooms = {}
+        self._recovery_last_abandonment = None
+        if checkpoint is not None and checkpoint.metadata_json:
+            try:
+                stored = json.loads(checkpoint.metadata_json)
+                if not isinstance(stored, dict):
+                    raise ValueError("checkpoint metadata must be an object")
+                raw_rooms = stored.get("abandoned_rooms", {})
+                if not isinstance(raw_rooms, dict):
+                    raise ValueError("abandoned_rooms must be an object")
+                restored: dict[str, tuple[str, ...]] = {}
+                for room_id, reasons in raw_rooms.items():
+                    if not isinstance(reasons, (list, tuple)) or not all(
+                        isinstance(reason, str) for reason in reasons
+                    ):
+                        raise ValueError("abandoned room reasons must be strings")
+                    restored[str(room_id)] = tuple(sorted(reasons))
+                self._recovery_abandoned_rooms = restored
+                self._recovery_last_abandonment = self._abandonment_diagnostic(restored)
+            except (TypeError, ValueError):
+                self._logger.warning(
+                    "Ignoring malformed Matrix checkpoint recovery metadata"
+                )
+        client = self._client
+        clear_recovery = (
+            getattr(client, "clear_persisted_sync_recovery", None)
+            if client is not None
+            else None
+        )
+        if callable(clear_recovery) and getattr(client, "store", None) is not None:
+            clear_recovery()
+
     async def _finalize_start(self) -> None:
         """Common post-client-creation steps: validate login, register callbacks, start sync task."""
         if not getattr(self._client, "logged_in", False):
@@ -849,32 +1070,31 @@ class MatrixSession:
                 f"on {self._config.homeserver}"
             )
 
-        if self._message_callback is not None:
-            import nio
+        import nio
 
-            self._client.add_event_callback(
-                self._on_nio_event,
-                (nio.RoomMessageText, nio.RoomMessageNotice, nio.RoomMessageEmote),
+        message_classes: tuple[type, ...] = (
+            nio.RoomMessageText,
+            nio.RoomMessageNotice,
+            nio.RoomMessageEmote,
+        )
+        reaction_classes = _reaction_event_classes(nio)
+        admission_classes = message_classes + reaction_classes
+
+        if self._durable_sync_enabled and self._admission_callback is not None:
+            self._client.add_event_admission_callback(
+                self._on_nio_admission, admission_classes
             )
+        elif self._message_callback is not None:
+            self._client.add_event_callback(self._on_nio_event, message_classes)
+            if reaction_classes:
+                self._client.add_event_callback(self._on_nio_event, reaction_classes)
 
-            # Register reaction event callback so that Matrix reactions
-            # (m.annotation) reach the same inbound handler.  Wrapped in
-            # try/except so that older nio versions without ReactionEvent
-            # degrade gracefully.
-            try:
-                reaction_classes = _reaction_event_classes(nio)
-                if reaction_classes:
-                    self._client.add_event_callback(
-                        self._on_nio_event,
-                        reaction_classes,
-                    )
-                else:
-                    self._logger.debug(
-                        "No ReactionEvent class found in nio; "
-                        "reaction callback not registered"
-                    )
-            except (AttributeError, ImportError):
-                pass
+        sync_response_cls = getattr(nio, "SyncResponse", None)
+        if sync_response_cls is not None:
+            self._client.add_response_callback(
+                self._on_sync_response, sync_response_cls
+            )
+        await self._load_classic_checkpoint()
 
         # Register MegolmEvent callback for undecryptable encrypted events.
         self._register_megolm_callback()
@@ -1228,111 +1448,23 @@ class MatrixSession:
             return
 
     async def _sync_with_reconnect(self) -> None:
-        """Bounded reconnect loop around ``sync()``.
+        """Supervise mindroom-nio ``sync_forever`` with bounded restarts.
 
-        Uses a manual sync loop instead of ``sync_forever`` so that
-        the sync boundary (``_live_sync_started``) can be set between
-        the first successful sync (backlog) and subsequent live syncs.
-
-        On sync failure (transient), initiates reconnect with exponential
-        backoff (1s, 2s, 4s, 8s, 16s capped at 60s) with +-25% jitter.
-        After ``_MAX_RECONNECT_ATTEMPTS`` consecutive failures, gives up
-        and sets ``_sync_failure``.
-
-        On ``CancelledError``: stops reconnecting immediately, re-raises.
-        On ``_stop_requested``: does not start new reconnect.
+        mindroom-nio owns Classic request retries, key sequencing, timeline
+        parsing/decryption, limited-timeline recovery, and event provenance.
+        MEDRE owns process-level restart/liveness plus the committed cursor.
         """
         while not self._stop_requested:
             try:
                 self._reconnecting = False
-
-                # Manual sync loop — replaces sync_forever so we can
-                # control the live boundary.
-                while not self._stop_requested:
-                    # B) full_state=True on initial sync so nio learns
-                    # which rooms are encrypted.
-                    if not self._initial_sync_done:
-                        sync_kwargs = dict(
-                            timeout=self._config.sync_timeout_ms,
-                            full_state=True,
-                        )
-                    else:
-                        sync_kwargs = dict(
-                            timeout=self._config.sync_timeout_ms,
-                        )
-                    resp = await self._client.sync(**sync_kwargs)
-
-                    # nio returns SyncResponse on success, ErrorResponse
-                    # or similar on failure.
-                    if hasattr(resp, "next_batch") and resp.next_batch:
-                        # Mark initial sync done only after a
-                        # successful response so a failed first
-                        # attempt is retried with full_state=True.
-                        self._initial_sync_done = True
-                        self._last_successful_sync = time.monotonic()
-
-                        # A) E2EE key management — mirrors nio
-                        # sync_forever pattern.  These four operations
-                        # must run after each successful sync so that
-                        # device keys are uploaded, other users' device
-                        # keys are queried, Olm sessions are established,
-                        # and to-device messages (including room key
-                        # shares) are sent and received.
-                        if self._crypto_enabled and self._client.olm is not None:
-                            if self._client.should_upload_keys:
-                                try:
-                                    await self._client.keys_upload()
-                                except Exception as exc:
-                                    self._logger.warning("keys_upload failed: %s", exc)
-                            if self._client.should_query_keys:
-                                try:
-                                    await self._client.keys_query()
-                                except Exception as exc:
-                                    self._logger.warning("keys_query failed: %s", exc)
-                            if self._client.should_claim_keys:
-                                try:
-                                    users = self._client.get_users_for_key_claiming()
-                                    if users:
-                                        await self._client.keys_claim(users)
-                                except Exception as exc:
-                                    self._logger.warning("keys_claim failed: %s", exc)
-                        # send_to_device_messages is unconditional — it
-                        # handles both encrypted and unencrypted to-device
-                        # messages (key requests, etc.).
-                        try:
-                            await self._client.send_to_device_messages()
-                        except Exception as exc:
-                            self._logger.debug(
-                                "send_to_device_messages failed: %s", exc
-                            )
-
-                        if not self._live_sync_started:
-                            self._live_sync_started = True
-                            if self._suppressed_backlog_undecryptable > 0:
-                                self._logger.debug(
-                                    "Sync boundary reached — suppressed "
-                                    "%d undecryptable backlog events",
-                                    self._suppressed_backlog_undecryptable,
-                                )
-
-                        if self._reconnect_attempts > 0:
-                            self._logger.info(
-                                "Sync recovered after %d reconnect attempts",
-                                self._reconnect_attempts,
-                            )
-                        self._reconnect_attempts = 0
-                        self._last_reconnect_error = None
-
-                        # Real nio sync long-polls; this yield prevents
-                        # tight loops with immediate-return test fakes.
-                        await asyncio.sleep(0)
-                    else:
-                        # Error response from server
-                        error_msg = str(resp)
-                        raise RuntimeError(f"sync returned error: {error_msg}")
-
-                # Loop exited because _stop_requested
-                return
+                await self._client.sync_forever(
+                    timeout=self._config.sync_timeout_ms,
+                    since=self._committed_sync_token,
+                    full_state=self._committed_sync_token is None,
+                )
+                if self._stop_requested:
+                    return
+                raise RuntimeError("Matrix sync_forever exited unexpectedly")
             except asyncio.CancelledError:
                 self._reconnecting = False
                 raise
@@ -1342,12 +1474,29 @@ class MatrixSession:
                     self._reconnecting = False
                     return
 
+                try:
+                    if self._durable_sync_enabled:
+                        if getattr(
+                            self._client, "has_uncommitted_classic_sync_state", False
+                        ):
+                            await self._client.reset_classic_sync_state()
+                        self._client.next_batch = self._committed_sync_token
+                except asyncio.CancelledError:
+                    raise
+                except Exception as reset_exc:
+                    self._logger.error(
+                        "Failed to reset uncommitted Matrix sync state: %s",
+                        reset_exc,
+                    )
+                    self._sync_failure = reset_exc
+                    self._reconnecting = False
+                    return
+
                 self._reconnect_attempts += 1
                 self._last_reconnect_error = str(exc)
-
                 if self._reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
                     self._logger.error(
-                        "Max sync reconnect attempts (%d) reached, " "giving up: %s",
+                        "Max sync reconnect attempts (%d) reached, giving up: %s",
                         _MAX_RECONNECT_ATTEMPTS,
                         exc,
                     )
@@ -1355,38 +1504,36 @@ class MatrixSession:
                     self._reconnecting = False
                     return
 
-                # Compute backoff with jitter
-                delay = min(
+                self._reconnecting = True
+                raw_delay = min(
                     _BACKOFF_BASE * (2 ** (self._reconnect_attempts - 1)),
                     _BACKOFF_CAP,
                 )
-                jitter = delay * _BACKOFF_JITTER_FRACTION
-                actual_delay = max(0.0, delay + random.uniform(-jitter, jitter))
-
-                self._reconnecting = True
+                jitter = raw_delay * _BACKOFF_JITTER_FRACTION
+                delay = max(0.0, raw_delay + random.uniform(-jitter, jitter))
                 self._logger.warning(
-                    "Sync failed (attempt %d/%d), reconnecting in %.1fs: %s",
+                    "Matrix sync failed (attempt %d/%d); retrying in %.1fs: %s",
                     self._reconnect_attempts,
                     _MAX_RECONNECT_ATTEMPTS,
-                    actual_delay,
+                    delay,
                     exc,
                 )
-
                 try:
-                    await asyncio.sleep(actual_delay)
+                    await asyncio.sleep(delay)
                 except asyncio.CancelledError:
-                    if self._stop_requested:
-                        self._reconnecting = False
-                        return
+                    self._reconnecting = False
                     raise
 
-        # _stop_requested was True
         self._reconnecting = False
 
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing, close the client.  Idempotent."""
-        # Signal stop to prevent reconnect loops.
+        # Signal both MEDRE's supervisor and nio's inner sync loop.
         self._stop_requested = True
+        if self._client is not None:
+            stop_sync = getattr(self._client, "stop_sync_forever", None)
+            if callable(stop_sync):
+                stop_sync()
 
         # Cancel outstanding join tasks before closing the client.
         join_tasks = list(self._joining_rooms.values())
@@ -1563,6 +1710,12 @@ class MatrixSession:
             reconnecting=self._reconnecting,
             reconnect_attempts=self._reconnect_attempts,
             last_successful_sync=self._last_successful_sync,
+            checkpoint_owned_by_medre=self._durable_sync_enabled,
+            committed_checkpoint_present=self._committed_sync_token is not None,
+            recovered_event_count=self._recovered_event_count,
+            history_event_count=self._history_event_count,
+            recovery_abandoned_room_count=len(self._recovery_abandoned_rooms),
+            recovery_last_abandonment=self._recovery_last_abandonment,
             # Truthful crypto_store_loaded based on live state
             crypto_store_loaded=olm_loaded and store_loaded,
             # Room-state tracking
