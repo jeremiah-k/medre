@@ -1,6 +1,6 @@
 """Optional dependency guard and authoritative PortNum helper.
 
-``mtjk`` (distribution name ``mtjk``, version 2.7.8.post2+) is a fork of the
+``mtjk`` (distribution name ``mtjk``, version 2.7.11.post5) is a fork of the
 upstream Meshtastic Python library maintained at ``github.com/jeremiah-k/mtjk``.
 It is imported as ``meshtastic``.
 

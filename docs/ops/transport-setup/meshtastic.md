@@ -60,7 +60,8 @@ bluetoothctl scan on
 
 ### Firmware Compatibility
 
-`mtjk` v2.7.8.post2+ is the verified dependency. If you encounter protocol errors, update both the node firmware and the `mtjk` package.
+`mtjk` v2.7.11.post5 is the pinned and verified dependency. If you encounter
+protocol errors, update both the node firmware and the `mtjk` package.
 
 ## Connection Modes
 

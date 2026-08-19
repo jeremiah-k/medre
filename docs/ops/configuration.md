@@ -353,6 +353,7 @@ adapters:
       display_name: MEDRE
       stamp_cost: 8
       default_delivery_method: direct
+      # outbound_propagation_node: "0123456789abcdef0123456789abcdef"
       origin_label: ""
       default_channel: 0
       message_delay_seconds: 0.5
@@ -368,8 +369,9 @@ adapters:
 | `adapter_id`              | string | instance name | Unique identifier.                                                                                 |
 | `connection_type`         | string | `"fake"`      | `fake` or `reticulum`.                                                                             |
 | `display_name`            | string | `""`          | Display name for LXMF announces.                                                                   |
-| `stamp_cost`              | int    | `8`           | Stamp cost. `0` means no stamp required.                                                           |
+| `stamp_cost`              | int    | `8`           | Stamp cost. `0` disables stamps; valid positive values are `1..254`.                                                           |
 | `default_delivery_method` | string | `"direct"`    | `direct`, `opportunistic`, `propagated`, or `paper`.                                               |
+| `outbound_propagation_node` | string | `None`       | 32-hex-character LXMF propagation-node destination hash; required for real-mode propagated default. |
 | `origin_label`            | string | `""`          | Platform-neutral source label for relay prefixes.                                                  |
 | `default_channel`         | int    | `0`           | Default outbound channel.                                                                          |
 | `message_delay_seconds`   | float  | `0.5`         | Pacing.                                                                                            |

@@ -138,7 +138,9 @@ def _has_live_marker(path: Path) -> bool:
 
 def _has_sdk_opt_in_marker(path: Path) -> bool:
     """Return whether SDK imports are gated from the default suite."""
-    return not declared_pytest_markers(path).isdisjoint({"live", "matrix_sdk"})
+    return not declared_pytest_markers(path).isdisjoint(
+        {"live", "matrix_sdk", "lxmf_sdk", "meshtastic_sdk", "meshcore_sdk"}
+    )
 
 
 # ===================================================================
@@ -438,19 +440,23 @@ class TestCliWorkflowsRuntimeLayerOnly:
 # ===================================================================
 
 
-def test_pytest_config_excludes_matrix_sdk_marker() -> None:
-    """``pyproject.toml`` must exclude SDK-contract tests by default."""
+@pytest.mark.parametrize(
+    "marker",
+    ["matrix_sdk", "lxmf_sdk", "meshtastic_sdk", "meshcore_sdk"],
+)
+def test_pytest_config_excludes_sdk_contract_markers(marker: str) -> None:
+    """``pyproject.toml`` must exclude every SDK-contract tier by default."""
     pyproject = _TESTS_DIR.parent / "pyproject.toml"
     assert pyproject.exists(), "pyproject.toml not found"
     expression = pytest_addopts_marker_expression(pyproject)
     assert marker_is_explicitly_excluded(
-        expression, "matrix_sdk"
-    ), "pyproject.toml addopts must exclude matrix_sdk marker"
+        expression, marker
+    ), f"pyproject.toml addopts must exclude {marker} marker"
 
 
 class TestNoLiveTestsRunByDefault:
     """Enforce that the default ``pytest`` invocation does not run live
-    tests and that SDK-importing files carry ``live`` or ``matrix_sdk``.
+    tests and that SDK-importing files carry ``live`` or an explicit ``*_sdk`` marker.
     Also enforces the ``hardware`` marker discipline.
     """
 
@@ -522,7 +528,7 @@ class TestNoLiveTestsRunByDefault:
         ), f"{filename} is a live test file but is missing pytest.mark.live"
 
     def test_non_live_test_files_no_sdk_imports(self) -> None:
-        """SDK imports require an explicit ``live`` or ``matrix_sdk`` tier.
+        """SDK imports require an explicit ``live`` or adapter SDK-contract tier.
 
         Scans all ``test_*.py`` files for SDK imports.  Any file that
         imports an SDK must be excluded from the default suite.

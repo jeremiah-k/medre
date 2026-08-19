@@ -65,7 +65,9 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 
 - Inbound processing is text messages only. Telemetry, position, and nodeinfo
   portnum types are not processed inbound.
-- `mtjk` is a fork of the upstream Meshtastic Python library (version 2.7.8.post2+).
+- `mtjk` is the pinned Meshtastic fork at version 2.7.11.post5; a dedicated
+  installed-SDK contract tier freezes the private send/protobuf/pubsub surfaces
+  MEDRE uses.
 - `sendText` and `sendData` are synchronous in mtjk; MEDRE wraps them in
   `asyncio.to_thread()`.
 - Pubsub callbacks fire on a background thread, not the asyncio event loop.
@@ -74,13 +76,15 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 
 ### 2.3 MeshCore
 
-- SDK findings are based on source extraction (version 2.3.7). BLE
+- SDK parity is frozen against meshcore 2.3.8. BLE
   session-layer behavior was live-validated June 2026 against a MeshCore
   node on Linux BlueZ. TCP and serial transports are source-extracted
   only; no live hardware test has been run against them. BLE requires
   pre-pairing and is subject to BlueZ stack limitations (stale device
   cleanup and pre-scan before connect).
-- No native reply mechanism. Relations are capability-gated via `CapabilityDecisionResolver`; unsupported relation types produce `capability_suppressed` delivery outcomes.
+- No native reply mechanism. Relations are capability-gated via
+  `CapabilityDecisionResolver`; unsupported relation types produce
+  `capability_suppressed` delivery outcomes.
 - No startup backlog suppression (intentionally absent: MeshCore has no
   store-and-forward).
 - Sender identity is a 6-byte pubkey prefix (not globally unique).
@@ -89,9 +93,17 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 
 - Multi-hop mesh delivery is not tested.
 - E2EE beyond Reticulum's native link-layer encryption is not in scope.
-- The session does not retry outbound sends automatically.
+- The session performs a bounded local retry for transient outbound handoff
+  failures; this still does not imply end-to-end delivery.
+- `LXMessage.source` is the local `RNS.Destination` returned by
+  `register_delivery_identity()`; an `LXMRouter` is not a valid source.
 - Delivery confirmation is asynchronous and may never arrive.
-- Propagated messages have no delivery time guarantee.
+- Propagated messages have no delivery time guarantee and require an explicit
+  `outbound_propagation_node` destination hash.
+- MEDRE shuts down the owned `LXMRouter` but not the process-global Reticulum
+  singleton. LXMF has no public join/stop primitive for the router daemon job
+  loop, so a stopped router can leave a dormant daemon thread until process
+  exit.
 
 ## 3. Fire-and-Forget Model
 

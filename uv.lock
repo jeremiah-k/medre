@@ -922,6 +922,7 @@ dev = [
 ]
 lxmf = [
     { name = "lxmf" },
+    { name = "rns" },
 ]
 matrix = [
     { name = "mindroom-nio" },
@@ -943,6 +944,7 @@ requires-dist = [
     { name = "coverage", marker = "extra == 'dev'", specifier = "==7.15.4" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = "==4.26.0" },
     { name = "lxmf", marker = "extra == 'lxmf'", specifier = "==1.1.1" },
+    { name = "rns", marker = "extra == 'lxmf'", specifier = "==1.4.2" },
     { name = "meshcore", marker = "extra == 'meshcore'", specifier = "==2.3.8" },
     { name = "mindroom-nio", marker = "extra == 'matrix'", specifier = "==0.40.0" },
     { name = "mindroom-nio", extras = ["e2e"], marker = "extra == 'matrix-e2e'", specifier = "==0.40.0" },
