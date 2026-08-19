@@ -239,10 +239,11 @@ evidence.
 
 ### 5.1 Replay Creates New Attempts
 
-Replay re-processes stored canonical events through the pipeline. Each replay
-delivery produces new receipt rows with `source="replay"` and a `replay_run_id`.
-Replay MAY create new delivery attempts, but each attempt is a new receipt row
-— it does not modify existing receipts.
+Replay re-processes stored canonical events through the pipeline. Accepted replay
+delivery attempts produce receipt rows with `source="replay"` and a
+`replay_run_id`. A non-empty run ID suppresses a target after visible `queued` or
+`sent` acceptance evidence from that same run. Other replay attempts create new
+receipt rows and never modify existing receipts.
 
 ### 5.1.1 Replay Attempt Identity
 
@@ -272,8 +273,9 @@ receipts or transition the outbox from `queued` to `sent`. See
 ### 5.4 Replay Non-Guarantees
 
 Replay is operator-initiated, in-memory, and non-durable. It is not a crash
-recovery mechanism, not an idempotent delivery guarantee, and not a substitute
-for live delivery. Replay MAY produce duplicate sends.
+recovery mechanism, not an exactly-once delivery guarantee, and not a substitute
+for live delivery. Different or empty run IDs MAY produce duplicate sends, and
+concurrent executions sharing a run ID can race before acceptance evidence commits.
 
 ---
 

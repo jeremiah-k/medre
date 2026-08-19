@@ -330,13 +330,25 @@ While the test waits (30 s window), send a message from the second account. If n
 
 ## Known Limitations
 
-1. **Bounded auto-reconnect.** The adapter reconnects on transient failures with exponential backoff up to a maximum. Budget exhaustion requires manual restart.
-2. **No graceful shutdown signaling.** `stop()` cancels the sync task. Anything in flight is lost.
-3. **No inbound queue or persistence.** Inbound events are published directly. No retry, no dead letter queue.
-4. **No rate limiting.** The adapter sends as fast as you call `deliver()`. Homeservers rate-limit by default.
-5. **Single-room testing only.** Multi-room behavior has not been tested against a real homeserver.
-6. **Reconnect does not recover from permanent auth failures.** Revoked/expired tokens require a new token and manual restart.
-7. **No metrics.** No Prometheus endpoint, no external metrics export. Only log output, `health_check()`, and `diagnostics()` counters.
+1. **Bounded auto-reconnect.** The adapter reconnects on transient failures with
+   exponential backoff up to a maximum. Budget exhaustion requires manual restart.
+2. **Shutdown is bounded, not lossless before durable admission.** Once an event
+   crosses MEDRE's durable ingress boundary it remains pending across restart, but
+   transport work cancelled before canonicalization/admission still depends on
+   Matrix sync/checkpoint recovery.
+3. **Durable ingress is internal, not a Matrix-side queue.** Canonical events, native
+   refs, and pending work are committed before normal `publish_inbound()` returns;
+   persistent transport recovery still depends on the Matrix checkpoint contract.
+4. **No adaptive outbound rate controller.** Homeserver rate-limit responses are
+   classified and retried where policy permits, but MEDRE does not yet shape Matrix
+   sends proactively.
+5. **Single-room testing only.** Multi-room behavior has not been tested against a
+   real homeserver.
+6. **Reconnect does not recover from permanent auth failures.** Revoked/expired
+   tokens require a new token and manual restart.
+7. **No metrics endpoint.** `medre diagnostics --format prometheus` exports a
+   scrape-compatible text snapshot, but MEDRE does not run a Prometheus HTTP
+   endpoint.
 
 ## Troubleshooting
 

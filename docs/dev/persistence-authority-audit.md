@@ -71,7 +71,11 @@ Replay module storage access is read-only for all historical data. Real persiste
 - Never modifies `canonical_events`
 - Never directly writes to `delivery_outbox` (delegates to pipeline)
 
-Replay is an ephemeral runtime operation, not a durable job system. Replay runs are not persisted. If the runtime crashes during replay, the run is lost and must be re-initiated manually. Replay deduplication is not provided; re-running replay may produce duplicate deliveries.
+Replay is an in-memory runtime operation, not a durable job system. Replay runs
+are not persisted. If the runtime crashes during replay, the run is lost and must
+be re-initiated manually. A non-empty run ID suppresses targets with visible
+`queued` or `sent` evidence from that same run; different/empty run IDs and
+concurrent same-run executions can still produce duplicate deliveries.
 
 ## Recovery Persistence Semantics
 

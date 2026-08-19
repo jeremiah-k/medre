@@ -54,17 +54,19 @@ The pipeline is orchestrated by `PipelineRunner.handle_ingress()`. Stages execut
 | `telemetry.received` | `metadata_fields` | Boolean          |
 | `telemetry.position` | `metadata_fields` | Boolean          |
 
-| Relation type | Capability field | Notes                               |
-| ------------- | ---------------- | ----------------------------------- |
-| `reply`       | `replies`        | String (3-level)                    |
-| `reaction`    | `reactions`      | String (3-level)                    |
-| `edit`        | `edits`          | String (3-level)                    |
-| `delete`      | `deletes`        | String (3-level)                    |
-| `thread`      | —                | **Deferred**: no candidate produced |
+| Relation type | Capability field | Notes            |
+| ------------- | ---------------- | ---------------- |
+| `reply`       | `replies`        | String (3-level) |
+| `reaction`    | `reactions`      | String (3-level) |
+| `edit`        | `edits`          | String (3-level) |
+| `delete`      | `deletes`        | String (3-level) |
+| `thread`      | `threads`        | String (3-level) |
 
 **Precedence:** Multiple candidates → pick most severe (`unsupported` > `fallback` > `native`). Ties broken by evaluation order (event-kind first, then relations in order).
 
-**Thread deferral:** Thread relations produce no capability candidate. Thread-carrying events receive native/direct passthrough with `capability_field=None` unless another candidate overrides.
+**Thread capability:** Thread relations produce a candidate from
+`AdapterCapabilities.threads`. Built-in adapters currently advertise `fallback`,
+selecting `fallback_text`; unknown relation types fail closed.
 
 ### 2.2 RelationResolver
 
@@ -177,7 +179,10 @@ Stages 6a–6c run **before** capacity acquisition and outbox claim. These produ
 | Adapter `SIZE_LIMITS` capability | `MaxLengthPolicy` / renderer | Truncation         | Renderer shortens content to fit byte/char budget                                  | `RenderingResult.truncated=True`, `max_text_bytes` in `RenderingContext`                 |
 | Relation target not resolved     | `RelationEnricher`           | Native ref missing | Renderer falls back to `EventRelation.fallback_text` if available                  | `RelationTargetEvidence.render_mode="fallback"` when `target_native_message_id` absent   |
 
-**Known gap:** No production transport profile currently declares a three-level field at `"fallback"`. All use `"native"` or `"unsupported"`. The fallback path is exercised by tests with synthetic capabilities but has no live-transport R-tier evidence.
+**Known gap:** Built-in transport profiles declare `threads="fallback"`, so the
+production planner exercises the fallback path for thread relations. Native thread
+emission remains unverified, and live-transport R-tier evidence for thread fallback
+is still incomplete.
 
 ## 5. Evidence Flow
 

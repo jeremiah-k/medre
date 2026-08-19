@@ -299,57 +299,82 @@ This section documents conformance test coverage for transport capability semant
 
 ### 7.1 Test Coverage by Behavior
 
-| Behavior                                                                                                                     | Test module(s)                                                                                                                   | Tier      |
-| ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| Default `AdapterCapabilities` produce correct capability decisions for known event kinds                                     | `test_capability_decision.py`                                                                                                    | synthetic |
-| `None` / missing capabilities fail closed (unsupported/skip)                                                                 | `test_capability_decision.py`                                                                                                    | synthetic |
-| Thread relation produces no capability candidate (deferred)                                                                  | `test_capability_decision.py`                                                                                                    | synthetic |
-| Transport profile JSONs produce correct decisions (native, fallback, unsupported per adapter)                                | `test_capability_decision_transport_profiles.py`, `test_capability_runtime_conformance.py`                                       | synthetic |
-| Relation degradation (reply, reaction, edit, delete) follows three-level semantics                                           | `test_capability_decision.py`, `test_capability_pipeline_enforcement.py`                                                         | synthetic |
-| Unknown event kinds pass through (native/direct)                                                                             | `test_capability_decision.py`                                                                                                    | synthetic |
-| `thread` produces no relation candidate; unknown non-thread relation types fail closed as unsupported/skip                   | `test_capability_decision.py` (`test_unknown_relation_not_treated_as_thread`, `test_unknown_non_thread_relation_is_unsupported`) | synthetic |
-| Capability suppression produces `failure_kind="capability_suppressed"` in delivery outcomes                                  | `test_capability_pipeline_enforcement.py`, `test_delivery_strategy_pipeline_skip.py`                                             | synthetic |
-| LXMF renderer enforces `max_text_chars` budget and sets `truncated=True`                                                     | `test_lxmf_renderer.py` (unit)                                                                                                   | synthetic |
-| Truncation evidence: `rendered_text_chars`, `original_text_chars` in `RenderingEvidence`                                     | `test_rendering_conformance.py`, `test_lxmf_renderer.py`                                                                         | synthetic |
-| Report dict enrichment: `suppression_reason`, `capability_field`, `capability_level`, `delivery_strategy`                    | `test_evidence_suppression.py`                                                                                                   | synthetic |
-| `delivery_state_by_target` includes capability-evidence fields (`source`, `replay_run_id`, `suppression_reason`, etc.)       | `test_evidence_target_keyed.py`                                                                                                  | synthetic |
-| Evidence bundle carries enriched fields for sent, queued, suppressed, and replay-origin receipts                             | `test_evidence_bundle_conformance.py`                                                                                            | synthetic |
-| Replay BEST_EFFORT applies capability filtering via `_filter_plans_by_capability` using real pipeline                        | `test_replay_engine_plan_filters.py`, `conformance/test_replay_conformance.py`                                                   | synthetic |
-| All-suppressed replay result includes `capability_suppressed_plans`, `delivery_plan_ids`, `replay_run_id`, `source="replay"` | `test_replay_engine_plan_filters.py`                                                                                             | synthetic |
-| Replay capability filtering uses same `CapabilityDecisionResolver` as live delivery                                          | `test_replay_engine_plan_filters.py`                                                                                             | synthetic |
-| Deterministic plan IDs via `stable_delivery_plan_id` (same event + route = same plan ID)                                     | `test_pipeline_live_replay_parity.py`                                                                                            | synthetic |
-| Live and replay plans are semantically equivalent (plan_id, strategy, capability fields)                                     | `test_pipeline_live_replay_parity.py`                                                                                            | synthetic |
-| Live and replay receipts match on core fields (status, failure_kind, delivery_plan_id, target, route)                        | `test_pipeline_live_replay_parity.py`                                                                                            | synthetic |
-| Repeated replay runs produce identical plan IDs                                                                              | `test_pipeline_live_replay_parity.py`                                                                                            | synthetic |
-| Capability skip suppression does not call adapter send                                                                       | `test_pipeline_suppression_no_send.py`                                                                                           | synthetic |
-| Loop suppression does not call adapter send                                                                                  | `test_pipeline_suppression_no_send.py`                                                                                           | synthetic |
-| Suppressed receipts have `status="suppressed"` (not `"failed"`) and distinct failure kinds                                   | `test_pipeline_suppression_no_send.py`                                                                                           | synthetic |
-| Suppressed deliveries do not enter retry queue                                                                               | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py`                                                   | synthetic |
-| Retry reconstruction preserves `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`                            | `test_receipt_lineage_retry_parity.py`                                                                                           | synthetic |
-| Retry attempts append new receipts (not overwrite existing)                                                                  | `test_receipt_lineage_retry_parity.py`                                                                                           | synthetic |
-| Retry exhaustion produces durable `dead_lettered` evidence                                                                   | `test_receipt_lineage_retry_parity.py`                                                                                           | synthetic |
-| Native message refs persisted and resolvable for replay                                                                      | `test_pipeline_native_ref_loop_prevention.py`                                                                                    | synthetic |
-| Loop suppression evidence includes `event_id`, `route_id`, `target_adapter`, `failure_kind=LOOP_SUPPRESSED`                  | `test_pipeline_native_ref_loop_prevention.py`                                                                                    | synthetic |
-| Operator diagnostics cover all pipeline stages (store, route, plan, render, deliver) in a single evidence bundle             | `test_evidence_operator_diagnostics.py`                                                                                          | synthetic |
-| Report dict enrichment includes `delivery_strategy`, `capability_field`, `capability_level`, `suppression_reason`            | `test_evidence_operator_diagnostics.py`                                                                                          | synthetic |
+| Behavior                                                                                                                     | Test module(s)                                                                             | Tier      |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------- |
+| Default `AdapterCapabilities` produce correct capability decisions for known event kinds                                     | `test_capability_decision.py`                                                              | synthetic |
+| `None` / missing capabilities fail closed (unsupported/skip)                                                                 | `test_capability_decision.py`                                                              | synthetic |
+| Thread relation is capability-gated through `threads`; default unsupported and built-ins explicit fallback                   | `test_capability_decision.py`, `test_capability_runtime_conformance.py`                    | synthetic |
+| Transport profile JSONs produce correct decisions (native, fallback, unsupported per adapter)                                | `test_capability_decision_transport_profiles.py`, `test_capability_runtime_conformance.py` | synthetic |
+| Relation degradation (reply, reaction, edit, delete, thread) follows three-level semantics                                   | `test_capability_decision.py`, `test_capability_pipeline_enforcement.py`                   | synthetic |
+| Unknown event kinds pass through (native/direct)                                                                             | `test_capability_decision.py`                                                              | synthetic |
+| `thread` uses the `threads` capability field; unknown relation types fail closed as unsupported/skip                         | `test_capability_decision.py`                                                              | synthetic |
+| Capability suppression produces `failure_kind="capability_suppressed"` in delivery outcomes                                  | `test_capability_pipeline_enforcement.py`, `test_delivery_strategy_pipeline_skip.py`       | synthetic |
+| LXMF renderer enforces `max_text_chars` budget and sets `truncated=True`                                                     | `test_lxmf_renderer.py` (unit)                                                             | synthetic |
+| Truncation evidence: `rendered_text_chars`, `original_text_chars` in `RenderingEvidence`                                     | `test_rendering_conformance.py`, `test_lxmf_renderer.py`                                   | synthetic |
+| Report dict enrichment: `suppression_reason`, `capability_field`, `capability_level`, `delivery_strategy`                    | `test_evidence_suppression.py`                                                             | synthetic |
+| `delivery_state_by_target` includes capability-evidence fields (`source`, `replay_run_id`, `suppression_reason`, etc.)       | `test_evidence_target_keyed.py`                                                            | synthetic |
+| Evidence bundle carries enriched fields for sent, queued, suppressed, and replay-origin receipts                             | `test_evidence_bundle_conformance.py`                                                      | synthetic |
+| Replay BEST_EFFORT applies capability filtering via `_filter_plans_by_capability` using real pipeline                        | `test_replay_engine_plan_filters.py`, `conformance/test_replay_conformance.py`             | synthetic |
+| All-suppressed replay result includes `capability_suppressed_plans`, `delivery_plan_ids`, `replay_run_id`, `source="replay"` | `test_replay_engine_plan_filters.py`                                                       | synthetic |
+| Replay capability filtering uses same `CapabilityDecisionResolver` as live delivery                                          | `test_replay_engine_plan_filters.py`                                                       | synthetic |
+| Deterministic plan IDs via `stable_delivery_plan_id` (same event + route = same plan ID)                                     | `test_pipeline_live_replay_parity.py`                                                      | synthetic |
+| Live and replay plans are semantically equivalent (plan_id, strategy, capability fields)                                     | `test_pipeline_live_replay_parity.py`                                                      | synthetic |
+| Live and replay receipts match on core fields (status, failure_kind, delivery_plan_id, target, route)                        | `test_pipeline_live_replay_parity.py`                                                      | synthetic |
+| Repeated replay runs produce identical plan IDs                                                                              | `test_pipeline_live_replay_parity.py`                                                      | synthetic |
+| Capability skip suppression does not call adapter send                                                                       | `test_pipeline_suppression_no_send.py`                                                     | synthetic |
+| Loop suppression does not call adapter send                                                                                  | `test_pipeline_suppression_no_send.py`                                                     | synthetic |
+| Suppressed receipts have `status="suppressed"` (not `"failed"`) and distinct failure kinds                                   | `test_pipeline_suppression_no_send.py`                                                     | synthetic |
+| Suppressed deliveries do not enter retry queue                                                                               | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py`             | synthetic |
+| Retry reconstruction preserves `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`                            | `test_receipt_lineage_retry_parity.py`                                                     | synthetic |
+| Retry attempts append new receipts (not overwrite existing)                                                                  | `test_receipt_lineage_retry_parity.py`                                                     | synthetic |
+| Retry exhaustion produces durable `dead_lettered` evidence                                                                   | `test_receipt_lineage_retry_parity.py`                                                     | synthetic |
+| Native message refs persisted and resolvable for replay                                                                      | `test_pipeline_native_ref_loop_prevention.py`                                              | synthetic |
+| Loop suppression evidence includes `event_id`, `route_id`, `target_adapter`, `failure_kind=LOOP_SUPPRESSED`                  | `test_pipeline_native_ref_loop_prevention.py`                                              | synthetic |
+| Operator diagnostics cover all pipeline stages (store, route, plan, render, deliver) in a single evidence bundle             | `test_evidence_operator_diagnostics.py`                                                    | synthetic |
+| Report dict enrichment includes `delivery_strategy`, `capability_field`, `capability_level`, `suppression_reason`            | `test_evidence_operator_diagnostics.py`                                                    | synthetic |
+| Storage-backed default adapter ingress durably admits before routing/delivery                                                | `test_durable_ingress_runtime.py`, `test_durable_ingress_pipeline.py`                      | synthetic |
+| Ingress capacity/shutdown rejection defers durable work instead of completing it                                             | `test_durable_ingress_pipeline.py`, `test_durable_ingress_worker.py`                       | synthetic |
+| Fan-out creates at most the configured delivery worker count and preserves result ordering                                   | `test_core_reliability_bounded_fanout.py`                                                  | synthetic |
+| Structured correlation context is task-local and inherited by structured JSON logs                                           | `test_observability_correlation.py`                                                        | synthetic |
+| RE_RENDER reconstructs target rendering inputs from persisted live rendering evidence                                        | `test_core_reliability_replay.py`                                                          | synthetic |
+| Same non-empty replay run suppresses already accepted target with durable evidence                                           | `test_core_reliability_replay.py`                                                          | synthetic |
+| Delivery confirmation evidence strength persists independently of lifecycle status                                           | `test_delivery_receipt_factory.py`, `test_storage_receipts.py`                             | synthetic |
+| Thread relations are capability-gated and built-ins advertise fallback rather than unverified native semantics               | `test_capability_decision.py`, `test_capability_runtime_conformance.py`                    | synthetic |
+| Diagnostics snapshot numeric/boolean leaves export in Prometheus text format without string labels                           | `test_metrics_export.py`, `test_cli_diagnostics_commands.py`                               | synthetic |
 
 ### 7.2 Known Gaps
 
 The following behaviors have synthetic-tier test coverage but lack `live_service` or `hardware` tier validation:
 
-1. **No hardware or live transport validation.** All capability suppression, fallback rendering, and budget enforcement tests use fake adapters and synthetic capability configurations. No test sends a capability-suppressed event to a real Meshtastic radio, Matrix homeserver, or Reticulum LXMF router.
+1. **No hardware or live transport validation.** All capability suppression,
+   fallback rendering, and budget enforcement tests use fake adapters and synthetic
+   capability configurations. No test sends a capability-suppressed event to a real
+   Meshtastic radio, Matrix homeserver, or Reticulum LXMF router.
 
-2. **Fallback capability level is dormant in production profiles.** No production transport profile currently declares a capability field at `"fallback"`. The fallback rendering path (`"fallback_text"` strategy, inline text degradation) is tested with synthetic configurations but has never been exercised against a live transport with a real adapter producing degraded output.
+2. **Thread fallback lacks live endpoint evidence.** Built-in profiles advertise
+   `threads="fallback"` and the planner selects deterministic `fallback_text`, but no
+   live-service or hardware test proves thread degradation across a real endpoint.
+   Native thread emission is intentionally not advertised.
 
-3. **RE_RENDER replay mode does not reconstruct a full capability-aware rendering context.** The `RE_RENDER` mode re-runs rendering through the pipeline, but it does not reconstruct `RenderingContext` from stored artifacts. It uses whatever context the replay pipeline provides, which may not match the original rendering context.
+3. **Replay run suppression is idempotent, not exactly-once.** A non-empty replay
+   `run_id` durably suppresses a target after a prior `queued`/`sent` receipt for the
+   same run/plan/target is visible. Concurrent executions using the same run ID can
+   still race before either acceptance receipt commits. Empty and different run IDs
+   remain intentionally repeatable.
 
-4. **Replay pre-filter suppressed evidence is in-memory only.** When `_filter_plans_by_capability` suppresses all plans for an event during replay, the evidence records (`capability_suppressed_plans`, `delivery_plan_ids`, `replay_run_id`) are carried in the in-memory `ReplayResult` output. They are not persisted to storage unless a receipt is created through a different code path. If the process crashes before the operator inspects the replay output, this evidence is lost.
+4. **Some replay pre-filter evidence remains result-local.** Capability pre-filter
+   diagnostics that do not reach a target delivery/suppression receipt remain in the
+   in-memory replay result. Target-level same-run duplicate suppression is persisted
+   as `replay_duplicate_suppressed` evidence.
 
-5. **Thread relation capability gating is deferred.** No `AdapterCapabilities.threads` field exists. Thread-carrying events receive native/direct delivery with `capability_field=None` when no other candidate overrides. This is intentional (see Routing and Delivery Specification § 6.3.6) but means thread relations are never capability-suppressed.
+5. **`capability_policy` is reserved and unpopulated.**
+   `RenderingContext.capability_policy` defaults to `None` and is not set by the
+   current pipeline. No test exercises this field.
 
-6. **`capability_policy` field is reserved and unpopulated.** `RenderingContext.capability_policy` defaults to `None` and is not set by the current pipeline. No test exercises this field.
-
-7. **No live_service or hardware validation for deterministic plan IDs, suppression gates, retry lineage, or operator diagnostics.** All tests use fake adapters and synthetic configurations. No test validates these behaviours against real transport endpoints.
+6. **No live-service or hardware validation for deterministic plan IDs, suppression
+   gates, retry lineage, or operator diagnostics.** All tests use fake adapters and
+   synthetic configurations. No test validates these behaviours against real
+   transport endpoints.
 
 ## 8. Deterministic Delivery Plan Identity and Suppression Semantics Conformance
 

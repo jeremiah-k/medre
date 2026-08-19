@@ -580,7 +580,11 @@ runtime:
 | `shutdown_drain_timeout_seconds`   | int   | `10`    | Seconds to wait for in-flight work to complete during shutdown.                         |
 | `delivery_acquire_timeout_seconds` | float | `1.0`   | Seconds to wait for a delivery semaphore slot before rejecting.                         |
 
-When capacity is exhausted, new deliveries are permanently rejected with `error="delivery_capacity_exceeded"` — no retry.
+Capacity is acquired per target with a bounded worker pool. Direct/replay delivery
+that cannot acquire capacity is rejected with
+`error="delivery_capacity_exceeded"`. For **durably admitted live ingress**, that
+rejection is an operational deferral: the ingress row returns to pending without
+consuming its poison-work attempt budget and is retried later.
 
 ### `retry`
 

@@ -35,12 +35,15 @@ The adapter delegates all SDK interaction to `LxmfSession`. The session is the *
 
 Machine-readable capability declaration: [`lxmf-capabilities.json`](lxmf-capabilities.json)
 
-> Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2): `"unsupported"` = `FALSE`.
+> Capability levels map to the CapabilityLevel enum (adapter-runtime.md §6.2):
+> `"native"` = `TRUE`, `"fallback"` = degraded inline text, and
+> `"unsupported"` = `FALSE`.
 
 | Capability          | Value                               |
 | ------------------- | ----------------------------------- |
 | text                | `True`                              |
 | title               | `True`                              |
+| threads             | `"fallback"`                        |
 | replies             | `"unsupported"`                     |
 | reactions           | `"unsupported"`                     |
 | edits               | `"unsupported"`                     |
@@ -335,21 +338,30 @@ Session also exposes `diagnostics()` and `delivery_state_counts()` with addition
 
 ## Relation Degradation Behavior
 
-LXMF is a transport adapter with no native relation support beyond basic text delivery. All relation types are unsupported.
+| Relation type | Capability level | Strategy        | Rendering path                                                                 |
+| ------------- | ---------------- | --------------- | ------------------------------------------------------------------------------ |
+| Replies       | `"unsupported"`  | `skip`          | No delivery. Reply-carrying events targeting this adapter are suppressed.      |
+| Reactions     | `"unsupported"`  | `skip`          | No delivery. Reaction events targeting this adapter are suppressed.            |
+| Edits         | `"unsupported"`  | `skip`          | No delivery. Edit events targeting this adapter are suppressed.                |
+| Deletes       | `"unsupported"`  | `skip`          | No delivery. Delete events targeting this adapter are suppressed.              |
+| Threads       | `"fallback"`     | `fallback_text` | Deterministic inline thread context; native thread emission is not advertised. |
 
-| Relation type | Capability level | Strategy | Rendering path                                                            |
-| ------------- | ---------------- | -------- | ------------------------------------------------------------------------- |
-| Replies       | `"unsupported"`  | `skip`   | No delivery. Reply-carrying events targeting this adapter are suppressed. |
-| Reactions     | `"unsupported"`  | `skip`   | No delivery. Reaction events targeting this adapter are suppressed.       |
-| Edits         | `"unsupported"`  | `skip`   | No delivery. Edit events targeting this adapter are suppressed.           |
-| Deletes       | `"unsupported"`  | `skip`   | No delivery. Delete events targeting this adapter are suppressed.         |
-| Threads       | _deferred_       | —        | Reserved. LXMF has no thread concept.                                     |
+LXMF has no verified native relation support beyond basic text delivery. Replies,
+reactions, edits, and deletes remain unsupported planning-time skips, while
+`threads="fallback"` selects deterministic inline thread context during normal
+live planning. Plain message kinds continue to deliver directly.
 
-LXMF does not currently declare the `"fallback"` capability level for any relation type in its capability JSON. All relations are unsupported. Events carrying relation context (replies, reactions, edits, deletes) are skipped at the planning stage when the target is an LXMF adapter. Because the capability profile does not advertise fallback, the live planner will not normally select `fallback_text` for this adapter. The `message.created` and `message.text` kinds are delivered normally as they do not require relation support.
+When `fallback_text` is selected for a relation, the LXMF renderer produces its
+native payload format with the relation context embedded as inline text. Under
+`fallback_text`, the MEDRE fields envelope (`fields[0xFD]`) omits structured
+relations — its `relations` key is an empty list (`[]`). The only relation
+representation is the inline text appended to the content body. This is a
+deliberate degradation rule: the envelope retains provenance metadata
+(`event_id`, `source_adapter`, lineage) but not relation data, preventing duplicate
+representation as both structured fields and inline text.
 
-If a future profile revision or a directly constructed `RenderingContext` supplies `fallback_text` for a relation, the LXMF renderer produces its native payload format with the relation context embedded as inline text. Under `fallback_text`, the MEDRE fields envelope (`fields[0xFD]`) omits structured relations — its `relations` key is an empty list (`[]`). The only relation representation is the inline text appended to the content body. This is a deliberate design decision: fallback_text is a degradation path, and the envelope retains provenance metadata (event_id, source_adapter, lineage) but not relation data, preventing duplicate representation as both structured fields and inline text. This is a renderer contract, not a test-only quirk; any code path that populates `fallback_text` on a routed relation triggers the same inline-text rendering path with an empty envelope relations list.
-
-**Thread deferral:** The `"thread"` relation type is defined in the canonical event model (`VALID_RELATION_TYPES`), but no adapter currently renders thread relations natively. However, fallback-text rendering for threads is implemented: when `delivery_strategy == "fallback_text"`, thread relations are degraded into inline text (e.g. `[thread: {target}] {payload_text}`). Thread capability requires a future `AdapterCapabilities.threads` field and planner-level thread routing before any adapter can advertise or render threads natively.
+**Thread capability:** LXMF has no native thread primitive; thread relations are
+deterministically degraded to inline fallback text.
 
 **Payload requirement:** The LXMF renderer produces LXMF-native payloads (`content` body, optional `title`, optional MEDRE metadata envelope in `fields[0xFD]`). The adapter dispatches these payloads to the LXMRouter via `handle_outbound` without modification.
 

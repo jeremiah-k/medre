@@ -490,7 +490,9 @@ medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.
 Key distinctions:
 
 1. Replay receipts are distinguishable from live receipts via `source='replay'` and `replay_run_id`.
-2. Replay is not dedupe — each `best_effort` run produces fresh receipts regardless of existing live or replay receipts for the same event.
+2. Different replay runs, and executions with an empty run ID, remain repeatable.
+   A non-empty run ID suppresses targets after a visible `queued` or `sent` receipt
+   from that same run.
 3. Native refs created during replay are not directly source-tagged. Correlate through the associated `DeliveryReceipt`'s `event_id` linkage.
 4. Replay produces the same deterministic `delivery_plan_id` as the original live delivery, because plan IDs are derived from `event_id`, `route_id`, `target_index`, and a stable target identity hash — not from Python object identity. This means the same event replayed multiple times produces the same `delivery_plan_id` values each time. Plan IDs are stable only when `event_id`, `route_id`, `target_index`/order, and the stable target identity hash are unchanged. If any of those inputs change (different route match, different target order, different adapter metadata), the plan ID changes.
 
@@ -588,16 +590,21 @@ ORDER BY replay_run_id;
 
 ## Duplicate Risk Assessment
 
-Replay does not deduplicate. Every `best_effort` replay produces new outbound messages on all matched targets.
+Replay remains repeatable across different runs, but a non-empty replay `run_id`
+provides durable same-run target suppression after a prior `queued` or `sent`
+acceptance receipt is visible. Empty run IDs remain intentionally repeatable, and
+concurrent executions using the same run ID can still race before either acceptance
+receipt commits. This is idempotent replay evidence, not exactly-once delivery.
 
 ### When Duplicates Occur
 
-| Scenario                                            | Risk level | Why                                                     |
-| --------------------------------------------------- | ---------- | ------------------------------------------------------- |
-| Replaying events that were never delivered          | Low        | No prior delivery exists                                |
-| Replaying events that were delivered before a crash | Medium     | Some events may have been delivered but have no receipt |
-| Replaying events that have existing `sent` receipts | High       | Events will be delivered again                          |
-| Multiple `best_effort` replays of the same events   | High       | Each run produces new deliveries                        |
+| Scenario                                                             | Risk level | Why                                                                                          |
+| -------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------- |
+| Replaying events that were never delivered                           | Low        | No prior delivery exists                                                                     |
+| Replaying events that were delivered before a crash                  | Medium     | Some events may have been delivered but have no receipt                                      |
+| Replaying events that have existing **live** `sent` receipts         | High       | A replay run is intentionally distinct from prior live delivery                              |
+| Re-running the same non-empty replay `run_id` after accepted targets | Low/Medium | Visible same-run accepted targets are durably suppressed; concurrent duplicate runs can race |
+| Multiple `best_effort` replays with different or empty run IDs       | High       | Each run/empty-ID execution remains intentionally repeatable                                 |
 
 ### Assessing Risk Before Replay
 
