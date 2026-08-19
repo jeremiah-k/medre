@@ -288,9 +288,22 @@ where a target transport cannot make send plus acknowledgement atomic.
 Cross-signing and peer-device trust are separate policies. MEDRE cross-signs its own
 current device so other Matrix clients can authenticate the bot device. Encrypted
 outbound sends still use `ignore_unverified_devices=True` as an intentional permissive
-peer-device policy; cross-signing the MEDRE device does not automatically verify or
-trust other users' devices. Runtime reconciliation has no password and cannot
-bootstrap/rotate master or self-signing identity material.
+peer-device policy. When the pinned provider exposes `replace_rotated_device_keys`,
+MEDRE enables it for encrypted sessions so a peer device-key rotation does not wedge
+the bot's permissive delivery policy. Neither setting verifies peer devices. Runtime
+reconciliation has no password and cannot bootstrap or rotate master/self-signing
+identity material.
+
+When device discovery requires `whoami()`, MEDRE also checks a returned `user_id`
+against the configured account and fails startup on mismatch instead of restoring an
+access token under the wrong account identity.
+
+A live undecryptable `MegolmEvent` is recorded but never forwarded into the canonical
+event pipeline. If crypto, user ID, and device ID are available, MEDRE builds the
+provider's missing-room-key request and sends it with at most three attempts and a
+ten-second per-attempt timeout. Retryable transport or explicit to-device failures use
+2 s then 4 s backoff; cancellation propagates. Startup-history events and repeated
+room/session failures inside the warning dedup window do not trigger duplicate requests.
 
 ---
 
@@ -311,6 +324,9 @@ bootstrap/rotate master or self-signing identity material.
 | `last_crypto_error`                        | `str \| None`   | Last crypto error                                    |
 | `encrypted_room_seen`                      | `bool`          | At least one encrypted room detected                 |
 | `undecryptable_event_count`                | `int`           | MegolmEvents that could not be decrypted             |
+| `room_key_request_attempts`                | `int`           | Missing-room-key to-device send attempts             |
+| `room_key_request_successes`               | `int`           | Missing-room-key requests accepted by the provider   |
+| `room_key_request_failures`                | `int`           | Terminal missing-room-key request failures           |
 | `sync_running`                             | `bool`          | Sync loop active                                     |
 | `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
 | `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |

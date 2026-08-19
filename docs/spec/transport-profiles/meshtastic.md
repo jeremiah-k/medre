@@ -351,11 +351,26 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 
 1. **Disconnected** — Initial state; `_client=None`.
 2. **Connecting** — `session.start()` creates SDK client (TCP/Serial/BLE interface), subscribes to `meshtastic.receive` pubsub callback.
-3. **Connected** — Client created and subscribed; inbound packets flow via `_on_receive` → `_on_packet`.
-4. **Reconnecting** — `notify_connection_lost()` triggers bounded exponential backoff (1 s → 2 s → 4 s → … capped at 30 s, ±25 % jitter, max 10 attempts). On success, counters reset.
-5. **Stopped** — `stop()` sets `_stop_requested`, cancels reconnect task, unsubscribes pubsub, closes client. Idempotent.
+3. **Connected** — Client created and subscribed; inbound packets flow via
+   `_on_receive` → `_on_packet`. When the SDK exposes `isConnected.is_set()`, that
+   live SDK state is authoritative for the session's `connected` property.
+4. **Reconnecting** — `notify_connection_lost()` triggers bounded exponential backoff
+   (1 s → 2 s → 4 s → … capped at 30 s, ±25 % jitter, max 10 attempts). On success,
+   counters reset. A health check that observes an active SDK client with
+   `isConnected` cleared enters this same reconnect boundary as a backup for a missed
+   pubsub disconnect callback.
+5. **Stopped** — `stop()` sets `_stop_requested`, cancels reconnect task, unsubscribes
+   pubsub, then closes the client. Idempotent.
 
-**Thread bridging:** `_on_packet` is called from the Meshtastic SDK reader thread. The adapter uses `asyncio.run_coroutine_threadsafe` to bridge onto the event loop; futures are tracked and cancelled on stop.
+**Callback ownership:** Meshtastic pubsub callbacks identify the interface that emitted
+the event. A packet or disconnect callback from an interface replaced by reconnect is
+stale and is ignored. Stale callbacks cannot update packet timestamps, publish ingress,
+or start another reconnect.
+
+**Thread bridging:** `_on_packet` is called from the Meshtastic SDK reader thread. The
+adapter uses `asyncio.run_coroutine_threadsafe` to bridge onto the event loop; futures
+are tracked and cancelled on stop. Connection-loss callbacks use
+`loop.call_soon_threadsafe` before creating reconnect tasks.
 
 ---
 
@@ -396,6 +411,8 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 | `session.reconnect_attempts`            | `int`   | Consecutive reconnect attempts     |
 | `session.transient_delivery_failures`   | `int`   | Transient send errors              |
 | `session.permanent_delivery_failures`   | `int`   | Permanent send errors              |
+| `session.stale_receive_callbacks`        | `int`   | Packets ignored from old interfaces |
+| `session.stale_disconnect_callbacks`     | `int`   | Disconnects ignored from old interfaces |
 
 ---
 

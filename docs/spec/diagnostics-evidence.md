@@ -64,7 +64,7 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 
 > **Note:** Transport profiles define the complete per-adapter diagnostic key set. The tables below show the minimum contractual keys present in all adapter implementations. Key counts may differ from transport profiles, which define additional transport-specific keys.
 
-### 3.1 Matrix (21 keys)
+### 3.1 Matrix (24 minimum keys)
 
 | Key                         | Type            | Semantics                                                   |
 | --------------------------- | --------------- | ----------------------------------------------------------- |
@@ -77,6 +77,9 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 | `last_crypto_error`         | `str or None`   | Last E2EE failure reason                                    |
 | `encrypted_room_seen`       | `bool`          | At least one encrypted room encountered                     |
 | `undecryptable_event_count` | `int`           | Messages that failed decryption                             |
+| `room_key_request_attempts` | `int`           | Missing-room-key to-device send attempts                    |
+| `room_key_request_successes` | `int`          | Missing-room-key requests accepted by the provider          |
+| `room_key_request_failures` | `int`           | Terminal missing-room-key request failures                  |
 | `sync_running`              | `bool`          | Sync loop state                                             |
 | `last_successful_sync`      | `float or None` | Epoch timestamp of last successful sync                     |
 | `crypto_store_loaded`       | `bool`          | Crypto database loaded (olm and store both present)         |
@@ -90,7 +93,7 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 | `store_path_exists`         | `bool`          | Store directory exists on disk                              |
 | `initial_sync_completed`    | `bool`          | First successful full_state sync completed                  |
 
-### 3.2 Meshtastic (adapter-level: 7 keys; session sub-dict: 3 keys)
+### 3.2 Meshtastic (adapter-level and session sub-dict)
 
 Adapter-level keys:
 
@@ -148,6 +151,8 @@ Session sub-dict keys (`session.*`):
 | `session.last_error`                  | `str or None`   | Last exception string                                                                                                                  |
 | `session.transient_delivery_failures` | `int`           | Cumulative transient delivery failures                                                                                                 |
 | `session.permanent_delivery_failures` | `int`           | Cumulative permanent delivery failures                                                                                                 |
+| `session.stale_receive_callbacks`     | `int`           | Packet callbacks ignored from replaced SDK interfaces                                                                                  |
+| `session.stale_disconnect_callbacks`  | `int`           | Disconnect callbacks ignored from replaced SDK interfaces                                                                              |
 | `session.last_message_time`           | `str or None`   | ISO 8601 timestamp                                                                                                                     |
 | `session.device_name`                 | `str or None`   | Device name from appstart (default `None`)                                                                                             |
 | `session.public_key_prefix`           | `str or None`   | Public key hex prefix, max 12 hex chars (default `None`)                                                                               |
