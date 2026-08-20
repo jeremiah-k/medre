@@ -7,6 +7,7 @@ a ``mock_nio`` pytest fixture, and a MatrixConfig factory.
 from __future__ import annotations
 
 import asyncio
+import math
 import sys
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -64,7 +65,14 @@ def to_event_dict(
     server_timestamp = (
         int(origin_server_ts)
         if not isinstance(origin_server_ts, bool)
-        and isinstance(origin_server_ts, (int, float))
+        and (
+            isinstance(origin_server_ts, int)
+            or (
+                isinstance(origin_server_ts, float)
+                and math.isfinite(origin_server_ts)
+                and origin_server_ts.is_integer()
+            )
+        )
         else int(datetime.now(UTC).timestamp() * 1000)
     )
     d: dict[str, Any] = {

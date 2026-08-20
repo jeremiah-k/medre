@@ -41,6 +41,7 @@ transport-neutral registry solely to represent Matrix wire structures.
 | Matrix input                              | Canonical event kind | Canonical relation  |
 | ----------------------------------------- | -------------------- | ------------------- |
 | Ordinary room message                     | `message.created`    | none unless related |
+| `m.in_reply_to` without `m.thread`        | `message.created`    | `reply`             |
 | `m.annotation`                            | `message.reacted`    | `reaction`          |
 | `m.replace`                               | `message.edited`     | `edit`              |
 | `m.thread`                                | message/media kind   | `thread`            |

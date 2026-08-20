@@ -46,6 +46,7 @@ def _event(
     display_name: str = "Alice",
     room_encrypted: bool | None = None,
     decrypted: bool = False,
+    event_encrypted: bool | None = None,
     verified: bool | None = None,
     transaction_id: str | None = None,
 ) -> dict[str, Any]:
@@ -68,7 +69,7 @@ def _event(
         "server_timestamp": timestamp_ms,
         "transaction_id": transaction_id,
         "room_encrypted": room_encrypted,
-        "event_encrypted": decrypted,
+        "event_encrypted": decrypted if event_encrypted is None else event_encrypted,
         "decrypted": decrypted,
         "verified": verified,
     }
@@ -533,8 +534,9 @@ def test_matrix_native_schema_tracks_runtime_version_and_excludes_crypto_secrets
 
 def test_direct_normalized_event_derives_safe_crypto_and_unsigned_transaction() -> None:
     codec = MatrixCodec("matrix-1", _config())
+    # event_encrypted is left at its None default so the helper tracks
+    # decrypted; the codec's safe-crypto derivation path is exercised here.
     native = _event(content={"msgtype": "m.text", "body": "hello"}, decrypted=True)
-    native.pop("event_encrypted", None)
     native["verified"] = True
     native["transaction_id"] = ""
     native["source"]["unsigned"] = {"transaction_id": "txn-from-unsigned"}

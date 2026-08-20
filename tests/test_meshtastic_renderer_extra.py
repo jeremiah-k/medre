@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
@@ -88,7 +89,7 @@ def _make_relation(
 def _matrix_native_data(
     *, sender: str | None = None, sender_display_name: str | None = None
 ) -> dict[str, object]:
-    matrix: dict[str, object] = {"schema_version": 1}
+    matrix: dict[str, object] = {"schema_version": MATRIX_NATIVE_SCHEMA_VERSION}
     if sender is not None:
         matrix["sender"] = sender
     if sender_display_name is not None:
