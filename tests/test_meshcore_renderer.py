@@ -18,6 +18,7 @@ from medre.core.events import (
     NativeMetadata,
 )
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from tests.helpers.matrix_events import matrix_native_data as _matrix_native
 
 
 def _make_config(
@@ -1076,7 +1077,9 @@ class TestMeshCoreRendererRelayPrefix:
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={"sender": "@alice:matrix.org", "displayname": "Alice"},
+            native_data=_matrix_native(
+                sender="@alice:matrix.org", sender_display_name="Alice"
+            ),
         )
         result = await renderer.render(
             event,
@@ -1140,7 +1143,9 @@ class TestMeshCoreRendererRelayPrefix:
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={"sender": "@alice:matrix.org", "displayname": "Alice"},
+            native_data=_matrix_native(
+                sender="@alice:matrix.org", sender_display_name="Alice"
+            ),
             payload={"body": "hello world"},
         )
         result = await renderer.render(
@@ -1231,7 +1236,9 @@ class TestMeshCoreRendererRelayPrefix:
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={"sender": "@alice:matrix.org", "displayname": "Alice"},
+            native_data=_matrix_native(
+                sender="@alice:matrix.org", sender_display_name="Alice"
+            ),
         )
         result = await renderer.render(
             event,
@@ -1252,7 +1259,7 @@ class TestMeshCoreRendererRelayPrefix:
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={"sender": "@a:matrix.org", "displayname": "A"},
+            native_data=_matrix_native(sender="@a:matrix.org", sender_display_name="A"),
             payload={"body": "hi"},
         )
         result = await renderer.render(

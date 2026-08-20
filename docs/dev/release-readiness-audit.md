@@ -92,22 +92,23 @@ required cleanup, and evidence class. This is an honest prerelease snapshot.
 
 ## 7. Schema Files
 
-| Artifact                       | Current status          | Source of truth | Stale / conflicting language | Required cleanup | Evidence class              |
-| ------------------------------ | ----------------------- | --------------- | ---------------------------- | ---------------- | --------------------------- |
-| `adapter-config.schema.json`   | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
-| `canonical-event.schema.json`  | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
-| `delivery-receipt.schema.json` | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
-| `delivery-result.schema.json`  | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
-| `diagnostics.schema.json`      | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
-| `evidence-bundle.schema.json`  | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
-| `routing-config.schema.json`   | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
-| `runtime-snapshot.schema.json` | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
+| Artifact                             | Current status          | Source of truth | Stale / conflicting language | Required cleanup | Evidence class              |
+| ------------------------------------ | ----------------------- | --------------- | ---------------------------- | ---------------- | --------------------------- |
+| `adapter-config.schema.json`         | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
+| `canonical-event.schema.json`        | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
+| `delivery-receipt.schema.json`       | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
+| `delivery-result.schema.json`        | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
+| `diagnostics.schema.json`            | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
+| `evidence-bundle.schema.json`        | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
+| `matrix-native-metadata.schema.json` | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
+| `routing-config.schema.json`         | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
+| `runtime-snapshot.schema.json`       | Machine-readable schema | `docs/schemas/` | None                         | None             | S-tier (validated by tests) |
 
 ## 8. Schema Examples
 
 | Artifact                                    | Current status                                                    | Source of truth          | Stale / conflicting language | Required cleanup | Evidence class              |
 | ------------------------------------------- | ----------------------------------------------------------------- | ------------------------ | ---------------------------- | ---------------- | --------------------------- |
-| 8 example files in `docs/schemas/examples/` | One per schema, validated by `tests/test_docs_schema_examples.py` | `docs/schemas/examples/` | None                         | None             | S-tier (validated by tests) |
+| 9 example files in `docs/schemas/examples/` | One per schema, validated by `tests/test_docs_schema_examples.py` | `docs/schemas/examples/` | None                         | None             | S-tier (validated by tests) |
 
 ## 9. Sample Configs
 
@@ -160,18 +161,18 @@ required cleanup, and evidence class. This is an honest prerelease snapshot.
 
 ## 13. Known Gaps
 
-| Gap                                                          | Impact                                                  | Evidence class                | Status               |
-| ------------------------------------------------------------ | ------------------------------------------------------- | ----------------------------- | -------------------- |
-| No live_service or hardware tier evidence for any transport  | Cannot claim production-adjacent behavior               | NOT EXECUTED                  | Open                 |
-| No external live Matrix validation (federation, rate limits) | Docker evidence does not prove external network         | NOT EXECUTED                  | Open                 |
-| Meshtastic self-echo requires real radio for live proof      | Pipeline wiring proven in S-tier only                   | NOT EXECUTED                  | Open                 |
-| MeshCore/Meshtastic byte budget not measured dynamically     | Protobuf overhead risk for constrained transports       | S-tier (static budget)        | Open                 |
-| Native-ref persistence gap on crash (Meshtastic queue)       | In-memory queue items lost on process exit              | manual (code inspection)      | Open                 |
-| Schema version frozen at 1 during prerelease                 | No compatibility commitment implied                     | manual                        | Frozen (intentional) |
-| No `docs/spec/runtime.md`                                    | Runtime behavior documented in dev audits only          | manual                        | Open                 |
-| Conversation `conversation_id` equals `root_event_id`        | Cannot diverge until future authority rule              | S-tier                        | Open (deferred)      |
-| `native_thread_id` always None on all types                  | Thread-aware rendering blocked                          | manual                        | Open (reserved)      |
-| Fallback rendering path has no R-tier evidence               | No transport currently uses capability level "fallback" | S-tier (synthetic tests only) | Open                 |
+| Gap                                                          | Impact                                                 | Evidence class                | Status               |
+| ------------------------------------------------------------ | ------------------------------------------------------ | ----------------------------- | -------------------- |
+| No live_service or hardware tier evidence for any transport  | Cannot claim production-adjacent behavior              | NOT EXECUTED                  | Open                 |
+| No external live Matrix validation (federation, rate limits) | Docker evidence does not prove external network        | NOT EXECUTED                  | Open                 |
+| Meshtastic self-echo requires real radio for live proof      | Pipeline wiring proven in S-tier only                  | NOT EXECUTED                  | Open                 |
+| MeshCore/Meshtastic byte budget not measured dynamically     | Protobuf overhead risk for constrained transports      | S-tier (static budget)        | Open                 |
+| Native-ref persistence gap on crash (Meshtastic queue)       | In-memory queue items lost on process exit             | manual (code inspection)      | Open                 |
+| Schema version frozen at 1 during prerelease                 | No compatibility commitment implied                    | manual                        | Frozen (intentional) |
+| No `docs/spec/runtime.md`                                    | Runtime behavior documented in dev audits only         | manual                        | Open                 |
+| Conversation `conversation_id` equals `root_event_id`        | Cannot diverge until future authority rule             | S-tier                        | Open (deferred)      |
+| Outbound `native_thread_id` remains unused                   | Native thread emission remains fallback-only           | S-tier                        | Open (outbound)      |
+| Fallback rendering path has no R-tier evidence               | Built-ins use fallback, but evidence is synthetic only | S-tier (synthetic tests only) | Open                 |
 
 ## 14. Authority Audit Doc Coverage
 

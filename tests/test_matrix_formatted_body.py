@@ -271,7 +271,7 @@ class TestInboundFormattedBody:
         event = codec.decode(native, room_id="!room:server")
 
         assert event.metadata.native is not None
-        data = event.metadata.native.data
+        data = event.metadata.native.data["matrix"]
         assert data["formatted_body"] == "<p>hello</p>"
 
     def test_inbound_no_formatted_body(self) -> None:
@@ -281,7 +281,7 @@ class TestInboundFormattedBody:
         event = codec.decode(native, room_id="!room:server")
 
         assert event.metadata.native is not None
-        data = event.metadata.native.data
+        data = event.metadata.native.data["matrix"]
         assert "formatted_body" not in data
 
     def test_inbound_format_field_extracted(self) -> None:
@@ -296,6 +296,6 @@ class TestInboundFormattedBody:
         event = codec.decode(native, room_id="!room:server")
 
         assert event.metadata.native is not None
-        data = event.metadata.native.data
+        data = event.metadata.native.data["matrix"]
         assert data["format"] == "org.matrix.custom.html"
         assert data["formatted_body"] == "<p>hello</p>"

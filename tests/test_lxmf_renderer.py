@@ -14,6 +14,7 @@ from medre.core.events.metadata import EventMetadata as _EM
 from medre.core.events.metadata import NativeMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.runtime.builder import SourceAttributionConfig
+from tests.helpers.matrix_events import matrix_native_data as _matrix_native
 
 
 def _make_event(
@@ -620,10 +621,10 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(relay_prefix="[{sender}] ")
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={
-                "sender": "@alice:example.com",
-                "displayname": "Alice",
-            },
+            native_data=_matrix_native(
+                sender="@alice:example.com",
+                sender_display_name="Alice",
+            ),
             payload={"body": "hello from matrix"},
         )
         result = await renderer.render(
@@ -733,7 +734,10 @@ class TestLxmfRelayPrefix:
             payload={"body": "my reply"},
             metadata=_EM(
                 native=NativeMetadata(
-                    data={"sender": "@bob:example.com", "displayname": "Bob"}
+                    data=_matrix_native(
+                        sender="@bob:example.com",
+                        sender_display_name="Bob",
+                    )
                 )
             ),
         )
@@ -787,7 +791,7 @@ class TestLxmfRelayPrefix:
         renderer = LxmfRenderer(relay_prefix="{bogus_var} ")
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={"displayname": "Test"},
+            native_data=_matrix_native(sender_display_name="Test"),
             payload={"body": "hello"},
         )
         result = await renderer.render(
@@ -807,10 +811,10 @@ class TestLxmfRelayPrefix:
         )
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={
-                "sender": "@carol:example.com",
-                "displayname": "Carol",
-            },
+            native_data=_matrix_native(
+                sender="@carol:example.com",
+                sender_display_name="Carol",
+            ),
             payload={"body": "test envelope"},
         )
         result = await renderer.render(
@@ -847,10 +851,10 @@ class TestLxmfTargetAwareConfigs:
         renderer = LxmfRenderer(configs=configs)
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={
-                "sender": "@alice:example.com",
-                "displayname": "Alice",
-            },
+            native_data=_matrix_native(
+                sender="@alice:example.com",
+                sender_display_name="Alice",
+            ),
             payload={"body": "hello"},
         )
         result = await renderer.render(
@@ -920,7 +924,7 @@ class TestLxmfTargetAwareConfigs:
         renderer = LxmfRenderer(relay_prefix="[{sender}] ")
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={"displayname": "Alice"},
+            native_data=_matrix_native(sender_display_name="Alice"),
             payload={"body": "hello"},
         )
         result = await renderer.render(
@@ -944,7 +948,7 @@ class TestLxmfTargetAwareConfigs:
         )
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data={"displayname": "Alice"},
+            native_data=_matrix_native(sender_display_name="Alice"),
             payload={"body": "hello"},
         )
         # Target adapter is NOT in configs — falls back to relay_prefix

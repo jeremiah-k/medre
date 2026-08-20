@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/matrix-native-metadata.schema.json",
+  "title": "MEDRE Matrix Native Metadata",
+  "description": "Versioned Matrix-native metadata stored in CanonicalEvent.metadata.native.data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["matrix"],
+  "properties": {
+    "matrix": {
+      "$ref": "#/$defs/MatrixEvent"
+    },
+    "interop": {
+      "$ref": "#/$defs/Interop"
+    }
+  },
+  "$defs": {
+    "MatrixEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "room_id",
+        "event_id",
+        "event_type",
+        "sender",
+        "encryption"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "room_id": { "type": "string" },
+        "event_id": { "type": "string" },
+        "event_type": { "type": "string" },
+        "sender": { "type": "string" },
+        "sender_display_name": { "type": "string", "minLength": 1 },
+        "origin_server_ts_ms": { "type": "integer", "minimum": 0 },
+        "transaction_id": { "type": "string", "minLength": 1 },
+        "msgtype": { "type": "string", "minLength": 1 },
+        "format": { "type": "string", "minLength": 1 },
+        "formatted_body": { "type": "string", "minLength": 1 },
+        "relation": { "$ref": "#/$defs/Relation" },
+        "media": { "$ref": "#/$defs/Media" },
+        "encryption": { "$ref": "#/$defs/Encryption" },
+        "relay": { "$ref": "#/$defs/Relay" }
+      }
+    },
+    "Relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target_event_id"],
+      "properties": {
+        "kind": {
+          "enum": ["reply", "reaction", "edit", "thread", "redaction"]
+        },
+        "target_event_id": { "type": "string", "minLength": 1 },
+        "rel_type": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 },
+        "reply_to_event_id": { "type": "string", "minLength": 1 },
+        "is_falling_back": { "type": "boolean" }
+      }
+    },
+    "Media": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "encrypted"],
+      "properties": {
+        "kind": { "enum": ["image", "audio", "video", "file"] },
+        "encrypted": { "type": "boolean" },
+        "mxc_uri": { "type": "string", "minLength": 1 },
+        "filename": { "type": "string", "minLength": 1 },
+        "mime_type": { "type": "string", "minLength": 1 },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 0 },
+        "height": { "type": "integer", "minimum": 0 },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "thumbnail_mxc_uri": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Encryption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_encrypted", "decrypted"],
+      "properties": {
+        "room_encrypted": { "type": "boolean" },
+        "event_encrypted": { "type": "boolean" },
+        "decrypted": { "type": "boolean" },
+        "verified": { "type": "boolean" }
+      }
+    },
+    "Relay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["medre_envelope"],
+      "properties": {
+        "medre_envelope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "canonical_event_id",
+            "source_adapter",
+            "source_channel",
+            "provenance",
+            "relation_info",
+            "lineage_pointer",
+            "metadata_mode",
+            "native_source_summary"
+          ],
+          "properties": {
+            "schema_version": { "type": "integer", "minimum": 1 },
+            "canonical_event_id": { "type": "string" },
+            "source_adapter": { "type": "string" },
+            "source_channel": { "type": "string" },
+            "provenance": { "type": "string" },
+            "relation_info": { "type": "string" },
+            "lineage_pointer": { "type": "string" },
+            "metadata_mode": { "type": "string" },
+            "native_source_summary": { "type": "string" }
+          }
+        }
+      }
+    },
+    "Interop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mmrelay": {
+          "$ref": "#/$defs/MMRelay"
+        }
+      }
+    },
+    "InteropScalar": {
+      "type": ["string", "integer", "number", "boolean", "null"]
+    },
+    "MMRelay": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "meshtastic_id": { "$ref": "#/$defs/InteropScalar" },
+        "meshtastic_replyId": { "$ref": "#/$defs/InteropScalar" },
+        "meshtastic_text": { "$ref": "#/$defs/InteropScalar" },
+        "meshtastic_emoji": { "$ref": "#/$defs/InteropScalar" },
+        "meshtastic_meshnet": { "$ref": "#/$defs/InteropScalar" },
+        "meshtastic_portnum": { "$ref": "#/$defs/InteropScalar" },
+        "meshtastic_longname": { "$ref": "#/$defs/InteropScalar" },
+        "meshtastic_shortname": { "$ref": "#/$defs/InteropScalar" },
+        "meshtastic_reaction_key": { "$ref": "#/$defs/InteropScalar" }
+      }
+    }
+  }
+}

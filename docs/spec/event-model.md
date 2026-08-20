@@ -218,12 +218,12 @@ class NativeRef(msgspec.Struct, frozen=True):
 
 ### 3.2 Field Reference
 
-| Field               | Type          | Default | Description                                                                                                       |
-| ------------------- | ------------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
-| `adapter`           | `str`         | —       | Name of the adapter that owns the native namespace.                                                               |
-| `native_channel_id` | `str \| None` | —       | Channel or conversation ID in the adapter's native format.                                                        |
-| `native_message_id` | `str`         | —       | Message ID in the adapter's native format.                                                                        |
-| `native_thread_id`  | `str \| None` | `None`  | Thread or parent message ID in the adapter's native format. Reserved — no adapter currently populates this field. |
+| Field               | Type          | Default | Description                                                                                  |
+| ------------------- | ------------- | ------- | -------------------------------------------------------------------------------------------- |
+| `adapter`           | `str`         | —       | Name of the adapter that owns the native namespace.                                          |
+| `native_channel_id` | `str \| None` | —       | Channel or conversation ID in the adapter's native format.                                   |
+| `native_message_id` | `str`         | —       | Message ID in the adapter's native format.                                                   |
+| `native_thread_id`  | `str \| None` | `None`  | Native thread/parent ID when available. Matrix ingress stores the thread-root event ID here. |
 
 ### 3.3 Usage
 
@@ -247,7 +247,7 @@ class EventMetadata(msgspec.Struct, frozen=True):
     routing: RoutingMetadata | None = None         # Routing decisions applied
     radio: RadioMetadata | None = None             # Radio-specific data
     telemetry: TelemetryMetadata | None = None     # Device telemetry at time of event
-    native: NativeMetadata | None = None           # Transport-native fields not yet normalized
+    native: NativeMetadata | None = None           # Adapter-owned native metadata
     custom: dict[str, object] = {}                 # Plugin/extension metadata (frozen)
 ```
 
@@ -259,7 +259,7 @@ class EventMetadata(msgspec.Struct, frozen=True):
 | `routing`   | `RoutingMetadata`   | Routing context            | `matched_routes` (tuple), `fanout_group`, `route_trace` (tuple)                                                                               |
 | `radio`     | `RadioMetadata`     | Radio-specific data        | `frequency`, `snr`, `rssi`, `channel_index`                                                                                                   |
 | `telemetry` | `TelemetryMetadata` | Device state at event time | `metrics` dict (frozen)                                                                                                                       |
-| `native`    | `NativeMetadata`    | Unnormalized native fields | `data` dict (frozen)                                                                                                                          |
+| `native`    | `NativeMetadata`    | Adapter-owned native data  | `data` dict (frozen)                                                                                                                          |
 | `custom`    | `dict[str, object]` | Plugin/extension data      | Key-value pairs, reverse-DNS namespaced (frozen)                                                                                              |
 
 ### 4.3 Namespace Rules
@@ -267,8 +267,9 @@ class EventMetadata(msgspec.Struct, frozen=True):
 1. Adapters MUST normalize their native fields into the appropriate namespace.
    Fields that do not map cleanly to a canonical namespace MUST go into `native`.
 
-2. The `native` namespace is a temporary holding area. The enrichment stage
-   SHOULD normalize `native` fields into their proper namespaces when possible.
+2. The `native` namespace is adapter-owned. Transport-neutral facts SHOULD be
+   promoted when a standard namespace exists; stable protocol-specific details
+   MAY remain in a versioned native sub-namespace.
 
 3. The `custom` namespace is reserved for plugins and extensions. Keys in
    `custom` SHOULD use reverse-DNS namespacing (e.g., `com.example.plugin.field`).

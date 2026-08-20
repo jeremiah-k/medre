@@ -19,8 +19,6 @@ import time
 from types import MappingProxyType
 from typing import Any, Callable
 
-import msgspec
-
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.adapters.matrix.errors import (
@@ -42,7 +40,6 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
-from medre.core.events.metadata import NativeMetadata
 from medre.core.ingress import IngressProvenance
 from medre.core.rendering.renderer import RenderingResult
 
@@ -257,6 +254,10 @@ class MatrixAdapter(AdapterContract):
     adapter_id: str
     platform: str = "matrix"
     role: AdapterRole = AdapterRole.PRESENTATION
+
+    # Matrix transport timestamps (origin_server_ts) are millisecond
+    # granularity; the stale guard floors accordingly.
+    _event_timestamp_granularity_us = 1_000
 
     def __init__(self, config: MatrixConfig) -> None:
         super().__init__()
@@ -760,20 +761,14 @@ class MatrixAdapter(AdapterContract):
         event:
             Normalized plain dict with keys: ``room_id``, ``sender``,
             ``body``, ``event_id``, ``source``, ``msgtype``,
-            ``server_timestamp``, ``sender_display_name``.
+            ``server_timestamp``, ``sender_display_name``, Matrix event type,
+            transaction ID, room encryption state, and safe decryption provenance.
         """
         if self.ctx is None or not self._started:
             return
 
         room_id = str(event.get("room_id", "") or "")
         sender = str(event.get("sender", "") or "")
-        raw_display_name = event.get("sender_display_name")
-        sender_display_name: str = (
-            raw_display_name
-            if isinstance(raw_display_name, str) and raw_display_name.strip()
-            else sender
-        )
-
         # Apply room allowlist filter
         if self._config.room_allowlist is not None:
             if room_id not in self._config.room_allowlist:
@@ -825,30 +820,6 @@ class MatrixAdapter(AdapterContract):
                     self.adapter_id,
                 )
                 return
-
-            # -- Enrich native metadata with Matrix display name -----------
-            # Add the Matrix room member display name to native metadata
-            # so that project_matrix_attribution can map it into generic
-            # sender fields (source_sender_label).  Do NOT fabricate bare
-            # Meshtastic-shaped longname/shortname keys — Matrix display
-            # identity is projected through Matrix-native keys only.
-            # External mmrelay wire fields (meshtastic_longname, etc.)
-            # are captured by the codec when present in event content.
-            if canonical.metadata and canonical.metadata.native:
-                ndata = canonical.metadata.native.data
-                if not ndata.get("displayname") and not ndata.get("display_name"):
-                    display_name = sender_display_name or sender
-
-                    enriched = dict(ndata)
-                    enriched["displayname"] = display_name
-
-                    new_native = NativeMetadata(data=enriched)
-                    new_metadata = msgspec.structs.replace(
-                        canonical.metadata, native=new_native
-                    )
-                    canonical = msgspec.structs.replace(
-                        canonical, metadata=new_metadata
-                    )
 
             if provenance is None:
                 await self.publish_inbound(canonical)

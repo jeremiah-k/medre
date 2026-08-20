@@ -22,6 +22,7 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import (
     make_adapter_context,
     make_pipeline_config,
@@ -93,6 +94,7 @@ class TestMatrixWrapperMultiCallback:
                 )
                 await matrix_adapter._on_room_message(to_event_dict(room, nio_event))
 
+            assert await wait_until(lambda: len(fake_target.delivered_payloads) >= 5)
             # Exactly 5 canonical events
             all_events = await temp_storage._read_all(
                 "SELECT event_id, source_channel_id FROM canonical_events ORDER BY event_id"

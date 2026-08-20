@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from medre.adapters._attribution_dispatch import project_source_fields
+from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.core.events.canonical import (
     CanonicalEvent,
     EventRelation,
@@ -129,6 +130,18 @@ def _real_projection_fn(
     return _project
 
 
+def _matrix_native(
+    *, sender: str, sender_display_name: str | None = None
+) -> dict[str, object]:
+    matrix: dict[str, object] = {
+        "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
+        "sender": sender,
+    }
+    if sender_display_name is not None:
+        matrix["sender_display_name"] = sender_display_name
+    return {"matrix": matrix}
+
+
 # ---------------------------------------------------------------------------
 # Matrix projected sender label
 # ---------------------------------------------------------------------------
@@ -139,8 +152,9 @@ async def test_matrix_projected_display_label_populates_original_sender_displayn
 ):
     """Matrix reply fallback uses the Matrix projected display label.
 
-    The target event carries Matrix native ``sender`` and ``displayname``
-    keys.  Core relation enrichment must NOT read those keys directly;
+    The target event carries Matrix native ``sender`` and
+    ``sender_display_name`` fields under the versioned namespace. Core relation
+    enrichment must NOT read those fields directly;
     instead the projection callback (wired by the runtime) projects them
     into ``source_sender_label`` and ``source_sender_id``, which core
     consumes to populate ``original_sender_displayname`` and
@@ -150,7 +164,9 @@ async def test_matrix_projected_display_label_populates_original_sender_displayn
         event_id="target-matrix-001",
         source_adapter="matrix-bot",
         source_transport_id="@alice:example.org",
-        native_data={"sender": "@alice:example.org", "displayname": "Alice Liddell"},
+        native_data=_matrix_native(
+            sender="@alice:example.org", sender_display_name="Alice Liddell"
+        ),
     )
     storage = FakeStorage({"target-matrix-001": target})
     enricher = RelationEnricher(storage=storage)
@@ -172,7 +188,7 @@ async def test_matrix_projected_display_label_populates_original_sender_displayn
 
 
 async def test_matrix_no_display_name_uses_projected_short_label() -> None:
-    """Matrix target without ``displayname`` falls back to MXID localpart.
+    """Matrix target without a display name falls back to MXID localpart.
 
     The dispatch ``project_matrix_attribution`` is display-name-only for
     ``source_sender_label`` and applies no MXID fallback there.  However,
@@ -188,7 +204,7 @@ async def test_matrix_no_display_name_uses_projected_short_label() -> None:
         event_id="target-matrix-noDN",
         source_adapter="matrix-bot",
         source_transport_id="@bob:matrix.org",
-        native_data={"sender": "@bob:matrix.org"},
+        native_data=_matrix_native(sender="@bob:matrix.org"),
     )
     storage = FakeStorage({"target-matrix-noDN": target})
     enricher = RelationEnricher(storage=storage)
@@ -441,7 +457,9 @@ async def test_reply_fallback_text_remains_stable_with_projection() -> None:
         event_id="target-stable-text",
         source_adapter="matrix-bot",
         source_transport_id="@alice:example.org",
-        native_data={"sender": "@alice:example.org", "displayname": "Alice"},
+        native_data=_matrix_native(
+            sender="@alice:example.org", sender_display_name="Alice"
+        ),
         payload_body="original message body",
     )
     storage = FakeStorage({"target-stable-text": target})
@@ -468,7 +486,9 @@ async def test_reaction_relation_text_unchanged_by_projection_fn() -> None:
         event_id="target-reaction-src",
         source_adapter="matrix-bot",
         source_transport_id="@alice:example.org",
-        native_data={"sender": "@alice:example.org", "displayname": "Alice"},
+        native_data=_matrix_native(
+            sender="@alice:example.org", sender_display_name="Alice"
+        ),
     )
     storage = FakeStorage({"target-reaction-src": target})
     enricher = RelationEnricher(storage=storage)
@@ -533,7 +553,9 @@ async def test_projection_fn_failure_falls_back_to_source_transport_id() -> None
         event_id="target-broken-proj",
         source_adapter="matrix-bot",
         source_transport_id="@alice:example.org",
-        native_data={"sender": "@alice:example.org", "displayname": "Alice"},
+        native_data=_matrix_native(
+            sender="@alice:example.org", sender_display_name="Alice"
+        ),
     )
     storage = FakeStorage({"target-broken-proj": target})
     enricher = RelationEnricher(storage=storage)

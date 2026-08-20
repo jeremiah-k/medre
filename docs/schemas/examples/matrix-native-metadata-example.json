@@ -1,0 +1,54 @@
+{
+  "matrix": {
+    "schema_version": 1,
+    "room_id": "!field:example.org",
+    "event_id": "$event:example.org",
+    "event_type": "m.room.message",
+    "sender": "@alice:example.org",
+    "sender_display_name": "Alice",
+    "origin_server_ts_ms": 1700000000123,
+    "msgtype": "m.image",
+    "relation": {
+      "kind": "thread",
+      "target_event_id": "$thread-root:example.org",
+      "rel_type": "m.thread",
+      "reply_to_event_id": "$latest:example.org",
+      "is_falling_back": true
+    },
+    "media": {
+      "kind": "image",
+      "encrypted": true,
+      "mxc_uri": "mxc://example.org/media",
+      "mime_type": "image/jpeg",
+      "size_bytes": 1234,
+      "width": 640,
+      "height": 480
+    },
+    "encryption": {
+      "room_encrypted": true,
+      "event_encrypted": true,
+      "decrypted": true,
+      "verified": true
+    },
+    "relay": {
+      "medre_envelope": {
+        "schema_version": 1,
+        "canonical_event_id": "evt-origin",
+        "source_adapter": "mesh-1",
+        "source_channel": "LongFast",
+        "provenance": "relay",
+        "relation_info": "thread",
+        "lineage_pointer": "",
+        "metadata_mode": "safe",
+        "native_source_summary": ""
+      }
+    }
+  },
+  "interop": {
+    "mmrelay": {
+      "meshtastic_id": "123456",
+      "meshtastic_longname": "Field Node",
+      "meshtastic_shortname": "FN"
+    }
+  }
+}

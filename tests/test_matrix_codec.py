@@ -106,7 +106,9 @@ class TestMatrixCodec:
         codec = MatrixCodec("matrix-1", _make_config())
         native = _make_native_event(body="fallback")
         del native.body
-        # body attribute missing -> getattr returns "" default
+        del native.source["content"]["body"]
+        # body attribute missing on both native event and source content ->
+        # codec's chain falls through to the empty-string default
         event = codec.decode(native, room_id="!room:server")
         assert event.payload["body"] == ""
 
@@ -123,7 +125,7 @@ class TestMatrixCodec:
         )
         event = codec.decode(native, room_id="!room:server")
         assert event.metadata.native is not None
-        data = event.metadata.native.data
+        data = event.metadata.native.data["matrix"]
         assert data["room_id"] == "!room:server"
         assert data["event_id"] == "$evt-1"
         assert data["sender"] == "@alice:example.com"
@@ -364,7 +366,7 @@ class TestMatrixCodec:
 
         event = codec.decode(native, room_id="!room:server")
 
-        data = event.metadata.native.data
+        data = event.metadata.native.data["matrix"]
         assert data["room_id"] == "!room:server"
         assert data["event_id"] == "$react-002"
         assert data["sender"] == "@bob:example.com"

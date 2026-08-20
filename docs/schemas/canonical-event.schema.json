@@ -126,7 +126,7 @@
         "native_thread_id": {
           "type": ["string", "null"],
           "default": null,
-          "description": "Thread/parent message ID in the adapter's native format. Reserved — always None at runtime."
+          "description": "Native thread or parent ID when available; Matrix ingress uses the thread-root event ID."
         }
       },
       "required": ["adapter", "native_channel_id", "native_message_id"],

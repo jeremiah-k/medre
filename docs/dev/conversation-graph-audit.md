@@ -88,10 +88,10 @@ text rather than treated as unverified native support.
 
 ### 3.3 Schema-level reserved fields
 
-| Field                | Present on                                                 | Current value | Note                                |
-| -------------------- | ---------------------------------------------------------- | ------------- | ----------------------------------- |
-| `native_thread_id`   | `NativeRef`, `NativeMessageRef`, `OutboundNativeRefRecord` | Always `None` | **RESERVED** — no adapter populates |
-| `native_relation_id` | `NativeMessageRef`, `OutboundNativeRefRecord`              | Always `None` | **RESERVED** — no adapter populates |
+| Field                | Present on                                                 | Current value                        | Note                                              |
+| -------------------- | ---------------------------------------------------------- | ------------------------------------ | ------------------------------------------------- |
+| `native_thread_id`   | `NativeRef`, `NativeMessageRef`, `OutboundNativeRefRecord` | Matrix inbound thread root or `None` | Matrix ingress populates; outbound remains unused |
+| `native_relation_id` | `NativeMessageRef`, `OutboundNativeRefRecord`              | Always `None`                        | **RESERVED** — no adapter populates               |
 
 ---
 
@@ -261,23 +261,30 @@ The following boundary is consistent with prior audit findings:
 
 **Impact**: Conversation reconstruction queries would be O(n) without a `target_event_id` index.
 
-### 8.4 `native_thread_id` always `None`
+### 8.4 Native thread identity is ingress-only
 
-Reserved on `NativeRef`, `NativeMessageRef`, and `OutboundNativeRefRecord`. No adapter populates it. Matrix has `m.thread` relations; Meshtastic has no threading model; MeshCore and LXMF have no native threads.
+Matrix ingress stores the `m.thread` root event ID on the source `NativeRef`, and
+the pipeline persists that value in the inbound `NativeMessageRef`. Meshtastic
+has no threading model, while MeshCore and MEDRE's LXMF integration do not
+populate native thread identity. Outbound native thread IDs remain unused.
 
-**Impact**: Thread-aware rendering cannot use native thread IDs until adapters decode and report them.
+**Impact**: Matrix thread provenance survives canonical admission without claiming
+verified native outbound thread rendering.
 
 ### 8.5 Thread relations use capability-gated fallback
 
 `"thread"` is valid in `VALID_RELATION_TYPES` and is capability-gated through
 `AdapterCapabilities.threads`. Built-in adapters advertise `fallback`, so a
-canonical thread relation can be rendered as deterministic inline text. No built-in
-adapter currently emits or consumes native thread relations, and `native_thread_id`
-remains reserved.
+canonical thread relation can be rendered as deterministic inline text. Matrix
+ingress consumes `m.thread` and records its native thread root, but no built-in
+adapter currently emits a verified native thread relation outbound.
 
-### 8.6 MMRelay cross-transport metadata is fragile
+### 8.6 MMRelay relation hints remain specialized
 
-Keys like `meshtastic_reply_id` in `EventRelation.metadata` are set by the Matrix codec only when detecting MMRelay-formatted emotes. This path is specific to MMRelay-bridged Matrix rooms and does not work for native Matrix reactions.
+MMRelay wire fields are isolated under the Matrix event's `interop.mmrelay`
+namespace. Established `meshtastic_reply_id`/reaction hints in
+`EventRelation.metadata` remain a specialized compatibility seam for
+MMRelay-formatted emotes; native Matrix reactions do not depend on those hints.
 
 ---
 
@@ -292,7 +299,7 @@ This document does **not** include:
 - Changing the relation type vocabulary
 - Modifying adapter source code or test files
 - Introducing conversation-level query APIs on the storage backend
-- Populating `native_thread_id` on any type
+- Populating outbound `native_thread_id` delivery results
 - Advertising verified native thread support in a built-in adapter
 
 ---

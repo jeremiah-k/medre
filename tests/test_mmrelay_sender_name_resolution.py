@@ -7,11 +7,9 @@ Per-field precedence (longname / shortname each resolved independently):
 
 1. Meshtastic-native namespaced (``meshtastic.longname`` /
    ``meshtastic.shortname``) — primary, emitted by the codec.
-2. External mmrelay wire (``meshtastic_longname`` /
-   ``meshtastic_shortname``).
-3. mmrelay KEY constants (:data:`KEY_LONGNAME` / :data:`KEY_SHORTNAME`).
-4. Legacy bare keys (``longname`` / ``shortname``) — input tolerance.
-5. Empty string.
+2. External mmrelay wire fields under ``native.interop.mmrelay``.
+3. Legacy bare keys (``longname`` / ``shortname``) — input tolerance.
+4. Empty string.
 
 Matrix ``displayname`` never projects into these wire fields.
 """
@@ -20,6 +18,10 @@ from __future__ import annotations
 
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.interop.mmrelay import KEY_LONGNAME, KEY_SHORTNAME
+
+
+def _interop(**fields: object) -> dict[str, object]:
+    return {"interop": {"mmrelay": fields}}
 
 
 def test_namespaced_longname_is_primary() -> None:
@@ -55,19 +57,16 @@ def test_namespaced_wins_over_bare() -> None:
 def test_wire_key_resolves_when_no_namespaced() -> None:
     """External mmrelay wire fields resolve when namespaced is absent."""
     longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        {
-            "meshtastic_longname": "Wire Long",
-            "meshtastic_shortname": "WS",
-        }
+        _interop(meshtastic_longname="Wire Long", meshtastic_shortname="WS")
     )
     assert longname == "Wire Long"
     assert shortname == "WS"
 
 
 def test_key_constant_resolves() -> None:
-    """KEY_LONGNAME / KEY_SHORTNAME constant-named keys resolve."""
+    """KEY_LONGNAME / KEY_SHORTNAME resolve from the interop namespace."""
     longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        {KEY_LONGNAME: "Const Long", KEY_SHORTNAME: "CS"}
+        {"interop": {"mmrelay": {KEY_LONGNAME: "Const Long", KEY_SHORTNAME: "CS"}}}
     )
     assert longname == "Const Long"
     assert shortname == "CS"
@@ -87,7 +86,7 @@ def test_namespaced_wins_over_wire() -> None:
     longname, _ = MatrixRenderer._resolve_mmrelay_sender_names(
         {
             "meshtastic.longname": "Primary",
-            "meshtastic_longname": "Wire",
+            "interop": {"mmrelay": {"meshtastic_longname": "Wire"}},
         }
     )
     assert longname == "Primary"
@@ -97,11 +96,20 @@ def test_wire_wins_over_bare() -> None:
     """External mmrelay wire fields take precedence over legacy bare."""
     longname, _ = MatrixRenderer._resolve_mmrelay_sender_names(
         {
-            "meshtastic_longname": "Wire",
+            "interop": {"mmrelay": {"meshtastic_longname": "Wire"}},
             "longname": "Bare",
         }
     )
     assert longname == "Wire"
+
+
+def test_root_level_wire_keys_are_not_native_metadata_shape() -> None:
+    """MMRelay wire keys at the native root are not interpreted."""
+    longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
+        {KEY_LONGNAME: "Old Long", KEY_SHORTNAME: "OL"}
+    )
+    assert longname == ""
+    assert shortname == ""
 
 
 def test_empty_when_no_identity_keys() -> None:

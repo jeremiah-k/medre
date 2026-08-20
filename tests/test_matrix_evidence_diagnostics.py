@@ -206,6 +206,7 @@ class TestEvidenceBundleWithMatrixAdapter:
     ) -> None:
         """Storage-path direct mode can inspect Matrix-shaped events."""
         # Create a storage DB with a Matrix-shaped event
+        from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
         from medre.core.events import (
             CanonicalEvent,
             EventMetadata,
@@ -236,9 +237,12 @@ class TestEvidenceBundleWithMatrixAdapter:
                 metadata=EventMetadata(
                     native=NativeMetadata(
                         data={
-                            "room_id": "!room:example.com",
-                            "event_id": "$mx001:example.com",
-                            "sender": "@alice:example.com",
+                            "matrix": {
+                                "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
+                                "room_id": "!room:example.com",
+                                "event_id": "$mx001:example.com",
+                                "sender": "@alice:example.com",
+                            }
                         }
                     )
                 ),
@@ -311,6 +315,7 @@ class TestEvidenceBundleWithMatrixAdapter:
             stored_event.get("metadata", {})
             .get("native", {})
             .get("data", {})
+            .get("matrix", {})
             .get("event_id")
             == "$mx001:example.com"
         ), "Storage event missing source_native_ref and native metadata event_id"

@@ -58,8 +58,9 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 ### 2.1 Matrix
 
 - Multi-room concurrent inbound has not been tested against a real homeserver.
-- E2EE text messaging does not support reactions, edits, media, or a MEDRE-managed
-  room-key backup/import/export workflow.
+- Decrypted Matrix ingress normalizes reactions, edits, redactions, and media.
+  Outbound edits/deletes/attachments remain unsupported, and MEDRE does not manage
+  a room-key backup/import/export workflow.
 - Own-device cross-signing is implemented against `mindroom-nio 0.40.0`. Peer-device
   trust is still intentionally permissive for bot operation and is not
   operator-configurable.

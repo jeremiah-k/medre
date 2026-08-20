@@ -83,6 +83,7 @@ def build_mock_nio_module() -> MagicMock:
     client.logged_in = True
     client.restore_login = MagicMock()
     client.add_event_callback = MagicMock()
+    client.add_event_admission_callback = MagicMock()
     response_callbacks: list[Callable[[Any], Awaitable[Any]]] = []
 
     def _add_response_callback(

@@ -998,8 +998,8 @@ class TestReactionEventHandling:
 # ===================================================================
 
 
-class TestDisplayNameEnrichment:
-    """Matrix display name enrichment for Meshtastic prefix formatting."""
+class TestDisplayNameNormalization:
+    """Matrix display-name normalization for relay attribution."""
 
     async def test_display_name_from_room_user_name(self) -> None:
         """Display name is enriched from sender_display_name."""
@@ -1017,7 +1017,7 @@ class TestDisplayNameEnrichment:
         )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
-        assert ndata["displayname"] == "Alice Display"
+        assert ndata["matrix"]["sender_display_name"] == "Alice Display"
 
     async def test_display_name_falls_back_to_users_dict(self) -> None:
         """Display name from users dict is passed via sender_display_name."""
@@ -1035,7 +1035,7 @@ class TestDisplayNameEnrichment:
         )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
-        assert ndata["displayname"] == "Alice From Dict"
+        assert ndata["matrix"]["sender_display_name"] == "Alice From Dict"
 
     async def test_display_name_falls_back_to_mxid(self) -> None:
         """Without any display name, falls back to sender MXID."""
@@ -1051,7 +1051,7 @@ class TestDisplayNameEnrichment:
         await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
         ndata = published[0].metadata.native.data
-        assert ndata["displayname"] == "@alice:example.com"
+        assert ndata["matrix"]["sender_display_name"] == "@alice:example.com"
 
     async def test_mmrelay_longname_preserved(self) -> None:
         """Existing MMRelay longname/shortname are not overwritten."""
@@ -1076,10 +1076,10 @@ class TestDisplayNameEnrichment:
         assert len(published) == 1
         ndata = published[0].metadata.native.data
         # MMRelay names should be preserved, not overwritten by Matrix name
-        assert ndata["meshtastic_longname"] == "NodeLong"
-        assert ndata["meshtastic_shortname"] == "NSh"
-        # displayname is enriched from Matrix display name
-        assert ndata["displayname"] == "Alice Display"
+        assert ndata["interop"]["mmrelay"]["meshtastic_longname"] == "NodeLong"
+        assert ndata["interop"]["mmrelay"]["meshtastic_shortname"] == "NSh"
+        # sender_display_name is normalized from the Matrix display name
+        assert ndata["matrix"]["sender_display_name"] == "Alice Display"
 
     async def test_display_name_enriched_for_reaction_events(self) -> None:
         """Display name enrichment also works for reaction events."""
@@ -1097,7 +1097,7 @@ class TestDisplayNameEnrichment:
         )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
-        assert ndata["displayname"] == "Bob Display"
+        assert ndata["matrix"]["sender_display_name"] == "Bob Display"
 
     # --- FIX 1: _matrix_display_name handles nio user objects -----------
 
@@ -1117,7 +1117,7 @@ class TestDisplayNameEnrichment:
         )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
-        assert ndata["displayname"] == "Tad Chilly"
+        assert ndata["matrix"]["sender_display_name"] == "Tad Chilly"
 
     async def test_display_name_from_user_object_displayname(self) -> None:
         """room.users[sender] object with displayname attr works."""
@@ -1135,7 +1135,7 @@ class TestDisplayNameEnrichment:
         )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
-        assert ndata["displayname"] == "Tad Chilly"
+        assert ndata["matrix"]["sender_display_name"] == "Tad Chilly"
 
     async def test_blank_display_name_falls_back_to_sender(self) -> None:
         """Blank display_name falls back to sender MXID."""
@@ -1151,7 +1151,7 @@ class TestDisplayNameEnrichment:
         await adapter._on_room_message(_to_event_dict(room, event))
         assert len(published) == 1
         ndata = published[0].metadata.native.data
-        assert ndata["displayname"] == "@tad:example.com"
+        assert ndata["matrix"]["sender_display_name"] == "@tad:example.com"
 
     async def test_user_name_takes_precedence_over_users(self) -> None:
         """room.user_name(sender) takes precedence over room.users lookup."""
@@ -1169,7 +1169,7 @@ class TestDisplayNameEnrichment:
         )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
-        assert ndata["displayname"] == "From User Name Fn"
+        assert ndata["matrix"]["sender_display_name"] == "From User Name Fn"
 
     async def test_existing_mmrelay_longname_preserved_with_object_users(
         self,
@@ -1195,15 +1195,15 @@ class TestDisplayNameEnrichment:
         )
         assert len(published) == 1
         ndata = published[0].metadata.native.data
-        assert ndata["meshtastic_longname"] == "NodeLong"
-        assert ndata["meshtastic_shortname"] == "NSh"
-        # displayname is enriched alongside preserved mmrelay wire fields
-        assert ndata["displayname"] == "Tad Chilly"
+        assert ndata["interop"]["mmrelay"]["meshtastic_longname"] == "NodeLong"
+        assert ndata["interop"]["mmrelay"]["meshtastic_shortname"] == "NSh"
+        # sender_display_name is normalized alongside preserved mmrelay wire fields
+        assert ndata["matrix"]["sender_display_name"] == "Tad Chilly"
 
     # --- FIX 2: frozen metadata immutability after enrichment -----------
 
     async def test_enriched_metadata_is_frozen(self) -> None:
-        """After enrichment, metadata.native.data is frozen (raises TypeError)."""
+        """Normalized metadata.native.data is deeply frozen."""
         config = _make_matrix_config(user_id="@bot:example.com")
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
@@ -1218,10 +1218,12 @@ class TestDisplayNameEnrichment:
         )
         assert len(published) == 1
         with pytest.raises(TypeError):
-            published[0].metadata.native.data["displayname"] = "tampered"
+            published[0].metadata.native.data["matrix"][
+                "sender_display_name"
+            ] = "tampered"
 
     async def test_enrichment_preserves_other_metadata_namespaces(self) -> None:
-        """Existing metadata namespaces (transport, routing, etc.) preserved."""
+        """Normalization preserves the complete EventMetadata envelope."""
 
         config = _make_matrix_config(user_id="@bot:example.com")
         adapter = MatrixAdapter(config)
@@ -1240,10 +1242,13 @@ class TestDisplayNameEnrichment:
         assert len(published) == 1
         # Native metadata was enriched
         assert published[0].metadata.native is not None
-        assert published[0].metadata.native.data["displayname"] == "Alice Display"
+        assert (
+            published[0].metadata.native.data["matrix"]["sender_display_name"]
+            == "Alice Display"
+        )
 
     async def test_published_enriched_but_stored_not_mutated(self) -> None:
-        """Published event is enriched but original native data is not mutated."""
+        """Published events keep independent immutable native metadata."""
         config = _make_matrix_config(user_id="@bot:example.com")
         adapter = MatrixAdapter(config)
         published, ctx = _make_adapter_context()
@@ -1264,13 +1269,18 @@ class TestDisplayNameEnrichment:
         )
 
         assert len(published) == 2
-        assert published[0].metadata.native.data["displayname"] == "Alice"
-        assert published[1].metadata.native.data["displayname"] == "Bob"
+        assert (
+            published[0].metadata.native.data["matrix"]["sender_display_name"]
+            == "Alice"
+        )
+        assert (
+            published[1].metadata.native.data["matrix"]["sender_display_name"] == "Bob"
+        )
         # Each event's data is independently frozen
         with pytest.raises(TypeError):
-            published[0].metadata.native.data["displayname"] = "x"
+            published[0].metadata.native.data["matrix"]["sender_display_name"] = "x"
         with pytest.raises(TypeError):
-            published[1].metadata.native.data["displayname"] = "x"
+            published[1].metadata.native.data["matrix"]["sender_display_name"] = "x"
 
 
 # ===================================================================

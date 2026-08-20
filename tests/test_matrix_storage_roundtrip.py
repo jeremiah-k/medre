@@ -1,9 +1,8 @@
 """Matrix-shaped CanonicalEvent storage round-trip tests.
 
-Verifies that canonical events produced by the Matrix codec (with
-Matrix-specific native metadata: room_id, event_id, sender in native.data)
-round-trip correctly through SQLiteStorage: store, retrieve, resolve native
-refs, and query via timeline.
+Verifies that canonical events produced by the Matrix codec (with the
+versioned Matrix native-metadata namespace) round-trip correctly through
+SQLiteStorage: store, retrieve, resolve native refs, and query via timeline.
 
 These tests do NOT require a live Matrix homeserver. They exercise the
 storage layer with Matrix-shaped data to ensure Matrix events are
@@ -15,6 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from medre.adapters.matrix.codec import MatrixCodec
+from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.events import (
     CanonicalEvent,
@@ -115,9 +115,17 @@ def _make_matrix_canonical_event(
         metadata=EventMetadata(
             native=NativeMetadata(
                 data={
-                    "room_id": room_id,
-                    "event_id": mx_event_id,
-                    "sender": sender,
+                    "matrix": {
+                        "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
+                        "room_id": room_id,
+                        "event_id": mx_event_id,
+                        "event_type": "m.room.message",
+                        "sender": sender,
+                        "encryption": {
+                            "event_encrypted": False,
+                            "decrypted": False,
+                        },
+                    }
                 }
             )
         ),
@@ -173,7 +181,7 @@ class TestMatrixCodecEventStorageRoundtrip:
         assert retrieved.payload.get("msgtype") == "m.text"
 
     async def test_codec_event_native_metadata_preserved(self, temp_storage) -> None:
-        """Matrix-specific native metadata (room_id, event_id, sender) survives storage."""
+        """Versioned Matrix-native identity metadata survives storage."""
         config = _matrix_config()
         codec = MatrixCodec("matrix-test", config)
         native = _make_fake_matrix_event(
@@ -188,7 +196,8 @@ class TestMatrixCodecEventStorageRoundtrip:
         retrieved = await temp_storage.get(canonical.event_id)
 
         assert retrieved is not None
-        ndata = retrieved.metadata.native.data
+        ndata = retrieved.metadata.native.data["matrix"]
+        assert ndata["schema_version"] == MATRIX_NATIVE_SCHEMA_VERSION
         assert ndata["room_id"] == "!meta_room:example.com"
         assert ndata["event_id"] == "$meta_test:example.com"
         assert ndata["sender"] == "@carol:example.com"

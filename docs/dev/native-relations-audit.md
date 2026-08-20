@@ -36,12 +36,12 @@ Reference repos inspected:
 
 ### NativeRef (inline, lightweight)
 
-| Field               | Type          | Populated?                   | Owner         |
-| ------------------- | ------------- | ---------------------------- | ------------- |
-| `adapter`           | `str`         | always                       | adapter fact  |
-| `native_channel_id` | `str \| None` | transport-dependent          | adapter fact  |
-| `native_message_id` | `str`         | always when present          | adapter fact  |
-| `native_thread_id`  | `str \| None` | **RESERVED — always `None`** | not populated |
+| Field               | Type          | Populated?                   | Owner        |
+| ------------------- | ------------- | ---------------------------- | ------------ |
+| `adapter`           | `str`         | always                       | adapter fact |
+| `native_channel_id` | `str \| None` | transport-dependent          | adapter fact |
+| `native_message_id` | `str`         | always when present          | adapter fact |
+| `native_thread_id`  | `str \| None` | Matrix thread root or `None` | adapter fact |
 
 Used inline on `CanonicalEvent.source_native_ref` and `EventRelation.target_native_ref`.
 
@@ -54,7 +54,7 @@ Used inline on `CanonicalEvent.source_native_ref` and `EventRelation.target_nati
 | `adapter`            | `str`                     | always                       | adapter fact                  |
 | `native_channel_id`  | `str \| None`             | transport-dependent          | adapter fact                  |
 | `native_message_id`  | `str`                     | always when present          | adapter fact                  |
-| `native_thread_id`   | `str \| None`             | **RESERVED — always `None`** | not populated                 |
+| `native_thread_id`   | `str \| None`             | Matrix thread root or `None` | adapter fact                  |
 | `native_relation_id` | `str \| None`             | **RESERVED — always `None`** | not populated                 |
 | `direction`          | `"inbound" \| "outbound"` | always                       | **authoritative** (framework) |
 | `metadata`           | `dict`                    | always (may be empty)        | adapter fact, JSON-safe       |
@@ -125,10 +125,12 @@ Codec sets `target_native_ref` on `EventRelation` for replies/reactions → pipe
 - `AdapterDeliveryResult.metadata` — namespaced transport data
 - `NativeMessageRef.metadata` — namespaced transport data
 
-### Reserved (schema exists, always `None`)
+### Partially populated / reserved native fields
 
-- `native_thread_id` — on `NativeRef`, `NativeMessageRef`, `OutboundNativeRefRecord`
-- `native_relation_id` — on `NativeMessageRef`, `OutboundNativeRefRecord`
+- `native_thread_id` — Matrix inbound source refs and persisted inbound mappings
+  carry the thread root; outbound delivery records still leave it `None`.
+- `native_relation_id` — remains reserved on `NativeMessageRef` and
+  `OutboundNativeRefRecord`.
 
 ---
 
@@ -154,14 +156,17 @@ Convention: `metadata.matrix`, `metadata.meshtastic`, `metadata.meshcore`, `meta
 
 | Transport  | Keys                                                                                                                                                                       |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Matrix     | `room_id`, `event_id`, `sender`, plus MMRelay keys (`meshtastic_replyId`, `meshtastic_text`, `meshtastic_emoji`)                                                           |
+| Matrix     | Versioned `matrix` namespace plus optional `interop.mmrelay`; see `docs/spec/matrix-event-shape.md`                                                                        |
 | Meshtastic | `packet_id`, `from_id`, `channel`, `portnum`, `to_id`, `longname`, `shortname`, `reply_id`, `emoji`, `emoji_flag`, `packet` snapshot, `decoded` snapshot, `classification` |
 | MeshCore   | `meshcore.packet_id`, `meshcore.sender_id`, `meshcore.channel`, etc.                                                                                                       |
 | LXMF       | `source_hash`, `destination_hash`, `message_id`, `timestamp`, `title`, `delivery_method`, `has_fields`                                                                     |
 
 ### Metadata in `NativeMessageRef.metadata`
 
-- **Inbound**: copy of `event.metadata.native.data` — preserves the codec's raw adapter data shape for traceability (e.g. Meshtastic `packet_id`, `from_id`, `channel` at top level of the adapter data dict). This is NOT namespaced as `metadata[<transport>]`; it mirrors whatever the codec produced in `native.data`, keeping the original flat structure intact so that the inbound evidence chain can be audited back to the transport SDK output without namespace transformation.
+- **Inbound**: copy of `event.metadata.native.data` — preserves the codec-owned
+  adapter data shape for traceability. Matrix uses the versioned `matrix` namespace
+  plus optional `interop.mmrelay`; other adapters retain their documented native
+  shapes. The pipeline does not transform this data while persisting the ref.
 - **Outbound (synchronous adapters)**: transport-namespaced from `AdapterDeliveryResult.metadata` — follows the `metadata[<transport>]` convention.
 - **Outbound (Meshtastic)**: enriched merge under `meshtastic` namespace — `text`, `origin_label`, `channel_name`, `reply_id`, `emoji`, plus defensively normalised legacy/non-namespaced delivery keys.
 
@@ -225,7 +230,7 @@ Applies to: **Meshtastic only** (queue-based adapter).
 | MMRelay emote reaction    | `target_native_ref=None`; relies on metadata keys `meshtastic_reply_id`, `meshtastic_emoji`, `meshtastic_reaction_key`                          |
 | Outbound native ref       | Immediate; `AdapterDeliveryResult.native_message_id` from `RoomSendResponse.event_id`                                                           |
 | `txn_id` (transaction_id) | Idempotency metadata only — used in PUT path for dedup, never stored as native ID. Visible only to sending device in `unsigned.transaction_id`. |
-| Thread ID                 | **RESERVED** — Matrix `m.thread` relations not yet decoded into `native_thread_id`                                                              |
+| Thread ID                 | Inbound `m.thread` root stored in source/persisted `native_thread_id`; outbound remains unset                                                   |
 
 **Classification**: inbound source = **immediate native ref**. Inbound relations = **immediate native ref**. Outbound = **immediate native ref**. MMRelay emote cross-transport = **fallback-only** (no Matrix native target).
 

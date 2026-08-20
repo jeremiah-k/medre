@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
@@ -47,8 +48,11 @@ def _make_matrix_event(
 ) -> CanonicalEvent:
     """Create a CanonicalEvent simulating Matrix origin."""
     native_data: dict[str, object] = {
-        "sender": "@user:example.com",
-        "displayname": display_name,
+        "matrix": {
+            "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
+            "sender": "@user:example.com",
+            "sender_display_name": display_name,
+        }
     }
     return CanonicalEvent(
         event_id=event_id,

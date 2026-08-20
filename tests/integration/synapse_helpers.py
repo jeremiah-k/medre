@@ -11,7 +11,7 @@ import json
 import logging
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -250,7 +250,7 @@ async def wait_for_sync_or_fallback(
             "type": "m.room.message",
         },
         "msgtype": "m.text",
-        "server_timestamp": 0,
+        "server_timestamp": int(datetime.now(UTC).timestamp() * 1000),
         "sender_display_name": synapse_env.test_user_id,
     }
     await matrix_adapter._on_room_message(event_dict)
@@ -272,7 +272,7 @@ def make_context(adapter_id: str = "synapse-bridge-bot") -> AdapterContext:
         event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger(f"test.{adapter_id}"),
-        clock=lambda: datetime.now(timezone.utc),
+        clock=lambda: datetime.now(UTC),
         shutdown_event=asyncio.Event(),
     )
 

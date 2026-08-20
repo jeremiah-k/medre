@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from medre.adapters._attribution_dispatch import project_source_fields
+from medre.adapters.matrix.event_shape import mmrelay_interop_fields
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.attribution import (
@@ -169,11 +170,9 @@ class MatrixRenderer:
            (``meshtastic.longname`` / ``meshtastic.shortname``) — primary
            source emitted by the Meshtastic codec.
         2. External mmrelay wire fields (``meshtastic_longname`` /
-           ``meshtastic_shortname``) — preserved from external mmrelay
-           Matrix event content captured by the codec.  These literal
-           strings are also the values of :data:`KEY_LONGNAME` /
-           :data:`KEY_SHORTNAME`, so a separate KEY-constant lookup
-           would be a redundant no-op.
+           ``meshtastic_shortname``) — current events carry these under
+           ``native.interop.mmrelay`` (resolved via
+           :func:`mmrelay_interop_fields`).
         3. Legacy bare keys (``longname`` / ``shortname``) — input
            tolerance only, not current emitted metadata.
         4. Empty string.
@@ -182,18 +181,16 @@ class MatrixRenderer:
         display names project into generic ``{sender}`` via Matrix
         attribution, not into Meshtastic-shaped mmrelay wire fields.
         """
+        interop = mmrelay_interop_fields(native_data)
         longname = (
             native_data.get("meshtastic.longname")
-            # == KEY_LONGNAME wire key; a second KEY-constant lookup
-            # would hit the same dict key, so it is folded in here.
-            or native_data.get("meshtastic_longname")
+            or interop.get(KEY_LONGNAME)
             or native_data.get("longname")  # legacy bare-key tolerance
             or ""
         )
         shortname = (
             native_data.get("meshtastic.shortname")
-            # == KEY_SHORTNAME wire key; same as above.
-            or native_data.get("meshtastic_shortname")
+            or interop.get(KEY_SHORTNAME)
             or native_data.get("shortname")  # legacy bare-key tolerance
             or ""
         )
@@ -386,7 +383,7 @@ class MatrixRenderer:
                 rel_meta = getattr(rel, "metadata", {}) or {}
                 mmrelay_id = rel_meta.get("meshtastic_reply_id")
                 if mmrelay_id in (None, ""):
-                    mmrelay_id = native_data.get(KEY_REPLY_ID)
+                    mmrelay_id = mmrelay_interop_fields(native_data).get(KEY_REPLY_ID)
                 if mx_event_id:
                     # Matrix-native reply — render m.in_reply_to with Matrix event ID.
                     # No manual fallback quoting: Matrix clients handle display
@@ -593,7 +590,8 @@ class MatrixRenderer:
 
         1. ``rel.metadata['meshtastic_text']`` or ``rel.metadata['text']``
         2. ``rel.fallback_text``
-        3. Event native metadata ``meshtastic_text`` or ``text``
+        3. Event native metadata ``native.interop.mmrelay.meshtastic_text``
+           or ``text``
         4. Empty string
         """
         # 1. Relation metadata (set by pipeline enrichment / codec)
@@ -609,7 +607,9 @@ class MatrixRenderer:
         # 3. Event native metadata fields
         if event.metadata and event.metadata.native:
             native_data = event.metadata.native.data
-            text = native_data.get("meshtastic_text") or native_data.get("text")
+            text = mmrelay_interop_fields(native_data).get(KEY_TEXT) or native_data.get(
+                "text"
+            )
             if text:
                 return str(text)
 

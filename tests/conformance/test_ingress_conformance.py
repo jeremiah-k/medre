@@ -19,6 +19,8 @@ or external network involved.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import pytest
 
 from .conftest import MATRIX_ADAPTER_ID, MESHTASTIC_ADAPTER_ID
@@ -124,11 +126,13 @@ class TestMatrixIngressConformance:
         # Assert the fixture's metadata_has_native flag matches reality.
         assert fixture["expected"]["metadata_has_native"] is True
         native_data = decoded_event.metadata.native.data
+        matrix_data = native_data.get("matrix")
+        assert isinstance(matrix_data, Mapping)
         expected_meta = fixture["expected"]["expected_metadata"]
         for key, expected_value in expected_meta.items():
-            assert native_data[key] == expected_value, (
-                f"metadata[{key!r}]: expected {expected_value!r}, "
-                f"got {native_data.get(key)!r}"
+            assert matrix_data.get(key) == expected_value, (
+                f"metadata.matrix[{key!r}]: expected {expected_value!r}, "
+                f"got {matrix_data.get(key)!r}"
             )
 
 

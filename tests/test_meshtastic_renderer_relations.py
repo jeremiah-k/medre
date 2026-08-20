@@ -98,8 +98,11 @@ def _make_matrix_event(
 ) -> CanonicalEvent:
     """Create a CanonicalEvent simulating Matrix origin."""
     native_data: dict[str, object] = {
-        "sender": "@user:example.com",
-        "displayname": display_name,
+        "matrix": {
+            "schema_version": 1,
+            "sender": "@user:example.com",
+            "sender_display_name": display_name,
+        }
     }
     return CanonicalEvent(
         event_id=event_id,
@@ -821,7 +824,13 @@ class TestFallbackTextReplyRelationContext:
             payload={"body": "my reply"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={"sender": "@Test:example.com", "displayname": "Test User"}
+                    data={
+                        "matrix": {
+                            "schema_version": 1,
+                            "sender": "@Test:example.com",
+                            "sender_display_name": "Test User",
+                        }
+                    }
                 )
             ),
         )

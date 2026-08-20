@@ -51,6 +51,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.async_utils import wait_until
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 
 # ---------------------------------------------------------------------------
@@ -132,7 +133,7 @@ def _to_event_dict(
         "event_id": getattr(event, "event_id", ""),
         "source": source,
         "msgtype": msgtype,
-        "server_timestamp": 0,
+        "server_timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
     }
     if sender_display_name is not None:
         d["sender_display_name"] = sender_display_name
@@ -312,6 +313,7 @@ class TestMatrixInboundToFakeOutbound:
             )
             await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
+            assert await wait_until(lambda: len(fake_adapter.delivered_payloads) >= 1)
             # Fake adapter received a rendered payload
             assert len(fake_adapter.delivered_payloads) == 1
             rendered = fake_adapter.delivered_payloads[0]
@@ -365,6 +367,17 @@ class TestMatrixInboundToFakeOutbound:
             )
             await matrix_adapter._on_room_message(_to_event_dict(room, event))
 
+            async def native_ref_persisted() -> bool:
+                return (
+                    await temp_storage.resolve_native_ref(
+                        adapter="matrix-in-ref",
+                        native_channel_id="!ref_room:example.com",
+                        native_message_id="$native-ref-evt-001",
+                    )
+                    is not None
+                )
+
+            assert await wait_until(native_ref_persisted)
             # Inbound native ref persisted
             resolved = await temp_storage.resolve_native_ref(
                 adapter="matrix-in-ref",

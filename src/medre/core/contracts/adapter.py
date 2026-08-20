@@ -669,6 +669,17 @@ class AdapterContract(ABC):
     _start_time: datetime | None
     _stale_events_dropped: int
 
+    _event_timestamp_granularity_us: int = 1
+    """Timestamp granularity of the adapter's transport events, in microseconds.
+
+    The stale-event guard floors the adapter start time down to this
+    granularity before comparison so sub-granularity differences between a
+    live event and the microsecond start clock are not treated as backlog.
+    The default of 1 keeps an exact comparison for microsecond-resolution
+    transports; adapters whose transports carry coarser timestamps (e.g.
+    Matrix ``origin_server_ts`` milliseconds) override this.
+    """
+
     def __init__(self) -> None:
         self._start_time: datetime | None = None
         self._stale_events_dropped: int = 0
@@ -782,7 +793,18 @@ class AdapterContract(ABC):
         """
         if self._start_time is None:
             return False
-        return event.timestamp < self._start_time
+        # Floor the start time to the transport's timestamp granularity so
+        # sub-granularity differences between a live event created within
+        # the startup instant and the microsecond start clock do not
+        # register as backlog. Granularity 1 (microsecond-resolution
+        # transports) keeps the exact comparison.
+        start = self._start_time
+        granularity = self._event_timestamp_granularity_us
+        if granularity > 1:
+            start = start.replace(
+                microsecond=(start.microsecond // granularity) * granularity
+            )
+        return event.timestamp < start
 
     async def publish_inbound(self, event: CanonicalEvent) -> None:
         """Publish a canonical event into the inbound pipeline.
