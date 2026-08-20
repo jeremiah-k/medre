@@ -456,11 +456,7 @@ class MatrixCodec(AdapterCodec):
                 parsed = int(raw.strip())
             except ValueError:
                 return None
-            return (
-                parsed
-                if 0 <= parsed <= _MAX_ORIGIN_SERVER_TS_MS
-                else None
-            )
+            return parsed if 0 <= parsed <= _MAX_ORIGIN_SERVER_TS_MS else None
         return None
 
     @staticmethod
