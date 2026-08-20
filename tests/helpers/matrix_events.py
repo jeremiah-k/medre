@@ -6,11 +6,24 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
     NativeMetadata,
 )
+
+
+def matrix_native_data(
+    *, sender: str | None = None, sender_display_name: str | None = None
+) -> dict[str, object]:
+    """Build minimal versioned Matrix attribution metadata for renderer tests."""
+    matrix: dict[str, object] = {"schema_version": MATRIX_NATIVE_SCHEMA_VERSION}
+    if sender is not None:
+        matrix["sender"] = sender
+    if sender_display_name is not None:
+        matrix["sender_display_name"] = sender_display_name
+    return {"matrix": matrix}
 
 
 def make_matrix_event(

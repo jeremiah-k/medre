@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -57,6 +58,15 @@ def to_event_dict(
     # Extract msgtype from source content if available
     content = source.get("content", {}) if isinstance(source, dict) else {}
     msgtype = content.get("msgtype", "m.text")
+    origin_server_ts = (
+        source.get("origin_server_ts") if isinstance(source, dict) else None
+    )
+    server_timestamp = (
+        int(origin_server_ts)
+        if not isinstance(origin_server_ts, bool)
+        and isinstance(origin_server_ts, (int, float))
+        else int(datetime.now(UTC).timestamp() * 1000)
+    )
     d: dict[str, Any] = {
         "room_id": room.room_id,
         "sender": getattr(event, "sender", ""),
@@ -64,7 +74,7 @@ def to_event_dict(
         "event_id": getattr(event, "event_id", ""),
         "source": source,
         "msgtype": msgtype,
-        "server_timestamp": 0,
+        "server_timestamp": server_timestamp,
     }
     if sender_display_name is not None:
         d["sender_display_name"] = sender_display_name

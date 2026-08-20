@@ -477,14 +477,14 @@ class TestCodecDecodesReactionKey:
         assert rel.metadata.get("meshtastic_reaction_key") == "🔥"
 
     def test_reaction_key_in_native_data(self) -> None:
-        """KEY_REACTION_KEY is captured into native_data via _capture_mmrelay_fields."""
+        """KEY_REACTION_KEY is preserved in the MMRelay interop namespace."""
         codec = MatrixCodec("matrix-1", _make_config())
         native = _make_mmrelay_emote_reaction_with_key(
             body="reacted", reply_id="!abc123", reaction_key="👍"
         )
         event = codec.decode(native, room_id="!room:server")
 
-        data = event.metadata.native.data
+        data = event.metadata.native.data["interop"]["mmrelay"]
         assert data.get(KEY_REACTION_KEY) == "👍"
 
     def test_reaction_key_equals_body_still_in_payload(self) -> None:

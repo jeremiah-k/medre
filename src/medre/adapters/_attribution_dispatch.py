@@ -24,6 +24,7 @@ from typing import Any
 
 from medre.adapters.lxmf.attribution import project_lxmf_attribution
 from medre.adapters.matrix.attribution import project_matrix_attribution
+from medre.adapters.matrix.event_shape import matrix_versioned_namespace
 from medre.adapters.meshcore.attribution import (
     MESHCORE_NAMESPACED_KEYS,
     project_meshcore_attribution,
@@ -49,8 +50,8 @@ _ID_HEURISTICS: tuple[tuple[str, str], ...] = (
 )
 
 # Characteristic native-metadata keys per platform (ordered by priority).
-# Matrix is checked before Meshtastic because Matrix native data may be
-# enriched with Meshtastic-style bare keys.
+# Matrix is recognized only through the versioned ``native["matrix"]``
+# sub-namespace carrying ``sender``, ``event_id``, and ``room_id``.
 
 _MATRIX_KEYS: frozenset[str] = frozenset({"sender", "event_id", "room_id"})
 
@@ -113,10 +114,8 @@ def detect_source_platform(
     3. Native key shape inspection, in this order:
 
        a. Namespaced ``meshcore.*`` keys (unambiguous MeshCore-native).
-       b. Matrix-characteristic keys (``sender``, ``event_id``,
-          ``room_id``).  Checked before legacy Meshtastic bare keys
-          because Matrix native data may carry Meshtastic-enriched bare
-          keys.
+       b. Versioned Matrix namespace containing Matrix-characteristic keys
+          (``sender``, ``event_id``, ``room_id``).
        c. Namespaced ``meshtastic.*`` keys (unambiguous
           Meshtastic-native).
        d. Legacy bare Meshtastic keys (``longname``, ``shortname``,
@@ -155,9 +154,10 @@ def detect_source_platform(
     if any(k in native_data for k in MESHCORE_NAMESPACED_KEYS):
         return "meshcore"
 
-    # Matrix: checked before Meshtastic because Matrix native data may
-    # carry Meshtastic-enriched bare keys.
-    if any(k in native_data for k in _MATRIX_KEYS):
+    # Matrix metadata is recognized only through the versioned native
+    # namespace.  Root-level Matrix keys are not part of the canonical shape.
+    matrix_ns = matrix_versioned_namespace(native_data)
+    if any(k in matrix_ns for k in _MATRIX_KEYS):
         return "matrix"
 
     # Meshtastic namespaced keys: unambiguous primary signal.

@@ -664,7 +664,13 @@ def test_platform_hint_matrix_overrides_adapter_id() -> None:
     from medre.adapters._attribution_dispatch import project_source_fields
 
     fields = project_source_fields(
-        {"sender": "@user:matrix.org", "event_id": "$123:matrix.org"},
+        {
+            "matrix": {
+                "schema_version": 1,
+                "sender": "@user:matrix.org",
+                "event_id": "$123:matrix.org",
+            }
+        },
         source_adapter="base",
         platform_hint="matrix",
     )
@@ -758,7 +764,13 @@ def test_platform_hint_projects_sender_fields() -> None:
     from medre.adapters._attribution_dispatch import project_source_fields
 
     fields = project_source_fields(
-        {"sender": "@alice:matrix.org", "displayname": "Alice"},
+        {
+            "matrix": {
+                "schema_version": 1,
+                "sender": "@alice:matrix.org",
+                "sender_display_name": "Alice",
+            }
+        },
         source_adapter="base",
         platform_hint="matrix",
     )
@@ -872,14 +884,20 @@ def test_legacy_bare_keys_still_detect_meshtastic() -> None:
 def test_platform_hint_overrides_detection() -> None:
     """platform_hint overrides native key shape pointing at another platform.
 
-    Native data carries Matrix keys, but platform_hint='meshtastic' wins
+    Native data carries the Matrix namespace, but platform_hint='meshtastic' wins
     and the dispatch reports Meshtastic.
     """
     from medre.adapters._attribution_dispatch import detect_source_platform
 
     platform = detect_source_platform(
         "generic",
-        {"sender": "@alice:matrix.org", "event_id": "$1:matrix.org"},
+        {
+            "matrix": {
+                "schema_version": 1,
+                "sender": "@alice:matrix.org",
+                "event_id": "$1:matrix.org",
+            }
+        },
         platform_hint="meshtastic",
     )
     assert platform == "meshtastic"
@@ -901,20 +919,83 @@ def test_namespaced_meshtastic_not_confused_with_matrix() -> None:
     assert platform != "matrix"
 
 
-def test_matrix_keys_win_over_legacy_meshtastic_keys() -> None:
-    """When native data has both Matrix-characteristic keys and bare
-    legacy Meshtastic keys, Matrix wins (Matrix is checked before
-    legacy Meshtastic to avoid misdetecting Matrix events that carry
-    Meshtastic-enriched bare keys)."""
+def test_matrix_namespace_wins_over_legacy_meshtastic_keys() -> None:
+    """The explicit Matrix namespace wins over bare Meshtastic keys."""
     from medre.adapters._attribution_dispatch import detect_source_platform
 
     platform = detect_source_platform(
         "generic",
         {
-            "sender": "@alice:example.com",
-            "event_id": "$evt:example.com",
+            "matrix": {
+                "schema_version": 1,
+                "sender": "@alice:example.com",
+                "event_id": "$evt:example.com",
+            },
             "longname": "Alpha",
             "from_id": "!node",
         },
     )
     assert platform == "matrix"
+
+
+def test_flat_matrix_keys_do_not_define_platform_shape() -> None:
+    """Root-level Matrix keys are not a supported native metadata shape."""
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "generic",
+        {"sender": "@alice:example.com", "event_id": "$evt:example.com"},
+    )
+    assert platform is None
+
+
+def test_matrix_namespaced_detection_accepts_frozen_mapping() -> None:
+    """Namespaced Matrix detection reads deep-frozen (MappingProxy) native.
+
+    Adapter-id heuristic would already match ``"bridge-1"`` because it
+    contains ``"matrix"``, but this test exercises the namespaced
+    path with a non-matching adapter id so the frozen-mapping check
+    is what makes detection work.
+    """
+    from types import MappingProxyType
+
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    platform = detect_source_platform(
+        "bridge-1",
+        {
+            "matrix": MappingProxyType(
+                {
+                    "schema_version": 1,
+                    "sender": "@a:b",
+                    "event_id": "$1",
+                    "room_id": "!r",
+                }
+            )
+        },
+    )
+    assert platform == "matrix"
+
+
+def test_future_matrix_schema_is_detected_without_projecting_unknown_fields() -> None:
+    """Future versioned Matrix metadata identifies the platform only."""
+    from medre.adapters._attribution_dispatch import (
+        detect_source_platform,
+        project_source_fields,
+    )
+    from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
+
+    native = {
+        "matrix": {
+            "schema_version": MATRIX_NATIVE_SCHEMA_VERSION + 1,
+            "sender": "@future:example.com",
+            "event_id": "$future:example.com",
+            "room_id": "!future:example.com",
+        }
+    }
+
+    assert detect_source_platform("generic", native) == "matrix"
+    fields = project_source_fields(native, source_adapter="generic")
+    assert fields["source_platform"] == "matrix"
+    assert fields["source_sender_id"] is None
+    assert fields["source_sender_label"] is None

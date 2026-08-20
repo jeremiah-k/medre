@@ -72,9 +72,8 @@ class NativeRef(msgspec.Struct, frozen=True):
         Message ID in the adapter's native format.
     native_thread_id:
         Thread / parent message ID in the adapter's native format, if
-        the adapter supports threaded conversations.  **Reserved** — no
-        adapter currently populates this field; it is always ``None`` at
-        runtime.
+        applicable.  Matrix ingress uses this field for the native thread-root
+        event ID; adapters without native thread identity leave it ``None``.
     """
 
     adapter: str
@@ -146,9 +145,8 @@ class NativeMessageRef(msgspec.Struct, frozen=True):
     native_message_id:
         Message ID in the adapter's native format.
     native_thread_id:
-        Thread ID in the adapter's native format, if applicable.
-        **Reserved** — no adapter currently populates this field; it
-        is always ``None`` at runtime.
+        Thread ID in the adapter's native format, if applicable.  Matrix
+        inbound mappings persist the native thread-root event ID here.
     native_relation_id:
         ID of the related native entity (e.g. the message being replied
         to) in the adapter's native format.  **Reserved** — no adapter

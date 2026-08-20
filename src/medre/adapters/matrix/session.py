@@ -10,9 +10,9 @@ via nio's built-in encryption.  When ``device_id`` is not explicitly
 configured the session discovers it via ``whoami()`` after setting the
 access token.  ``store_path`` is derived by the runtime builder under
 the resolved state directory (``{state}/adapters/{adapter_id}/matrix/store``).
-Operators do not need to set either field.  Decrypted inbound text
-events pass through the normal message callback; undecryptable encrypted
-events are counted and logged but not forwarded.
+Operators do not need to set either field.  Successfully decrypted inbound
+messages, media, reactions, and redactions pass through normal ingress;
+undecryptable encrypted events are counted and logged but not forwarded.
 """
 
 from __future__ import annotations
@@ -69,54 +69,62 @@ _ROOM_KEY_REQUEST_BASE_DELAY_SECONDS: float = 2.0
 _ROOM_KEY_REQUEST_TIMEOUT_SECONDS: float = 10.0
 
 
-def _reaction_event_classes(nio_module: Any) -> tuple[type, ...]:
-    """Discover ReactionEvent class(es) across nio versions.
+def _event_classes_by_name(nio_module: Any, *names: str) -> tuple[Any, ...]:
+    """Discover event classes across supported mindroom-nio export locations."""
+    candidates: list[Any] = []
+    locations: list[Any] = [nio_module]
+    events_mod = getattr(nio_module, "events", None)
+    if events_mod is not None:
+        locations.append(events_mod)
+        room_events_mod = getattr(events_mod, "room_events", None)
+        if room_events_mod is not None:
+            locations.append(room_events_mod)
 
-    Different nio versions expose ``ReactionEvent`` at different module
-    locations (top-level, ``nio.events``, or ``nio.events.room_events``).
-    This helper probes each location and returns a de-duplicated tuple
-    of discovered classes.
-
-    Returns an empty tuple when no ``ReactionEvent`` class is found
-    anywhere.
-    """
-    candidates: list[type] = []
-    # 1. Top-level nio.ReactionEvent
-    cls = getattr(nio_module, "ReactionEvent", None)
-    if cls is not None:
-        candidates.append(cls)
-    # 2. nio.events.ReactionEvent
-    try:
-        events_mod = getattr(nio_module, "events", None)
-        if events_mod is not None:
-            cls = getattr(events_mod, "ReactionEvent", None)
+    for location in locations:
+        for name in names:
+            cls = getattr(location, name, None)
             if cls is not None:
                 candidates.append(cls)
-    except (ImportError, AttributeError):
-        pass
-    # 3. nio.events.room_events.ReactionEvent
-    try:
-        events_mod = getattr(nio_module, "events", None)
-        if events_mod is not None:
-            room_events_mod = getattr(events_mod, "room_events", None)
-            if room_events_mod is not None:
-                cls = getattr(room_events_mod, "ReactionEvent", None)
-                if cls is not None:
-                    candidates.append(cls)
-    except (ImportError, AttributeError):
-        pass
-    # 4. importlib fallback — probe submodules that may not be
-    #    populated via top-level getattr traversal.
+
     for import_path in ("nio.events", "nio.events.room_events"):
         try:
-            mod = importlib.import_module(import_path)
-        except Exception:
-            continue
-        cls = getattr(mod, "ReactionEvent", None)
-        if cls is not None:
-            candidates.append(cls)
-    # De-duplicate while preserving order
+            module = importlib.import_module(import_path)
+        except ModuleNotFoundError as exc:
+            if exc.name and (
+                exc.name == import_path or import_path.startswith(f"{exc.name}.")
+            ):
+                continue
+            raise
+        for name in names:
+            cls = getattr(module, name, None)
+            if cls is not None:
+                candidates.append(cls)
     return tuple(dict.fromkeys(candidates))
+
+
+def _reaction_event_classes(nio_module: Any) -> tuple[Any, ...]:
+    """Discover ``ReactionEvent`` across supported nio export locations."""
+    return _event_classes_by_name(nio_module, "ReactionEvent")
+
+
+def _redaction_event_classes(nio_module: Any) -> tuple[Any, ...]:
+    """Discover ``RedactionEvent`` across supported nio export locations."""
+    return _event_classes_by_name(nio_module, "RedactionEvent")
+
+
+def _media_message_classes(nio_module: Any) -> tuple[Any, ...]:
+    """Discover supported Matrix room-message media event classes."""
+    return _event_classes_by_name(
+        nio_module,
+        "RoomMessageImage",
+        "RoomMessageAudio",
+        "RoomMessageVideo",
+        "RoomMessageFile",
+        "RoomEncryptedImage",
+        "RoomEncryptedAudio",
+        "RoomEncryptedVideo",
+        "RoomEncryptedFile",
+    )
 
 
 @dataclass(frozen=True)
@@ -858,17 +866,35 @@ class MatrixSession:
         * ``msgtype`` — from content or ``event.msgtype``
         * ``server_timestamp`` — from ``event.server_timestamp`` or ``origin_server_ts``
         * ``sender_display_name`` — pre-resolved display name for the sender
+        * ``event_type`` and ``transaction_id`` — native event identity details
+        * ``room_encrypted``, ``event_encrypted``, ``decrypted``, ``verified`` —
+          safe encryption/decryption provenance (never key/session material)
 
         Per §31 §7.1 the session-to-adapter boundary only carries plain
         dicts, never raw SDK objects.
         """
         source = getattr(event, "source", None)
-        content = source.get("content", {}) if isinstance(source, dict) else {}
+        source_dict = source if isinstance(source, dict) else {}
+        content = source_dict.get("content", {})
+        if not isinstance(content, dict):
+            content = {}
         msgtype = content.get("msgtype") or getattr(event, "msgtype", None)
-        server_timestamp = getattr(event, "server_timestamp", None) or getattr(
-            event, "origin_server_ts", None
-        )
+        server_timestamp = getattr(event, "server_timestamp", None)
+        if server_timestamp is None:
+            server_timestamp = getattr(event, "origin_server_ts", None)
         sender = getattr(event, "sender", "")
+        decrypted = bool(getattr(event, "decrypted", False))
+        verified_value = getattr(event, "verified", None) if decrypted else None
+        verified = verified_value if isinstance(verified_value, bool) else None
+        room_encrypted_value = getattr(room, "encrypted", None)
+        room_encrypted = (
+            room_encrypted_value if isinstance(room_encrypted_value, bool) else None
+        )
+        unsigned = source_dict.get("unsigned")
+        unsigned_dict = unsigned if isinstance(unsigned, dict) else {}
+        transaction_id = getattr(event, "transaction_id", None) or unsigned_dict.get(
+            "transaction_id"
+        )
 
         # Pre-resolve display name from the room object so the adapter
         # never needs to hold a reference to the raw nio Room.
@@ -879,10 +905,16 @@ class MatrixSession:
             "sender": sender,
             "body": getattr(event, "body", ""),
             "event_id": getattr(event, "event_id", ""),
-            "source": source if isinstance(source, dict) else {},
+            "event_type": source_dict.get("type", "m.room.message"),
+            "source": source_dict,
             "msgtype": msgtype if isinstance(msgtype, str) else None,
             "server_timestamp": server_timestamp,
             "sender_display_name": sender_display_name,
+            "transaction_id": transaction_id,
+            "room_encrypted": room_encrypted,
+            "event_encrypted": decrypted,
+            "decrypted": decrypted,
+            "verified": verified,
         }
 
     @staticmethod
@@ -937,7 +969,7 @@ class MatrixSession:
     async def _on_nio_event(self, room: Any, event: Any) -> None:
         """nio callback wrapper that normalizes raw events to plain dicts.
 
-        Receives raw nio ``RoomMessage*`` / ``ReactionEvent`` objects,
+        Receives supported nio room-message, reaction, and redaction events,
         converts them to plain dicts via :meth:`_normalize_event`, and
         forwards the dict to the adapter-provided ``_message_callback``.
         The adapter never sees raw nio objects.
@@ -1134,13 +1166,22 @@ class MatrixSession:
 
         import nio
 
-        message_classes: tuple[type, ...] = (
-            nio.RoomMessageText,
-            nio.RoomMessageNotice,
-            nio.RoomMessageEmote,
+        message_classes: tuple[Any, ...] = tuple(
+            dict.fromkeys(
+                (
+                    nio.RoomMessageText,
+                    nio.RoomMessageNotice,
+                    nio.RoomMessageEmote,
+                    *_media_message_classes(nio),
+                )
+            )
         )
-        reaction_classes = _reaction_event_classes(nio)
-        admission_classes = message_classes + reaction_classes
+        relation_event_classes = tuple(
+            dict.fromkeys(
+                (*_reaction_event_classes(nio), *_redaction_event_classes(nio))
+            )
+        )
+        admission_classes = message_classes + relation_event_classes
 
         if self._durable_sync_enabled and self._admission_callback is not None:
             self._client.add_event_admission_callback(
@@ -1148,8 +1189,10 @@ class MatrixSession:
             )
         elif self._message_callback is not None:
             self._client.add_event_callback(self._on_nio_event, message_classes)
-            if reaction_classes:
-                self._client.add_event_callback(self._on_nio_event, reaction_classes)
+            if relation_event_classes:
+                self._client.add_event_callback(
+                    self._on_nio_event, relation_event_classes
+                )
 
         sync_response_cls = getattr(nio, "SyncResponse", None)
         if sync_response_cls is not None:

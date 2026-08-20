@@ -12,6 +12,14 @@ from medre.adapters.matrix.attribution import (
     project_matrix_attribution,
     project_matrix_sender,
 )
+from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
+
+
+def _matrix_native(**matrix: object) -> dict[str, object]:
+    """Build the supported versioned Matrix native-metadata shape."""
+    matrix = {"schema_version": MATRIX_NATIVE_SCHEMA_VERSION, **matrix}
+    return {"matrix": matrix}
+
 
 # ===================================================================
 # extract_mxid_localpart
@@ -216,115 +224,125 @@ class TestExtractMxidLocalpartMalformed:
 class TestProjectMatrixAttribution:
     """Dispatch-oriented projection from native metadata dict."""
 
-    # -- displayname present --
+    # -- sender display name present --
 
-    def test_displayname_present(self) -> None:
+    def test_sender_display_name_present(self) -> None:
         result = project_matrix_attribution(
-            {"sender": "@alice:example.com", "displayname": "Alice Liddell"}
+            _matrix_native(
+                sender="@alice:example.com",
+                sender_display_name="Alice Liddell",
+            )
         )
         assert result["source_sender_id"] == "@alice:example.com"
         assert result["source_sender_handle"] == "@alice:example.com"
         assert result["source_sender_label"] == "Alice Liddell"
         assert result["source_sender_short_label"] == "alice"
 
-    def test_display_name_underscore_key(self) -> None:
+    def test_unversioned_display_name_alias_is_ignored(self) -> None:
         result = project_matrix_attribution(
-            {"sender": "@alice:example.com", "display_name": "Alice U"}
+            _matrix_native(
+                sender="@alice:example.com",
+                display_name="Alice U",
+            )
         )
-        assert result["source_sender_label"] == "Alice U"
+        assert result["source_sender_label"] is None
 
-    def test_displayname_takes_precedence_over_display_name(self) -> None:
+    def test_sender_display_name_is_authoritative(self) -> None:
         result = project_matrix_attribution(
-            {
-                "sender": "@alice:example.com",
-                "displayname": "Primary",
-                "display_name": "Secondary",
-            }
+            _matrix_native(
+                sender="@alice:example.com",
+                sender_display_name="Primary",
+                displayname="Ignored",
+                display_name="Ignored too",
+            )
         )
         assert result["source_sender_label"] == "Primary"
 
-    # -- displayname missing (key absent) --
+    # -- sender display name missing (key absent) --
 
-    def test_displayname_key_absent(self) -> None:
-        """When displayname/display_name keys are absent, label is None.
+    def test_sender_display_name_key_absent(self) -> None:
+        """When sender_display_name is absent, label is None.
         No localpart fallback in the dispatch-oriented projection."""
-        result = project_matrix_attribution({"sender": "@bob:matrix.org"})
+        result = project_matrix_attribution(_matrix_native(sender="@bob:matrix.org"))
         assert result["source_sender_id"] == "@bob:matrix.org"
         assert result["source_sender_handle"] == "@bob:matrix.org"
         assert result["source_sender_label"] is None
         assert result["source_sender_short_label"] == "bob"
 
-    # -- displayname empty string --
+    # -- sender display name empty string --
 
-    def test_displayname_empty_string(self) -> None:
-        """An explicit empty string displayname stays absent (None),
+    def test_sender_display_name_empty_string(self) -> None:
+        """An explicit empty sender display name stays absent (None),
         never the literal string 'None' or ''."""
         result = project_matrix_attribution(
-            {"sender": "@carol:server.org", "displayname": ""}
+            _matrix_native(sender="@carol:server.org", sender_display_name="")
         )
         assert result["source_sender_label"] is None
         assert result["source_sender_short_label"] == "carol"
 
-    def test_display_name_empty_string_falls_to_display_name(self) -> None:
-        """Empty displayname is falsy, so display_name is checked."""
+    def test_empty_sender_display_name_does_not_use_alias(self) -> None:
         result = project_matrix_attribution(
-            {
-                "sender": "@carol:server.org",
-                "displayname": "",
-                "display_name": "Carol Real",
-            }
-        )
-        assert result["source_sender_label"] == "Carol Real"
-
-    def test_both_displayname_keys_empty(self) -> None:
-        result = project_matrix_attribution(
-            {
-                "sender": "@carol:server.org",
-                "displayname": "",
-                "display_name": "",
-            }
+            _matrix_native(
+                sender="@carol:server.org",
+                sender_display_name="",
+                display_name="Ignored",
+            )
         )
         assert result["source_sender_label"] is None
 
-    # -- displayname is Python None --
-
-    def test_displayname_explicit_none(self) -> None:
-        """Python None displayname must never render as the literal 'None'."""
+    def test_sender_display_name_and_aliases_empty(self) -> None:
         result = project_matrix_attribution(
-            {"sender": "@dave:matrix.org", "displayname": None}
+            _matrix_native(
+                sender="@carol:server.org",
+                sender_display_name="",
+                displayname="",
+                display_name="",
+            )
+        )
+        assert result["source_sender_label"] is None
+
+    # -- sender display name is Python None --
+
+    def test_sender_display_name_explicit_none(self) -> None:
+        """Python None must never render as the literal 'None'."""
+        result = project_matrix_attribution(
+            _matrix_native(sender="@dave:matrix.org", sender_display_name=None)
         )
         assert result["source_sender_label"] is None
         assert result["source_sender_short_label"] == "dave"
 
-    def test_displayname_none_falls_to_display_name(self) -> None:
-        """None displayname is falsy, so display_name is checked."""
+    def test_none_sender_display_name_does_not_use_alias(self) -> None:
         result = project_matrix_attribution(
-            {
-                "sender": "@dave:matrix.org",
-                "displayname": None,
-                "display_name": "Dave Set",
-            }
+            _matrix_native(
+                sender="@dave:matrix.org",
+                sender_display_name=None,
+                display_name="Ignored",
+            )
         )
-        assert result["source_sender_label"] == "Dave Set"
+        assert result["source_sender_label"] is None
 
     # -- sender missing / None --
 
     def test_sender_key_absent(self) -> None:
-        result = project_matrix_attribution({"displayname": "Ghost"})
+        result = project_matrix_attribution(_matrix_native(sender_display_name="Ghost"))
         assert result["source_sender_id"] is None
         assert result["source_sender_handle"] is None
         assert result["source_sender_label"] == "Ghost"
         assert result["source_sender_short_label"] is None
 
     def test_sender_none(self) -> None:
-        result = project_matrix_attribution({"sender": None, "displayname": "Ghost"})
+        result = project_matrix_attribution(
+            _matrix_native(sender=None, sender_display_name="Ghost")
+        )
         assert result["source_sender_id"] is None
         assert result["source_sender_handle"] is None
         assert result["source_sender_label"] == "Ghost"
         assert result["source_sender_short_label"] is None
 
     def test_sender_empty_string(self) -> None:
-        result = project_matrix_attribution({"sender": "", "displayname": "Ghost"})
+        result = project_matrix_attribution(
+            _matrix_native(sender="", sender_display_name="Ghost")
+        )
         assert result["source_sender_id"] is None
         assert result["source_sender_handle"] is None
         assert result["source_sender_label"] == "Ghost"
@@ -341,14 +359,14 @@ class TestProjectMatrixAttribution:
 
     def test_sender_at_colon_only(self) -> None:
         """``@:`` — empty localpart, short_label normalised to None."""
-        result = project_matrix_attribution({"sender": "@:"})
+        result = project_matrix_attribution(_matrix_native(sender="@:"))
         assert result["source_sender_id"] == "@:"
         assert result["source_sender_handle"] == "@:"
         assert result["source_sender_short_label"] is None
 
     def test_sender_no_leading_at(self) -> None:
         """``alice:example.com`` (no @) returned unchanged as localpart."""
-        result = project_matrix_attribution({"sender": "alice:example.com"})
+        result = project_matrix_attribution(_matrix_native(sender="alice:example.com"))
         assert result["source_sender_short_label"] == "alice:example.com"
 
     # -- mmrelay field coexistence --
@@ -359,8 +377,11 @@ class TestProjectMatrixAttribution:
         displayname are authoritative."""
         result = project_matrix_attribution(
             {
-                "sender": "@alice:example.com",
-                "displayname": "Alice Matrix",
+                "matrix": {
+                    "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
+                    "sender": "@alice:example.com",
+                    "sender_display_name": "Alice Matrix",
+                },
                 "longname": "Alice Meshtastic",
                 "shortname": "ALM",
                 "from_id": "!1234",
@@ -378,7 +399,10 @@ class TestProjectMatrixAttribution:
         short_label is the Matrix localpart (not the mmrelay shortname)."""
         result = project_matrix_attribution(
             {
-                "sender": "@bob:matrix.org",
+                "matrix": {
+                    "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
+                    "sender": "@bob:matrix.org",
+                },
                 "longname": "Bob Meshtastic",
                 "shortname": "BB",
             }
@@ -389,7 +413,7 @@ class TestProjectMatrixAttribution:
     # -- return shape --
 
     def test_return_keys(self) -> None:
-        result = project_matrix_attribution({"sender": "@alice:example.com"})
+        result = project_matrix_attribution(_matrix_native(sender="@alice:example.com"))
         assert set(result.keys()) == {
             "source_sender_id",
             "source_sender_handle",
@@ -447,7 +471,10 @@ class TestDispatchProjection:
         from medre.adapters._attribution_dispatch import project_source_fields
 
         fields = project_source_fields(
-            {"sender": "@alice:example.com", "displayname": "Alice"},
+            _matrix_native(
+                sender="@alice:example.com",
+                sender_display_name="Alice",
+            ),
             source_adapter="matrix-1",
         )
         assert fields["source_platform"] == "matrix"
@@ -463,45 +490,47 @@ class TestDispatchProjection:
 
 
 class TestAdapterEnrichmentFlow:
-    """Document how adapter-level ``displayname`` enrichment flows
+    """Document how adapter-level display-name enrichment flows
     through the projection."""
 
     def test_mxid_as_displayname_flows_to_sender_label(self) -> None:
         """When the adapter writes the sender MXID into the
-        ``displayname`` key (its MXID-as-displayname fallback for live
+        ``sender_display_name`` field (its MXID-as-display-name fallback for live
         rendering), the projection returns that MXID as
         ``source_sender_label``. This documents the data flow the
         transport-native-identity-enrichment audit describes: the
         projection applies no MXID fallback of its own, but it reads
-        whatever the adapter enriched into the ``displayname`` key, so
+        whatever the adapter enriched into ``sender_display_name``, so
         in live rendering ``source_sender_label`` carries the MXID when
         no member display name exists."""
         result = project_matrix_attribution(
-            {
-                "sender": "@alice:example.com",
-                "displayname": "@alice:example.com",
-            }
+            _matrix_native(
+                sender="@alice:example.com",
+                sender_display_name="@alice:example.com",
+            )
         )
         assert result["source_sender_label"] == "@alice:example.com"
         assert result["source_sender_id"] == "@alice:example.com"
         assert result["source_sender_handle"] == "@alice:example.com"
         assert result["source_sender_short_label"] == "alice"
 
-    def test_whitespace_only_displayname_becomes_label(self) -> None:
-        """A whitespace-only displayname (e.g. ``"   "``) is truthy in
+    def test_whitespace_only_sender_display_name_becomes_label(self) -> None:
+        """A whitespace-only sender display name (e.g. ``"   "``) is truthy in
         Python and non-empty after ``str()``, so it flows through as
         ``source_sender_label`` unchanged. The projection does not strip
         or reject whitespace-only display names.
 
         Whether whitespace-only should be treated as absent is a judgment
         call left to the project. The current behaviour preserves the
-        whitespace string: the ``displayname`` value is truthy under the
-        ``or`` fallback to ``display_name``, and ``_str`` returns it
-        unchanged because the result of ``str(value)`` is non-empty. If
+        whitespace string because ``_str`` returns it unchanged when the
+        result of ``str(value)`` is non-empty. If
         the project decides whitespace-only should be treated as absent,
         the fix belongs in ``_str`` or the projection, not here."""
         result = project_matrix_attribution(
-            {"sender": "@alice:example.com", "displayname": "   "}
+            _matrix_native(
+                sender="@alice:example.com",
+                sender_display_name="   ",
+            )
         )
         assert result["source_sender_label"] == "   "
         assert result["source_sender_id"] == "@alice:example.com"

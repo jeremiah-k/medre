@@ -232,7 +232,10 @@ def _make_canonical_reply(
     )
     native_data: dict[str, object] = {"room_id": room_id}
     if mmrelay_reply_id:
-        native_data[KEY_REPLY_ID] = mmrelay_reply_id
+        # Place MMRelay fields in the namespaced interop.mmrelay structure
+        # that the strict contract enforces. The renderer reads reply IDs
+        # from native.interop.mmrelay[KEY_REPLY_ID] first.
+        native_data["interop"] = {"mmrelay": {KEY_REPLY_ID: mmrelay_reply_id}}
     return CanonicalEvent(
         event_id="evt-reply-001",
         event_kind=EventKind.MESSAGE_CREATED,
@@ -314,7 +317,7 @@ class TestCodecMMRelayMetadata:
         native = _make_native_event(body="hello from mesh", content=content)
         event = codec.decode(native, room_id="!room:server")
 
-        data = event.metadata.native.data
+        data = event.metadata.native.data["interop"]["mmrelay"]
         assert data[KEY_ID] == "packet-42"
         assert data[KEY_MESHNET] == "mynetwork"
         assert data[KEY_PORTNUM] == PORTNUM_TEXT
@@ -338,7 +341,7 @@ class TestCodecMMRelayMetadata:
         native = _make_native_event(body="👍", content=content)
         event = codec.decode(native, room_id="!room:server")
 
-        data = event.metadata.native.data
+        data = event.metadata.native.data["interop"]["mmrelay"]
         assert data[KEY_ID] == "pkt-99"
         assert data[KEY_MESHNET] == "meshnet"
 
@@ -348,8 +351,16 @@ class TestCodecMMRelayMetadata:
         event = codec.decode(native, room_id="!room:server")
 
         data = event.metadata.native.data
-        assert KEY_ID not in data
-        assert KEY_MESHNET not in data
+        assert "interop" not in data
+        for key in (
+            KEY_ID,
+            KEY_MESHNET,
+            KEY_PORTNUM,
+            KEY_TEXT,
+            KEY_REPLY_ID,
+            KEY_EMOJI,
+        ):
+            assert key not in data
 
 
 class TestCodecMMRelayEmoteReaction:
@@ -372,8 +383,10 @@ class TestCodecMMRelayEmoteReaction:
         assert len(event.relations) == 1
         rel = event.relations[0]
         assert rel.relation_type == "reaction"
-        # key is the body text (the reaction content)
+        # key is the body text (the reaction content) and lives on the
+        # relation; payload carries no flat 'key' without KEY_REACTION_KEY.
         assert rel.key == "reacted"
+        assert "key" not in event.payload
         # No native ref — we don't fabricate Meshtastic adapter id
         assert rel.target_native_ref is None
         assert rel.target_event_id is None
@@ -383,9 +396,9 @@ class TestCodecMMRelayEmoteReaction:
         native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
         event = codec.decode(native, room_id="!room:server")
 
-        data = event.metadata.native.data
-        assert data["meshtastic_reply_id"] == "!abc123"
-        assert data["meshtastic_emoji"] == 1
+        data = event.metadata.native.data["interop"]["mmrelay"]
+        assert data[KEY_REPLY_ID] == "!abc123"
+        assert data[KEY_EMOJI] == 1
 
     def test_emote_reaction_relation_metadata(self) -> None:
         codec = MatrixCodec("matrix-1", _make_config())
@@ -422,7 +435,7 @@ class TestCodecMMRelayEmoteReaction:
         native = _make_mmrelay_emote_reaction(body="reacted", reply_id="!abc123")
         event = codec.decode(native, room_id="!room:server")
 
-        data = event.metadata.native.data
+        data = event.metadata.native.data["interop"]["mmrelay"]
         assert data[KEY_ID] == "packet-42"
         assert data[KEY_MESHNET] == "testnet"
         assert data[KEY_PORTNUM] == PORTNUM_TEXT
@@ -1042,7 +1055,11 @@ class TestOriginalTextExtraction:
             key="👍",
             native_data={
                 "longname": "Node",
-                "meshtastic_text": "from event meta",
+                "interop": {
+                    "mmrelay": {
+                        "meshtastic_text": "from event meta",
+                    },
+                },
             },
         )
         text = MatrixRenderer._extract_original_text(event.relations[0], event)

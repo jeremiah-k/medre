@@ -471,8 +471,11 @@ async def test_matrix_to_meshtastic_sender_short_and_origin_label() -> None:
     event = _make_event(
         source_adapter="matrix-1",
         native_data={
-            "sender": "@alice:matrix.org",
-            "displayname": "Alice",
+            "matrix": {
+                "schema_version": 1,
+                "sender": "@alice:matrix.org",
+                "sender_display_name": "Alice",
+            }
         },
     )
     result = await renderer.render(

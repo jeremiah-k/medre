@@ -6,8 +6,10 @@ This allows events to carry their routing lineage across the Matrix
 protocol without leaking secrets.
 
 This is a frozen dataclass (not msgspec) because it is an adapter-internal
-serialization helper that does not need msgspec roundtrip encoding.  It is
-not stored in the canonical event model.
+serialization helper that does not need msgspec roundtrip encoding.  Inbound
+normalization stores a safe field-for-field projection of this envelope under
+the Matrix native-metadata namespace; the helper object itself is not part of
+the canonical core model.
 """
 
 from __future__ import annotations

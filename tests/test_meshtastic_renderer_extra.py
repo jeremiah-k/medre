@@ -85,6 +85,17 @@ def _make_relation(
     )
 
 
+def _matrix_native_data(
+    *, sender: str | None = None, sender_display_name: str | None = None
+) -> dict[str, object]:
+    matrix: dict[str, object] = {"schema_version": 1}
+    if sender is not None:
+        matrix["sender"] = sender
+    if sender_display_name is not None:
+        matrix["sender_display_name"] = sender_display_name
+    return {"matrix": matrix}
+
+
 def _make_matrix_event(
     event_id: str = "mx-evt-1",
     payload: dict | None = None,
@@ -93,10 +104,10 @@ def _make_matrix_event(
     display_name: str = "Display Name",
 ) -> CanonicalEvent:
     """Create a CanonicalEvent simulating Matrix origin."""
-    native_data: dict[str, object] = {
-        "sender": "@user:example.com",
-        "displayname": display_name,
-    }
+    native_data = _matrix_native_data(
+        sender="@user:example.com",
+        sender_display_name=display_name,
+    )
     return CanonicalEvent(
         event_id=event_id,
         event_kind="message.reacted",
@@ -405,10 +416,10 @@ class TestMatrixDisplayNameInPrefix:
             payload={"body": "hello from alice"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={
-                        "sender": "@alice:example.com",
-                        "displayname": "Alice Wonderland",
-                    }
+                    data=_matrix_native_data(
+                        sender="@alice:example.com",
+                        sender_display_name="Alice Wonderland",
+                    )
                 )
             ),
         )
@@ -439,10 +450,10 @@ class TestMatrixDisplayNameInPrefix:
             payload={"body": "hi"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={
-                        "sender": "@alice:example.com",
-                        "displayname": "Display Name",
-                    }
+                    data=_matrix_native_data(
+                        sender="@alice:example.com",
+                        sender_display_name="Display Name",
+                    )
                 )
             ),
         )
@@ -494,7 +505,10 @@ class TestByteBudgetTruncation:
             payload={"body": "A" * 200},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={"sender": "@test:example.com", "displayname": "Test"}
+                    data=_matrix_native_data(
+                        sender="@test:example.com",
+                        sender_display_name="Test",
+                    )
                 )
             ),
         )
@@ -882,10 +896,10 @@ class TestMultiRadioTargetAware:
             payload={"body": body},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={
-                        "sender": "@TestU:example.com",
-                        "displayname": "TestUser",
-                    }
+                    data=_matrix_native_data(
+                        sender="@TestU:example.com",
+                        sender_display_name="TestUser",
+                    )
                 )
             ),
         )
@@ -993,10 +1007,10 @@ class TestMultiRadioTargetAware:
             payload={"body": "A" * 150},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={
-                        "sender": "@TestU:example.com",
-                        "displayname": "TestUser",
-                    }
+                    data=_matrix_native_data(
+                        sender="@TestU:example.com",
+                        sender_display_name="TestUser",
+                    )
                 )
             ),
         )
@@ -1044,10 +1058,10 @@ class TestMultiRadioTargetAware:
             payload={"body": "👍"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={
-                        "sender": "@TestU:example.com",
-                        "displayname": "TestUser",
-                    }
+                    data=_matrix_native_data(
+                        sender="@TestU:example.com",
+                        sender_display_name="TestUser",
+                    )
                 )
             ),
         )
@@ -1259,7 +1273,10 @@ async def test_partial_native_data_no_none() -> None:
         payload={"body": "hi"},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={"sender": "@alice:example.com", "displayname": "Alice"}
+                data=_matrix_native_data(
+                    sender="@alice:example.com",
+                    sender_display_name="Alice",
+                )
             )
         ),
     )
@@ -1287,7 +1304,9 @@ async def test_prefix_metadata_records_template_and_variables() -> None:
         relations=(),
         payload={"body": "hello"},
         metadata=EventMetadata(
-            native=NativeMetadata(data={"sender": "@TestUser:example.com"})
+            native=NativeMetadata(
+                data=_matrix_native_data(sender="@TestUser:example.com")
+            )
         ),
     )
     result = await renderer.render(

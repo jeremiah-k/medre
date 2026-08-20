@@ -21,6 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from medre.adapters.matrix.event_shape import matrix_namespace
+
 __all__ = [
     "MatrixSenderFields",
     "extract_mxid_localpart",
@@ -211,10 +213,8 @@ def project_matrix_attribution(
 
     Extracted fields:
 
-    * ``source_sender_id`` ← ``native_data["sender"]`` (full MXID).
-    * ``source_sender_label`` ← ``native_data["displayname"]`` or
-      ``native_data["display_name"]`` (display name only; no localpart
-      fallback).
+    * ``source_sender_id`` ← ``native_data["matrix"]["sender"]`` (full MXID).
+    * ``source_sender_label`` ← the Matrix ``sender_display_name``.
     * ``source_sender_short_label`` ← MXID localpart (when sender is
       available), else ``None``.
     * ``source_sender_handle`` ← full MXID (same as sender_id).
@@ -231,8 +231,9 @@ def project_matrix_attribution(
         Generic attribution fields keyed by ``RelayAttribution`` canonical
         names.  Fields are ``None`` when no value could be resolved.
     """
-    sender_str = _str(native_data.get("sender"))
-    display_name = native_data.get("displayname") or native_data.get("display_name")
+    matrix = matrix_namespace(native_data)
+    sender_str = _str(matrix.get("sender"))
+    display_name = matrix.get("sender_display_name")
     display_str = _str(display_name)
     short_label: str | None = None
     if sender_str:

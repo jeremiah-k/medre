@@ -236,9 +236,12 @@ class TestEvidenceBundleWithMatrixAdapter:
                 metadata=EventMetadata(
                     native=NativeMetadata(
                         data={
-                            "room_id": "!room:example.com",
-                            "event_id": "$mx001:example.com",
-                            "sender": "@alice:example.com",
+                            "matrix": {
+                                "schema_version": 1,
+                                "room_id": "!room:example.com",
+                                "event_id": "$mx001:example.com",
+                                "sender": "@alice:example.com",
+                            }
                         }
                     )
                 ),

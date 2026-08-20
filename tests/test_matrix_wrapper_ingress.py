@@ -21,6 +21,7 @@ from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import make_adapter_context, make_pipeline_config
 from tests.helpers.matrix import (  # noqa: F401
     make_matrix_config,
@@ -82,6 +83,7 @@ class TestMatrixWrapperCallbackPath:
             )
             await matrix_adapter._on_room_message(to_event_dict(room, event))
 
+            assert await wait_until(lambda: len(fake_target.delivered_payloads) >= 1)
             # Fake target received rendered payload
             assert len(fake_target.delivered_payloads) == 1
             rendered = fake_target.delivered_payloads[0]
@@ -147,11 +149,17 @@ class TestMatrixWrapperCallbackPath:
                 event_id="$stale-evt-001",
                 body="historical message",
             )
-            event.source["origin_server_ts"] = int(
+            historical_ms = int(
                 datetime(2000, 1, 1, tzinfo=timezone.utc).timestamp() * 1000
             )
+            event.source["origin_server_ts"] = historical_ms
+            event_dict = to_event_dict(room, event)
+            # The normalized dict's server_timestamp is authoritative for the
+            # codec; stamp the historical time there so the event is genuinely
+            # pre-start rather than relying on same-millisecond rounding.
+            event_dict["server_timestamp"] = historical_ms
 
-            await matrix_adapter._on_room_message(to_event_dict(room, event))
+            await matrix_adapter._on_room_message(event_dict)
 
             assert fake_target.delivered_payloads == []
             assert await temp_storage.count_events() == 0
@@ -200,6 +208,17 @@ class TestMatrixWrapperCallbackPath:
             )
             await matrix_adapter._on_room_message(to_event_dict(room, event))
 
+            async def native_ref_persisted() -> bool:
+                return (
+                    await temp_storage.resolve_native_ref(
+                        adapter="matrix-nref-cb",
+                        native_channel_id="!nref_room:example.com",
+                        native_message_id="$nref-cb-evt-001",
+                    )
+                    is not None
+                )
+
+            assert await wait_until(native_ref_persisted)
             # Inbound native ref persisted
             resolved = await temp_storage.resolve_native_ref(
                 adapter="matrix-nref-cb",
@@ -267,6 +286,7 @@ class TestMatrixWrapperCallbackPath:
             )
             await matrix_adapter._on_room_message(to_event_dict(room, event))
 
+            assert await wait_until(lambda: len(fake_mesh.delivered_payloads) >= 1)
             # Fake meshtastic adapter received delivery
             assert len(fake_mesh.delivered_payloads) == 1
             rendered = fake_mesh.delivered_payloads[0]
