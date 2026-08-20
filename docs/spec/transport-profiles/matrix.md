@@ -367,6 +367,44 @@ Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 
 ---
 
+## Canonical Inbound Event Shape
+
+Matrix ingress normalizes SDK events into the transport-neutral canonical model
+before durable admission. Matrix-specific richness is retained under the
+versioned `metadata.native.data["matrix"]` namespace rather than adding Matrix
+fields to `CanonicalEvent`.
+
+| Matrix fact                  | Canonical representation                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| Sender MXID                  | `source_transport_id`; repeated in `native.matrix.sender`                      |
+| Room ID                      | `source_channel_id`; repeated in `native.matrix.room_id`                       |
+| Matrix event ID              | `source_native_ref.native_message_id`; repeated in `native.matrix.event_id`    |
+| Origin timestamp             | `timestamp`; original milliseconds in `native.matrix.origin_server_ts_ms`      |
+| Reply                        | Generic `EventRelation(relation_type="reply")`                                 |
+| Edit (`m.replace`)           | `message.edited` plus generic `edit` relation                                  |
+| Reaction (`m.annotation`)    | `message.reacted` plus generic `reaction` relation                             |
+| Thread (`m.thread`)          | Generic `thread` relation; thread root in `source_native_ref.native_thread_id` |
+| Redaction                    | `message.deleted` plus generic `delete` relation                               |
+| Image/audio/video/file       | `message.file`; descriptor in `native.matrix.media`                            |
+| MEDRE relay envelope         | `native.matrix.relay.medre_envelope`                                           |
+| MMRelay compatibility fields | `native.interop.mmrelay`                                                       |
+| E2EE provenance              | Safe booleans in `native.matrix.encryption`                                    |
+
+The normative projection is defined by
+[matrix-event-shape.md](../matrix-event-shape.md). The native namespace has
+`schema_version = 1` and a standalone machine-readable JSON Schema.
+Raw Matrix content is not persisted in this namespace. Crypto sender keys,
+Megolm session IDs, encrypted-media keys, IVs, and hashes are deliberately
+excluded. The generic `metadata.transport.transport_encrypted` field records
+whether the normalized event arrived through Matrix encryption; Matrix-specific
+verification detail remains native.
+
+Edits, redactions, threads, and attachments are **inbound normalization
+semantics**, not outbound capability claims. The outbound capability profile
+below remains authoritative for what MEDRE can currently render back to Matrix.
+
+---
+
 ## Relation Degradation Behavior
 
 Matrix is a presentation adapter with rich native relation support. The Matrix renderer handles all rendering within its native format.
@@ -398,8 +436,9 @@ threads to inline fallback text.
 
 ## Known Limitations
 
-- **No edits or deletes.** The capabilities declare `edits="unsupported"` and
-  `deletes="unsupported"`.
+- **No outbound edit or delete rendering.** Inbound `m.replace` and redaction
+  events are normalized canonically, but target capabilities remain
+  `edits="unsupported"` and `deletes="unsupported"`.
 - **Duplicate-send risk.** The deterministic `tx_id` reduces duplicates within the
   homeserver's dedup window, but duplicates are still possible across restarts, replay,
   or changed delivery identity.
@@ -409,7 +448,9 @@ threads to inline fallback text.
   E2EE sends.
 - **No room-key backup workflow.** MEDRE does not manage Matrix room-key
   backup/import/export or interactive verification ceremonies.
-- **No attachment support.** `attachments=False` in capabilities.
+- **No outbound attachment rendering.** Inbound image/audio/video/file events
+  are normalized as `message.file` with safe native media descriptors, while
+  `attachments=False` remains the outbound capability.
 - **Room-state tracking cap.** Maximum 10 000 rooms tracked in session `_room_states`; oldest evicted on overflow.
 - **Self-message suppression** only matches `config.user_id`; bot-to-bot echoes from other Matrix users are not suppressed.
 
@@ -428,9 +469,9 @@ threads to inline fallback text.
   entries (canonical `!localpart:server` form).
 - Sidecar credential fallback from `~/.config/medre/credentials/matrix.json` when config
   fields are empty.
-- Adapter unit tests cover codec decode for all three event categories, renderer output,
-  session lifecycle, delivery retry, E2EE mode guards, cross-signing policy/recovery,
-  and auth bootstrap behavior.
+- Adapter unit tests cover messages, replies, reactions, edits, threads,
+  redactions, media descriptors, renderer output, session lifecycle, delivery retry,
+  E2EE mode guards, cross-signing policy/recovery, and auth bootstrap behavior.
 - An SDK-contract test checks the `mindroom-nio 0.40.0` cross-signing surface when the
   E2EE dependency is installed.
 

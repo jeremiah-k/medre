@@ -62,7 +62,9 @@ guard enforcing field-value parity across all four transport profiles.
 
 - **implemented**: Declared and exercised in adapter code; runtime evidence confirms it.
 - **partially implemented**: Declared and partially exercised; some paths exist but coverage is incomplete or semantics differ from what the flag name implies.
-- **unsupported**: Declared as `False` / `"unsupported"` / `None` and no runtime path exercises it. Honest omission.
+- **unsupported**: Declared as `False` / `"unsupported"` / `None` and no outbound
+  runtime path exercises it. Inbound normalization may still exist; the Evidence
+  column records that separately. Honest omission.
 
 ### 4.1 Matrix (Presentation Adapter)
 
@@ -72,9 +74,9 @@ guard enforcing field-value parity across all four transport profiles.
 | `title`               | `false`         | `False`         | `False`         | unsupported | Matrix has no native title field.                                                                                                                              |
 | `replies`             | `"native"`      | `"native"`      | `"native"`      | implemented | `m.in_reply_to` via `MatrixRelationHandler`. Codec decodes inbound replies; renderer produces outbound reply payloads.                                         |
 | `reactions`           | `"native"`      | `"native"`      | `"native"`      | implemented | `m.reaction` annotation via `_matrix_event_type`. `M_DUPLICATE_ANNOTATION` handled as permanent (adapter-reality-audit R1).                                    |
-| `edits`               | `"unsupported"` | `"unsupported"` | `"unsupported"` | unsupported | No edit/redaction path in adapter.                                                                                                                             |
-| `deletes`             | `"unsupported"` | `"unsupported"` | `"unsupported"` | unsupported | No redaction path in adapter.                                                                                                                                  |
-| `attachments`         | `false`         | `False`         | `False`         | unsupported | No file upload code.                                                                                                                                           |
+| `edits`               | `"unsupported"` | `"unsupported"` | `"unsupported"` | unsupported | No outbound edit rendering; inbound `m.replace` normalizes to `message.edited`.                                                                                |
+| `deletes`             | `"unsupported"` | `"unsupported"` | `"unsupported"` | unsupported | No outbound redaction rendering; inbound redactions normalize to `message.deleted`.                                                                            |
+| `attachments`         | `false`         | `False`         | `False`         | unsupported | No outbound file upload/rendering; inbound media normalizes to `message.file`.                                                                                 |
 | `metadata_fields`     | `false`         | `False`         | `False`         | unsupported | No structured metadata field transmission.                                                                                                                     |
 | `delivery_receipts`   | `true`          | `True`          | `True`          | implemented | `room_send` returns `event_id` on success; adapter populates `AdapterDeliveryResult.native_message_id`. This is a server-acknowledged delivery fact. See §5.1. |
 | `store_and_forward`   | `false`         | `False`         | `False`         | unsupported | Matrix has no native store-and-forward exposed to MEDRE.                                                                                                       |
@@ -262,8 +264,9 @@ No actionable underclaims identified. All capabilities that the adapters
 genuinely support at runtime are declared. The following are correctly set to
 `False` / `"unsupported"`:
 
-- Matrix `edits`, `deletes`: Matrix spec supports these but MEDRE has no
-  implementation. Correct to not declare until implemented.
+- Matrix `edits`, `deletes`: inbound normalization exists, but outbound
+  rendering remains unimplemented. Correct to keep these target capabilities
+  `"unsupported"`.
 - Matrix `presence`: Matrix spec supports presence but MEDRE has no
   implementation. Correct.
 - Meshtastic `store_and_forward`: Meshtastic firmware has store-and-forward

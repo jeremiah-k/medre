@@ -19,7 +19,7 @@ class EventMetadata:
     routing: RoutingMetadata | None         # Routing decisions applied
     radio: RadioMetadata | None             # Radio-specific data
     telemetry: TelemetryMetadata | None     # Device telemetry at event time
-    native: NativeMetadata | None           # Transport-native fields not yet normalized
+    native: NativeMetadata | None           # Adapter-owned native metadata
     custom: dict                            # Plugin/extension metadata
 ```
 
@@ -31,12 +31,22 @@ class EventMetadata:
 | `metadata.routing`   | Routing context            | `matched_routes` (tuple), `fanout_group`, `route_trace` (tuple)                                                                               |
 | `metadata.radio`     | Radio-specific data        | `frequency`, `snr`, `rssi`, `channel_index`                                                                                                   |
 | `metadata.telemetry` | Device state at event time | `metrics` dict (frozen)                                                                                                                       |
-| `metadata.native`    | Unnormalized native fields | `data` dict (frozen)                                                                                                                          |
+| `metadata.native`    | Adapter-owned native data  | `data` dict (frozen)                                                                                                                          |
 | `metadata.custom`    | Plugin/extension data      | Key-value pairs from plugins, using reverse-DNS namespacing                                                                                   |
 
-The `metadata.native` namespace is a temporary holding area for fields that
-haven't been categorized yet. The enrichment stage normalizes `metadata.native`
-fields into their proper namespaces when possible.
+The `metadata.native` namespace is adapter-owned. Adapters SHOULD promote facts
+that have transport-neutral meaning into the standard namespaces, but MAY keep
+stable protocol-specific contracts under a versioned native sub-namespace when
+those details would otherwise pollute the core model. Native metadata MUST NOT
+contain raw protocol payloads, private key material, or credential material.
+
+Matrix uses this seam deliberately: `metadata.native.data["matrix"]` is a
+versioned event-shape contract for Matrix identity, relation wire context, media
+descriptors, relay attribution, and safe crypto provenance. MMRelay compatibility
+fields, when present, live separately under
+`metadata.native.data["interop"]["mmrelay"]`. The normative mapping is defined in
+[matrix-event-shape.md](matrix-event-shape.md); the machine-readable contract is
+[`matrix-native-metadata.schema.json`](../schemas/matrix-native-metadata.schema.json).
 
 ## 3. Migration from Flat Metadata
 
