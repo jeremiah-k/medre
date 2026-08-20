@@ -497,30 +497,17 @@ def test_dest_to_source_per_entry_dest_label_applies() -> None:
 
 
 # ===========================================================================
-# 8. ChannelRoomMapEntry equality: labeled vs unlabeled vs bare-string
-#
-# Per the audit §8.1, an entry with no labels compares equal to its
-# bare room string (backward compatibility).  An entry with any label
-# does NOT compare equal to a bare string.  These invariants are what
-# lets existing code that compares a normalised map against a flat
-# ``dict[str, str]`` continue to work when no labels are set.
+# 8. ChannelRoomMapEntry equality
 # ===========================================================================
 
 
-def test_unlabeled_entry_equals_bare_room_string() -> None:
-    entry = ChannelRoomMapEntry(room="!r:example.com")
-    assert entry == "!r:example.com"
-    assert hash(entry) == hash("!r:example.com")
-
-
-def test_source_labeled_entry_does_not_equal_bare_room_string() -> None:
-    entry = ChannelRoomMapEntry(room="!r:example.com", source_origin_label="S")
-    assert entry != "!r:example.com"
-
-
-def test_dest_labeled_entry_does_not_equal_bare_room_string() -> None:
-    entry = ChannelRoomMapEntry(room="!r:example.com", dest_origin_label="D")
-    assert entry != "!r:example.com"
+def test_unlabeled_entries_compare_by_structured_fields() -> None:
+    a = ChannelRoomMapEntry(room="!r:example.com")
+    b = ChannelRoomMapEntry(room="!r:example.com")
+    c = ChannelRoomMapEntry(room="!other:example.com")
+    assert a == b
+    assert hash(a) == hash(b)
+    assert a != c
 
 
 def test_labeled_entries_equal_only_when_all_fields_match() -> None:
@@ -537,40 +524,6 @@ def test_labeled_entries_equal_only_when_all_fields_match() -> None:
     assert a != c
 
 
-def test_unlabeled_entry_dict_equals_legacy_flat_dict() -> None:
-    """A normalised map with only unlabeled entries equals a ``dict[str, str]``."""
-    rc = RouteConfig.from_dict(
-        "t",
-        {
-            **_BASE_MATRIX_SOURCE,
-            "channel_room_map": {
-                "0": _structured_entry("!room0:example.com"),
-                "1": _structured_entry("!room1:example.com"),
-            },
-        },
-    )
-    assert rc.channel_room_map is not None
-    assert rc.channel_room_map == {
-        "0": "!room0:example.com",
-        "1": "!room1:example.com",
-    }
-
-
-def test_labeled_entry_dict_does_not_equal_legacy_flat_dict() -> None:
-    """Once any entry has a label, the normalised map no longer equals
-    the legacy ``dict[str, str]`` shape."""
-    rc = RouteConfig.from_dict(
-        "t",
-        {
-            **_BASE_MATRIX_SOURCE,
-            "channel_room_map": {
-                "0": _structured_entry("!room0:example.com", source_origin_label="X"),
-                "1": _structured_entry("!room1:example.com"),
-            },
-        },
-    )
-    assert rc.channel_room_map is not None
-    assert rc.channel_room_map != {
-        "0": "!room0:example.com",
-        "1": "!room1:example.com",
-    }
+def test_structured_entry_does_not_equal_room_string() -> None:
+    entry = ChannelRoomMapEntry(room="!r:example.com")
+    assert entry != "!r:example.com"

@@ -160,7 +160,7 @@ def _make_adapter_context_for_pipeline(
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
 
     async def _publish(event: Any) -> None:
-        await runner.ingress_handler(event)
+        await runner.handle_ingress(event)
 
     return AdapterContext(
         adapter_id=adapter_id,

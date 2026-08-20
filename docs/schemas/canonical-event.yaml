@@ -272,11 +272,12 @@ $defs:
 
   NativeMetadata:
     title: NativeMetadata
-    description: Opaque adapter-specific data.
+    description: Adapter-owned versioned transport and interoperability namespaces.
     type: object
     properties:
       data:
         type: object
         additionalProperties: true
         default: {}
+        description: Versioned transport namespaces plus specified interoperability namespaces.
     additionalProperties: false

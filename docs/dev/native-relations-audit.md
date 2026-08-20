@@ -1,5 +1,9 @@
 # Native Relations Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 Branch: `native-relations-closure`
 
 Compact audit of how native references flow through MEDRE — inbound storage,

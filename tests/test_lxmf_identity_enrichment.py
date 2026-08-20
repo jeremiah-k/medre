@@ -24,11 +24,11 @@ from unittest.mock import MagicMock
 
 from medre.adapters._attribution_dispatch import project_source_fields
 from medre.adapters.lxmf.adapter import LxmfAdapter
-from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.metadata import NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.lxmf_renderer import lxmf_renderer_with_prefix
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -120,7 +120,7 @@ async def test_announce_resolved_display_name_in_native_metadata(
 
     assert len(inbound_collector.events) == 1
     event = inbound_collector.events[0]
-    assert event.metadata.native.data["lxmf.display_name"] == "Alice"
+    assert event.metadata.native.data["lxmf"]["display_name"] == "Alice"
 
 
 async def test_announce_resolved_display_name_in_attribution(
@@ -168,11 +168,20 @@ async def test_announce_resolved_display_name_in_renderer_prefix() -> None:
     to ``project_lxmf_attribution``.  ``{sender}`` maps to
     ``source_sender_label``, which comes from ``lxmf.display_name``.
     """
-    renderer = LxmfRenderer(relay_prefix="[{sender}] ")
+    renderer = lxmf_renderer_with_prefix("[{sender}] ")
     event = _make_event_with_native(
         native_data={
-            "source_hash": "ab" * 16,
-            "lxmf.display_name": "Alice",
+            "lxmf": {
+                "schema_version": 1,
+                "source_hash": "ab" * 16,
+                "destination_hash": None,
+                "message_id": None,
+                "timestamp": None,
+                "title": "",
+                "delivery_method": None,
+                "has_fields": False,
+                "display_name": "Alice",
+            },
         },
         payload={"body": "message_body"},
     )
@@ -215,7 +224,7 @@ async def test_message_carried_display_name_precedence(
 
     assert len(inbound_collector.events) == 1
     event = inbound_collector.events[0]
-    assert event.metadata.native.data["lxmf.display_name"] == "Bob"
+    assert event.metadata.native.data["lxmf"]["display_name"] == "Bob"
     # Enrichment must not have called the session for a non-empty source_name.
     adapter._session.resolve_display_name.assert_not_called()
 
@@ -249,10 +258,11 @@ async def test_no_display_name_source_hash_only(
 
     assert len(inbound_collector.events) == 1
     event = inbound_collector.events[0]
-    assert "lxmf.display_name" not in event.metadata.native.data
+    # No display name resolved: the LXMF namespace must omit display_name.
+    assert "display_name" not in event.metadata.native.data["lxmf"]
 
     # --- Path B: render the same event through the renderer ---
-    renderer = LxmfRenderer(relay_prefix="[{sender}]({sender_id}) ")
+    renderer = lxmf_renderer_with_prefix("[{sender}]({sender_id}) ")
     result = await renderer.render(
         event,
         RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
@@ -274,11 +284,14 @@ async def test_display_name_short_label_derivation() -> None:
     derives ``source_sender_short_label`` by stripping spaces from the
     display name (the ``_compact`` helper in ``attribution.py``).
     """
-    renderer = LxmfRenderer(relay_prefix="<{sender_short}> ")
+    renderer = lxmf_renderer_with_prefix("<{sender_short}> ")
     event = _make_event_with_native(
         native_data={
-            "source_hash": "ab" * 16,
-            "lxmf.display_name": "Alice Walker",
+            "lxmf": {
+                "schema_version": 1,
+                "source_hash": "ab" * 16,
+                "display_name": "Alice Walker",
+            },
         },
         payload={"body": "message_body"},
     )
@@ -317,7 +330,8 @@ async def test_enrichment_does_not_fail_ingestion_on_error(
 
     assert len(inbound_collector.events) == 1
     event = inbound_collector.events[0]
-    assert "lxmf.display_name" not in event.metadata.native.data
+    # No display name resolved: the LXMF namespace must omit display_name.
+    assert "display_name" not in event.metadata.native.data["lxmf"]
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +371,6 @@ async def test_multiple_messages_same_peer_consistent_resolution(
 
     assert len(inbound_collector.events) == 2
     for event in inbound_collector.events:
-        assert event.metadata.native.data["lxmf.display_name"] == "Alice"
+        assert event.metadata.native.data["lxmf"]["display_name"] == "Alice"
     # Both lookups targeted the same source hash.
     assert adapter._session.resolve_display_name.call_count == 2

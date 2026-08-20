@@ -20,17 +20,12 @@ time the config for *ctx.target_adapter* is resolved from this mapping
 as the prefix template.  This allows multi-LXMF setups where each
 adapter has a different relay prefix.
 
-When no configs mapping is provided or the target adapter is not found,
-the renderer falls back to the ``relay_prefix`` constructor argument
-for backward compatibility with direct-constructed renderer instances
-(e.g. in tests).
-
 **Strict RenderingContext protocol**
 
 Both ``can_render`` and ``render`` accept a frozen
 :class:`~medre.core.rendering.renderer.RenderingContext` carrying all
 dispatch metadata — delivery strategy, target identity, capability
-constraints, and text budgets.  No legacy signature parameters.
+constraints, and text budgets.  One strict renderer signature.
 
 **fallback_text strategy**
 
@@ -73,10 +68,6 @@ class LxmfRenderer:
     as the prefix template.  This allows multi-LXMF setups where each
     adapter has a different relay prefix.
 
-    When no *configs* mapping is provided or the target adapter is not
-    found, the renderer falls back to *relay_prefix* for backward
-    compatibility with direct-constructed renderer instances.
-
     When ``metadata_embedding`` is enabled (default), the renderer
     embeds a MEDRE metadata envelope in the ``fields`` dict containing the
     event ID, relations, and metadata keys.
@@ -95,10 +86,6 @@ class LxmfRenderer:
         adapter when formatting relay prefixes.
     metadata_embedding:
         Whether to embed MEDRE metadata envelopes in LXMF fields.
-    relay_prefix:
-        Fallback template string for human-readable relay attribution
-        prefix.  Used when *configs* is ``None`` or the target adapter
-        is not found in the mapping.  Default ``""`` (no prefix).
     """
 
     name: str = "lxmf"
@@ -110,7 +97,6 @@ class LxmfRenderer:
     def __init__(
         self,
         metadata_embedding: bool = True,
-        relay_prefix: str = "",
         *,
         configs: Mapping[str, Any] | None = None,
         source_attribution: dict[str, Any] | None = None,
@@ -118,7 +104,6 @@ class LxmfRenderer:
         self._configs: dict[str, Any] = dict(configs or {})
         self._source_attribution: dict[str, Any] = dict(source_attribution or {})
         self._metadata_embedding = metadata_embedding
-        self._relay_prefix = relay_prefix
 
     # ------------------------------------------------------------------
     # Capability check
@@ -205,8 +190,7 @@ class LxmfRenderer:
             text = self._degrade_relations_inline(event, text)
 
         # Optional human-readable relay prefix.  Resolved from target
-        # adapter config (target-aware) with fallback to constructor
-        # relay_prefix for backward compat.  Extracted from event
+        # adapter config (target-aware). Extracted from event
         # attribution and formatted via the shared prefix formatter.
         # The prefix is for human readability only — the MEDRE metadata
         # envelope in fields remains the authoritative provenance source.
@@ -275,9 +259,8 @@ class LxmfRenderer:
         """Resolve the relay prefix template for the target adapter.
 
         Looks up the target adapter in the configs mapping and returns
-        its ``lxmf_relay_prefix``.  Falls back to ``self._relay_prefix``
-        when the configs mapping is empty or the target adapter is not
-        found (backward compat for direct-constructed renderers).
+        its ``lxmf_relay_prefix``. Missing target configuration resolves to
+        an empty prefix.
 
         Parameters
         ----------
@@ -293,7 +276,7 @@ class LxmfRenderer:
             adapter_config = self._configs.get(ctx.target_adapter)
             if adapter_config is not None:
                 return getattr(adapter_config, "lxmf_relay_prefix", "")
-        return self._relay_prefix
+        return ""
 
     def _extract_attribution_with_source(
         self,

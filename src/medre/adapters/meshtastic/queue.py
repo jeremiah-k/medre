@@ -77,6 +77,7 @@ from types import MappingProxyType
 from typing import Any, Awaitable, Callable, Literal
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
+from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.packet_snapshot import json_safe
 from medre.core.contracts.adapter import AdapterDeliveryResult
 
@@ -456,13 +457,18 @@ class MeshtasticOutboundQueue:
         native_id = _extract_packet_id(send_result)
         channel_index = item.get("channel_index", 0)
 
-        # Build packet snapshot metadata when result is packet-like.
+        # Build packet snapshot metadata only when there's a real packet
+        # to record.  A None result (e.g. fake-mode sender) carries no
+        # identifying information and must not pollute delivery metadata
+        # with a placeholder schema-version envelope.
         snapshot = _packet_snapshot(send_result)
-        metadata = (
-            MappingProxyType({"meshtastic": snapshot})
-            if snapshot
-            else MappingProxyType({})
-        )
+        metadata_dict: dict[str, object] = {}
+        if snapshot:
+            metadata_dict["meshtastic"] = {
+                **snapshot,
+                "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION,
+            }
+        metadata = MappingProxyType(metadata_dict)
 
         delivery_result = AdapterDeliveryResult(
             native_message_id=native_id,

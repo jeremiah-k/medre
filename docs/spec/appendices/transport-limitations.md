@@ -163,7 +163,8 @@ mechanisms:
 ## 6. Capability Semantics Known Gaps
 
 1. **Thread fallback lacks live endpoint evidence.** Built-in profiles declare
-   `threads="fallback"` and exercise the normal planner fallback path, but no R-tier
+   `threads="fallback"` and exercise the normal planner fallback path, but no
+   `live_service` or `hardware`
    live-service/hardware scenario validates degraded thread output end-to-end.
    Native thread emission is intentionally not advertised.
 

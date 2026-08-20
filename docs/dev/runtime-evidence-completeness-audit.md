@@ -1,5 +1,9 @@
 # Runtime Evidence Completeness Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 > **Classification:** Developer reference (derived from [diagnostics-evidence.md](../spec/diagnostics-evidence.md))
 > **Audience:** Runtime developers, code reviewers.
 > **Authority:** [diagnostics-evidence.md](../spec/diagnostics-evidence.md) is the normative specification. This document records implementation gaps and completeness findings. If this document conflicts with the spec, the spec is correct.

@@ -18,6 +18,7 @@ from medre.core.events import (
     NativeMetadata,
 )
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -117,11 +118,13 @@ async def test_meshtastic_loop_prefix_clean() -> None:
         payload={"body": "hello from mesh"},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={
-                    "longname": "MeshNode1",
-                    "shortname": "Mesh1",
-                    "from_id": "1234567890",
-                }
+                data=meshtastic_native_data(
+                    {
+                        "longname": "MeshNode1",
+                        "shortname": "Mesh1",
+                        "from_id": "1234567890",
+                    }
+                )
             )
         ),
     )
@@ -151,11 +154,13 @@ async def test_routed_meshtastic_no_prefix_nonsense() -> None:
         payload={"body": "routed msg"},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={
-                    "longname": "OtherNode",
-                    "shortname": "Othr",
-                    "from_id": "9876543210",
-                }
+                data=meshtastic_native_data(
+                    {
+                        "longname": "OtherNode",
+                        "shortname": "Othr",
+                        "from_id": "9876543210",
+                    }
+                )
             )
         ),
     )
@@ -198,11 +203,12 @@ async def test_source_origin_label_in_prefix() -> None:
         payload={"body": "hello"},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={
-                    "longname": "Alice",
-                    "shortname": "A",
-                    "from_id": "@alice:example.com",
-                }
+                data=matrix_native_data(
+                    {
+                        "sender": "@alice:example.com",
+                        "sender_display_name": "Alice",
+                    }
+                )
             )
         ),
     )
@@ -275,7 +281,9 @@ async def test_mesh_to_mesh_uses_source_origin_label() -> None:
         payload={"body": "hello from A"},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={"longname": "NodeA", "shortname": "NA", "from_id": "!nodeA"}
+                data=meshtastic_native_data(
+                    {"longname": "NodeA", "shortname": "NA", "from_id": "!nodeA"}
+                )
             )
         ),
     )

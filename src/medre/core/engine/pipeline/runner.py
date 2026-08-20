@@ -325,8 +325,8 @@ class PipelineRunner:
     The runner is started and stopped via :meth:`start` and :meth:`stop`.
     Runtime adapters publish through :class:`MedreApp`'s durable admission
     callback; routing and delivery are resumed by the durable ingress worker.
-    :attr:`ingress_handler` remains an inline pipeline entry point for focused
-    tests and integrations that intentionally bypass runtime durability.
+    :meth:`handle_ingress` remains the explicit inline execution path for
+    focused tests that intentionally bypass runtime durability.
 
     Error isolation
     ~~~~~~~~~~~~~~~
@@ -509,16 +509,6 @@ class PipelineRunner:
         return abandoned
 
     # -- Ingress -----------------------------------------------------------
-
-    @property
-    def ingress_handler(self):
-        """Return the legacy inline ingress callable.
-
-        Production runtime adapters use ``MedreApp._make_publish_inbound()``,
-        which durably admits before routing.  This property intentionally
-        preserves direct pipeline execution for focused integrations/tests.
-        """
-        return self.handle_ingress
 
     async def handle_ingress(self, event: CanonicalEvent) -> list[DeliveryOutcome]:
         """Process an inbound event through the full pipeline.

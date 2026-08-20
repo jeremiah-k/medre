@@ -31,6 +31,7 @@ from medre.config.loader import load_config
 from medre.core.events.canonical import CanonicalEvent, EventMetadata
 from medre.core.events.metadata import NativeMetadata
 from medre.runtime.builder import RuntimeBuilder
+from tests.helpers.native_metadata import matrix_native_data
 
 # ---------------------------------------------------------------------------
 # YAML config template
@@ -161,11 +162,12 @@ def _make_matrix_event(
     body: str = "hello from matrix",
 ) -> CanonicalEvent:
     """Create a CanonicalEvent simulating Matrix origin with display metadata."""
-    native_data: dict[str, object] = {
-        "longname": "MatrixUser",
-        "shortname": "MUser",
-        "from_id": "@user:example.com",
-    }
+    native_data = matrix_native_data(
+        {
+            "sender": "@user:example.com",
+            "sender_display_name": "MatrixUser",
+        }
+    )
     return CanonicalEvent(
         event_id=str(uuid.uuid4()),
         event_kind="message.created",

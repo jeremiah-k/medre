@@ -236,9 +236,11 @@ class TestMeshtasticIngressConformance:
         # Assert the fixture's metadata_has_native flag matches reality.
         assert fixture["expected"]["metadata_has_native"] is True
         native_data = decoded_event.metadata.native.data
+        mesh_data = native_data.get("meshtastic")
+        assert isinstance(mesh_data, Mapping)
         expected_meta = fixture["expected"]["expected_metadata"]
         for key, expected_value in expected_meta.items():
-            assert native_data[key] == expected_value, (
-                f"metadata[{key!r}]: expected {expected_value!r}, "
-                f"got {native_data.get(key)!r}"
+            assert mesh_data.get(key) == expected_value, (
+                f"metadata.meshtastic[{key!r}]: expected {expected_value!r}, "
+                f"got {mesh_data.get(key)!r}"
             )

@@ -53,6 +53,7 @@ from medre.adapters.lxmf.errors import (
     LxmfConnectionError,
     LxmfSendError,
 )
+from medre.adapters.lxmf.event_shape import LXMF_NATIVE_SCHEMA_VERSION
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.adapters.lxmf.session import LxmfSession
 from medre.config.adapters.lxmf import LxmfConfig
@@ -554,6 +555,7 @@ class LxmfAdapter(AdapterContract):
                 {
                     "lxmf": MappingProxyType(
                         {
+                            "schema_version": LXMF_NATIVE_SCHEMA_VERSION,
                             "delivery_state": delivery_state.value,
                             "delivery_method": resolved_delivery_method,
                         }

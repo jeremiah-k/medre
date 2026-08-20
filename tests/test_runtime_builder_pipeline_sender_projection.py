@@ -42,6 +42,7 @@ from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.planning.relation_enricher import RelationEnricher
 from medre.runtime.app import MedreApp
 from medre.runtime.builder import RuntimeBuilder
+from tests.helpers.native_metadata import meshtastic_native_data
 from tests.helpers.runtime_builder import clean_path_env, make_all_enabled_config
 
 # ---------------------------------------------------------------------------
@@ -114,13 +115,15 @@ def _make_meshtastic_target() -> CanonicalEvent:
         payload={"body": "mesh hello", "text": "mesh hello"},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={
-                    "meshtastic.from_id": "!1234",
-                    "meshtastic.longname": "Alice Node",
-                    "meshtastic.shortname": "AlN",
-                    "meshtastic.packet_id": 42,
-                    "meshtastic.channel": 0,
-                }
+                data=meshtastic_native_data(
+                    {
+                        "from_id": "!1234",
+                        "longname": "Alice Node",
+                        "shortname": "AlN",
+                        "packet_id": 42,
+                        "channel": 0,
+                    }
+                )
             )
         ),
     )
@@ -232,8 +235,8 @@ async def test_runner_enrichment_uses_wired_projection(built_app: MedreApp) -> N
     )
 
     relation = enriched.relations[0]
-    # Display name comes from the projected meshtastic.longname, not from
+    # Display name comes from the projected Meshtastic longname, not from
     # a native key read by core planning.
     assert relation.metadata.get("original_sender_displayname") == "Alice Node"
-    # Sender id comes from the projected meshtastic.from_id.
+    # Sender id comes from the projected Meshtastic from_id.
     assert relation.metadata.get("original_sender") == "!1234"

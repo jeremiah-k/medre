@@ -370,7 +370,7 @@ class MeshtasticPacketClassifier:
             The local node's own ID (e.g. ``"!abc123"``).  When provided,
             packets whose ``fromId`` matches this ID are classified as
             self-echo and ignored.  ``None`` (the default) disables
-            self-echo detection, preserving backward compatibility.
+            self-echo detection.
 
         Returns
         -------

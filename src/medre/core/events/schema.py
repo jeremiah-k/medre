@@ -7,28 +7,22 @@ This module provides:
 * :class:`SchemaVersion` – a ``(event_kind, version)`` pair.
 * :class:`SchemaRegistry` – a registry that maps event kinds to schema
   versions and validator callables.
-* :class:`_MigrationRegistry` – minimal registry-only hook for future schema
-  migrations.
 
 The registry is deliberately lightweight – it stores validator callables
 rather than performing structural schema validation itself.  Downstream
 packages can register JSON-Schema validators, pydantic models, or any
 ``Callable[[dict], list[str]]`` that returns a list of error strings.
 
-Schema Migration Policy
+Schema Evolution Policy
 -----------------------
-Pre-release (current):
-  Schemas may change directly — fields renamed, types changed,
-  structures reorganised — without migration paths.  There are no
-  external consumers, so breaking changes are applied by updating
-  tests and documentation in the same commit.
+The canonical envelope is a closed, versioned structure. During development,
+contract changes are applied directly to the current schema and all producers,
+consumers, schemas, examples, and tests move together. Unknown top-level
+structure fields may be ignored by decoders; extensible payload and metadata
+mappings are the preservation boundary for producer-defined data.
 
-Post-release (future stability guarantee):
-  Once a stable release ships, the schema becomes additive-only:
-  new fields append with defaults; existing fields are never removed.
-  ``MIGRATION_REGISTRY`` provides a registry-only hook for migration
-  functions (``Callable[[dict], dict]``).  A migration window may be
-  offered for non-trivial schema transitions.
+Long-term cross-version guarantees are intentionally undefined until MEDRE
+publishes a stable release contract.
 """
 
 from __future__ import annotations
@@ -254,79 +248,3 @@ class SchemaRegistry:
         if errors is not None:
             errors.extend(found_errors)
         return len(found_errors) == 0
-
-
-# ---------------------------------------------------------------------------
-# Migration registry (Phase 1: registry-only hook)
-# ---------------------------------------------------------------------------
-
-#: Type alias for a migration function.  Receives a payload dict and
-#: returns a new dict with any added default fields.
-MigrationFn = Callable[[dict[str, object]], dict[str, object]]
-
-
-class _MigrationRegistry:
-    """Minimal registry for schema migration functions.
-
-    Phase 1 provides the registration and lookup API only.  No migrations
-    are executed automatically – the registry exists so that downstream
-    packages can register migration functions that future versions of the
-    framework will call during decode.
-
-    Migration contract:
-
-    * Migrations are keyed by ``(event_kind, from_version, to_version)``.
-    * A migration receives the payload dict and returns a **new** dict
-      with any appended default fields.
-    * Within a stability guarantee cycle: fields are never removed — only appended or deprecated-in-place.
-    * Deprecated fields remain populated for at least one version cycle once a public stability guarantee is in effect.
-      (No public stability guarantee is currently declared; pre-release migration rules apply, see module docstring.)
-
-    Thread-safety is the caller's responsibility, same as :class:`SchemaRegistry`.
-    """
-
-    def __init__(self) -> None:
-        self._migrations: dict[tuple[str, int, int], MigrationFn] = {}
-
-    def register(
-        self,
-        event_kind: str,
-        from_version: int,
-        to_version: int,
-        migration: MigrationFn,
-    ) -> None:
-        """Register a migration function.
-
-        Silently replaces any existing migration for the same key.
-
-        Parameters
-        ----------
-        event_kind:
-            The event kind string.
-        from_version:
-            Source schema version.
-        to_version:
-            Target schema version.
-        migration:
-            Callable that transforms a payload dict from *from_version*
-            to *to_version* shape.
-        """
-        self._migrations[(event_kind, from_version, to_version)] = migration
-
-    def get(
-        self,
-        event_kind: str,
-        from_version: int,
-        to_version: int,
-    ) -> MigrationFn | None:
-        """Retrieve a migration function, or ``None`` if not registered."""
-        return self._migrations.get((event_kind, from_version, to_version))
-
-    @property
-    def registered_keys(self) -> frozenset[tuple[str, int, int]]:
-        """Snapshot of all registered migration keys."""
-        return frozenset(self._migrations.keys())
-
-
-#: Module-level migration registry singleton.
-MIGRATION_REGISTRY: _MigrationRegistry = _MigrationRegistry()

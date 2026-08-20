@@ -25,6 +25,7 @@ from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
@@ -40,6 +41,12 @@ from medre.interop.mmrelay import (
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
+from tests.helpers.native_metadata import (
+    lxmf_native_data,
+    matrix_native_data,
+    meshcore_native_data,
+    meshtastic_native_data,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -179,7 +186,9 @@ async def test_mmrelay_meshnet_from_route_label() -> None:
     )
     event = _make_event(
         source_adapter="src-a",
-        native_data={"longname": "Alice", "shortname": "A", "packet_id": "1"},
+        native_data=meshtastic_native_data(
+            {"longname": "Alice", "shortname": "A", "packet_id": "1"}
+        ),
     )
     result = await renderer.render(
         event,
@@ -211,7 +220,9 @@ async def test_mmrelay_meshnet_fallback_to_adapter() -> None:
     )
     event = _make_event(
         source_adapter="src-a",
-        native_data={"longname": "Alice", "shortname": "A", "packet_id": "1"},
+        native_data=meshtastic_native_data(
+            {"longname": "Alice", "shortname": "A", "packet_id": "1"}
+        ),
     )
     result = await renderer.render(
         event,
@@ -372,7 +383,12 @@ async def test_meshcore_adapter_label_used_when_no_route_label() -> None:
 async def test_lxmf_route_label_overrides_adapter_label() -> None:
     """Route context origin_label overrides adapter registry."""
     renderer = LxmfRenderer(
-        relay_prefix="[{origin_label}] ",
+        configs={
+            "lxmf_node": LxmfConfig(
+                adapter_id="lxmf_node",
+                lxmf_relay_prefix="[{origin_label}] ",
+            ),
+        },
         source_attribution={
             "src-a": _StubSourceAttribution(
                 adapter_id="src-a",
@@ -396,7 +412,12 @@ async def test_lxmf_route_label_overrides_adapter_label() -> None:
 async def test_lxmf_adapter_label_used_when_no_route_label() -> None:
     """Adapter registry label used when no route label."""
     renderer = LxmfRenderer(
-        relay_prefix="[{origin_label}] ",
+        configs={
+            "lxmf_node": LxmfConfig(
+                adapter_id="lxmf_node",
+                lxmf_relay_prefix="[{origin_label}] ",
+            ),
+        },
         source_attribution={
             "src-a": _StubSourceAttribution(
                 adapter_id="src-a",
@@ -439,7 +460,7 @@ async def test_meshtastic_to_matrix_sender_and_origin_label() -> None:
     )
     event = _make_event(
         source_adapter="src-a",
-        native_data={"longname": "RadioOp", "shortname": "RO"},
+        native_data=meshtastic_native_data({"longname": "RadioOp", "shortname": "RO"}),
     )
     result = await renderer.render(
         event,
@@ -470,13 +491,12 @@ async def test_matrix_to_meshtastic_sender_short_and_origin_label() -> None:
     )
     event = _make_event(
         source_adapter="matrix-1",
-        native_data={
-            "matrix": {
-                "schema_version": 1,
+        native_data=matrix_native_data(
+            {
                 "sender": "@alice:matrix.org",
                 "sender_display_name": "Alice",
             }
-        },
+        ),
     )
     result = await renderer.render(
         event,
@@ -508,7 +528,7 @@ async def test_meshcore_to_meshtastic_sender_id_and_origin_label() -> None:
     )
     event = _make_event(
         source_adapter="mc-1",
-        native_data={"meshcore.pubkey_prefix": "a1b2c3", "meshcore.channel": 0},
+        native_data=meshcore_native_data({"pubkey_prefix": "a1b2c3", "channel": 0}),
     )
     result = await renderer.render(
         event,
@@ -539,7 +559,7 @@ async def test_lxmf_to_meshcore_sender_id_and_origin_label() -> None:
     )
     event = _make_event(
         source_adapter="lxmf-1",
-        native_data={"source_hash": "feedface"},
+        native_data=lxmf_native_data({"source_hash": "feedface"}),
     )
     result = await renderer.render(
         event,
@@ -596,7 +616,14 @@ async def test_meshcore_exception_does_not_prepend_raw_template() -> None:
 
 async def test_lxmf_exception_does_not_prepend_raw_template() -> None:
     """LXMF: formatting_exception does not prepend raw template text."""
-    renderer = LxmfRenderer(relay_prefix="[{sender}] ")
+    renderer = LxmfRenderer(
+        configs={
+            "lxmf_node": LxmfConfig(
+                adapter_id="lxmf_node",
+                lxmf_relay_prefix="[{sender}] ",
+            ),
+        },
+    )
     event = _make_event(source_adapter="src-a")
 
     # Patch inside the defining module so the real format_relay_prefix
@@ -785,7 +812,12 @@ async def test_meshcore_empty_route_label_suppresses_adapter_label() -> None:
 async def test_lxmf_empty_route_label_suppresses_adapter_label() -> None:
     """LXMF: source_origin_label='' suppresses adapter origin_label."""
     renderer = LxmfRenderer(
-        relay_prefix="[{origin_label}] ",
+        configs={
+            "lxmf-1": LxmfConfig(
+                adapter_id="lxmf-1",
+                lxmf_relay_prefix="[{origin_label}] ",
+            ),
+        },
         source_attribution={
             "src-a": _StubSourceAttribution(
                 adapter_id="src-a",

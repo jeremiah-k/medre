@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/meshtastic-native-metadata.schema.json",
+  "title": "MEDRE Meshtastic Native Metadata",
+  "description": "Versioned Meshtastic-native metadata stored in CanonicalEvent.metadata.native.data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meshtastic"],
+  "properties": {
+    "meshtastic": {
+      "$ref": "#/$defs/MeshtasticEvent"
+    }
+  },
+  "$defs": {
+    "Scalar": {
+      "type": ["string", "integer", "number", "boolean", "null"]
+    },
+    "MeshtasticEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "packet_id",
+        "from_id",
+        "channel",
+        "portnum",
+        "to_id",
+        "is_direct_message",
+        "longname",
+        "shortname",
+        "reply_id",
+        "emoji",
+        "emoji_flag",
+        "packet",
+        "decoded",
+        "classification"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "packet_id": { "$ref": "#/$defs/Scalar" },
+        "from_id": { "type": "string" },
+        "channel": { "type": ["integer", "null"], "minimum": 0 },
+        "portnum": { "type": ["string", "null"] },
+        "to_id": { "type": "string" },
+        "is_direct_message": { "type": "boolean" },
+        "longname": { "type": "string" },
+        "shortname": { "type": "string" },
+        "reply_id": { "$ref": "#/$defs/Scalar" },
+        "emoji": { "$ref": "#/$defs/Scalar" },
+        "emoji_flag": { "$ref": "#/$defs/Scalar" },
+        "packet": { "type": "object" },
+        "decoded": { "type": "object" },
+        "classification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "category",
+            "reason",
+            "is_reply",
+            "is_reaction",
+            "emoji_flag",
+            "reaction_key",
+            "is_encrypted",
+            "is_detection_sensor",
+            "routeable"
+          ],
+          "properties": {
+            "action": { "type": "string" },
+            "category": { "type": "string" },
+            "reason": { "type": "string" },
+            "is_reply": { "type": "boolean" },
+            "is_reaction": { "type": "boolean" },
+            "emoji_flag": { "$ref": "#/$defs/Scalar" },
+            "reaction_key": { "type": ["string", "null"] },
+            "is_encrypted": { "type": "boolean" },
+            "is_detection_sensor": { "type": "boolean" },
+            "routeable": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

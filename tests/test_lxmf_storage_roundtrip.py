@@ -24,6 +24,7 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.events.metadata import NativeMetadata
+from tests.helpers.native_metadata import lxmf_native_data
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -94,15 +95,16 @@ def _make_lxmf_canonical_event(
         },
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={
-                    "source_hash": source_hash,
-                    "destination_hash": destination_hash,
-                    "message_id": lxmf_message_id,
-                    "timestamp": 1700000000.0,
-                    "title": title,
-                    "delivery_method": "direct",
-                    "has_fields": False,
-                }
+                data=lxmf_native_data(
+                    {
+                        "source_hash": source_hash,
+                        "destination_hash": destination_hash,
+                        "message_id": lxmf_message_id,
+                        "timestamp": 1700000000.0,
+                        "title": title,
+                        "delivery_method": "direct",
+                    }
+                )
             )
         ),
         source_native_ref=NativeRef(
@@ -171,7 +173,7 @@ class TestLxmfCodecEventStorageRoundtrip:
         retrieved = await temp_storage.get(canonical.event_id)
 
         assert retrieved is not None
-        ndata = retrieved.metadata.native.data
+        ndata = retrieved.metadata.native.data["lxmf"]
         assert ndata["source_hash"] == "11" * 16
         assert ndata["destination_hash"] == "22" * 16
         assert ndata["message_id"] == "33" * 32

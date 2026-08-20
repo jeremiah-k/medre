@@ -29,6 +29,7 @@ the ``lxmf`` and ``RNS`` packages are not installed.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import re
 
@@ -61,15 +62,8 @@ _SRC_ROOT = (
 _TESTS_DIR = Path(__file__).resolve().parent
 """Root tests directory."""
 
-_LXMF_SDK_IMPORTS = (
-    "import lxmf",
-    "import LXMF",
-    "from lxmf",
-    "from LXMF",
-    "import RNS",
-    "from RNS",
-)
-"""Banned SDK import patterns — only ``compat.py`` is exempt."""
+_LXMF_SDK_ROOTS: frozenset[str] = frozenset({"lxmf", "LXMF", "RNS"})
+"""Top-level SDK modules confined to the designated LXMF boundary sites."""
 
 _CROSS_TRANSPORT_PREFIXES = (
     "from medre.adapters.meshcore",
@@ -138,6 +132,28 @@ def _scan_for_patterns(source: str, patterns: tuple[str, ...]) -> list[str]:
     return violations
 
 
+def _scan_for_sdk_imports(source: str) -> list[str]:
+    """Return real top-level LXMF/RNS SDK imports in *source*.
+
+    AST inspection avoids false positives from internal modules such as
+    ``medre.adapters.lxmf.event_shape`` or imported names beginning with
+    ``LXMF_``.
+    """
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        roots: tuple[str, ...] = ()
+        if isinstance(node, ast.Import):
+            roots = tuple(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            roots = (node.module.split(".", 1)[0],)
+        if any(root in _LXMF_SDK_ROOTS for root in roots):
+            text = lines[node.lineno - 1].strip()
+            violations.append(f"L{node.lineno}: {text}")
+    return violations
+
+
 def _has_live_marker(path: Path) -> bool:
     """Return ``True`` if the test file declares a live marker."""
     source = _read_source(path)
@@ -179,7 +195,7 @@ class TestLxmfSdkImportBoundary:
             pytest.skip("compat.py / session.py are designated SDK interaction sites")
 
         source = _read_source(filepath)
-        violations = _scan_for_patterns(source, _LXMF_SDK_IMPORTS)
+        violations = _scan_for_sdk_imports(source)
         assert (
             violations == []
         ), f"{filepath.name} contains banned lxmf/RNS SDK imports:\n" + "\n".join(

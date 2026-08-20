@@ -385,7 +385,7 @@ _CRM_ENTRY_KNOWN_KEYS: frozenset[str] = frozenset(
 )
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True)
 class ChannelRoomMapEntry:
     """A single ``channel_room_map`` entry with optional per-entry origin labels.
 
@@ -403,43 +403,14 @@ class ChannelRoomMapEntry:
         the route-level ``source_origin_label``".  An explicit ``""`` means
         "suppress the adapter-level fallback for this entry's forward leg".
     dest_origin_label:
-        Per-entry reverse-leg source label.  Same semantics as
+        Per-entry reverse-leg source label. Same semantics as
         ``source_origin_label`` but applied when the direction is swapped
         during expansion.
-
-    Equality semantics
-    ------------------
-    An entry whose both labels are ``None`` compares equal to its bare
-    ``room`` string.  This preserves backward compatibility with callers
-    that compare the normalised ``channel_room_map`` dict against a flat
-    ``dict[str, str]`` (the legacy shape).  Entries with any label set
-    only compare equal to another :class:`ChannelRoomMapEntry` with the
-    same three fields.
     """
 
     room: str
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, ChannelRoomMapEntry):
-            return (
-                self.room == other.room
-                and self.source_origin_label == other.source_origin_label
-                and self.dest_origin_label == other.dest_origin_label
-            )
-        # Backward compatibility: a label-less entry is equivalent to its
-        # bare room string (the legacy ``dict[str, str]`` shape).
-        if isinstance(other, str):
-            if self.source_origin_label is None and self.dest_origin_label is None:
-                return self.room == other
-            return False
-        return NotImplemented
-
-    def __hash__(self) -> int:
-        if self.source_origin_label is None and self.dest_origin_label is None:
-            return hash(self.room)
-        return hash((self.room, self.source_origin_label, self.dest_origin_label))
 
 
 # ---------------------------------------------------------------------------
@@ -523,18 +494,11 @@ def _parse_channel_room_map_entry(
     ch_normalized: str,
     section_path: str,
 ) -> tuple[str, str | None, str | None]:
-    """Parse a polymorphic ``channel_room_map`` entry value.
+    """Parse a structured ``channel_room_map`` entry value.
 
-    Supports two shapes:
-
-    * **Bare-string shape** — ``raw_value`` is a ``str``: the room ID only,
-      no labels.  Returns ``(raw_value, None, None)``.
-    * **Structured shape** — ``raw_value`` is a ``dict``: a table with
-      ``room`` plus optional ``source_origin_label`` /
-      ``dest_origin_label``.  Unknown keys are rejected.  Both labels use
-      the bool-before-str check pattern (spec §17.5.8 requires it).
-
-    Any other type raises :class:`ConfigValidationError`.
+    ``raw_value`` MUST be a structured mapping with required ``room`` and
+    optional ``source_origin_label`` / ``dest_origin_label`` keys. Unknown
+    keys are rejected. Both labels use the bool-before-str check pattern.
 
     Parameters
     ----------
@@ -559,82 +523,77 @@ def _parse_channel_room_map_entry(
     Raises
     ------
     ConfigValidationError
-        If the value is not a string or dict, contains unknown keys, is
-        missing the ``room`` key, or has a label that is not a string.
+        If the value is not a mapping, contains unknown keys, is missing the
+        ``room`` key, or has a label that is not a string.
     """
     entry_path = f"{section_path}.channel_room_map.{ch_normalized}"
     entry_source_label: str | None = None
     entry_dest_label: str | None = None
-    if isinstance(raw_value, str):
-        # Legacy bare-string shape: room ID only, no labels.
-        room_value_raw = raw_value
-    elif isinstance(raw_value, dict):
-        # New structured shape: table with room + optional labels.
-        unknown = set(raw_value.keys()) - _CRM_ENTRY_KNOWN_KEYS
-        if unknown:
-            raise ConfigValidationError(
-                f"Route {route_id!r}: channel_room_map entry for "
-                f"channel {ch_normalized!r} has unknown key(s) "
-                f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))}. Accepted keys: "
-                f"{sorted(_CRM_ENTRY_KNOWN_KEYS)}",
-                section_path=entry_path,
-            )
-        if "room" not in raw_value:
-            raise ConfigValidationError(
-                f"Route {route_id!r}: channel_room_map entry for "
-                f"channel {ch_normalized!r} is missing required "
-                f"'room' key",
-                section_path=entry_path,
-            )
-        room_value_raw = raw_value["room"]
-        # --- per-entry source_origin_label ---
-        raw_sol = raw_value.get("source_origin_label")
-        if raw_sol is not None:
-            if isinstance(raw_sol, bool):
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: channel_room_map entry "
-                    f"for channel {ch_normalized!r}: "
-                    f"'source_origin_label' must be a string, "
-                    f"got {type(raw_sol).__name__}",
-                    section_path=entry_path,
-                )
-            if not isinstance(raw_sol, str):
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: channel_room_map entry "
-                    f"for channel {ch_normalized!r}: "
-                    f"'source_origin_label' must be a string, "
-                    f"got {type(raw_sol).__name__}",
-                    section_path=entry_path,
-                )
-            entry_source_label = raw_sol
-        # --- per-entry dest_origin_label ---
-        raw_dol = raw_value.get("dest_origin_label")
-        if raw_dol is not None:
-            if isinstance(raw_dol, bool):
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: channel_room_map entry "
-                    f"for channel {ch_normalized!r}: "
-                    f"'dest_origin_label' must be a string, "
-                    f"got {type(raw_dol).__name__}",
-                    section_path=entry_path,
-                )
-            if not isinstance(raw_dol, str):
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: channel_room_map entry "
-                    f"for channel {ch_normalized!r}: "
-                    f"'dest_origin_label' must be a string, "
-                    f"got {type(raw_dol).__name__}",
-                    section_path=entry_path,
-                )
-            entry_dest_label = raw_dol
-    else:
+    if not isinstance(raw_value, dict):
         raise ConfigValidationError(
             f"Route {route_id!r}: channel_room_map entry for "
-            f"channel {ch_normalized!r} must be a non-empty string "
-            f"or a table with a 'room' key, got "
-            f"{type(raw_value).__name__}",
+            f"channel {ch_normalized!r} must be a table/object with required "
+            f"'room', got {type(raw_value).__name__}",
             section_path=entry_path,
         )
+
+    unknown = set(raw_value.keys()) - _CRM_ENTRY_KNOWN_KEYS
+    if unknown:
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map entry for "
+            f"channel {ch_normalized!r} has unknown key(s) "
+            f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))}. "
+            f"Accepted keys: {sorted(_CRM_ENTRY_KNOWN_KEYS)}",
+            section_path=entry_path,
+        )
+    if "room" not in raw_value:
+        raise ConfigValidationError(
+            f"Route {route_id!r}: channel_room_map entry for "
+            f"channel {ch_normalized!r} is missing required "
+            f"'room' key",
+            section_path=entry_path,
+        )
+    room_value_raw = raw_value["room"]
+    # --- per-entry source_origin_label ---
+    raw_sol = raw_value.get("source_origin_label")
+    if raw_sol is not None:
+        if isinstance(raw_sol, bool):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: channel_room_map entry "
+                f"for channel {ch_normalized!r}: "
+                f"'source_origin_label' must be a string, "
+                f"got {type(raw_sol).__name__}",
+                section_path=entry_path,
+            )
+        if not isinstance(raw_sol, str):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: channel_room_map entry "
+                f"for channel {ch_normalized!r}: "
+                f"'source_origin_label' must be a string, "
+                f"got {type(raw_sol).__name__}",
+                section_path=entry_path,
+            )
+        entry_source_label = raw_sol
+    # --- per-entry dest_origin_label ---
+    raw_dol = raw_value.get("dest_origin_label")
+    if raw_dol is not None:
+        if isinstance(raw_dol, bool):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: channel_room_map entry "
+                f"for channel {ch_normalized!r}: "
+                f"'dest_origin_label' must be a string, "
+                f"got {type(raw_dol).__name__}",
+                section_path=entry_path,
+            )
+        if not isinstance(raw_dol, str):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: channel_room_map entry "
+                f"for channel {ch_normalized!r}: "
+                f"'dest_origin_label' must be a string, "
+                f"got {type(raw_dol).__name__}",
+                section_path=entry_path,
+            )
+        entry_dest_label = raw_dol
     return room_value_raw, entry_source_label, entry_dest_label
 
 
@@ -768,10 +727,9 @@ class RouteConfig:
         ``None`` means no retry scheduling for this route.
     channel_room_map:
         Optional mapping of Meshtastic channel strings ("0"–"7") to
-        Matrix room IDs.  Each value may be a bare room-ID string (legacy
-        shape) or a structured table carrying ``room`` plus optional
-        ``source_origin_label`` / ``dest_origin_label``.  After parsing,
-        values are normalised to :class:`ChannelRoomMapEntry`.  When
+        structured entries carrying required ``room`` plus optional
+        ``source_origin_label`` / ``dest_origin_label``. After parsing, values
+        are normalised to :class:`ChannelRoomMapEntry`. When
         present, the route is expanded at runtime into per-channel legs
         instead of using ``source_channel`` / ``dest_channel`` directly.
         Mutually exclusive with ``source_channel``, ``dest_channel``,

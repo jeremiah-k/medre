@@ -1,0 +1,13 @@
+{
+  "lxmf": {
+    "schema_version": 1,
+    "source_hash": "a1b2c3d4",
+    "destination_hash": "d4c3b2a1",
+    "message_id": "msg-123",
+    "timestamp": 1700000000.0,
+    "title": "Field Node",
+    "delivery_method": "direct",
+    "has_fields": true,
+    "display_name": "Field Node"
+  }
+}

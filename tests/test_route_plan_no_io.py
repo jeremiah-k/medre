@@ -192,8 +192,10 @@ def test_plan_with_fake_meshtastic_only(tmp_path: Path) -> None:
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
         "    channel_room_map:\n"
-        "      0: '!a:fake.local'\n"
-        "      1: '!b:fake.local'\n"
+        "      0:\n"
+        "        room: '!a:fake.local'\n"
+        "      1:\n"
+        "        room: '!b:fake.local'\n"
     )
     p = tmp_path / "config.yaml"
     p.write_text(yaml_text)

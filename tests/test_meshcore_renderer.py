@@ -18,7 +18,14 @@ from medre.core.events import (
     NativeMetadata,
 )
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
-from tests.helpers.matrix_events import matrix_native_data as _matrix_native
+from tests.helpers.native_metadata import (
+    lxmf_native_data,
+)
+from tests.helpers.native_metadata import matrix_native_data as _matrix_native
+from tests.helpers.native_metadata import (
+    meshcore_native_data,
+    meshtastic_native_data,
+)
 
 
 def _make_config(
@@ -1098,11 +1105,13 @@ class TestMeshCoreRendererRelayPrefix:
         renderer = MeshCoreRenderer(configs={"mc-relay": cfg})
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
-            native_data={
-                "longname": "Base Station",
-                "shortname": "BS",
-                "from_id": "!aabbcc",
-            },
+            native_data=meshtastic_native_data(
+                {
+                    "longname": "Base Station",
+                    "shortname": "BS",
+                    "from_id": "!aabbcc",
+                }
+            ),
         )
         result = await renderer.render(
             event,
@@ -1305,7 +1314,7 @@ class TestMeshCoreSourceOriginLabel:
         )
         event = _make_event_with_native(
             source_adapter="meshcore-1",
-            native_data={"meshcore.pubkey_prefix": "a1b2c3"},
+            native_data=meshcore_native_data({"pubkey_prefix": "a1b2c3"}),
         )
         result = await renderer.render(
             event,
@@ -1330,7 +1339,7 @@ class TestMeshCoreSourceOriginLabel:
         )
         event = _make_event_with_native(
             source_adapter="lxmf-1",
-            native_data={"source_hash": "feedface"},
+            native_data=lxmf_native_data({"source_hash": "feedface"}),
         )
         result = await renderer.render(
             event,

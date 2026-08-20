@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from medre.runtime.evidence._bundle import collect_evidence_bundle
+from tests.helpers.native_metadata import meshcore_native_data
 
 _EVIDENCE_TIMEOUT = 15
 
@@ -234,14 +235,15 @@ class TestEvidenceBundleWithMeshCoreAdapter:
                 payload={"body": "Test message from mesh"},
                 metadata=EventMetadata(
                     native=NativeMetadata(
-                        data={
-                            "meshcore.packet_id": 12345,
-                            "meshcore.sender_id": "cafe01",
-                            "meshcore.channel": 2,
-                            "meshcore.pubkey_prefix": "cafe01",
-                            "meshcore.txt_type": 0,
-                            "meshcore.is_direct_message": False,
-                        }
+                        data=meshcore_native_data(
+                            {
+                                "packet_id": 12345,
+                                "sender_id": "cafe01",
+                                "channel": 2,
+                                "pubkey_prefix": "cafe01",
+                                "txt_type": 0,
+                            }
+                        )
                     )
                 ),
                 source_native_ref=NativeRef(

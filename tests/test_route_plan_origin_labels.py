@@ -149,7 +149,8 @@ def test_route_level_label_when_no_per_entry(tmp_path: Path) -> None:
         "    directionality: source_to_dest\n"
         "    source_origin_label: RouteLabel\n"
         "    channel_room_map:\n"
-        "      0: '!a:fake.local'\n",
+        "      0:\n"
+        "        room: '!a:fake.local'\n",
     )
     plan = build_route_plan(config)
     leg = _crm_leg(plan, "mesh_to_matrix", "0")
@@ -228,8 +229,10 @@ def test_crm_route_falls_back_to_adapter_label_per_leg(tmp_path: Path) -> None:
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
         "    channel_room_map:\n"
-        "      0: '!a:fake.local'\n"
-        "      1: '!b:fake.local'\n",
+        "      0:\n"
+        "        room: '!a:fake.local'\n"
+        "      1:\n"
+        "        room: '!b:fake.local'\n",
     )
     plan = build_route_plan(config)
     entry = next(e for e in plan.routes if e.route_id == "mesh_to_matrix")
@@ -303,7 +306,8 @@ def test_route_level_label_overrides_adapter_fallback(tmp_path: Path) -> None:
         "    directionality: source_to_dest\n"
         "    source_origin_label: RouteOverride\n"
         "    channel_room_map:\n"
-        "      0: '!a:fake.local'\n",
+        "      0:\n"
+        "        room: '!a:fake.local'\n",
     )
     plan = build_route_plan(config)
     leg = _crm_leg(plan, "mesh_to_matrix", "0")
@@ -363,7 +367,8 @@ def test_explicit_empty_route_level_suppresses_adapter_fallback(
         "    directionality: source_to_dest\n"
         "    source_origin_label: ''\n"
         "    channel_room_map:\n"
-        "      0: '!a:fake.local'\n",
+        "      0:\n"
+        "        room: '!a:fake.local'\n",
     )
     plan = build_route_plan(config)
     leg = _crm_leg(plan, "mesh_to_matrix", "0")
@@ -441,7 +446,8 @@ def test_no_labels_anywhere_yields_unset(tmp_path: Path) -> None:
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
         "    channel_room_map:\n"
-        "      0: '!a:fake.local'\n",
+        "      0:\n"
+        "        room: '!a:fake.local'\n",
         adapters=_ADAPTERS_NO_ORIGIN,
     )
     plan = build_route_plan(config)

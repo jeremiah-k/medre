@@ -162,8 +162,7 @@ def assemble_event_timeline(
         "source_channel_id": event.source_channel_id,
     }
     # Optional identity fields — only included when present so that JSON
-    # output stays backward-compatible (no null keys for events that lack
-    # conversation identity).
+    # output stays compact by omitting null conversation-identity keys.
     if event.root_event_id is not None:
         event_data["root_event_id"] = event.root_event_id
     if event.conversation_id is not None:

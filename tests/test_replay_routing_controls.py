@@ -594,7 +594,7 @@ class TestReplayNoMutation:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst")])],
         )

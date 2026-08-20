@@ -161,39 +161,23 @@ numeric node ID.
 ### Contact-Label Enrichment
 
 At ingress the adapter resolves a known contact's advertised name via
-`session.resolve_contact_label(pubkey_prefix)`. The session calls
-`MeshCore.get_contact_by_key_prefix(prefix)` against the SDK's in-memory
-`contacts` dict, populated by `CONTACTS` events. The lookup is
-synchronous, issues no network call, never raises, and returns the
-contact's `adv_name` (stripped) or `None`. The codec records the result
-as `meshcore.contact_label` and `meshcore.contact_short_label` in native
-metadata.
-
-Contact keys are intentionally excluded from
-`MESHCORE_NAMESPACED_KEYS`. Platform detection relies on the core
-identity keys (`pubkey_prefix`, `sender_id`, `channel`, `packet_id`);
-contact labels are enrichment layered on top.
+`session.resolve_contact_label(pubkey_prefix)`. The lookup uses the SDK's
+in-memory contact state, issues no network call, and yields either a text label or
+`None`. The codec stores the result as `contact_label` and
+`contact_short_label` inside `metadata.native.data["meshcore"]`.
 
 ### Projection Rules
 
-| Generic field               | Source                                                                                                        |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `source_sender_id`          | `meshcore.pubkey_prefix` → `meshcore.sender_id` → bare `pubkey_prefix`                                        |
-| `source_sender_label`       | `meshcore.contact_label` only (human label; opaque pubkey never becomes label)                                |
-| `source_sender_short_label` | `meshcore.contact_short_label`, else compact derivation of `contact_label` (first whitespace-delimited token) |
-| `source_sender_handle`      | Not produced (the pubkey prefix is exposed via `source_sender_id`)                                            |
+| Generic field               | Source                                                            |
+| --------------------------- | ----------------------------------------------------------------- |
+| `source_sender_id`          | `native.meshcore.pubkey_prefix`, then `native.meshcore.sender_id` |
+| `source_sender_label`       | `native.meshcore.contact_label` only                              |
+| `source_sender_short_label` | `contact_short_label`, else first token of `contact_label`        |
+| `source_sender_handle`      | Not produced                                                      |
 
-When the sender is not a locally-known contact, both label fields are
-`None`. The opaque pubkey prefix never populates `source_sender_label`,
-so `{sender}` renders empty rather than a truncated hex string.
-Operators who want the pubkey prefix in a prefix use `{sender_id}`. The
-projection also emits `source_native_channel_id` and
-`source_native_message_id`.
-
-Per the opacity rule ([§17.5.9](../routing-delivery.md#1759-generic-sender-identity-semantics)),
-an opaque pubkey is not a label. When contact enrichment resolves a
-label, `{sender}` and `{sender_short}` populate for MeshCore-origin
-events; otherwise they resolve to empty strings.
+The dispatch detector recognizes any positively versioned `native.meshcore`
+object; field projection interprets only the current schema version. An opaque
+pubkey prefix is never promoted to a human-readable sender label.
 
 ### No Topology or Contact Canonical Events
 
@@ -210,6 +194,16 @@ SDK objects. See
 for the cross-transport policy.
 
 ---
+
+## Canonical Native Metadata
+
+Inbound MeshCore events persist one versioned object at
+`metadata.native.data["meshcore"]`. The normative machine contract is
+[`meshcore-native-metadata.schema.json`](../../schemas/meshcore-native-metadata.schema.json),
+and the representative payload is
+[`meshcore-native-metadata-example.json`](../../schemas/examples/meshcore-native-metadata-example.json).
+The codec builder in `medre.adapters.meshcore.event_shape` is the source
+implementation authority.
 
 ## Native Reference Format
 

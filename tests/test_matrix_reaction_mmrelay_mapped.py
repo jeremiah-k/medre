@@ -36,6 +36,7 @@ from medre.interop.mmrelay import (
 )
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
+from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 
 # ---------------------------------------------------------------------------
 # Helpers (imported from tests.helpers.matrix_stubs)
@@ -136,7 +137,9 @@ def _make_canonical_reaction_no_target(
         lineage=(),
         relations=(rel,),
         payload={"body": body, "msgtype": "m.text"},
-        metadata=EventMetadata(native=NativeMetadata(data={"room_id": room_id})),
+        metadata=EventMetadata(
+            native=NativeMetadata(data=matrix_native_data({"room_id": room_id}))
+        ),
     )
 
 
@@ -160,16 +163,30 @@ def _make_mesh_reaction(
         fallback_text=fallback_text,
         metadata=rel_metadata or {},
     )
-    nd = (
-        native_data
-        if native_data is not None
-        else {
-            "longname": longname,
-            "shortname": shortname,
-            "packet_id": packet_id,
-            "from_id": "!abcdef01",
+    if native_data is not None:
+        nd = native_data
+    else:
+        # When a Meshtastic-originated event crosses into Matrix the
+        # meshtastic adapter populates the cross-transport interop
+        # namespace under ``native.interop.mmrelay``.  Matrix reads
+        # cross-transport wire fields from there (per the boundary
+        # contract) rather than from ``native.meshtastic``.
+        nd = {
+            "meshtastic": {
+                "schema_version": 1,
+                "longname": longname,
+                "shortname": shortname,
+                "packet_id": packet_id,
+                "from_id": "!abcdef01",
+            },
+            "interop": {
+                "mmrelay": {
+                    "meshtastic_id": packet_id,
+                    "meshtastic_longname": longname,
+                    "meshtastic_shortname": shortname,
+                },
+            },
         }
-    )
     return CanonicalEvent(
         event_id="evt-mesh-reaction-001",
         event_kind=EventKind.MESSAGE_REACTED,
@@ -320,12 +337,15 @@ class TestMeshtasticToMatrixMappedReaction:
             payload={"body": "👍", "msgtype": "m.text"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={
-                        "longname": "Alpha Bravo",
-                        "shortname": "AB",
-                        "packet_id": "pkt-77",
-                        "from_id": "!node-1",
-                    }
+                    data=meshtastic_native_data(
+                        {
+                            "longname": "Alpha Bravo",
+                            "shortname": "AB",
+                            "packet_id": "pkt-77",
+                            "from_id": "!node-1",
+                            "channel": 0,
+                        }
+                    )
                 )
             ),
         )

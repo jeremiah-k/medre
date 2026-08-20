@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from medre.adapters.lxmf.errors import LxmfCodecError
+from medre.adapters.lxmf.event_shape import build_lxmf_native_metadata
 from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.core.contracts.adapter import AdapterCodec
@@ -201,25 +202,21 @@ class LxmfCodec(AdapterCodec):
 
         timestamp = native_event.get("timestamp")
 
-        native_meta_data: dict[str, object] = {
-            "source_hash": sender,
-            "destination_hash": dest_hash,
-            "message_id": pkt_id,
-            "timestamp": timestamp,
-            "title": title,
-            "delivery_method": native_event.get("delivery_method"),
-            "has_fields": classification["has_fields"],
-        }
-
         # Capture announce-derived display name when present at ingress.
         # The session populates ``source_name`` defensively via
         # ``getattr(message, "source_name", None)``; fake-mode packets
-        # may carry it directly.  Only non-empty values are injected so
-        # that the attribution projection leaves label fields ``None``
-        # when no real display name exists.
+        # may carry it directly.
         display_name = _extract_display_name(native_event.get("source_name"))
-        if display_name is not None:
-            native_meta_data["lxmf.display_name"] = display_name
+        native_meta_data = build_lxmf_native_metadata(
+            source_hash=sender,
+            destination_hash=dest_hash,
+            message_id=pkt_id,
+            timestamp=timestamp,
+            title=title,
+            delivery_method=native_event.get("delivery_method"),
+            has_fields=classification["has_fields"],
+            display_name=display_name,
+        )
 
         # Check for MEDRE envelope in fields
         fields = native_event.get("fields")

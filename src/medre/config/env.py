@@ -70,7 +70,7 @@ from medre.config.model import (
     RetryConfig,
     RuntimeConfig,
 )
-from medre.config.routes import ChannelRoomMapEntry, RouteConfig, RouteConfigSet
+from medre.config.routes import RouteConfig, RouteConfigSet
 
 __all__ = [
     "RETRY_ENV_PREFIX",
@@ -113,7 +113,7 @@ ROUTE_ENV_NAMES: frozenset[str] = frozenset()
 
 RETRY_ENV_PREFIX = "MEDRE_RETRY__"
 
-_REJECTED_LEGACY_PREFIXES: tuple[str, ...] = (
+_REJECTED_TRANSPORT_PREFIXES: tuple[str, ...] = (
     "MEDRE_MATRIX_",
     "MEDRE_MESHTASTIC_",
     "MEDRE_MESHCORE_",
@@ -723,8 +723,8 @@ class MedreEnvConfig:
         instance = cls()
         provenance = EnvProvenance()
 
-        # Reject legacy transport-specific env var prefixes.
-        legacy_found: list[str] = []
+        # Reject unsupported transport-specific env var prefixes.
+        rejected_found: list[str] = []
         for key in source:
             if key.startswith(_ADAPTER_ENV_PREFIX):
                 continue
@@ -732,14 +732,14 @@ class MedreEnvConfig:
                 continue
             if key.startswith(RETRY_ENV_PREFIX):
                 continue
-            for prefix in _REJECTED_LEGACY_PREFIXES:
+            for prefix in _REJECTED_TRANSPORT_PREFIXES:
                 if key.startswith(prefix):
-                    legacy_found.append(key)
+                    rejected_found.append(key)
                     break
-        if legacy_found:
+        if rejected_found:
             raise ConfigValidationError(
-                f"Legacy transport env variable(s) detected: "
-                f"{sorted(legacy_found)}. "
+                f"Unsupported transport env variable(s) detected: "
+                f"{sorted(rejected_found)}. "
                 f"These are no longer supported. Use instance-scoped "
                 f"MEDRE_ADAPTER__<TOKEN>__<FIELD> variables instead."
             )
@@ -1202,19 +1202,11 @@ def _build_route_data_from_env_fields(
         # not in the env-settable field list and must survive the override
         # round-trip so existing relay-prefix attribution is not dropped.
         if existing.channel_room_map is not None:
-            # ``existing.channel_room_map`` is normalized to
-            # ``dict[str, ChannelRoomMapEntry]`` by ``from_dict``. The
-            # re-parse below needs the plain dict shape (``dict[str, dict]``);
-            # passing the entry objects directly is rejected by the parser.
-            # Bare-string entries (legacy shape retained when ``RouteConfig``
-            # is constructed directly without going through ``from_dict``)
-            # are passed through unchanged — the parser re-normalizes them.
+            # ``existing.channel_room_map`` uses the sole supported in-memory
+            # shape: ``dict[str, ChannelRoomMapEntry]``. Re-serialize entries
+            # before validating the override result.
             route_data["channel_room_map"] = {
-                ch: (
-                    dataclasses.asdict(entry)
-                    if isinstance(entry, ChannelRoomMapEntry)
-                    else entry
-                )
+                ch: dataclasses.asdict(entry)
                 for ch, entry in existing.channel_room_map.items()
             }
         if existing.policy is not None:

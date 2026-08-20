@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import Any
 
+LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION = 1
+
 LXMF_NAMESPACE: str = "medre"
 """Namespace identifier for MEDRE within LXMF fields."""
 
@@ -112,7 +114,7 @@ class LxmfFieldsHelper:
             }
 
         envelope: dict[str, Any] = {
-            "schema_version": 1,
+            "schema_version": LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION,
             "event_id": event_id,
             "source_adapter": source_adapter,
             "source_transport_id": source_transport_id,
@@ -167,8 +169,11 @@ class LxmfFieldsHelper:
             if isinstance(raw, dict):
                 envelope = raw.get(LXMF_NAMESPACE)
                 if isinstance(envelope, dict):
-                    # Validate required fields
-                    if "schema_version" not in envelope:
+                    schema_version = envelope.get("schema_version")
+                    if (
+                        isinstance(schema_version, bool)
+                        or schema_version != LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION
+                    ):
                         return None
                     if "event_id" not in envelope:
                         return None

@@ -195,7 +195,9 @@ class TestEnvOverridePreservesOriginLabelsWithComplexFields:
         route = result.routes.routes[0]
         assert route.enabled is False
         # All preserved complex fields.
-        assert route.channel_room_map == {"0": "!room0:matrix.org"}
+        assert route.channel_room_map == {
+            "0": ChannelRoomMapEntry(room="!room0:matrix.org")
+        }
         assert route.policy is not None
         assert route.policy.allowed_event_types == ("message",)
         assert route.retry is not None

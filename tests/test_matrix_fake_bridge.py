@@ -242,13 +242,13 @@ def _make_adapter_context_for_pipeline(
 ) -> AdapterContext:
     """Create an AdapterContext wired to a PipelineRunner's ingress handler.
 
-    Wraps ``runner.ingress_handler`` in an adapter-compatible async callable
+    Wraps ``runner.handle_ingress`` in an adapter-compatible async callable
     that returns ``None`` (the pipeline returns ``list[DeliveryOutcome]``
     which is discarded at the adapter boundary).
     """
 
     async def _publish(event: CanonicalEvent) -> None:
-        await runner.ingress_handler(event)
+        await runner.handle_ingress(event)
 
     return AdapterContext(
         adapter_id=adapter_id,

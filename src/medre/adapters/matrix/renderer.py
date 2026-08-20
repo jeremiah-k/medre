@@ -22,6 +22,7 @@ from typing import Any, Mapping
 from medre.adapters._attribution_dispatch import project_source_fields
 from medre.adapters.matrix.event_shape import mmrelay_interop_fields
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
+from medre.adapters.meshtastic.event_shape import meshtastic_namespace
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.attribution import (
     RelayAttribution,
@@ -160,60 +161,28 @@ class MatrixRenderer:
     def _resolve_mmrelay_sender_names(
         native_data: dict[str, object],
     ) -> tuple[str, str]:
-        """Resolve mmrelay KEY_LONGNAME / KEY_SHORTNAME from native data.
+        """Resolve MMRelay sender names from current transport metadata.
 
-        Transport-specific metadata stays namespaced by transport, so
-        the Meshtastic-native namespaced keys win.  Per-field resolution
-        order:
-
-        1. Meshtastic-native namespaced metadata
-           (``meshtastic.longname`` / ``meshtastic.shortname``) — primary
-           source emitted by the Meshtastic codec.
-        2. External mmrelay wire fields (``meshtastic_longname`` /
-           ``meshtastic_shortname``) — current events carry these under
-           ``native.interop.mmrelay`` (resolved via
-           :func:`mmrelay_interop_fields`).
-        3. Legacy bare keys (``longname`` / ``shortname``) — input
-           tolerance only, not current emitted metadata.
-        4. Empty string.
-
-        Matrix ``displayname`` is intentionally **not** used — Matrix
-        display names project into generic ``{sender}`` via Matrix
-        attribution, not into Meshtastic-shaped mmrelay wire fields.
+        Meshtastic-originated canonical events use the versioned
+        ``native.meshtastic`` namespace.  Explicit MMRelay wire fields under
+        ``native.interop.mmrelay`` remain the fallback for externally encoded
+        MMRelay events.  Abandoned root/dotted MEDRE fields are not read.
         """
+        meshtastic = meshtastic_namespace(native_data)
         interop = mmrelay_interop_fields(native_data)
-        longname = (
-            native_data.get("meshtastic.longname")
-            or interop.get(KEY_LONGNAME)
-            or native_data.get("longname")  # legacy bare-key tolerance
-            or ""
-        )
-        shortname = (
-            native_data.get("meshtastic.shortname")
-            or interop.get(KEY_SHORTNAME)
-            or native_data.get("shortname")  # legacy bare-key tolerance
-            or ""
-        )
+        longname = meshtastic.get("longname") or interop.get(KEY_LONGNAME) or ""
+        shortname = meshtastic.get("shortname") or interop.get(KEY_SHORTNAME) or ""
         return str(longname), str(shortname)
 
     @staticmethod
     def _resolve_mmrelay_packet_id(native_data: dict[str, object]) -> str:
-        """Resolve the Meshtastic packet ID for mmrelay :data:`KEY_ID`.
-
-        Reads the namespaced ``meshtastic.packet_id`` key first (the
-        current shape emitted by
-        :class:`~medre.adapters.meshtastic.codec.MeshtasticCodec`); falls
-        back to the bare ``packet_id`` key for legacy stored events and
-        test fixtures produced before namespacing.  Returns the value as
-        a string, or an empty string when neither key is present.
-
-        Uses first-non-None-wins (not ``or``) so a valid packet id of
-        ``0`` is preserved rather than falling through to the legacy key.
-        """
-        pid = native_data.get("meshtastic.packet_id")
-        if pid is None:
-            pid = native_data.get("packet_id")
-        return str(pid) if pid is not None else ""
+        """Resolve the Meshtastic packet ID used by the MMRelay wire contract."""
+        meshtastic = meshtastic_namespace(native_data)
+        interop = mmrelay_interop_fields(native_data)
+        packet_id = meshtastic.get("packet_id")
+        if packet_id is None:
+            packet_id = interop.get(KEY_ID)
+        return str(packet_id) if packet_id is not None else ""
 
     def _build_source_attribution(
         self,
@@ -591,7 +560,6 @@ class MatrixRenderer:
         1. ``rel.metadata['meshtastic_text']`` or ``rel.metadata['text']``
         2. ``rel.fallback_text``
         3. Event native metadata ``native.interop.mmrelay.meshtastic_text``
-           or ``text``
         4. Empty string
         """
         # 1. Relation metadata (set by pipeline enrichment / codec)
@@ -607,9 +575,7 @@ class MatrixRenderer:
         # 3. Event native metadata fields
         if event.metadata and event.metadata.native:
             native_data = event.metadata.native.data
-            text = mmrelay_interop_fields(native_data).get(KEY_TEXT) or native_data.get(
-                "text"
-            )
+            text = mmrelay_interop_fields(native_data).get(KEY_TEXT)
             if text:
                 return str(text)
 
@@ -784,8 +750,7 @@ class MatrixRenderer:
         """
         import html as _html
 
-        # Normalize line endings before escaping so that Windows-style
-        # \r\n and legacy Mac \r are both converted to \n first.
+        # Normalize CRLF and CR line endings to LF before escaping.
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         escaped = _html.escape(normalized, quote=False)
         # Convert line breaks to <br/>

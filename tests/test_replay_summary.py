@@ -578,7 +578,7 @@ class TestReplaySummaryIntegration:
             async def transform_event(self, event):
                 return event
 
-            async def render_event(self, event):
+            async def render_replay_event(self, event):
                 return await render_pipe.render(event, "test_adapter")
 
             async def route_event(self, event):

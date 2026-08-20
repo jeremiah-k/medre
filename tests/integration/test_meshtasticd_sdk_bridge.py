@@ -357,7 +357,7 @@ class TestMeshtasticdSdkBridge:
         ctx = AdapterContext(
             adapter_id="sdk-bridge-in",
             event_bus=None,
-            publish_inbound=runner.ingress_handler,
+            publish_inbound=runner.handle_ingress,
             logger=logging.getLogger("test.sdk_bridge.sdk-bridge-in"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),

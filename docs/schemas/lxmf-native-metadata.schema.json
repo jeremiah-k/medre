@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/lxmf-native-metadata.schema.json",
+  "title": "MEDRE LXMF Native Metadata",
+  "description": "Versioned LXMF-native metadata stored in CanonicalEvent.metadata.native.data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["lxmf"],
+  "properties": {
+    "lxmf": {
+      "$ref": "#/$defs/LxmfEvent"
+    }
+  },
+  "$defs": {
+    "Scalar": {
+      "type": ["string", "integer", "number", "boolean", "null"]
+    },
+    "LxmfEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "source_hash",
+        "destination_hash",
+        "message_id",
+        "timestamp",
+        "title",
+        "delivery_method",
+        "has_fields"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "source_hash": { "type": "string" },
+        "destination_hash": { "type": ["string", "null"] },
+        "message_id": { "$ref": "#/$defs/Scalar" },
+        "timestamp": { "$ref": "#/$defs/Scalar" },
+        "title": { "type": "string" },
+        "delivery_method": { "$ref": "#/$defs/Scalar" },
+        "has_fields": { "type": "boolean" },
+        "display_name": { "type": "string", "minLength": 1 },
+        "short_name": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

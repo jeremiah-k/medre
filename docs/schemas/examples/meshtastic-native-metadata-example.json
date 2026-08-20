@@ -1,0 +1,36 @@
+{
+  "meshtastic": {
+    "schema_version": 1,
+    "packet_id": 123456,
+    "from_id": "!a1b2c3d4",
+    "channel": 0,
+    "portnum": "TEXT_MESSAGE_APP",
+    "to_id": "^all",
+    "is_direct_message": false,
+    "longname": "Field Node",
+    "shortname": "FN",
+    "reply_id": null,
+    "emoji": null,
+    "emoji_flag": null,
+    "packet": {
+      "id": 123456,
+      "fromId": "!a1b2c3d4"
+    },
+    "decoded": {
+      "text": "hello",
+      "portnum": "TEXT_MESSAGE_APP"
+    },
+    "classification": {
+      "action": "relay",
+      "category": "text",
+      "reason": "text_message",
+      "is_reply": false,
+      "is_reaction": false,
+      "emoji_flag": null,
+      "reaction_key": null,
+      "is_encrypted": false,
+      "is_detection_sensor": false,
+      "routeable": true
+    }
+  }
+}

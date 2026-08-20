@@ -1000,7 +1000,9 @@ class TestRouteOverridePreservesComplexFields:
         assert len(result.routes.routes) == 1
         route = result.routes.routes[0]
         assert route.enabled is False
-        assert route.channel_room_map == {"0": "!room1:matrix.org"}
+        assert route.channel_room_map == {
+            "0": ChannelRoomMapEntry(room="!room1:matrix.org")
+        }
 
     def test_policy_preserved_on_override(
         self, monkeypatch: pytest.MonkeyPatch

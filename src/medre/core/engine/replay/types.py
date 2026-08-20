@@ -19,7 +19,7 @@ class ReplayMode(Enum):
     STRICT:
         Exact replay -- verify event existence and integrity without
         invoking any pipeline stages.  No side effects.  Useful for
-        integrity checks and migration validation.
+        integrity and schema validation.
 
         **Guarantees:** read-only; no storage mutations; deterministic
         for the same stored events; re-raises unexpected exceptions.
@@ -47,7 +47,7 @@ class ReplayMode(Enum):
     BEST_EFFORT:
         Full re-processing including delivery to adapters.  Same as
         normal processing but sourced from historical events.  Useful
-        for migration and testing adapters with real data.
+        for recovery exercises and testing adapters with real data.
 
         **Guarantees:** **only** mode with side effects (adapter delivery);
         individual event failures are captured as ``"error"`` results

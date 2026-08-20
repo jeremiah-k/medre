@@ -1,5 +1,9 @@
 # Route Plan Dry-Run Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 Date: 2026-06-16
 Branch: `route-plan-dry-run`
 

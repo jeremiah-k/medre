@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from medre.runtime.evidence._bundle import collect_evidence_bundle
+from tests.helpers.native_metadata import lxmf_native_data
 
 _EVIDENCE_TIMEOUT = 15
 
@@ -231,15 +232,15 @@ class TestEvidenceBundleWithLxmfAdapter:
                 payload={"body": "Test LXMF message", "portnum": "lxmf"},
                 metadata=EventMetadata(
                     native=NativeMetadata(
-                        data={
-                            "source_hash": "ab" * 16,
-                            "destination_hash": "00" * 16,
-                            "message_id": "cd" * 32,
-                            "timestamp": 1700000000.0,
-                            "title": "",
-                            "delivery_method": "direct",
-                            "has_fields": False,
-                        }
+                        data=lxmf_native_data(
+                            {
+                                "source_hash": "ab" * 16,
+                                "destination_hash": "00" * 16,
+                                "message_id": "cd" * 32,
+                                "timestamp": 1700000000.0,
+                                "delivery_method": "direct",
+                            }
+                        )
                     )
                 ),
                 source_native_ref=NativeRef(

@@ -81,6 +81,7 @@ from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
 )
+from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.packet_classifier import (
     REASON_DETECTION_SENSOR,
     REASON_DIRECT_MESSAGE,
@@ -464,6 +465,7 @@ class MeshtasticAdapter(AdapterContract):
             metadata=MappingProxyType(
                 {
                     "meshtastic": {
+                        "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION,
                         "channel_index": channel_index,
                     }
                 }
@@ -1377,7 +1379,9 @@ class MeshtasticAdapter(AdapterContract):
         send_meta: dict[str, object] = {}
 
         # Merge delivery metadata into the ``meshtastic`` namespace.
-        meshtastic_meta: dict[str, object] = {}
+        meshtastic_meta: dict[str, object] = {
+            "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION
+        }
         transport_keys = {
             "id",
             "packet_id",
@@ -1389,15 +1393,14 @@ class MeshtasticAdapter(AdapterContract):
         }
         for k, v in (delivery.metadata or {}).items():
             if k == "meshtastic" and isinstance(v, Mapping):
-                meshtastic_meta.update(dict(v))
+                for nested_key, nested_value in v.items():
+                    if nested_key != "schema_version":
+                        meshtastic_meta[nested_key] = nested_value
             elif k in transport_keys:
                 meshtastic_meta[k] = v
             else:
-                # Defensive normalization: delivery metadata should already
-                # be namespaced under the transport key, but legacy or
-                # non-namespaced keys (e.g. source_bridge, seq) are placed
-                # into the meshtastic namespace rather than leaking to the
-                # top level of NativeMessageRef.metadata.
+                # Delivery metadata from SDK/fake boundaries is normalized
+                # under the Meshtastic namespace before persistence.
                 meshtastic_meta[k] = v
         # Add useful send context from the queued payload into the
         # meshtastic namespace (transport-specific data must live
@@ -1415,6 +1418,10 @@ class MeshtasticAdapter(AdapterContract):
         emoji = payload.get("emoji")
         if emoji is not None:
             meshtastic_meta["emoji"] = emoji
+
+        # The persisted namespace version is owned by this adapter, not by
+        # delivery-result metadata supplied by an SDK or test boundary.
+        meshtastic_meta["schema_version"] = MESHTASTIC_NATIVE_SCHEMA_VERSION
 
         # Always carry the transport key so the record is self-identifying
         # even when no Meshtastic-specific metadata is available.

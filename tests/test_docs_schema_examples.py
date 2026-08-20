@@ -1468,3 +1468,19 @@ def test_filter_hooks_nonempty_rejected_by_schema() -> None:
 
     with pytest.raises(jsonschema.ValidationError, match="maxItems"):
         jsonschema.validate(route, schema)
+
+
+def test_builtin_native_metadata_contracts_have_schema_example_pairs() -> None:
+    """Every built-in native metadata contract participates in conformance."""
+    expected = {
+        "matrix-native-metadata",
+        "meshtastic-native-metadata",
+        "meshcore-native-metadata",
+        "lxmf-native-metadata",
+    }
+    actual = {
+        example.stem.removesuffix("-example")
+        for example, schema in _example_schema_pairs()
+        if schema.stem.removesuffix(".schema") in expected
+    }
+    assert actual == expected

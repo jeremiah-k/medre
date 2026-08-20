@@ -110,8 +110,10 @@ routes:
     dest_adapters: [main]
     directionality: source_to_dest
     channel_room_map:
-      0: '!a:fake.local'
-      1: '!b:fake.local'
+      0:
+        room: '!a:fake.local'
+      1:
+        room: '!b:fake.local'
 """
 
 # A channel_room_map route with structured entries (per-entry labels).

@@ -24,7 +24,7 @@ selection from adapter naming conventions.
 Both ``can_render`` and ``render`` accept a frozen
 :class:`~medre.core.rendering.renderer.RenderingContext` carrying all
 dispatch metadata — delivery strategy, target identity, capability
-constraints, and text budgets.  No legacy signature parameters.
+constraints, and text budgets.  One strict renderer signature.
 
 **fallback_text strategy**
 

@@ -144,8 +144,7 @@ adapters:
 #                         as source_origin_label but applied when direction
 #                         is swapped during expansion.
 #   channel_room_map    - optional mapping of Meshtastic channel strings
-#                         ("0"-"7") to Matrix room IDs.  Each value may be
-#                         a bare room-ID string or a structured table with
+#                         ("0"-"7") to structured entries with required
 #                         ``room`` plus optional per-entry
 #                         ``source_origin_label`` / ``dest_origin_label``.
 #                         When present, the route is expanded at runtime

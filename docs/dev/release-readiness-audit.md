@@ -1,5 +1,14 @@
 # Release Readiness Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
+> **Current-state supersession.** Test and integration evidence has changed since
+> this snapshot. Current contract shape is summarized in
+> `current-state-inventory.md`; current release claims belong in
+> `docs/spec/appendices/release-readiness.md` and retained CI/evidence artifacts.
+
 Compact inventory of every artifact that carries release-significance claims.
 Each row records current status, source of truth, stale or conflicting language,
 required cleanup, and evidence class. This is an honest prerelease snapshot.

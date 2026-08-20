@@ -55,6 +55,7 @@ from medre.adapters.meshcore.codec import MeshCoreCodec
 from medre.adapters.meshcore.errors import (
     MeshCoreSendError,
 )
+from medre.adapters.meshcore.event_shape import MESHCORE_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshcore.packet_classifier import (
     REASON_ACK,
     REASON_EMPTY_TEXT,
@@ -508,7 +509,12 @@ class MeshCoreAdapter(AdapterContract):
             confirmation_level="local_transport",
             metadata=MappingProxyType(
                 {
-                    "meshcore": MappingProxyType({"local_acceptance": True}),
+                    "meshcore": MappingProxyType(
+                        {
+                            "schema_version": MESHCORE_NATIVE_SCHEMA_VERSION,
+                            "local_acceptance": True,
+                        }
+                    ),
                 }
             ),
         )

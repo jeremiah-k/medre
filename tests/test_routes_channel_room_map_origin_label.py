@@ -24,9 +24,9 @@ Also covers the two sentinel states renderers rely on:
 * explicit ``""`` → ``RouteSource.origin_label == ""`` so renderers
   suppress the adapter fallback (empty label wins).
 
-These behaviours must survive the YAML migration (config produced as
-plain dicts) unchanged, so tests construct ``RouteConfig`` directly and
-via ``from_dict`` to cover both shapes.
+These behaviours must survive structured config parsing unchanged, so tests
+construct ``RouteConfig`` directly and via ``from_dict`` to cover both entry
+points.
 """
 
 from __future__ import annotations
@@ -262,14 +262,14 @@ def test_none_labels_yield_none_origin_label() -> None:
 
 
 def test_unspecified_labels_default_to_none() -> None:
-    """from_dict path (YAML produces plain dicts): no labels → None."""
+    """Structured ``from_dict`` path with no labels yields ``None``."""
     rc = RouteConfig.from_dict(
         "t",
         {
             "source_adapters": ["matrix_adapter"],
             "dest_adapters": ["mesh_adapter"],
             "directionality": "bidirectional",
-            "channel_room_map": {"0": "!r0:example.com"},
+            "channel_room_map": {"0": {"room": "!r0:example.com"}},
         },
     )
     routes = _expand(rc, _PLATFORMS_MATRIX_SOURCE)

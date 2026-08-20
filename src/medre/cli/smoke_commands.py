@@ -208,19 +208,14 @@ async def _run_session(
             )
         if commands:
             print("  Commands:")
-            # commands_text is nested: { primary: {...}, specialized: {...} }
-            text_commands = commands.get("commands_text", commands)
-            if "primary" in text_commands and isinstance(
-                text_commands["primary"],
-                dict,
-            ):
-                for label, cmd in text_commands["primary"].items():
+            text_commands = commands.get("commands_text", {})
+            primary = text_commands.get("primary", {})
+            specialized = text_commands.get("specialized", {})
+            if isinstance(primary, dict):
+                for label, cmd in primary.items():
                     print(f"    {label}: {cmd}")
-                for label, cmd in text_commands.get("specialized", {}).items():
-                    print(f"    {label}: {cmd}")
-            else:
-                # Flat shape fallback.
-                for label, cmd in text_commands.items():
+            if isinstance(specialized, dict):
+                for label, cmd in specialized.items():
                     print(f"    {label}: {cmd}")
 
     sys.exit(0 if report["status"] == "passed" else 1)

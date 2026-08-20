@@ -625,8 +625,7 @@ class TestImmutableAfterIngress:
 
 
 class TestUnknownMetadataFields:
-    """Unknown fields in payloads and metadata are preserved, not stripped.
-    msgspec skips unknown fields during decode by default."""
+    """Extension mappings preserve data; the envelope ignores unknown fields."""
 
     def test_unknown_payload_fields_preserved_on_construction(self) -> None:
         """Unknown fields in payload dict are preserved."""
@@ -642,8 +641,9 @@ class TestUnknownMetadataFields:
     def test_json_decode_unknown_fields_skipped(self) -> None:
         """msgspec JSON decode skips unknown struct fields by default.
 
-        This is the expected behavior: unknown fields are silently
-        ignored during decode, preserving forward compatibility.
+        This is the envelope contract: fields outside the current versioned
+        struct are ignored. Producer extensions belong in payload or metadata
+        mappings, where they survive round-trips.
         """
         # Encode a valid event, inject an unknown field, re-decode
         event = _make_event()

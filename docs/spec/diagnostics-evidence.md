@@ -361,11 +361,11 @@ All operational evidence MUST be classified into exactly one of five runtime evi
 | **live_service** | Live Service | Recorded against a real external transport service with real network connectivity. Requires real credentials and endpoints. | "Against real endpoint E, behavior X was observed under conditions Y."                               |
 | **hardware**     | Hardware     | Recorded against a physical radio device connected via serial, TCP, or BLE. Requires physical hardware and firmware.        | "Against physical device D, behavior X was observed under conditions Y."                             |
 
-The legacy codes H, C, S, R remain in existing test outputs and evidence tables as accepted shorthand for historic / conformance / synthetic / runtime contexts. New evidence entries and machine-readable tier labels SHOULD use the five runtime tier names.
-
 ### 8.2 Classification Rules
 
-1. Every evidence table entry MUST include a `tier` field with one of the five runtime tier labels, or the archival historical label for prior-run documentation (or corresponding legacy code: H, C, S, or R with appropriate sub-classification).
+1. Every evidence table entry MUST include a `tier` field with one of the five
+   runtime tier labels, or the archival `historical` label for prior-run
+   documentation.
 2. Historical evidence MUST include the original recording date. It MUST NOT be presented as current.
 3. Synthetic evidence MUST NOT be used to support claims about real transport behavior.
 4. Docker evidence validates SDK integration and adapter wiring. It MUST NOT be used to support claims about external network behavior, federation, hardware operation, or real-world rate limits. Docker is not hardware.
@@ -477,14 +477,19 @@ Conformance evidence (`conformance` tier) is recorded against the current codeba
 
 The following claims are prohibited without explicit `live_service` or `hardware` tier evidence:
 
-1. **Reliability:** "Transport X reliably delivers messages." Requires R-tier sustained operation evidence.
-2. **Failure recovery:** "Transport X recovers from network failures." Requires R-tier reconnect evidence.
+1. **Reliability:** "Transport X reliably delivers messages." Requires
+   `live_service` or `hardware` sustained-operation evidence.
+2. **Failure recovery:** "Transport X recovers from network failures." Requires
+   `live_service` or `hardware` reconnect evidence.
 3. **E2EE security:** E2EE security is an upstream nio/vodozemac property. It is not a MEDRE claim regardless of evidence tier.
 4. **Production readiness:** No transport qualifies as production-ready. This claim is prohibited.
 5. **Ordering:** "Messages are delivered in order." No evidence supports ordering claims.
-6. **Latency bounds:** "Delivery latency is bounded by X ms." Requires R-tier evidence with timing measurements.
-7. **Start/stop safety:** "Repeated start/stop is safe in production." Requires R-tier start/stop cycle evidence.
-8. **Boundedness under load:** "Boundedness guarantees hold under load." Requires R-tier sustained operation evidence.
+6. **Latency bounds:** "Delivery latency is bounded by X ms." Requires
+   `live_service` or `hardware` evidence with timing measurements.
+7. **Start/stop safety:** "Repeated start/stop is safe in production." Requires
+   `live_service` or `hardware` start/stop-cycle evidence.
+8. **Boundedness under load:** "Boundedness guarantees hold under load." Requires
+   `live_service` or `hardware` sustained-operation evidence.
 
 Additionally, delivery evidence has explicit non-guarantees:
 
@@ -609,7 +614,7 @@ payloads.
 
 - Reconstruction when no valid persisted rendering evidence exists for the event.
   `RE_RENDER` requires at least one such receipt; once evidence exists, it restores
-  the available context and uses defined fallbacks for missing legacy fields.
+  the available context and uses defined fallbacks for missing optional evidence fields.
 - Cross-process or cross-restart replay-job recovery.
 - An exactly-once delivery guarantee. A non-empty run ID suppresses targets with
   visible acceptance evidence from the same run, but different/empty run IDs and
@@ -677,8 +682,9 @@ The LXMF renderer enforces `max_text_chars` (default 16384) from `RenderingConte
 
 The `RenderingEvidence` snapshot captures the budget constraints (`max_text_chars`, `max_text_bytes`) and the outcome (`truncated`, `rendered_text_chars`, `rendered_text_bytes`, `original_text_chars`, `original_text_bytes`). Evidence metrics are bounded and payload-free: only character and byte counts are recorded, never the rendered text itself.
 
-> **Known gap.** The rendering budget enforcement is tested at the S-tier level
-> (fake adapters and unit tests). No R-tier evidence exists for budget enforcement
+> **Known gap.** The rendering budget enforcement is tested at the `synthetic` tier
+> (fake adapters and unit tests). No `live_service` or `hardware` evidence
+> exists for budget enforcement
 > against a live LXMF router with real Reticulum transport. `RE_RENDER` reconstructs
 > the target rendering context from persisted receipt evidence, including historical
 > budgets, strategy, capability level, platform, and source-origin label. Older
@@ -722,7 +728,8 @@ When `outbox_id` is present on the outbound ref, `append_queued_to_sent_receipt(
 3. `delivery_plan_id` is validated against the outbox item's `delivery_plan_id` when present. A mismatch causes the callback to be rejected. When absent, correlation proceeds via `outbox_id` but validation is skipped. Missing `delivery_plan_id` on an otherwise valid callback (outbox_id + attempt_number present and matching) is NOT a correlation failure — it is degraded validation metadata only.
 4. All ambiguous correlation skips and hard-rejections for missing `outbox_id` or `attempt_number` MUST log at warning level. Missing `delivery_plan_id` validation skips on otherwise valid callbacks MAY remain at debug level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, outbox_id, attempt_number, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
 5. The `delivery_plan_id` on `OutboundNativeRefRecord` is a validation field. It is not stored in `native_message_refs` storage and is not used for receipt selection.
-6. Queue acceptance evidence (S-tier) confirms the local node accepted the packet. It does not confirm RF delivery. See § 11 for non-guarantees.
+6. Local queue-acceptance evidence confirms that the local node accepted the
+   packet. It does not confirm RF delivery. See § 11 for non-guarantees.
 7. When all matching queued receipt candidates are replay-sourced (`source="replay"`), the pipeline MUST NOT create a supplemental sent receipt, MUST NOT transition the outbox from `queued` to `sent`, and MUST log a warning. `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance, so replay-only queued receipts cannot be safely used for callback correlation. This restriction applies to both single-candidate and multi-candidate paths. It MAY be relaxed in a future version when callback records carry trusted replay provenance.
 8. If `delivery_plan_id` is absent on a callback but `outbox_id` and `attempt_number` are present and valid, that is NOT a correlation failure. The callback is processed normally; only the delivery_plan_id validation is skipped.
 

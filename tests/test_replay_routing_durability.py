@@ -87,7 +87,7 @@ class _StubPipeline:
     async def transform_event(self, event: CanonicalEvent) -> CanonicalEvent:
         return event
 
-    async def render_event(self, event: CanonicalEvent) -> Any:
+    async def render_replay_event(self, event: CanonicalEvent) -> Any:
         if self._rendering_pipeline is not None:
             return await self._rendering_pipeline.render(event, "test_adapter")
         return None
@@ -184,7 +184,7 @@ class TestReplayCancellation:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst")])],
         )
@@ -240,7 +240,7 @@ class TestReplayCancellation:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst")])],
         )
@@ -268,7 +268,7 @@ class TestReplayCancellation:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst")])],
         )
@@ -359,7 +359,7 @@ class TestReplayDegradedPipeline:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(side_effect=lambda e: e)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst")])],
         )
@@ -391,7 +391,7 @@ class TestReplayDegradedPipeline:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=event)
-        pipeline.render_event = AsyncMock(
+        pipeline.render_replay_event = AsyncMock(
             side_effect=RuntimeError("renderer crashed"),
         )
 
@@ -463,7 +463,7 @@ class TestReplayShutdown:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(side_effect=lambda e: e)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst")])],
         )
@@ -890,7 +890,7 @@ class TestRouteFilteringUnderPressure:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst-a")])],
         )
@@ -929,7 +929,7 @@ class TestReplayCapacityPressure:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(side_effect=lambda e: e)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst")])],
         )
@@ -994,7 +994,7 @@ class TestReplayCapacityPressure:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst")])],
         )
@@ -1049,7 +1049,7 @@ class TestCancelledErrorPropagation:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(
             return_value=[("route", [RouteTarget(adapter="dst")])],
         )

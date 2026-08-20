@@ -5,11 +5,10 @@ order per field.
 
 Per-field precedence (longname / shortname each resolved independently):
 
-1. Meshtastic-native namespaced (``meshtastic.longname`` /
-   ``meshtastic.shortname``) — primary, emitted by the codec.
+1. Versioned ``native.meshtastic`` identity fields — primary, emitted by
+   the codec.
 2. External mmrelay wire fields under ``native.interop.mmrelay``.
-3. Legacy bare keys (``longname`` / ``shortname``) — input tolerance.
-4. Empty string.
+3. Empty string.
 
 Matrix ``displayname`` never projects into these wire fields.
 """
@@ -18,35 +17,37 @@ from __future__ import annotations
 
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.interop.mmrelay import KEY_LONGNAME, KEY_SHORTNAME
+from tests.helpers.native_metadata import meshtastic_native_data
 
 
 def _interop(**fields: object) -> dict[str, object]:
     return {"interop": {"mmrelay": fields}}
 
 
-def test_namespaced_longname_is_primary() -> None:
-    """Namespaced meshtastic.longname resolves to KEY_LONGNAME."""
+def test_meshtastic_longname_is_primary() -> None:
+    """Versioned Meshtastic longname resolves to KEY_LONGNAME."""
     longname, _ = MatrixRenderer._resolve_mmrelay_sender_names(
-        {"meshtastic.longname": "Alpha Node"}
+        meshtastic_native_data({"longname": "Alpha Node"})
     )
     assert longname == "Alpha Node"
 
 
-def test_namespaced_shortname_is_primary() -> None:
-    """Namespaced meshtastic.shortname resolves to KEY_SHORTNAME."""
+def test_meshtastic_shortname_is_primary() -> None:
+    """Versioned Meshtastic shortname resolves to KEY_SHORTNAME."""
     _, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
-        {"meshtastic.shortname": "AN"}
+        meshtastic_native_data({"shortname": "AN"})
     )
     assert shortname == "AN"
 
 
-def test_namespaced_wins_over_bare() -> None:
-    """When both namespaced and bare keys exist, namespaced wins."""
+def test_meshtastic_namespace_ignores_unversioned_root_fields() -> None:
+    """Versioned identity wins over unrelated root-level fields."""
     longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
         {
-            "meshtastic.longname": "Namespaced Long",
+            **meshtastic_native_data(
+                {"longname": "Namespaced Long", "shortname": "NS"}
+            ),
             "longname": "Bare Long",
-            "meshtastic.shortname": "NS",
             "shortname": "BS",
         }
     )
@@ -72,28 +73,28 @@ def test_key_constant_resolves() -> None:
     assert shortname == "CS"
 
 
-def test_bare_key_legacy_tolerance() -> None:
-    """Bare longname/shortname still resolve (legacy input tolerance)."""
+def test_unversioned_root_identity_is_not_interpreted() -> None:
+    """Root-level Meshtastic identity is not canonical native metadata."""
     longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
         {"longname": "Bare Long", "shortname": "BS"}
     )
-    assert longname == "Bare Long"
-    assert shortname == "BS"
+    assert longname == ""
+    assert shortname == ""
 
 
-def test_namespaced_wins_over_wire() -> None:
-    """Namespaced takes precedence over external mmrelay wire fields."""
+def test_meshtastic_namespace_wins_over_wire() -> None:
+    """Current Meshtastic identity takes precedence over MMRelay wire fields."""
     longname, _ = MatrixRenderer._resolve_mmrelay_sender_names(
         {
-            "meshtastic.longname": "Primary",
+            **meshtastic_native_data({"longname": "Primary"}),
             "interop": {"mmrelay": {"meshtastic_longname": "Wire"}},
         }
     )
     assert longname == "Primary"
 
 
-def test_wire_wins_over_bare() -> None:
-    """External mmrelay wire fields take precedence over legacy bare."""
+def test_wire_identity_ignores_unversioned_root_fields() -> None:
+    """External MMRelay identity wins when Meshtastic native data is absent."""
     longname, _ = MatrixRenderer._resolve_mmrelay_sender_names(
         {
             "interop": {"mmrelay": {"meshtastic_longname": "Wire"}},
@@ -132,9 +133,9 @@ def test_longname_and_shortname_resolve_independently() -> None:
     """Each field resolves independently through its own chain."""
     longname, shortname = MatrixRenderer._resolve_mmrelay_sender_names(
         {
-            "meshtastic.longname": "Long From Namespaced",
-            "shortname": "Short From Bare",
+            **meshtastic_native_data({"longname": "Long From Namespace"}),
+            "interop": {"mmrelay": {"meshtastic_shortname": "Short From Wire"}},
         }
     )
-    assert longname == "Long From Namespaced"
-    assert shortname == "Short From Bare"
+    assert longname == "Long From Namespace"
+    assert shortname == "Short From Wire"

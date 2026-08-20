@@ -386,8 +386,6 @@ def _build_leg(
         entry = rc.channel_room_map.get(crm_key)
         if isinstance(entry, ChannelRoomMapEntry):
             crm_room = entry.room
-        elif isinstance(entry, str):
-            crm_room = entry
 
     effective_label, label_source = _resolve_effective_origin_label(
         route=route,

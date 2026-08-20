@@ -313,16 +313,16 @@ def test_config_from_dict_allows_duplicate_rooms() -> None:
         "dest_adapters": ["matrix_adapter"],
         "directionality": "source_to_dest",
         "channel_room_map": {
-            "0": _SHARED_ROOM,
-            "1": _SHARED_ROOM,
+            "0": {"room": _SHARED_ROOM},
+            "1": {"room": _SHARED_ROOM},
         },
     }
     rc = RouteConfig.from_dict("fanin_route", data)
     assert rc.channel_room_map is not None
     assert set(rc.channel_room_map.keys()) == {"0", "1"}
-    # Both entries normalise to the same room value.
-    assert rc.channel_room_map["0"] == _SHARED_ROOM
-    assert rc.channel_room_map["1"] == _SHARED_ROOM
+    # Both entries normalize to the same room value.
+    assert rc.channel_room_map["0"].room == _SHARED_ROOM
+    assert rc.channel_room_map["1"].room == _SHARED_ROOM
 
 
 def test_duplicate_channel_keys_still_rejected() -> None:
@@ -336,8 +336,8 @@ def test_duplicate_channel_keys_still_rejected() -> None:
         "source_adapters": ["mesh_adapter"],
         "dest_adapters": ["matrix_adapter"],
         "channel_room_map": {
-            "1": "!room_one:example.com",
-            1: "!room_one_dup:example.com",
+            "1": {"room": "!room_one:example.com"},
+            1: {"room": "!room_one_dup:example.com"},
         },
     }
     with pytest.raises(ConfigValidationError, match="duplicate channel"):

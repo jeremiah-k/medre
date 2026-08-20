@@ -1,5 +1,9 @@
 # Runtime Execution Authority Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 > **Classification:** Developer reference (derived from source audit, not normative)
 > **Audience:** Runtime developers, code reviewers.
 > **Authority:** `docs/spec/` pages are the normative specification. This document

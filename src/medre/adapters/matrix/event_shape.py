@@ -180,12 +180,7 @@ def matrix_relay_metadata(content: dict[str, Any]) -> dict[str, object] | None:
         envelope.metadata_mode,
         envelope.native_source_summary,
     )
-    if (
-        isinstance(envelope.schema_version, bool)
-        or not isinstance(envelope.schema_version, int)
-        or envelope.schema_version < 1
-        or not all(isinstance(value, str) for value in string_fields)
-    ):
+    if not all(isinstance(value, str) for value in string_fields):
         return None
     return {
         "medre_envelope": {

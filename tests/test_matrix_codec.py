@@ -11,6 +11,7 @@ import pytest
 
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.errors import MatrixCodecError
+from medre.adapters.matrix.metadata import MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.events.kinds import EventKind
 
@@ -137,6 +138,7 @@ class TestMatrixCodec:
             "body": "hello",
             "medre": {
                 "envelope": {
+                    "schema_version": MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION,
                     "canonical_event_id": "orig-001",
                     "source_adapter": "transport-1",
                 }

@@ -1364,10 +1364,8 @@ Formatting rules: `None`/missing values format as empty strings. Unknown
 placeholders are left unchanged in the output and recorded in diagnostic
 metadata. The formatter never raises exceptions.
 
-The following legacy placeholders were removed when the attribution surface
-was canonicalized (see _Clean Attribution Surface — Canonical Variables
-Only_ in the changelog). They are no longer resolved and pass through as
-literals:
+The following placeholders are outside the current attribution surface and
+are no longer resolved. They pass through as literals:
 
 | Removed placeholder | Current behavior                |
 | ------------------- | ------------------------------- |
@@ -1377,8 +1375,8 @@ literals:
 | `{shortname5}`      | Unknown — left as literal text. |
 | `{from_id}`         | Unknown — left as literal text. |
 
-Operators with prefix templates that still reference these names MUST
-migrate to the canonical variables listed in the Meshtastic Transport
+Prefix templates using these names MUST be updated to the canonical variables
+listed in the Meshtastic Transport
 Profile §Relay Attribution Prefix (e.g. `{origin_label}`, `{sender}`,
 `{sender_short}`, `{sender_id}`).
 
@@ -1429,7 +1427,8 @@ and `original_sender` from a `SenderProjectionFn` callback wired by the
 runtime builder. This callback delegates to the adapter-local attribution
 dispatch and returns a JSON-safe dict of generic `RelayAttribution`-shaped
 fields. Core planning never reads transport-native identity keys such as
-`displayname`, `meshtastic.longname`, bare `longname`, or bare `sender`.
+`native.matrix.sender_display_name`, `native.meshtastic.longname`,
+`native.meshcore.contact_label`, or `native.lxmf.display_name`.
 When no callback is wired, `original_sender` falls back only to the
 generic `source_transport_id` field and `original_sender_displayname`
 stays unset.
@@ -1444,9 +1443,8 @@ the generic fields. Core renderers and the shared formatter need no changes.
 
 **Per-context labels for `channel_room_map`.** A `channel_room_map`
 entry MAY carry its own origin labels in addition to the route-level
-`source_origin_label` / `dest_origin_label`. Each entry accepts either a
-bare canonical room-ID string (the original shape, no per-entry labels)
-or a structured table with three fields:
+`source_origin_label` / `dest_origin_label`. Every entry is a structured
+table with three fields:
 
 | Field                 | Type            | Default | Notes                                                              |
 | --------------------- | --------------- | ------- | ------------------------------------------------------------------ |
@@ -1459,10 +1457,9 @@ and `dest_origin_label`. Any other keys MUST be rejected. A
 `source_origin_label` or `dest_origin_label` value that is a boolean or
 otherwise not a string MUST be rejected — the boolean check runs before
 the generic string check, matching the route-level label validation in
-§17.5.2. The bare-string shape remains valid and carries no per-entry
-labels; an entry's effective labels then resolve to the route-level
-labels. Bare-string and structured entries MAY be mixed freely within a
-single `channel_room_map`.
+§17.5.2. Bare room-ID values are not an alternate representation and MUST
+be rejected. An entry whose per-entry labels are absent or `nil` resolves
+those labels through the route-level precedence described below.
 
 The per-leg `origin_label` precedence for a `channel_room_map` route is:
 

@@ -844,7 +844,7 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 - **MUST NOT** update an existing row. Every call creates a new row.
 - `source` defaults to `"live"`. Retry deliveries set `"retry"`. Replay deliveries set `"replay"` and populate `replay_run_id`.
 - `confirmation_level` uses `"unknown"` when no stronger delivery fact is available,
-  including missing legacy evidence and non-success receipts. Successful adapter
+  including missing confirmation evidence and non-success receipts. Successful adapter
   handoffs record the strongest fact actually proven and never infer end-to-end
   delivery from lifecycle status.
 

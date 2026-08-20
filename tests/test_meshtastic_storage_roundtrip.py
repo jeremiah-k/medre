@@ -25,6 +25,7 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.events.metadata import NativeMetadata
+from tests.helpers.native_metadata import meshtastic_native_data
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -86,19 +87,14 @@ def _make_meshtastic_canonical_event(
         payload={"body": body, "portnum": "text_message"},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={
-                    "packet_id": packet_id,
-                    "from_id": node_id,
-                    "channel": channel,
-                    "portnum": "text_message",
-                    "to_id": "",
-                    "is_direct_message": False,
-                    "longname": "",
-                    "shortname": "",
-                    "reply_id": None,
-                    "emoji": None,
-                    "emoji_flag": None,
-                }
+                data=meshtastic_native_data(
+                    {
+                        "packet_id": packet_id,
+                        "from_id": node_id,
+                        "channel": channel,
+                        "portnum": "text_message",
+                    }
+                )
             )
         ),
         source_native_ref=NativeRef(
@@ -168,7 +164,7 @@ class TestMeshtasticCodecEventStorageRoundtrip:
         retrieved = await temp_storage.get(canonical.event_id)
 
         assert retrieved is not None
-        ndata = retrieved.metadata.native.data
+        ndata = retrieved.metadata.native.data["meshtastic"]
         assert ndata["packet_id"] == 777
         assert ndata["from_id"] == "!node99"
         assert ndata["channel"] == 3
@@ -289,19 +285,15 @@ class TestMeshtasticNativeRefStorage:
             payload={"body": "Reply to original", "portnum": "text_message"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={
-                        "packet_id": 401,
-                        "from_id": "!nodeB",
-                        "channel": 0,
-                        "portnum": "text_message",
-                        "to_id": "",
-                        "is_direct_message": False,
-                        "longname": "",
-                        "shortname": "",
-                        "reply_id": 400,
-                        "emoji": None,
-                        "emoji_flag": None,
-                    }
+                    data=meshtastic_native_data(
+                        {
+                            "packet_id": 401,
+                            "from_id": "!nodeB",
+                            "channel": 0,
+                            "portnum": "text_message",
+                            "reply_id": 400,
+                        }
+                    )
                 )
             ),
         )

@@ -125,49 +125,41 @@ generic `RelayAttribution` sender fields (see
 Projection is owned by `project_matrix_attribution` in the Matrix
 adapter package; core rendering consumes only the generic fields.
 
-At ingress, the codec records the sender MXID (`@user:domain`) in the
-`sender` native-metadata key. After codec decode, the adapter enriches
-native metadata with the room-member display name read from already-synced
-homeserver member state. No extra network call is issued during
-enrichment. When no member display name is available, the adapter falls
-back to the MXID as the `displayname` value for live rendering.
+At ingress, the codec records Matrix-native identity under the versioned
+`metadata.native.data["matrix"]` object. The sender MXID is stored as `sender`.
+After codec decode, the adapter enriches `sender_display_name` from already-synced
+homeserver member state. No extra network call is issued during enrichment. When
+no member display name is available, the adapter records the MXID as the live
+`sender_display_name` fallback.
 
-| Generic field               | Source                                                                     |
-| --------------------------- | -------------------------------------------------------------------------- |
-| `source_sender_id`          | `sender` (full MXID)                                                       |
-| `source_sender_handle`      | `sender` (full MXID; the MXID is the Matrix handle form)                   |
-| `source_sender_label`       | `displayname` or `display_name` (display name only, no localpart fallback) |
-| `source_sender_short_label` | MXID localpart via `extract_mxid_localpart` (`None` when absent)           |
+| Generic field               | Source                                      |
+| --------------------------- | ------------------------------------------- |
+| `source_sender_id`          | `native.matrix.sender` (full MXID)          |
+| `source_sender_handle`      | `native.matrix.sender` (full MXID)          |
+| `source_sender_label`       | `native.matrix.sender_display_name` only    |
+| `source_sender_short_label` | MXID localpart via `extract_mxid_localpart` |
 
-The dispatch projection populates `source_sender_label` from the display
-name only. An empty or absent display name leaves `source_sender_label`
-as `None`; the MXID localpart is never substituted into the label. The
-adapter-level MXID-as-displayname fallback affects live rendering
-enrichment, not the dispatch projection rules.
+The dispatch projection reads only the current Matrix native schema version. An
+empty or absent display name leaves `source_sender_label` as `None`; the MXID
+localpart is never substituted into that label by the projection itself.
 
-`extract_mxid_localpart` is deterministic for malformed MXIDs. An empty
-localpart after `@` (for example `@:domain`) returns `""` rather than
-including the colon and domain. Empty or `None` display names stay
-`None`; the literal text `"None"` is never rendered.
+`extract_mxid_localpart` is deterministic for malformed MXIDs. An empty localpart
+after `@` (for example `@:domain`) returns `""` rather than including the colon
+and domain. Empty or `None` display names stay `None`; the literal text `"None"`
+is never rendered.
 
 ### mmrelay Wire-Key Boundary
 
-The Matrix display name is never converted to mmrelay wire keys
-(`KEY_LONGNAME` / `KEY_SHORTNAME`). The renderer reads mmrelay wire keys
-from inbound event content (`_capture_mmrelay_fields`) when they are
-present; it does not synthesize them from the display name. mmrelay
-`KEY_LONGNAME` and `KEY_SHORTNAME` are isolated wire-compatibility
-fields, not MEDRE attribution variables.
+The Matrix display name is never converted to MMRelay wire keys
+(`KEY_LONGNAME` / `KEY_SHORTNAME`). Captured MMRelay scalar fields live under
+`metadata.native.data["interop"]["mmrelay"]`; they are external wire
+interoperability, not Matrix-native identity fields.
 
 ### mmrelay Packet-ID Resolution
 
-`MatrixRenderer._resolve_mmrelay_packet_id` resolves the Meshtastic
-packet ID for mmrelay `KEY_ID` by reading `meshtastic.packet_id` first
-(the current namespaced shape emitted by the Meshtastic codec), falling
-back to bare `packet_id` for legacy stored events and test fixtures
-produced before non-identity namespacing. The method uses
-first-non-None-wins semantics so a valid packet ID of `0` is preserved
-rather than falling through to the legacy key.
+`MatrixRenderer._resolve_mmrelay_packet_id` reads the current Meshtastic native
+shape at `metadata.native.data["meshtastic"]["packet_id"]`. It does not read an
+older flat or dotted MEDRE metadata representation.
 
 ### Display-Name Staleness
 

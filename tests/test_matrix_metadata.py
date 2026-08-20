@@ -4,7 +4,10 @@ secret exclusion, and schema defaults.
 
 from __future__ import annotations
 
-from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
+from medre.adapters.matrix.metadata import (
+    MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION,
+    MatrixMetadataEnvelope,
+)
 
 
 class TestMatrixMetadataEnvelope:
@@ -12,7 +15,7 @@ class TestMatrixMetadataEnvelope:
 
     def test_round_trip_parse_render(self) -> None:
         envelope = MatrixMetadataEnvelope(
-            schema_version=1,
+            schema_version=MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION,
             canonical_event_id="evt-001",
             source_adapter="matrix-1",
             source_channel="!room:server",
@@ -38,6 +41,7 @@ class TestMatrixMetadataEnvelope:
         content = {
             "medre": {
                 "envelope": {
+                    "schema_version": MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION,
                     "canonical_event_id": "evt-002",
                     "source_adapter": "matrix-1",
                     "unknown_future_field": "should not break",
@@ -69,9 +73,31 @@ class TestMatrixMetadataEnvelope:
         assert "password" not in rendered_str
         assert "secret" not in rendered_str
 
-    def test_schema_version_default(self) -> None:
+    def test_schema_version_default_is_current(self) -> None:
         envelope = MatrixMetadataEnvelope()
-        assert envelope.schema_version == 1
+        assert envelope.schema_version == MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION
+
+    def test_missing_schema_version_is_not_interpreted(self) -> None:
+        content = {
+            "medre": {
+                "envelope": {
+                    "canonical_event_id": "evt-unversioned",
+                    "source_adapter": "matrix-1",
+                }
+            }
+        }
+        assert MatrixMetadataEnvelope.from_content(content) is None
+
+    def test_unsupported_schema_version_is_not_interpreted(self) -> None:
+        content = {
+            "medre": {
+                "envelope": {
+                    "schema_version": MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION + 1,
+                    "canonical_event_id": "evt-future",
+                }
+            }
+        }
+        assert MatrixMetadataEnvelope.from_content(content) is None
 
     def test_envelope_with_all_empty_fields_is_valid(self) -> None:
         """Envelope with default empty fields is still decoded correctly."""
@@ -81,14 +107,14 @@ class TestMatrixMetadataEnvelope:
         assert parsed is not None
         assert parsed.canonical_event_id == ""
         assert parsed.source_adapter == ""
-        assert parsed.schema_version == 1
+        assert parsed.schema_version == MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION
 
-    def test_schema_version_must_be_positive(self) -> None:
-        """__post_init__ rejects non-positive schema_version."""
+    def test_schema_version_must_match_current_contract(self) -> None:
         import pytest
 
-        with pytest.raises(ValueError, match="positive integer"):
-            MatrixMetadataEnvelope(schema_version=0)
+        for version in (0, True, MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION + 1):
+            with pytest.raises(ValueError, match="must match"):
+                MatrixMetadataEnvelope(schema_version=version)
 
     def test_frozen_dataclass_prevents_mutation(self) -> None:
         """Envelope is frozen and cannot be mutated after creation."""

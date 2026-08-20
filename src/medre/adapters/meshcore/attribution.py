@@ -1,64 +1,20 @@
-"""MeshCore-native to generic attribution projection helper.
+"""Project versioned MeshCore native metadata into generic attribution.
 
-Projects MeshCore-specific native metadata (the ``meshcore.*`` namespaced
-keys produced by :class:`~medre.adapters.meshcore.codec.MeshCoreCodec`,
-plus the bare fixture keys used for backward compatibility) into generic
-attribution fields used by the relay rendering pipeline.
-
-The attribution dispatch (``_attribution_dispatch.project_source_fields``)
-delegates to this helper when the source platform is detected as
-MeshCore.  Core rendering has no MeshCore-specific key knowledge.
-
-The module imports **no adapter packages** and never touches SDK objects;
-all data arrives as plain dicts.
-
-Generic fields produced
------------------------
-* ``source_sender_id`` — native sender identifier (pubkey prefix).
-* ``source_native_channel_id`` — MeshCore channel index.
-* ``source_native_message_id`` — MeshCore packet ID (sender timestamp).
-* ``source_sender_label`` — known-contact advertised name
-  (``meshcore.contact_label``), or ``None`` when the sender is not a
-  locally-known contact.  Opaque pubkey prefixes never populate this
-  field; use ``{sender_id}`` in templates to expose the pubkey.
-* ``source_sender_short_label`` — explicit ``meshcore.contact_short_label``
-  when present, otherwise the first whitespace-delimited token of the
-  contact label.  ``None`` when no contact label is available.
-
-Resolution order
-----------------
-``source_sender_id``
-    ``meshcore.pubkey_prefix`` → ``meshcore.sender_id`` → bare
-    ``pubkey_prefix``.  Each candidate is checked for a non-empty value
-    before falling through.
-
-``source_native_channel_id``
-    ``meshcore.channel`` → bare ``channel_idx``.
-
-``source_native_message_id``
-    ``meshcore.packet_id``.
-
-``source_sender_label``
-    ``meshcore.contact_label``.  Only non-empty real human labels
-    populate this field.  Values are validated with a strict string-only
-    helper (:func:`_contact_label_str` in this module): non-string inputs
-    (ints, dicts, etc.) yield ``None`` rather than being coerced via
-    ``str()``.  The adapter injects this key at ingress when the
-    session's local contacts store recognises the sender pubkey.
-
-``source_sender_short_label``
-    ``meshcore.contact_short_label`` → first whitespace-delimited token
-    of ``meshcore.contact_label``.  ``None`` when no contact label is
-    available.  Subject to the same strict string-only validation as
-    ``source_sender_label``.
+The codec persists transport identity, channel, packet, and contact labels under
+``native.meshcore``. Platform detection accepts a positively versioned MeshCore
+namespace; field projection reads only the current schema version.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from medre.adapters.meshcore.event_shape import (
+    meshcore_namespace,
+    meshcore_versioned_namespace,
+)
+
 __all__ = [
-    "MESHCORE_NAMESPACED_KEYS",
     "ProjectionMap",
     "is_meshcore_native",
     "project_meshcore_attribution",
@@ -67,105 +23,24 @@ __all__ = [
 # Type alias for the generic field map returned by the projection helper.
 ProjectionMap = dict[str, str | None]
 
-#: Characteristic MeshCore native-metadata keys (namespaced).  Presence of
-#: any of these identifies a native dict as MeshCore-shaped.  Mirrors the
-#: set used by the core platform-detection fallback.
-#:
-#: Contact-label keys (``meshcore.contact_label``,
-#: ``meshcore.contact_short_label``) are intentionally excluded because a
-#: dict carrying only those keys lacks the core identity signals
-#: (pubkey_prefix, sender_id, channel, packet_id) that make a dict
-#: unambiguously MeshCore-native.  Detection relies on those identity
-#: keys; contact labels are enrichment layered on top.
-MESHCORE_NAMESPACED_KEYS: frozenset[str] = frozenset(
-    {
-        "meshcore.pubkey_prefix",
-        "meshcore.sender_id",
-        "meshcore.channel",
-        "meshcore.packet_id",
-    }
-)
-
 
 def is_meshcore_native(native_data: dict[str, Any]) -> bool:
-    """Return ``True`` when *native_data* carries MeshCore namespaced keys.
-
-    Useful for platform detection without importing adapter internals.
-    A bare non-namespaced ``pubkey_prefix`` is intentionally **not**
-    treated as a MeshCore signal here — it is ambiguous across test
-    fixtures.
-
-    Parameters
-    ----------
-    native_data:
-        Raw native metadata dict to inspect.
-
-    Returns
-    -------
-    bool
-        Whether any ``meshcore.*`` key is present.
-    """
-    return any(k in native_data for k in MESHCORE_NAMESPACED_KEYS)
+    """Return whether *native_data* carries a versioned MeshCore namespace."""
+    return bool(meshcore_versioned_namespace(native_data))
 
 
 def project_meshcore_attribution(
     native_data: dict[str, Any],
 ) -> ProjectionMap:
-    """Project MeshCore-native fields into generic attribution fields.
-
-    Parameters
-    ----------
-    native_data:
-        Raw MeshCore native metadata dict.  Expected namespaced keys
-        (as produced by the codec): ``meshcore.pubkey_prefix``,
-        ``meshcore.sender_id``, ``meshcore.channel``,
-        ``meshcore.packet_id``.  Bare fallback keys ``pubkey_prefix``
-        and ``channel_idx`` are tolerated for backward compatibility
-        with older data and test fixtures.  Missing keys are treated as
-        absent (not an error).
-
-    Returns
-    -------
-    dict[str, str | None]
-        Generic attribution fields keyed by their ``RelayAttribution``
-        canonical names: ``source_sender_id``,
-        ``source_native_channel_id``, ``source_native_message_id``,
-        ``source_sender_label``, ``source_sender_short_label``.
-        Resolved values are coerced to ``str``; fields are ``None`` when
-        no value could be resolved.  Label fields are ``None`` when no
-        known-contact label is available; opaque pubkey prefixes never
-        populate the label fields.
-    """
-    # --- sender_id: pubkey_prefix > sender_id > bare pubkey_prefix --
-    sender_id: str | None = (
-        _str(native_data.get("meshcore.pubkey_prefix"))
-        or _str(native_data.get("meshcore.sender_id"))
-        or _str(native_data.get("pubkey_prefix"))
-    )
-
-    # --- channel: meshcore.channel > bare channel_idx ---------------
-    channel: str | None = _str(native_data.get("meshcore.channel")) or _str(
-        native_data.get("channel_idx")
-    )
-
-    # --- packet_id: meshcore.packet_id ------------------------------
-    packet_id: str | None = _str(native_data.get("meshcore.packet_id"))
-
-    # --- sender_label: contact_label only (human labels, never pubkeys).
-    # Contact labels are human-readable names resolved from the session's
-    # local contacts store.  They are validated with the strict
-    # ``_contact_label_str`` helper so that non-string values (ints, dicts,
-    # etc.) never become rendered sender text — they yield ``None`` instead.
-    contact_label: str | None = _contact_label_str(
-        native_data.get("meshcore.contact_label")
-    )
-    contact_short_label: str | None = _contact_label_str(
-        native_data.get("meshcore.contact_short_label")
-    )
-
-    sender_label: str | None = contact_label
-    # Short label: explicit short label, else first token of contact label.
-    sender_short_label: str | None = contact_short_label or _first_token(contact_label)
+    """Project the current MeshCore native namespace into generic fields."""
+    meshcore = meshcore_namespace(native_data)
+    sender_id = _str(meshcore.get("pubkey_prefix")) or _str(meshcore.get("sender_id"))
+    channel = _str(meshcore.get("channel"))
+    packet_id = _str(meshcore.get("packet_id"))
+    contact_label = _contact_label_str(meshcore.get("contact_label"))
+    contact_short_label = _contact_label_str(meshcore.get("contact_short_label"))
+    sender_label = contact_label
+    sender_short_label = contact_short_label or _first_token(contact_label)
 
     return {
         "source_sender_id": sender_id,

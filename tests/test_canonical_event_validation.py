@@ -14,7 +14,6 @@ import pytest
 from medre.core.events import (
     CURRENT_SCHEMA_VERSION,
     KNOWN_KINDS,
-    MIGRATION_REGISTRY,
     VALID_RELATION_TYPES,
     CanonicalEvent,
     EventKind,
@@ -106,8 +105,8 @@ class TestSchemaVersionCompatibility:
 
     def test_future_version_accepted(self) -> None:
         """A high schema_version (future) is accepted at construction.
-        Consumers should treat unknown fields normally and ignore
-        unrecognised ones."""
+        Construction accepts future positive versions so persisted evidence can
+        be inspected without pretending the current runtime understands it."""
         kw = _valid_kwargs()
         kw["schema_version"] = 999
         event = CanonicalEvent(**kw)
@@ -320,90 +319,29 @@ class TestMalformedPayloadValidation:
 
 
 # ===================================================================
-# Schema migration behavior
+# Schema version contract
 # ===================================================================
 
 
-class TestSchemaMigrationBehavior:
-    """Schema migration registry and contract behavior."""
+def test_current_schema_version_is_1() -> None:
+    """v1 is the current canonical event contract."""
+    assert CURRENT_SCHEMA_VERSION == 1
 
-    def test_migration_registry_starts_empty(self) -> None:
-        """The global MIGRATION_REGISTRY has no registered migrations."""
-        # We test the singleton; other tests should not have registered
-        # migrations, but we check the API works.
-        reg = MIGRATION_REGISTRY
-        # Use a unique event kind to avoid ordering dependencies from
-        # other tests that may have registered migrations on well-known kinds.
-        assert reg.get("test.unique.kind", 1, 2) is None
 
-    def test_migration_registry_register_and_get(self) -> None:
-        """A migration can be registered and retrieved."""
-        from medre.core.events.schema import _MigrationRegistry
+def test_schema_version_must_be_positive() -> None:
+    """schema_version < 1 is rejected at construction."""
+    kw = _valid_kwargs()
+    kw["schema_version"] = 0
+    with pytest.raises(ValueError, match="schema_version"):
+        CanonicalEvent(**kw)
 
-        reg = _MigrationRegistry()
 
-        def fn(p):
-            return {**p, "new_field": "default"}
-
-        reg.register("message.text", 1, 2, fn)
-        result = reg.get("message.text", 1, 2)
-        assert result is fn
-
-    def test_migration_registry_get_unregistered(self) -> None:
-        """Looking up an unregistered migration returns None."""
-        from medre.core.events.schema import _MigrationRegistry
-
-        reg = _MigrationRegistry()
-        assert reg.get("message.text", 1, 2) is None
-
-    def test_migration_registry_registered_keys(self) -> None:
-        """registered_keys returns a frozenset of all registered keys."""
-        from medre.core.events.schema import _MigrationRegistry
-
-        reg = _MigrationRegistry()
-
-        def fn(p):
-            return p
-
-        reg.register("message.text", 1, 2, fn)
-        reg.register("telemetry.received", 2, 3, fn)
-        keys = reg.registered_keys
-        assert ("message.text", 1, 2) in keys
-        assert ("telemetry.received", 2, 3) in keys
-
-    def test_migration_registry_overwrite(self) -> None:
-        """Registering the same key overwrites the previous migration."""
-        from medre.core.events.schema import _MigrationRegistry
-
-        reg = _MigrationRegistry()
-
-        def fn1(p):
-            return {**p, "v": 1}
-
-        def fn2(p):
-            return {**p, "v": 2}
-
-        reg.register("message.text", 1, 2, fn1)
-        reg.register("message.text", 1, 2, fn2)
-        assert reg.get("message.text", 1, 2) is fn2
-
-    def test_current_schema_version_is_1(self) -> None:
-        """v1 is the current compatibility contract."""
-        assert CURRENT_SCHEMA_VERSION == 1
-
-    def test_schema_version_must_be_positive(self) -> None:
-        """schema_version < 1 is rejected at construction."""
-        kw = _valid_kwargs()
-        kw["schema_version"] = 0
-        with pytest.raises(ValueError, match="schema_version"):
-            CanonicalEvent(**kw)
-
-    def test_schema_version_1_accepted(self) -> None:
-        """schema_version=1 is the baseline and always accepted."""
-        kw = _valid_kwargs()
-        kw["schema_version"] = 1
-        event = CanonicalEvent(**kw)
-        assert event.schema_version == 1
+def test_schema_version_1_accepted() -> None:
+    """schema_version=1 is the current supported contract."""
+    kw = _valid_kwargs()
+    kw["schema_version"] = CURRENT_SCHEMA_VERSION
+    event = CanonicalEvent(**kw)
+    assert event.schema_version == CURRENT_SCHEMA_VERSION
 
 
 # ===================================================================

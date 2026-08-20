@@ -1,5 +1,9 @@
 # Persistence Authority Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 > **Classification:** Developer reference (derived from [storage.md](../spec/storage.md) Section 16)
 > **Audience:** Runtime developers, code reviewers, operators wanting implementation detail.
 > **Authority:** [storage.md](../spec/storage.md) is the normative specification. This document synthesizes audit findings into a compact per-domain inventory. If this document conflicts with storage.md, storage.md is correct.

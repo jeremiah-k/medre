@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from medre.adapters.meshcore.errors import MeshCoreCodecError
+from medre.adapters.meshcore.event_shape import build_meshcore_native_metadata
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import AdapterCodec
@@ -129,29 +130,23 @@ class MeshCoreCodec(AdapterCodec):
         relations: list[Any] = []
 
         native_meta = NativeMetadata(
-            data={
-                "meshcore.packet_id": pkt_id,
-                "meshcore.sender_id": sender,
-                "meshcore.channel": pkt_channel,
-                "meshcore.pubkey_prefix": sender,
-                "meshcore.txt_type": native_event.get("txt_type"),
-                "meshcore.is_direct_message": classification.is_direct_message,
-                # Known-contact label enrichment (adapter-local).
-                # Populated by the adapter when the session's local
-                # contacts store recognises the sender pubkey prefix.
-                # None when the sender is not a known contact; opaque
-                # pubkey prefixes never appear here.
-                "meshcore.contact_label": contact_label,
-                "meshcore.contact_short_label": contact_short_label,
-                # Nested classification primitives (no raw SDK objects).
-                "meshcore.classification": {
+            data=build_meshcore_native_metadata(
+                packet_id=pkt_id,
+                sender_id=sender,
+                channel=pkt_channel,
+                pubkey_prefix=sender,
+                txt_type=native_event.get("txt_type"),
+                is_direct_message=classification.is_direct_message,
+                contact_label=contact_label,
+                contact_short_label=contact_short_label,
+                classification={
                     "action": classification.action,
                     "category": classification.category,
                     "reason": classification.reason,
                     "is_direct_message": classification.is_direct_message,
                     "routeable": classification.routeable,
                 },
-            }
+            )
         )
 
         metadata = EventMetadata(native=native_meta)

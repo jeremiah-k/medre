@@ -2094,25 +2094,20 @@ class MedreApp:
         return _admit
 
     def _make_publish_inbound(self) -> Any:
-        """Return the default adapter ingress admission callable.
+        """Return the durable live-adapter ingress admission callable.
 
-        Normal live adapter ingress crosses the same durable admission
-        boundary used by protocol-aware recovery paths: canonical event,
-        inbound native reference, and pending work marker are committed before
-        this callback returns.  The durable ingress worker owns routing and
-        delivery afterwards.
-
-        A storage-less app can still be constructed directly in focused tests;
-        that narrow compatibility path falls back to inline processing.
+        Live adapter ingress always crosses durable admission: the canonical
+        event, inbound native reference, and pending work marker are committed
+        before this callback returns. The durable ingress worker owns routing
+        and delivery afterwards.
         """
 
         runner = self.pipeline_runner
         storage = self.storage
 
         async def _publish(event: Any) -> None:
-            if storage is not None:
-                await runner.admit_ingress(event, "live")
-            else:
-                await runner.handle_ingress(event)
+            if storage is None:
+                raise RuntimeError("live adapter ingress requires durable storage")
+            await runner.admit_ingress(event, "live")
 
         return _publish

@@ -63,7 +63,7 @@ class ConfigSource(Enum):
 #: File suffixes accepted as YAML config.
 _SUPPORTED_YAML_SUFFIXES: frozenset[str] = frozenset({".yaml", ".yml"})
 
-#: File suffix that used to be supported and now must produce a clear error.
+#: Unsupported TOML suffix that must produce a clear format error.
 _TOML_SUFFIX = ".toml"
 
 #: Exact message operators see when pointing at a TOML config file.
@@ -162,7 +162,7 @@ def _validate_config_suffix(path: Path) -> None:
     Raises
     ------
     ConfigFileError
-        If the suffix is ``.toml`` (with the dedicated migration message) or
+        If the suffix is ``.toml`` (with the dedicated unsupported-format message) or
         any other unsupported extension.
     """
     suffix = path.suffix.lower()
@@ -190,14 +190,11 @@ def _discover_yaml(directory: Path, basename: str) -> Path | None:
     return None
 
 
-def _raise_if_legacy_toml(directory: Path) -> None:
-    """Raise :class:`ConfigFileError` if a legacy TOML config exists in *directory*.
+def _raise_if_unsupported_toml(directory: Path) -> None:
+    """Reject unsupported TOML configuration discovered in *directory*.
 
-    Operators who still have a ``config.toml`` or ``medre.toml`` left over
-    from the historical TOML config format get a clear migration pointer
-    instead of a silent "not found" when YAML discovery misses.  Both
-    historical basenames are checked so the hint fires regardless of which
-    naming convention the operator used.
+    A clear format error is preferable to silently reporting "not found" when
+    YAML discovery misses. Both previously used basenames are checked.
     """
     for basename in ("config", "medre"):
         toml_path = directory / f"{basename}{_TOML_SUFFIX}"
@@ -275,7 +272,7 @@ def find_config(
         found = _discover_yaml(home, "config")
         if found is not None:
             return (found, ConfigSource.MEDRE_HOME)
-        _raise_if_legacy_toml(home)
+        _raise_if_unsupported_toml(home)
         checked.append(f"MEDRE_HOME config={home / 'config.yaml'}")
 
     # 4. XDG default
@@ -284,14 +281,14 @@ def find_config(
         found = _discover_yaml(paths.config_dir, "config")
         if found is not None:
             return (found, ConfigSource.XDG)
-        _raise_if_legacy_toml(paths.config_dir)
+        _raise_if_unsupported_toml(paths.config_dir)
     checked.append(f"XDG config={paths.config_file}")
 
     # 5. Local ./medre.yaml (or .yml)
     found = _discover_yaml(Path.cwd(), "medre")
     if found is not None:
         return (found, ConfigSource.LOCAL)
-    _raise_if_legacy_toml(Path.cwd())
+    _raise_if_unsupported_toml(Path.cwd())
     checked.append(f"local={Path.cwd() / 'medre.yaml'}")
 
     # Nothing found

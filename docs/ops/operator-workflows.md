@@ -589,13 +589,13 @@ Routes reference resolved adapter IDs (`radio-a`, `matrix-fake`), not env tokens
 
 ### Environment Variable Rules
 
-| Prefix                                             | Purpose                                  |
-| -------------------------------------------------- | ---------------------------------------- |
-| `MEDRE_ADAPTER__<TOKEN>__<FIELD>`                  | Runtime adapter config                   |
-| `MEDRE_ROUTE__<TOKEN>__<FIELD>`                    | Runtime route config                     |
-| `MEDRE_RETRY__<FIELD>`                             | Runtime retry config                     |
-| `MATRIX_*`, `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only   |
-| `MEDRE_MESHTASTIC_*`, etc.                         | Unsupported legacy — rejected at startup |
+| Prefix                                             | Purpose                                |
+| -------------------------------------------------- | -------------------------------------- |
+| `MEDRE_ADAPTER__<TOKEN>__<FIELD>`                  | Runtime adapter config                 |
+| `MEDRE_ROUTE__<TOKEN>__<FIELD>`                    | Runtime route config                   |
+| `MEDRE_RETRY__<FIELD>`                             | Runtime retry config                   |
+| `MATRIX_*`, `MESHTASTIC_*`, `MESHCORE_*`, `LXMF_*` | Pytest live-test convenience vars only |
+| `MEDRE_MESHTASTIC_*`, etc.                         | Unsupported — rejected at startup      |
 
 `MATRIX_*` variables are for pytest live-test convenience only. They are not read by `medre run`. To configure a Matrix adapter for runtime, use `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 

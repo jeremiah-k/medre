@@ -36,6 +36,11 @@ from medre.core.rendering.attribution import (
     build_relay_attribution,
     format_relay_prefix,
 )
+from tests.helpers.native_metadata import (
+    lxmf_native_data,
+    meshcore_native_data,
+    meshtastic_native_data,
+)
 
 # ===================================================================
 # Helpers
@@ -682,7 +687,9 @@ def test_platform_hint_meshtastic_overrides_adapter_id() -> None:
     from medre.adapters._attribution_dispatch import project_source_fields
 
     fields = project_source_fields(
-        {"longname": "Radio Op", "shortname": "RO", "from_id": "!aabbcc"},
+        meshtastic_native_data(
+            {"longname": "Radio Op", "shortname": "RO", "from_id": "!aabbcc"}
+        ),
         source_adapter="radio-a",
         platform_hint="meshtastic",
     )
@@ -694,7 +701,7 @@ def test_platform_hint_meshcore_overrides_adapter_id() -> None:
     from medre.adapters._attribution_dispatch import project_source_fields
 
     fields = project_source_fields(
-        {"meshcore.pubkey_prefix": "abc123"},
+        meshcore_native_data({"pubkey_prefix": "abc123"}),
         source_adapter="public",
         platform_hint="meshcore",
     )
@@ -706,7 +713,7 @@ def test_platform_hint_lxmf_overrides_adapter_id() -> None:
     from medre.adapters._attribution_dispatch import project_source_fields
 
     fields = project_source_fields(
-        {"source_hash": "deadbeef"},
+        lxmf_native_data({"source_hash": "deadbeef"}),
         source_adapter="mailbox",
         platform_hint="lxmf",
     )
@@ -717,9 +724,9 @@ def test_platform_hint_wins_over_native_keys() -> None:
     """platform_hint wins even when native keys suggest a different platform."""
     from medre.adapters._attribution_dispatch import project_source_fields
 
-    # Native keys look like Meshtastic, but platform_hint says matrix.
+    # Native namespace identifies Meshtastic, but platform_hint says matrix.
     fields = project_source_fields(
-        {"longname": "Op", "from_id": "!1234"},
+        meshtastic_native_data({"longname": "Op", "from_id": "!1234"}),
         source_adapter="generic-adapter",
         platform_hint="matrix",
     )
@@ -731,7 +738,9 @@ def test_native_key_fallback_without_platform_hint() -> None:
     from medre.adapters._attribution_dispatch import project_source_fields
 
     fields = project_source_fields(
-        {"longname": "Op", "shortname": "OP", "from_id": "!1234"},
+        meshtastic_native_data(
+            {"longname": "Op", "shortname": "OP", "from_id": "!1234"}
+        ),
         source_adapter="some-adapter",
     )
     assert fields["source_platform"] == "meshtastic"
@@ -781,18 +790,14 @@ def test_platform_hint_projects_sender_fields() -> None:
     assert fields["source_sender_handle"] == "@alice:matrix.org"
 
 
-def test_no_cross_platform_flat_key_enrichment() -> None:
-    """Dispatch does NOT apply cross-platform flat-key enrichment.
-
-    When platform_hint='matrix' but native_data carries only Meshtastic-
-    style flat keys (longname, shortname, from_id), the Matrix projection
-    finds no Matrix keys and returns None sender fields.  The dispatch
-    does not silently patch from Meshtastic flat keys.
-    """
+def test_platform_hint_does_not_cross_project_transport_metadata() -> None:
+    """A Matrix platform hint does not project Meshtastic sender fields."""
     from medre.adapters._attribution_dispatch import project_source_fields
 
     fields = project_source_fields(
-        {"longname": "RadioOp", "shortname": "RO", "from_id": "!aabbcc"},
+        meshtastic_native_data(
+            {"longname": "RadioOp", "shortname": "RO", "from_id": "!aabbcc"}
+        ),
         source_adapter="generic",
         platform_hint="matrix",
     )
@@ -804,39 +809,17 @@ def test_no_cross_platform_flat_key_enrichment() -> None:
 
 
 # ===================================================================
-# Meshtastic platform detection: namespaced vs legacy vs channel
+# Meshtastic platform detection
 # ===================================================================
 
 
-def test_detect_meshtastic_namespaced_from_id() -> None:
-    """Namespaced ``meshtastic.from_id`` alone detects Meshtastic."""
+def test_detect_meshtastic_versioned_namespace() -> None:
+    """A versioned Meshtastic namespace detects Meshtastic."""
     from medre.adapters._attribution_dispatch import detect_source_platform
 
     platform = detect_source_platform(
         "generic",
-        {"meshtastic.from_id": "!node"},
-    )
-    assert platform == "meshtastic"
-
-
-def test_detect_meshtastic_namespaced_longname() -> None:
-    """Namespaced ``meshtastic.longname`` alone detects Meshtastic."""
-    from medre.adapters._attribution_dispatch import detect_source_platform
-
-    platform = detect_source_platform(
-        "generic",
-        {"meshtastic.longname": "Alpha"},
-    )
-    assert platform == "meshtastic"
-
-
-def test_detect_meshtastic_namespaced_shortname() -> None:
-    """Namespaced ``meshtastic.shortname`` alone detects Meshtastic."""
-    from medre.adapters._attribution_dispatch import detect_source_platform
-
-    platform = detect_source_platform(
-        "generic",
-        {"meshtastic.shortname": "AB"},
+        meshtastic_native_data({"from_id": "!node"}),
     )
     assert platform == "meshtastic"
 
@@ -866,19 +849,15 @@ def test_channel_alone_with_platform_hint_uses_hint() -> None:
     assert platform == "meshtastic"
 
 
-def test_legacy_bare_keys_still_detect_meshtastic() -> None:
-    """Legacy bare keys (without ``channel``) still detect Meshtastic.
-
-    Backward compatibility for test fixtures and older data that carries
-    bare ``longname``/``shortname``/``from_id`` keys.
-    """
+def test_unversioned_meshtastic_fields_do_not_define_platform_shape() -> None:
+    """Root-level Meshtastic fields are not canonical native metadata."""
     from medre.adapters._attribution_dispatch import detect_source_platform
 
     platform = detect_source_platform(
         "generic",
         {"longname": "X", "shortname": "Y", "from_id": "!node"},
     )
-    assert platform == "meshtastic"
+    assert platform is None
 
 
 def test_platform_hint_overrides_detection() -> None:
@@ -903,24 +882,20 @@ def test_platform_hint_overrides_detection() -> None:
     assert platform == "meshtastic"
 
 
-def test_namespaced_meshtastic_not_confused_with_matrix() -> None:
-    """Namespaced ``meshtastic.*`` keys do not trigger Matrix detection.
-
-    Even though the dict is sparse, the unambiguous ``meshtastic.*``
-    namespace routes detection to Meshtastic, not Matrix.
-    """
+def test_versioned_meshtastic_not_confused_with_matrix() -> None:
+    """A Meshtastic namespace does not trigger Matrix detection."""
     from medre.adapters._attribution_dispatch import detect_source_platform
 
     platform = detect_source_platform(
         "generic",
-        {"meshtastic.from_id": "!node"},
+        meshtastic_native_data({"from_id": "!node"}),
     )
     assert platform == "meshtastic"
     assert platform != "matrix"
 
 
-def test_matrix_namespace_wins_over_legacy_meshtastic_keys() -> None:
-    """The explicit Matrix namespace wins over bare Meshtastic keys."""
+def test_matrix_namespace_wins_over_unversioned_meshtastic_fields() -> None:
+    """The explicit Matrix namespace wins over unrelated root fields."""
     from medre.adapters._attribution_dispatch import detect_source_platform
 
     platform = detect_source_platform(

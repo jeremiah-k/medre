@@ -1,5 +1,9 @@
 # Delivery Pipeline Simplification Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 > Audits the delivery pipeline's control flow, data structures, authority boundaries, and complexity hotspots to identify simplification opportunities.
 > Source: code inspection of `src/medre/core/engine/pipeline/runner.py`, `src/medre/core/engine/pipeline/target_delivery.py`, `src/medre/core/engine/pipeline/delivery_lifecycle.py`, `src/medre/core/engine/pipeline/delivery_state.py`, `src/medre/core/planning/delivery_plan.py`, `src/medre/core/events/canonical.py`, `src/medre/core/rendering/evidence.py`, `src/medre/core/contracts/adapter.py`, `src/medre/runtime/retry.py`, and `src/medre/core/engine/replay/`.
 > This audit describes the delivery-pipeline structure and should be updated when pipeline ownership, receipt construction, or retry reconstruction changes.
