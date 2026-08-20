@@ -20,9 +20,9 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from medre.adapters._attribution_dispatch import project_source_fields
+from medre.adapters._native_metadata_dispatch import current_native_namespace
 from medre.adapters.matrix.event_shape import mmrelay_interop_fields
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
-from medre.adapters.meshtastic.event_shape import meshtastic_namespace
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.attribution import (
     RelayAttribution,
@@ -168,7 +168,7 @@ class MatrixRenderer:
         ``native.interop.mmrelay`` remain the fallback for externally encoded
         MMRelay events.  Abandoned root/dotted MEDRE fields are not read.
         """
-        meshtastic = meshtastic_namespace(native_data)
+        meshtastic = current_native_namespace(native_data, "meshtastic")
         interop = mmrelay_interop_fields(native_data)
         longname = meshtastic.get("longname") or interop.get(KEY_LONGNAME) or ""
         shortname = meshtastic.get("shortname") or interop.get(KEY_SHORTNAME) or ""
@@ -177,7 +177,7 @@ class MatrixRenderer:
     @staticmethod
     def _resolve_mmrelay_packet_id(native_data: dict[str, object]) -> str:
         """Resolve the Meshtastic packet ID used by the MMRelay wire contract."""
-        meshtastic = meshtastic_namespace(native_data)
+        meshtastic = current_native_namespace(native_data, "meshtastic")
         interop = mmrelay_interop_fields(native_data)
         packet_id = meshtastic.get("packet_id")
         if packet_id is None:
