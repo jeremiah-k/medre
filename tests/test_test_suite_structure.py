@@ -171,16 +171,30 @@ def _module_has_marker(tree: ast.Module, names: set[str]) -> bool:
             if isinstance(tgt, ast.Name):
                 aliases[tgt.id] = node.value
 
+    def _resolve_name(name: str, extra_aliases: dict[str, ast.AST]) -> ast.AST | None:
+        """Innermost-scope first: class-local aliases shadow module ones."""
+        if name in extra_aliases:
+            return extra_aliases[name]
+        return aliases.get(name)
+
     def _value_resolves_marker(
-        value: ast.AST, extra_aliases: dict[str, ast.AST] | None = None
+        value: ast.AST,
+        extra_aliases: dict[str, ast.AST] | None = None,
+        visiting: frozenset[str] = frozenset(),
     ) -> bool:
         if _expr_references_marker(value, names):
             return True
-        # Resolve a bare alias: ``pytestmark = pytestmark_matrix``.
+        # Resolve bare aliases (``pytestmark = pytestmark_matrix``), guarding
+        # against alias cycles like ``a = b`` / ``b = a``.
         if isinstance(value, ast.Name):
-            for table in (aliases, extra_aliases or {}):
-                if value.id in table:
-                    return _value_resolves_marker(table[value.id], extra_aliases)
+            name = value.id
+            if name in visiting:
+                return False
+            target = _resolve_name(name, extra_aliases or {})
+            if target is not None:
+                return _value_resolves_marker(
+                    target, extra_aliases, visiting | {name}
+                )
         return False
 
     for node in tree.body:
@@ -397,6 +411,35 @@ def test_class_local_marker_alias_counts_as_exempt_marker() -> None:
         "        pass\n"
     )
     assert _module_has_marker(tree, {"live"}) is True
+
+
+def test_class_local_alias_shadows_module_alias() -> None:
+    """Class-local marker aliases take precedence over module-level ones."""
+    import ast
+
+    tree = ast.parse(
+        "import pytest\n"
+        "marks = [pytest.mark.live]\n"
+        "other = [pytest.mark.docker]\n"
+        "class TestLive:\n"
+        "    marks = other\n"
+        "    pytestmark = marks\n"
+    )
+    # The class shadows ``marks`` with the docker list, so it is NOT live.
+    assert _module_has_marker(tree, {"live"}) is False
+    assert _module_has_marker(tree, {"docker"}) is True
+
+
+def test_alias_cycles_terminate() -> None:
+    """Cyclic alias chains resolve to False instead of recursing forever."""
+    import ast
+
+    tree = ast.parse(
+        "a = []\n"
+        "b = a\n"
+        "pytestmark = b\n"
+    )
+    assert _module_has_marker(tree, {"live"}) is False
 
 # ===================================================================
 # Check 4 — no broad type: ignore / pyright: ignore in helpers
