@@ -8,6 +8,7 @@ import uuid
 
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.storage_outbox import admit_default_event
 
 
 def _make_outbox_item(
@@ -24,7 +25,7 @@ def _make_outbox_item(
     by passing the status here."""
     return DeliveryOutboxItem(
         outbox_id=f"obox-{uuid.uuid4()}",
-        event_id="evt-retry-1",
+        event_id="__outbox_default__",
         route_id="route-1",
         delivery_plan_id=delivery_plan_id,
         target_adapter=target_adapter,
@@ -39,18 +40,18 @@ class TestDueOutboxRetry:
     """Due outbox items with status retry_wait should be claimable."""
 
     async def test_due_retry_wait_item_is_claimable(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """A retry_wait item past its next_attempt_at should be claimable."""
         item = _make_outbox_item(
             delivery_plan_id="plan-due-1",
         )
-        created = await temp_storage.create_outbox_item(item)
+        created = await outbox_temp_storage.create_outbox_item(item)
         # Reach retry_wait via pending → claim → mark_retry_wait.
-        await temp_storage.claim_due_outbox_items(
+        await outbox_temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
         )
-        await temp_storage.mark_outbox_retry_wait(
+        await outbox_temp_storage.mark_outbox_retry_wait(
             created.outbox_id,
             next_attempt_at="2025-01-01T00:00:00",
             failure_kind="adapter_transient",
@@ -58,7 +59,7 @@ class TestDueOutboxRetry:
         )
 
         now = "2026-01-01T00:00:00"
-        claimed = await temp_storage.claim_due_outbox_items(
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
             now=now, worker_id="worker-1", lease_seconds=30, limit=10
         )
         assert len(claimed) == 1
@@ -66,19 +67,19 @@ class TestDueOutboxRetry:
         assert claimed[0].status == "in_progress"
 
     async def test_not_due_retry_wait_not_claimable(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """A retry_wait item NOT past its next_attempt_at should NOT be claimable."""
         future = "2099-01-01T00:00:00"
         item = _make_outbox_item(
             delivery_plan_id="plan-not-due-1",
         )
-        created = await temp_storage.create_outbox_item(item)
+        created = await outbox_temp_storage.create_outbox_item(item)
         # Reach retry_wait via pending → claim → mark_retry_wait.
-        await temp_storage.claim_due_outbox_items(
+        await outbox_temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
         )
-        await temp_storage.mark_outbox_retry_wait(
+        await outbox_temp_storage.mark_outbox_retry_wait(
             created.outbox_id,
             next_attempt_at=future,
             failure_kind="adapter_transient",
@@ -86,37 +87,37 @@ class TestDueOutboxRetry:
         )
 
         now = "2026-01-01T00:00:00"
-        claimed = await temp_storage.claim_due_outbox_items(
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
             now=now, worker_id="worker-1", lease_seconds=30, limit=10
         )
         assert len(claimed) == 0
 
     async def test_mark_retry_wait_with_next_attempt(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """Claim an item, then mark it retry_wait with a next_attempt_at."""
         item = _make_outbox_item(
             delivery_plan_id="plan-mark-retry-1",
             status="pending",
         )
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
 
         now = "2026-01-01T00:00:00"
-        claimed = await temp_storage.claim_due_outbox_items(
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
             now=now, worker_id="worker-1", lease_seconds=30, limit=10
         )
         assert len(claimed) == 1
         oid = claimed[0].outbox_id
 
         next_at = "2026-01-01T01:00:00"
-        await temp_storage.mark_outbox_retry_wait(
+        await outbox_temp_storage.mark_outbox_retry_wait(
             oid,
             next_attempt_at=next_at,
             failure_kind="adapter_transient",
             error_summary="Connection timeout",
         )
 
-        item_after = await temp_storage.get_outbox_item(oid)
+        item_after = await outbox_temp_storage.get_outbox_item(oid)
         assert item_after is not None
         assert item_after.status == "retry_wait"
         assert item_after.next_attempt_at == next_at
@@ -127,19 +128,19 @@ class TestRetryExhaustion:
     """When retries are exhausted, the outbox should be dead_lettered."""
 
     async def test_dead_lettered_from_retry_wait(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """A retry_wait item can be marked dead_lettered."""
         item = _make_outbox_item(
             delivery_plan_id="plan-exhaust-1",
             attempt_number=3,
         )
-        created = await temp_storage.create_outbox_item(item)
+        created = await outbox_temp_storage.create_outbox_item(item)
         # Reach retry_wait via pending → claim → mark_retry_wait.
-        await temp_storage.claim_due_outbox_items(
+        await outbox_temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
         )
-        await temp_storage.mark_outbox_retry_wait(
+        await outbox_temp_storage.mark_outbox_retry_wait(
             created.outbox_id,
             next_attempt_at="2025-01-01T00:00:00",
             failure_kind="adapter_transient",
@@ -148,19 +149,19 @@ class TestRetryExhaustion:
 
         # Now claim again (item is due) so we can mark dead_lettered.
         now = "2026-01-01T00:00:00"
-        claimed = await temp_storage.claim_due_outbox_items(
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
             now=now, worker_id="worker-1", lease_seconds=30, limit=10
         )
         assert len(claimed) == 1
         oid = claimed[0].outbox_id
 
-        await temp_storage.mark_outbox_dead_lettered(
+        await outbox_temp_storage.mark_outbox_dead_lettered(
             oid,
             failure_kind="adapter_permanent",
             error_summary="All 3 retry attempts exhausted",
         )
 
-        dl = await temp_storage.get_outbox_item(oid)
+        dl = await outbox_temp_storage.get_outbox_item(oid)
         assert dl is not None
         assert dl.status == "dead_lettered"
         assert dl.locked_at is None  # terminal clears lease
@@ -182,6 +183,7 @@ class TestRestartVisibility:
         try:
             storage = SQLiteStorage(db_path=db_path)
             await storage.initialize()
+            await admit_default_event(storage)
 
             item = _make_outbox_item(
                 delivery_plan_id="plan-restart-pending",
@@ -219,6 +221,7 @@ class TestRestartVisibility:
         try:
             storage = SQLiteStorage(db_path=db_path)
             await storage.initialize()
+            await admit_default_event(storage)
 
             item = _make_outbox_item(
                 delivery_plan_id="plan-restart-due",
@@ -267,6 +270,7 @@ class TestRestartVisibility:
         try:
             storage = SQLiteStorage(db_path=db_path)
             await storage.initialize()
+            await admit_default_event(storage)
 
             item = _make_outbox_item(
                 delivery_plan_id="plan-restart-dl",
@@ -312,6 +316,7 @@ class TestRestartVisibility:
         try:
             storage = SQLiteStorage(db_path=db_path)
             await storage.initialize()
+            await admit_default_event(storage)
 
             item = _make_outbox_item(
                 delivery_plan_id="plan-ambiguous-msh",
@@ -359,7 +364,7 @@ class TestRetryWorkerNameErrorRegression:
     """
 
     async def test_retry_outbox_item_handles_reconstruction_failure_gracefully(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """When Route/RouteTarget reconstruction raises, RetryWorker should
         mark the item as retry_wait (or dead_lettered) without NameError,
@@ -385,7 +390,7 @@ class TestRetryWorkerNameErrorRegression:
             payload={"text": "regression test"},
             metadata=EventMetadata(),
         )
-        await temp_storage.append(event)
+        await outbox_temp_storage.append(event)
 
         # Create an outbox item referencing that event
         item = _make_outbox_item(
@@ -395,11 +400,11 @@ class TestRetryWorkerNameErrorRegression:
             status="pending",
         )
         item.event_id = "evt-retry-regress-1"
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
 
         # Claim the item so it becomes in_progress
         now = "2026-01-01T00:00:00"
-        claimed = await temp_storage.claim_due_outbox_items(
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
             now=now, worker_id="worker-1", lease_seconds=30, limit=10
         )
         assert len(claimed) == 1
@@ -414,7 +419,7 @@ class TestRetryWorkerNameErrorRegression:
         from medre.runtime.retry import RetryWorker
 
         worker = RetryWorker(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             pipeline=mock_pipeline,
             capacity_controller=None,
             enabled=True,
@@ -442,6 +447,6 @@ class TestRetryWorkerNameErrorRegression:
 
         # The outbox item should have transitioned away from in_progress
         # (either retry_wait or dead_lettered)
-        item_after = await temp_storage.get_outbox_item(oid)
+        item_after = await outbox_temp_storage.get_outbox_item(oid)
         assert item_after is not None
         assert item_after.status in ("retry_wait", "dead_lettered", "abandoned")

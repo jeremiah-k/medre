@@ -25,6 +25,8 @@ from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.routing import Router
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.pipeline import make_pipeline_config_for_pipeline
+from tests.helpers.storage_outbox import admit_event
 
 # ===================================================================
 # Text enrichment tests
@@ -424,6 +426,7 @@ class TestChannelAwareStrictMatching:
         """target_channel specified, refs have same adapter but different
         channel -> relation is NOT enriched with wrong-channel ref."""
         # Store a native ref with the right adapter but wrong channel.
+        await admit_event(temp_storage, "evt-strict-001")
         await temp_storage.store_native_ref(
             NativeMessageRef(
                 id="nref-wrong-ch",
@@ -484,6 +487,7 @@ class TestChannelAwareStrictMatching:
     ) -> None:
         """target_channel specified, exact channel exists -> relation IS
         enriched."""
+        await admit_event(temp_storage, "evt-exact-001")
         await temp_storage.store_native_ref(
             NativeMessageRef(
                 id="nref-exact",
@@ -544,6 +548,7 @@ class TestChannelAwareStrictMatching:
         temp_storage: SQLiteStorage,
     ) -> None:
         """target_channel None, adapter-only match still enriches."""
+        await admit_event(temp_storage, "evt-adapt-001")
         await temp_storage.store_native_ref(
             NativeMessageRef(
                 id="nref-adapt",
@@ -611,6 +616,7 @@ class TestExistingNativeRefStrictChannel:
         native_channel_id=None and target_channel='0' should NOT be treated
         as enriched — falls through to lookup."""
         # Store a native ref so lookup can find it.
+        await admit_event(temp_storage, "evt-strict-nref-001")
         await temp_storage.store_native_ref(
             NativeMessageRef(
                 id="nref-lookup",
@@ -742,6 +748,7 @@ class TestStrictChannelStripsIncompatibleRef:
         """Existing ref adapter==target, channel='1', target_channel='0',
         no exact match in storage → target_native_ref becomes None."""
         # Store a ref for a DIFFERENT channel so lookup finds no exact match.
+        await admit_event(temp_storage, "evt-strip-001")
         await temp_storage.store_native_ref(
             NativeMessageRef(
                 id="nref-strip-1",
@@ -957,6 +964,7 @@ class TestStrictChannelStripsIncompatibleRef:
     ) -> None:
         """Existing ref wrong channel, but storage has exact match → replaced
         with correct ref."""
+        await admit_event(temp_storage, "evt-strip-005")
         await temp_storage.store_native_ref(
             NativeMessageRef(
                 id="nref-strip-exact",
@@ -1295,3 +1303,112 @@ class TestSenderInfoEnrichment:
 
         assert enriched_rel.metadata.get("original_sender_displayname") == "PreExisting"
         assert enriched_rel.metadata.get("original_sender") == "@pre:existing"
+
+
+async def test_enrichment_miss_no_matching_adapter(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A relation is unchanged when only another adapter has a native ref."""
+    await temp_storage.append(
+        CanonicalEvent(
+            event_id="prior-miss-001",
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="src",
+            source_transport_id="node-1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"unrelated": "no text here"},
+            metadata=EventMetadata(),
+        )
+    )
+    await temp_storage.store_native_ref(
+        NativeMessageRef(
+            id="nref-miss-001",
+            event_id="prior-miss-001",
+            adapter="other_adapter",
+            native_channel_id="!other:server",
+            native_message_id="$other-msg-001",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+        )
+    )
+
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(
+            storage=temp_storage, router=Router(routes=[]), adapters={}
+        )
+    )
+    relation = EventRelation(
+        relation_type="reply",
+        target_event_id="prior-miss-001",
+        target_native_ref=None,
+        key=None,
+        fallback_text=None,
+    )
+    event = CanonicalEvent(
+        event_id="enrich-miss-001",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="src",
+        source_transport_id="node-1",
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(relation,),
+        payload={"text": "reply"},
+        metadata=EventMetadata(),
+    )
+
+    enriched = await runner._enrich_relations_for_target(event, "target_adapter")
+
+    # Enrichment may return a replacement event (relation metadata gains
+    # original_sender from the stored parent); only the native-ref outcome
+    # is contractual here.
+    assert enriched.relations[0].target_native_ref is None
+
+
+async def test_enrichment_without_native_ref_lookup_is_noop(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Storage without native-ref lookup leaves the immutable event untouched."""
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(
+            storage=temp_storage, router=Router(routes=[]), adapters={}
+        )
+    )
+    relation = EventRelation(
+        relation_type="reply",
+        target_event_id="prior-nomethod-001",
+        target_native_ref=None,
+        key=None,
+        fallback_text=None,
+    )
+    event = CanonicalEvent(
+        event_id="enrich-nomethod-001",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="src",
+        source_transport_id="node-1",
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(relation,),
+        payload={"text": "reply"},
+        metadata=EventMetadata(),
+    )
+
+    class _MinimalStorage:
+        pass
+
+    runner._config.storage = _MinimalStorage()  # type: ignore[assignment]
+    enriched = await runner._enrich_relations_for_target(event, "any_adapter")
+
+    assert enriched is event
+    assert enriched.relations[0].target_native_ref is None

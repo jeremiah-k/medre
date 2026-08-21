@@ -26,6 +26,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
+from tests.helpers.storage_outbox import (
+    admit_event,
+    append_receipt_with_parent,
+    create_outbox_item_with_parent,
+)
 from medre.adapters.meshtastic.queue import (
     MeshtasticOutboundQueue,
     QueueDeliveryResult,
@@ -150,7 +155,8 @@ class TestStaleCallbackRejection:
         now = datetime.now(tz=timezone.utc)
 
         # Pre-populate a queued receipt.
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-dl",
                 status="queued",
@@ -172,7 +178,7 @@ class TestStaleCallbackRejection:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_dead_lettered(
             "obox-dl",
             failure_kind="adapter_transient",
@@ -213,7 +219,8 @@ class TestStaleCallbackRejection:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-sent",
                 status="queued",
@@ -232,7 +239,7 @@ class TestStaleCallbackRejection:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-sent")
         await temp_storage.mark_outbox_sent("obox-sent")
 
@@ -266,7 +273,8 @@ class TestStaleCallbackRejection:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-cancel",
                 status="queued",
@@ -285,7 +293,7 @@ class TestStaleCallbackRejection:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-cancel")
         await temp_storage.mark_outbox_cancelled("obox-cancel")
 
@@ -319,7 +327,8 @@ class TestStaleCallbackRejection:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-abandon",
                 status="queued",
@@ -338,7 +347,7 @@ class TestStaleCallbackRejection:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-abandon")
         await temp_storage.mark_outbox_abandoned("obox-abandon")
 
@@ -385,7 +394,8 @@ class TestStaleCallbackAfterRetryReclaim:
         now = datetime.now(tz=timezone.utc)
 
         # --- Attempt A: original delivery ---
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-attempt-a",
                 status="queued",
@@ -404,7 +414,7 @@ class TestStaleCallbackAfterRetryReclaim:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_a)
+        await create_outbox_item_with_parent(temp_storage, outbox_a)
         # Simulate retry reclaim: obox-a transitions from in_progress to
         # retry_wait.  In production the retry worker claims the stale
         # queued item; here we go directly from creation status.
@@ -418,7 +428,8 @@ class TestStaleCallbackAfterRetryReclaim:
         # --- Attempt B: retry delivery (new outbox item, different plan_id
         # to avoid the UNIQUE constraint on
         # (delivery_plan_id, target_adapter, target_channel, attempt_number)) ---
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-attempt-b",
                 status="queued",
@@ -438,7 +449,7 @@ class TestStaleCallbackAfterRetryReclaim:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_b)
+        await create_outbox_item_with_parent(temp_storage, outbox_b)
         await temp_storage.mark_outbox_queued("obox-b")
 
         # --- Stale callback A arrives late ---
@@ -646,7 +657,8 @@ class TestExactOutboxIdCorrelation:
         now = datetime.now(tz=timezone.utc)
 
         # Pre-populate a queued receipt.
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-correlate",
                 status="queued",
@@ -667,7 +679,7 @@ class TestExactOutboxIdCorrelation:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-exact")
 
         record = OutboundNativeRefRecord(
@@ -708,7 +720,8 @@ class TestExactOutboxIdCorrelation:
         now = datetime.now(tz=timezone.utc)
 
         # Two queued receipts with same adapter/channel but different plans.
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-plan-a",
                 status="queued",
@@ -718,7 +731,8 @@ class TestExactOutboxIdCorrelation:
                 outbox_id="obox-plan-a",
             )
         )
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-plan-b",
                 status="queued",
@@ -738,7 +752,7 @@ class TestExactOutboxIdCorrelation:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-plan-a")
 
         # Record targets obox-plan-a explicitly — must NOT match plan-b.
@@ -779,7 +793,8 @@ class TestExactOutboxIdCorrelation:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-missing",
                 status="queued",
@@ -831,7 +846,8 @@ class TestDuplicateCallbackIdempotent:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-dup",
                 status="queued",
@@ -851,7 +867,7 @@ class TestDuplicateCallbackIdempotent:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-dup")
 
         record = OutboundNativeRefRecord(
@@ -903,7 +919,8 @@ class TestDuplicateCallbackIdempotent:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-dup2",
                 status="queued",
@@ -924,7 +941,7 @@ class TestDuplicateCallbackIdempotent:
             target_channel="0",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-dup2")
 
         record1 = OutboundNativeRefRecord(

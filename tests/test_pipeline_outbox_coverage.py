@@ -11,6 +11,10 @@ import pytest
 
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event
+from tests.helpers.storage_outbox import (
+    admit_event,
+    create_outbox_item_with_parent,
+)
 
 # ===================================================================
 # Targeted uncovered-line coverage
@@ -67,6 +71,7 @@ class TestDestinationMetadata:
             deadline=None,
         )
         event = make_event(event_id="evt-dest-001")
+        await admit_event(temp_storage, event.event_id)
 
         ctx = await manager.create_for_delivery(
             event=event,
@@ -309,7 +314,7 @@ class TestUnknownTerminalOutcome:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
 
         record = QueueTerminalRecord(
             event_id="evt-unknown-001",
@@ -371,7 +376,7 @@ class TestAttemptNumberFallback:
             status="in_progress",
             attempt_number=7,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
 
         record = QueueTerminalRecord(
             event_id="evt-attempt-existing",
@@ -422,7 +427,7 @@ class TestCancelledAndAbandonedTransitions:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
 
         record = QueueTerminalRecord(
             event_id="evt-cancelled-001",
@@ -471,7 +476,7 @@ class TestCancelledAndAbandonedTransitions:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
 
         record = QueueTerminalRecord(
             event_id="evt-abandoned-001",
@@ -523,7 +528,7 @@ class TestCancelledAndAbandonedTransitions:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
 
         # Make mark_outbox_cancelled raise.
         original_cancelled = temp_storage.mark_outbox_cancelled

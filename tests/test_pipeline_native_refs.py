@@ -819,6 +819,29 @@ class TestEnrichRelationsForTarget:
         temp_storage: SQLiteStorage,
     ) -> None:
         """Relation enriched when target_event_id has a matching native ref."""
+        # Admit the prior event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            CanonicalEvent(
+                event_id="prior-ev-001",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="src",
+                source_transport_id="node-1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "prior"},
+                metadata=EventMetadata(),
+                source_native_ref=NativeRef(
+                    adapter="target_adapter",
+                    native_channel_id="!target:server",
+                    native_message_id="$target-msg-001",
+                ),
+            )
+        )
         # Pre-store a native ref for a prior event.
         prior_ref = NativeMessageRef(
             id="nref-prior-001",
@@ -895,107 +918,6 @@ class TestEnrichRelationsForTarget:
         finally:
             await runner.stop()
 
-    async def test_enrichment_miss_no_matching_adapter(
-        self,
-        temp_storage: SQLiteStorage,
-    ) -> None:
-        """Relation not enriched when no native ref for target_adapter exists."""
-        # Pre-store a native ref for a DIFFERENT adapter.
-        prior_ref = NativeMessageRef(
-            id="nref-miss-001",
-            event_id="prior-miss-001",
-            adapter="other_adapter",
-            native_channel_id="!other:server",
-            native_message_id="$other-msg-001",
-            native_thread_id=None,
-            native_relation_id=None,
-            direction="outbound",
-        )
-        await temp_storage.store_native_ref(prior_ref)
-
-        config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
-            router=Router(routes=[]),
-            adapters={},
-        )
-        runner = PipelineRunner(config)
-
-        rel = EventRelation(
-            relation_type="reply",
-            target_event_id="prior-miss-001",
-            target_native_ref=None,
-            key=None,
-            fallback_text=None,
-        )
-        ts = datetime.now(timezone.utc)
-        event = CanonicalEvent(
-            event_id="enrich-miss-001",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=ts,
-            source_adapter="src",
-            source_transport_id="node-1",
-            source_channel_id=None,
-            parent_event_id=None,
-            lineage=(),
-            relations=(rel,),
-            payload={"text": "reply"},
-            metadata=EventMetadata(),
-        )
-
-        enriched = await runner._enrich_relations_for_target(event, "target_adapter")
-        # No enrichment — relation unchanged.
-        assert enriched.relations[0].target_native_ref is None
-        # Same object returned when no changes.
-        assert enriched is event
-
-    async def test_enrichment_no_method_on_storage(
-        self,
-        temp_storage: SQLiteStorage,
-    ) -> None:
-        """Enrichment gracefully handles storage without list_native_refs_for_event."""
-        # Simulate storage that lacks list_native_refs_for_event by
-        # testing with a minimal mock that raises AttributeError.
-        config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
-            router=Router(routes=[]),
-            adapters={},
-        )
-        runner = PipelineRunner(config)
-
-        rel = EventRelation(
-            relation_type="reply",
-            target_event_id="prior-nomethod-001",
-            target_native_ref=None,
-            key=None,
-            fallback_text=None,
-        )
-        ts = datetime.now(timezone.utc)
-        event = CanonicalEvent(
-            event_id="enrich-nomethod-001",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=ts,
-            source_adapter="src",
-            source_transport_id="node-1",
-            source_channel_id=None,
-            parent_event_id=None,
-            lineage=(),
-            relations=(rel,),
-            payload={"text": "reply"},
-            metadata=EventMetadata(),
-        )
-
-        # Use a storage mock that lacks list_native_refs_for_event.
-        class _MinimalStorage:
-            pass
-
-        runner._config.storage = _MinimalStorage()  # type: ignore[assignment]
-
-        enriched = await runner._enrich_relations_for_target(event, "any_adapter")
-        assert enriched is event
-        assert enriched.relations[0].target_native_ref is None
-
     async def test_enrichment_skips_when_already_has_matching_ref(
         self,
         temp_storage: SQLiteStorage,
@@ -1062,6 +984,24 @@ class TestRendererReceivesEnrichedRelation:
         temp_storage: SQLiteStorage,
     ) -> None:
         """Renderer receives event with target_native_ref populated via enrichment."""
+        # Admit the prior event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            CanonicalEvent(
+                event_id="prior-render-001",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="src",
+                source_transport_id="node-1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "prior render"},
+                metadata=EventMetadata(),
+            )
+        )
         # Pre-store a native ref for a prior event.
         prior_ref = NativeMessageRef(
             id="nref-render-001",
@@ -1240,6 +1180,24 @@ class TestEnrichRelationsChannelAware:
 
     async def test_exact_channel_match_wins(self, temp_storage) -> None:
         """When multiple refs exist, exact channel match wins."""
+        # Admit the parent event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            CanonicalEvent(
+                event_id="evt-target",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="src",
+                source_transport_id="node-1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "target"},
+                metadata=EventMetadata(),
+            )
+        )
         event = _event_with_relation(target_event_id="evt-target")
         await temp_storage.store_native_ref(
             NativeMessageRef(
@@ -1279,6 +1237,24 @@ class TestEnrichRelationsChannelAware:
     ) -> None:
         """When target_channel is specified but no exact channel match exists,
         relation is NOT enriched (no adapter-only fallback)."""
+        # Admit the parent event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            CanonicalEvent(
+                event_id="evt-target",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="src",
+                source_transport_id="node-1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "target"},
+                metadata=EventMetadata(),
+            )
+        )
         event = _event_with_relation(target_event_id="evt-target")
         await temp_storage.store_native_ref(
             NativeMessageRef(
@@ -1342,6 +1318,24 @@ class TestEnrichRelationsChannelAware:
         self, temp_storage
     ) -> None:
         """Existing ref with wrong channel is replaced when exact channel match exists."""
+        # Admit the target event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            CanonicalEvent(
+                event_id="evt-target",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="src",
+                source_transport_id="node-1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "target"},
+                metadata=EventMetadata(),
+            )
+        )
         rel = EventRelation(
             relation_type="reply",
             target_event_id="evt-target",

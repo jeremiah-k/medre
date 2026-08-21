@@ -19,6 +19,10 @@ from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 from .conftest import _make_lifecycle, _make_receipt
+from tests.helpers.storage_outbox import (
+    append_receipt_with_parent,
+    create_outbox_item_with_parent,
+)
 
 # ===================================================================
 # Source-aware candidate selection
@@ -43,7 +47,8 @@ class TestSourceAwareCandidateSelection:
         now = datetime.now(tz=timezone.utc)
 
         # Replay queued receipt (appended first).
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-replay",
                 status="queued",
@@ -56,7 +61,8 @@ class TestSourceAwareCandidateSelection:
             )
         )
         # Live queued receipt (appended second — would also win by recency).
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-live",
                 status="queued",
@@ -79,7 +85,7 @@ class TestSourceAwareCandidateSelection:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-live-vs-replay")
 
         record = OutboundNativeRefRecord(
@@ -113,7 +119,8 @@ class TestSourceAwareCandidateSelection:
         now = datetime.now(tz=timezone.utc)
 
         # Live queued receipt (appended first).
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-live-early",
                 status="queued",
@@ -125,7 +132,8 @@ class TestSourceAwareCandidateSelection:
             )
         )
         # Replay queued receipt (appended second — would win by recency alone).
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-replay-late",
                 status="queued",
@@ -149,7 +157,7 @@ class TestSourceAwareCandidateSelection:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-order")
 
         record = OutboundNativeRefRecord(
@@ -182,7 +190,8 @@ class TestSourceAwareCandidateSelection:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-replay-only",
                 status="queued",
@@ -229,7 +238,8 @@ class TestSourceAwareCandidateSelection:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-live-single",
                 status="queued",
@@ -252,7 +262,7 @@ class TestSourceAwareCandidateSelection:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-live-single")
 
         record = OutboundNativeRefRecord(
@@ -293,7 +303,8 @@ class TestSourceAwareCandidateSelection:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-dup",
                 status="queued",
@@ -317,7 +328,7 @@ class TestSourceAwareCandidateSelection:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item1)
+        await create_outbox_item_with_parent(temp_storage, outbox_item1)
         await temp_storage.mark_outbox_queued("obox-dup-1")
 
         record = OutboundNativeRefRecord(
@@ -338,7 +349,8 @@ class TestSourceAwareCandidateSelection:
         # Second callback: new outbox item for attempt 2 targeting the
         # same queued receipt (append-only: the queued receipt is never
         # consumed and still matches on subsequent callbacks).
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-dup-2",
                 status="queued",
@@ -360,7 +372,7 @@ class TestSourceAwareCandidateSelection:
             status="in_progress",
             attempt_number=2,
         )
-        await temp_storage.create_outbox_item(outbox_item2)
+        await create_outbox_item_with_parent(temp_storage, outbox_item2)
         await temp_storage.mark_outbox_queued("obox-dup-2")
 
         record2 = OutboundNativeRefRecord(
@@ -392,7 +404,8 @@ class TestSourceAwareCandidateSelection:
         now = datetime.now(tz=timezone.utc)
 
         # Replay candidate first.
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-r1",
                 status="queued",
@@ -405,7 +418,8 @@ class TestSourceAwareCandidateSelection:
             )
         )
         # Live candidate second.
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-l1",
                 status="queued",
@@ -428,7 +442,7 @@ class TestSourceAwareCandidateSelection:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-nc")
 
         record = OutboundNativeRefRecord(
@@ -461,7 +475,8 @@ class TestSourceAwareCandidateSelection:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-rp1",
                 status="queued",
@@ -472,7 +487,8 @@ class TestSourceAwareCandidateSelection:
                 replay_run_id="run-a",
             )
         )
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-rp2",
                 status="queued",
@@ -518,7 +534,8 @@ class TestSourceAwareCandidateSelection:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-only",
                 status="queued",
@@ -540,7 +557,7 @@ class TestSourceAwareCandidateSelection:
             status="in_progress",
             attempt_number=1,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-single")
 
         record = OutboundNativeRefRecord(
@@ -571,7 +588,8 @@ class TestSourceAwareCandidateSelection:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-first",
                 status="queued",
@@ -581,7 +599,8 @@ class TestSourceAwareCandidateSelection:
                 outbox_id="obox-retry",
             )
         )
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             _make_receipt(
                 receipt_id="rcpt-retry",
                 status="queued",
@@ -603,7 +622,7 @@ class TestSourceAwareCandidateSelection:
             status="in_progress",
             attempt_number=2,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-retry")
 
         record = OutboundNativeRefRecord(

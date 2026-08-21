@@ -1330,6 +1330,7 @@ class TestUnknownStrategyPlannerFailure:
             source_channel_id="ch-0",
             payload={"text": "hello"},
         )
+        await temp_storage.append(event)
 
         # Build a delivery plan with an invalid strategy method.
         bad_plan = DeliveryPlan(

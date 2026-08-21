@@ -356,10 +356,9 @@ class TestRetryShutdownRealPipeline:
             attempt_number=1,
             created_at=datetime.now(timezone.utc),
         )
-        await temp_storage.append_receipt(failed_receipt)
-
-        # Also store the event so the worker can look it up
+        # The receipt is durable evidence for an admitted canonical event.
         await temp_storage.append(event)
+        await temp_storage.append_receipt(failed_receipt)
 
         # Build a real pipeline (but capacity=0 means it never gets called)
         render_pipe = RenderingPipeline()

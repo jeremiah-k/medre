@@ -551,7 +551,7 @@ class TargetDeliveryService:
             # _deliver_single_target() Phase 2.75 which runs BEFORE outbox
             # creation, capacity acquisition, and rendering.  This block
             # handles edge cases where deliver_to_target() is called
-            # directly (e.g. via _deliver_all).  A plan-level skip is
+            # directly by an external caller.  A plan-level skip is
             # NOT a renderer failure - it is a suppressed delivery.
             _skip_error = (
                 f"delivery_skipped: plan strategy is 'skip' "

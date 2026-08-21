@@ -121,6 +121,28 @@ class PreReleaseSchemaMismatchError(StorageInitializationError):
         )
 
 
+class PreReleaseSchemaConstraintMismatchError(StorageInitializationError):
+    """Raised when a pre-release table lacks required structural constraints."""
+
+    def __init__(
+        self,
+        path: str | None,
+        table: str,
+        missing_constraints: list[str],
+    ) -> None:
+        self.path = path
+        self.table = table
+        self.missing_constraints = missing_constraints
+        path_hint = f" (database: {path})" if path else ""
+        super().__init__(
+            f"Pre-release schema constraint mismatch: table '{table}' is "
+            f"missing required constraints {sorted(missing_constraints)}.{path_hint} "
+            "The database does not match the current pre-release shape. "
+            "Please recreate the database; MEDRE does not automatically "
+            "transform pre-release database layouts."
+        )
+
+
 class SchemaValidationError(StorageError):
     """Raised when stored data does not conform to the expected schema."""
 
@@ -208,7 +230,10 @@ class DeliveryOutboxItem:
     target_channel:
         Target channel, if applicable.
     target_address:
-        Target address if used by delivery planning.
+        Hash of the route target's destination (``target.destination.destination_hash``)
+        as set by the outbox manager during creation.  Stored as a stable
+        identifier rather than a full address — the full address is reconstructed
+        from the route + plan context when needed.
     attempt_number:
         1-indexed attempt counter.
     status:

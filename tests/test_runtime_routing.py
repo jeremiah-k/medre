@@ -1254,6 +1254,23 @@ class TestChannelRoomMapEndToEnd:
 
         prior_event_id = "prior-ch0-001"
 
+        # Also store the prior canonical event (for text enrichment).
+        prior_event = CanonicalEvent(
+            event_id=prior_event_id,
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter=_MESH_ID,
+            source_transport_id="node-1",
+            source_channel_id="0",
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"body": "Original message on ch0"},
+            metadata=EventMetadata(),
+        )
+        await temp_storage.append(prior_event)
+
         # Seed Meshtastic outbound ref on channel 0.
         await temp_storage.store_native_ref(
             NativeMessageRef(
@@ -1283,22 +1300,6 @@ class TestChannelRoomMapEndToEnd:
             )
         )
 
-        # Also store the prior canonical event (for text enrichment).
-        prior_event = CanonicalEvent(
-            event_id=prior_event_id,
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter=_MESH_ID,
-            source_transport_id="node-1",
-            source_channel_id="0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": "Original message on ch0"},
-            metadata=EventMetadata(),
-        )
-        await temp_storage.append(prior_event)
 
         # Build a Matrix reply event targeting the prior event.
         rel = EventRelation(
@@ -1362,20 +1363,6 @@ class TestChannelRoomMapEndToEnd:
 
         prior_event_id = "prior-wrongch-001"
 
-        # Seed ONLY a wrong-channel Meshtastic ref (channel 7).
-        await temp_storage.store_native_ref(
-            NativeMessageRef(
-                id="nref-mesh-ch7",
-                event_id=prior_event_id,
-                adapter=_MESH_ID,
-                native_channel_id="7",
-                native_message_id="mesh-pkt-777",
-                native_thread_id=None,
-                native_relation_id=None,
-                direction="outbound",
-            )
-        )
-
         # Store the prior event for text enrichment.
         prior_event = CanonicalEvent(
             event_id=prior_event_id,
@@ -1392,6 +1379,21 @@ class TestChannelRoomMapEndToEnd:
             metadata=EventMetadata(),
         )
         await temp_storage.append(prior_event)
+
+        # Seed ONLY a wrong-channel Meshtastic ref (channel 7).
+        await temp_storage.store_native_ref(
+            NativeMessageRef(
+                id="nref-mesh-ch7",
+                event_id=prior_event_id,
+                adapter=_MESH_ID,
+                native_channel_id="7",
+                native_message_id="mesh-pkt-777",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="outbound",
+            )
+        )
+
 
         rel = EventRelation(
             relation_type="reply",

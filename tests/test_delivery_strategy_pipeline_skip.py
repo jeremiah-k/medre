@@ -177,6 +177,7 @@ class TestSkipStrategyDefenseInDepth:
             source_adapter="src",
             source_channel_id="ch-0",
         )
+        await temp_storage.append(event)
 
         skip_plan = DeliveryPlan(
             plan_id="plan:skip-defense",
@@ -234,6 +235,7 @@ class TestSkipStrategyDefenseInDepth:
             source_adapter="src",
             source_channel_id="ch-0",
         )
+        await temp_storage.append(event)
 
         skip_plan = DeliveryPlan(
             plan_id="plan:skip-no-renderer-fail",

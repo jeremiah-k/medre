@@ -23,6 +23,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 # -- Helpers --
 
@@ -57,7 +58,7 @@ async def _create_outbox_item(
         attempt_number=attempt_number,
         status=status,
     )
-    await storage.create_outbox_item(item)
+    await create_outbox_item_with_parent(storage, item)
     return item
 
 

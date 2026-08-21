@@ -26,6 +26,7 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.relation_enricher import RelationEnricher
 from medre.core.routing import Router
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.storage_outbox import admit_event
 from tests.helpers.pipeline import make_pipeline_config_for_pipeline
 
 # ---------------------------------------------------------------------------
@@ -269,6 +270,7 @@ class TestCachedListRefsDeduplicates:
         """Enriching for two different target adapters reuses cached
         list_native_refs_for_event result."""
         # Store a native ref for the prior event.
+        await admit_event(temp_storage, "prior-refs")
         nref = NativeMessageRef(
             id="nref-001",
             event_id="prior-refs",

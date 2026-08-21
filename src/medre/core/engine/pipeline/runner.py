@@ -39,7 +39,6 @@ from medre.core.engine.pipeline.delivery_state import (
 )
 from medre.core.engine.pipeline.outbox_manager import (
     OUTBOX_CREATION_FAILED_REASON,
-    OutboxContext,
     OutboxManager,
 )
 from medre.core.engine.pipeline.target_delivery import (
@@ -438,7 +437,9 @@ class PipelineRunner:
         middleware_registered = False
         try:
             self._middleware = _PipelineLoggingMiddleware()
-            self._config.event_bus.add_middleware(self._middleware, priority=100)
+            await self._config.event_bus.add_middleware(
+                self._middleware, priority=100
+            )
             middleware_registered = True
             self._populate_renderer_platforms()
         except BaseException:
@@ -1199,58 +1200,6 @@ class PipelineRunner:
         """
         await self._lifecycle.append_queued_to_sent_receipt(
             self._config.storage, record=record, now=now
-        )
-
-    # -- Outbox lease renewal (delegates to OutboxManager) ----------------
-
-    def _start_outbox_lease_renewal(
-        self,
-        outbox_id: str | None,
-        outbox_created: bool,
-        pipeline_worker: str,
-    ) -> asyncio.Task | None:
-        """Start a background task that periodically renews the outbox lease.
-
-        Thin wrapper that delegates to
-        :class:`~medre.core.engine.pipeline.outbox_manager.OutboxManager`.
-
-        See :meth:`OutboxManager.start_lease_renewal` for full documentation.
-        """
-        ctx = OutboxContext(
-            outbox_id=outbox_id,
-            created=outbox_created,
-            pipeline_worker=pipeline_worker,
-            skip_reason=None,
-        )
-        return self._outbox_manager.start_lease_renewal(ctx)
-
-    # -- Outbox finalization (delegates to DeliveryLifecycleService) ------
-
-    async def _finalize_outbox_outcome(
-        self,
-        outbox_id: str | None,
-        outbox_created: bool,
-        receipt: DeliveryReceipt | None,
-        failure_kind_val: DeliveryFailureKind | None,
-        error: str | None,
-        retry_policy: RetryPolicy | None,
-    ) -> None:
-        """Update the outbox item status based on the delivery outcome.
-
-        Thin wrapper that delegates to
-        :class:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService`.
-
-        See :meth:`DeliveryLifecycleService.finalize_outbox_outcome`
-        for full documentation.
-        """
-        await self._lifecycle.finalize_outbox_outcome(
-            self._config.storage,
-            outbox_id=outbox_id,
-            outbox_created=outbox_created,
-            receipt=receipt,
-            failure_kind_val=failure_kind_val,
-            error=error,
-            retry_policy=retry_policy,
         )
 
     # -- Stage 3-4: Routing + Planning -------------------------------------
@@ -2203,45 +2152,6 @@ class PipelineRunner:
         )
 
     # -- Internal helpers --------------------------------------------------
-
-    async def _deliver_all(
-        self,
-        event: CanonicalEvent,
-        deliveries: list[tuple[Route, DeliveryPlan]],
-    ) -> list[DeliveryReceipt | None]:
-        """Deliver to all targets concurrently with error isolation.
-
-        Returns a list parallel to *deliveries*; ``None`` entries indicate
-        a target that raised an unhandled exception.
-        """
-
-        async def _safe_deliver(
-            route: Route, plan: DeliveryPlan
-        ) -> DeliveryReceipt | None:
-            try:
-                return await self.deliver_to_target(event, route, plan)
-            except Exception:
-                self._log.exception(
-                    "Unhandled error delivering event_id=%s to adapter=%s",
-                    event.event_id,
-                    plan.target.adapter,
-                )
-                return None
-
-        worker_limit = (
-            self._capacity_controller.delivery_limit
-            if self._capacity_controller is not None
-            else 1
-        )
-
-        async def _deliver_item(
-            item: tuple[Route, DeliveryPlan],
-        ) -> DeliveryReceipt | None:
-            return await _safe_deliver(*item)
-
-        return await _bounded_ordered_map(
-            deliveries, _deliver_item, worker_limit=worker_limit
-        )
 
     def _get_adapter_capabilities(self, target: RouteTarget) -> AdapterCapabilities:
         """Retrieve the :class:`AdapterCapabilities` for a target adapter.

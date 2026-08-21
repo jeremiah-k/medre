@@ -33,6 +33,7 @@ from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.matrix import build_mock_nio_module
+from tests.helpers.storage_outbox import admit_default_event
 
 # ---------------------------------------------------------------------------
 # Event fixtures
@@ -132,6 +133,13 @@ async def temp_storage() -> AsyncGenerator[SQLiteStorage, None]:
     When ``MEDRE_DOCKER_ARTIFACT_RUN_DIR`` is set, the database file is
     placed under that directory (with a unique suffix) and **not** deleted
     after the test so the artifact collector can retrieve it.
+
+    The storage starts empty — tests that count canonical events see
+    exactly the rows they create.  Tests that write outbox /
+    native-ref rows directly (bypassing runtime admission) and rely on
+    the :func:`tests.helpers.storage_outbox.make_outbox_item` default
+    event id should request :func:`outbox_temp_storage` instead, which
+    pre-admits the sentinel event required by ``PRAGMA foreign_keys=ON``.
     """
     artifact_dir = os.environ.get("MEDRE_DOCKER_ARTIFACT_RUN_DIR")
     if artifact_dir:
@@ -154,6 +162,49 @@ async def temp_storage() -> AsyncGenerator[SQLiteStorage, None]:
                 os.unlink(db_path)
         raise
     try:
+        yield storage
+    finally:
+        await storage.close()
+        if not artifact_dir:
+            with suppress(FileNotFoundError):
+                os.unlink(db_path)
+
+
+@pytest.fixture
+async def outbox_temp_storage() -> AsyncGenerator[SQLiteStorage, None]:
+    """:func:`temp_storage` plus a pre-admitted sentinel canonical event.
+
+    Outbox tests that bypass the runtime admission path and write
+    directly to ``delivery_outbox`` / ``native_message_refs`` with the
+    default event id used by
+    :func:`tests.helpers.storage_outbox.make_outbox_item` need the row
+    to satisfy ``PRAGMA foreign_keys=ON``.  This fixture pre-admits a
+    ``CanonicalEvent`` with that id so the plain factory works without
+    each test appending its own event.  The sentinel id is deliberately
+    unusual so it cannot collide with real fixture data.
+    """
+    artifact_dir = os.environ.get("MEDRE_DOCKER_ARTIFACT_RUN_DIR")
+    if artifact_dir:
+        ad = Path(artifact_dir)
+        ad.mkdir(parents=True, exist_ok=True)
+        import uuid
+
+        db_path = str(ad / f"outbox-{uuid.uuid4().hex[:12]}.db")
+    else:
+        f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        db_path = f.name
+        f.close()
+
+    storage = SQLiteStorage(db_path=db_path)
+    try:
+        await storage.initialize()
+    except BaseException:
+        if not artifact_dir:
+            with suppress(FileNotFoundError):
+                os.unlink(db_path)
+        raise
+    try:
+        await admit_default_event(storage)
         yield storage
     finally:
         await storage.close()

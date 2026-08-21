@@ -133,7 +133,7 @@ class TestPipelineRunningState:
         # event_bus is a plain EventBus — we'll patch it to raise.
         original_add = pipeline_config.event_bus.add_middleware
 
-        def _boom(*args, **kwargs):
+        async def _boom(*args, **kwargs):
             raise RuntimeError("simulated startup failure")
 
         pipeline_config.event_bus.add_middleware = _boom  # type: ignore[attr-defined]

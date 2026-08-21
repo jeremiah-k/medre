@@ -91,6 +91,7 @@ class TestDeliverOneAdapterDeliveryError:
 
         runner = _make_runner(temp_storage)
         event = make_event(event_id="evt-ad-1", source_adapter="src")
+        await temp_storage.append(event)
         route = _make_route()
         plan = _make_plan()
         receipt = _dummy_receipt(event.event_id, plan.plan_id)
@@ -118,6 +119,7 @@ class TestDeliverOneAdapterDeliveryError:
 
         runner = _make_runner(temp_storage)
         event = make_event(event_id="evt-ad-2", source_adapter="src")
+        await temp_storage.append(event)
         route = _make_route()
         plan = _make_plan()
         receipt = _dummy_receipt(event.event_id, plan.plan_id)
@@ -150,6 +152,7 @@ class TestDeliverOneAdapterDeliveryError:
 
         runner = _make_runner(temp_storage)
         event = make_event(event_id="evt-ad-3", source_adapter="src")
+        await temp_storage.append(event)
         route = _make_route()
         plan = _make_plan()
         receipt = _dummy_receipt(event.event_id, plan.plan_id)
@@ -185,6 +188,7 @@ class TestDeliverOneRendererDeliveryError:
 
         runner = _make_runner(temp_storage)
         event = make_event(event_id="evt-rd-1", source_adapter="src")
+        await temp_storage.append(event)
         route = _make_route()
         plan = _make_plan()
         receipt = _dummy_receipt(event.event_id, plan.plan_id)
@@ -212,6 +216,7 @@ class TestDeliverOneRendererDeliveryError:
 
         runner = _make_runner(temp_storage)
         event = make_event(event_id="evt-rd-2", source_adapter="src")
+        await temp_storage.append(event)
         route = _make_route()
         plan = _make_plan()
         receipt = _dummy_receipt(event.event_id, plan.plan_id)
@@ -246,6 +251,7 @@ class TestDeliverOneCancelledError:
 
         runner = _make_runner(temp_storage)
         event = make_event(event_id="evt-cancel", source_adapter="src")
+        await temp_storage.append(event)
         route = _make_route()
         plan = _make_plan()
 
@@ -273,6 +279,7 @@ class TestDeliverOneGenericException:
 
         runner = _make_runner(temp_storage)
         event = make_event(event_id="evt-gen-1", source_adapter="src")
+        await temp_storage.append(event)
         route = _make_route()
         plan = _make_plan()
 
