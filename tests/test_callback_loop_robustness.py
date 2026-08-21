@@ -223,8 +223,9 @@ class TestMeshtasticCallbackIsolation:
         await adapter.start(ctx)
 
         try:
-            # --- BAD: non-dict packet → MeshtasticCodecError ---
-            with pytest.raises(Exception):  # noqa: B017
+            # --- BAD: non-dict packet → codec rejects with AttributeError
+            # on ``packet.get(...)`` (string input has no ``.get``). ---
+            with pytest.raises((AttributeError, TypeError)):
                 await adapter.simulate_inbound("not a dict")  # type: ignore[arg-type]
 
             assert len(collector.events) == 0
@@ -329,8 +330,9 @@ class TestMeshCoreCallbackIsolation:
         await adapter.start(ctx)
 
         try:
-            # --- BAD: non-dict → codec raises MeshCoreCodecError ---
-            with pytest.raises(Exception):  # noqa: B017
+            # --- BAD: non-dict → codec rejects with AttributeError
+            # on ``packet.get(...)`` (int input has no ``.get``). ---
+            with pytest.raises((AttributeError, TypeError)):
                 await adapter.simulate_inbound(42)  # type: ignore[arg-type]
 
             assert len(collector.events) == 0
@@ -435,8 +437,9 @@ class TestLxmfCallbackIsolation:
         await adapter.start(ctx)
 
         try:
-            # --- BAD: non-dict → codec raises LxmfCodecError ---
-            with pytest.raises(Exception):  # noqa: B017
+            # --- BAD: non-dict → codec rejects with AttributeError
+            # on ``packet.get(...)`` (string input has no ``.get``). ---
+            with pytest.raises((AttributeError, TypeError)):
                 await adapter.simulate_inbound("not a dict")  # type: ignore[arg-type]
 
             assert len(collector.events) == 0
@@ -937,8 +940,8 @@ class TestRapidFireBadGood:
         await adapter.start(_make_ctx("mesh-rapid", collector))
 
         try:
-            # bad (not a dict)
-            with pytest.raises(Exception):  # noqa: B017
+            # bad (not a dict) — classifier calls ``packet.get(...)`` on None
+            with pytest.raises((AttributeError, TypeError)):
                 await adapter.simulate_inbound(None)  # type: ignore[arg-type]
 
             # good
@@ -970,8 +973,8 @@ class TestRapidFireBadGood:
         await adapter.start(_make_ctx("mc-rapid", collector))
 
         try:
-            # bad (not a dict)
-            with pytest.raises(Exception):  # noqa: B017
+            # bad (not a dict) — classifier calls ``packet.get(...)`` on int
+            with pytest.raises((AttributeError, TypeError)):
                 await adapter.simulate_inbound(12345)  # type: ignore[arg-type]
 
             # good
@@ -1001,8 +1004,8 @@ class TestRapidFireBadGood:
         await adapter.start(_make_ctx("lx-rapid", collector))
 
         try:
-            # bad (not a dict)
-            with pytest.raises(Exception):  # noqa: B017
+            # bad (not a dict) — classifier calls ``packet.get(...)`` on bytes
+            with pytest.raises((AttributeError, TypeError)):
                 await adapter.simulate_inbound(b"bytes-not-dict")  # type: ignore[arg-type]
 
             # good
@@ -1099,8 +1102,8 @@ class TestNativeIdIsolation:
         await adapter.start(_make_ctx("mesh-native", collector))
 
         try:
-            # Bad: triggers exception in classify/decode
-            with pytest.raises(Exception):  # noqa: B017
+            # Bad: triggers exception in classify/decode (None has no .get)
+            with pytest.raises((AttributeError, TypeError)):
                 await adapter.simulate_inbound(None)  # type: ignore[arg-type]
 
             # Good: distinct packet_id
@@ -1126,7 +1129,7 @@ class TestNativeIdIsolation:
         await adapter.start(_make_ctx("mc-native", collector))
 
         try:
-            with pytest.raises(Exception):  # noqa: B017
+            with pytest.raises((AttributeError, TypeError)):
                 await adapter.simulate_inbound(None)  # type: ignore[arg-type]
 
             valid = make_meshcore_packet(text="mc clean", sender="cln", packet_id=7777)
@@ -1148,7 +1151,7 @@ class TestNativeIdIsolation:
         await adapter.start(_make_ctx("lx-native", collector))
 
         try:
-            with pytest.raises(Exception):  # noqa: B017
+            with pytest.raises((AttributeError, TypeError)):
                 await adapter.simulate_inbound(None)  # type: ignore[arg-type]
 
             valid = _make_lxmf_packet(content="lx clean", msg_id="ff" * 32)

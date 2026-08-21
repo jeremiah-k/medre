@@ -123,7 +123,12 @@ async def temp_storage() -> Any:
     storage = SQLiteStorage(db_path=db_path)
     try:
         await storage.initialize()
-    except BaseException:
+    except BaseException as exc:
+        # Re-raise cancellation/interrupt explicitly so the test's own
+        # CancelledError and KeyboardInterrupt are not swallowed by the
+        # broad ``except BaseException``.
+        if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt)):
+            raise
         with suppress(FileNotFoundError):
             os.unlink(db_path)
         raise
