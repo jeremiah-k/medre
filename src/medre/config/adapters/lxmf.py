@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Self
+from typing import Literal, Self
 
 from medre.config.adapters.errors import LxmfConfigError
 
@@ -35,9 +35,11 @@ __all__ = ["LxmfConfig"]
 
 
 # Allowed connection_type values.
+ConnectionType = Literal["fake", "reticulum"]
 _ALLOWED_CONNECTION_TYPES: frozenset[str] = frozenset({"fake", "reticulum"})
 
 # Allowed default_delivery_method values.
+DefaultDeliveryMethod = Literal["direct", "opportunistic", "propagated", "paper"]
 _ALLOWED_DELIVERY_METHODS: frozenset[str] = frozenset(
     {
         "direct",
@@ -116,10 +118,10 @@ class LxmfConfig:
     """
 
     adapter_id: str
-    connection_type: str = "fake"
+    connection_type: ConnectionType = "fake"
     display_name: str = ""
     stamp_cost: int = 8
-    default_delivery_method: str = "direct"
+    default_delivery_method: DefaultDeliveryMethod = "direct"
     outbound_propagation_node: str | None = None
     origin_label: str = ""
     default_channel: int = 0
