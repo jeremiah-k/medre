@@ -7,7 +7,7 @@ hard cap while preserving full test coverage.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.core.events import (
@@ -25,10 +25,30 @@ from tests.helpers.matrix_events import (
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
+from tests.helpers.native_metadata import (
+    lxmf_native_data,
+    meshcore_native_data,
+    meshtastic_native_data,
+)
 
 # Module-level aliases for concise call-sites in this test file.
 _make_event = make_matrix_event
-_make_meshtastic_event = make_meshtastic_event
+
+
+def _make_meshtastic_event(
+    source_adapter: str = "radio-alpha",
+    payload: dict | None = None,
+    relations: tuple | None = None,
+    native_data: dict | None = None,
+) -> CanonicalEvent:
+    """Build a Meshtastic event from current-version transport fields."""
+    return make_meshtastic_event(
+        source_adapter=source_adapter,
+        payload=payload,
+        relations=relations,
+        native_data=meshtastic_native_data(native_data or {}),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Helpers specific to relay attribution / prefix tests
@@ -43,12 +63,14 @@ def _make_meshcore_event(
     """Build a CanonicalEvent simulating a MeshCore source."""
     metadata = EventMetadata()
     if native_data:
-        metadata = EventMetadata(native=NativeMetadata(data=native_data))
+        metadata = EventMetadata(
+            native=NativeMetadata(data=meshcore_native_data(native_data))
+        )
     return CanonicalEvent(
         event_id="evt-mc-1",
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
         source_transport_id="mc-node-1",
         source_channel_id="ch-0",
@@ -68,12 +90,14 @@ def _make_lxmf_event(
     """Build a CanonicalEvent simulating an LXMF source."""
     metadata = EventMetadata()
     if native_data:
-        metadata = EventMetadata(native=NativeMetadata(data=native_data))
+        metadata = EventMetadata(
+            native=NativeMetadata(data=lxmf_native_data(native_data))
+        )
     return CanonicalEvent(
         event_id="evt-lxmf-1",
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
         source_transport_id="lxmf-node-1",
         source_channel_id="ch-0",
@@ -410,7 +434,7 @@ class TestMatrixCoreAttributionIntegration:
         )
         body = result.payload["body"]
         assert "None" not in body
-        assert body == "<//> hello mesh"
+        assert body == "<node-42/node-42/node-42> hello mesh"
 
     # -- MeshCore prefix: uses pubkey/from_id/source_sender_id --
 

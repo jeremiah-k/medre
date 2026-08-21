@@ -117,9 +117,10 @@ def _make_src_ctx(
 ) -> AdapterContext:
     """Build an AdapterContext for a fake source adapter."""
 
-    # Wrap ingress_handler to discard return value, matching MedreApp._make_publish_inbound.
+    # Wrap handle_ingress to discard its return value, matching the runtime
+    # publish callback contract.
     async def _publish(event: CanonicalEvent) -> None:
-        await runner.ingress_handler(event)
+        await runner.handle_ingress(event)
 
     return AdapterContext(
         adapter_id="fake_src",

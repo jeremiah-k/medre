@@ -47,7 +47,7 @@ class StubPipeline:
         """Identity transform -- no-op for testing."""
         return event
 
-    async def render_event(self, event: CanonicalEvent) -> Any:
+    async def render_replay_event(self, event: CanonicalEvent) -> Any:
         """Render event through the rendering pipeline."""
         if self._rendering_pipeline is not None:
             return await self._rendering_pipeline.render(event, "test_adapter")

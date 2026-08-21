@@ -373,12 +373,14 @@ The registry is extensible by plugins via `plugin.custom`.
 ### 5.2 Registration
 
 The schema registry maps `(event_kind, schema_version)` to a validation
-function. New kinds are registered at adapter/plugin load time.
+function. New kinds are registered at adapter/plugin load time. Registration
+has explicit overwrite semantics: a second registration for the same
+`(event_kind, schema_version)` replaces the first validator.
 
 ```python
 class SchemaRegistry:
-    def register(self, event_kind: str, schema_version: int,
-                 validator: Callable[[dict], list[str]]) -> None: ...
+    def register_or_replace(self, event_kind: str, schema_version: int,
+                            validator: Callable[[dict], list[str]]) -> None: ...
 ```
 
 A validator receives the event payload dict and returns a list of error strings.
@@ -490,40 +492,28 @@ class SchemaVersion(msgspec.Struct, frozen=True):
     version: int          # Monotonically increasing version number
 ```
 
-### 8.3 Migration Policy
+### 8.3 Evolution Policy
 
-**Pre-release (current).** Schemas MAY change directly — fields renamed, types
-changed, structures reorganised — without migration paths. Breaking changes are
-applied by updating tests and documentation in the same commit. `schema_version`
-remains `1` throughout pre-release.
+The canonical envelope is closed and versioned. During development, a contract
+change updates the current struct, machine schemas, examples, producers,
+consumers, and tests together. MEDRE does not maintain transformations for
+abandoned development shapes.
 
-**Post-release stability guarantee.** Once a stable release ships:
+Unknown top-level fields are not an extension mechanism. A decoder MAY ignore
+fields that are not part of the current envelope version. Producer-defined data
+that must survive decode/encode cycles MUST live in an explicitly extensible
+mapping: `payload`, `metadata.custom`, or a versioned transport-native namespace.
 
-1. New fields MUST append with defaults so that consumers of older versions can
-   read newer payloads without error.
-2. Existing fields MUST NOT be removed. A field MAY be superseded by a new
-   field, but the original continues to be populated. Superseded fields carry a
-   `superseded_by` annotation in the schema registry.
-3. `schema_version >= 1` MUST be enforced at construction. Values `< 1` raise
-   `ValueError`.
-4. Unknown fields MUST be preserved, not stripped. If a payload contains a field
-   the current schema version does not define, that field is kept and ignored by
-   core logic. msgspec's default behavior skips unknown struct fields during
-   decode, providing forward-looking tolerance.
-5. Known fields MUST keep their meaning. A field named `voltage_mv` always means
-   voltage in millivolts. Renaming requires a new field alongside the original.
-6. `MIGRATION_REGISTRY` provides a registry-only hook for future migration
-   functions. No migrations are executed until post-release stability is in
-   effect. Migrations map `(event_kind, from_version, to_version)` to a
-   `Callable[[dict], dict]`.
+Long-term cross-version guarantees are intentionally undefined until a stable
+release establishes a concrete compatibility obligation.
 
 ### 8.4 Handling Unknown Versions
 
-| Scenario                              | Behavior                                                                 |
-| ------------------------------------- | ------------------------------------------------------------------------ |
-| Consumer sees higher version (future) | Treat all known fields normally, ignore unknown fields                   |
-| Consumer sees lower version (old)     | Populate any new fields with defaults if possible, otherwise leave unset |
-| Consumer understands version N        | Can read any version `<= N`                                              |
+| Scenario                  | Behavior                                                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Current supported version | Interpret the defined envelope and extension mappings                                                                 |
+| Higher positive version   | Preserve the stored version value, interpret only explicitly supported structures, and do not infer unknown semantics |
+| Invalid version `< 1`     | Reject at construction/validation                                                                                     |
 
 ---
 
@@ -628,7 +618,7 @@ core/events/
     __init__.py
     canonical.py     # CanonicalEvent, EventRelation, NativeRef, NativeMessageRef, DeliveryReceipt, EventRecordKind
     kinds.py         # EventKind constants, KNOWN_KINDS, is_registered()
-    schema.py        # SchemaRegistry, SchemaVersion, CURRENT_SCHEMA_VERSION, MIGRATION_REGISTRY
+    schema.py        # SchemaRegistry, SchemaVersion, CURRENT_SCHEMA_VERSION
     metadata.py      # EventMetadata, TransportMetadata, RoutingMetadata, RadioMetadata, TelemetryMetadata, NativeMetadata
     bus.py           # Event bus (not part of this specification)
 ```

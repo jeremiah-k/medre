@@ -1,5 +1,9 @@
 # Conversation Graph & Relation Resolution Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 **Branch**: `conversation-graph`
 **Date**: 2026-06-06
 **Scope**: Event-centric conversation model, relation resolution authority, native target selection, renderer decisions, adapter delivery, native ref persistence

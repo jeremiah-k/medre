@@ -1,8 +1,8 @@
 """Meshtastic identity-enrichment integration tests.
 
 Validates the complete ingress enrichment pipeline that fills in
-``meshtastic.longname``/``meshtastic.shortname`` (namespaced under
-``meshtastic.*``) from the session's local node database
+``native.meshtastic.longname`` / ``native.meshtastic.shortname`` from the
+session's local node database
 (the in-memory ``client.nodes`` cache populated by the SDK as
 ``NODEINFO_APP`` packets arrive) when a text-message packet does not
 carry sender display names.
@@ -18,18 +18,15 @@ Pipeline under test (mirrors ``MeshtasticAdapter._on_packet`` lines
 Resolution order asserted throughout:
     event/packet names -> local node metadata names -> sender_id fallback.
 
-The codec emits namespaced ``meshtastic.longname``/``meshtastic.shortname``
-identity keys (transport-specific metadata stays namespaced by transport).
-``project_meshtastic_attribution`` reads namespaced keys as the primary
-shape and accepts bare ``longname``/``shortname`` as legacy input
-tolerance.  Bare ``from_id`` is retained alongside ``meshtastic.from_id``
-for non-identity consumers.  None of these are core ``RelayAttribution``
-fields.
+The codec emits the versioned ``native.meshtastic`` object and attribution
+reads only that current namespace. ``source_transport_id`` remains the
+transport-neutral sender fallback. None of these transport fields are core
+``RelayAttribution`` fields.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -41,6 +38,7 @@ from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.native_metadata import meshtastic_native_data
 
 # ---------------------------------------------------------------------------
 # Inline helpers
@@ -135,7 +133,7 @@ def _make_event_with_native(
         event_id="evt-1",
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
         source_adapter=source_adapter,
         source_transport_id=source_transport_id,
         source_channel_id="0",
@@ -143,7 +141,9 @@ def _make_event_with_native(
         lineage=(),
         relations=(),
         payload={"body": "hello"},
-        metadata=EventMetadata(native=NativeMetadata(data=native)),
+        metadata=EventMetadata(
+            native=NativeMetadata(data=meshtastic_native_data(native))
+        ),
         source_native_ref=None,
     )
 
@@ -266,7 +266,9 @@ def test_projection_event_names_win_over_sender_id() -> None:
     """When native_data carries longname (event name), it wins over the
     sender_id fallback.  This is the 'event names always win' contract."""
     fields = project_meshtastic_attribution(
-        {"longname": "Event Name", "shortname": "EN", "from_id": "!node"},
+        meshtastic_native_data(
+            {"longname": "Event Name", "shortname": "EN", "from_id": "!node"}
+        )
     )
     assert fields["source_sender_label"] == "Event Name"
     assert fields["source_sender_short_label"] == "EN"
@@ -276,7 +278,9 @@ def test_projection_node_metadata_used_when_packet_lacks_names() -> None:
     """Native data populated solely from the node DB (no packet names)
     produces readable labels via projection."""
     fields = project_meshtastic_attribution(
-        {"longname": "From DB", "shortname": "DB", "from_id": "!node"},
+        meshtastic_native_data(
+            {"longname": "From DB", "shortname": "DB", "from_id": "!node"}
+        ),
         source_transport_id="!node",
     )
     assert fields["source_sender_label"] == "From DB"
@@ -286,7 +290,7 @@ def test_projection_node_metadata_used_when_packet_lacks_names() -> None:
 def test_projection_sender_id_fallback_when_all_absent() -> None:
     """No names anywhere -> sender_id fallback (current behaviour preserved)."""
     fields = project_meshtastic_attribution(
-        {"from_id": "!aabbccdd"},
+        meshtastic_native_data({"from_id": "!aabbccdd"}),
         source_transport_id="!aabbccdd",
     )
     assert fields["source_sender_label"] == "!aabbccdd"
@@ -301,7 +305,7 @@ def test_projection_sender_id_fallback_when_all_absent() -> None:
 def test_projection_non_string_longname_coerced() -> None:
     """Non-string longname (int) is coerced via str() and used as the label."""
     fields = project_meshtastic_attribution(
-        {"longname": 42, "shortname": None, "from_id": "!node"},
+        meshtastic_native_data({"longname": 42, "shortname": None, "from_id": "!node"})
     )
     assert fields["source_sender_label"] == "42"
 
@@ -309,7 +313,7 @@ def test_projection_non_string_longname_coerced() -> None:
 def test_projection_non_string_shortname_coerced() -> None:
     """Non-string shortname (int) is coerced via str() and used as short label."""
     fields = project_meshtastic_attribution(
-        {"longname": None, "shortname": 7, "from_id": "!node"},
+        meshtastic_native_data({"longname": None, "shortname": 7, "from_id": "!node"})
     )
     assert fields["source_sender_short_label"] == "7"
 
@@ -317,7 +321,9 @@ def test_projection_non_string_shortname_coerced() -> None:
 def test_projection_none_values_treated_as_absent() -> None:
     """Explicit None values fall through independently to sender_id."""
     fields = project_meshtastic_attribution(
-        {"longname": None, "shortname": None, "from_id": "!node"},
+        meshtastic_native_data(
+            {"longname": None, "shortname": None, "from_id": "!node"}
+        )
     )
     assert fields["source_sender_label"] == "!node"
     assert fields["source_sender_short_label"] == "!node"
@@ -369,7 +375,9 @@ def test_pipeline_node_db_none_name_values_ignored() -> None:
 def test_compact_strips_spaces_from_enriched_longname() -> None:
     """compact=True strips spaces from labels sourced from the node DB."""
     fields = project_meshtastic_attribution(
-        {"longname": "Alpha Node", "shortname": "A N", "from_id": "!node"},
+        meshtastic_native_data(
+            {"longname": "Alpha Node", "shortname": "A N", "from_id": "!node"}
+        ),
         compact=True,
     )
     assert fields["source_sender_label"] == "AlphaNode"
@@ -379,7 +387,9 @@ def test_compact_strips_spaces_from_enriched_longname() -> None:
 def test_compact_preserves_space_free_enriched_names() -> None:
     """compact=True is idempotent on already-compact node-DB names."""
     fields = project_meshtastic_attribution(
-        {"longname": "Alpha", "shortname": "AL", "from_id": "!node"},
+        meshtastic_native_data(
+            {"longname": "Alpha", "shortname": "AL", "from_id": "!node"}
+        ),
         compact=True,
     )
     assert fields["source_sender_label"] == "Alpha"
@@ -468,14 +478,11 @@ async def test_truncation_within_budget_not_flagged() -> None:
 
 
 # ===================================================================
-# Group 6: Native key naming (Meshtastic-native, not core fields)
+# Group 6: Versioned native metadata
 # ===================================================================
 
 
-def test_enriched_names_are_meshtastic_native_keys() -> None:
-    """Enriched names are embedded as namespaced Meshtastic-native keys
-    (``meshtastic.longname``/``meshtastic.shortname``), NOT as core
-    RelayAttribution field names and not as bare keys."""
+def test_enriched_names_are_in_meshtastic_namespace() -> None:
     client = _make_node_client(
         {"!aabbccdd": {"user": {"longName": "Alpha", "shortName": "AL"}}}
     )
@@ -487,41 +494,48 @@ def test_enriched_names_are_meshtastic_native_keys() -> None:
     event = _enrich_and_decode(adapter, packet)
     assert event.metadata.native is not None
     native = event.metadata.native.data
-
-    # Namespaced Meshtastic-native identity keys present.
-    assert native["meshtastic.longname"] == "Alpha"
-    assert native["meshtastic.shortname"] == "AL"
-    # Bare identity labels are not emitted by the codec.
+    meshtastic = native["meshtastic"]
+    assert isinstance(meshtastic, dict)
+    assert meshtastic["longname"] == "Alpha"
+    assert meshtastic["shortname"] == "AL"
+    assert meshtastic["from_id"] == "!aabbccdd"
     assert "longname" not in native
     assert "shortname" not in native
-    # Core RelayAttribution field names are NOT present in native metadata.
+    assert "from_id" not in native
     assert "source_sender_label" not in native
-    assert "source_sender_short_label" not in native
 
 
-def test_projection_returns_only_three_generic_fields() -> None:
-    """Projection output contains only the three generic attribution
-    fields, regardless of how many native keys are present."""
+def test_projection_returns_only_generic_fields() -> None:
     fields = project_meshtastic_attribution(
-        {
-            "from_id": "!node",
-            "longname": "Alpha",
-            "shortname": "AL",
-            "channel": 0,
-            "packet_id": 42,
-        }
+        meshtastic_native_data(
+            {
+                "from_id": "!node",
+                "longname": "Alpha",
+                "shortname": "AL",
+                "channel": 0,
+                "packet_id": 42,
+            }
+        )
     )
-    assert set(fields.keys()) == {
+    assert set(fields) == {
         "source_sender_id",
         "source_sender_label",
         "source_sender_short_label",
+        "source_sender_handle",
     }
 
 
-def test_dispatch_recognises_enriched_native_as_meshtastic() -> None:
-    """The attribution dispatch recognises bare longname/shortname keys
-    as Meshtastic-characteristic (platform detection)."""
+def test_dispatch_recognises_versioned_meshtastic_native_metadata() -> None:
+    from medre.adapters._attribution_dispatch import detect_source_platform
+
+    native = meshtastic_native_data(
+        {"longname": "Alpha", "shortname": "AL", "from_id": "!node"}
+    )
+    assert detect_source_platform("radio-a", native) == "meshtastic"
+
+
+def test_dispatch_does_not_infer_meshtastic_from_flat_identity_fields() -> None:
     from medre.adapters._attribution_dispatch import detect_source_platform
 
     native = {"longname": "Alpha", "shortname": "AL", "from_id": "!node"}
-    assert detect_source_platform("radio-a", native) == "meshtastic"
+    assert detect_source_platform("generic", native) is None

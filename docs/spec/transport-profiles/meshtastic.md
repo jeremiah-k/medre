@@ -194,81 +194,40 @@ name field; sender names live in the SDK node database, populated by
 
 ### Node-Database Enrichment
 
-The enrichment pipeline runs end-to-end at ingress, reading only
-in-memory SDK state (no network call):
+The enrichment pipeline runs end-to-end at ingress, reading only in-memory SDK
+state (no network call):
 
 1. `adapter._enrich_with_node_info(packet)` calls
-   `session.get_node_info(from_id)`, which reads the SDK client's `nodes`
-   dict. It returns `{"longname": ..., "shortname": ...}` or `None` and
-   tolerates partial, `None`, non-dict, and empty entries.
-2. `codec.decode(packet, node_info=...)` embeds the namespaced identity
-   keys `meshtastic.longname` and `meshtastic.shortname` into native
-   metadata, alongside the namespaced `meshtastic.from_id`. Identity keys
-   live under the `meshtastic.*` namespace so transport-specific metadata
-   stays namespaced by transport. Non-identity packet metadata keys are
-   also emitted under `meshtastic.*` alongside retained bare forms:
-   `meshtastic.packet_id`, `meshtastic.channel`, `meshtastic.portnum`,
-   `meshtastic.to_id`, `meshtastic.is_direct_message`,
-   `meshtastic.reply_id`, `meshtastic.emoji`, `meshtastic.emoji_flag`.
-   The namespaced form is primary for new readers; the bare non-identity
-   duplicates are retained for inbound evidence shape preservation,
-   diagnostics, and legacy stored-event tolerance. `source_native_ref`
-   is built at decode from the classifier's packet id and channel, and
-   relation mapping uses the classifier's reply/reaction metadata; none
-   of those consumers reads bare `from_id` back out of the native dict.
-   Bare `from_id` is a transitional duplicate the codec still emits
-   alongside the namespaced form; its only live reader is the projection
-   legacy fallback for stored events and current projection tolerance.
-   Bare `longname`/`shortname` are read only as legacy input tolerance
-   for stored events and test fixtures produced before identity
-   namespacing and are not emitted by the codec.
+   `session.get_node_info(from_id)`, which reads the SDK client's `nodes` dict.
+2. `codec.decode(packet, node_info=...)` stores the resulting identity and packet
+   descriptors inside `metadata.native.data["meshtastic"]` with
+   `schema_version=1`.
+
+The canonical native object contains packet identity, channel/port information,
+node labels, reply/reaction descriptors, JSON-safe packet/decoded snapshots, and
+the classifier result. Flat and dotted Meshtastic keys are not alternate
+canonical representations.
 
 ### Platform Detection
 
-The dispatch platform detector
-(`_attribution_dispatch.detect_source_platform`) recognises Meshtastic
-native data through two key sets:
-
-- **Namespaced `meshtastic.*` keys** — primary, unambiguous signal:
-  `meshtastic.from_id`, `meshtastic.longname`, `meshtastic.shortname`,
-  `meshtastic.packet_id`, `meshtastic.channel`, `meshtastic.portnum`,
-  `meshtastic.to_id`, `meshtastic.is_direct_message`,
-  `meshtastic.reply_id`, `meshtastic.emoji`, `meshtastic.emoji_flag`.
-- **Legacy bare keys** — secondary signal for older data and test
-  fixtures: `longname`, `shortname`, `from_id`, `packet_id`.
-
-`channel` is intentionally excluded from the legacy bare-key set: a
-sparse native dict carrying only `channel` is not unambiguously
-Meshtastic and does not trigger Meshtastic detection. An explicit
-`platform_hint` (from the source-attribution registry) or an adapter-ID
-substring match takes precedence over native key-shape detection.
+`_attribution_dispatch.detect_source_platform` recognizes any positively
+versioned `native.meshtastic` object. Current field projection remains strict to
+the schema version implemented by `meshtastic_namespace`. An explicit
+`platform_hint` or adapter-ID heuristic still takes precedence over native-shape
+detection.
 
 ### Projection Rules
 
-Namespaced keys (`meshtastic.from_id`, `meshtastic.longname`,
-`meshtastic.shortname`) are the primary source and the shape emitted by
-the codec. Bare `longname`/`shortname` are accepted only as legacy input
-tolerance (stored events and test fixtures produced before namespacing)
-and are not emitted by the codec. Bare `from_id` is a transitional
-duplicate that the codec still emits alongside the namespaced form; its
-only live reader is the projection legacy fallback. Within each fallback
-chain all namespaced candidates are tried before any bare candidate, so
-the namespaced shape wins when both are present.
+| Generic field               | Source                                                                  |
+| --------------------------- | ----------------------------------------------------------------------- |
+| `source_sender_id`          | `native.meshtastic.from_id`, else canonical `source_transport_id`       |
+| `source_sender_label`       | `longname`, then `shortname`, then `source_sender_id`                   |
+| `source_sender_short_label` | `shortname`, then compact(`longname`), then compact(`source_sender_id`) |
+| `source_sender_handle`      | Not produced                                                            |
 
-| Generic field               | Source                                                                                                                              |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `source_sender_id`          | `meshtastic.from_id` → bare `from_id` → `source_transport_id`                                                                       |
-| `source_sender_label`       | `meshtastic.longname` → `meshtastic.shortname` → bare `longname` → bare `shortname` → `source_sender_id`                            |
-| `source_sender_short_label` | `meshtastic.shortname` → compact(`meshtastic.longname`) → bare `shortname` → compact(bare `longname`) → compact(`source_sender_id`) |
-| `source_sender_handle`      | Not produced (Meshtastic has no handle or address concept)                                                                          |
-
-"Compact" means `str.replace(" ", "")`. The fallback chains ensure a
-non-empty short label is available whenever any identifying field is
-present. Names sourced from `node_info` (projected through the namespaced
-`meshtastic.longname`/`meshtastic.shortname` keys) always win over the
-bare-key legacy fallbacks, which always win over the `source_sender_id`
-fallback. Text packets source names exclusively from `node_info`, so no
-packet-level name field competes.
+"Compact" means removing spaces from the selected string. Node-database names
+win when available because they are the only human-readable Meshtastic labels
+stored in the current native object.
 
 ### Enrichment Best-Effort
 
@@ -319,6 +278,16 @@ The Meshtastic renderer (`MeshtasticRenderer`) produces:
 - **UTF-8 truncation** — Applied after all rendering; multi-byte codepoints never split.
 
 ---
+
+## Canonical Native Metadata
+
+Inbound Meshtastic events persist one versioned object at
+`metadata.native.data["meshtastic"]`. The normative machine contract is
+[`meshtastic-native-metadata.schema.json`](../../schemas/meshtastic-native-metadata.schema.json),
+and the representative payload is
+[`meshtastic-native-metadata-example.json`](../../schemas/examples/meshtastic-native-metadata-example.json).
+The codec builder in `medre.adapters.meshtastic.event_shape` is the source
+implementation authority.
 
 ## Native Reference Format
 

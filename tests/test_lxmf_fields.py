@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from medre.adapters.lxmf.fields import (
     FIELD_MEDRE_ENVELOPE,
+    LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION,
     LXMF_NAMESPACE,
     LxmfFieldsHelper,
 )
@@ -33,7 +34,7 @@ class TestEmbedEnvelope:
     def test_embed_envelope_contains_schema_version(self) -> None:
         result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (), {})
         envelope = result[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
-        assert envelope["schema_version"] == 1
+        assert envelope["schema_version"] == LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION
 
     def test_embed_envelope_contains_relations(self) -> None:
         result = LxmfFieldsHelper.embed_envelope({}, "evt-1", (), {"key": "value"})
@@ -162,7 +163,7 @@ class TestExtractEnvelope:
 
     def test_extract_returns_correct_data(self) -> None:
         envelope = {
-            "schema_version": 1,
+            "schema_version": LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION,
             "event_id": "evt-99",
             "relations": [],
             "metadata_keys": ["key1"],
@@ -175,7 +176,7 @@ class TestExtractEnvelope:
     def test_extract_returns_full_envelope(self) -> None:
         """extract_envelope returns the full envelope dict, not just metadata_keys."""
         envelope = {
-            "schema_version": 1,
+            "schema_version": LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION,
             "event_id": "evt-full",
             "source_adapter": "lxmf-1",
             "source_transport_id": "ab" * 16,
@@ -231,9 +232,25 @@ class TestExtractEnvelope:
         result = LxmfFieldsHelper.extract_envelope(fields)
         assert result is None
 
+    def test_extract_returns_none_on_unsupported_schema_version(self) -> None:
+        envelope = {
+            "schema_version": LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION + 1,
+            "event_id": "evt-future",
+        }
+        fields = {FIELD_MEDRE_ENVELOPE: {LXMF_NAMESPACE: envelope}}
+        assert LxmfFieldsHelper.extract_envelope(fields) is None
+
+    def test_extract_returns_none_on_boolean_schema_version(self) -> None:
+        envelope = {"schema_version": True, "event_id": "evt-bool"}
+        fields = {FIELD_MEDRE_ENVELOPE: {LXMF_NAMESPACE: envelope}}
+        assert LxmfFieldsHelper.extract_envelope(fields) is None
+
     def test_extract_returns_none_on_missing_event_id(self) -> None:
         """Envelope without event_id returns None."""
-        envelope = {"schema_version": 1, "relations": []}
+        envelope = {
+            "schema_version": LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION,
+            "relations": [],
+        }
         fields = {FIELD_MEDRE_ENVELOPE: {LXMF_NAMESPACE: envelope}}
         result = LxmfFieldsHelper.extract_envelope(fields)
         assert result is None
@@ -329,7 +346,7 @@ class TestEnvelopeHasRelations:
 
     def test_envelope_has_relations_true(self) -> None:
         envelope = {
-            "schema_version": 1,
+            "schema_version": LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION,
             "event_id": "evt-1",
             "relations": [{"relation_type": "reply"}],
         }
@@ -337,7 +354,7 @@ class TestEnvelopeHasRelations:
 
     def test_envelope_has_relations_false_empty(self) -> None:
         envelope = {
-            "schema_version": 1,
+            "schema_version": LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION,
             "event_id": "evt-1",
             "relations": [],
         }
@@ -345,7 +362,7 @@ class TestEnvelopeHasRelations:
 
     def test_envelope_has_relations_false_missing(self) -> None:
         envelope = {
-            "schema_version": 1,
+            "schema_version": LXMF_FIELDS_ENVELOPE_SCHEMA_VERSION,
             "event_id": "evt-1",
         }
         assert LxmfFieldsHelper.envelope_has_relations(envelope) is False

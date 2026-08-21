@@ -65,7 +65,14 @@
       "$ref": "#/$defs/EventMetadata"
     },
     "source_native_ref": {
-      "oneOf": [{ "$ref": "#/$defs/NativeRef" }, { "type": "null" }],
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
       "description": "Inbound native message reference carried from codec. None for outbound/internal events."
     },
     "depth": {
@@ -147,7 +154,14 @@
           "description": "The canonical event ID of the target event, if known."
         },
         "target_native_ref": {
-          "oneOf": [{ "$ref": "#/$defs/NativeRef" }, { "type": "null" }],
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NativeRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "description": "A native-space reference to the target, used when the canonical ID has not been resolved."
         },
         "key": {
@@ -181,32 +195,61 @@
       "properties": {
         "transport": {
           "oneOf": [
-            { "$ref": "#/$defs/TransportMetadata" },
-            { "type": "null" }
+            {
+              "$ref": "#/$defs/TransportMetadata"
+            },
+            {
+              "type": "null"
+            }
           ],
           "default": null,
           "description": "Transport-layer metadata."
         },
         "routing": {
-          "oneOf": [{ "$ref": "#/$defs/RoutingMetadata" }, { "type": "null" }],
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RoutingMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
           "description": "Routing-layer metadata."
         },
         "radio": {
-          "oneOf": [{ "$ref": "#/$defs/RadioMetadata" }, { "type": "null" }],
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RadioMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
           "description": "RF-layer metadata."
         },
         "telemetry": {
           "oneOf": [
-            { "$ref": "#/$defs/TelemetryMetadata" },
-            { "type": "null" }
+            {
+              "$ref": "#/$defs/TelemetryMetadata"
+            },
+            {
+              "type": "null"
+            }
           ],
           "default": null,
           "description": "Telemetry metrics namespace."
         },
         "native": {
-          "oneOf": [{ "$ref": "#/$defs/NativeMetadata" }, { "type": "null" }],
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NativeMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
           "description": "Opaque adapter-specific data."
         },
@@ -274,7 +317,9 @@
       "properties": {
         "matched_routes": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "List of route identifiers that matched this event."
         },
@@ -285,7 +330,9 @@
         },
         "route_trace": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Ordered list of route IDs recorded per event delivery."
         }
@@ -338,14 +385,14 @@
     },
     "NativeMetadata": {
       "title": "NativeMetadata",
-      "description": "Opaque adapter-specific data that does not map to standard fields.",
+      "description": "Adapter-owned native metadata container for versioned transport and explicit interoperability namespaces.",
       "type": "object",
       "properties": {
         "data": {
           "type": "object",
           "additionalProperties": true,
           "default": {},
-          "description": "Arbitrary key-value data produced by the source adapter."
+          "description": "Versioned built-in transport namespaces plus explicitly specified interoperability namespaces."
         }
       },
       "additionalProperties": false

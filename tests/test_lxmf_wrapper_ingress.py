@@ -374,10 +374,12 @@ class TestLxmfWrapperCallbackIngress:
             assert stored.payload.get("body") == "metadata test"
             assert stored.payload.get("title") == "Test Title"
 
-            # Native metadata preserved
+            # Native metadata preserved in the LXMF versioned namespace
             native_data = stored.metadata.native.data
-            assert native_data.get("source_hash") == "99887766aabb"
-            assert native_data.get("message_id") == "meta-msg-001"
+            assert set(native_data.keys()) == {"lxmf"}
+            lxmf_meta = native_data["lxmf"]
+            assert lxmf_meta.get("source_hash") == "99887766aabb"
+            assert lxmf_meta.get("message_id") == "meta-msg-001"
         finally:
             await lxmf_adapter.stop()
             await runner.stop()

@@ -1,5 +1,9 @@
 # Planning Authority Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 > Audits actual planning decisions, authority boundaries, suppression paths, and evidence flow in the MEDRE runtime.
 > Source: code inspection of `src/medre/core/planning/`, `src/medre/core/engine/pipeline/`, `src/medre/core/rendering/`, `src/medre/core/routing/`, `src/medre/runtime/route_engine.py`, and `src/medre/runtime/reporting.py`.
 

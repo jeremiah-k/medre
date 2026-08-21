@@ -13,6 +13,7 @@ import pytest
 
 from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
+from medre.adapters.meshcore.event_shape import MESHCORE_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshcore.errors import MeshCoreConnectionError
 from medre.adapters.meshcore.session import MeshCoreSession
 from medre.config.adapters.meshcore import MeshCoreConfig
@@ -564,7 +565,9 @@ class TestHonestDeliverySemantics:
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
         assert delivery is not None
-        assert delivery.metadata["meshcore"]["local_acceptance"] is True
+        meshcore_metadata = delivery.metadata["meshcore"]
+        assert meshcore_metadata["schema_version"] == MESHCORE_NATIVE_SCHEMA_VERSION
+        assert meshcore_metadata["local_acceptance"] is True
         # delivery_note is a top-level field on AdapterDeliveryResult, not in metadata
         assert isinstance(delivery.delivery_note, str)
         assert delivery.delivery_note != ""

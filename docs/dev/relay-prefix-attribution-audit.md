@@ -1,5 +1,15 @@
 # Relay Prefix and Provenance Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
+> **Current-state supersession.** Matrix and the other built-in adapters now
+> project sender identity from their versioned transport-native namespaces.
+> MMRelay wire fields are isolated under `native.interop.mmrelay`; flat Matrix
+> and transport-native key descriptions below are historical only. See
+> `docs/spec/metadata.md` and `docs/spec/compatibility-boundaries.md`.
+
 Factual audit of current MEDRE relay prefix and sender-provenance
 behavior by transport. No aspirational language; describes running code.
 

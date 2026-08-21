@@ -1,5 +1,9 @@
 # Adapter Boundary Hardening Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 > **Status**: Post-implementation audit (adapter-lifecycle-parity wave, synced with source/tests/docs).
 > **Scope**: Runtime correctness at the adapter–SDK boundary. Not lifecycle authority, not capability declarations, not SDK parity.
 > **Authority**: `docs/spec/adapter-runtime.md` (normative), `src/medre/core/contracts/adapter.py` (code contracts).

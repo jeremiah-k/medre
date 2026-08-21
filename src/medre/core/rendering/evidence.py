@@ -148,7 +148,7 @@ class RelationTargetEvidence:
         ``"capability_unsupported"``, ``"fallback_applied_match"``,
         ``"target_unresolved"``, ``"native_ref_unavailable"``,
         ``"native_target_available"``.  ``None`` when not computed
-        (backward-compatible default for manual construction).
+        (optional for manual construction and sparse evidence records).
     """
 
     relation_type: str

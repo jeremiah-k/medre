@@ -126,6 +126,7 @@ async def test_payload_fields_stay_in_meshtastic_metadata_namespace() -> None:
     assert len(recorded) == 1
     mesh_metadata = recorded[0].metadata["meshtastic"]
     assert mesh_metadata == {
+        "schema_version": 1,
         "packet_id": 555,
         "channel": 2,
         "reply_id": 42,

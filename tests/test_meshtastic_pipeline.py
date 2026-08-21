@@ -99,7 +99,7 @@ def _make_adapter_context_for_pipeline(adapter_id: str, runner: PipelineRunner) 
     return AdapterContext(
         adapter_id=adapter_id,
         event_bus=None,
-        publish_inbound=runner.ingress_handler,
+        publish_inbound=runner.handle_ingress,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),

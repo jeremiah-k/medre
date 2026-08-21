@@ -12,6 +12,7 @@ structures suitable for logging, diagnostics, and ``msgspec`` /
 from __future__ import annotations
 
 import base64
+import math
 from typing import Any
 
 
@@ -23,15 +24,18 @@ def json_safe(value: object) -> Any:
     * ``bytes`` / ``bytearray`` → ``{"encoding": "base64", "data": "..."}``
     * ``dict`` → recursive conversion of both keys (to ``str``) and values.
     * ``list`` / ``tuple`` → recursive conversion of items (as ``list``).
-    * ``str``, ``int``, ``float``, ``bool``, ``None`` → passed through.
+    * ``str``, ``int``, finite ``float``, ``bool``, ``None`` → passed through.
+    * Non-finite floats → their stable string representation.
     * Everything else → ``repr(value)``.
     """
     if value is None:
         return None
     if isinstance(value, bool):
         return value
-    if isinstance(value, (str, int, float)):
+    if isinstance(value, (str, int)):
         return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else repr(value)
     if isinstance(value, (bytes, bytearray)):
         return {"encoding": "base64", "data": base64.b64encode(value).decode("ascii")}
     if isinstance(value, dict):

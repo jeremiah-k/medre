@@ -15,6 +15,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from medre.adapters._native_metadata import (
+    current_namespace as _current_namespace,
+    versioned_namespace as _versioned_namespace,
+)
+
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 
 MATRIX_NATIVE_NAMESPACE = "matrix"
@@ -180,12 +185,7 @@ def matrix_relay_metadata(content: dict[str, Any]) -> dict[str, object] | None:
         envelope.metadata_mode,
         envelope.native_source_summary,
     )
-    if (
-        isinstance(envelope.schema_version, bool)
-        or not isinstance(envelope.schema_version, int)
-        or envelope.schema_version < 1
-        or not all(isinstance(value, str) for value in string_fields)
-    ):
+    if not all(isinstance(value, str) for value in string_fields):
         return None
     return {
         "medre_envelope": {
@@ -253,33 +253,20 @@ def build_matrix_native_metadata(
     return native
 
 
-def matrix_versioned_namespace(native_data: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Return a syntactically versioned Matrix namespace for platform detection.
-
-    This helper establishes only that ``native.matrix`` carries a positive integer
-    schema version.  It deliberately does not interpret version-specific fields;
-    callers that project Matrix metadata must continue to use
-    :func:`matrix_namespace`.
-    """
-    matrix = native_data.get(MATRIX_NATIVE_NAMESPACE)
-    if not isinstance(matrix, Mapping):
-        return {}
-    schema_version = matrix.get("schema_version")
-    if (
-        isinstance(schema_version, bool)
-        or not isinstance(schema_version, int)
-        or schema_version < 1
-    ):
-        return {}
-    return matrix
+def matrix_versioned_namespace(
+    native_data: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Return any positively versioned Matrix namespace for detection."""
+    return _versioned_namespace(native_data, MATRIX_NATIVE_NAMESPACE)
 
 
 def matrix_namespace(native_data: Mapping[str, Any]) -> Mapping[str, Any]:
     """Return the current Matrix namespace or an empty mapping."""
-    matrix = matrix_versioned_namespace(native_data)
-    if matrix.get("schema_version") != MATRIX_NATIVE_SCHEMA_VERSION:
-        return {}
-    return matrix
+    return _current_namespace(
+        native_data,
+        MATRIX_NATIVE_NAMESPACE,
+        MATRIX_NATIVE_SCHEMA_VERSION,
+    )
 
 
 def mmrelay_interop_fields(native_data: Mapping[str, Any]) -> Mapping[str, Any]:

@@ -22,10 +22,45 @@ from tests.helpers.matrix_events import (
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
+from tests.helpers.native_metadata import meshtastic_native_data
 
 # Module-level aliases so existing test call-sites stay concise.
 _make_event = make_matrix_event
-_make_meshtastic_event = make_meshtastic_event
+
+
+def _make_meshtastic_event(
+    *,
+    source_adapter: str = "radio-alpha",
+    payload: dict | None = None,
+    relations: tuple | None = None,
+    native_data: dict | None = None,
+) -> CanonicalEvent:
+    """Build a Meshtastic event from current-version transport fields."""
+    inner = native_data or {}
+    # When a Meshtastic-originated event crosses into Matrix the
+    # meshtastic adapter populates the cross-transport interop
+    # namespace under ``native.interop.mmrelay``.  Matrix reads
+    # cross-transport wire fields from there (per the boundary
+    # contract) rather than from ``native.meshtastic``.
+    interop_mmrelay: dict[str, object] = {}
+    if "longname" in inner:
+        interop_mmrelay["meshtastic_longname"] = inner["longname"]
+    if "shortname" in inner:
+        interop_mmrelay["meshtastic_shortname"] = inner["shortname"]
+    if "packet_id" in inner:
+        interop_mmrelay["meshtastic_id"] = inner["packet_id"]
+    if "from_id" in inner:
+        interop_mmrelay["meshtastic_from_id"] = inner["from_id"]
+    nd = {
+        "meshtastic": meshtastic_native_data(inner)["meshtastic"],
+        "interop": {"mmrelay": interop_mmrelay},
+    }
+    return make_meshtastic_event(
+        source_adapter=source_adapter,
+        payload=payload,
+        relations=relations,
+        native_data=nd,
+    )
 
 
 class TestMatrixRenderer:
@@ -377,7 +412,9 @@ class TestMatrixRendererReplySender:
             relations=(relation,),
             payload={"body": "my reply"},
             metadata=EventMetadata(
-                native=NativeMetadata(data={"longname": "TadChilly"})
+                native=NativeMetadata(
+                    data=meshtastic_native_data({"longname": "TadChilly"})
+                )
             ),
         )
         result = await renderer.render(
@@ -536,8 +573,8 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
-        # Verify origin_label is used, not legacy meshnet_name
-        assert "LEGACY-Alpha" not in result.payload["body"]
+        # Verify origin_label is used rather than an unrelated placeholder value
+        assert "UNUSED-Alpha" not in result.payload["body"]
 
     async def test_bravo_source_uses_bravo_prefix(self) -> None:
         """Event from radio-bravo resolves origin_label=BravoNet in target-local prefix."""
@@ -551,8 +588,8 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert result.payload["body"] == "[Bob/BravoNet]: hello mesh"
-        # Verify origin_label is used, not legacy meshnet_name
-        assert "LEGACY-Bravo" not in result.payload["body"]
+        # Verify origin_label is used rather than an unrelated placeholder value
+        assert "UNUSED-Bravo" not in result.payload["body"]
 
     async def test_unknown_source_renders_plain_output(self) -> None:
         """Event from unknown source renders plain Matrix output (no prefix/metadata)."""
@@ -784,8 +821,8 @@ class TestRuntimeAssemblySourceConfig:
         assert result.payload["meshtastic_id"] == "42"
         # KEY_MESHNET sourced from origin_label in source_attribution
         assert result.payload["meshtastic_meshnet"] == "AlphaNet"
-        # Verify origin_label is used, not legacy meshnet_name
-        assert "LEGACY-Alpha" not in result.payload["body"]
+        # Verify origin_label is used rather than an unrelated placeholder value
+        assert "UNUSED-Alpha" not in result.payload["body"]
 
     async def test_runtime_source_b_renders_with_bravo_metadata(self) -> None:
         """Runtime assembly: event from radio-bravo uses bravo's prefix, no mmrelay metadata."""
@@ -802,8 +839,8 @@ class TestRuntimeAssemblySourceConfig:
         # bravo has mmrelay_compat=False → no mesh metadata
         assert "meshtastic_id" not in result.payload
         assert "meshtastic_meshnet" not in result.payload
-        # Verify origin_label is used, not legacy meshnet_name
-        assert "LEGACY-Bravo" not in result.payload["body"]
+        # Verify origin_label is used rather than an unrelated placeholder value
+        assert "UNUSED-Bravo" not in result.payload["body"]
 
     async def test_non_meshtastic_source_renders_plain_output(self) -> None:
         """Non-Meshtastic source renders plain Matrix output with no Meshtastic metadata."""
@@ -879,7 +916,24 @@ class TestMatrixFallbackText:
         """Build an event with a reply relation for fallback_text strategy."""
         metadata = EventMetadata()
         if native_data:
-            metadata = EventMetadata(native=NativeMetadata(data=native_data))
+            # Wrap the FLAT-shape test data into the meshtastic
+            # versioned namespace, and populate the cross-transport
+            # interop namespace so Matrix can read MMRelay wire
+            # fields through the boundary contract.
+            interop_mmrelay: dict[str, object] = {}
+            if "longname" in native_data:
+                interop_mmrelay["meshtastic_longname"] = native_data["longname"]
+            if "shortname" in native_data:
+                interop_mmrelay["meshtastic_shortname"] = native_data["shortname"]
+            if "packet_id" in native_data:
+                interop_mmrelay["meshtastic_id"] = native_data["packet_id"]
+            if "from_id" in native_data:
+                interop_mmrelay["meshtastic_from_id"] = native_data["from_id"]
+            nd = {
+                "meshtastic": meshtastic_native_data(native_data)["meshtastic"],
+                "interop": {"mmrelay": interop_mmrelay},
+            }
+            metadata = EventMetadata(native=NativeMetadata(data=nd))
         rel = EventRelation(
             relation_type="reply",
             target_event_id="orig-001",
@@ -1042,8 +1096,8 @@ class TestMatrixFallbackText:
         event = self._make_fallback_event(
             source_adapter="transport",
             native_data={
-                "meshtastic.longname": "Alice",
-                "meshtastic.shortname": "A",
+                "longname": "Alice",
+                "shortname": "A",
                 "packet_id": "99",
             },
         )
@@ -1057,38 +1111,6 @@ class TestMatrixFallbackText:
         # mmrelay metadata keys should be present
         assert "meshtastic_id" in result.payload
         assert result.payload["meshtastic_id"] == "99"
-        assert result.payload["meshtastic_longname"] == "Alice"
-        assert result.payload["meshtastic_shortname"] == "A"
-
-    async def test_fallback_text_mmrelay_metadata_bare_key_legacy(self) -> None:
-        """Legacy bare longname/shortname keys still resolve (input tolerance).
-
-        Bare keys are no longer emitted by the codec but remain accepted as
-        a last-resort fallback for older native metadata shapes.
-        """
-        renderer = MatrixRenderer(
-            source_configs={
-                "transport": _StubMeshtasticConfig(
-                    adapter_id="transport",
-                    mmrelay_compatibility=True,
-                ),
-            },
-        )
-        event = self._make_fallback_event(
-            source_adapter="transport",
-            native_data={
-                "longname": "Alice",
-                "shortname": "A",
-                "packet_id": "99",
-            },
-        )
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="matrix-1",
-                delivery_strategy="fallback_text",
-            ),
-        )
         assert result.payload["meshtastic_longname"] == "Alice"
         assert result.payload["meshtastic_shortname"] == "A"
 

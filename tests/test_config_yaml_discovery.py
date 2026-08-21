@@ -6,7 +6,7 @@ Verifies the discovery order:
     explicit > MEDRE_CONFIG > MEDRE_HOME > XDG > local
 
 with ``.yaml`` preferred over ``.yml`` at every step, and ``.toml``
-files rejected with the dedicated migration error message.
+files rejected with the dedicated unsupported-format error message.
 """
 
 from __future__ import annotations
@@ -183,10 +183,10 @@ def test_prefers_yaml_over_yml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert path == yaml_file
 
 
-def test_rejects_legacy_config_toml(
+def test_rejects_unsupported_config_toml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A legacy config.toml in MEDRE_HOME produces a migration error,
+    """An unsupported config.toml in MEDRE_HOME produces a format error,
     not silent discovery and not a silent 'not found'."""
     home = tmp_path / "medre_home"
     home.mkdir()
@@ -396,18 +396,18 @@ def test_no_config_anywhere_raises_not_found(
 
 
 # ---------------------------------------------------------------------------
-# Legacy TOML in auto-discovery locations raises a migration error
+# Unsupported TOML in auto-discovery locations raises a format error
 # ---------------------------------------------------------------------------
 
-# --- TestLegacyTOMLRejected: Legacy TOML files in auto-discovery locations ---
-# are rejected with the dedicated migration message, not silently discovered ---
+# --- Unsupported TOML files in auto-discovery locations ---
+# are rejected with the dedicated format message, not silently discovered ---
 # or silently ignored as "not found".
 
 
-def test_legacy_toml_in_xdg_rejected(
+def test_unsupported_toml_in_xdg_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A legacy config.toml in the XDG config dir produces a migration
+    """An unsupported config.toml in the XDG config dir produces a format
     error, not silent discovery and not a silent 'not found'."""
     xdg = tmp_path / "xdg" / "medre"
     xdg.mkdir(parents=True)
@@ -424,11 +424,11 @@ def test_legacy_toml_in_xdg_rejected(
         find_config(None)
 
 
-def test_legacy_local_toml_rejected(
+def test_unsupported_local_toml_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A legacy medre.toml in the current working directory produces a
-    migration error, not silent discovery and not a silent 'not found'."""
+    """An unsupported medre.toml in the current working directory produces a
+    format error, not silent discovery and not a silent 'not found'."""
     local_toml = tmp_path / "medre.toml"
     local_toml.write_text("[runtime]\n")
     monkeypatch.chdir(tmp_path)

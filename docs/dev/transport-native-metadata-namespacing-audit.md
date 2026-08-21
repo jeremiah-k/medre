@@ -1,5 +1,15 @@
 # Transport-Native Metadata Namespacing Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
+> **Current-state supersession.** Built-in canonical native metadata now uses
+> only `native.matrix`, `native.meshtastic`, `native.meshcore`, and `native.lxmf`,
+> each with `schema_version = 1`. Flat and dotted MEDRE native shapes described
+> below are historical evidence, not accepted representations. See
+> `docs/spec/metadata.md`.
+
 Factual audit of how each MEDRE transport adapter namespaces the native
 metadata it emits into `CanonicalEvent.metadata.native.data`, which keys
 remain bare, and which bare keys are intentional versus legacy input

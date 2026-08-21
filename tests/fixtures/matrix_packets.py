@@ -40,6 +40,8 @@ Usage::
 
 from types import SimpleNamespace
 
+from medre.adapters.matrix.metadata import MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -262,7 +264,7 @@ def make_medre_envelope_message(
             "envelope": {
                 "source_adapter": source_adapter,
                 "canonical_event_id": canonical_event_id,
-                "schema_version": 1,
+                "schema_version": MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION,
             },
         },
     }

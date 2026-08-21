@@ -112,12 +112,12 @@ config = LxmfConfig(
 
 ## Evidence Tiers Achieved
 
-| Tier | Sub-class           | Date | Result                                                                    |
-| ---- | ------------------- | ---- | ------------------------------------------------------------------------- |
-| S    | Fake callback       | —    | Proven: simulate_inbound → codec → pipeline → fake outbound               |
-| S    | Wrapper callback    | —    | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound |
-| —    | Docker SDK-boundary | —    | Not proven (no containerized Reticulum/LXMF router)                       |
-| —    | Live network        | —    | Not proven                                                                |
+| Tier      | Sub-class           | Date | Result                                                                    |
+| --------- | ------------------- | ---- | ------------------------------------------------------------------------- |
+| synthetic | Fake callback       | —    | Proven: simulate_inbound → codec → pipeline → fake outbound               |
+| synthetic | Wrapper callback    | —    | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound |
+| —         | Docker SDK-boundary | —    | Not proven (no containerized Reticulum/LXMF router)                       |
+| —         | Live network        | —    | Not proven                                                                |
 
 ## Known Gaps
 

@@ -7,8 +7,7 @@ onto the correct per-leg ``RouteSource.origin_label``.
 
 Key invariants verified:
 
-* The bare-string legacy shape still parses and expands identically
-  (backward compatibility).
+* Bare-string entries are rejected; every entry uses the structured shape.
 * Per-entry ``source_origin_label`` overrides the route-level label on
   the forward leg only.
 * Per-entry ``dest_origin_label`` overrides the route-level label on the
@@ -109,53 +108,19 @@ def test_structured_entry_parses_room_only() -> None:
 
 
 # ===========================================================================
-# 2. Bare-string shape still works (backward compat)
+# 2. Bare-string entries are rejected
 # ===========================================================================
 
 
-def test_bare_string_shape_backward_compat() -> None:
-    """Legacy bare-string values parse to ChannelRoomMapEntry with None labels."""
-    rc = RouteConfig.from_dict(
-        "t",
-        {
-            **_BASE_DATA,
-            "channel_room_map": {
-                "0": "!room0:example.com",
-                "1": "!room1:example.com",
+def test_bare_string_shape_is_rejected() -> None:
+    with pytest.raises(ConfigValidationError, match="must be a table/object"):
+        RouteConfig.from_dict(
+            "t",
+            {
+                **_BASE_DATA,
+                "channel_room_map": {"0": "!room0:example.com"},
             },
-        },
-    )
-    assert rc.channel_room_map is not None
-    for ch in ("0", "1"):
-        entry = rc.channel_room_map[ch]
-        assert isinstance(entry, ChannelRoomMapEntry)
-        assert entry.source_origin_label is None
-        assert entry.dest_origin_label is None
-    # Backward-compat: a label-less entry compares equal to its room string.
-    assert rc.channel_room_map == {
-        "0": "!room0:example.com",
-        "1": "!room1:example.com",
-    }
-
-
-def test_mixed_bare_and_structured_entries() -> None:
-    """A map with one bare-string and one structured entry parses correctly."""
-    rc = RouteConfig.from_dict(
-        "t",
-        {
-            **_BASE_DATA,
-            "channel_room_map": {
-                "0": "!room0:example.com",
-                "1": {
-                    "room": "!room1:example.com",
-                    "source_origin_label": "Ops",
-                },
-            },
-        },
-    )
-    assert rc.channel_room_map is not None
-    assert rc.channel_room_map["0"].source_origin_label is None
-    assert rc.channel_room_map["1"].source_origin_label == "Ops"
+        )
 
 
 # ===========================================================================
@@ -194,7 +159,7 @@ def test_per_entry_source_label_other_channel_keeps_route_label() -> None:
                     "room": "!room0:example.com",
                     "source_origin_label": "Entry Level",
                 },
-                "1": "!room1:example.com",
+                "1": {"room": "!room1:example.com"},
             },
         },
     )

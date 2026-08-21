@@ -17,7 +17,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.events import (
@@ -26,6 +25,7 @@ from medre.core.events import (
     NativeMetadata,
 )
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.lxmf_renderer import lxmf_renderer_with_prefix
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -142,7 +142,7 @@ async def test_meshcore_normal_unknown_placeholder_still_prepended() -> None:
 async def test_lxmf_mocked_exception_guard() -> None:
     """On formatting_exception, raw template is NOT prepended to text."""
     template = "[{origin_label}]: "
-    renderer = LxmfRenderer(relay_prefix=template)
+    renderer = lxmf_renderer_with_prefix(template, target_adapter="lxmf-1")
     event = _make_event()
     # Patch inside the defining module so the real format_relay_prefix
     # exercises its own try/except handler.  Avoids brittle imported
@@ -164,7 +164,7 @@ async def test_lxmf_mocked_exception_guard() -> None:
 async def test_lxmf_mocked_metadata_records_all_six_keys() -> None:
     """All 6 normalized metadata keys are recorded even on exception."""
     template = "[{origin_label}]: "
-    renderer = LxmfRenderer(relay_prefix=template)
+    renderer = lxmf_renderer_with_prefix(template, target_adapter="lxmf-1")
     event = _make_event()
     with patch(
         "medre.core.rendering.attribution._build_variable_map",
@@ -187,7 +187,7 @@ async def test_lxmf_mocked_metadata_records_all_six_keys() -> None:
 async def test_lxmf_normal_unknown_placeholder_still_prepended() -> None:
     """Non-exception formatting (unknown placeholder) still prepends prefix."""
     template = "[{meshnet_name}]: "
-    renderer = LxmfRenderer(relay_prefix=template)
+    renderer = lxmf_renderer_with_prefix(template, target_adapter="lxmf-1")
     event = _make_event()
     result = await renderer.render(
         event,

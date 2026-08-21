@@ -569,7 +569,7 @@ class TestDMRelayCounters:
         # is_direct_message is stored in native metadata
         assert event.metadata.native is not None
         native_data = event.metadata.native.data
-        assert native_data.get("meshcore.is_direct_message") is True
+        assert native_data["meshcore"].get("is_direct_message") is True
 
     async def test_real_dm_increments_relayed_and_published(
         self, make_adapter_context
@@ -601,7 +601,7 @@ class TestDMRelayCounters:
         event = adapter.inbound_events[0]
         assert event.metadata.native is not None
         native_data = event.metadata.native.data
-        assert native_data.get("meshcore.is_direct_message") is False
+        assert native_data["meshcore"].get("is_direct_message") is False
 
 
 # ===================================================================

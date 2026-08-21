@@ -25,6 +25,7 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.events.metadata import NativeMetadata
+from tests.helpers.native_metadata import matrix_native_data
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -317,11 +318,13 @@ class TestMatrixNativeRefStorage:
             payload={"body": "Reply to original", "msgtype": "m.text"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={
-                        "room_id": "!reply_room:example.com",
-                        "event_id": "$reply_mx:example.com",
-                        "sender": "@alice:example.com",
-                    }
+                    data=matrix_native_data(
+                        {
+                            "room_id": "!reply_room:example.com",
+                            "event_id": "$reply_mx:example.com",
+                            "sender": "@alice:example.com",
+                        }
+                    )
                 )
             ),
         )

@@ -24,6 +24,7 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.events.metadata import NativeMetadata
+from tests.helpers.native_metadata import meshcore_native_data
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -93,14 +94,16 @@ def _make_meshcore_canonical_event(
         payload={"body": body},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={
-                    "meshcore.packet_id": sender_timestamp,
-                    "meshcore.sender_id": sender,
-                    "meshcore.channel": channel_idx if not is_direct_message else None,
-                    "meshcore.pubkey_prefix": sender,
-                    "meshcore.txt_type": 0,
-                    "meshcore.is_direct_message": is_direct_message,
-                }
+                data=meshcore_native_data(
+                    {
+                        "packet_id": sender_timestamp,
+                        "sender_id": sender,
+                        "channel": channel_idx if not is_direct_message else None,
+                        "pubkey_prefix": sender,
+                        "txt_type": 0,
+                        "is_direct_message": is_direct_message,
+                    }
+                )
             )
         ),
         source_native_ref=NativeRef(
@@ -169,12 +172,12 @@ class TestMeshCoreCodecEventStorageRoundtrip:
         retrieved = await temp_storage.get(canonical.event_id)
 
         assert retrieved is not None
-        ndata = retrieved.metadata.native.data
-        assert ndata["meshcore.packet_id"] == 99999
-        assert ndata["meshcore.sender_id"] == "feedface"
-        assert ndata["meshcore.channel"] == 3
-        assert ndata["meshcore.pubkey_prefix"] == "feedface"
-        assert ndata["meshcore.is_direct_message"] is False
+        ndata = retrieved.metadata.native.data["meshcore"]
+        assert ndata["packet_id"] == 99999
+        assert ndata["sender_id"] == "feedface"
+        assert ndata["channel"] == 3
+        assert ndata["pubkey_prefix"] == "feedface"
+        assert ndata["is_direct_message"] is False
 
     async def test_codec_dm_event_native_metadata_preserved(self, temp_storage) -> None:
         """MeshCore DM (contact) native metadata survives storage."""
@@ -191,11 +194,11 @@ class TestMeshCoreCodecEventStorageRoundtrip:
         retrieved = await temp_storage.get(canonical.event_id)
 
         assert retrieved is not None
-        ndata = retrieved.metadata.native.data
-        assert ndata["meshcore.packet_id"] == 88888
-        assert ndata["meshcore.sender_id"] == "cafe01"
-        assert ndata["meshcore.channel"] is None
-        assert ndata["meshcore.is_direct_message"] is True
+        ndata = retrieved.metadata.native.data["meshcore"]
+        assert ndata["packet_id"] == 88888
+        assert ndata["sender_id"] == "cafe01"
+        assert ndata["channel"] is None
+        assert ndata["is_direct_message"] is True
 
     async def test_codec_event_source_native_ref_stored(self, temp_storage) -> None:
         """source_native_ref from MeshCoreCodec survives storage round-trip."""

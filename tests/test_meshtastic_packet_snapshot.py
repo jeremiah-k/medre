@@ -195,3 +195,11 @@ class TestSnapshotPacket:
         encoded = json.dumps(result)
         assert isinstance(encoded, str)
         assert '"encoding": "base64"' in encoded
+
+
+def test_json_safe_non_finite_float_becomes_strict_json_string() -> None:
+    """NaN and infinities never survive into snapshots as JSON numbers."""
+    for value in (float("nan"), float("inf"), float("-inf")):
+        safe = json_safe(value)
+        assert isinstance(safe, str)
+        json.dumps(safe, allow_nan=False)

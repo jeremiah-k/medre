@@ -96,7 +96,8 @@ class _EventMixin:
             return
 
         # Fetch relations for all matched events in bounded batches.
-        # SQLite's host-parameter limit is 999 in older builds; chunk
+        # Some SQLite builds retain a conservative 999 host-parameter limit;
+        # chunk reads to stay below it.
         # well below that ceiling.
         event_ids = [r["event_id"] for r in rows]
         rel_map: dict[str, list[EventRelation]] = {}

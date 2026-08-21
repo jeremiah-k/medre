@@ -1030,19 +1030,19 @@ class TestCaseInsensitiveFields:
 
 
 # ---------------------------------------------------------------------------
-# FIX 2: Legacy transport env vars rejected
+# Unsupported transport env vars are rejected
 # ---------------------------------------------------------------------------
 
 
-class TestRejectedLegacyEnvVars:
-    """Legacy transport-specific env vars raise with migration guidance."""
+class TestRejectedTransportEnvVars:
+    """Unsupported transport-specific env vars raise with replacement guidance."""
 
     def test_matrix_access_token_rejected(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "tok")
         with pytest.raises(
-            ConfigValidationError, match="Legacy transport env variable"
+            ConfigValidationError, match="Unsupported transport env variable"
         ):
             MedreEnvConfig.from_environ()
 
@@ -1051,7 +1051,7 @@ class TestRejectedLegacyEnvVars:
     ) -> None:
         monkeypatch.setenv("MEDRE_MESHTASTIC_SERIAL_PORT", "/dev/ttyUSB0")
         with pytest.raises(
-            ConfigValidationError, match="Legacy transport env variable"
+            ConfigValidationError, match="Unsupported transport env variable"
         ):
             MedreEnvConfig.from_environ()
 
@@ -1060,24 +1060,24 @@ class TestRejectedLegacyEnvVars:
     ) -> None:
         monkeypatch.setenv("MEDRE_MESHCORE_BLE_ADDRESS", "AA:BB:CC:DD:EE:FF")
         with pytest.raises(
-            ConfigValidationError, match="Legacy transport env variable"
+            ConfigValidationError, match="Unsupported transport env variable"
         ):
             MedreEnvConfig.from_environ()
 
     def test_lxmf_identity_path_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MEDRE_LXMF_IDENTITY_PATH", "/path/to/id")
         with pytest.raises(
-            ConfigValidationError, match="Legacy transport env variable"
+            ConfigValidationError, match="Unsupported transport env variable"
         ):
             MedreEnvConfig.from_environ()
 
     def test_medre_home_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """MEDRE_HOME is a core var, not a legacy transport var."""
+        """MEDRE_HOME is a core variable, not a transport-prefixed variable."""
         monkeypatch.setenv("MEDRE_HOME", "/opt/medre")
         env = MedreEnvConfig.from_environ()
         assert env.home == "/opt/medre"
 
-    def test_error_includes_migration_guidance(
+    def test_error_includes_replacement_guidance(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("MEDRE_MATRIX_ACCESS_TOKEN", "tok")

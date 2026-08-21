@@ -509,16 +509,15 @@ def _validate_duplicate_rooms_for_direction(
         directionality plus platform assignment creates a
         Matrix→Meshtastic leg.
     """
-    from medre.config.routes import ChannelRoomMapEntry, RouteDirectionality
+    from medre.config.routes import RouteDirectionality
 
     assert rc.channel_room_map is not None  # guarded by caller
 
-    # Collect room values, tolerating both ChannelRoomMapEntry and the
-    # bare-str legacy shape used by direct RouteConfig construction.
+    # Collect room values from the sole supported entry shape.
     seen: set[str] = set()
     dupes: set[str] = set()
     for entry in rc.channel_room_map.values():
-        room = entry.room if isinstance(entry, ChannelRoomMapEntry) else entry
+        room = entry.room
         if room in seen:
             dupes.add(room)
         seen.add(room)
@@ -589,7 +588,7 @@ def _expand_channel_room_map_route(
     RouteValidationError
         If platform lookup fails for an adapter.
     """
-    from medre.config.routes import ChannelRoomMapEntry, RouteDirectionality
+    from medre.config.routes import RouteDirectionality
 
     assert rc.channel_room_map is not None  # guarded by caller
 
@@ -666,16 +665,9 @@ def _expand_channel_room_map_route(
     routes: list[Route] = []
 
     for ch, entry in sorted(rc.channel_room_map.items()):
-        # Normalize the entry: ChannelRoomMapEntry (from from_dict)
-        # or a bare str (from direct RouteConfig construction in tests).
-        if isinstance(entry, ChannelRoomMapEntry):
-            room_id = entry.room
-            entry_source_label = entry.source_origin_label
-            entry_dest_label = entry.dest_origin_label
-        else:
-            room_id = entry
-            entry_source_label = None
-            entry_dest_label = None
+        room_id = entry.room
+        entry_source_label = entry.source_origin_label
+        entry_dest_label = entry.dest_origin_label
 
         # Resolve effective per-entry labels: entry label takes precedence
         # over route-level label.  Use 'is not None' so that an explicit

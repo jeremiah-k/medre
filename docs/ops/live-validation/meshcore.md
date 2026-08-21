@@ -77,12 +77,12 @@ pytest tests/test_meshcore_live.py -m live -v
 
 ## Evidence Tiers Achieved
 
-| Tier | Sub-class           | Date       | Result                                                                                                                              |
-| ---- | ------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| S    | Fake callback       | —          | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                         |
-| S    | Wrapper callback    | —          | Proven: \_on_message → MeshCoreCodec.decode → pipeline routing → fake outbound                                                      |
-| —    | Docker SDK-boundary | —          | Not proven (no containerized MeshCore node)                                                                                         |
-| L    | Live network/radio  | 2026-06-11 | First live 3-way bridge (Matrix + Meshtastic + MeshCore BLE). Bidirectional routing observed with connection/reconnect bugs present |
+| Tier      | Sub-class           | Date       | Result                                                                                                                              |
+| --------- | ------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| synthetic | Fake callback       | —          | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                         |
+| synthetic | Wrapper callback    | —          | Proven: \_on_message → MeshCoreCodec.decode → pipeline routing → fake outbound                                                      |
+| —         | Docker SDK-boundary | —          | Not proven (no containerized MeshCore node)                                                                                         |
+| L         | Live network/radio  | 2026-06-11 | First live 3-way bridge (Matrix + Meshtastic + MeshCore BLE). Bidirectional routing observed with connection/reconnect bugs present |
 
 ## Known Gaps
 

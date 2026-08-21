@@ -36,9 +36,8 @@ class _ReplayRenderingMixin:
         """Re-run transforms and rendering on *event*.
 
         Applies an explicit ``pipeline.transform_event`` when available, then
-        uses ``pipeline.render_replay_event`` for context-faithful replay (or
-        an explicit legacy ``pipeline.render_event`` fallback).  Captures the
-        rendering output without delivering it.  Read-only.
+        uses ``pipeline.render_replay_event`` for context-faithful replay.
+        Captures the rendering output without delivering it. Read-only.
         """
         t0 = time.monotonic()
         if self._pipeline is None:
@@ -61,16 +60,12 @@ class _ReplayRenderingMixin:
                 )
                 transformed = event
             render_replay_event = self._explicit_pipeline_method("render_replay_event")
-            render_event = self._explicit_pipeline_method("render_event")
-            if render_replay_event is not None:
-                rendered = await render_replay_event(transformed)
-            elif render_event is not None:
-                rendered = await render_event(transformed)
-            else:
+            if render_replay_event is None:
                 raise RuntimeError(
-                    "Pipeline has no replay rendering implementation; "
-                    f"event_id={event.event_id}"
+                    "Pipeline has no replay rendering implementation "
+                    f"(render_replay_event missing); event_id={event.event_id}"
                 )
+            rendered = await render_replay_event(transformed)
             return ReplayResult(
                 event_id=event.event_id,
                 stage="render",

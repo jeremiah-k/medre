@@ -33,6 +33,7 @@ from types import MappingProxyType
 from typing import Any
 
 from medre.adapters.meshtastic.codec import MeshtasticCodec
+from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -382,7 +383,9 @@ class FakeMeshtasticAdapter(AdapterContract):
         packet_id = send_result["packet_id"]
 
         result_metadata: dict[str, object] = {}
-        meshtastic_meta: dict[str, object] = {}
+        meshtastic_meta: dict[str, object] = {
+            "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION
+        }
         if reply_id_val is not None:
             meshtastic_meta["reply_id"] = reply_id_val
         if emoji_val is not None:

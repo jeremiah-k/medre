@@ -1,5 +1,9 @@
 # Adapter Lifecycle Parity Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 > **Classification:** Audit documentation (pre-release)
 > **Branch:** `adapter-lifecycle-parity`
 > **Baseline:** Post `adapter-sdk-parity` / after #99

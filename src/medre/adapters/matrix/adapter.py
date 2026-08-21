@@ -26,6 +26,7 @@ from medre.adapters.matrix.errors import (
     MatrixConnectionError,
     MatrixSendError,
 )
+from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.relations import MatrixRelationHandler
 from medre.adapters.matrix.session import MatrixSession
@@ -681,7 +682,14 @@ class MatrixAdapter(AdapterContract):
                     native_channel_id=room_id,
                     confirmation_level="remote_service",
                     metadata=MappingProxyType(
-                        {"matrix": MappingProxyType({"txn_id": txn_id})}
+                        {
+                            "matrix": MappingProxyType(
+                                {
+                                    "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
+                                    "txn_id": txn_id,
+                                }
+                            )
+                        }
                     ),
                 )
 

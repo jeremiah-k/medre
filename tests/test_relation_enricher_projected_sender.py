@@ -243,9 +243,12 @@ async def test_meshtastic_projected_sender_label_from_adapter_projection() -> No
         source_adapter="meshtastic-radio",
         source_transport_id="!1234abcd",
         native_data={
-            "meshtastic.from_id": "!1234abcd",
-            "meshtastic.longname": "Alpha Node",
-            "meshtastic.shortname": "Alpha",
+            "meshtastic": {
+                "schema_version": 1,
+                "from_id": "!1234abcd",
+                "longname": "Alpha Node",
+                "shortname": "Alpha",
+            },
         },
     )
     storage = FakeStorage({"target-mesh-001": target})
@@ -277,8 +280,11 @@ async def test_meshtastic_no_longname_uses_short_label_as_display_fallback() -> 
         source_adapter="meshtastic-radio",
         source_transport_id="!abcd1234",
         native_data={
-            "meshtastic.from_id": "!abcd1234",
-            "meshtastic.shortname": "Bravo",
+            "meshtastic": {
+                "schema_version": 1,
+                "from_id": "!abcd1234",
+                "shortname": "Bravo",
+            },
         },
     )
     storage = FakeStorage({"target-mesh-short": target})
@@ -351,8 +357,11 @@ async def test_lxmf_display_name_projects_into_label_when_present() -> None:
         source_adapter="lxmf-node",
         source_transport_id=source_hash_hex,
         native_data={
-            "source_hash": source_hash_hex,
-            "lxmf.display_name": "Café Operator",
+            "lxmf": {
+                "schema_version": 1,
+                "source_hash": source_hash_hex,
+                "display_name": "Café Operator",
+            },
         },
     )
     storage = FakeStorage({"target-lxmf-dn": target})
@@ -423,11 +432,14 @@ async def test_meshcore_contact_label_projects_into_label_when_present() -> None
         source_adapter="meshcore-node",
         source_transport_id=pubkey_prefix,
         native_data={
-            "meshcore.pubkey_prefix": pubkey_prefix,
-            "meshcore.channel": "0",
-            "meshcore.packet_id": "1700000001",
-            "meshcore.contact_label": "KG6XYZ",
-            "meshcore.contact_short_label": "KG6",
+            "meshcore": {
+                "schema_version": 1,
+                "pubkey_prefix": pubkey_prefix,
+                "channel": "0",
+                "packet_id": "1700000001",
+                "contact_label": "KG6XYZ",
+                "contact_short_label": "KG6",
+            },
         },
     )
     storage = FakeStorage({"target-meshcore-contact": target})

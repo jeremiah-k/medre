@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
+from medre.adapters.meshtastic.event_shape import build_meshtastic_native_metadata
 from medre.adapters.meshtastic.packet_classifier import (
     MeshtasticPacketClassifier,
 )
@@ -216,47 +217,26 @@ class MeshtasticCodec(AdapterCodec):
         # Emoji raw value from decoded
         emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
 
-        # Transport-specific metadata is namespaced under ``meshtastic.*`` so
-        # that native fields stay namespaced by transport.  Namespaced keys
-        # are the primary shape; bare non-identity keys are retained
-        # alongside for inbound evidence shape preservation, diagnostics,
-        # and legacy stored-event tolerance.  Identity labels
-        # (longname/shortname) are namespaced-only and are not emitted as
-        # bare keys.  ``from_id`` is a transitional duplicate: the codec
-        # emits both namespaced and bare forms with the same value, but
-        # ``source_native_ref`` is built from the classifier's packet id and
-        # channel and relation mapping uses the classifier's reply/reaction
-        # metadata (none of those consumers reads bare ``from_id`` back out
-        # of the native dict).  The bare ``from_id`` duplicate's only live
-        # reader is the projection legacy fallback for stored events and
-        # current projection tolerance; the namespaced form wins whenever
-        # both are present.
+        # Canonical-event native metadata has one versioned Meshtastic shape.
+        # Raw SDK objects are never stored; packet/decoded values are normalized
+        # snapshots containing JSON-safe primitives only.
         portnum_value = str(portnum) if portnum else None
         native_meta = NativeMetadata(
-            data={
-                "packet_id": pkt_id,
-                "meshtastic.packet_id": pkt_id,
-                "from_id": sender,
-                "meshtastic.from_id": sender,
-                "channel": pkt_channel,
-                "meshtastic.channel": pkt_channel,
-                "portnum": portnum_value,
-                "meshtastic.portnum": portnum_value,
-                "to_id": to_id,
-                "meshtastic.to_id": to_id,
-                "is_direct_message": classification.is_direct_message,
-                "meshtastic.is_direct_message": classification.is_direct_message,
-                "meshtastic.longname": longname,
-                "meshtastic.shortname": shortname,
-                "reply_id": reply_id,
-                "meshtastic.reply_id": reply_id,
-                "emoji": emoji_raw,
-                "meshtastic.emoji": emoji_raw,
-                "emoji_flag": emoji_flag,
-                "meshtastic.emoji_flag": emoji_flag,
-                "packet": snapshot_packet(packet),
-                "decoded": snapshot_decoded(decoded),
-                "classification": {
+            data=build_meshtastic_native_metadata(
+                packet_id=pkt_id,
+                from_id=sender,
+                channel=pkt_channel,
+                portnum=portnum_value,
+                to_id=to_id,
+                is_direct_message=classification.is_direct_message,
+                longname=longname,
+                shortname=shortname,
+                reply_id=reply_id,
+                emoji=emoji_raw,
+                emoji_flag=emoji_flag,
+                packet=snapshot_packet(packet),
+                decoded=snapshot_decoded(decoded),
+                classification={
                     "action": classification.action,
                     "category": classification.category,
                     "reason": classification.reason,
@@ -268,7 +248,7 @@ class MeshtasticCodec(AdapterCodec):
                     "is_detection_sensor": classification.is_detection_sensor,
                     "routeable": classification.routeable,
                 },
-            }
+            )
         )
 
         metadata = EventMetadata(native=native_meta)

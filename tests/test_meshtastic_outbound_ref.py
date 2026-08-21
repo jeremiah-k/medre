@@ -747,7 +747,7 @@ class TestMetadataKeySplitting:
 
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
-            # Legacy/non-namespaced keys defensively normalised into meshtastic namespace
+            # Delivery-result keys are normalized into the Meshtastic namespace
             assert "source_bridge" not in ref.metadata
             assert "seq" not in ref.metadata
             assert ref.metadata["meshtastic"]["source_bridge"] == "matrix"
@@ -766,6 +766,9 @@ class TestMetadataKeySplitting:
         from unittest.mock import AsyncMock
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.event_shape import (
+            MESHTASTIC_NATIVE_SCHEMA_VERSION,
+        )
         from medre.adapters.meshtastic.queue import QueueDeliveryResult
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
@@ -800,7 +803,10 @@ class TestMetadataKeySplitting:
                     native_channel_id="0",
                     metadata=MappingProxyType(
                         {
-                            "meshtastic": {"hop_limit": 3},
+                            "meshtastic": {
+                                "schema_version": 999,
+                                "hop_limit": 3,
+                            },
                             "channel": 2,
                             "custom": "value",
                         }
@@ -817,9 +823,10 @@ class TestMetadataKeySplitting:
             ref = recorded_refs[0]
             # Nested meshtastic dict merged with transport key
             mesh_ns = ref.metadata["meshtastic"]
+            assert mesh_ns["schema_version"] == MESHTASTIC_NATIVE_SCHEMA_VERSION
             assert mesh_ns["hop_limit"] == 3
             assert mesh_ns["channel"] == 2
-            # Other key defensively normalised into meshtastic namespace
+            # Other delivery-result keys are normalized into the Meshtastic namespace
             assert "custom" not in ref.metadata
             assert mesh_ns["custom"] == "value"
         finally:

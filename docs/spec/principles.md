@@ -44,11 +44,14 @@ Each stage is inspectable, testable, and replaceable. No adapter directly
 calls another adapter. All inter-adapter communication goes through the
 pipeline.
 
-## 5. Schema Evolution over Schema Lock
+## 5. Versioned Envelope, Explicit Extensions
 
-Unknown fields in events are preserved, not stripped. Known fields keep their
-meaning. Deprecation follows time-bounded windows. Adapters declare the schema
-version they understand. Schema versions are monotonically increasing integers.
+The canonical event envelope is a closed, versioned structure. Decoders may
+ignore unknown top-level fields because the current runtime does not interpret
+them. Producer-defined data that must survive round-trips belongs in explicit
+extension mappings such as `payload`, `metadata.custom`, or versioned
+transport-native metadata. Known envelope fields keep their meaning, and schema
+versions are monotonically increasing positive integers.
 
 ## 6. Storage Authoritative
 

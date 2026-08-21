@@ -16,12 +16,16 @@
         },
         "source_adapters": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Tuple of source adapter IDs."
         },
         "dest_adapters": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Tuple of destination adapter IDs."
         },
         "directionality": {
@@ -37,7 +41,9 @@
         },
         "filter_hooks": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "maxItems": 0,
           "default": [],
           "description": "Reserved — must be empty. Non-empty filter_hooks are rejected at runtime."
@@ -63,12 +69,26 @@
           "description": "Optional destination room ID (alias for dest_channel)."
         },
         "policy": {
-          "oneOf": [{ "$ref": "#/$defs/BridgePolicy" }, { "type": "null" }],
+          "oneOf": [
+            {
+              "$ref": "#/$defs/BridgePolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
           "description": "Optional static bridge policy. Null means no restrictions."
         },
         "retry": {
-          "oneOf": [{ "$ref": "#/$defs/RouteRetryConfig" }, { "type": "null" }],
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RouteRetryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
           "description": "Optional per-route retry policy. Null means no retry scheduling."
         },
@@ -77,18 +97,19 @@
             {
               "type": "object",
               "minProperties": 1,
-              "propertyNames": { "pattern": "^[0-7]$" },
+              "propertyNames": {
+                "pattern": "^[0-7]$"
+              },
               "additionalProperties": {
-                "oneOf": [
-                  { "type": "string", "minLength": 1, "pattern": "^!" },
-                  { "$ref": "#/$defs/ChannelRoomMapEntry" }
-                ]
+                "$ref": "#/$defs/ChannelRoomMapEntry"
               }
             },
-            { "type": "null" }
+            {
+              "type": "null"
+            }
           ],
           "default": null,
-          "description": "Mapping of Meshtastic channel strings ('0'–'7') to Matrix room IDs. Each value is either a bare canonical room-ID string (carries no per-entry labels) or a structured table with 'room' plus optional 'source_origin_label' / 'dest_origin_label' that override the route-level labels for this entry's expanded legs only."
+          "description": "Mapping of Meshtastic channel strings ('0'–'7') to structured Matrix room mappings with required 'room' plus optional 'source_origin_label' / 'dest_origin_label'."
         },
         "source_origin_label": {
           "type": ["string", "null"],
@@ -111,7 +132,9 @@
       "properties": {
         "routes": {
           "type": "array",
-          "items": { "$ref": "#/$defs/RouteConfigRef" },
+          "items": {
+            "$ref": "#/$defs/RouteConfigRef"
+          },
           "default": [],
           "description": "Ordered tuple of route configurations."
         }
@@ -155,11 +178,15 @@
         },
         "source_adapters": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "dest_adapters": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "directionality": {
           "type": "string",
@@ -172,7 +199,9 @@
         },
         "filter_hooks": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "maxItems": 0,
           "default": [],
           "description": "Reserved — must be empty."
@@ -194,11 +223,25 @@
           "default": null
         },
         "policy": {
-          "oneOf": [{ "$ref": "#/$defs/BridgePolicy" }, { "type": "null" }],
+          "oneOf": [
+            {
+              "$ref": "#/$defs/BridgePolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null
         },
         "retry": {
-          "oneOf": [{ "$ref": "#/$defs/RouteRetryConfig" }, { "type": "null" }],
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RouteRetryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null
         },
         "channel_room_map": {
@@ -206,15 +249,16 @@
             {
               "type": "object",
               "minProperties": 1,
-              "propertyNames": { "pattern": "^[0-7]$" },
+              "propertyNames": {
+                "pattern": "^[0-7]$"
+              },
               "additionalProperties": {
-                "oneOf": [
-                  { "type": "string", "minLength": 1, "pattern": "^!" },
-                  { "$ref": "#/$defs/ChannelRoomMapEntry" }
-                ]
+                "$ref": "#/$defs/ChannelRoomMapEntry"
               }
             },
-            { "type": "null" }
+            {
+              "type": "null"
+            }
           ],
           "default": null
         },
@@ -237,37 +281,49 @@
       "properties": {
         "allowed_event_types": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Event kinds this policy permits."
         },
         "allowed_source_adapters": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Source adapter IDs this policy permits."
         },
         "allowed_dest_adapters": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Destination adapter IDs this policy permits."
         },
         "room_allowlist": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Room IDs the policy permits."
         },
         "channel_allowlist": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Channel identifiers the policy permits."
         },
         "sender_allowlist": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Sender identifiers the policy permits."
         }

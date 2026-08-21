@@ -17,6 +17,19 @@ from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
 
 
+def _lxmf_data(event: CanonicalEvent) -> dict[str, object]:
+    """Return the current versioned lxmf native namespace.
+
+    The codec emits the wrapped ``native.data["lxmf"]`` shape — a
+    versioned sub-namespace keyed by the transport name.  This helper
+    returns the inner dict so tests can assert field-by-field.
+    """
+    assert event.metadata.native is not None
+    data = event.metadata.native.data["lxmf"]
+    assert isinstance(data, dict)
+    return data
+
+
 def _make_config() -> LxmfConfig:
     return LxmfConfig(adapter_id="lxmf-1")
 
@@ -118,7 +131,7 @@ class TestLxmfCodecMetadata:
         packet = _make_text_packet(source_hash="ab" * 16, msg_id="cd" * 32)
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        data = event.metadata.native.data
+        data = _lxmf_data(event)
         assert data["source_hash"] == "ab" * 16
         assert data["message_id"] == "cd" * 32
 
@@ -127,21 +140,21 @@ class TestLxmfCodecMetadata:
         packet = _make_text_packet()
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["timestamp"] == 1700000000.0
+        assert _lxmf_data(event)["timestamp"] == 1700000000.0
 
     def test_decode_metadata_has_title(self) -> None:
         codec = LxmfCodec("lxmf-1", _make_config())
         packet = _make_text_packet(title="Test Title")
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["title"] == "Test Title"
+        assert _lxmf_data(event)["title"] == "Test Title"
 
     def test_decode_metadata_has_destination_hash(self) -> None:
         codec = LxmfCodec("lxmf-1", _make_config())
         packet = _make_text_packet()
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["destination_hash"] == "00" * 16
+        assert _lxmf_data(event)["destination_hash"] == "00" * 16
 
     def test_decode_metadata_destination_hash_bytes(self) -> None:
         codec = LxmfCodec("lxmf-1", _make_config())
@@ -149,7 +162,7 @@ class TestLxmfCodecMetadata:
         packet["destination_hash"] = bytes.fromhex("11" * 16)
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["destination_hash"] == "11" * 16
+        assert _lxmf_data(event)["destination_hash"] == "11" * 16
 
 
 class TestLxmfCodecFieldsEnvelope:
@@ -286,7 +299,7 @@ class TestSignatureValidated:
         packet["signature_validated"] = True
         event = codec.decode(packet)
         assert isinstance(event, CanonicalEvent)
-        assert "signature_validated" not in event.metadata.native.data
+        assert "signature_validated" not in _lxmf_data(event)
 
     def test_decode_signature_validated_false(self) -> None:
         codec = LxmfCodec("lxmf-1", _make_config())
@@ -294,7 +307,7 @@ class TestSignatureValidated:
         packet["signature_validated"] = False
         event = codec.decode(packet)
         assert isinstance(event, CanonicalEvent)
-        assert "signature_validated" not in event.metadata.native.data
+        assert "signature_validated" not in _lxmf_data(event)
 
     def test_decode_missing_signature_validated(self) -> None:
         """Packet without signature_validated still decodes."""
@@ -304,7 +317,7 @@ class TestSignatureValidated:
         event = codec.decode(packet)
         assert isinstance(event, CanonicalEvent)
         assert event.metadata.native is not None
-        assert "signature_validated" not in event.metadata.native.data
+        assert "signature_validated" not in _lxmf_data(event)
 
 
 # ===================================================================
@@ -325,7 +338,7 @@ class TestMissingOptionalFields:
         assert isinstance(event, CanonicalEvent)
         assert event.source_transport_id == ""
         assert event.metadata.native is not None
-        assert event.metadata.native.data["source_hash"] == ""
+        assert _lxmf_data(event)["source_hash"] == ""
 
     def test_decode_missing_timestamp(self) -> None:
         """Packet without timestamp still decodes."""
@@ -335,7 +348,7 @@ class TestMissingOptionalFields:
         event = codec.decode(packet)
         assert isinstance(event, CanonicalEvent)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["timestamp"] is None
+        assert _lxmf_data(event)["timestamp"] is None
 
     def test_decode_missing_fields_key(self) -> None:
         """Packet without fields key decodes (no envelope extracted)."""
@@ -363,7 +376,7 @@ class TestMissingOptionalFields:
         event = codec.decode(packet)
         assert isinstance(event, CanonicalEvent)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["destination_hash"] is None
+        assert _lxmf_data(event)["destination_hash"] is None
 
     def test_decode_missing_has_fields(self) -> None:
         """Packet without has_fields decodes successfully; codec computes
@@ -374,7 +387,7 @@ class TestMissingOptionalFields:
         event = codec.decode(packet)
         assert isinstance(event, CanonicalEvent)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["has_fields"] is False
+        assert _lxmf_data(event)["has_fields"] is False
 
 
 # ===================================================================
@@ -396,7 +409,7 @@ class TestDeliveryMethodMetadata:
         packet["delivery_method"] = "direct"
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["delivery_method"] == "direct"
+        assert _lxmf_data(event)["delivery_method"] == "direct"
 
     def test_decode_delivery_method_none(self) -> None:
         codec = LxmfCodec("lxmf-1", _make_config())
@@ -404,21 +417,21 @@ class TestDeliveryMethodMetadata:
         # No delivery_method key
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["delivery_method"] is None
+        assert _lxmf_data(event)["delivery_method"] is None
 
     def test_decode_has_fields_in_metadata(self) -> None:
         codec = LxmfCodec("lxmf-1", _make_config())
         packet = _make_text_packet(fields={0x01: "data"})
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["has_fields"] is True
+        assert _lxmf_data(event)["has_fields"] is True
 
     def test_decode_no_fields_has_fields_false(self) -> None:
         codec = LxmfCodec("lxmf-1", _make_config())
         packet = _make_text_packet(fields={})
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["has_fields"] is False
+        assert _lxmf_data(event)["has_fields"] is False
 
 
 # ===================================================================

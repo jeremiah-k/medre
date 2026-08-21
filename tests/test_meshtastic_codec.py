@@ -15,6 +15,15 @@ from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
 
 
+def _meshtastic_data(event: CanonicalEvent) -> dict[str, object]:
+    """Return the current versioned meshtastic native namespace."""
+    assert event.metadata.native is not None
+    native_data = event.metadata.native.data
+    meshtastic = native_data["meshtastic"]
+    assert isinstance(meshtastic, dict)
+    return meshtastic
+
+
 def _make_config() -> MeshtasticConfig:
     return MeshtasticConfig(adapter_id="mesh-1")
 
@@ -105,7 +114,7 @@ class TestMeshtasticCodecDecode:
         packet = _make_text_packet(sender="!node1", packet_id=99)
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        data = event.metadata.native.data
+        data = _meshtastic_data(event)
         assert data["packet_id"] == 99
         assert data["from_id"] == "!node1"
         assert data["channel"] == 0
@@ -115,16 +124,16 @@ class TestMeshtasticCodecDecode:
         packet = _make_text_packet(to_id="")
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["is_direct_message"] is False
-        assert event.metadata.native.data["to_id"] == ""
+        assert _meshtastic_data(event)["is_direct_message"] is False
+        assert _meshtastic_data(event)["to_id"] == ""
 
     def test_decode_direct_message_metadata(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
         packet = _make_text_packet(to_id="!target_node")
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["is_direct_message"] is True
-        assert event.metadata.native.data["to_id"] == "!target_node"
+        assert _meshtastic_data(event)["is_direct_message"] is True
+        assert _meshtastic_data(event)["to_id"] == "!target_node"
 
     def test_decode_dm_vs_channel_distinguishable(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
@@ -134,8 +143,8 @@ class TestMeshtasticCodecDecode:
         ch_event = codec.decode(ch_packet)
         assert dm_event.metadata.native is not None
         assert ch_event.metadata.native is not None
-        assert dm_event.metadata.native.data["is_direct_message"] is True
-        assert ch_event.metadata.native.data["is_direct_message"] is False
+        assert _meshtastic_data(dm_event)["is_direct_message"] is True
+        assert _meshtastic_data(ch_event)["is_direct_message"] is False
 
     def test_decode_text_message_app_symbolic_portnum(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
@@ -145,7 +154,7 @@ class TestMeshtasticCodecDecode:
         assert event.payload["body"] == "real symbolic"
         assert event.payload["portnum"] == "text_message"
         assert event.metadata.native is not None
-        assert event.metadata.native.data["portnum"] == "text_message"
+        assert _meshtastic_data(event)["portnum"] == "text_message"
 
     @pytest.mark.parametrize(
         "portnum",
@@ -177,7 +186,7 @@ class TestMeshtasticCodecDecode:
         packet["to"] = 12345
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["is_direct_message"] is True
+        assert _meshtastic_data(event)["is_direct_message"] is True
 
     def test_decode_numeric_sender_fallback_matches_classifier(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
@@ -187,7 +196,7 @@ class TestMeshtasticCodecDecode:
         event = codec.decode(packet)
         assert event.source_transport_id == "!0001e240"
         assert event.metadata.native is not None
-        assert event.metadata.native.data["from_id"] == "!0001e240"
+        assert _meshtastic_data(event)["from_id"] == "!0001e240"
 
 
 class TestMeshtasticCodecSourceNativeRef:
@@ -331,7 +340,7 @@ class TestMeshtasticCodecExtendedMetadata:
         packet = _make_text_packet(packet_id=200)
         packet["decoded"]["replyId"] = 100
         event = codec.decode(packet)
-        data = event.metadata.native.data
+        data = _meshtastic_data(event)
         assert data["reply_id"] == 100
 
     def test_metadata_includes_emoji_fields(self) -> None:
@@ -340,7 +349,7 @@ class TestMeshtasticCodecExtendedMetadata:
         packet["decoded"]["replyId"] = 200
         packet["decoded"]["emoji"] = 1
         event = codec.decode(packet)
-        data = event.metadata.native.data
+        data = _meshtastic_data(event)
         assert data["emoji"] == 1
         assert data["emoji_flag"] is True
 
@@ -350,7 +359,7 @@ class TestMeshtasticCodecExtendedMetadata:
         packet["decoded"]["replyId"] = 200
         packet["decoded"]["emoji"] = 1
         event = codec.decode(packet)
-        data = event.metadata.native.data
+        data = _meshtastic_data(event)
         cls_data = data["classification"]
         assert cls_data["category"] == "text"
         assert cls_data["is_reaction"] is True
@@ -362,7 +371,7 @@ class TestMeshtasticCodecExtendedMetadata:
         codec = MeshtasticCodec("mesh-1", _make_config())
         packet = _make_text_packet()
         event = codec.decode(packet)
-        data = event.metadata.native.data
+        data = _meshtastic_data(event)
         assert isinstance(data["packet"], dict)
         assert data["packet"]["fromId"] == "!node1"
 
@@ -370,7 +379,7 @@ class TestMeshtasticCodecExtendedMetadata:
         codec = MeshtasticCodec("mesh-1", _make_config())
         packet = _make_text_packet(text="hello")
         event = codec.decode(packet)
-        data = event.metadata.native.data
+        data = _meshtastic_data(event)
         assert isinstance(data["decoded"], dict)
         assert data["decoded"]["text"] == "hello"
 
@@ -378,7 +387,7 @@ class TestMeshtasticCodecExtendedMetadata:
         codec = MeshtasticCodec("mesh-1", _make_config())
         packet = _make_text_packet()
         event = codec.decode(packet)
-        data = event.metadata.native.data
+        data = _meshtastic_data(event)
         assert data["reply_id"] is None
         assert data["emoji"] is None
         assert data["emoji_flag"] is False
@@ -471,7 +480,7 @@ class TestMeshtasticCodecTapbackSnapshot:
         assert rel.metadata.get("meshtastic_emoji") == 1
 
         # Snapshot stores raw decoded.emoji and decoded.replyId
-        data = event.metadata.native.data
+        data = _meshtastic_data(event)
         snapshot = data["decoded"]
         assert isinstance(snapshot, dict)
         assert snapshot.get("emoji") == 1
@@ -497,7 +506,7 @@ class TestMeshtasticCodecTapbackSnapshot:
         assert rel.key == "?"
 
         # Snapshot preserves raw replyId even with empty text
-        snapshot = event.metadata.native.data["decoded"]
+        snapshot = _meshtastic_data(event)["decoded"]
         assert snapshot.get("replyId") == 150
         assert snapshot.get("emoji") == 1
 
@@ -505,9 +514,7 @@ class TestMeshtasticCodecTapbackSnapshot:
 class TestMeshtasticCodecNodeInfo:
     """MeshtasticCodec decode node_info longname/shortname population.
 
-    Identity labels are emitted under namespaced ``meshtastic.longname``/
-    ``meshtastic.shortname`` keys; bare ``longname``/``shortname`` are not
-    present in newly produced native metadata.
+    Identity labels are fields of the versioned ``native.meshtastic`` object.
     """
 
     def test_node_info_both_names_populated(self) -> None:
@@ -519,11 +526,8 @@ class TestMeshtasticCodecNodeInfo:
             node_info={"longname": "LongNode", "shortname": "LN"},
         )
         assert event.metadata.native is not None
-        assert event.metadata.native.data["meshtastic.longname"] == "LongNode"
-        assert event.metadata.native.data["meshtastic.shortname"] == "LN"
-        # Bare identity labels are not emitted by the codec.
-        assert "longname" not in event.metadata.native.data
-        assert "shortname" not in event.metadata.native.data
+        assert _meshtastic_data(event)["longname"] == "LongNode"
+        assert _meshtastic_data(event)["shortname"] == "LN"
 
     def test_node_info_none_empty_strings(self) -> None:
         """node_info=None → namespaced identity keys are empty strings."""
@@ -531,12 +535,8 @@ class TestMeshtasticCodecNodeInfo:
         packet = _make_text_packet(text="hello")
         event = codec.decode(packet, node_info=None)
         assert event.metadata.native is not None
-        assert event.metadata.native.data["meshtastic.longname"] == ""
-        assert event.metadata.native.data["meshtastic.shortname"] == ""
-        # Bare identity keys are absent — only namespaced meshtastic.* keys
-        # are emitted.
-        assert "longname" not in event.metadata.native.data
-        assert "shortname" not in event.metadata.native.data
+        assert _meshtastic_data(event)["longname"] == ""
+        assert _meshtastic_data(event)["shortname"] == ""
 
     def test_node_info_only_longname(self) -> None:
         """node_info with only longname → shortname is empty."""
@@ -547,8 +547,8 @@ class TestMeshtasticCodecNodeInfo:
             node_info={"longname": "LongNode"},
         )
         assert event.metadata.native is not None
-        assert event.metadata.native.data["meshtastic.longname"] == "LongNode"
-        assert event.metadata.native.data["meshtastic.shortname"] == ""
+        assert _meshtastic_data(event)["longname"] == "LongNode"
+        assert _meshtastic_data(event)["shortname"] == ""
 
     def test_node_info_only_shortname(self) -> None:
         """node_info with only shortname → longname is empty."""
@@ -559,20 +559,18 @@ class TestMeshtasticCodecNodeInfo:
             node_info={"shortname": "SN"},
         )
         assert event.metadata.native is not None
-        assert event.metadata.native.data["meshtastic.longname"] == ""
-        assert event.metadata.native.data["meshtastic.shortname"] == "SN"
+        assert _meshtastic_data(event)["longname"] == ""
+        assert _meshtastic_data(event)["shortname"] == "SN"
 
-    def test_node_info_emits_namespaced_from_id(self) -> None:
-        """Codec emits ``meshtastic.from_id`` alongside the retained bare
-        ``from_id`` (kept for non-identity consumers)."""
+    def test_node_info_emits_from_id_in_transport_namespace(self) -> None:
+        """Codec emits sender identity inside the Meshtastic namespace."""
         codec = MeshtasticCodec("mesh-1", _make_config())
         packet = _make_text_packet(sender="!node1")
         event = codec.decode(packet)
         assert event.metadata.native is not None
-        data = event.metadata.native.data
-        assert data["meshtastic.from_id"] == "!node1"
-        # Bare from_id is retained for non-identity consumers.
+        data = _meshtastic_data(event)
         assert data["from_id"] == "!node1"
+        assert set(event.metadata.native.data) == {"meshtastic"}
 
 
 class TestMeshtasticCodecDeterministicClock:

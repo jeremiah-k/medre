@@ -229,18 +229,18 @@ def test_codec_decode_includes_contact_label_in_native_meta() -> None:
     packet = _make_text_packet(sender="deadbeef")
     event = codec.decode(packet, contact_label="EA1ABC")
     assert event.metadata.native is not None
-    assert event.metadata.native.data["meshcore.contact_label"] == "EA1ABC"
-    assert event.metadata.native.data["meshcore.contact_short_label"] is None
+    assert event.metadata.native.data["meshcore"]["contact_label"] == "EA1ABC"
+    assert event.metadata.native.data["meshcore"]["contact_short_label"] is None
 
 
 def test_codec_decode_contact_label_defaults_none() -> None:
-    """decode() without contact_label stores None (backward compat)."""
+    """decode() without contact_label stores None."""
     codec = MeshCoreCodec("test_meshcore", _make_fake_config())
     packet = _make_text_packet(sender="deadbeef")
     event = codec.decode(packet)
     assert event.metadata.native is not None
-    assert event.metadata.native.data["meshcore.contact_label"] is None
-    assert event.metadata.native.data["meshcore.contact_short_label"] is None
+    assert event.metadata.native.data["meshcore"]["contact_label"] is None
+    assert event.metadata.native.data["meshcore"]["contact_short_label"] is None
 
 
 def test_codec_decode_with_explicit_short_label() -> None:
@@ -253,8 +253,8 @@ def test_codec_decode_with_explicit_short_label() -> None:
         contact_short_label="BASE",
     )
     assert event.metadata.native is not None
-    assert event.metadata.native.data["meshcore.contact_label"] == "Base Station"
-    assert event.metadata.native.data["meshcore.contact_short_label"] == "BASE"
+    assert event.metadata.native.data["meshcore"]["contact_label"] == "Base Station"
+    assert event.metadata.native.data["meshcore"]["contact_short_label"] == "BASE"
 
 
 def test_codec_decode_preserves_sender_id_with_contact_label() -> None:
@@ -310,10 +310,13 @@ def test_renderer_sender_shows_contact_label() -> None:
     """{sender} renders the contact label when enriched."""
     projected = project_meshcore_attribution(
         {
-            "meshcore.pubkey_prefix": "a1b2c3",
-            "meshcore.channel": 0,
-            "meshcore.packet_id": 42,
-            "meshcore.contact_label": "EA1ABC",
+            "meshcore": {
+                "schema_version": 1,
+                "pubkey_prefix": "a1b2c3",
+                "channel": 0,
+                "packet_id": 42,
+                "contact_label": "EA1ABC",
+            },
         }
     )
     attr = RelayAttribution(
@@ -330,8 +333,11 @@ def test_renderer_sender_empty_without_contact() -> None:
     """{sender} renders empty when no contact label is available."""
     projected = project_meshcore_attribution(
         {
-            "meshcore.pubkey_prefix": "a1b2c3",
-            "meshcore.channel": 0,
+            "meshcore": {
+                "schema_version": 1,
+                "pubkey_prefix": "a1b2c3",
+                "channel": 0,
+            },
         }
     )
     attr = RelayAttribution(
@@ -347,9 +353,12 @@ def test_renderer_sender_id_shows_pubkey_prefix() -> None:
     """{sender_id} exposes the pubkey prefix regardless of contact label."""
     projected = project_meshcore_attribution(
         {
-            "meshcore.pubkey_prefix": "deadbeef",
-            "meshcore.channel": 0,
-            "meshcore.contact_label": "Alice",
+            "meshcore": {
+                "schema_version": 1,
+                "pubkey_prefix": "deadbeef",
+                "channel": 0,
+                "contact_label": "Alice",
+            },
         }
     )
     attr = RelayAttribution(source_platform="meshcore", **projected)
@@ -361,9 +370,12 @@ def test_renderer_sender_short_shows_first_token() -> None:
     """{sender_short} renders the first token of the contact label."""
     projected = project_meshcore_attribution(
         {
-            "meshcore.pubkey_prefix": "pk",
-            "meshcore.channel": 0,
-            "meshcore.contact_label": "Base Station Alpha",
+            "meshcore": {
+                "schema_version": 1,
+                "pubkey_prefix": "pk",
+                "channel": 0,
+                "contact_label": "Base Station Alpha",
+            },
         }
     )
     attr = RelayAttribution(source_platform="meshcore", **projected)
@@ -375,9 +387,12 @@ def test_renderer_combined_sender_and_sender_id() -> None:
     """{sender} and {sender_id} render independently in one template."""
     projected = project_meshcore_attribution(
         {
-            "meshcore.pubkey_prefix": "aabbcc",
-            "meshcore.channel": 1,
-            "meshcore.contact_label": "Node1",
+            "meshcore": {
+                "schema_version": 1,
+                "pubkey_prefix": "aabbcc",
+                "channel": 1,
+                "contact_label": "Node1",
+            },
         }
     )
     attr = RelayAttribution(source_platform="meshcore", **projected)
@@ -426,7 +441,7 @@ async def test_simulate_inbound_enriches_with_contact_label(
     assert len(captured) == 1
     event = captured[0]
     assert event.metadata.native is not None
-    assert event.metadata.native.data["meshcore.contact_label"] == "EA1ABC"
+    assert event.metadata.native.data["meshcore"]["contact_label"] == "EA1ABC"
 
     # The session was queried with the pubkey prefix.
     session.resolve_contact_label.assert_called_once_with("deadbeef")
@@ -457,6 +472,6 @@ async def test_simulate_inbound_no_contact_when_session_absent(
     assert len(captured) == 1
     event = captured[0]
     assert event.metadata.native is not None
-    assert event.metadata.native.data["meshcore.contact_label"] is None
+    assert event.metadata.native.data["meshcore"]["contact_label"] is None
     # Pubkey prefix still flows to sender_id.
     assert event.source_transport_id == "deadbeef"

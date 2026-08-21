@@ -126,7 +126,7 @@ class TestDiagnostician:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=sample_event)
-        pipeline.render_event = AsyncMock(
+        pipeline.render_replay_event = AsyncMock(
             side_effect=RuntimeError("No renderer for adapter"),
         )
 

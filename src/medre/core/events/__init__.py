@@ -21,8 +21,7 @@ Package-level imports
   ``MetadataEmbeddingMode``, ``PrivacyMode``.
 * From :mod:`~medre.core.events.schema`:
   ``SchemaRegistry``, ``SchemaVersion``, ``schema_version_from_event``,
-  ``CURRENT_SCHEMA_VERSION``, ``VALID_RELATION_TYPES``,
-  ``MIGRATION_REGISTRY``.
+  ``CURRENT_SCHEMA_VERSION``, ``VALID_RELATION_TYPES``.
 """
 
 from medre.core.events.canonical import (
@@ -54,7 +53,6 @@ from medre.core.events.metadata import (
 )
 from medre.core.events.schema import (
     CURRENT_SCHEMA_VERSION,
-    MIGRATION_REGISTRY,
     VALID_RELATION_TYPES,
     SchemaRegistry,
     SchemaVersion,
@@ -87,7 +85,6 @@ __all__ = [
     "TransportMetadata",
     # schema
     "CURRENT_SCHEMA_VERSION",
-    "MIGRATION_REGISTRY",
     "VALID_RELATION_TYPES",
     "SchemaRegistry",
     "SchemaVersion",

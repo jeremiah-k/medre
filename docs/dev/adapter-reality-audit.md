@@ -1,5 +1,9 @@
 # Adapter Reality Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 > **Historical snapshot.** Version references in this document describe the
 > audit baseline at the time it was written. The current exact-pin contract is
 > `docs/dev/adapter-sdk-parity.md`.

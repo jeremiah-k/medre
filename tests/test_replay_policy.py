@@ -99,7 +99,7 @@ class TestReplayPolicy:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=sample_event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(return_value=[("route", ["target"])])
         pipeline.plan_delivery = AsyncMock(return_value=["plan"])
         pipeline.deliver = AsyncMock(
@@ -135,7 +135,7 @@ class TestReplayPolicy:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=sample_event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(return_value=[("route", ["target"])])
         pipeline.plan_delivery = AsyncMock(return_value=["plan"])
         pipeline.deliver = AsyncMock(
@@ -227,7 +227,7 @@ class TestReplayPolicy:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=sample_event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(return_value=[("route", ["target"])])
         pipeline.plan_delivery = AsyncMock(return_value=[_FakePlan("adapter_a")])
         pipeline.deliver = AsyncMock(return_value=["receipt"])
@@ -323,7 +323,7 @@ class TestReplayPolicy:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=sample_event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
         pipeline.route_event = AsyncMock(return_value=[("route", ["target"])])
         pipeline.plan_delivery = AsyncMock(return_value=["plan"])
         pipeline.deliver = AsyncMock(

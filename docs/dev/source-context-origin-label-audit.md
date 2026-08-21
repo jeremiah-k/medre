@@ -1,5 +1,14 @@
 # Source-Context Origin Label Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
+> **Current-state supersession.** `channel_room_map` entries now use one
+> structured representation with required `room` plus optional per-entry origin
+> labels. Bare room-ID values described below are rejected. See
+> `docs/spec/routing-delivery.md`.
+
 Factual audit of the current MEDRE route-config model, route expansion,
 and mapped-route (`channel_room_map`) label flow. No aspirational
 language; describes running code on branch

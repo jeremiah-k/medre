@@ -1,5 +1,9 @@
 # YAML Config Migration Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 Factual audit of the current MEDRE configuration subsystem as a baseline for
 migrating human-authored config from TOML to YAML. No aspirational language;
 describes running code on branch `feat/yaml-config-migration`.
@@ -24,18 +28,18 @@ The single load entry point is `load_config()` in
 
 Production callers of `load_config()` (9 sites):
 
-| Caller                              | Path                                                 |
+| Caller | Path |
 | ----------------------------------- | ---------------------------------------------------- | ----- | -------------------------------------------- |
-| `medre run`                         | `src/medre/cli/run_commands.py:94`                   |
-| `medre replay`                      | `src/medre/cli/replay_commands.py:56`                |
-| `medre config check`                | `src/medre/cli/config_commands.py:61`                |
-| `medre config sample` (no-arg path) | `src/medre/cli/config_commands.py:236`               |
+| `medre run` | `src/medre/cli/run_commands.py:94` |
+| `medre replay` | `src/medre/cli/replay_commands.py:56` |
+| `medre config check` | `src/medre/cli/config_commands.py:61` |
+| `medre config sample` (no-arg path) | `src/medre/cli/config_commands.py:236` |
 | `medre routes validate              | topology                                             | list` | `src/medre/cli/route_commands.py:16,152,253` |
-| `medre diagnostics`                 | `src/medre/cli/diagnostics_commands.py:29,104`       |
-| `medre smoke`                       | `src/medre/runtime/smoke.py:342`                     |
-| `medre run-session`                 | `src/medre/runtime/run_session/orchestration.py:237` |
-| `medre drill`                       | `src/medre/runtime/drill.py:217`                     |
-| `medre evidence` bundle collector   | `src/medre/runtime/evidence/_bundle.py:107`          |
+| `medre diagnostics` | `src/medre/cli/diagnostics_commands.py:29,104` |
+| `medre smoke` | `src/medre/runtime/smoke.py:342` |
+| `medre run-session` | `src/medre/runtime/run_session/orchestration.py:237` |
+| `medre drill` | `src/medre/runtime/drill.py:217` |
+| `medre evidence` bundle collector | `src/medre/runtime/evidence/_bundle.py:107` |
 
 `ConfigSource` (loader.py:49) is the enum recording origin: `EXPLICIT`,
 `MEDRE_CONFIG`, `MEDRE_HOME`, `XDG`, `LOCAL`.

@@ -331,7 +331,8 @@ export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=AA:BB:CC:DD:EE:FF
 # export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_PIN=123456
 ```
 
-Legacy `MEDRE_MESHCORE_*` runtime config variables are unsupported. Migrate to `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
+`MEDRE_MESHCORE_*` runtime config variables are unsupported. Use
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` instead.
 
 ## Manual Adapter Wiring
 

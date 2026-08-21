@@ -447,7 +447,7 @@ routes:
 | `max_delay_seconds` | float | `60.0`  | Upper bound for backoff delay.                       |
 | `jitter`            | bool  | `false` | Whether to add jitter to backoff.                    |
 
-#### channel_room_map Shorthand
+#### channel_room_map
 
 For Matrix↔Meshtastic bridges, `channel_room_map` expands a single route into N channel→room pairs:
 
@@ -461,8 +461,10 @@ routes:
     directionality: bidirectional
     enabled: true
     channel_room_map:
-      "0": "!general:example.com"
-      "1": "!admin:example.com"
+      "0":
+        room: "!general:example.com"
+      "1":
+        room: "!admin:example.com"
 ```
 
 Limitations:
@@ -504,11 +506,10 @@ routes:
 
 #### Per-entry origin labels
 
-Each `channel_room_map` entry can carry its own origin labels, so two
-channels bridged by the same route can show different attribution text
-in the relay prefix (for example, the channel name). An entry is either
-a bare room-ID string (no per-entry labels) or a structured table with
-`room` plus optional `source_origin_label` / `dest_origin_label`:
+Each `channel_room_map` entry is a structured table with required `room` and
+optional origin labels. This lets channels bridged by the same route show
+different attribution text in the relay prefix (for example, the channel
+name):
 
 ```yaml
 routes:
@@ -532,9 +533,7 @@ routes:
 Here channel 0 bridges to `!longfast:example.com` and tags both legs of
 that mapping; channel 1 bridges to `!shortfast:example.com` and tags
 only its forward leg, leaving the reverse leg to inherit the
-route-level `dest_origin_label` (or the adapter `origin_label`). Both
-shapes can be mixed in the same map.
-
+route-level `dest_origin_label` (or the adapter `origin_label`).
 How labels resolve for each expanded leg, from most to least specific:
 
 1. The per-entry `source_origin_label` (forward leg) or
@@ -550,8 +549,6 @@ to the next level.
 
 Keep in mind:
 
-- The bare-string shape still works exactly as before — no labels are
-  attached and the route-level / adapter labels apply uniformly.
 - `origin_label` is human-readable attribution only. It is not a routing
   key, not a transport identity, and not delivery evidence. It never
   affects which route matches an event.
@@ -784,7 +781,7 @@ Token collisions are detected at startup and raise `ConfigValidationError`.
 
 Dict fields such as Meshtastic `channel_mapping` and MeshCore `node_config`, plus tuple fields such as Matrix `auto_join_rooms`, cannot be set via env vars — use YAML instead.
 
-### Unsupported Legacy Prefixes
+### Unsupported Transport Prefixes
 
 These are **rejected at startup**:
 
@@ -795,7 +792,7 @@ These are **rejected at startup**:
 | `MEDRE_MESHCORE_*`   | `MEDRE_ADAPTER__<TOKEN>__<FIELD>` |
 | `MEDRE_LXMF_*`       | `MEDRE_ADAPTER__<TOKEN>__<FIELD>` |
 
-Migration example:
+Replacement example:
 
 ```bash
 # Old (rejected):

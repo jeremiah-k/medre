@@ -3,7 +3,7 @@ TOML rejection, and extension validation.
 
 These tests exercise the public ``load_config`` entry point with YAML
 config files (``.yaml`` and ``.yml``), verify that ``.toml`` user config
-paths produce the dedicated migration error, and confirm that the parsed
+paths produce the dedicated unsupported-format error, and confirm that the parsed
 YAML data flows correctly into the existing typed config dataclasses.
 """
 

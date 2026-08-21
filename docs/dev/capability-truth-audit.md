@@ -1,5 +1,9 @@
 # Capability Truth Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 **Work Package**: Capability Truth Audit
 **Branch**: `adapter-lifecycle-parity`
 **Baseline**: after merging `adapter-sdk-parity` (#99)

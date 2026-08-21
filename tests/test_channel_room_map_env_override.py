@@ -5,14 +5,9 @@ serialize normalized ``ChannelRoomMapEntry`` objects back to plain dicts so
 that ``RouteConfig.from_dict`` can re-parse them after an env override
 is applied.
 
-The existing ``test_channel_room_map_preserved_on_override`` in
-``test_config_env_first.py`` constructs ``RouteConfig`` directly with a bare
-``dict[str, str]`` channel_room_map. That bypasses ``from_dict``
-normalization, so ``existing.channel_room_map`` stays as ``dict[str, str]``
-and the round-trip works even though the production parser path is broken.
-These tests exercise the real parser path (``from_dict``), which
-normalizes every entry to ``ChannelRoomMapEntry`` — the shape that triggered
-the regression.
+These tests exercise the real parser path (``from_dict``), which normalizes
+every structured entry to ``ChannelRoomMapEntry`` before the environment
+override round-trip.
 """
 
 from __future__ import annotations
@@ -49,9 +44,7 @@ def _make_config_with_parsed_channel_room_map() -> RuntimeConfig:
 
     Using the parser ensures ``channel_room_map`` is normalized to
     ``dict[str, ChannelRoomMapEntry]`` — the shape that broke the env
-    round-trip before the fix. Both a structured entry (with labels) and a
-    legacy bare-string entry are included so the regression covers both
-    shapes after normalization.
+    round-trip. Both a labeled and an unlabeled structured entry are included.
     """
     route = RouteConfig.from_dict(
         "config-route",
@@ -64,7 +57,7 @@ def _make_config_with_parsed_channel_room_map() -> RuntimeConfig:
                     "room": "!room1:matrix.org",
                     "source_origin_label": "Radio A",
                 },
-                "1": "!room2:matrix.org",
+                "1": {"room": "!room2:matrix.org"},
             },
         },
     )
@@ -84,8 +77,8 @@ def test_env_override_preserves_parsed_channel_room_map(
 
     Regression: previously the round-trip copied the normalized
     ``dict[str, ChannelRoomMapEntry]`` straight into ``route_data``, and the
-    re-parse rejected the entry objects (they are neither ``str`` nor
-    ``dict``).
+    re-parse rejected the normalized entry objects instead of serializing
+    them back to plain dictionaries.
     """
     monkeypatch.setenv("MEDRE_ROUTE__CONFIG_ROUTE__ENABLED", "false")
     base = _make_config_with_parsed_channel_room_map()
@@ -103,7 +96,7 @@ def test_env_override_preserves_parsed_channel_room_map(
     assert entry0.room == "!room1:matrix.org"
     assert entry0.source_origin_label == "Radio A"
     assert entry0.dest_origin_label is None
-    # Channel 1: legacy bare-string entry, normalized to a label-less entry.
+    # Channel 1: structured room-only entry.
     entry1 = route.channel_room_map["1"]
     assert isinstance(entry1, ChannelRoomMapEntry)
     assert entry1.room == "!room2:matrix.org"

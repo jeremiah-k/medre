@@ -93,8 +93,8 @@ the structural requirements that the spec relies on.
 ### 3.1 File Format and Boring YAML Subset
 
 - The file suffix MUST be `.yaml` or `.yml`. The loader rejects `.toml` (and
-  any other unsupported suffix) with the migration message _"TOML config
-  files are no longer supported; use YAML (.yaml or .yml)."_; see §4 for
+  any other unsupported suffix) with the format error _"TOML config files
+  are no longer supported; use YAML (.yaml or .yml)."_; see §4 for
   discovery and rejection semantics.
 - `pyproject.toml` is unrelated project metadata (build, pytest config,
   tooling). The MEDRE runtime never reads it as a runtime config.
@@ -210,23 +210,17 @@ operator-facing YAML examples, including policy and retry tables, live in
 #### 3.4.1 channel_room_map
 
 For Matrix↔Meshtastic bridges, `channel_room_map` expands a single route
-into one leg per channel→room pair. Each entry is polymorphic:
+into one leg per channel→room pair. Every entry MUST be a structured table:
 
-- **Bare-string shape** — the value is a canonical Matrix room ID string
-  (`"!room:server"`). No per-entry labels.
-- **Structured shape** — the value is a table with three keys:
+| Key                   | Type           | Default | Notes                                                               |
+| --------------------- | -------------- | ------- | ------------------------------------------------------------------- |
+| `room`                | string         | —       | Canonical Matrix room ID starting with `!`. **Required.**           |
+| `source_origin_label` | string or null | `null`  | Per-entry forward-leg label. `null` inherits the route-level label. |
+| `dest_origin_label`   | string or null | `null`  | Per-entry reverse-leg label. `null` inherits the route-level label. |
 
-  | Key                   | Type           | Default | Notes                                                               |
-  | --------------------- | -------------- | ------- | ------------------------------------------------------------------- |
-  | `room`                | string         | —       | Canonical Matrix room ID starting with `!`. **Required.**           |
-  | `source_origin_label` | string or null | `null`  | Per-entry forward-leg label. `null` inherits the route-level label. |
-  | `dest_origin_label`   | string or null | `null`  | Per-entry reverse-leg label. `null` inherits the route-level label. |
-
-  Unknown keys are rejected. Boolean label values are rejected before the
-  generic string check, matching route-level label validation.
-
-The two shapes MAY be mixed within a single `channel_room_map`. The
-bare-string shape is the legacy form and remains fully supported.
+Unknown keys are rejected. Boolean label values are rejected before the
+generic string check, matching route-level label validation. Entries with only
+`room` inherit route-level and adapter-level origin labels normally.
 
 `channel_room_map` is mutually exclusive with `source_channel`,
 `dest_channel`, `source_room`, and `dest_room`. When present, the route
@@ -287,7 +281,7 @@ for the full directionality decision matrix.
 
 The attribution surface was canonicalized to a single set of template
 variables (see the _Clean Attribution Surface — Canonical Variables Only_
-changelog fragment). The following legacy placeholders are no longer
+changelog fragment). The following removed placeholders are no longer
 resolved and pass through as literal text in prefix templates:
 
 | Removed placeholder | Current behavior                |
@@ -301,7 +295,7 @@ resolved and pass through as literal text in prefix templates:
 The canonical variables are `{origin_label}`, `{sender}`, `{sender_short}`,
 `{sender_id}`, `{sender_handle}`, `{platform}`, `{route_id}`, and
 `{channel}`. Operators with prefix templates still referencing the removed
-names MUST migrate. See
+names MUST be updated. See
 [routing-delivery.md §17.5.5](routing-delivery.md#1755-shared-formatter-and-variable-schema)
 for the formatter rules.
 
@@ -413,9 +407,9 @@ Route overrides follow the pattern `MEDRE_ROUTE__<TOKEN>__<FIELD>`.
 
 ### 5.4 Unsupported Patterns
 
-Legacy transport-prefixed variables (`MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`,
+Transport-prefixed variables (`MEDRE_MATRIX_*`, `MEDRE_MESHTASTIC_*`,
 `MEDRE_MESHCORE_*`, `MEDRE_LXMF_*`) are unsupported and rejected with
-migration guidance.
+guidance to the supported `MEDRE_ADAPTER__<TOKEN>__<FIELD>` form.
 
 ## 6. XDG Path Model
 

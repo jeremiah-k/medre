@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from medre.runtime.evidence._bundle import collect_evidence_bundle
+from tests.helpers.native_metadata import meshtastic_native_data
 
 _EVIDENCE_TIMEOUT = 15
 
@@ -251,14 +252,14 @@ class TestEvidenceBundleWithMeshtasticAdapter:
                 },
                 metadata=EventMetadata(
                     native=NativeMetadata(
-                        data={
-                            "packet_id": 12345,
-                            "from_id": "!node1",
-                            "channel": 0,
-                            "portnum": "text_message",
-                            "to_id": "",
-                            "is_direct_message": False,
-                        }
+                        data=meshtastic_native_data(
+                            {
+                                "packet_id": 12345,
+                                "from_id": "!node1",
+                                "channel": 0,
+                                "portnum": "text_message",
+                            }
+                        )
                     )
                 ),
                 source_native_ref=NativeRef(

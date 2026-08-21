@@ -86,17 +86,18 @@ async def test_default_publish_inbound_uses_durable_live_admission() -> None:
     runner.handle_ingress.assert_not_awaited()
 
 
-async def test_default_publish_inbound_falls_back_without_storage() -> None:
+async def test_default_publish_inbound_requires_durable_storage() -> None:
     runner = SimpleNamespace(
         admit_ingress=AsyncMock(),
-        handle_ingress=AsyncMock(return_value=[]),
     )
     app = _bare_app(storage=None, pipeline_runner=runner)
     publish = app._make_publish_inbound()
     event = object()
 
-    assert await publish(event) is None
-    runner.handle_ingress.assert_awaited_once_with(event)
+    with pytest.raises(
+        RuntimeError, match="live adapter ingress requires durable storage"
+    ):
+        await publish(event)
     runner.admit_ingress.assert_not_awaited()
 
 

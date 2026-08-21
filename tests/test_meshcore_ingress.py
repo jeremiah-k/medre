@@ -236,7 +236,7 @@ class TestMetadataNamespacingAndRedaction:
     async def test_inbound_metadata_uses_meshcore_namespace(
         self, make_adapter_context, inbound_collector
     ) -> None:
-        """Decoded events use meshcore. prefixed keys in native metadata."""
+        """Decoded events use the meshcore versioned namespace in native metadata."""
         adapter = FakeMeshCoreAdapter()
         ctx = make_adapter_context("meshcore-1")
         await adapter.start(ctx)
@@ -247,16 +247,18 @@ class TestMetadataNamespacingAndRedaction:
         assert len(inbound_collector.events) == 1
         event = inbound_collector.events[0]
         data = event.metadata.native.data
-        # All keys must be namespaced
-        for key in data:
-            assert key.startswith("meshcore."), f"Un-namespaced key: {key!r}"
-        assert data["meshcore.channel"] == 2
-        assert data["meshcore.is_direct_message"] is False
+        # The native envelope carries a single ``meshcore`` namespace whose
+        # value is a versioned schema-1 dict.
+        assert set(data.keys()) == {"meshcore"}
+        mesh = data["meshcore"]
+        assert mesh["schema_version"] == 1
+        assert mesh["channel"] == 2
+        assert mesh["is_direct_message"] is False
 
     async def test_dm_metadata_uses_meshcore_namespace(
         self, make_adapter_context, inbound_collector
     ) -> None:
-        """DM events also use meshcore. namespace."""
+        """DM events also use the meshcore versioned namespace."""
         adapter = FakeMeshCoreAdapter()
         ctx = make_adapter_context("meshcore-1")
         await adapter.start(ctx)
@@ -266,9 +268,10 @@ class TestMetadataNamespacingAndRedaction:
 
         event = inbound_collector.events[0]
         data = event.metadata.native.data
-        for key in data:
-            assert key.startswith("meshcore."), f"Un-namespaced key: {key!r}"
-        assert data["meshcore.is_direct_message"] is True
+        assert set(data.keys()) == {"meshcore"}
+        mesh = data["meshcore"]
+        assert mesh["schema_version"] == 1
+        assert mesh["is_direct_message"] is True
 
     async def test_diagnostics_no_raw_metadata(self) -> None:
         """Diagnostics does not expose raw event metadata."""

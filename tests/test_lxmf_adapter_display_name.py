@@ -258,7 +258,7 @@ async def test_simulate_inbound_carries_display_name_in_native_metadata(
 
     assert len(inbound_collector.events) == 1
     event = inbound_collector.events[0]
-    assert event.metadata.native.data["lxmf.display_name"] == "Alice"
+    assert event.metadata.native.data["lxmf"]["display_name"] == "Alice"
 
 
 async def test_simulate_inbound_without_display_name_has_no_lxmf_display_name_key(
@@ -280,4 +280,4 @@ async def test_simulate_inbound_without_display_name_has_no_lxmf_display_name_ke
 
     assert len(inbound_collector.events) == 1
     event = inbound_collector.events[0]
-    assert "lxmf.display_name" not in event.metadata.native.data
+    assert "display_name" not in event.metadata.native.data["lxmf"]

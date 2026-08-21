@@ -1,5 +1,9 @@
 # Transport Realism Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 This audit maps failure-oriented transport scenarios to the strongest MEDRE test
 layer currently available. It is an implementation crosswalk for
 `docs/spec/appendices/transport-realism.md`, not a source of runtime semantics.

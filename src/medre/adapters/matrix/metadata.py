@@ -17,6 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION = 1
+
 
 @dataclass(frozen=True)
 class MatrixMetadataEnvelope:
@@ -44,7 +46,7 @@ class MatrixMetadataEnvelope:
         Brief human-readable summary of the native source.
     """
 
-    schema_version: int = 1
+    schema_version: int = MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION
     canonical_event_id: str = ""
     source_adapter: str = ""
     source_channel: str = ""
@@ -55,9 +57,13 @@ class MatrixMetadataEnvelope:
     native_source_summary: str = ""
 
     def __post_init__(self) -> None:
-        # Minimal validation: schema_version must be a positive int.
-        if not isinstance(self.schema_version, int) or self.schema_version < 1:
-            raise ValueError("schema_version must be a positive integer")
+        if (
+            isinstance(self.schema_version, bool)
+            or self.schema_version != MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                "schema_version must match MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION"
+            )
 
     @classmethod
     def from_content(cls, content: dict) -> Optional[MatrixMetadataEnvelope]:
@@ -84,9 +90,16 @@ class MatrixMetadataEnvelope:
         if not isinstance(envelope_data, dict):
             return None
 
+        schema_version = envelope_data.get("schema_version")
+        if (
+            isinstance(schema_version, bool)
+            or schema_version != MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION
+        ):
+            return None
+
         try:
             return cls(
-                schema_version=envelope_data.get("schema_version", 1),
+                schema_version=schema_version,
                 canonical_event_id=envelope_data.get("canonical_event_id", ""),
                 source_adapter=envelope_data.get("source_adapter", ""),
                 source_channel=envelope_data.get("source_channel", ""),

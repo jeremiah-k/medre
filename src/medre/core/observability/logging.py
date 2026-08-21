@@ -169,9 +169,8 @@ def setup_logging(
       *overrides* take precedence over defaults and allow explicitly
       lowering a dependency logger below root WARNING (e.g.
       ``overrides={"nio": "DEBUG"}``).
-    * Any MEDRE-managed handlers previously attached to the ``medre``
-      logger (from older versions) are removed while non-MEDRE user
-      handlers are preserved.
+    * Any MEDRE-managed handlers already attached to the ``medre`` logger are
+      removed while non-MEDRE user handlers are preserved.
 
     The *level* parameter controls **only** the ``medre`` namespace.
     To enable DEBUG for a specific dependency, pass it in *overrides*.

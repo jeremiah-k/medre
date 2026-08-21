@@ -179,22 +179,15 @@ CREATE TABLE IF NOT EXISTS _medre_schema_meta (
 """
 
 # Targeted indexes matching actual query patterns.
-# Run AFTER shape validation so that old-shape DBs fail with a clear
+# Run AFTER shape validation so incompatible databases fail with a clear
 # StorageInitializationError before index creation is attempted.
-# NOTE: native_message_refs(adapter, native_channel_id, native_message_id) is
-# already covered by the UNIQUE constraint autoindex; no manual duplicate needed.
-# NOTE: idx_nrefs_event_created replaces the older idx_nrefs_event_id.  The
-# composite (event_id, created_at) covers the WHERE + ORDER BY of
-# _SELECT_NREFS_FOR_EVENT and is a strict superset of the single-column index.
-# The DROP IF EXISTS handles old prerelease databases that still have the
-# previous single-column index.  This is index-shape cleanup, not a
-# schema-versioned migration.
+# native_message_refs(adapter, native_channel_id, native_message_id) is already
+# covered by the UNIQUE constraint autoindex; no manual duplicate is needed.
 _INDEXES: str = """
 CREATE INDEX IF NOT EXISTS idx_events_timestamp
     ON canonical_events(timestamp, event_id);
 CREATE INDEX IF NOT EXISTS idx_relations_event_id
     ON event_relations(event_id, id);
-DROP INDEX IF EXISTS idx_nrefs_event_id;
 CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
     ON native_message_refs(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_plan
@@ -239,9 +232,9 @@ storage contract is formally release-tracked.
 
 That said, the version **is** checked on every
 :meth:`SQLiteStorage.initialize` call and a mismatch will raise an error.
-This strictness is intentional: it catches databases that were manually made
-incompatible (e.g. by an older pre-release build) even before any migration
-machinery exists.
+This strictness is intentional: it catches databases whose shape differs from
+the current pre-release contract. MEDRE rejects that mismatch rather than
+transforming it automatically.
 """
 
 # ---------------------------------------------------------------------------

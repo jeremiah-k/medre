@@ -12,7 +12,7 @@ import pytest
 
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
-from medre.config.routes import RouteConfig
+from medre.config.routes import ChannelRoomMapEntry, RouteConfig
 
 # ---------------------------------------------------------------------------
 # Unknown route-level key rejection
@@ -168,3 +168,53 @@ def test_removed_route_key_meshnet_name_rejected() -> None:
     msg = str(exc_info.value)
     assert "meshnet_name" in msg
     assert exc_info.value.section_path == "routes.migrate"
+
+def test_direct_route_config_rejects_bare_channel_room_map_entry() -> None:
+    """Direct construction enforces the normalized structured map shape."""
+    with pytest.raises(ConfigValidationError, match="structured entry with required"):
+        RouteConfig(
+            route_id="direct-bare-map",
+            source_adapters=("mesh",),
+            dest_adapters=("matrix",),
+            channel_room_map={"0": "!room:example.org"},  # type: ignore[dict-item]
+        )
+
+
+def test_direct_route_config_rejects_non_normalized_channel_key() -> None:
+    """Direct construction requires normalized channel-string keys."""
+    with pytest.raises(ConfigValidationError, match="normalized string form"):
+        RouteConfig(
+            route_id="direct-key-shape",
+            source_adapters=("mesh",),
+            dest_adapters=("matrix",),
+            channel_room_map={
+                "00": ChannelRoomMapEntry(room="!room:example.org"),
+            },
+        )
+
+
+def test_channel_room_map_entry_validates_direct_construction() -> None:
+    """Direct entry construction enforces the parsed room/label shape."""
+    with pytest.raises(ConfigValidationError, match="must be a non-empty string"):
+        ChannelRoomMapEntry(room="")
+    with pytest.raises(ConfigValidationError, match="canonical Matrix room ID"):
+        ChannelRoomMapEntry(room="room:example.org")
+    with pytest.raises(ConfigValidationError, match="room alias"):
+        ChannelRoomMapEntry(room="#alias:example.org")
+    with pytest.raises(ConfigValidationError, match="source_origin_label"):
+        ChannelRoomMapEntry(
+            room="!room:example.org",
+            source_origin_label=True,  # type: ignore[arg-type]
+        )
+    assert ChannelRoomMapEntry(room="  !room:example.org  ").room == "!room:example.org"
+
+
+def test_direct_route_config_rejects_empty_channel_room_map() -> None:
+    """Direct route construction matches parser rejection of an empty map."""
+    with pytest.raises(ConfigValidationError, match="must not be empty"):
+        RouteConfig(
+            route_id="direct-empty-map",
+            source_adapters=("mesh",),
+            dest_adapters=("matrix",),
+            channel_room_map={},
+        )

@@ -254,9 +254,9 @@ def test_no_metadata_falls_back_to_regex(tmp_path: Path) -> None:
     )
 
     assert summary["matrix"]["event_id"] == "$regex_event_id"
-    # Should have the deprecated-fallback limitation in medre limitations.
+    # Should have the lower-confidence fallback limitation in MEDRE limitations.
     all_limitations = " ".join(summary["medre"]["limitations"]).lower()
-    assert "deprecated fallback" in all_limitations
+    assert "lower-confidence fallback" in all_limitations
 
 
 def test_metadata_overrides_medre_evidence(tmp_path: Path) -> None:

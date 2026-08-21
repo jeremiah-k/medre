@@ -303,13 +303,16 @@ def _make_reply_event_with_longname() -> CanonicalEvent:
     classifier.classify(packet)
     event = codec.decode(packet)
 
-    # Inject longname/shortname into native metadata (as the adapter would).
+    # Inject longname/shortname into the meshtastic native namespace
+    # (as the adapter would).
     if event.metadata.native is not None:
         from msgspec.structs import replace as _replace
 
         updated_data = dict(event.metadata.native.data)
-        updated_data["longname"] = _LONGNAME
-        updated_data["shortname"] = "DN"
+        mesh_data = dict(updated_data.get("meshtastic", {}))
+        mesh_data["longname"] = _LONGNAME
+        mesh_data["shortname"] = "DN"
+        updated_data["meshtastic"] = mesh_data
         new_native = _replace(event.metadata.native, data=updated_data)
         new_metadata = _replace(event.metadata, native=new_native)
         event = _replace(event, metadata=new_metadata)

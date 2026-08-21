@@ -1,9 +1,8 @@
 """mmrelay reaction sender-name resolution via namespaced keys.
 
 Focused tests for Meshtastic-originated reaction rendering where
-KEY_LONGNAME / KEY_SHORTNAME resolve from Meshtastic-native namespaced
-keys (``meshtastic.longname`` / ``meshtastic.shortname``) — the primary
-source emitted by the codec.
+KEY_LONGNAME / KEY_SHORTNAME resolve from the current versioned
+``native.meshtastic`` namespace emitted by the codec.
 
 Extracted from ``tests/test_matrix_reaction_mmrelay.py`` to keep that
 file under the line ceiling. Helpers are copied (not shared) so this
@@ -21,6 +20,7 @@ from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
 from medre.interop.mmrelay import KEY_LONGNAME, KEY_SHORTNAME
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
+from tests.helpers.native_metadata import meshtastic_native_data
 
 # Source-config mapping for Meshtastic-originated reactions.
 _SRC_MESHTASTIC = {
@@ -48,7 +48,7 @@ def _make_mesh_reaction(
         fallback_text=fallback_text,
         metadata=rel_metadata or {},
     )
-    nd = (
+    fields = (
         native_data
         if native_data is not None
         else {
@@ -58,6 +58,7 @@ def _make_mesh_reaction(
             "from_id": "!abcdef01",
         }
     )
+    nd = meshtastic_native_data(fields)
     return CanonicalEvent(
         event_id="evt-mesh-reaction-001",
         event_kind=EventKind.MESSAGE_REACTED,
@@ -82,7 +83,7 @@ async def test_reaction_longname_from_namespaced_key() -> None:
     renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
     event = _make_mesh_reaction(
         native_data={
-            "meshtastic.longname": "Namespaced Node",
+            "longname": "Namespaced Node",
             "packet_id": "pkt-1",
             "from_id": "!abcdef01",
         },
@@ -100,7 +101,7 @@ async def test_reaction_shortname_from_namespaced_key() -> None:
     renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
     event = _make_mesh_reaction(
         native_data={
-            "meshtastic.shortname": "NN",
+            "shortname": "NN",
             "packet_id": "pkt-1",
             "from_id": "!abcdef01",
         },
@@ -113,13 +114,11 @@ async def test_reaction_shortname_from_namespaced_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reaction_namespaced_longname_wins_over_bare() -> None:
-    """Namespaced meshtastic.longname takes precedence over bare longname."""
+async def test_reaction_longname_uses_current_namespace() -> None:
     renderer = MatrixRenderer(source_configs=_SRC_MESHTASTIC)
     event = _make_mesh_reaction(
         native_data={
-            "meshtastic.longname": "Primary",
-            "longname": "Legacy",
+            "longname": "Primary",
             "packet_id": "pkt-1",
             "from_id": "!abcdef01",
         },

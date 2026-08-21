@@ -25,9 +25,11 @@ in a document under this tree.
 7. **State Machines** (`spec/state-machines.md`) — receipt and outbox transition graphs
 8. **Diagnostics & Evidence** (`spec/diagnostics-evidence.md`) — observability, snapshots
 9. **Delivery Lifecycle** (`spec/delivery-lifecycle.md`) — receipt/outbox state machines, vocabulary tables
-10. **Matrix Event Shape** (`spec/matrix-event-shape.md`) — stable Matrix
+10. **Compatibility Boundaries** (`spec/compatibility-boundaries.md`) — external
+    interoperability and prerelease rejection policy
+11. **Matrix Event Shape** (`spec/matrix-event-shape.md`) — stable Matrix
     ingress contract
-11. **Transport Profiles** (`spec/transport-profiles/`) — per-adapter current-state
+12. **Transport Profiles** (`spec/transport-profiles/`) — per-adapter current-state
     reference
 
 Transport profiles include machine-readable capability declarations

@@ -169,8 +169,7 @@ decode. Two sources are consulted, in precedence order:
    reads `getattr(message, "source_name", None)` without issuing a
    network call. The current LXMF library does not populate
    `source_name` on `LXMessage`, so this source is empty in practice.
-   When a value is present, the codec maps it to `lxmf.display_name` in
-   native metadata.
+   When a value is present, the codec maps it to `display_name` under `native.lxmf`.
 2. **Announce-cache resolution** — when `source_name` is empty, the
    adapter calls `session.resolve_display_name(source_hash)`, which
    performs a synchronous local read of
@@ -178,7 +177,7 @@ decode. Two sources are consulted, in precedence order:
    `RNS.Identity.recall_app_data(dest_hash_bytes)` and
    `LXMF.display_name_from_app_data(app_data)`. No network call is
    issued. The resolved value is injected into the packet's
-   `source_name` so the codec projects it into `lxmf.display_name`.
+   `source_name` so the codec projects it into `native.lxmf.display_name`.
 
 The adapter enriches the packet at ingress only when the message does
 not already carry a display name. Fake mode (no real SDK) yields no
@@ -187,12 +186,12 @@ objects are absent.
 
 ### Projection Rules
 
-| Generic field               | Source                                                                |
-| --------------------------- | --------------------------------------------------------------------- |
-| `source_sender_id`          | `normalize_source_hash(source_hash)` (bytes/str → canonical hex)      |
-| `source_sender_label`       | `lxmf.display_name` only (non-empty; opaque hash never becomes label) |
-| `source_sender_short_label` | `lxmf.short_name`, else compact(`lxmf.display_name`) (space-stripped) |
-| `source_sender_handle`      | Not produced (the Reticulum hash is exposed via `source_sender_id`)   |
+| Generic field               | Source                                                              |
+| --------------------------- | ------------------------------------------------------------------- |
+| `source_sender_id`          | `normalize_source_hash(source_hash)` (bytes/str → canonical hex)    |
+| `source_sender_label`       | `native.lxmf.display_name` only (opaque hash never becomes label)   |
+| `source_sender_short_label` | `native.lxmf.short_name`, else compact(`native.lxmf.display_name`)  |
+| `source_sender_handle`      | Not produced (the Reticulum hash is exposed via `source_sender_id`) |
 
 When no display name is present, both label fields are `None`. The
 opaque `source_hash` never populates `source_sender_label`, so `{sender}`
@@ -239,6 +238,19 @@ raw RNS or LXMF objects). See
 for the cross-transport policy.
 
 ---
+
+## Canonical Native Metadata
+
+Inbound LXMF events persist one versioned object at
+`metadata.native.data["lxmf"]`. The object captures source/destination hashes,
+message identity, timestamp/title descriptors, delivery method, field presence,
+and announce-derived display labels when available. The normative machine
+contract is
+[`lxmf-native-metadata.schema.json`](../../schemas/lxmf-native-metadata.schema.json),
+and the representative payload is
+[`lxmf-native-metadata-example.json`](../../schemas/examples/lxmf-native-metadata-example.json).
+The codec builder in `medre.adapters.lxmf.event_shape` is the source
+implementation authority. Flat LXMF event metadata is not an alternate shape.
 
 ## Native Reference Format
 

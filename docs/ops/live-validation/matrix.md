@@ -66,25 +66,25 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 
 ## Test File Reference
 
-| Test file                                        | Marker   | What it validates                                  |
-| ------------------------------------------------ | -------- | -------------------------------------------------- |
-| `tests/test_matrix_live.py`                      | `live`   | Adapter lifecycle, send/receive, health, reconnect |
-| `tests/integration/test_synapse_connectivity.py` | `docker` | SDK connectivity against Docker Synapse            |
-| `tests/integration/test_synapse_bridge_smoke.py` | `docker` | Full pipeline with real Matrix SDK                 |
-| `tests/integration/test_synapse_e2ee_smoke.py`   | `docker` | E2EE encrypted room lifecycle                      |
-| `tests/test_matrix_e2ee_live.py`                 | `live`   | E2EE mode startup and encrypted-room operations    |
-| `tests/test_matrix_sync_checkpoint_ownership.py` | unit     | MEDRE-owned Classic cursor commit/ack ordering      |
-| `tests/test_matrix_durable_admission_boundary.py` | unit     | nio admission rejection and durable handoff        |
-| `tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract        |
+| Test file                                         | Marker       | What it validates                                  |
+| ------------------------------------------------- | ------------ | -------------------------------------------------- |
+| `tests/test_matrix_live.py`                       | `live`       | Adapter lifecycle, send/receive, health, reconnect |
+| `tests/integration/test_synapse_connectivity.py`  | `docker`     | SDK connectivity against Docker Synapse            |
+| `tests/integration/test_synapse_bridge_smoke.py`  | `docker`     | Full pipeline with real Matrix SDK                 |
+| `tests/integration/test_synapse_e2ee_smoke.py`    | `docker`     | E2EE encrypted room lifecycle                      |
+| `tests/test_matrix_e2ee_live.py`                  | `live`       | E2EE mode startup and encrypted-room operations    |
+| `tests/test_matrix_sync_checkpoint_ownership.py`  | unit         | MEDRE-owned Classic cursor commit/ack ordering     |
+| `tests/test_matrix_durable_admission_boundary.py` | unit         | nio admission rejection and durable handoff        |
+| `tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract          |
 
 ## Evidence Tiers Achieved
 
 | Tier           | Sub-class                    | Date       | Result                           |
 | -------------- | ---------------------------- | ---------- | -------------------------------- |
 | H (historical) | External live (matrix.org)   | 2026-05-10 | 13/13 plaintext, 7/7 E2EE        |
-| R              | Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed             |
-| R              | Docker SDK-boundary E2EE     | 2026-05-25 | 3/3 passed                       |
-| R              | Docker SDK-boundary E2EE     | 2026-08-18 | 4/4 passed (incl. cross-signing) |
+| docker         | Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed             |
+| docker         | Docker SDK-boundary E2EE     | 2026-05-25 | 3/3 passed                       |
+| docker         | Docker SDK-boundary E2EE     | 2026-08-18 | 4/4 passed (incl. cross-signing) |
 | —              | External live (sk.community) | 2026-05-12 | NOT EXECUTED (token rejected)    |
 | —              | External live (matrix.org)   | 2026-05-12 | NOT EXECUTED (password rejected) |
 

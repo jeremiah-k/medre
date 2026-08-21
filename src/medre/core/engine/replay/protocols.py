@@ -12,9 +12,8 @@ are defined:
 
 The replay engine distinguishes production and stub collaborators through
 explicit method lookup rather than ``isinstance`` checks, so
-``@runtime_checkable`` is intentionally omitted.  Rendering prefers a callable
-``render_replay_event`` method, falls back to a callable legacy ``render_event``
-method, and reports an error when neither is explicitly implemented.
+``@runtime_checkable`` is intentionally omitted. Replay rendering uses the
+explicit ``render_replay_event`` contract.
 """
 
 from __future__ import annotations
@@ -34,9 +33,8 @@ class _RealPipelineProtocol(Protocol):
     """Methods supplied by the production PipelineRunner.
 
     The replay engine calls only the methods it needs for the requested
-    replay mode. ``transform_event``, ``render_replay_event``, and the legacy
-    ``render_event`` fallback are optional at runtime and are invoked only when
-    explicit callable implementations are present.
+    replay mode. ``transform_event`` remains optional for lightweight test
+    collaborators; ``render_replay_event`` is the sole replay rendering hook.
     """
 
     async def route_event(
@@ -72,10 +70,6 @@ class _RealPipelineProtocol(Protocol):
 
     async def render_replay_event(self, event: CanonicalEvent) -> Any:
         """Re-render using persisted historical target context."""
-        ...
-
-    async def render_event(self, event: CanonicalEvent) -> Any:
-        """Render *event* for delivery and return the rendering result."""
         ...
 
 

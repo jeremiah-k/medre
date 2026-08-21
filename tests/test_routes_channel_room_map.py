@@ -16,6 +16,12 @@ from medre.config.routes import (
 )
 from medre.core.routing.router import Router
 
+
+def _entry(room: str, **labels: str | None) -> dict[str, object]:
+    """Build a structured channel-room-map input entry."""
+    return {"room": room, **labels}
+
+
 # ---------------------------------------------------------------------------
 # channel_room_map — config validation
 # ---------------------------------------------------------------------------
@@ -36,23 +42,29 @@ class TestChannelRoomMapConfig:
 
     def test_valid_map_parsed(self) -> None:
         data = self._base(
-            channel_room_map={"0": "!room0:example.com", "1": "!room1:example.com"},
+            channel_room_map={
+                "0": _entry("!room0:example.com"),
+                "1": _entry("!room1:example.com"),
+            },
         )
         r = RouteConfig.from_dict("crm_route", data)
         assert r.channel_room_map == {
-            "0": "!room0:example.com",
-            "1": "!room1:example.com",
+            "0": ChannelRoomMapEntry(room="!room0:example.com"),
+            "1": ChannelRoomMapEntry(room="!room1:example.com"),
         }
 
     def test_int_channel_keys_normalized(self) -> None:
-        """TOML inline tables can produce int keys; normalize to str."""
+        """YAML integer keys normalize to canonical string channel IDs."""
         data = self._base(
-            channel_room_map={0: "!room0:example.com", 1: "!room1:example.com"},
+            channel_room_map={
+                0: _entry("!room0:example.com"),
+                1: _entry("!room1:example.com"),
+            },
         )
         r = RouteConfig.from_dict("crm_route", data)
         assert r.channel_room_map == {
-            "0": "!room0:example.com",
-            "1": "!room1:example.com",
+            "0": ChannelRoomMapEntry(room="!room0:example.com"),
+            "1": ChannelRoomMapEntry(room="!room1:example.com"),
         }
 
     def test_none_when_absent(self) -> None:
@@ -61,18 +73,22 @@ class TestChannelRoomMapConfig:
         assert r.channel_room_map is None
 
     def test_single_channel(self) -> None:
-        data = self._base(channel_room_map={"3": "!room3:example.com"})
+        data = self._base(channel_room_map={"3": _entry("!room3:example.com")})
         r = RouteConfig.from_dict("crm_route", data)
-        assert r.channel_room_map == {"3": "!room3:example.com"}
+        assert r.channel_room_map == {
+            "3": ChannelRoomMapEntry(room="!room3:example.com")
+        }
 
     def test_string_channel_key_accepted(self) -> None:
         """String channel key like "3" is accepted as-is (lines 520-523)."""
-        data = self._base(channel_room_map={"3": "!room:example.com"})
+        data = self._base(channel_room_map={"3": _entry("!room:example.com")})
         r = RouteConfig.from_dict("str_key_route", data)
-        assert r.channel_room_map == {"3": "!room:example.com"}
+        assert r.channel_room_map == {
+            "3": ChannelRoomMapEntry(room="!room:example.com")
+        }
 
     def test_all_channels_0_through_7(self) -> None:
-        crm = {str(i): f"!room{i}:example.com" for i in range(8)}
+        crm = {str(i): _entry(f"!room{i}:example.com") for i in range(8)}
         data = self._base(channel_room_map=crm)
         r = RouteConfig.from_dict("crm_route", data)
         assert r.channel_room_map is not None
@@ -102,28 +118,35 @@ class TestChannelRoomMapConfig:
         with pytest.raises(ConfigValidationError, match="boolean"):
             RouteConfig.from_dict(
                 "bad",
-                self._base(channel_room_map={True: "!room:example.com"}),
+                self._base(channel_room_map={True: _entry("!room:example.com")}),
             )
 
     def test_reject_negative_channel(self) -> None:
         with pytest.raises(ConfigValidationError, match="out of range"):
             RouteConfig.from_dict(
                 "bad",
-                self._base(channel_room_map={-1: "!room:example.com"}),
+                self._base(channel_room_map={-1: _entry("!room:example.com")}),
             )
 
     def test_reject_channel_8(self) -> None:
         with pytest.raises(ConfigValidationError, match="out of range"):
             RouteConfig.from_dict(
                 "bad",
-                self._base(channel_room_map={8: "!room:example.com"}),
+                self._base(channel_room_map={8: _entry("!room:example.com")}),
             )
 
     def test_reject_non_integer_channel(self) -> None:
         with pytest.raises(ConfigValidationError, match="not a valid integer"):
             RouteConfig.from_dict(
                 "bad",
-                self._base(channel_room_map={"abc": "!room:example.com"}),
+                self._base(channel_room_map={"abc": _entry("!room:example.com")}),
+            )
+
+    def test_reject_bare_room_string_entry(self) -> None:
+        with pytest.raises(ConfigValidationError, match="must be a table"):
+            RouteConfig.from_dict(
+                "bad",
+                self._base(channel_room_map={"0": "!room:example.com"}),
             )
 
     # --- rejection: room value validation ---
@@ -132,14 +155,14 @@ class TestChannelRoomMapConfig:
         with pytest.raises(ConfigValidationError, match="non-empty string"):
             RouteConfig.from_dict(
                 "bad",
-                self._base(channel_room_map={"0": "  "}),
+                self._base(channel_room_map={"0": _entry("  ")}),
             )
 
     def test_reject_empty_string_room(self) -> None:
         with pytest.raises(ConfigValidationError, match="non-empty string"):
             RouteConfig.from_dict(
                 "bad",
-                self._base(channel_room_map={"0": ""}),
+                self._base(channel_room_map={"0": _entry("")}),
             )
 
     def test_reject_alias_room(self) -> None:
@@ -147,7 +170,7 @@ class TestChannelRoomMapConfig:
         with pytest.raises(ConfigValidationError):
             RouteConfig.from_dict(
                 "bad_alias",
-                self._base(channel_room_map={"0": "#room:example.com"}),
+                self._base(channel_room_map={"0": _entry("#room:example.com")}),
             )
 
     def test_reject_non_canonical_general(self) -> None:
@@ -155,7 +178,7 @@ class TestChannelRoomMapConfig:
         with pytest.raises(ConfigValidationError, match="canonical Matrix room ID"):
             RouteConfig.from_dict(
                 "bad",
-                self._base(channel_room_map={"0": "general"}),
+                self._base(channel_room_map={"0": _entry("general")}),
             )
 
     def test_reject_non_canonical_bare_domain(self) -> None:
@@ -163,7 +186,7 @@ class TestChannelRoomMapConfig:
         with pytest.raises(ConfigValidationError, match="canonical Matrix room ID"):
             RouteConfig.from_dict(
                 "bad",
-                self._base(channel_room_map={"0": "room:example.com"}),
+                self._base(channel_room_map={"0": _entry("room:example.com")}),
             )
 
     def test_reject_non_canonical_event_id(self) -> None:
@@ -171,16 +194,18 @@ class TestChannelRoomMapConfig:
         with pytest.raises(ConfigValidationError, match="canonical Matrix room ID"):
             RouteConfig.from_dict(
                 "bad",
-                self._base(channel_room_map={"0": "$event:example.com"}),
+                self._base(channel_room_map={"0": _entry("$event:example.com")}),
             )
 
     def test_accepts_canonical_room(self) -> None:
         """Canonical room IDs starting with '!' are accepted."""
         r = RouteConfig.from_dict(
             "ok",
-            self._base(channel_room_map={"0": "!room:example.com"}),
+            self._base(channel_room_map={"0": _entry("!room:example.com")}),
         )
-        assert r.channel_room_map == {"0": "!room:example.com"}
+        assert r.channel_room_map == {
+            "0": ChannelRoomMapEntry(room="!room:example.com")
+        }
 
     # --- rejection: duplicate normalized channel ---
 
@@ -191,8 +216,8 @@ class TestChannelRoomMapConfig:
                 "bad",
                 self._base(
                     channel_room_map={
-                        "1": "!room1:example.com",
-                        1: "!room1_dup:example.com",
+                        "1": _entry("!room1:example.com"),
+                        1: _entry("!room1_dup:example.com"),
                     }
                 ),
             )
@@ -205,7 +230,7 @@ class TestChannelRoomMapConfig:
                 "bad",
                 self._base(
                     source_channel="ch0",
-                    channel_room_map={"0": "!room:example.com"},
+                    channel_room_map={"0": _entry("!room:example.com")},
                 ),
             )
 
@@ -215,7 +240,7 @@ class TestChannelRoomMapConfig:
                 "bad",
                 self._base(
                     dest_channel="ch1",
-                    channel_room_map={"0": "!room:example.com"},
+                    channel_room_map={"0": _entry("!room:example.com")},
                 ),
             )
 
@@ -225,7 +250,7 @@ class TestChannelRoomMapConfig:
                 "bad",
                 self._base(
                     source_room="!room:example.com",
-                    channel_room_map={"0": "!other:example.com"},
+                    channel_room_map={"0": _entry("!other:example.com")},
                 ),
             )
 
@@ -235,7 +260,7 @@ class TestChannelRoomMapConfig:
                 "bad",
                 self._base(
                     dest_room="!room:example.com",
-                    channel_room_map={"0": "!other:example.com"},
+                    channel_room_map={"0": _entry("!other:example.com")},
                 ),
             )
 
@@ -248,7 +273,7 @@ class TestChannelRoomMapConfig:
                 {
                     "source_adapters": ["a", "b"],
                     "dest_adapters": ["c"],
-                    "channel_room_map": {"0": "!room:example.com"},
+                    "channel_room_map": {"0": _entry("!room:example.com")},
                 },
             )
 
@@ -259,7 +284,7 @@ class TestChannelRoomMapConfig:
                 {
                     "source_adapters": ["a"],
                     "dest_adapters": ["b", "c"],
-                    "channel_room_map": {"0": "!room:example.com"},
+                    "channel_room_map": {"0": _entry("!room:example.com")},
                 },
             )
 
@@ -282,15 +307,15 @@ class TestChannelRoomMapConfig:
             "ok",
             self._base(
                 channel_room_map={
-                    "0": "!room:example.com",
-                    "1": "!room:example.com",
+                    "0": _entry("!room:example.com"),
+                    "1": _entry("!room:example.com"),
                 }
             ),
         )
         assert r.channel_room_map is not None
         assert set(r.channel_room_map.keys()) == {"0", "1"}
-        assert r.channel_room_map["0"] == "!room:example.com"
-        assert r.channel_room_map["1"] == "!room:example.com"
+        assert r.channel_room_map["0"].room == "!room:example.com"
+        assert r.channel_room_map["1"].room == "!room:example.com"
 
     # --- integration: TOML loader ---
 
@@ -307,16 +332,18 @@ routes:
       - mesh_adapter
     directionality: bidirectional
     channel_room_map:
-      "0": "!room0:example.com"
-      "1": "!room1:example.com"
+      "0":
+        room: "!room0:example.com"
+      "1":
+        room: "!room1:example.com"
 """
         p = tmp_path / "config.yaml"
         p.write_text(yaml_content)
         config, _, _ = load_config(str(p))
         r = config.routes.routes[0]
         assert r.channel_room_map == {
-            "0": "!room0:example.com",
-            "1": "!room1:example.com",
+            "0": ChannelRoomMapEntry(room="!room0:example.com"),
+            "1": ChannelRoomMapEntry(room="!room1:example.com"),
         }
 
 

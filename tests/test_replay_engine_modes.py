@@ -204,15 +204,15 @@ class TestReRenderMode:
 
         pipeline = StubPipeline(rendering_pipeline=rendering_pipeline)
 
-        # Wrap render_event to track calls
+        # Wrap render_replay_event to track calls
         render_calls: list[CanonicalEvent] = []
-        original_render = pipeline.render_event
+        original_render = pipeline.render_replay_event
 
         async def tracking_render(event: CanonicalEvent) -> Any:
             render_calls.append(event)
             return await original_render(event)
 
-        pipeline.render_event = tracking_render
+        pipeline.render_replay_event = tracking_render
 
         engine = make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
@@ -239,7 +239,7 @@ class TestReRenderMode:
 
         pipeline = AsyncMock()
         pipeline.transform_event = AsyncMock(return_value=sample_event)
-        pipeline.render_event = AsyncMock(return_value="rendered")
+        pipeline.render_replay_event = AsyncMock(return_value="rendered")
 
         engine = make_engine(temp_storage, pipeline=pipeline)
         request = ReplayRequest(
@@ -455,7 +455,7 @@ class _BrokenPipeline:
     def __init__(self, route_return: Any) -> None:
         self.route_event = AsyncMock(return_value=route_return)
         self.transform_event = AsyncMock(return_value=route_return[0])
-        self.render_event = AsyncMock(return_value="rendered")
+        self.render_replay_event = AsyncMock(return_value="rendered")
 
 
 class TestPlanningInvariant:

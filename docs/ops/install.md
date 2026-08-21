@@ -237,7 +237,6 @@ Available example configs:
 | `fake-retry-smoke.yaml`         | Retry worker with fake adapters    | No               |
 | `matrix.yaml`                   | Real Matrix adapter                | Yes (matrix)     |
 | `meshtastic-serial.yaml`        | Real Meshtastic serial adapter     | Yes (meshtastic) |
-| `mixed-matrix-meshtastic.yaml`  | Mixed real Matrix + Meshtastic     | Yes (both)       |
 | `docker-matrix-bridge.yaml`     | Docker Synapse + Meshtastic        | Yes + Docker     |
 | `docker-meshtastic-bridge.yaml` | Docker meshtasticd + Matrix        | Yes + Docker     |
 | `docker-bridge-smoke.yaml`      | Docker integration smoke test      | Yes + Docker     |

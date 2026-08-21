@@ -14,13 +14,13 @@ from medre.core.events.metadata import EventMetadata as _EM
 from medre.core.events.metadata import NativeMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.runtime.builder import SourceAttributionConfig
-from tests.helpers.matrix_events import matrix_native_data as _matrix_native
+from tests.helpers.native_metadata import lxmf_native_data as _lxmf_native
+from tests.helpers.native_metadata import matrix_native_data as _matrix_native
+from tests.helpers.native_metadata import meshcore_native_data as _meshcore_native
+from tests.helpers.native_metadata import meshtastic_native_data as _meshtastic_native
 
 
-def _make_event(
-    event_id: str = "evt-1",
-    payload: dict | None = None,
-) -> CanonicalEvent:
+def _make_event(event_id: str = "evt-1", payload: dict | None = None) -> CanonicalEvent:
     return CanonicalEvent(
         event_id=event_id,
         event_kind="message.created",
@@ -38,8 +38,7 @@ def _make_event(
 
 
 def _make_event_with_relations(
-    event_id: str = "evt-rel-1",
-    payload: dict | None = None,
+    event_id: str = "evt-rel-1", payload: dict | None = None
 ) -> CanonicalEvent:
     """Create an event with a reply relation for testing fallback behavior."""
     return CanonicalEvent(
@@ -57,9 +56,7 @@ def _make_event_with_relations(
                 relation_type="reply",
                 target_event_id="evt-original",
                 target_native_ref=NativeRef(
-                    adapter="lxmf-1",
-                    native_channel_id=None,
-                    native_message_id="abc123",
+                    adapter="lxmf-1", native_channel_id=None, native_message_id="abc123"
                 ),
                 key=None,
                 fallback_text="original message text",
@@ -285,16 +282,13 @@ class TestLxmfRenderer:
         result = await renderer.render(
             event,
             RenderingContext(
-                target_adapter="lxmf_node",
-                delivery_strategy="fallback_text",
+                target_adapter="lxmf_node", delivery_strategy="fallback_text"
             ),
         )
         fields = result.payload["fields"]
         assert FIELD_MEDRE_ENVELOPE in fields
         envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
-        # Envelope relations MUST be empty under fallback_text
         assert envelope["relations"] == []
-        # Content text MUST contain the degraded inline relation
         content = result.payload["content"]
         assert "[reply to:" in content
 
@@ -304,15 +298,11 @@ class TestLxmfRenderer:
         event = _make_event_with_relations()
         result = await renderer.render(
             event,
-            RenderingContext(
-                target_adapter="lxmf_node",
-                delivery_strategy="direct",
-            ),
+            RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
         )
         fields = result.payload["fields"]
         assert FIELD_MEDRE_ENVELOPE in fields
         envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
-        # Envelope relations MUST contain the relation data
         assert len(envelope["relations"]) == 1
         assert envelope["relations"][0]["relation_type"] == "reply"
 
@@ -323,8 +313,7 @@ class TestLxmfRenderer:
         result = await renderer.render(
             event,
             RenderingContext(
-                target_adapter="lxmf_node",
-                delivery_strategy="fallback_text",
+                target_adapter="lxmf_node", delivery_strategy="fallback_text"
             ),
         )
         fields = result.payload["fields"]
@@ -335,8 +324,7 @@ class TestLxmfRenderer:
 
 
 def _make_reaction_event(
-    rel_key: str | None = None,
-    payload: dict | None = None,
+    rel_key: str | None = None, payload: dict | None = None
 ) -> CanonicalEvent:
     """Create an event with a single reaction relation for emoji fallback tests."""
     return CanonicalEvent(
@@ -354,9 +342,7 @@ def _make_reaction_event(
                 relation_type="reaction",
                 target_event_id="evt-target",
                 target_native_ref=NativeRef(
-                    adapter="lxmf-1",
-                    native_channel_id=None,
-                    native_message_id="msg123",
+                    adapter="lxmf-1", native_channel_id=None, native_message_id="msg123"
                 ),
                 key=rel_key,
                 fallback_text="target msg",
@@ -381,8 +367,7 @@ class TestDegradeRelationsInline:
         """rel.key takes highest priority for emoji resolution."""
         renderer = LxmfRenderer()
         event = _make_reaction_event(
-            rel_key="👍",
-            payload={"body": "hi", "key": "❤️", "emoji": "🎉"},
+            rel_key="👍", payload={"body": "hi", "key": "❤️", "emoji": "🎉"}
         )
         result = renderer._degrade_relations_inline(event, "msg")
         assert "[reaction 👍 to:" in result
@@ -391,8 +376,7 @@ class TestDegradeRelationsInline:
         """When rel.key is None, payload['key'] is used."""
         renderer = LxmfRenderer()
         event = _make_reaction_event(
-            rel_key=None,
-            payload={"body": "hi", "key": "❤️", "emoji": "🎉"},
+            rel_key=None, payload={"body": "hi", "key": "❤️", "emoji": "🎉"}
         )
         result = renderer._degrade_relations_inline(event, "msg")
         assert "[reaction ❤️ to:" in result
@@ -401,8 +385,7 @@ class TestDegradeRelationsInline:
         """When rel.key and payload['key'] are absent, payload['emoji'] is used."""
         renderer = LxmfRenderer()
         event = _make_reaction_event(
-            rel_key=None,
-            payload={"body": "hi", "emoji": "🎉"},
+            rel_key=None, payload={"body": "hi", "emoji": "🎉"}
         )
         result = renderer._degrade_relations_inline(event, "msg")
         assert "[reaction 🎉 to:" in result
@@ -410,10 +393,7 @@ class TestDegradeRelationsInline:
     def test_reaction_emoji_hardcoded_fallback(self) -> None:
         """When nothing else is available, hardcoded '∟' fallback is used."""
         renderer = LxmfRenderer()
-        event = _make_reaction_event(
-            rel_key=None,
-            payload={"body": "hi"},
-        )
+        event = _make_reaction_event(rel_key=None, payload={"body": "hi"})
         result = renderer._degrade_relations_inline(event, "msg")
         assert "[reaction ∟ to:" in result
 
@@ -477,12 +457,10 @@ class TestLxmfTargetSelectionRules:
         result = await renderer.render(
             event,
             RenderingContext(
-                target_adapter="lxmf_node",
-                delivery_strategy="fallback_text",
+                target_adapter="lxmf_node", delivery_strategy="fallback_text"
             ),
         )
         content = result.payload["content"]
-        # Both relations must appear in degraded inline text
         assert "[reply to:" in content
         assert "[reaction 👍 to:" in content
 
@@ -494,9 +472,7 @@ class TestLxmfTargetSelectionRules:
         """
         renderer = LxmfRenderer(metadata_embedding=False)
         native_ref = NativeRef(
-            adapter="lxmf-1",
-            native_channel_id=None,
-            native_message_id="abc123",
+            adapter="lxmf-1", native_channel_id=None, native_message_id="abc123"
         )
         rel = EventRelation(
             relation_type="reply",
@@ -524,9 +500,7 @@ class TestLxmfTargetSelectionRules:
             RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
         )
         payload_keys = set(result.payload.keys())
-        # Only these keys are ever emitted
         assert payload_keys == {"content", "title", "fields", "destination_hash"}
-        # Explicitly no native relation fields
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
         assert "m.relates_to" not in result.payload
@@ -536,9 +510,7 @@ class TestLxmfTargetSelectionRules:
         MEDRE fields envelope.  No inline degradation occurs."""
         renderer = LxmfRenderer(metadata_embedding=True)
         native_ref = NativeRef(
-            adapter="lxmf-1",
-            native_channel_id=None,
-            native_message_id="msg456",
+            adapter="lxmf-1", native_channel_id=None, native_message_id="msg456"
         )
         rel = EventRelation(
             relation_type="reply",
@@ -565,18 +537,11 @@ class TestLxmfTargetSelectionRules:
             event,
             RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
         )
-        # Content is plain text — no inline degradation
         assert result.payload["content"] == "hello"
-        # Structured relations preserved in envelope
         fields = result.payload["fields"]
         envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert len(envelope["relations"]) == 1
         assert envelope["relations"][0]["relation_type"] == "reply"
-
-
-# ---------------------------------------------------------------------------
-# Relay prefix tests
-# ---------------------------------------------------------------------------
 
 
 def _make_event_with_native(
@@ -607,7 +572,11 @@ class TestLxmfRelayPrefix:
 
     async def test_empty_prefix_preserves_body(self) -> None:
         """Default empty prefix leaves content unchanged."""
-        renderer = LxmfRenderer(relay_prefix="")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(adapter_id="lxmf_node", lxmf_relay_prefix="")
+            }
+        )
         event = _make_event(payload={"body": "original text"})
         result = await renderer.render(
             event,
@@ -618,12 +587,17 @@ class TestLxmfRelayPrefix:
 
     async def test_matrix_prefix_with_display_name(self) -> None:
         """Matrix -> LXMF prefix uses display name from native metadata."""
-        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
             native_data=_matrix_native(
-                sender="@alice:example.com",
-                sender_display_name="Alice",
+                {"sender": "@alice:example.com", "sender_display_name": "Alice"}
             ),
             payload={"body": "hello from matrix"},
         )
@@ -636,14 +610,22 @@ class TestLxmfRelayPrefix:
 
     async def test_meshtastic_prefix_with_sender_short(self) -> None:
         """Meshtastic -> LXMF prefix uses sender_short from native metadata."""
-        renderer = LxmfRenderer(relay_prefix="<{sender_short}> ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="<{sender_short}> "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
-            native_data={
-                "longname": "Base Station",
-                "shortname": "BASE",
-                "from_id": "!a1b2c3d4",
-            },
+            native_data=_meshtastic_native(
+                {
+                    "longname": "Base Station",
+                    "shortname": "BASE",
+                    "from_id": "!a1b2c3d4",
+                }
+            ),
             payload={"body": "radio check"},
         )
         result = await renderer.render(
@@ -655,12 +637,16 @@ class TestLxmfRelayPrefix:
 
     async def test_meshtastic_prefix_with_sender_id(self) -> None:
         """Meshtastic -> LXMF prefix uses sender_id."""
-        renderer = LxmfRenderer(relay_prefix="({sender_id}) ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="({sender_id}) "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
-            native_data={
-                "from_id": "!a1b2c3d4",
-            },
+            native_data=_meshtastic_native({"from_id": "!a1b2c3d4"}),
             payload={"body": "ping"},
         )
         result = await renderer.render(
@@ -671,12 +657,16 @@ class TestLxmfRelayPrefix:
 
     async def test_meshcore_prefix_with_pubkey_fallback(self) -> None:
         """MeshCore -> LXMF prefix uses pubkey as sender_id fallback."""
-        renderer = LxmfRenderer(relay_prefix="{source_sender_id}: ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="{source_sender_id}: "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="meshcore-node",
-            native_data={
-                "pubkey_prefix": "4a2f8c",
-            },
+            native_data=_meshcore_native({"pubkey_prefix": "4a2f8c"}),
             payload={"body": "mesh message"},
         )
         result = await renderer.render(
@@ -688,8 +678,13 @@ class TestLxmfRelayPrefix:
 
     async def test_missing_vars_no_none_in_output(self) -> None:
         """Missing attribution variables produce empty string, not 'None'."""
-        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
-        # Event with no native metadata — display_name will be empty
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="unknown-source",
             native_data={},
@@ -699,23 +694,23 @@ class TestLxmfRelayPrefix:
             event,
             RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
         )
-        # Prefix resolves to empty since display_name is missing
         assert result.payload["content"] == "[] mystery msg"
         assert "None" not in result.payload["content"]
 
     async def test_prefix_with_fallback_text_strategy(self) -> None:
         """Prefix prepended before body; degraded relations appended after."""
         renderer = LxmfRenderer(
-            metadata_embedding=True,
-            relay_prefix="[{sender}] ",
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                )
+            }
         )
         rel = EventRelation(
             relation_type="reply",
             target_event_id="evt-original",
             target_native_ref=NativeRef(
-                adapter="lxmf-1",
-                native_channel_id=None,
-                native_message_id="abc123",
+                adapter="lxmf-1", native_channel_id=None, native_message_id="abc123"
             ),
             key=None,
             fallback_text="original text",
@@ -735,8 +730,7 @@ class TestLxmfRelayPrefix:
             metadata=_EM(
                 native=NativeMetadata(
                     data=_matrix_native(
-                        sender="@bob:example.com",
-                        sender_display_name="Bob",
+                        {"sender": "@bob:example.com", "sender_display_name": "Bob"}
                     )
                 )
             ),
@@ -744,24 +738,27 @@ class TestLxmfRelayPrefix:
         result = await renderer.render(
             event,
             RenderingContext(
-                target_adapter="lxmf_node",
-                delivery_strategy="fallback_text",
+                target_adapter="lxmf_node", delivery_strategy="fallback_text"
             ),
         )
         content = result.payload["content"]
-        # Prefix comes first, then body, then degraded relations
         assert content.startswith("[Bob] my reply")
         assert "[reply to:" in content
-        # Envelope still has empty relations (fallback_text contract)
         envelope = result.payload["fields"][FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert envelope["relations"] == []
 
     async def test_prefix_metadata_in_result(self) -> None:
         """Result metadata records prefix template and rendered string."""
-        renderer = LxmfRenderer(relay_prefix="<{sender_short}> ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="<{sender_short}> "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
-            native_data={"shortname": "DEV"},
+            native_data=_meshtastic_native({"shortname": "DEV"}),
             payload={"body": "test"},
         )
         result = await renderer.render(
@@ -788,10 +785,16 @@ class TestLxmfRelayPrefix:
 
     async def test_prefix_formatting_error_recorded(self) -> None:
         """Unknown placeholder triggers formatting_error in metadata."""
-        renderer = LxmfRenderer(relay_prefix="{bogus_var} ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="{bogus_var} "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data=_matrix_native(sender_display_name="Test"),
+            native_data=_matrix_native({"sender_display_name": "Test"}),
             payload={"body": "hello"},
         )
         result = await renderer.render(
@@ -800,20 +803,21 @@ class TestLxmfRelayPrefix:
         )
         assert "relay_prefix_formatting_error" in result.metadata
         assert "bogus_var" in str(result.metadata["relay_prefix_formatting_error"])
-        # Unknown placeholder left unchanged in rendered prefix
         assert "{bogus_var}" in result.metadata["relay_prefix_rendered"]
 
     async def test_prefix_does_not_duplicate_envelope(self) -> None:
         """Prefix is human-readable only; metadata envelope is separate."""
         renderer = LxmfRenderer(
-            metadata_embedding=True,
-            relay_prefix="[{sender}] ",
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                )
+            }
         )
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
             native_data=_matrix_native(
-                sender="@carol:example.com",
-                sender_display_name="Carol",
+                {"sender": "@carol:example.com", "sender_display_name": "Carol"}
             ),
             payload={"body": "test envelope"},
         )
@@ -821,14 +825,11 @@ class TestLxmfRelayPrefix:
             event,
             RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
         )
-        # Content has the prefix
         assert result.payload["content"] == "[Carol] test envelope"
-        # Envelope still exists and has event_id
         fields = result.payload["fields"]
         assert FIELD_MEDRE_ENVELOPE in fields
         envelope = fields[FIELD_MEDRE_ENVELOPE][LXMF_NAMESPACE]
         assert envelope["event_id"] == "evt-prefix-1"
-        # Envelope does NOT contain the prefix or rendered text
         assert "relay_prefix" not in envelope
 
 
@@ -846,20 +847,18 @@ class TestLxmfTargetAwareConfigs:
                 adapter_id="lxmf_a",
                 connection_type="fake",
                 lxmf_relay_prefix="[{sender}] ",
-            ),
+            )
         }
         renderer = LxmfRenderer(configs=configs)
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
             native_data=_matrix_native(
-                sender="@alice:example.com",
-                sender_display_name="Alice",
+                {"sender": "@alice:example.com", "sender_display_name": "Alice"}
             ),
             payload={"body": "hello"},
         )
         result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="lxmf_a", delivery_strategy="direct"),
+            event, RenderingContext(target_adapter="lxmf_a", delivery_strategy="direct")
         )
         assert result.payload["content"] == "[Alice] hello"
 
@@ -880,21 +879,16 @@ class TestLxmfTargetAwareConfigs:
         renderer = LxmfRenderer(configs=configs)
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
-            native_data={
-                "longname": "Base Radio",
-                "shortname": "RAD",
-            },
+            native_data=_meshtastic_native(
+                {"longname": "Base Radio", "shortname": "RAD"}
+            ),
             payload={"body": "hello"},
         )
-
-        # Render to lxmf_alpha — uses display_name (longname) prefix
         result_a = await renderer.render(
             event,
             RenderingContext(target_adapter="lxmf_alpha", delivery_strategy="direct"),
         )
         assert result_a.payload["content"] == "[Base Radio] hello"
-
-        # Render to lxmf_beta — uses sender_short prefix
         result_b = await renderer.render(
             event,
             RenderingContext(target_adapter="lxmf_beta", delivery_strategy="direct"),
@@ -905,10 +899,8 @@ class TestLxmfTargetAwareConfigs:
         """Adapter config with empty lxmf_relay_prefix produces no prefix."""
         configs = {
             "lxmf_plain": LxmfConfig(
-                adapter_id="lxmf_plain",
-                connection_type="fake",
-                lxmf_relay_prefix="",
-            ),
+                adapter_id="lxmf_plain", connection_type="fake", lxmf_relay_prefix=""
+            )
         }
         renderer = LxmfRenderer(configs=configs)
         event = _make_event(payload={"body": "plain text"})
@@ -921,40 +913,21 @@ class TestLxmfTargetAwareConfigs:
 
     async def test_fallback_to_relay_prefix_when_no_configs(self) -> None:
         """relay_prefix fallback used when configs mapping is empty."""
-        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="matrix-bridge",
-            native_data=_matrix_native(sender_display_name="Alice"),
+            native_data=_matrix_native({"sender_display_name": "Alice"}),
             payload={"body": "hello"},
         )
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
-        )
-        assert result.payload["content"] == "[Alice] hello"
-
-    async def test_fallback_to_relay_prefix_when_target_not_in_configs(self) -> None:
-        """relay_prefix fallback used when target_adapter not in configs."""
-        configs = {
-            "lxmf_other": LxmfConfig(
-                adapter_id="lxmf_other",
-                connection_type="fake",
-                lxmf_relay_prefix="<{sender_short}> ",
-            ),
-        }
-        renderer = LxmfRenderer(
-            configs=configs,
-            relay_prefix="[{sender}] ",
-        )
-        event = _make_event_with_native(
-            source_adapter="matrix-bridge",
-            native_data=_matrix_native(sender_display_name="Alice"),
-            payload={"body": "hello"},
-        )
-        # Target adapter is NOT in configs — falls back to relay_prefix
-        result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="lxmf_unknown", delivery_strategy="direct"),
         )
         assert result.payload["content"] == "[Alice] hello"
 
@@ -969,15 +942,19 @@ class TestLxmfSourceOriginLabel:
                 adapter_id="meshtastic-radio",
                 platform="meshtastic",
                 origin_label="East Radio",
-            ),
+            )
         }
         renderer = LxmfRenderer(
-            relay_prefix="[{origin_label}] ",
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="[{origin_label}] "
+                )
+            },
             source_attribution=source_attr,
         )
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
-            native_data={},
+            native_data=_meshtastic_native({}),
             payload={"body": "hello"},
         )
         result = await renderer.render(
@@ -993,46 +970,42 @@ class TestLxmfSourceOriginLabel:
                 adapter_id="meshtastic-radio",
                 platform="meshtastic",
                 origin_label="Base Station Alpha",
-            ),
+            )
         }
         configs = {
             "lxmf_a": LxmfConfig(
                 adapter_id="lxmf_a",
                 connection_type="fake",
                 lxmf_relay_prefix="<{origin_label}> ",
-            ),
+            )
         }
-        renderer = LxmfRenderer(
-            configs=configs,
-            source_attribution=source_attr,
-        )
+        renderer = LxmfRenderer(configs=configs, source_attribution=source_attr)
         event = _make_event_with_native(
             source_adapter="meshtastic-radio",
-            native_data={},
+            native_data=_meshtastic_native({}),
             payload={"body": "radio check"},
         )
         result = await renderer.render(
-            event,
-            RenderingContext(target_adapter="lxmf_a", delivery_strategy="direct"),
+            event, RenderingContext(target_adapter="lxmf_a", delivery_strategy="direct")
         )
         assert result.payload["content"] == "<Base Station Alpha> radio check"
 
     async def test_no_origin_label_when_not_in_registry(self) -> None:
         """Empty origin_label when source adapter not in registry."""
         renderer = LxmfRenderer(
-            relay_prefix="[{origin_label}] ",
-            source_attribution={},
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="[{origin_label}] "
+                )
+            }
         )
         event = _make_event_with_native(
-            source_adapter="unknown-source",
-            native_data={},
-            payload={"body": "mystery"},
+            source_adapter="unknown-source", native_data={}, payload={"body": "mystery"}
         )
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
         )
-        # origin_label resolves to empty string
         assert result.payload["content"] == "[] mystery"
 
 
@@ -1049,13 +1022,18 @@ class TestLxmfSourceAttributionPrefix:
 
     async def test_lxmf_source_display_name_renders_sender(self) -> None:
         """LXMF source: {sender} renders lxmf.display_name."""
-        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="lxmf-source",
-            native_data={
-                "source_hash": "ab" * 16,
-                "lxmf.display_name": "Mesh Node Alpha",
-            },
+            native_data=_lxmf_native(
+                {"source_hash": "ab" * 16, "display_name": "Mesh Node Alpha"}
+            ),
             payload={"body": "hello"},
         )
         result = await renderer.render(
@@ -1067,27 +1045,38 @@ class TestLxmfSourceAttributionPrefix:
     async def test_lxmf_source_hash_only_sender_empty(self) -> None:
         """LXMF source with only source_hash: {sender} renders empty, not hash."""
         h = "e9768cd45f12a3b4c5d6e7f8091a2b3c"
-        renderer = LxmfRenderer(relay_prefix="[{sender}] ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="[{sender}] "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="lxmf-source",
-            native_data={"source_hash": h},
+            native_data=_lxmf_native({"source_hash": h}),
             payload={"body": "hello"},
         )
         result = await renderer.render(
             event,
             RenderingContext(target_adapter="lxmf_node", delivery_strategy="direct"),
         )
-        # {sender} renders empty -- the opaque hash must NOT become {sender}
         assert result.payload["content"] == "[] hello"
         assert h not in result.payload["content"]
 
     async def test_lxmf_source_hash_renders_sender_id(self) -> None:
         """LXMF source: {sender_id} renders the source_hash."""
         h = "e9768cd45f12a3b4c5d6e7f8091a2b3c"
-        renderer = LxmfRenderer(relay_prefix="({sender_id}) ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="({sender_id}) "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="lxmf-source",
-            native_data={"source_hash": h},
+            native_data=_lxmf_native({"source_hash": h}),
             payload={"body": "hello"},
         )
         result = await renderer.render(
@@ -1098,14 +1087,22 @@ class TestLxmfSourceAttributionPrefix:
 
     async def test_lxmf_source_short_name_renders_sender_short(self) -> None:
         """LXMF source: {sender_short} renders lxmf.short_name."""
-        renderer = LxmfRenderer(relay_prefix="<{sender_short}> ")
+        renderer = LxmfRenderer(
+            configs={
+                "lxmf_node": LxmfConfig(
+                    adapter_id="lxmf_node", lxmf_relay_prefix="<{sender_short}> "
+                )
+            }
+        )
         event = _make_event_with_native(
             source_adapter="lxmf-source",
-            native_data={
-                "source_hash": "ab" * 16,
-                "lxmf.display_name": "Mesh Node Alpha",
-                "lxmf.short_name": "MNA",
-            },
+            native_data=_lxmf_native(
+                {
+                    "source_hash": "ab" * 16,
+                    "display_name": "Mesh Node Alpha",
+                    "short_name": "MNA",
+                }
+            ),
             payload={"body": "hello"},
         )
         result = await renderer.render(

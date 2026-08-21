@@ -31,7 +31,7 @@ def make_adapter_context(
     return AdapterContext(
         adapter_id=adapter_id,
         event_bus=None,
-        publish_inbound=runner.ingress_handler,
+        publish_inbound=runner.handle_ingress,
         logger=logging.getLogger(f"test.bridge.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),

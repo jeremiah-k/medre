@@ -456,7 +456,6 @@ MINIMAL_CONFIGS = (
 CREDENTIAL_REQUIRED_CONFIGS: tuple[tuple[str, type[Exception] | None], ...] = (
     ("matrix.yaml", MatrixConfigError),
     ("meshtastic-serial.yaml", None),
-    ("mixed-matrix-meshtastic.yaml", MatrixConfigError),
     ("live-matrix-meshtastic.yaml", MatrixConfigError),
     ("live-matrix-meshtastic-channel-map.yaml", MatrixConfigError),
 )

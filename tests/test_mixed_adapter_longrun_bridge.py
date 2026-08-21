@@ -511,7 +511,7 @@ class TestMixedAdapterLongrunBridge:
         )
         # The runner is stopped; publishing through a stopped adapter
         # should not create new events. The adapter's ctx.publish_inbound
-        # still references the old runner's ingress_handler, but the
+        # still references the old runner's handle_ingress, but the
         # runner has shut down its internal processing. We simply verify
         # that accounting did not change from the post-stop state.
         snap_after = s.accounting.snapshot()

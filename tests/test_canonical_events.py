@@ -493,24 +493,26 @@ class TestEventKind:
 
 
 class TestSchemaRegistry:
-    """SchemaRegistry register, validate pass, validate fail."""
+    """SchemaRegistry registration and validation behavior."""
 
     def test_register_and_validate_pass(self) -> None:
         """Validator returning [] means valid."""
         registry = SchemaRegistry()
-        registry.register("message.text", 1, lambda p: [])
+        registry.register_or_replace("message.text", 1, lambda p: [])
         assert registry.validate("message.text", {"body": "hi"}) is True
 
     def test_validate_fail_returns_false(self) -> None:
         """Validator returning errors means invalid."""
         registry = SchemaRegistry()
-        registry.register("message.text", 1, lambda p: ["missing 'body'"])
+        registry.register_or_replace("message.text", 1, lambda p: ["missing 'body'"])
         assert registry.validate("message.text", {}) is False
 
     def test_validate_fail_populates_errors_list(self) -> None:
         """The errors list is populated with validator output."""
         registry = SchemaRegistry()
-        registry.register("message.text", 1, lambda p: ["missing 'body'", "too short"])
+        registry.register_or_replace(
+            "message.text", 1, lambda p: ["missing 'body'", "too short"]
+        )
         errors: list[str] = []
         result = registry.validate("message.text", {}, errors=errors)
         assert result is False

@@ -33,7 +33,6 @@ REQUIRED_YAML_CONFIGS = [
     "fake-multi-adapter.yaml",
     "fake-bridge-smoke.yaml",
     "fake-retry-smoke.yaml",
-    "mixed-matrix-meshtastic.yaml",
     "docker-matrix-bridge.yaml",
     "docker-meshtastic-bridge.yaml",
     "live-matrix-meshtastic.yaml",
@@ -299,71 +298,6 @@ class TestMatrixConfig:
     @pytest.mark.skip(reason="Requires real Matrix homeserver credentials")
     def test_build_with_credentials(self) -> None:
         """Placeholder: building real Matrix adapter needs live credentials."""
-        pass
-
-
-# ===========================================================================
-# 6. Mixed Matrix + Meshtastic: credential-required for Matrix component
-# ===========================================================================
-
-
-class TestMixedMatrixMeshtastic:
-    """The mixed bridge example has a Matrix adapter with empty access_token.
-    Loading must fail on the Matrix credential."""
-
-    CONFIG_PATH = CONFIGS_DIR / "mixed-matrix-meshtastic.yaml"
-
-    @pytest.fixture(autouse=True)
-    def _medre_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-
-    def test_load_raises_credential_error(self) -> None:
-        with pytest.raises(MatrixConfigError, match="access_token"):
-            load_config(str(self.CONFIG_PATH))
-
-    def test_yaml_structure_is_correct(self) -> None:
-        raw = _read(self.CONFIG_PATH)
-        data = parse_yaml_config(raw)
-        assert "matrix" in data["adapters"]
-        assert "meshtastic" in data["adapters"]
-        meshtastic = data["adapters"]["meshtastic"]["radio"]
-        assert meshtastic["connection_type"] == "serial"
-        assert "serial_port" in meshtastic
-
-    def test_routes_section_structure(self) -> None:
-        """The mixed bridge config must include a route section referencing
-        the correct adapter IDs (main and radio)."""
-        raw = _read(self.CONFIG_PATH)
-        data = parse_yaml_config(raw)
-        assert "routes" in data, "Mixed bridge config must have a [routes] section"
-        routes = data["routes"]
-        assert "matrix_radio_bridge" in routes
-        bridge = routes["matrix_radio_bridge"]
-        assert bridge["source_adapters"] == ["main"]
-        assert bridge["dest_adapters"] == ["radio"]
-        assert bridge["directionality"] == "bidirectional"
-        assert bridge["enabled"] is True
-        # Policy must only use supported fields.
-        if "policy" in bridge:
-            policy = bridge["policy"]
-            assert "allowed_event_types" in policy
-            # Unsupported policy fields must not be present.
-            for unsupported in (
-                "sender_allowlist",
-                "room_allowlist",
-                "channel_allowlist",
-                "allowed_source_adapters",
-                "allowed_dest_adapters",
-            ):
-                assert unsupported not in policy, (
-                    f"Unsupported policy field {unsupported!r} in "
-                    f"mixed bridge example config"
-                )
-
-    @pytest.mark.skip(reason="Requires Matrix credentials + Meshtastic hardware")
-    def test_build_with_credentials_and_hardware(self) -> None:
-        """Placeholder: needs both Matrix credentials and Meshtastic hardware."""
         pass
 
 

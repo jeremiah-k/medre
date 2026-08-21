@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/meshcore-native-metadata.schema.json",
+  "title": "MEDRE MeshCore Native Metadata",
+  "description": "Versioned MeshCore-native metadata stored in CanonicalEvent.metadata.native.data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meshcore"],
+  "properties": {
+    "meshcore": {
+      "$ref": "#/$defs/MeshCoreEvent"
+    }
+  },
+  "$defs": {
+    "Scalar": {
+      "type": ["string", "integer", "number", "boolean", "null"]
+    },
+    "MeshCoreEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "packet_id",
+        "sender_id",
+        "channel",
+        "pubkey_prefix",
+        "txt_type",
+        "is_direct_message",
+        "contact_label",
+        "contact_short_label",
+        "classification"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "packet_id": { "$ref": "#/$defs/Scalar" },
+        "sender_id": { "type": "string" },
+        "channel": { "type": ["integer", "null"], "minimum": 0 },
+        "pubkey_prefix": { "type": "string" },
+        "txt_type": { "$ref": "#/$defs/Scalar" },
+        "is_direct_message": { "type": "boolean" },
+        "contact_label": { "type": ["string", "null"] },
+        "contact_short_label": { "type": ["string", "null"] },
+        "classification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "category",
+            "reason",
+            "is_direct_message",
+            "routeable"
+          ],
+          "properties": {
+            "action": { "type": "string" },
+            "category": { "type": "string" },
+            "reason": { "type": "string" },
+            "is_direct_message": { "type": "boolean" },
+            "routeable": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

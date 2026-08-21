@@ -265,7 +265,7 @@ class TestReplayAccounting:
         # RE_RENDER with a pipeline that raises on render
         bad_pipeline = AsyncMock()
         bad_pipeline.transform_event = AsyncMock(return_value=sample_event)
-        bad_pipeline.render_event = AsyncMock(
+        bad_pipeline.render_replay_event = AsyncMock(
             side_effect=RuntimeError("renderer crashed"),
         )
         engine2 = make_engine(temp_storage, pipeline=bad_pipeline)

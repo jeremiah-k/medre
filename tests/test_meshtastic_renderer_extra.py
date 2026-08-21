@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
@@ -21,6 +20,11 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.native_metadata import (
+    lxmf_native_data,
+    matrix_native_data,
+    meshcore_native_data,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -86,17 +90,6 @@ def _make_relation(
     )
 
 
-def _matrix_native_data(
-    *, sender: str | None = None, sender_display_name: str | None = None
-) -> dict[str, object]:
-    matrix: dict[str, object] = {"schema_version": MATRIX_NATIVE_SCHEMA_VERSION}
-    if sender is not None:
-        matrix["sender"] = sender
-    if sender_display_name is not None:
-        matrix["sender_display_name"] = sender_display_name
-    return {"matrix": matrix}
-
-
 def _make_matrix_event(
     event_id: str = "mx-evt-1",
     payload: dict | None = None,
@@ -105,9 +98,11 @@ def _make_matrix_event(
     display_name: str = "Display Name",
 ) -> CanonicalEvent:
     """Create a CanonicalEvent simulating Matrix origin."""
-    native_data = _matrix_native_data(
-        sender="@user:example.com",
-        sender_display_name=display_name,
+    native_data = matrix_native_data(
+        {
+            "sender": "@user:example.com",
+            "sender_display_name": display_name,
+        }
     )
     return CanonicalEvent(
         event_id=event_id,
@@ -417,9 +412,11 @@ class TestMatrixDisplayNameInPrefix:
             payload={"body": "hello from alice"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data=_matrix_native_data(
-                        sender="@alice:example.com",
-                        sender_display_name="Alice Wonderland",
+                    data=matrix_native_data(
+                        {
+                            "sender": "@alice:example.com",
+                            "sender_display_name": "Alice Wonderland",
+                        }
                     )
                 )
             ),
@@ -451,9 +448,11 @@ class TestMatrixDisplayNameInPrefix:
             payload={"body": "hi"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data=_matrix_native_data(
-                        sender="@alice:example.com",
-                        sender_display_name="Display Name",
+                    data=matrix_native_data(
+                        {
+                            "sender": "@alice:example.com",
+                            "sender_display_name": "Display Name",
+                        }
                     )
                 )
             ),
@@ -506,9 +505,11 @@ class TestByteBudgetTruncation:
             payload={"body": "A" * 200},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data=_matrix_native_data(
-                        sender="@test:example.com",
-                        sender_display_name="Test",
+                    data=matrix_native_data(
+                        {
+                            "sender": "@test:example.com",
+                            "sender_display_name": "Test",
+                        }
                     )
                 )
             ),
@@ -897,9 +898,11 @@ class TestMultiRadioTargetAware:
             payload={"body": body},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data=_matrix_native_data(
-                        sender="@TestU:example.com",
-                        sender_display_name="TestUser",
+                    data=matrix_native_data(
+                        {
+                            "sender": "@TestU:example.com",
+                            "sender_display_name": "TestUser",
+                        }
                     )
                 )
             ),
@@ -1008,9 +1011,11 @@ class TestMultiRadioTargetAware:
             payload={"body": "A" * 150},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data=_matrix_native_data(
-                        sender="@TestU:example.com",
-                        sender_display_name="TestUser",
+                    data=matrix_native_data(
+                        {
+                            "sender": "@TestU:example.com",
+                            "sender_display_name": "TestUser",
+                        }
                     )
                 )
             ),
@@ -1059,9 +1064,11 @@ class TestMultiRadioTargetAware:
             payload={"body": "👍"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data=_matrix_native_data(
-                        sender="@TestU:example.com",
-                        sender_display_name="TestUser",
+                    data=matrix_native_data(
+                        {
+                            "sender": "@TestU:example.com",
+                            "sender_display_name": "TestUser",
+                        }
                     )
                 )
             ),
@@ -1145,7 +1152,11 @@ async def test_meshcore_pubkey_prefix_in_sender_id() -> None:
         lineage=(),
         relations=(),
         payload={"body": "hello from meshcore"},
-        metadata=EventMetadata(native=NativeMetadata(data={"pubkey_prefix": "a1b2c3"})),
+        metadata=EventMetadata(
+            native=NativeMetadata(
+                data=meshcore_native_data({"pubkey_prefix": "a1b2c3"})
+            )
+        ),
     )
     result = await renderer.render(
         event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
@@ -1171,7 +1182,9 @@ async def test_meshcore_pubkey_prefix_in_sender_id_template() -> None:
         relations=(),
         payload={"body": "hi"},
         metadata=EventMetadata(
-            native=NativeMetadata(data={"pubkey_prefix": "abcdef12"})
+            native=NativeMetadata(
+                data=meshcore_native_data({"pubkey_prefix": "abcdef12"})
+            )
         ),
     )
     result = await renderer.render(
@@ -1196,7 +1209,9 @@ async def test_lxmf_source_hash_in_sender_id() -> None:
         lineage=(),
         relations=(),
         payload={"body": "hello from lxmf"},
-        metadata=EventMetadata(native=NativeMetadata(data={"source_hash": "deadbeef"})),
+        metadata=EventMetadata(
+            native=NativeMetadata(data=lxmf_native_data({"source_hash": "deadbeef"}))
+        ),
     )
     result = await renderer.render(
         event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
@@ -1220,7 +1235,9 @@ async def test_lxmf_source_hash_in_sender_short() -> None:
         lineage=(),
         relations=(),
         payload={"body": "hello"},
-        metadata=EventMetadata(native=NativeMetadata(data={"source_hash": "cafebaaa"})),
+        metadata=EventMetadata(
+            native=NativeMetadata(data=lxmf_native_data({"source_hash": "cafebaaa"}))
+        ),
     )
     result = await renderer.render(
         event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
@@ -1274,9 +1291,11 @@ async def test_partial_native_data_no_none() -> None:
         payload={"body": "hi"},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data=_matrix_native_data(
-                    sender="@alice:example.com",
-                    sender_display_name="Alice",
+                data=matrix_native_data(
+                    {
+                        "sender": "@alice:example.com",
+                        "sender_display_name": "Alice",
+                    }
                 )
             )
         ),
@@ -1306,7 +1325,7 @@ async def test_prefix_metadata_records_template_and_variables() -> None:
         payload={"body": "hello"},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data=_matrix_native_data(sender="@TestUser:example.com")
+                data=matrix_native_data({"sender": "@TestUser:example.com"})
             )
         ),
     )

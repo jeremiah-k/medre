@@ -25,6 +25,7 @@ from medre.core.events import (
 )
 from medre.core.rendering.renderer import RenderingContext
 from medre.interop.mmrelay import KEY_MESHNET
+from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -56,7 +57,9 @@ def _make_meshtastic_event(
 ) -> CanonicalEvent:
     metadata = EventMetadata()
     if native_data:
-        metadata = EventMetadata(native=NativeMetadata(data=native_data))
+        metadata = EventMetadata(
+            native=NativeMetadata(data=meshtastic_native_data(native_data))
+        )
     return CanonicalEvent(
         event_id="evt-1",
         event_kind="message.created",
@@ -77,12 +80,14 @@ def _make_matrix_event(
     source_adapter: str = "matrix-1",
     body: str = "hello from matrix",
     display_name: str = "Alice",
+    relations: tuple | None = None,
 ) -> CanonicalEvent:
-    native_data: dict[str, object] = {
-        "longname": display_name,
-        "shortname": display_name.split()[0],
-        "from_id": "@alice:example.com",
-    }
+    native_data = matrix_native_data(
+        {
+            "sender": "@alice:example.com",
+            "sender_display_name": display_name,
+        }
+    )
     return CanonicalEvent(
         event_id="mx-1",
         event_kind="message.created",
@@ -93,7 +98,7 @@ def _make_matrix_event(
         source_channel_id="!room:example.com",
         parent_event_id=None,
         lineage=(),
-        relations=(),
+        relations=relations or (),
         payload={"body": body},
         metadata=EventMetadata(native=NativeMetadata(data=native_data)),
     )
@@ -275,10 +280,10 @@ async def test_meshnet_name_in_reaction_compact_prefix() -> None:
         key="👍",
         fallback_text="original msg",
     )
-    event = _make_meshtastic_event(
+    event = _make_matrix_event(
         source_adapter="matrix-1",
+        display_name="Alice",
         relations=(relation,),
-        native_data={"longname": "Alice", "shortname": "A", "from_id": "@a:b"},
     )
     result = await renderer.render(
         event,

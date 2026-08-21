@@ -191,8 +191,8 @@ def sync_admit_ingress(
     """Atomically admit an event/native ref/work marker.
 
     Existing native identities are repaired with a missing work row in the
-    same transaction so switching from legacy admission cannot silently mark
-    an event complete without ever routing it.
+    same transaction so an incomplete prior admission cannot silently mark an
+    event complete without ever routing it.
     """
     with lock:
         try:

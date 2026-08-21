@@ -1,5 +1,9 @@
 # Operator Surface Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 > Compact map of every operator-facing command/report, its source data, output
 > shape, field classification, and terminology notes. Intended to unblock
 > surgical implementation agents and reduce overlap.

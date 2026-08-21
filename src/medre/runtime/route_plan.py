@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from medre.config.routes import ChannelRoomMapEntry, RouteDirectionality
+from medre.config.routes import RouteDirectionality
 from medre.runtime.route_engine import (
     RouteValidationError,
     _expand_channel_room_map_route,
@@ -384,10 +384,8 @@ def _build_leg(
     crm_room: str | None = None
     if crm_key is not None and rc.channel_room_map is not None:
         entry = rc.channel_room_map.get(crm_key)
-        if isinstance(entry, ChannelRoomMapEntry):
+        if entry is not None:
             crm_room = entry.room
-        elif isinstance(entry, str):
-            crm_room = entry
 
     effective_label, label_source = _resolve_effective_origin_label(
         route=route,
@@ -459,7 +457,7 @@ def _resolve_effective_origin_label(
     crm_key = _channel_room_map_key(route.id, rc.route_id)
     if crm_key is not None and rc.channel_room_map is not None:
         entry = rc.channel_room_map.get(crm_key)
-        if isinstance(entry, ChannelRoomMapEntry):
+        if entry is not None:
             entry_label = (
                 entry.source_origin_label if side_is_source else entry.dest_origin_label
             )
@@ -487,8 +485,7 @@ def _route_warnings(rc) -> list[str]:
         return warnings
     room_to_channels: dict[str, list[str]] = {}
     for ch, entry in rc.channel_room_map.items():
-        room = entry.room if isinstance(entry, ChannelRoomMapEntry) else entry
-        room_to_channels.setdefault(room, []).append(ch)
+        room_to_channels.setdefault(entry.room, []).append(ch)
     for room, channels in sorted(room_to_channels.items()):
         if len(channels) > 1:
             warnings.append(

@@ -198,7 +198,8 @@ export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
 export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
 ```
 
-Legacy `MEDRE_LXMF_*` runtime config vars are unsupported. Migrate to `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
+`MEDRE_LXMF_*` runtime config variables are unsupported. Use
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` instead.
 
 ## Known Limitations
 

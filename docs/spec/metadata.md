@@ -31,33 +31,48 @@ class EventMetadata:
 | `metadata.routing`   | Routing context            | `matched_routes` (tuple), `fanout_group`, `route_trace` (tuple)                                                                               |
 | `metadata.radio`     | Radio-specific data        | `frequency`, `snr`, `rssi`, `channel_index`                                                                                                   |
 | `metadata.telemetry` | Device state at event time | `metrics` dict (frozen)                                                                                                                       |
-| `metadata.native`    | Adapter-owned native data  | `data` dict (frozen)                                                                                                                          |
+| `metadata.native`    | Adapter-owned native data  | Versioned transport sub-namespaces                                                                                                            |
 | `metadata.custom`    | Plugin/extension data      | Key-value pairs from plugins, using reverse-DNS namespacing                                                                                   |
 
 The `metadata.native` namespace is adapter-owned. Adapters SHOULD promote facts
 that have transport-neutral meaning into the standard namespaces, but MAY keep
 stable protocol-specific contracts under a versioned native sub-namespace when
 those details would otherwise pollute the core model. Native metadata MUST NOT
-contain raw protocol payloads, private key material, or credential material.
+contain private key material, credential material, SDK objects, or opaque raw
+protocol payloads that cannot be serialized safely.
 
-Matrix uses this seam deliberately: `metadata.native.data["matrix"]` is a
-versioned event-shape contract for Matrix identity, relation wire context, media
-descriptors, relay attribution, and safe crypto provenance. MMRelay compatibility
-fields, when present, live separately under
-`metadata.native.data["interop"]["mmrelay"]`. The normative mapping is defined in
-[matrix-event-shape.md](matrix-event-shape.md); the machine-readable contract is
-[`matrix-native-metadata.schema.json`](../schemas/matrix-native-metadata.schema.json).
+## 3. Built-In Native Metadata
 
-## 3. Migration from Flat Metadata
+Each built-in adapter has one persisted canonical native-metadata namespace.
+The transport name is the top-level key inside `NativeMetadata.data`; the
+transport object carries its own positive integer `schema_version`.
 
-Legacy flat namespaces map to the new structured model:
+| Transport  | Canonical path                       | Current version | Machine schema                                                                                |
+| ---------- | ------------------------------------ | --------------: | --------------------------------------------------------------------------------------------- |
+| Matrix     | `metadata.native.data["matrix"]`     |             `1` | [`matrix-native-metadata.schema.json`](../schemas/matrix-native-metadata.schema.json)         |
+| Meshtastic | `metadata.native.data["meshtastic"]` |             `1` | [`meshtastic-native-metadata.schema.json`](../schemas/meshtastic-native-metadata.schema.json) |
+| MeshCore   | `metadata.native.data["meshcore"]`   |             `1` | [`meshcore-native-metadata.schema.json`](../schemas/meshcore-native-metadata.schema.json)     |
+| LXMF       | `metadata.native.data["lxmf"]`       |             `1` | [`lxmf-native-metadata.schema.json`](../schemas/lxmf-native-metadata.schema.json)             |
 
-| Old Path                          | New Path                       |
-| --------------------------------- | ------------------------------ |
-| `metadata.meshtastic.snr`         | `metadata.radio.snr`           |
-| `metadata.meshtastic.channel`     | `metadata.radio.channel_index` |
-| `metadata.meshtastic.from`        | `metadata.transport.source_id` |
-| `metadata.meshtastic.telemetry.*` | `metadata.telemetry.*`         |
+A current-version projection helper MUST interpret only the schema version it
+implements. Platform detection MAY recognize a positively versioned future
+transport object without interpreting that future version's fields. Flat,
+dotted, or unversioned built-in native metadata is not an alternate canonical
+shape.
+
+Matrix has an additional detailed event-shape contract in
+[matrix-event-shape.md](matrix-event-shape.md). Cross-product MMRelay wire
+interoperability, when present, lives separately under
+`metadata.native.data["interop"]["mmrelay"]`; it is not another Matrix or
+Meshtastic native shape.
+
+Delivery-result and outbound-native-reference metadata follows the same
+transport-key ownership rule and carries the transport's current
+`schema_version`, but those records have context-specific field sets and are not
+instances of the canonical-event native-metadata JSON Schemas above.
+
+See [compatibility-boundaries.md](compatibility-boundaries.md) for the boundary
+between external interoperability and rejected MEDRE development shapes.
 
 ## 4. Embedding Modes
 
@@ -77,45 +92,67 @@ messages on external platforms. The mode is configured per operator preference.
 
 ### 4.2 Matrix Embedding Convention
 
-Metadata embedded in Matrix events uses a reverse-DNS namespace under
-`org.medre.*`. Example:
+MEDRE provenance embedded into outbound Matrix message content uses the
+versioned `medre.envelope` object produced by `MatrixMetadataEnvelope`:
 
 ```json
 {
   "msgtype": "m.text",
   "body": "Hello from node 1234",
-  "org.medre.event": {
-    "event_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
-    "event_kind": "message.text",
-    "source_adapter": "meshcore-radio-1",
-    "source_transport_id": "1234",
-    "metadata": {
-      "transport": { "protocol": "meshcore-tcp" },
-      "radio": { "snr": 5.2, "rssi": -78 }
+  "medre": {
+    "envelope": {
+      "schema_version": 1,
+      "canonical_event_id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+      "source_adapter": "meshcore-radio-1",
+      "source_channel": "0",
+      "provenance": "",
+      "relation_info": "",
+      "lineage_pointer": "",
+      "metadata_mode": "safe",
+      "native_source_summary": ""
     }
   }
 }
 ```
 
+Inbound readers interpret only the current envelope schema version. A missing
+or unsupported version is not treated as the current envelope shape. The
+Matrix canonical-native projection stores a safe copy of a valid envelope under
+`metadata.native.data["matrix"]["relay"]["medre_envelope"]`.
+
 ### 4.3 LXMF Embedding Convention
 
-Metadata embedded in LXMF messages uses a namespaced field in the `fields`
-dict:
+LXMF carries MEDRE provenance in custom field `0xFD`. The value is namespaced
+under `"medre"` and uses its own explicit schema version:
 
 ```python
-"org.medre.event": {
-    "schema": 1,
-    "canonical_event_id": "0190b2c3-d4e5-...",
-    "relation": {"type": "reply", "parent_event_id": "..."},
-    "source": "medre-runtime"
+{
+    0xFD: {
+        "medre": {
+            "schema_version": 1,
+            "event_id": "0190b2c3-d4e5-...",
+            "source_adapter": "matrix-1",
+            "source_transport_id": "@alice:example.com",
+            "source_channel_id": "!room:example.com",
+            "lineage": [],
+            "relations": [],
+            "metadata_keys": [],
+        }
+    }
 }
 ```
 
+Inbound readers interpret only the current LXMF fields-envelope version.
+Unsupported or unversioned MEDRE envelopes are ignored. This custom field is a
+MEDRE interoperability envelope carried by LXMF; it is distinct from the
+canonical `metadata.native.data["lxmf"]` transport namespace.
+
 ### 4.4 Constrained Transport Envelopes
 
-Meshtastic (~227 bytes) and MeshCore (184 bytes) payloads are too small for
-meaningful envelope data. On these transports, envelopes are typically omitted
-entirely or reduced to a bare minimum (`event_id` only, if space permits).
+Meshtastic and MeshCore payload budgets are too small for the full MEDRE
+provenance envelopes above. MEDRE does not define an alternate persisted
+canonical-native shape for this purpose. Transport-specific outbound fields are
+rendered only when the current transport contract explicitly requires them.
 
 ## 5. Never-Embed List
 
@@ -146,8 +183,8 @@ external platforms.
 ## 7. Redaction and Privacy
 
 Synapse redacts the `content` body of an event when redacted. The
-`org.medre.event` field is part of `content` and will be destroyed. The
-canonical event in storage is unaffected.
+`medre.envelope` field is part of `content` and will be destroyed. The canonical
+event in storage is unaffected.
 
-Custom content fields (the `org.*` namespace) are preserved by Synapse under
-normal operation. They are not pruned by the server.
+Custom content fields are preserved by Synapse under normal operation. They are
+not pruned by the server.

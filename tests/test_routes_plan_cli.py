@@ -122,8 +122,10 @@ routes:
     dest_adapters: [radio]
     directionality: source_to_dest
     channel_room_map:
-      0: '!shared:fake.local'
-      1: '!shared:fake.local'
+      0:
+        room: '!shared:fake.local'
+      1:
+        room: '!shared:fake.local'
 """
 
 # Meshtastic source + source_to_dest + duplicate rooms → fan-in (allowed).
@@ -153,8 +155,10 @@ routes:
     dest_adapters: [main]
     directionality: source_to_dest
     channel_room_map:
-      0: '!shared:fake.local'
-      1: '!shared:fake.local'
+      0:
+        room: '!shared:fake.local'
+      1:
+        room: '!shared:fake.local'
 """
 
 # Route with no per-entry or route-level labels so the plan applies the
@@ -419,12 +423,12 @@ def test_parse_error_no_traceback(tmp_path: Path) -> None:
 
 
 # ===========================================================================
-# 9. `.toml` config rejected → exit nonzero, migration message
+# 9. `.toml` config rejected → exit nonzero, unsupported-format message
 # ===========================================================================
 
 
 def test_toml_config_rejected(tmp_path: Path) -> None:
-    """A .toml config is rejected with the migration message."""
+    """A .toml config is rejected with the unsupported-format message."""
     cfg = _write_config(
         tmp_path,
         "runtime = { name = 'toml' }\n",

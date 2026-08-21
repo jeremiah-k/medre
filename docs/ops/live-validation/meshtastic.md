@@ -68,11 +68,11 @@ meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE validation test"
 
 ## Evidence Tiers Achieved
 
-| Tier | Sub-class             | Date       | Result                                                                                                                            |
-| ---- | --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| R    | Hardware (serial CLI) | 2026-05-12 | Device discovery, hardware/firmware capture, 1 outbound on ch0, 3 reconnect cycles. CLI-level only — not MEDRE adapter lifecycle. |
-| R    | Docker SDK-boundary   | —          | Outbound + lifecycle proven. Inbound via pubsub not proven.                                                                       |
-| —    | MEDRE adapter live    | —          | NOT EXECUTED (mtjk not in project venv during validation session).                                                                |
+| Tier     | Sub-class             | Date       | Result                                                                                                                            |
+| -------- | --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| hardware | Hardware (serial CLI) | 2026-05-12 | Device discovery, hardware/firmware capture, 1 outbound on ch0, 3 reconnect cycles. CLI-level only — not MEDRE adapter lifecycle. |
+| docker   | Docker SDK-boundary   | —          | Outbound + lifecycle proven. Inbound via pubsub not proven.                                                                       |
+| —        | MEDRE adapter live    | —          | NOT EXECUTED (mtjk not in project venv during validation session).                                                                |
 
 ## Delivery Classification
 

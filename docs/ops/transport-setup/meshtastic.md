@@ -169,7 +169,8 @@ export MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
 export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
 ```
 
-Legacy `MEDRE_MESHTASTIC_*` runtime config variables are unsupported. Migrate to `MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
+`MEDRE_MESHTASTIC_*` runtime config variables are unsupported. Use
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>`.
 
 ## Manual Adapter Wiring
 

@@ -1,5 +1,9 @@
 # Transport-Native Identity Enrichment Audit
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 Factual audit of how each MEDRE transport adapter projects its native
 sender identity into the generic `RelayAttribution` sender fields. This
 document is evidence of review, not normative authority. The normative

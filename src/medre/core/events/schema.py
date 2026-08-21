@@ -7,28 +7,22 @@ This module provides:
 * :class:`SchemaVersion` – a ``(event_kind, version)`` pair.
 * :class:`SchemaRegistry` – a registry that maps event kinds to schema
   versions and validator callables.
-* :class:`_MigrationRegistry` – minimal registry-only hook for future schema
-  migrations.
 
 The registry is deliberately lightweight – it stores validator callables
 rather than performing structural schema validation itself.  Downstream
 packages can register JSON-Schema validators, pydantic models, or any
 ``Callable[[dict], list[str]]`` that returns a list of error strings.
 
-Schema Migration Policy
+Schema Evolution Policy
 -----------------------
-Pre-release (current):
-  Schemas may change directly — fields renamed, types changed,
-  structures reorganised — without migration paths.  There are no
-  external consumers, so breaking changes are applied by updating
-  tests and documentation in the same commit.
+The canonical envelope is a closed, versioned structure. During development,
+contract changes are applied directly to the current schema and all producers,
+consumers, schemas, examples, and tests move together. Unknown top-level
+structure fields may be ignored by decoders; extensible payload and metadata
+mappings are the preservation boundary for producer-defined data.
 
-Post-release (future stability guarantee):
-  Once a stable release ships, the schema becomes additive-only:
-  new fields append with defaults; existing fields are never removed.
-  ``MIGRATION_REGISTRY`` provides a registry-only hook for migration
-  functions (``Callable[[dict], dict]``).  A migration window may be
-  offered for non-trivial schema transitions.
+Long-term cross-version guarantees are intentionally undefined until MEDRE
+publishes a stable release contract.
 """
 
 from __future__ import annotations
@@ -65,12 +59,20 @@ class SchemaVersion(msgspec.Struct, frozen=True):
     event_kind:
         The event kind string this version applies to.
     version:
-        Monotonically increasing version number for the kind's payload
-        schema.
+        Positive version number for the kind's payload schema.
     """
 
     event_kind: str
     version: int
+
+    def __post_init__(self) -> None:
+        if not _is_valid_schema_version(self.version):
+            raise ValueError("version must be a positive integer")
+
+
+def _is_valid_schema_version(value: object) -> bool:
+    """Return whether *value* is a supported schema-version identifier."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
 def schema_version_from_event(
@@ -78,9 +80,9 @@ def schema_version_from_event(
 ) -> SchemaVersion:
     """Extract a :class:`SchemaVersion` from a raw event payload.
 
-    The payload is expected to contain a ``"schema_version"`` key with an
-    ``int`` value.  If the key is missing or not an ``int``, version ``1``
-    is assumed.
+    When ``"schema_version"`` is absent, the current version is used. When
+    present, the value MUST be a positive integer; invalid explicit values are
+    rejected rather than reinterpreted as the current version.
 
     Parameters
     ----------
@@ -94,9 +96,15 @@ def schema_version_from_event(
     SchemaVersion
         The extracted version pair.
     """
-    raw = payload.get("schema_version", 1)
-    version: int = raw if isinstance(raw, int) else 1  # type: ignore[assignment]
-    return SchemaVersion(event_kind=event_kind, version=version)
+    if "schema_version" not in payload:
+        return SchemaVersion(
+            event_kind=event_kind,
+            version=CURRENT_SCHEMA_VERSION,
+        )
+    raw = payload["schema_version"]
+    if not _is_valid_schema_version(raw):
+        raise ValueError("schema_version must be a positive integer")
+    return SchemaVersion(event_kind=event_kind, version=raw)
 
 
 # Type alias for validator callables.
@@ -121,7 +129,7 @@ class SchemaRegistry:
     Example
     -------
     >>> registry = SchemaRegistry()
-    >>> registry.register("message.text", 1, lambda p: [])
+    >>> registry.register_or_replace("message.text", 1, lambda p: [])
     >>> registry.validate("message.text", {"body": "hello"})
     True
     """
@@ -131,29 +139,6 @@ class SchemaRegistry:
 
     # -- Mutation ---------------------------------------------------------
 
-    def register(
-        self,
-        event_kind: str,
-        schema_version: int,
-        validator: Validator,
-    ) -> None:
-        """Register a validator for an event kind and version.
-
-        If a validator was already registered for the same
-        ``(event_kind, schema_version)`` pair it is silently replaced.
-
-        Parameters
-        ----------
-        event_kind:
-            The event kind string (e.g. ``"message.text"``).
-        schema_version:
-            The schema version number.
-        validator:
-            A callable that accepts a payload dict and returns a list of
-            error strings (empty if valid).
-        """
-        self._schemas[(event_kind, schema_version)] = validator
-
     def register_or_replace(
         self,
         event_kind: str,
@@ -162,8 +147,7 @@ class SchemaRegistry:
     ) -> None:
         """Register a validator, explicitly overwriting any existing one.
 
-        Unlike :meth:`register`, this method is named to make the
-        overwrite semantics explicit at the call site.
+        The method name makes overwrite semantics explicit at the call site.
 
         Parameters
         ----------
@@ -175,6 +159,8 @@ class SchemaRegistry:
             A callable that accepts a payload dict and returns a list of
             error strings (empty if valid).
         """
+        if not _is_valid_schema_version(schema_version):
+            raise ValueError("schema_version must be a positive integer")
         self._schemas[(event_kind, schema_version)] = validator
 
     # -- Query ------------------------------------------------------------
@@ -195,6 +181,8 @@ class SchemaRegistry:
             The registered validator, or ``None`` if no schema has been
             registered for the given kind and version.
         """
+        if not _is_valid_schema_version(schema_version):
+            return None
         return self._schemas.get((event_kind, schema_version))
 
     # -- Validation -------------------------------------------------------
@@ -228,9 +216,18 @@ class SchemaRegistry:
             ``True`` if the payload is valid, ``False`` otherwise.
         """
         if schema_version is None:
-            sv = schema_version_from_event(event_kind, payload)
+            try:
+                sv = schema_version_from_event(event_kind, payload)
+            except ValueError as exc:
+                if errors is not None:
+                    errors.append(str(exc))
+                return False
             version = sv.version
         else:
+            if not _is_valid_schema_version(schema_version):
+                if errors is not None:
+                    errors.append("schema_version must be a positive integer")
+                return False
             version = schema_version
 
         validator = self._schemas.get((event_kind, version))
@@ -254,79 +251,3 @@ class SchemaRegistry:
         if errors is not None:
             errors.extend(found_errors)
         return len(found_errors) == 0
-
-
-# ---------------------------------------------------------------------------
-# Migration registry (Phase 1: registry-only hook)
-# ---------------------------------------------------------------------------
-
-#: Type alias for a migration function.  Receives a payload dict and
-#: returns a new dict with any added default fields.
-MigrationFn = Callable[[dict[str, object]], dict[str, object]]
-
-
-class _MigrationRegistry:
-    """Minimal registry for schema migration functions.
-
-    Phase 1 provides the registration and lookup API only.  No migrations
-    are executed automatically – the registry exists so that downstream
-    packages can register migration functions that future versions of the
-    framework will call during decode.
-
-    Migration contract:
-
-    * Migrations are keyed by ``(event_kind, from_version, to_version)``.
-    * A migration receives the payload dict and returns a **new** dict
-      with any appended default fields.
-    * Within a stability guarantee cycle: fields are never removed — only appended or deprecated-in-place.
-    * Deprecated fields remain populated for at least one version cycle once a public stability guarantee is in effect.
-      (No public stability guarantee is currently declared; pre-release migration rules apply, see module docstring.)
-
-    Thread-safety is the caller's responsibility, same as :class:`SchemaRegistry`.
-    """
-
-    def __init__(self) -> None:
-        self._migrations: dict[tuple[str, int, int], MigrationFn] = {}
-
-    def register(
-        self,
-        event_kind: str,
-        from_version: int,
-        to_version: int,
-        migration: MigrationFn,
-    ) -> None:
-        """Register a migration function.
-
-        Silently replaces any existing migration for the same key.
-
-        Parameters
-        ----------
-        event_kind:
-            The event kind string.
-        from_version:
-            Source schema version.
-        to_version:
-            Target schema version.
-        migration:
-            Callable that transforms a payload dict from *from_version*
-            to *to_version* shape.
-        """
-        self._migrations[(event_kind, from_version, to_version)] = migration
-
-    def get(
-        self,
-        event_kind: str,
-        from_version: int,
-        to_version: int,
-    ) -> MigrationFn | None:
-        """Retrieve a migration function, or ``None`` if not registered."""
-        return self._migrations.get((event_kind, from_version, to_version))
-
-    @property
-    def registered_keys(self) -> frozenset[tuple[str, int, int]]:
-        """Snapshot of all registered migration keys."""
-        return frozenset(self._migrations.keys())
-
-
-#: Module-level migration registry singleton.
-MIGRATION_REGISTRY: _MigrationRegistry = _MigrationRegistry()

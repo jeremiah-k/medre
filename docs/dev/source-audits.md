@@ -1,5 +1,9 @@
 # Source Audit Evidence and Review Notes
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
 This document consolidates evidence from pre-production source audits across
 MEDRE's four transport adapters. These audits are historical snapshots of
 point-in-time review, not normative authority. They document what was verified,

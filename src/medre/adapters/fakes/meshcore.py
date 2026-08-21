@@ -32,6 +32,7 @@ from typing import Any
 
 from medre.adapters.meshcore.adapter import increment_classifier_counters
 from medre.adapters.meshcore.codec import MeshCoreCodec
+from medre.adapters.meshcore.event_shape import MESHCORE_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import (
@@ -372,7 +373,12 @@ class FakeMeshCoreAdapter(AdapterContract):
                     # Nested MappingProxyType matches real adapter shape.
                     # NOTE: MappingProxyType is not directly JSON-serializable;
                     # consumers that persist metadata must cast via dict() first.
-                    "meshcore": MappingProxyType({"local_acceptance": True}),
+                    "meshcore": MappingProxyType(
+                        {
+                            "schema_version": MESHCORE_NATIVE_SCHEMA_VERSION,
+                            "local_acceptance": True,
+                        }
+                    ),
                 }
             ),
         )

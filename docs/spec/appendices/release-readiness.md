@@ -151,18 +151,18 @@ executed at the current commit.
 
 ### 7.1 Executed gates (evidence exists)
 
-| Gate                                                             | Evidence class  | Status |
-| ---------------------------------------------------------------- | --------------- | ------ |
-| Compile / import                                                 | S-tier          | Pass   |
-| Fake-adapter pipeline tests                                      | S-tier          | Pass   |
-| Schema / example validation                                      | S-tier          | Pass   |
-| CLI smoke (`medre smoke --json`)                                 | S-tier          | Pass   |
-| Run-session (`medre smoke --run-session`)                        | S-tier          | Pass   |
-| Operator read-only workflows (inspect, trace, evidence, recover) | S-tier          | Pass   |
-| Adapter boundary tests (parity, lifecycle authority)             | S-tier          | Pass   |
-| Doc structure tests (single authority, status vocabulary)        | S-tier          | Pass   |
-| Matrix Docker SDK-boundary validation                            | R-tier (docker) | Pass   |
-| Meshtastic Docker local integration                              | R-tier (docker) | Pass   |
+| Gate                                                             | Evidence class | Status |
+| ---------------------------------------------------------------- | -------------- | ------ |
+| Compile / import                                                 | conformance    | Pass   |
+| Fake-adapter pipeline tests                                      | synthetic      | Pass   |
+| Schema / example validation                                      | conformance    | Pass   |
+| CLI smoke (`medre smoke --json`)                                 | conformance    | Pass   |
+| Run-session (`medre smoke --run-session`)                        | synthetic      | Pass   |
+| Operator read-only workflows (inspect, trace, evidence, recover) | conformance    | Pass   |
+| Adapter boundary tests (parity, lifecycle authority)             | conformance    | Pass   |
+| Doc structure tests (single authority, status vocabulary)        | conformance    | Pass   |
+| Matrix Docker SDK-boundary validation                            | docker         | Pass   |
+| Meshtastic Docker local integration                              | docker         | Pass   |
 
 ### 7.2 Not-executed gates (no evidence at any tier)
 
@@ -186,5 +186,5 @@ prerelease cycle:
 - All transports reach live-validated status with recorded evidence
 - Schema version bump protocol documented and tested
 - Public API compatibility commitment documented
-- Migration path for existing storage tested
+- Prerelease incompatible-storage rejection/reset path tested
 - Performance benchmarks under sustained load

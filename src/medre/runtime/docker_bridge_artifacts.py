@@ -69,8 +69,8 @@ When the integration test fixture writes ``run-metadata.json`` to the run
 directory, the collector reads it and uses its fields (``storage_path``,
 ``event_id``, ``matrix``, ``meshtastic``, ``medre``, ``config_data``,
 ``log_paths``) as primary evidence — pytest stdout/stderr remain logs
-only.  When ``run-metadata.json`` is absent, evidence falls back to
-deprecated regex parsing with an explicit limitation.
+only.  When ``run-metadata.json`` is absent, evidence falls back to lower-confidence
+stdout parsing with an explicit limitation.
 
 Honesty requirements
 --------------------
@@ -943,14 +943,15 @@ def collect_docker_bridge_artifacts(
     # -- Step 8: Collect log artifacts from metadata --------------------------
     log_artifacts_from_meta = _collect_log_artifacts(run_dir, metadata)
 
-    # -- Step 9: Parse results (deprecated regex fallback) --------------------
+    # -- Step 9: Parse results (lower-confidence stdout fallback) --------------
     parsed = _parse_pytest_output(stdout, stderr)
 
     medre_evidence_limitations_note: str | None = None
     if not metadata_available:
         medre_evidence_limitations_note = (
-            "run-metadata.json not found: evidence derived from pytest "
-            "stdout regex (deprecated fallback, less reliable)"
+            "run-metadata.json not found: evidence derived from a "
+            "lower-confidence fallback (pytest stdout parsing — less reliable than "
+            "structured run metadata)"
         )
 
     # -- Step 10: Collect config snapshot (best-effort) -----------------------

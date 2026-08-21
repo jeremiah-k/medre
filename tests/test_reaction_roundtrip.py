@@ -183,8 +183,10 @@ def _decode_mesh_reaction_packet(
 
     if event.metadata.native is not None:
         updated_data = dict(event.metadata.native.data)
-        updated_data["longname"] = longname
-        updated_data["shortname"] = shortname
+        mesh_data = dict(updated_data.get("meshtastic", {}))
+        mesh_data["longname"] = longname
+        mesh_data["shortname"] = shortname
+        updated_data["meshtastic"] = mesh_data
         new_native = _replace(event.metadata.native, data=updated_data)
         new_metadata = _replace(event.metadata, native=new_native)
         event = _replace(event, metadata=new_metadata)

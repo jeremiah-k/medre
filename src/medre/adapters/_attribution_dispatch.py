@@ -24,14 +24,9 @@ from typing import Any
 
 from medre.adapters.lxmf.attribution import project_lxmf_attribution
 from medre.adapters.matrix.attribution import project_matrix_attribution
-from medre.adapters.matrix.event_shape import matrix_versioned_namespace
-from medre.adapters.meshcore.attribution import (
-    MESHCORE_NAMESPACED_KEYS,
-    project_meshcore_attribution,
-)
-from medre.adapters.meshtastic.attribution import (
-    project_meshtastic_attribution,
-)
+from medre.adapters._native_metadata_dispatch import versioned_native_namespace
+from medre.adapters.meshcore.attribution import project_meshcore_attribution
+from medre.adapters.meshtastic.attribution import project_meshtastic_attribution
 
 __all__ = [
     "detect_source_platform",
@@ -48,47 +43,6 @@ _ID_HEURISTICS: tuple[tuple[str, str], ...] = (
     ("meshcore", "meshcore"),
     ("lxmf", "lxmf"),
 )
-
-# Characteristic native-metadata keys per platform (ordered by priority).
-# Matrix is recognized only through the versioned ``native["matrix"]``
-# sub-namespace carrying ``sender``, ``event_id``, and ``room_id``.
-
-_MATRIX_KEYS: frozenset[str] = frozenset({"sender", "event_id", "room_id"})
-
-# Namespaced Meshtastic-native keys — primary detection signal.
-# These are unambiguous: a dict carrying any ``meshtastic.*`` key is
-# Meshtastic-native data.  Includes both identity keys (from_id,
-# longname, shortname) and non-identity packet metadata keys (packet_id,
-# channel, portnum, to_id, is_direct_message, reply_id, emoji,
-# emoji_flag) emitted by the codec under the ``meshtastic.*`` namespace.
-# The bare ``channel`` key is intentionally NOT a detection signal
-# (see ``_MESHTASTIC_LEGACY_KEYS`` below).
-_MESHTASTIC_NAMESPACED_KEYS: frozenset[str] = frozenset(
-    {
-        "meshtastic.from_id",
-        "meshtastic.longname",
-        "meshtastic.shortname",
-        "meshtastic.packet_id",
-        "meshtastic.channel",
-        "meshtastic.portnum",
-        "meshtastic.to_id",
-        "meshtastic.is_direct_message",
-        "meshtastic.reply_id",
-        "meshtastic.emoji",
-        "meshtastic.emoji_flag",
-    }
-)
-
-# Legacy bare Meshtastic keys — secondary detection signal for older
-# data and test fixtures.  ``channel`` is excluded because it is too
-# generic to identify Meshtastic native data on its own (a sparse dict
-# carrying only ``channel`` is not unambiguously Meshtastic).
-_MESHTASTIC_LEGACY_KEYS: frozenset[str] = frozenset(
-    {"longname", "shortname", "from_id", "packet_id"}
-)
-
-_LXMF_KEYS: frozenset[str] = frozenset({"source_hash", "destination_hash"})
-
 
 # ---------------------------------------------------------------------------
 # Platform detection
@@ -113,16 +67,10 @@ def detect_source_platform(
        → ``"meshtastic"``).
     3. Native key shape inspection, in this order:
 
-       a. Namespaced ``meshcore.*`` keys (unambiguous MeshCore-native).
-       b. Versioned Matrix namespace containing Matrix-characteristic keys
-          (``sender``, ``event_id``, ``room_id``).
-       c. Namespaced ``meshtastic.*`` keys (unambiguous
-          Meshtastic-native).
-       d. Legacy bare Meshtastic keys (``longname``, ``shortname``,
-          ``from_id``, ``packet_id``).  ``channel`` is intentionally
-          excluded — a sparse dict carrying only ``channel`` is not
-          unambiguously Meshtastic.
-       e. LXMF-characteristic keys (``source_hash``, ``destination_hash``).
+       a. Versioned MeshCore namespace.
+       b. Versioned Matrix namespace.
+       c. Versioned Meshtastic namespace.
+       d. Versioned LXMF namespace.
 
     Returns ``None`` when the platform cannot be determined.
 
@@ -149,27 +97,17 @@ def detect_source_platform(
     if not native_data:
         return None
 
-    # 3. Native key shape fallback.
-    # MeshCore: namespaced keys (highest priority for native detection).
-    if any(k in native_data for k in MESHCORE_NAMESPACED_KEYS):
+    # 3. Versioned native namespace fallback.
+    if versioned_native_namespace(native_data, "meshcore"):
         return "meshcore"
 
-    # Matrix metadata is recognized only through the versioned native
-    # namespace.  Root-level Matrix keys are not part of the canonical shape.
-    matrix_ns = matrix_versioned_namespace(native_data)
-    if any(k in matrix_ns for k in _MATRIX_KEYS):
+    if versioned_native_namespace(native_data, "matrix"):
         return "matrix"
 
-    # Meshtastic namespaced keys: unambiguous primary signal.
-    if any(k in native_data for k in _MESHTASTIC_NAMESPACED_KEYS):
+    if versioned_native_namespace(native_data, "meshtastic"):
         return "meshtastic"
 
-    # Meshtastic legacy bare keys: secondary signal for older data and
-    # test fixtures.  ``channel`` is excluded (too generic on its own).
-    if any(k in native_data for k in _MESHTASTIC_LEGACY_KEYS):
-        return "meshtastic"
-
-    if any(k in native_data for k in _LXMF_KEYS):
+    if versioned_native_namespace(native_data, "lxmf"):
         return "lxmf"
 
     return None

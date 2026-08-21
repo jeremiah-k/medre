@@ -20,6 +20,7 @@ from medre.adapters.matrix.event_shape import (
     matrix_namespace,
     mmrelay_interop_fields,
 )
+from medre.adapters.matrix.metadata import MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.kinds import EventKind
@@ -410,7 +411,7 @@ def test_matrix_relay_and_mmrelay_metadata_use_separate_namespaces() -> None:
         "body": "relayed",
         "medre": {
             "envelope": {
-                "schema_version": 1,
+                "schema_version": MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION,
                 "canonical_event_id": "evt-origin",
                 "source_adapter": "mesh-1",
                 "source_channel": "LongFast",
@@ -576,7 +577,7 @@ def test_matrix_native_projection_drops_malformed_relay_envelope() -> None:
             "body": "hello",
             "medre": {
                 "envelope": {
-                    "schema_version": 1,
+                    "schema_version": MATRIX_METADATA_ENVELOPE_SCHEMA_VERSION,
                     "canonical_event_id": ["not", "a", "string"],
                 }
             },

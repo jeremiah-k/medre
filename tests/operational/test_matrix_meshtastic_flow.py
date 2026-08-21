@@ -55,6 +55,7 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import DeliveryOutboxItem
+from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 
 # ---------------------------------------------------------------------------
 # Local fakes / helpers
@@ -256,13 +257,14 @@ def _matrix_inbound_event(
         payload={"body": body, "msgtype": msgtype},
         metadata=EventMetadata(
             native=NativeMetadata(
-                data={
-                    "room_id": room_id,
-                    "event_id": event_id,
-                    "sender": sender,
-                    "longname": sender,
-                    "shortname": sender[:5],
-                }
+                data=matrix_native_data(
+                    {
+                        "room_id": room_id,
+                        "event_id": event_id,
+                        "sender": sender,
+                        "sender_display_name": sender,
+                    }
+                )
             )
         ),
         source_native_ref=NativeRef(
@@ -281,15 +283,17 @@ def _meshtastic_inbound_event(
     relations: tuple[EventRelation, ...] = (),
     reply_id: int | None = None,
 ) -> CanonicalEvent:
-    native_data: dict[str, Any] = {
-        "packet_id": packet_id,
-        "from_id": sender,
-        "channel": channel,
-        "portnum": "text_message",
-        "longname": "TestNode",
-        "shortname": "Test",
-        "reply_id": reply_id,
-    }
+    native_data = meshtastic_native_data(
+        {
+            "packet_id": packet_id,
+            "from_id": sender,
+            "channel": channel,
+            "portnum": "text_message",
+            "longname": "TestNode",
+            "shortname": "Test",
+            "reply_id": reply_id,
+        }
+    )
     return CanonicalEvent(
         event_id=str(uuid.uuid4()),
         event_kind=EventKind.MESSAGE_CREATED,

@@ -1,5 +1,13 @@
 # Lifecycle Authority Audit Guide
 
+> **Historical snapshot — not contract authority.** This document records
+> point-in-time review evidence. Current behavior is defined by `docs/spec/`,
+> `docs/schemas/`, source contracts, and `current-state-inventory.md`.
+
+> **Current-state supersession.** Replay and outbox behavior has changed since
+> this snapshot. Current delivery semantics are defined by
+> `docs/spec/delivery-lifecycle.md`, `docs/spec/storage.md`, and the runtime source.
+
 Compact developer reference for auditing lifecycle status vocabulary,
 consistency across surfaces, and classification correctness. This doc
 complements the normative lifecycle authority spec at

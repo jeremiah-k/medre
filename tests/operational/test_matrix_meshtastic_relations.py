@@ -45,6 +45,7 @@ from medre.core.rendering.renderer import (
 )
 
 # Reuse helpers from the flow module.
+from tests.helpers.native_metadata import meshtastic_native_data
 from tests.operational.test_matrix_meshtastic_flow import (
     _make_ctx,
     _make_meshtastic_config,
@@ -276,11 +277,15 @@ class TestCrossPlatformReactions:
             payload={"body": "\u2764\ufe0f", "key": "\u2764\ufe0f"},
             metadata=EventMetadata(
                 native=NativeMetadata(
-                    data={
-                        "packet_id": 100,
-                        "longname": "Sender",
-                        "shortname": "Snd",
-                    }
+                    data=meshtastic_native_data(
+                        {
+                            "packet_id": 100,
+                            "from_id": "!abc123",
+                            "channel": 0,
+                            "longname": "Sender",
+                            "shortname": "Snd",
+                        }
+                    )
                 )
             ),
         )
