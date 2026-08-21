@@ -249,7 +249,7 @@ def _read_schema_meta(filename: str) -> SchemaEntry:
     path = _SCHEMAS_DIR / filename
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception:  # noqa: BLE001 — schema metadata is best-effort
         # Failure path emits present=False. When schemas are present (the
         # normal case) all four keys appear; on failure the extra null
         # keys are informative rather than harmful.
@@ -493,7 +493,7 @@ def _build_adapters(config: Any) -> dict[str, Any]:
                     transport, cfg
                 )
                 entry["secret_fields_present"] = _secret_fields_present(transport, cfg)
-            except Exception:
+            except Exception:  # noqa: BLE001 — enrichment is best-effort
                 pass
             adapters.append(entry)
     except Exception:
@@ -590,7 +590,7 @@ def _build_route_plan_member(config: Any) -> dict[str, Any]:
     try:
         plan = build_route_plan(config)
         return asdict(plan)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — bundle must stay JSON-valid
         return {"error": _safe_error(exc)}
 
 
@@ -607,7 +607,9 @@ def _build_redacted_config_text(raw_text: str, source_label: str) -> str | None:
         data = parse_yaml_config(raw_text, source_label)
         redacted = _redact(data)
         return yaml.safe_dump(redacted, sort_keys=True, default_flow_style=False)
-    except Exception:
+    except (
+        Exception
+    ):  # noqa: BLE001 — any failure drops the member, never crashes the bundle
         # Config-check already records the load failure; no config member.
         return None
 
@@ -669,7 +671,7 @@ def create_support_bundle(
 
     try:
         discovered_path, discovered_source = find_config(config_path)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — bundle keeps going on config miss
         config_check.error = _safe_error(exc)
 
     members["config_source.json"] = _json_bytes(
@@ -701,7 +703,7 @@ def create_support_bundle(
         except ConfigError as exc:
             config_check.success = False
             config_check.error = _safe_error(exc)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — defensive: keep bundle alive
             config_check.success = False
             config_check.error = _safe_error(exc)
 
