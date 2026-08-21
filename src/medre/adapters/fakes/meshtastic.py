@@ -408,7 +408,12 @@ class FakeMeshtasticAdapter(AdapterContract):
 
     # -- Inbound simulation -------------------------------------------------
 
-    async def simulate_inbound(self, packet: dict[str, Any]) -> None:
+    async def simulate_inbound(
+        self,
+        packet: dict[str, Any],
+        *,
+        connection_generation: int | None = None,
+    ) -> None:
         """Simulate an inbound Meshtastic packet.
 
         Classifies, decodes, and publishes the packet through the same
@@ -419,6 +424,14 @@ class FakeMeshtasticAdapter(AdapterContract):
         ----------
         packet:
             Raw Meshtastic packet dict.
+        connection_generation:
+            Optional connection-generation token captured at receive time
+            by the real Meshtastic session.  When provided, the fake
+            records it on the packet (``packet["_connection_generation"]``)
+            so test fixtures can assert that the publish path would have
+            access to the same staleness check the real adapter performs
+            (``adapter._publish_via_session``).  ``None`` preserves the
+            historical behaviour.
 
         Raises
         ------
@@ -432,6 +445,9 @@ class FakeMeshtasticAdapter(AdapterContract):
             )
         if not self._started:
             return
+
+        if connection_generation is not None:
+            packet["_connection_generation"] = connection_generation
 
         classification = self._classifier.classify(packet, own_node_id=None)
         if classification.action != "relay":

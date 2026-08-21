@@ -398,6 +398,7 @@ class FakeLxmfAdapter(AdapterContract):
         msg_id: str | None = None,
         title: str = "",
         source_name: str = "",
+        signature_validated: bool = True,
     ) -> CanonicalEvent:
         """Create a minimal :class:`CanonicalEvent` from LXMF-like
         packet data by constructing a fake packet and decoding it.
@@ -417,6 +418,12 @@ class FakeLxmfAdapter(AdapterContract):
             When non-empty, the codec stores it under
             ``metadata.native.data["lxmf"]["display_name"]`` so attribution
             projection maps it to ``source_sender_label``.
+        signature_validated:
+            Controls whether the fake packet reports the LXMF signature as
+            verified.  Defaults to ``True`` to match the historical
+            happy-path behaviour; set to ``False`` to exercise the
+            unverified-signature attribution path that the real SDK can
+            produce (LXMessage.unpack_from_bytes).
 
         Returns
         -------
@@ -431,7 +438,7 @@ class FakeLxmfAdapter(AdapterContract):
             "timestamp": 1700000000.0,
             "title": title,
             "fields": {},
-            "signature_validated": True,
+            "signature_validated": signature_validated,
             "has_fields": False,
             "source_name": source_name,
         }

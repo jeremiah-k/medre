@@ -94,7 +94,8 @@ class TestMatrixSessionLifecycle:
                 set(call.args[1]) for call in calls if len(call.args) >= 2
             ]
             assert any(
-                mock_nio.InviteMemberEvent in events for events in registered_event_sets
+                mock_nio.events.InviteMemberEvent in events
+                for events in registered_event_sets
             )
             assert any(
                 mock_nio.ReactionEvent in events for events in registered_event_sets
@@ -969,12 +970,12 @@ class TestRegisterInviteCallback:
         session._register_invite_callback()
 
     def test_catches_import_error(self, mock_nio) -> None:
-        """ImportError during `import nio` is caught, no crash (line 646)."""
+        """ImportError on the canonical nio.events import is caught."""
         config = make_matrix_config()
         session = MatrixSession(config)
         # Force a real client so we pass the None guard.
         session._client = MagicMock(name="mock_client")
-        with patch.dict(sys.modules, {"nio": None}):
+        with patch.dict(sys.modules, {"nio": None, "nio.events": None}):
             session._register_invite_callback()
         # Client should not have add_event_callback called (import failed).
         session._client.add_event_callback.assert_not_called()
@@ -1021,8 +1022,32 @@ class TestRegisterInviteCallback:
             session._register_invite_callback()
         session._client.add_event_callback.assert_not_called()
 
-    def test_registers_when_invite_cls_found_top_level(self, mock_nio) -> None:
-        """When InviteMemberEvent found at nio top level, callback registered."""
+    def test_registers_via_nio_events_direct_import(self, mock_nio) -> None:
+        """When InviteMemberEvent is found via the canonical nio.events
+        import, callback is registered with that class.
+        """
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        session._client = MagicMock(name="mock_client")
+
+        invite_cls = MagicMock(name="InviteMemberEvent")
+        fake_nio = MagicMock(name="nio")
+        fake_events = MagicMock(name="nio.events")
+        fake_events.InviteMemberEvent = invite_cls
+        fake_nio.events = fake_events
+
+        with patch.dict(sys.modules, {"nio": fake_nio, "nio.events": fake_events}):
+            session._register_invite_callback()
+        session._client.add_event_callback.assert_called_once()
+        call_args = session._client.add_event_callback.call_args
+        registered_handler = call_args[0][0]
+        assert registered_handler.__func__ is session._on_invite.__func__
+        assert invite_cls in call_args[0][1]
+
+    def test_registers_via_top_level_fallback(self, mock_nio) -> None:
+        """When nio.events.InviteMemberEvent is missing but nio.InviteMemberEvent
+        is present (older nio layout), the top-level fallback registers it.
+        """
         config = make_matrix_config()
         session = MatrixSession(config)
         session._client = MagicMock(name="mock_client")
@@ -1030,30 +1055,12 @@ class TestRegisterInviteCallback:
         invite_cls = MagicMock(name="InviteMemberEvent")
         fake_nio = MagicMock(name="nio")
         fake_nio.InviteMemberEvent = invite_cls
-        fake_events = MagicMock(name="nio.events")
-        fake_nio.events = fake_events
 
-        with patch.dict(sys.modules, {"nio": fake_nio, "nio.events": fake_events}):
-            session._register_invite_callback()
-        session._client.add_event_callback.assert_called_once()
-        call_args = session._client.add_event_callback.call_args
-        # Bound methods: compare by __func__ and __self__, not identity.
-        registered_handler = call_args[0][0]
-        assert registered_handler.__func__ is session._on_invite.__func__
-        assert invite_cls in call_args[0][1]
+        class _Boom:
+            def __getattr__(self, name: str) -> None:
+                raise ImportError(f"no module attribute {name}")
 
-    def test_registers_via_nio_events_fallback(self, mock_nio) -> None:
-        """When InviteMemberEvent only on nio.events, callback registered."""
-        config = make_matrix_config()
-        session = MatrixSession(config)
-        session._client = MagicMock(name="mock_client")
-
-        invite_cls = MagicMock(name="InviteMemberEvent")
-        fake_nio = MagicMock(name="nio")
-        del fake_nio.InviteMemberEvent
-        fake_events = MagicMock(name="nio.events")
-        fake_events.InviteMemberEvent = invite_cls
-        fake_nio.events = fake_events
+        fake_events = _Boom()
 
         with patch.dict(sys.modules, {"nio": fake_nio, "nio.events": fake_events}):
             session._register_invite_callback()
@@ -1335,7 +1342,7 @@ class TestInviteHandling:
             await session.start()
             calls = mock_nio.AsyncClient.return_value.add_event_callback.call_args_list
             invite_registered = any(
-                mock_nio.InviteMemberEvent in call[0][1]
+                mock_nio.events.InviteMemberEvent in call[0][1]
                 for call in calls
                 if len(call[0]) >= 2
             )

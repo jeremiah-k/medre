@@ -112,8 +112,10 @@ fields:
 * ``signature_validated`` — bool
 * ``has_fields`` — bool
 * ``delivery_method`` — str ("direct"|"opportunistic"|"propagated"|None)
-* ``source_name`` — str (may be empty; announce-derived display name
-  when the message object carries one)
+
+Display names resolve via ``resolve_display_name`` /
+``RNS.Identity.recall_app_data`` (``lxmf.display_name_from_app_data``),
+not via attributes on the ``LXMessage``.
 
 No raw ``LXMessage``, ``RNS.Destination``, or ``RNS.Identity``
 objects are ever included in the normalised dict.
@@ -219,6 +221,11 @@ def _build_state_map() -> dict[int, LxmfDeliveryState]:
 
         # LXMF.LXMessage states are class-level constants.
         # Map known names to our enum values.
+        # Note: ``LXMessage.PAPER`` (0x05) is also used as the delivery
+        # METHOD constant and is assigned to ``state`` by
+        # ``__mark_paper_generated`` (LXMF.LXMessage:587) — it is not in
+        # ``LXMessage.states`` and is therefore deliberately mapped to
+        # UNMAPPED here.
         _name_to_state = {
             "GENERATING": LxmfDeliveryState.GENERATING,
             "OUTBOUND": LxmfDeliveryState.OUTBOUND,
@@ -1057,9 +1064,23 @@ class LxmfSession:
                 exit_handler = getattr(router, "exit_handler", None)
                 if callable(exit_handler):
                     exit_handler()
-            except Exception as exc:  # noqa: BLE001 - best-effort teardown
+            except Exception as exc:
                 self._logger.warning(
                     "LxmfSession %s: LXMRouter exit handler failed: %s",
+                    self._adapter_id,
+                    exc,
+                )
+
+            # LXMRouter.__init__ registers the bound exit_handler with
+            # ``atexit`` (LXMF/LXMRouter.py:307).  We just ran it
+            # manually above, so unregister it before interpreter
+            # shutdown runs it again — otherwise the same persistence
+            # writes execute twice on process exit.
+            try:
+                atexit.unregister(exit_handler)
+            except Exception as exc:
+                self._logger.debug(
+                    "LxmfSession %s: could not unregister atexit handler: %s",
                     self._adapter_id,
                     exc,
                 )
@@ -1094,7 +1115,7 @@ class LxmfSession:
                         seen_destination_ids.add(destination_id)
                         try:
                             deregister_destination(destination)
-                        except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                        except Exception as exc:
                             self._logger.warning(
                                 "LxmfSession %s: could not deregister owned "
                                 "Reticulum destination: %s",
@@ -1114,28 +1135,13 @@ class LxmfSession:
                             continue
                         try:
                             deregister_announce_handler(handler)
-                        except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                        except Exception as exc:
                             self._logger.warning(
                                 "LxmfSession %s: could not deregister owned LXMF "
                                 "announce handler: %s",
                                 self._adapter_id,
                                 exc,
                             )
-
-            # LXMRouter registers the bound exit handler with atexit.  Once we
-            # have explicitly run it, unregister it so stopped/reconnected
-            # routers are not retained until process exit.
-            try:
-                exit_handler = getattr(router, "exit_handler", None)
-                if callable(exit_handler):
-                    atexit.unregister(exit_handler)
-            except (AttributeError, TypeError, ValueError) as exc:
-                self._logger.debug(
-                    "LxmfSession %s: could not unregister LXMRouter atexit "
-                    "handler: %s",
-                    self._adapter_id,
-                    exc,
-                )
 
         self._delivery_destination = None
         self._delivery_destination_hash = None
@@ -1427,21 +1433,9 @@ class LxmfSession:
         else:
             title = ""
 
-        # Display name -- defensive read.  LXMessage may carry
-        # ``source_name`` when enriched by announce-cache lookups or by
-        # future library versions.  No network call is made here; the
-        # attribute is read as-is and empty values normalise to "".
-        raw_source_name = getattr(message, "source_name", None)
-        if isinstance(raw_source_name, bytes):
-            try:
-                source_name = raw_source_name.decode("utf-8")
-            except UnicodeDecodeError:
-                source_name = raw_source_name.decode("utf-8", errors="replace")
-        elif isinstance(raw_source_name, str):
-            source_name = raw_source_name
-        else:
-            source_name = ""
-
+        # Display names resolve via resolve_display_name /
+        # RNS.Identity.recall_app_data (LXMF.display_name_from_app_data),
+        # not via attributes on the LXMessage object itself.
         # Fields
         raw_fields = getattr(message, "fields", None)
         fields: dict[int, Any] = raw_fields if isinstance(raw_fields, dict) else {}
@@ -1465,7 +1459,6 @@ class LxmfSession:
             "signature_validated": signature_validated,
             "has_fields": has_fields,
             "delivery_method": delivery_method,
-            "source_name": source_name,
         }
 
     @staticmethod

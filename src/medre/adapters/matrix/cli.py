@@ -8,6 +8,25 @@ import sys
 from pathlib import Path
 
 
+def _prompt_credentials_interactive() -> tuple[str, str]:
+    """Read interactive Matrix credentials without blocking the event loop.
+
+    Synchronous helper invoked via :func:`asyncio.to_thread` from
+    :func:`_adapter_matrix_auth_login`.  Prompts for the user ID and
+    password on the controlling terminal; ``sys.exit(1)`` preserves the
+    historical exit-code contract for missing input.
+    """
+    user_id = input("Matrix user ID (e.g. @bot:example.com): ").strip()
+    if not user_id:
+        print("Error: user ID required", file=sys.stderr)
+        sys.exit(1)
+    password = getpass.getpass("Matrix password: ")
+    if not password:
+        print("Error: password is required", file=sys.stderr)
+        sys.exit(1)
+    return user_id, password
+
+
 async def _adapter_matrix_auth_login(args: object) -> None:
     """Handle ``medre adapter matrix auth login``.
 
@@ -52,14 +71,11 @@ async def _adapter_matrix_auth_login(args: object) -> None:
 
     if provided == 0:
         # --- FULLY INTERACTIVE ----------------------------------------------
-        user_id = input("Matrix user ID (e.g. @bot:example.com): ").strip()
-        if not user_id:
-            print("Error: user ID required", file=sys.stderr)
-            sys.exit(1)
-        password = getpass.getpass("Matrix password: ")
-        if not password:
-            print("Error: password is required", file=sys.stderr)
-            sys.exit(1)
+        # input() and getpass.getpass() are blocking stdlib calls; run them
+        # off the asyncio loop via ``asyncio.to_thread`` so the event loop
+        # stays responsive while the operator types.  Exit codes and
+        # prompt/error text are preserved verbatim.
+        user_id, password = await asyncio.to_thread(_prompt_credentials_interactive)
 
     elif provided > 0:
         # Check whether we have enough for non-interactive mode.

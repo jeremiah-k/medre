@@ -1006,7 +1006,7 @@ def collect_docker_bridge_artifacts(
                 medre_evidence[key] = meta_medre[key]
 
         meta_meshtastic = metadata.get("meshtastic", {})
-        if "packet_ids" in meta_meshtastic and meta_meshtastic["packet_ids"]:
+        if meta_meshtastic.get("packet_ids"):
             meshtastic_evidence.setdefault("outbound", {})["packet_ids"] = (
                 meta_meshtastic["packet_ids"]
             )
