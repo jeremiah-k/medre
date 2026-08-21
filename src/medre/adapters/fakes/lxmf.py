@@ -414,9 +414,9 @@ class FakeLxmfAdapter(AdapterContract):
             Optional message title.
         source_name:
             Optional announce-derived display name for the sender.
-            When non-empty, the codec injects ``lxmf.display_name``
-            into native metadata so attribution projection maps it
-            to ``source_sender_label``.
+            When non-empty, the codec stores it under
+            ``metadata.native.data["lxmf"]["display_name"]`` so attribution
+            projection maps it to ``source_sender_label``.
 
         Returns
         -------

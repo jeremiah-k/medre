@@ -80,6 +80,7 @@ def test_project_with_hex_string_source_hash() -> None:
     assert fields["source_sender_id"] == "ab" * 16
     assert fields["source_sender_label"] is None
     assert fields["source_sender_short_label"] is None
+    assert fields["source_sender_handle"] is None
 
 
 def test_project_with_bytes_source_hash() -> None:
@@ -146,11 +147,12 @@ def test_project_returns_dict() -> None:
     """project_lxmf_attribution returns a plain dict, not a dataclass."""
     fields = _project({"source_hash": "abcd"})
     assert isinstance(fields, dict)
-    # All three canonical keys are always present.
+    # All generic sender keys are always present.
     assert set(fields.keys()) == {
         "source_sender_id",
         "source_sender_label",
         "source_sender_short_label",
+        "source_sender_handle",
     }
 
 

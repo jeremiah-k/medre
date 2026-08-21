@@ -5,10 +5,6 @@
   "directionality": "source_to_dest",
   "enabled": true,
   "filter_hooks": [],
-  "source_channel": null,
-  "dest_channel": null,
-  "source_room": null,
-  "dest_room": null,
   "policy": {
     "allowed_event_types": ["message.text"],
     "allowed_source_adapters": [],

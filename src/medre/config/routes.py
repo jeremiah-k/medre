@@ -406,6 +406,10 @@ class ChannelRoomMapEntry:
         Per-entry reverse-leg source label. Same semantics as
         ``source_origin_label`` but applied when the direction is swapped
         during expansion.
+
+    Direct construction raises :class:`ValueError` for value-object invariants.
+    User-facing route parsing and route-shape validation raise
+    :class:`ConfigValidationError` with the route section path.
     """
 
     room: str
@@ -814,7 +818,8 @@ class RouteConfig:
             if not isinstance(entry, ChannelRoomMapEntry):
                 raise ConfigValidationError(
                     f"Route {self.route_id!r}: channel_room_map entry for "
-                    f"channel {channel!r} must be ChannelRoomMapEntry, got "
+                    f"channel {channel!r} must be a structured entry with required "
+                    f"'room'; direct construction requires ChannelRoomMapEntry, got "
                     f"{type(entry).__name__}",
                     section_path=f"{section_path}.channel_room_map.{channel}",
                 )

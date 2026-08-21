@@ -26,6 +26,13 @@ contract schemas mirror their projection helpers and normative specifications.
 The `examples/` directory contains representative JSON payloads validated
 against these schemas.
 
+| Example                                             | Description                        |
+| --------------------------------------------------- | ---------------------------------- |
+| `examples/matrix-native-metadata-example.json`      | Matrix native metadata payload     |
+| `examples/meshtastic-native-metadata-example.json`  | Meshtastic native metadata payload |
+| `examples/meshcore-native-metadata-example.json`    | MeshCore native metadata payload   |
+| `examples/lxmf-native-metadata-example.json`        | LXMF native metadata payload       |
+
 ## Generation
 
 Schemas are hand-authored to match the current source types or adapter contract.

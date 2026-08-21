@@ -307,7 +307,7 @@ class TestMalformedPayloadValidation:
         """schema_version=None is rejected."""
         kw = _valid_kwargs()
         kw["schema_version"] = None  # type: ignore[arg-type]
-        with pytest.raises((msgspec.ValidationError, TypeError)):
+        with pytest.raises(ValueError, match="schema_version"):
             CanonicalEvent(**kw)
 
     def test_timestamp_none_rejected(self) -> None:

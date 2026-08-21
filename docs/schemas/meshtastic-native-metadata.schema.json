@@ -15,6 +15,16 @@
     "Scalar": {
       "type": ["string", "integer", "number", "boolean", "null"]
     },
+    "JsonValue": {
+      "anyOf": [
+        { "type": ["string", "number", "boolean", "null"] },
+        { "type": "array", "items": { "$ref": "#/$defs/JsonValue" } },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+        }
+      ]
+    },
     "MeshtasticEvent": {
       "type": "object",
       "additionalProperties": false,
@@ -48,8 +58,14 @@
         "reply_id": { "$ref": "#/$defs/Scalar" },
         "emoji": { "$ref": "#/$defs/Scalar" },
         "emoji_flag": { "$ref": "#/$defs/Scalar" },
-        "packet": { "type": "object" },
-        "decoded": { "type": "object" },
+        "packet": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+        },
+        "decoded": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+        },
         "classification": {
           "type": "object",
           "additionalProperties": false,

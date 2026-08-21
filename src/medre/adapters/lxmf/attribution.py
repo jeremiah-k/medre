@@ -72,6 +72,7 @@ def project_lxmf_attribution(
         "source_sender_id": sender_id,
         "source_sender_label": sender_label,
         "source_sender_short_label": sender_short_label,
+        "source_sender_handle": None,
     }
 
 

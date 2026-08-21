@@ -48,6 +48,7 @@ def project_meshcore_attribution(
         "source_native_message_id": packet_id,
         "source_sender_label": sender_label,
         "source_sender_short_label": sender_short_label,
+        "source_sender_handle": None,
     }
 
 

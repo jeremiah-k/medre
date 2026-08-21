@@ -1379,9 +1379,7 @@ class MeshtasticAdapter(AdapterContract):
         send_meta: dict[str, object] = {}
 
         # Merge delivery metadata into the ``meshtastic`` namespace.
-        meshtastic_meta: dict[str, object] = {
-            "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION
-        }
+        meshtastic_meta: dict[str, object] = {}
         transport_keys = {
             "id",
             "packet_id",

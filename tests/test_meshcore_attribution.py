@@ -42,6 +42,7 @@ def test_full_namespaced_projection() -> None:
     assert result["source_sender_id"] == "deadbeef"
     assert result["source_native_channel_id"] == "3"
     assert result["source_native_message_id"] == "999"
+    assert result["source_sender_handle"] is None
 
 
 def test_namespaced_pubkey_prefix_preferred_over_sender_id() -> None:

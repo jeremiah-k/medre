@@ -218,8 +218,8 @@ class LxmfAdapter(AdapterContract):
         Failures resolve to no injection (``source_name`` stays empty),
         so enrichment is best-effort and never blocks ingestion.
 
-        The injected value is picked up by :meth:`LxmfCodec.decode`,
-        which projects it into ``lxmf.display_name`` native metadata.
+        The injected value is picked up by :meth:`LxmfCodec.decode`, which
+        projects it into ``metadata.native.data["lxmf"]["display_name"]``.
         """
         try:
             existing = packet.get("source_name")
@@ -603,7 +603,7 @@ class LxmfAdapter(AdapterContract):
             self._classifier_messages_relayed += 1
 
             # Enrich with announce-resolved display name before decode so
-            # the codec can project it into lxmf.display_name metadata.
+            # the codec can project it into the versioned LXMF display-name field.
             self._enrich_with_display_name(packet)
 
             # Decode before committing dedup key so that decode failures
@@ -739,7 +739,7 @@ class LxmfAdapter(AdapterContract):
         self._classifier_messages_relayed += 1
 
         # Enrich with announce-resolved display name before decode so
-        # the codec can project it into lxmf.display_name metadata.
+        # the codec can project it into the versioned LXMF display-name field.
         self._enrich_with_display_name(packet)
 
         # Decode and publish before committing dedup key so that
