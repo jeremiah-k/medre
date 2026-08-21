@@ -121,6 +121,28 @@ class PreReleaseSchemaMismatchError(StorageInitializationError):
         )
 
 
+class PreReleaseSchemaConstraintMismatchError(StorageInitializationError):
+    """Raised when a pre-release table lacks required structural constraints."""
+
+    def __init__(
+        self,
+        path: str | None,
+        table: str,
+        missing_constraints: list[str],
+    ) -> None:
+        self.path = path
+        self.table = table
+        self.missing_constraints = missing_constraints
+        path_hint = f" (database: {path})" if path else ""
+        super().__init__(
+            f"Pre-release schema constraint mismatch: table '{table}' is "
+            f"missing required constraints {sorted(missing_constraints)}.{path_hint} "
+            "The database does not match the current pre-release shape. "
+            "Please recreate the database; MEDRE does not automatically "
+            "transform pre-release database layouts."
+        )
+
+
 class SchemaValidationError(StorageError):
     """Raised when stored data does not conform to the expected schema."""
 

@@ -27,8 +27,15 @@ appropriate ``mark_outbox_*`` transition method.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.events import (
+    CanonicalEvent,
+    DeliveryReceipt,
+    EventMetadata,
+    NativeMessageRef,
+)
+from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 
 def make_outbox_item(
@@ -52,40 +59,61 @@ def make_outbox_item(
         delivery_plan_id=delivery_plan_id,
         target_adapter=target_adapter,
         target_channel=target_channel,
-         attempt_number=attempt_number,
-         status=status,
-         next_attempt_at=next_attempt_at,
-     )
+        attempt_number=attempt_number,
+        status=status,
+        next_attempt_at=next_attempt_at,
+    )
 
 
 SENTINEL_EVENT_ID = "__outbox_default__"
 
 
-async def admit_default_event(storage) -> None:
-    """Append the sentinel canonical event used by ``make_outbox_item()``.
-
-    Tests that write ``delivery_outbox`` / ``native_message_refs`` /
-    ``delivery_receipts`` rows directly (bypassing runtime admission)
-    must satisfy ``PRAGMA foreign_keys=ON`` against
-    ``canonical_events(event_id)``.  Call once per freshly-initialised
-    storage, before the first direct outbox/native-ref/receipt write.
-    """
-    from medre.core.events import CanonicalEvent, EventMetadata
-    from datetime import datetime, timezone
-
+async def admit_event(storage: StorageBackend, event_id: str) -> None:
+    """Ensure a minimal canonical parent exists for direct FK-dependent writes."""
+    if await storage.get(event_id) is not None:
+        return
     await storage.append(
         CanonicalEvent(
-            event_id=SENTINEL_EVENT_ID,
+            event_id=event_id,
             event_kind="message.created",
             schema_version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             source_adapter="test-fixture",
             source_transport_id="t1",
             source_channel_id=None,
             parent_event_id=None,
             lineage=(),
             relations=(),
-            payload={"text": "outbox fixture default"},
+            payload={"text": "foreign-key fixture parent"},
             metadata=EventMetadata(),
         )
     )
+
+
+async def admit_default_event(storage: StorageBackend) -> None:
+    """Append the sentinel canonical event used by ``make_outbox_item()``."""
+    await admit_event(storage, SENTINEL_EVENT_ID)
+
+
+async def create_outbox_item_with_parent(
+    storage: StorageBackend, item: DeliveryOutboxItem
+) -> DeliveryOutboxItem:
+    """Admit the referenced event, then exercise production outbox creation."""
+    await admit_event(storage, item.event_id)
+    return await storage.create_outbox_item(item)
+
+
+async def append_receipt_with_parent(
+    storage: StorageBackend, receipt: DeliveryReceipt
+) -> None:
+    """Admit the referenced event, then append the receipt."""
+    await admit_event(storage, receipt.event_id)
+    await storage.append_receipt(receipt)
+
+
+async def store_native_ref_with_parent(
+    storage: StorageBackend, ref: NativeMessageRef
+) -> None:
+    """Admit the referenced event, then persist the native reference."""
+    await admit_event(storage, ref.event_id)
+    await storage.store_native_ref(ref)

@@ -11,12 +11,17 @@ Covers:
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
 from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    PreReleaseSchemaConstraintMismatchError,
+    StorageError,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import make_outbox_item
 
@@ -27,7 +32,7 @@ def _make_event(event_id: str = "evt-fk-1") -> CanonicalEvent:
         event_id=event_id,
         event_kind="message.created",
         schema_version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         source_adapter="fake_transport",
         source_transport_id="t1",
         source_channel_id=None,
@@ -57,39 +62,21 @@ class TestForeignKeysEnabled:
         assert int(list(row.values())[0]) == 1
 
     async def test_foreign_keys_off_on_readonly_connection(
-        self, tmp_path: "pytest.TmpPathFactory"
+        self, tmp_path: Path
     ) -> None:
-        """The readonly open path does NOT enable foreign-key enforcement.
+        """Read-only inspectors do not enable write-side FK enforcement."""
+        db_path = str(tmp_path / "test.db")
+        writer = SQLiteStorage(db_path=db_path)
+        await writer.initialize()
+        await writer.close()
 
-        Readonly connections cannot enforce FKs (they cannot validate or
-        rewrite write traffic anyway) and enabling it on a URI-mode=ro
-        connection is benign but unnecessary.  The contract is that
-        readonly inspectors are free of side effects.
-        """
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db_path = f.name
+        reader = await SQLiteStorage.open_readonly(db_path)
         try:
-            writer = SQLiteStorage(db_path=db_path)
-            await writer.initialize()
-            await writer.close()
-
-            reader = await SQLiteStorage.open_readonly(db_path)
-            try:
-                row = await reader._read_one("PRAGMA foreign_keys")
-                # Readonly connections may report 0 (FK enforcement is a
-                # no-op without write access).  The contract here is
-                # "do not enable enforcement on readonly".
-                assert row is not None
-                assert int(list(row.values())[0]) == 0
-            finally:
-                await reader.close()
+            row = await reader._read_one("PRAGMA foreign_keys")
+            assert row is not None
+            assert int(next(iter(row.values()))) == 0
         finally:
-            import os
-
-            with __import__("contextlib").suppress(FileNotFoundError):
-                os.unlink(db_path)
+            await reader.close()
 
 
 # ===================================================================
@@ -159,6 +146,40 @@ class TestDeliveryOutboxForeignKey:
             "SELECT * FROM pragma_foreign_key_list('delivery_outbox')"
         )
         assert rows, "delivery_outbox must declare at least one FK"
-        # At least one row references canonical_events.
-        table_refs = {r["table"] for r in rows}
-        assert "canonical_events" in table_refs
+        assert any(
+            row["table"] == "canonical_events"
+            and row["from"] == "event_id"
+            and row["to"] == "event_id"
+            for row in rows
+        )
+
+    async def test_existing_outbox_without_fk_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """A stamped prerelease DB cannot masquerade as the current FK shape."""
+        db_path = tmp_path / "missing-outbox-fk.db"
+        writer = SQLiteStorage(str(db_path))
+        await writer.initialize()
+        await writer.close()
+
+        with sqlite3.connect(db_path) as db:
+            db.execute("PRAGMA foreign_keys=OFF")
+            db.execute(
+                "ALTER TABLE delivery_outbox RENAME TO delivery_outbox_current"
+            )
+            original_sql = db.execute(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type='table' AND name='delivery_outbox_current'"
+            ).fetchone()[0]
+            without_fk = original_sql.replace(
+                " REFERENCES canonical_events(event_id)", ""
+            ).replace("delivery_outbox_current", "delivery_outbox", 1)
+            db.execute(without_fk)
+            db.execute("DROP TABLE delivery_outbox_current")
+            db.commit()
+
+        storage = SQLiteStorage(str(db_path))
+        with pytest.raises(
+            PreReleaseSchemaConstraintMismatchError, match="event_id"
+        ):
+            await storage.initialize()

@@ -15,6 +15,7 @@ import pytest
 from medre.runtime.app import MedreApp
 from medre.runtime.snapshot import build_runtime_snapshot
 from tests.helpers.snapshot import make_fake_app
+from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 
 def _make_medre_app() -> MedreApp:
@@ -91,7 +92,8 @@ class TestStorageBackedOutboxRefresh:
         try:
             await storage.initialize()
             for i in range(3):
-                await storage.create_outbox_item(
+                await create_outbox_item_with_parent(
+                    storage,
                     DeliveryOutboxItem(
                         outbox_id=f"obx-refresh-{i}",
                         event_id=f"evt-refresh-{i}",
@@ -141,7 +143,8 @@ class TestStorageRefreshAuthoritativeOverWorkerCache:
         try:
             await storage.initialize()
             for i in range(5):
-                await storage.create_outbox_item(
+                await create_outbox_item_with_parent(
+                    storage,
                     DeliveryOutboxItem(
                         outbox_id=f"obx-auth-{i}",
                         event_id=f"evt-auth-{i}",
@@ -153,7 +156,8 @@ class TestStorageRefreshAuthoritativeOverWorkerCache:
                     )
                 )
             for i in range(3):
-                created = await storage.create_outbox_item(
+                created = await create_outbox_item_with_parent(
+                    storage,
                     DeliveryOutboxItem(
                         outbox_id=f"obx-retry-{i}",
                         event_id=f"evt-retry-{i}",

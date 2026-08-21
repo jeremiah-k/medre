@@ -15,6 +15,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 from .conftest import _make_lifecycle, _make_receipt
+from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 # ===================================================================
 # Outbox finalization — status transitions
@@ -57,7 +58,7 @@ class TestFinalizeOutboxOutcome:
             target_adapter="test_adapter",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await create_outbox_item_with_parent(temp_storage, item)
 
         receipt = _make_receipt(status="sent")
         await lifecycle.finalize_outbox_outcome(
@@ -89,7 +90,7 @@ class TestFinalizeOutboxOutcome:
             target_adapter="test_adapter",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await create_outbox_item_with_parent(temp_storage, item)
 
         receipt = _make_receipt(status="queued", event_id="evt-q")
         await lifecycle.finalize_outbox_outcome(
@@ -121,7 +122,7 @@ class TestFinalizeOutboxOutcome:
             target_adapter="test_adapter",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await create_outbox_item_with_parent(temp_storage, item)
 
         receipt = _make_receipt(status="failed", event_id="evt-dl")
         await lifecycle.finalize_outbox_outcome(
@@ -153,7 +154,7 @@ class TestFinalizeOutboxOutcome:
             target_adapter="test_adapter",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await create_outbox_item_with_parent(temp_storage, item)
 
         retry_at = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
         receipt = _make_receipt(
@@ -192,7 +193,7 @@ class TestFinalizeOutboxOutcome:
             target_adapter="test_adapter",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await create_outbox_item_with_parent(temp_storage, item)
 
         receipt = _make_receipt(status="failed", event_id="evt-rw-np")
         await lifecycle.finalize_outbox_outcome(
@@ -276,7 +277,7 @@ class TestFinalizeOutboxRetryTimestampAlignment:
             target_adapter="test_adapter",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await create_outbox_item_with_parent(temp_storage, item)
 
         # Receipt: failed, transient, next_retry_at=None (exhausted).
         receipt = _make_receipt(
@@ -320,7 +321,7 @@ class TestFinalizeOutboxRetryTimestampAlignment:
             target_adapter="test_adapter",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await create_outbox_item_with_parent(temp_storage, item)
 
         # Craft a receipt with a specific next_retry_at.
         expected_retry_at = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
@@ -372,7 +373,7 @@ class TestFinalizeOutboxDefensiveFallback:
             target_adapter="test_adapter",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await create_outbox_item_with_parent(temp_storage, item)
 
         policy = RetryPolicy(max_attempts=5, backoff_base=2.0)
         await lifecycle.finalize_outbox_outcome(
@@ -411,7 +412,7 @@ class TestFinalizeOutboxNoReceiptExhausted:
             target_adapter="test_adapter",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await create_outbox_item_with_parent(temp_storage, item)
 
         # max_attempts=1 means attempt_number=1 is already exhausted.
         policy = RetryPolicy(max_attempts=1, backoff_base=1.0)

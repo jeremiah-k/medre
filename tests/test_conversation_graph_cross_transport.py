@@ -739,10 +739,9 @@ class TestStaleNativeTargetNoPreValidation:
                 native_relation_id=None,
                 direction="inbound",
             )
-            await temp_storage.store_native_ref(stale_ref)
 
-            # Store the original event so conversation identity can walk
-            # to it (even though the "native" message might be gone).
+            # Store the canonical event before its native-reference evidence.
+            # The foreign key makes that evidence ordering explicit.
             orig_event = _make_event(
                 event_id=CANON_ID,
                 source_adapter=MX,
@@ -757,6 +756,7 @@ class TestStaleNativeTargetNoPreValidation:
                 conversation_id=CANON_ID,
             )
             await temp_storage.append(orig_event)
+            await temp_storage.store_native_ref(stale_ref)
 
             # Now send a reply referencing the stale native ref.
             reply_rel = EventRelation(

@@ -173,6 +173,7 @@ class TestPhase25TrustsPlanCapabilityLevel:
             source_channel_id="ch-0",
             payload={"emoji": "\U0001f44d"},
         )
+        await temp_storage.append(event)
 
         # Hand-crafted plan: native method but unsupported with no reason.
         target = RouteTarget(adapter="dest")
@@ -246,6 +247,7 @@ class TestPhase25DoesNotCallResolver:
             source_channel_id="ch-0",
             payload={"emoji": "\U0001f44d"},
         )
+        await temp_storage.append(event)
 
         try:
             # Phase 1: route_event() uses the resolver during planning — that's fine.
@@ -355,6 +357,7 @@ class TestPhase275IncludesPlanReason:
             source_adapter="src",
             source_channel_id="ch-0",
         )
+        await temp_storage.append(event)
 
         # Build a hand-crafted plan with skip strategy but no reason.
         # capability_level is None (not "unsupported") so Phase 2.5

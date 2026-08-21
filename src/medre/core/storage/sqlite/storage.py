@@ -32,6 +32,7 @@ from typing import Any
 
 from medre.core.storage.backend import (
     DuplicateEventError,
+    PreReleaseSchemaConstraintMismatchError,
     PreReleaseSchemaMismatchError,
     StorageError,
     StorageInitializationError,
@@ -60,6 +61,7 @@ from medre.core.storage.sqlite.schema import (
     _EXPECTED_SCHEMA_VERSION,
     _INDEXES,
     _REQUIRED_COLUMNS,
+    _REQUIRED_FOREIGN_KEYS,
     _SCHEMA,
 )
 
@@ -177,9 +179,10 @@ class _SQLiteStorageBase:
             # Verify schema version after DDL.
             await self._verify_schema_version()
 
-            # Verify column shape — catches old pre-release DBs that claim
-            # schema_version=1 but predate current columns.
+            # Verify structural shape — catches old pre-release DBs that claim
+            # schema_version=1 but predate current columns or constraints.
             await self._validate_schema_shape()
+            await self._validate_schema_foreign_keys()
 
             # Create targeted indexes AFTER shape validation so that old-shape
             # databases fail with a clear StorageInitializationError before
@@ -261,6 +264,26 @@ class _SQLiteStorageBase:
                     missing_columns=sorted(missing),
                 )
 
+    async def _validate_schema_foreign_keys(self) -> None:
+        """Reject pre-release tables that lack required foreign-key mappings."""
+        for table, required in _REQUIRED_FOREIGN_KEYS.items():
+            rows = await self._read_all(f"PRAGMA foreign_key_list({table})")
+            existing = {
+                (str(row["from"]), str(row["table"]), str(row["to"]))
+                for row in rows
+            }
+            missing = required - existing
+            if missing:
+                formatted = [
+                    f"{source} -> {target_table}.{target_column}"
+                    for source, target_table, target_column in sorted(missing)
+                ]
+                raise PreReleaseSchemaConstraintMismatchError(
+                    path=self._db_path,
+                    table=table,
+                    missing_constraints=formatted,
+                )
+
     async def _create_indexes(self) -> None:
         """Create targeted indexes for current query patterns.
 
@@ -318,6 +341,7 @@ class _SQLiteStorageBase:
             # Validate metadata and shape without writing anything.
             await instance._verify_schema_version_readonly()
             await instance._validate_schema_shape()
+            await instance._validate_schema_foreign_keys()
         except BaseException:
             try:
                 await instance.close()

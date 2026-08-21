@@ -30,6 +30,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
+from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -87,8 +88,9 @@ async def _seed_outbox(
 ) -> DeliveryOutboxItem:
     """Create and persist an outbox row with the given status.
 
-    For terminal statuses (sent, dead_lettered, cancelled, abandoned) or
-    queued, we first create the row as ``in_progress`` then transition it.
+    The referenced canonical event must already exist. For terminal statuses
+    (sent, dead_lettered, cancelled, abandoned) or queued, we first create the
+    row as ``in_progress`` then transition it.
     """
     plan_id = _compute_plan_id(event_id)
     now = datetime.now(timezone.utc)
@@ -167,6 +169,8 @@ class TestPipelineSkipsTerminalRow:
         terminal_status: str,
     ) -> None:
         event_id = f"evt-terminal-{terminal_status}-001"
+        event = make_event(event_id=event_id, source_channel_id="ch-0")
+        await temp_storage.append(event)
         await _seed_outbox(temp_storage, event_id=event_id, status=terminal_status)
 
         config = make_pipeline_config_for_pipeline(
@@ -177,8 +181,9 @@ class TestPipelineSkipsTerminalRow:
         runner = PipelineRunner(config)
         await runner.start()
         try:
-            event = make_event(event_id=event_id, source_channel_id="ch-0")
-            outcomes = await runner.handle_ingress(event)
+            outcomes = await runner.deliver_to_targets(
+                event, [(route, _make_plan(event_id, route))]
+            )
 
             assert len(outcomes) == 1
             outcome = outcomes[0]
@@ -207,6 +212,8 @@ class TestPipelineSkipsQueuedRow:
         route: Route,
     ) -> None:
         event_id = "evt-queued-001"
+        event = make_event(event_id=event_id, source_channel_id="ch-0")
+        await temp_storage.append(event)
         await _seed_outbox(temp_storage, event_id=event_id, status="queued")
 
         config = make_pipeline_config_for_pipeline(
@@ -217,8 +224,9 @@ class TestPipelineSkipsQueuedRow:
         runner = PipelineRunner(config)
         await runner.start()
         try:
-            event = make_event(event_id=event_id, source_channel_id="ch-0")
-            outcomes = await runner.handle_ingress(event)
+            outcomes = await runner.deliver_to_targets(
+                event, [(route, _make_plan(event_id, route))]
+            )
 
             assert len(outcomes) == 1
             outcome = outcomes[0]
@@ -247,6 +255,8 @@ class TestPipelineSkipsOtherWorkerInProgress:
         route: Route,
     ) -> None:
         event_id = "evt-other-worker-001"
+        event = make_event(event_id=event_id, source_channel_id="ch-0")
+        await temp_storage.append(event)
         await _seed_outbox(
             temp_storage,
             event_id=event_id,
@@ -262,8 +272,9 @@ class TestPipelineSkipsOtherWorkerInProgress:
         runner = PipelineRunner(config)
         await runner.start()
         try:
-            event = make_event(event_id=event_id, source_channel_id="ch-0")
-            outcomes = await runner.handle_ingress(event)
+            outcomes = await runner.deliver_to_targets(
+                event, [(route, _make_plan(event_id, route))]
+            )
 
             assert len(outcomes) == 1
             outcome = outcomes[0]
@@ -291,6 +302,8 @@ class TestPipelineProceedsForReclaimedPending:
         route: Route,
     ) -> None:
         event_id = "evt-reclaim-pending-001"
+        event = make_event(event_id=event_id, source_channel_id="ch-0")
+        await temp_storage.append(event)
         # Create a pending row that the pipeline will reclaim.
         plan_id = _compute_plan_id(event_id)
         item = DeliveryOutboxItem(
@@ -313,8 +326,9 @@ class TestPipelineProceedsForReclaimedPending:
         runner = PipelineRunner(config)
         await runner.start()
         try:
-            event = make_event(event_id=event_id, source_channel_id="ch-0")
-            outcomes = await runner.handle_ingress(event)
+            outcomes = await runner.deliver_to_targets(
+                event, [(route, _make_plan(event_id, route))]
+            )
 
             assert len(outcomes) == 1
             outcome = outcomes[0]
@@ -342,6 +356,8 @@ class TestPipelineProceedsForReclaimedRetryWait:
         route: Route,
     ) -> None:
         event_id = "evt-reclaim-retry-wait-001"
+        event = make_event(event_id=event_id, source_channel_id="ch-0")
+        await temp_storage.append(event)
         await _seed_outbox(temp_storage, event_id=event_id, status="retry_wait")
 
         config = make_pipeline_config_for_pipeline(
@@ -352,8 +368,9 @@ class TestPipelineProceedsForReclaimedRetryWait:
         runner = PipelineRunner(config)
         await runner.start()
         try:
-            event = make_event(event_id=event_id, source_channel_id="ch-0")
-            outcomes = await runner.handle_ingress(event)
+            outcomes = await runner.deliver_to_targets(
+                event, [(route, _make_plan(event_id, route))]
+            )
 
             assert len(outcomes) == 1
             outcome = outcomes[0]
@@ -380,6 +397,8 @@ class TestPipelineNoFinalizeSkippedRow:
         route: Route,
     ) -> None:
         event_id = "evt-no-finalize-001"
+        event = make_event(event_id=event_id, source_channel_id="ch-0")
+        await temp_storage.append(event)
         seeded = await _seed_outbox(temp_storage, event_id=event_id, status="sent")
         # Record the outbox state before the pipeline runs.
         before = await temp_storage.get_outbox_item(seeded.outbox_id)
@@ -394,8 +413,9 @@ class TestPipelineNoFinalizeSkippedRow:
         runner = PipelineRunner(config)
         await runner.start()
         try:
-            event = make_event(event_id=event_id, source_channel_id="ch-0")
-            outcomes = await runner.handle_ingress(event)
+            outcomes = await runner.deliver_to_targets(
+                event, [(route, _make_plan(event_id, route))]
+            )
 
             assert len(outcomes) == 1
             assert outcomes[0].status == "skipped"
@@ -438,7 +458,7 @@ async def _seed_outbox_with_attempt(
             attempt_number=attempt_number,
             status="pending",
         )
-        created = await storage.create_outbox_item(item)
+        created = await create_outbox_item_with_parent(storage, item)
     else:
         item = DeliveryOutboxItem(
             outbox_id=f"obox-seed-a{attempt_number}-{event_id[:12]}",
@@ -453,7 +473,7 @@ async def _seed_outbox_with_attempt(
             locked_at=now.isoformat(),
             lease_until=(now + timedelta(minutes=5)).isoformat(),
         )
-        created = await storage.create_outbox_item(item)
+        created = await create_outbox_item_with_parent(storage, item)
 
         if status == "sent":
             await storage.mark_outbox_sent(created.outbox_id, receipt_id="rcpt-seed")
@@ -692,7 +712,7 @@ class TestReplayWithExistingActiveAttempt2OwnedByOther:
             locked_at=now.isoformat(),
             lease_until=(now + timedelta(minutes=5)).isoformat(),
         )
-        await temp_storage.create_outbox_item(other_item)
+        await create_outbox_item_with_parent(temp_storage, other_item)
 
         config = make_pipeline_config_for_pipeline(
             storage=temp_storage,
@@ -789,7 +809,7 @@ class TestReplayChannelNormalization:
             locked_at=now.isoformat(),
             lease_until=(now + timedelta(minutes=5)).isoformat(),
         )
-        created = await temp_storage.create_outbox_item(seed_item)
+        created = await create_outbox_item_with_parent(temp_storage, seed_item)
         # Verify storage normalized target_channel to None.
         stored = await temp_storage.get_outbox_item(created.outbox_id)
         assert stored is not None

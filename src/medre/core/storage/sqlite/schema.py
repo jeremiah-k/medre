@@ -385,3 +385,12 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
         }
     ),
 }
+
+# Structural constraints that cannot be inferred from column presence alone.
+# Existing pre-release databases must already carry these relationships; MEDRE
+# rejects older shapes rather than rebuilding them automatically.
+_REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
+    "delivery_outbox": frozenset(
+        {("event_id", "canonical_events", "event_id")}
+    ),
+}

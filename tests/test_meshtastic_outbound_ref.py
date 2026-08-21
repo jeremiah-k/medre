@@ -14,6 +14,10 @@ _append_queued_to_sent_receipt code paths, not the queue evidence counters
 from __future__ import annotations
 
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from tests.helpers.storage_outbox import (
+    append_receipt_with_parent,
+    create_outbox_item_with_parent,
+)
 
 # ===================================================================
 # Supplemental receipt correlation (queued → sent by channel)
@@ -68,8 +72,8 @@ class TestSupplementalReceiptChannelCorrelation:
             created_at=now,
             outbox_id="obox-ch1",
         )
-        await temp_storage.append_receipt(rcpt_ch0)
-        await temp_storage.append_receipt(rcpt_ch1)
+        await append_receipt_with_parent(temp_storage, rcpt_ch0)
+        await append_receipt_with_parent(temp_storage, rcpt_ch1)
 
         # Create matching outbox items for exact correlation.
         obox_ch0 = DeliveryOutboxItem(
@@ -90,8 +94,8 @@ class TestSupplementalReceiptChannelCorrelation:
             target_channel="1",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(obox_ch0)
-        await temp_storage.create_outbox_item(obox_ch1)
+        await create_outbox_item_with_parent(temp_storage, obox_ch0)
+        await create_outbox_item_with_parent(temp_storage, obox_ch1)
         await temp_storage.mark_outbox_queued("obox-ch0")
         await temp_storage.mark_outbox_queued("obox-ch1")
 
@@ -171,7 +175,8 @@ class TestSupplementalReceiptChannelCorrelation:
         now = datetime.now(tz=timezone.utc)
 
         # Two queued receipts with SAME delivery_plan_id, different channels.
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             DeliveryReceipt(
                 receipt_id="rcpt-a",
                 event_id=event_id,
@@ -183,7 +188,8 @@ class TestSupplementalReceiptChannelCorrelation:
                 created_at=now,
             )
         )
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             DeliveryReceipt(
                 receipt_id="rcpt-b",
                 event_id=event_id,
@@ -237,7 +243,8 @@ class TestSupplementalReceiptChannelCorrelation:
         event_id = "evt-single-cand"
         now = datetime.now(tz=timezone.utc)
 
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             DeliveryReceipt(
                 receipt_id="rcpt-only",
                 event_id=event_id,
@@ -252,7 +259,7 @@ class TestSupplementalReceiptChannelCorrelation:
         )
 
         # Create matching outbox item for exact correlation.
-        await temp_storage.create_outbox_item(
+        await create_outbox_item_with_parent(temp_storage,
             DeliveryOutboxItem(
                 outbox_id="obox-single",
                 event_id=event_id,
@@ -314,7 +321,8 @@ class TestSupplementalReceiptChannelCorrelation:
         # Two queued receipts on the same channel (retry scenario).
         # Same plan_id = retry lineage. Both carry the same outbox_id so the
         # exact outbox correlation filter can find them.
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             DeliveryReceipt(
                 receipt_id="rcpt-first",
                 event_id=event_id,
@@ -328,7 +336,8 @@ class TestSupplementalReceiptChannelCorrelation:
                 outbox_id="obox-retry",
             )
         )
-        await temp_storage.append_receipt(
+        await append_receipt_with_parent(
+            temp_storage,
             DeliveryReceipt(
                 receipt_id="rcpt-retry",
                 event_id=event_id,
@@ -354,7 +363,7 @@ class TestSupplementalReceiptChannelCorrelation:
             attempt_number=2,
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(obox)
+        await create_outbox_item_with_parent(temp_storage, obox)
         await temp_storage.mark_outbox_queued("obox-retry")
 
         runner = PipelineRunner(
