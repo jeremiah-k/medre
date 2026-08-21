@@ -405,8 +405,22 @@ async def test_synapse_connectivity():
 
 ```toml
 [tool.pytest.ini_options]
-addopts = "-m 'not live and not docker'"
+addopts = "-m 'not live and not docker and not hardware and not local_integration and not soak and not matrix_sdk and not lxmf_sdk and not meshtastic_sdk and not meshcore_sdk'"
 ```
+
+The excluded markers gate the following tiers (see `pyproject.toml` `markers`):
+
+| Marker              | What it gates                                                                       |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| `live`              | Tests connecting to a real service or hardware (skipped by default).               |
+| `docker`            | Tests requiring Docker services such as Synapse or meshtasticd.                     |
+| `hardware`          | Tests requiring physical hardware (serial/BLE Meshtastic radios, etc.).             |
+| `local_integration` | Real pinned SDK plus deterministic local endpoint (no external service).            |
+| `soak`              | Extended-duration or repeated-cycle transport endurance tests.                      |
+| `matrix_sdk`        | Tests requiring the pinned `mindroom-nio` Matrix SDK.                               |
+| `lxmf_sdk`          | Tests requiring the pinned LXMF/RNS SDKs.                                           |
+| `meshtastic_sdk`    | Tests requiring the pinned `mtjk` Meshtastic SDK.                                   |
+| `meshcore_sdk`      | Tests requiring the pinned `meshcore` SDK.                                          |
 
 ### Running Docker tests
 
