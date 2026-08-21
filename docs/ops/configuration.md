@@ -818,7 +818,12 @@ MEDRE_ADAPTER__RADIO_A__CONNECTION_TYPE=serial
 MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyACM0
 ```
 
-`TRANSPORT` is required for env-created adapters. Accepted values: `matrix`, `meshtastic`, `meshcore`, `lxmf`. The token is lowercased and underscores replaced with hyphens for the default `adapter_id` (e.g. `RADIO_A` → `radio-a`).
+`TRANSPORT` is required for env-created adapters. Accepted values are
+`matrix`, `meshtastic`, `meshcore`, and `lxmf`. `TRANSPORT` and the optional
+`ADAPTER_KIND` (`real` or `fake`) use canonical lowercase values and are
+case-sensitive; mixed-case variants are rejected. The token is lowercased and
+underscores are replaced with hyphens for the default `adapter_id` (for example,
+`RADIO_A` → `radio-a`).
 
 `ADAPTER_KIND` accepts `"real"` (default) or `"fake"` for env-created adapters.
 

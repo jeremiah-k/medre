@@ -1,7 +1,6 @@
 """Strict-validation tests for route and retry unknown-key rejection (F-014 / TC-011).
 
 Moved from test_routes.py to keep that file under the line ceiling.
-Also covers filter_hooks runtime rejection.
 """
 
 from __future__ import annotations
@@ -118,35 +117,27 @@ def test_unknown_retry_key_error_names_route_and_path() -> None:
     assert exc_info.value.section_path == "routes.my_route.retry"
 
 
-# ---------------------------------------------------------------------------
-# filter_hooks runtime rejection
-# ---------------------------------------------------------------------------
+def test_unknown_retry_key_checked_before_field_coercion() -> None:
+    """A typo'd retry field produces the unknown-key error, not a coercion one.
 
-
-def test_non_empty_filter_hooks_rejected() -> None:
-    """filter_hooks with entries raises ConfigValidationError (reserved)."""
-    with pytest.raises(ConfigValidationError, match=r"filter_hooks.*reserved"):
+    Operators who write ``max_attempt`` (singular) instead of
+    ``max_attempts`` must see "unknown retry key 'max_attempt'" rather
+    than the confusing downstream "retry.max_attempts must be >0, got
+    None" — the unknown-key rejection happens FIRST, before any field
+    default-lookup or type-coercion.
+    """
+    with pytest.raises(ConfigValidationError) as exc_info:
         RouteConfig.from_dict(
-            "bad",
+            "typo_route",
             {
                 "source_adapters": ["a"],
                 "dest_adapters": ["b"],
-                "filter_hooks": ["my_hook"],
+                "retry": {"max_attempt": 3},
             },
         )
-
-
-def test_non_list_filter_hooks_rejected() -> None:
-    """filter_hooks that is not a list raises ConfigValidationError."""
-    with pytest.raises(ConfigValidationError, match="'filter_hooks' must be a list"):
-        RouteConfig.from_dict(
-            "bad",
-            {
-                "source_adapters": ["a"],
-                "dest_adapters": ["b"],
-                "filter_hooks": "not-a-list",
-            },
-        )
+    msg = str(exc_info.value)
+    assert "max_attempt" in msg
+    assert "unknown retry key" in msg
 
 
 # ---------------------------------------------------------------------------

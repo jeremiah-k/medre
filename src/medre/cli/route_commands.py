@@ -239,10 +239,6 @@ def _routes_topology(config_path: str | None) -> None:
                 )
             print(f"    policy: {', '.join(policy_parts)}")
 
-        # Filter hooks
-        if route.filter_hooks:
-            print(f"    hooks: {', '.join(route.filter_hooks)}")
-
     # Summary
     enabled_count = sum(1 for r in route_list if r.enabled)
     print()
@@ -290,9 +286,6 @@ def _routes_list(config_path: str | None) -> None:
             print(f"    dest_room:     {route.dest_room}")
         elif route.dest_channel:
             print(f"    dest_channel:  {route.dest_channel}")
-
-        if route.filter_hooks:
-            print(f"    filter_hooks:  [{', '.join(route.filter_hooks)}]")
 
         if route.policy:
             print("    policy:")

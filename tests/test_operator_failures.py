@@ -38,7 +38,7 @@ from pathlib import Path
 import pytest
 
 from medre.config.env import (
-    _SECRET_FIELD_RE,
+    _is_secret_field,
     EnvProvenance,
     MedreEnvConfig,
     _coerce_bool,
@@ -737,7 +737,7 @@ class TestSecretRedaction:
         prov.record("MEDRE_LOG_LEVEL", "DEBUG")
         items = prov.redacted_items()
         token_entry = [v for k, v in items if k == "MEDRE_MATRIX_ACCESS_TOKEN"]
-        assert token_entry == ["***REDACTED***"]
+        assert token_entry == ["[REDACTED]"]
         level_entry = [v for k, v in items if k == "MEDRE_LOG_LEVEL"]
         assert level_entry == ["DEBUG"]
 
@@ -749,14 +749,20 @@ class TestSecretRedaction:
             }
         )
         repr_str = env.redacted_repr()
-        assert "***REDACTED***" in repr_str
+        assert "[REDACTED]" in repr_str
         assert "s3cret" not in repr_str
         assert "INFO" in repr_str
 
     def test_secret_env_is_detected_by_regex(self) -> None:
-        """Secret env var names are detected by the heuristic regex."""
-        assert _SECRET_FIELD_RE.search("MEDRE_MATRIX_ACCESS_TOKEN") is not None
-        assert _SECRET_FIELD_RE.search("MEDRE_MATRIX_HOMESERVER") is None
+        """Secret env var names are detected by the tokenized heuristic.
+
+        ``access_token`` → tokenized ``{"access", "token"}`` matches the
+        ``"token"`` canonical token (the ``"access"`` part is dropped by
+        the tokenizer since it isn't in the set).  ``homeserver``
+        tokenizes to ``{"homeserver"}`` which is not in the set.
+        """
+        assert _is_secret_field("MEDRE_MATRIX_ACCESS_TOKEN") is True
+        assert _is_secret_field("MEDRE_MATRIX_HOMESERVER") is False
 
 
 # ---------------------------------------------------------------------------
@@ -813,14 +819,15 @@ class TestCLINoTraceback:
 
 
 # ---------------------------------------------------------------------------
-# 16. Unsupported filter_hooks
+# 16. filter_hooks removed (A8)
 # ---------------------------------------------------------------------------
 
 
-class TestUnsupportedFilterHooks:
-    """filter_hooks are reserved and rejected to prevent silent no-ops."""
+class TestFilterHooksRemoved:
+    """filter_hooks is no longer a known route key — it's an unknown key."""
 
-    def test_filter_hooks_rejected(self) -> None:
+    def test_filter_hooks_now_rejected_as_unknown(self) -> None:
+        """The legacy ``filter_hooks`` key is rejected via the unknown-key path."""
         with pytest.raises(ConfigValidationError) as exc_info:
             RouteConfig.from_dict(
                 "hooked",
@@ -832,8 +839,7 @@ class TestUnsupportedFilterHooks:
             )
         msg = str(exc_info.value)
         assert "filter_hooks" in msg
-        assert "reserved" in msg
-        assert "not yet supported" in msg
+        assert "unknown key" in msg
 
 
 # ---------------------------------------------------------------------------

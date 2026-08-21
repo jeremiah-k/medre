@@ -278,6 +278,69 @@ class TestMatrixConfigEncryptionMode:
 
 
 # ===================================================================
+# metadata_embedding_mode field
+# ===================================================================
+
+
+class TestMatrixConfigMetadataEmbeddingMode:
+    """metadata_embedding_mode field defaults and validation."""
+
+    def test_default_is_safe(self) -> None:
+        """Default metadata_embedding_mode is 'safe'."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+        )
+        assert config.metadata_embedding_mode == "safe"
+
+    @pytest.mark.parametrize(
+        "mode",
+        ["off", "minimal", "safe", "full"],
+    )
+    def test_valid_mode_accepted(self, mode: str) -> None:
+        """All schema-declared enum values are accepted."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            metadata_embedding_mode=mode,
+        )
+        result = config.validate()
+        assert result.metadata_embedding_mode == mode
+
+    def test_invalid_mode_typo_rejected(self) -> None:
+        """Transposition typo ('sfae') is rejected like other enums."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            metadata_embedding_mode="sfae",
+        )
+        with pytest.raises(
+            MatrixConfigError, match="metadata_embedding_mode"
+        ):
+            config.validate()
+
+    def test_uppercase_variant_rejected(self) -> None:
+        """Casing matters — 'SAFE' (upper) is rejected; only 'safe' (lower) accepted."""
+        config = MatrixConfig(
+            adapter_id="matrix-1",
+            homeserver="https://matrix.example.com",
+            user_id="@bot:example.com",
+            access_token="s3cret",
+            metadata_embedding_mode="SAFE",
+        )
+        with pytest.raises(
+            MatrixConfigError, match="metadata_embedding_mode"
+        ):
+            config.validate()
+
+
+# ===================================================================
 # auto_join_rooms field
 # ===================================================================
 

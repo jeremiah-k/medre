@@ -57,8 +57,9 @@
       "properties": {
         "level": {
           "type": "string",
+          "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
           "default": "INFO",
-          "description": "MEDRE namespace logger level (e.g. DEBUG, INFO, WARNING). Case-insensitive at load time."
+          "description": "MEDRE namespace logger level (e.g. DEBUG, INFO, WARNING). Case-insensitive at load time — uppercase enum matches the canonical level names enforced by the loader."
         },
         "format": {
           "type": "string",
@@ -80,8 +81,9 @@
       "properties": {
         "backend": {
           "type": "string",
+          "enum": ["sqlite", "memory"],
           "default": "sqlite",
-          "description": "Storage backend identifier (e.g. sqlite, memory)."
+          "description": "Storage backend identifier. Only sqlite and memory are supported at runtime."
         },
         "path": {
           "type": ["string", "null"],
@@ -163,6 +165,7 @@
         "route_id": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]+$",
+          "$comment": "When omitted, the route's mapping key is used as route_id; a route_id key inside the mapping value is ignored.",
           "description": "Optional explicit route_id. When omitted, the mapping key is used."
         },
         "source_adapters": {
@@ -187,13 +190,6 @@
           "type": "boolean",
           "default": true,
           "description": "Whether this route is enabled at startup."
-        },
-        "filter_hooks": {
-          "type": "array",
-          "items": { "type": "string" },
-          "maxItems": 0,
-          "default": [],
-          "description": "Reserved — must be empty. Non-empty filter_hooks are rejected at runtime."
         },
         "source_channel": {
           "type": ["string", "null"],

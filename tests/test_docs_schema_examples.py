@@ -1429,45 +1429,8 @@ class TestStructuredChannelRoomMapEntry:
 
 
 # ===========================================================================
-# 8. filter_hooks schema validation
+# 8. (filter_hooks removed — A8)
 # ===========================================================================
-
-
-def test_filter_hooks_absent_validates() -> None:
-    """A route without filter_hooks validates against the schema."""
-    route = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
-    route.pop("filter_hooks", None)
-    schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
-    if not _HAS_JSONSCHEMA:
-        pytest.skip("jsonschema not installed")
-    import jsonschema
-
-    jsonschema.validate(route, schema)
-
-
-def test_filter_hooks_empty_array_validates() -> None:
-    """filter_hooks: [] validates against the schema."""
-    route = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
-    route["filter_hooks"] = []
-    schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
-    if not _HAS_JSONSCHEMA:
-        pytest.skip("jsonschema not installed")
-    import jsonschema
-
-    jsonschema.validate(route, schema)
-
-
-def test_filter_hooks_nonempty_rejected_by_schema() -> None:
-    """The schema rejects non-empty filter_hooks via maxItems: 0."""
-    route = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
-    route["filter_hooks"] = ["my_hook"]
-    schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
-    if not _HAS_JSONSCHEMA:
-        pytest.skip("jsonschema not installed")
-    import jsonschema
-
-    with pytest.raises(jsonschema.ValidationError, match="maxItems"):
-        jsonschema.validate(route, schema)
 
 
 def test_builtin_native_metadata_contracts_have_schema_example_pairs() -> None:
