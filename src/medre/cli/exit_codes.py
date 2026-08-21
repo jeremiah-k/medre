@@ -7,6 +7,8 @@ from __future__ import annotations
 
 EXIT_OK = 0
 """Successful exit."""
+EXIT_FAILED = 1
+"""Generic operational failure (smoke/run-session drill failed, unexpected exception)."""
 EXIT_CONFIG = 2
 """Config parse or validation error."""
 EXIT_BUILD = 3

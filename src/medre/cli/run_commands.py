@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import signal
 import sys
@@ -14,7 +13,7 @@ from typing import Any
 from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigError
 from medre.config.loader import load_config
-from medre.core.observability.sanitization import sanitize_for_log
+from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 from medre.runtime.summaries import (
     format_duration_ms,
     shutdown_summary,
@@ -22,6 +21,7 @@ from medre.runtime.summaries import (
 )
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
+from .json import to_json
 from .smoke_commands import _setup_logging, _transport_for_adapter
 
 logger = logging.getLogger("medre")
@@ -51,7 +51,7 @@ class _RunSignals:
 
 
 def _request_shutdown(signum: int, _frame: object) -> None:
-    global shutdown_requested  # noqa: PLW0603
+    global shutdown_requested
     shutdown_requested = True
     logger.info("Received signal %s — requesting shutdown", signal.Signals(signum).name)
 
@@ -85,7 +85,7 @@ async def _start_interruptibly(app: Any) -> bool:
 
 async def _run(config_path: str | None, snapshot_path: str | None = None) -> None:
     """Load config, build the runtime, and run until interrupted."""
-    global shutdown_requested  # noqa: PLW0603
+    global shutdown_requested
     shutdown_requested = False
 
     from medre.runtime.builder import RuntimeBuilder
@@ -137,7 +137,11 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
     try:
         app = builder.build()
     except Exception as exc:
-        print(f"Runtime build error: {exc}", file=sys.stderr, flush=True)
+        print(
+            f"Runtime build error: {sanitize_error(str(exc))}",
+            file=sys.stderr,
+            flush=True,
+        )
         sys.exit(EXIT_BUILD)
 
     # Report build failures before startup.
@@ -219,17 +223,21 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                         _transport_for_adapter(adapter_id, config),
                         False,
                         dur,
-                        str(exc),
+                        sanitize_error(str(exc)),
                     )
                 )
 
             summary = startup_summary(startup_results)
             _print(summary)
             if isinstance(exc, RuntimeStartupError):
-                _print(f"\nRuntime startup failed: {exc}")
+                _print(f"\nRuntime startup failed: {sanitize_error(str(exc))}")
                 sys.exit(EXIT_STARTUP)
             # Unexpected exception during startup (core subsystem failure).
-            print(f"\nRuntime startup failed: {exc}", file=sys.stderr, flush=True)
+            print(
+                f"\nRuntime startup failed: {sanitize_error(str(exc))}",
+                file=sys.stderr,
+                flush=True,
+            )
             sys.exit(EXIT_STARTUP)
 
         # Build startup results from app state (supports partial startup).
@@ -347,7 +355,7 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 await app.stop()
             except Exception as exc:
                 logger.error("Shutdown error: %s", exc)
-                shutdown_errors.append(("runtime", str(exc)))
+                shutdown_errors.append(("runtime", sanitize_error(str(exc))))
                 drain_outcome = "timed_out"
                 # Count adapters that were still running as abandoned work.
                 abandoned_count = len(getattr(app, "started_adapter_ids", []))
@@ -385,13 +393,11 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                     snap = build_runtime_snapshot(app)
                     snap_path = Path(snapshot_path)
                     snap_path.parent.mkdir(parents=True, exist_ok=True)
-                    snap_path.write_text(
-                        json.dumps(snap, indent=2, sort_keys=True) + "\n"
-                    )
+                    snap_path.write_text(to_json(snap) + "\n")
                     _print(f"  Final snapshot written to: {snapshot_path}")
                 except Exception as exc:
                     print(
-                        f"  Warning: failed to write snapshot: {exc}",
+                        f"  Warning: failed to write snapshot: {sanitize_error(str(exc))}",
                         file=sys.stderr,
                         flush=True,
                     )

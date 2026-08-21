@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import json as _json
 import sys
 import tempfile
+
+from .exit_codes import EXIT_FAILED, EXIT_OK
+from .json import to_json
 
 
 def _transport_for_adapter(adapter_id: str, config: object) -> str:
@@ -77,7 +79,7 @@ async def _smoke(
         )
 
     if json_output:
-        print(_json.dumps(report, sort_keys=True, indent=2))
+        print(to_json(report))
     else:
         # Human-readable summary
         status = report["status"]
@@ -120,7 +122,7 @@ async def _smoke(
         if limitations:
             print(f"  Note: {limitations[0]}")
 
-    sys.exit(0 if report["status"] == "passed" else 1)
+    sys.exit(EXIT_OK if report["status"] == "passed" else EXIT_FAILED)
 
 
 async def _run_session(
@@ -160,7 +162,7 @@ async def _run_session(
     )
 
     if json_output:
-        print(_json.dumps(report, sort_keys=True, indent=2))
+        print(to_json(report))
     else:
         status = report["status"]
         event_id = report.get("event_id", "N/A")
@@ -224,4 +226,4 @@ async def _run_session(
                     for label, cmd in section.items():
                         print(f"    {label}: {cmd}")
 
-    sys.exit(0 if report["status"] == "passed" else 1)
+    sys.exit(EXIT_OK if report["status"] == "passed" else EXIT_FAILED)
