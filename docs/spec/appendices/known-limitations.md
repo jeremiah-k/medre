@@ -16,7 +16,8 @@ behaviour.
 The automated Meshtastic-to-Matrix inbound bridge test class is
 **permanently skipped**. Reliability is not yet sufficient for CI.
 
-- **Source test:** `tests/test_live_matrix_meshtastic_bridge.py:366`
+- **Source test:**
+  `tests/test_live_matrix_meshtastic_bridge.py::TestMeshtasticToMatrix`
   (`@pytest.mark.skip(reason="Meshtastic → Matrix automated inbound not yet reliable")`).
 - **Operator action today:** manual testing via the operator runbook in
   `docs/ops/diagnostics-and-evidence.md`.
@@ -30,11 +31,11 @@ The pipeline conforms to a model where delivery-stage policy is reserved
 for future implementation. There is no current code path that evaluates
 policy inside the `DELIVER` phase.
 
-- **Source test:** `tests/test_pipeline_conformance.py:529`
-  (`@pytest.mark.xfail(reason="Delivery-stage policy is a reserved extension
-  point with zero current implementation. When implemented, this test
-  should validate that delivery policies suppress before adapter
-  delivery.")`).
+- **Source test:**
+  `tests/test_pipeline_conformance.py`, test
+  `TestPolicyEvaluation::test_delivery_policy_suppresses_delivery`
+  (`@pytest.mark.xfail` records that delivery-stage policy remains a reserved
+  extension point with zero current implementation).
 - **Spec anchor:** `docs/spec/conformance.md` §3.2 item 6 explicitly
   states that delivery-stage policy is a reserved extension point with
   zero current implementation.
