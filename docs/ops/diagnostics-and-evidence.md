@@ -506,8 +506,8 @@ In addition to unidirectional criteria for each direction:
 | -------------------------- | -------------------------------------------------------------------------- |
 | `bad_route_config`         | Unknown adapter ref in route causes `RouteValidationError`                 |
 | `all_adapters_build_fail`  | Total build failure causes all adapters to fail construction               |
-| `partial_degraded_startup` | Partial adapter start allows runtime to enter RUNNING with degraded health |
-| `all_adapters_start_fail`  | Total startup failure prevents RUNNING state                               |
+| `partial_degraded_startup` | Partial adapter start allows runtime to enter READY with degraded health |
+| `all_adapters_start_fail`  | Total startup failure prevents READY state                               |
 
 Run pre-runtime drills with:
 

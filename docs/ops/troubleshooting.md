@@ -162,7 +162,7 @@ PYTHONPATH=src medre smoke --drill partial_degraded_startup --json
 
 ### Total Startup Failure (Exit 4)
 
-All adapters failed to start. The runtime does not enter RUNNING state.
+All adapters failed to start. The runtime does not enter READY state.
 
 Expected: exit code **4**, `startup.boot_summary.startup_outcome == "total_failure"`, `adapters_started == 0`.
 
@@ -170,7 +170,7 @@ Inspect: `startup.boot_summary.failed_adapter_ids`, `diagnostics.runtime_events`
 
 ### Degraded Startup (Exit 0)
 
-Some adapters started, others failed. The runtime enters RUNNING with degraded health.
+Some adapters started, others failed. The runtime enters READY with degraded health.
 
 Expected: exit code **0**, `startup.boot_summary.startup_outcome == "partial"`, `runtime_health == "degraded"`.
 

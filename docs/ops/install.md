@@ -29,7 +29,7 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
-`pip install -e .` gives you the `medre` command with fake adapters only (no test tooling). `pip install -e ".[dev]"` adds `pytest` and dev dependencies. The only core dependency is `msgspec`. Example configs are in `examples/configs/`.
+`pip install -e .` gives you the `medre` command with fake adapters only (no test tooling). `pip install -e ".[dev]"` adds `pytest` and dev dependencies. Core runtime dependencies are `msgspec` and `PyYAML` (per `pyproject.toml` `dependencies`). Example configs are in `examples/configs/`.
 
 ### Installed Package (Operators)
 

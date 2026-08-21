@@ -13,9 +13,22 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 This document specifies the MEDRE storage layer. The current SQLite backend persists
 `canonical_events`, `event_relations`, `native_message_refs`, `delivery_receipts`,
 `delivery_outbox`, `durable_ingress_work`, `adapter_checkpoints`, a schema-reserved
-`plugin_state` table, and schema metadata. Identity tables (`actors`,
-`native_identities`, `actor_identity_links`, `actor_permissions`) and
-`native_archive` are spec-planned and documented here but not part of the current DDL.
+`plugin_state` table, and schema metadata.
+
+The following tables are **planned — not implemented; tracked for
+post-prerelease**:
+
+| Planned Table          | One-line Purpose                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `actors`               | Persist canonical actor identity (cross-transport reconciliation target) — see [identity-addressing.md](identity-addressing.md). |
+| `native_identities`    | Persist adapter-local identity records (MXID, node number, pubkey, destination hash).                            |
+| `actor_identity_links` | Persist links between canonical actors and their native identities.                                              |
+| `actor_permissions`    | Persist per-actor capability grants for downstream authorization checks.                                        |
+| `native_archive`       | Optional per-adapter raw-data archive (compressed BLOB) for post-hoc inspection — never embedded in events.    |
+| `plugin_state`         | Schema-reserved key-value store for the future plugin subsystem.                                                |
+
+Do not assume any of these tables exist at runtime. Their DDL shapes are
+documented for planning only.
 
 The initial and current backend is SQLite. The `StorageBackend` protocol (Section 3) abstracts over implementation so that future backends (PostgreSQL, NATS JetStream, Redis Streams, Kafka) MAY be substituted without changing callers.
 
@@ -533,7 +546,7 @@ The current delivery status for any plan is a projection: the latest receipt row
 
 The grouping uses `COALESCE(target_channel, '')` so that `NULL` and empty-string channels are treated as the same group.
 
-### 4.6 plugin_state
+### 4.6 plugin_state (schema-reserved; plugin subsystem planned — not implemented; tracked for post-prerelease)
 
 ```sql
 CREATE TABLE plugin_state (
@@ -547,6 +560,9 @@ CREATE TABLE plugin_state (
 
 Schema-reserved key-value table for future plugin subsystem. The table exists in DDL but no `StorageBackend` methods are currently exposed for reading or writing plugin state. When the plugin subsystem is implemented, keys will be scoped to `plugin_id` and plugins **MUST NOT** read or write state belonging to other plugins.
 
+> **Status:** Planned — not implemented; tracked for post-prerelease. The DDL
+> row is reserved today; no plugin subsystem reads or writes through it.
+
 ### 4.7 \_medre_schema_meta
 
 ```sql
@@ -558,9 +574,13 @@ CREATE TABLE _medre_schema_meta (
 
 Internal metadata table. Tracks the storage schema version. On initialization, the implementation **MUST** check that the stored `schema_version` matches `_EXPECTED_SCHEMA_VERSION`. On a fresh database, the version row is inserted. If the version mismatches, `StorageInitializationError` **MUST** be raised.
 
-### 4.8 Identity Tables
+### 4.8 Identity Tables (planned — not implemented; tracked for post-prerelease)
 
-> **Spec-planned.** The identity tables below are not part of the current SQLite DDL (see [schema.py](../../src/medre/core/storage/sqlite/schema.py)). They document the intended shape for future implementation. Do not assume they exist at runtime.
+> **Status:** Planned — not implemented; tracked for post-prerelease. The
+> identity tables below are not part of the current SQLite DDL (see
+> [schema.py](../../src/medre/core/storage/sqlite/schema.py)). They document
+> the intended shape for future implementation. Do not assume they exist at
+> runtime.
 
 #### actors
 
@@ -616,9 +636,12 @@ CREATE TABLE actor_permissions (
 );
 ```
 
-### 4.9 native_archive
+### 4.9 native_archive (planned — not implemented; tracked for post-prerelease)
 
-> **Spec-planned.** The `native_archive` table is not part of the current SQLite DDL. It documents the intended shape for future opt-in raw-data archiving. Do not assume it exists at runtime.
+> **Status:** Planned — not implemented; tracked for post-prerelease. The
+> `native_archive` table is not part of the current SQLite DDL. It documents
+> the intended shape for future opt-in raw-data archiving. Do not assume it
+> exists at runtime.
 
 ```sql
 CREATE TABLE native_archive (
@@ -1157,7 +1180,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 | `delivery_outbox`      | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only)      | None (terminal rows become immutable history) | Forever                          |
 | `durable_ingress_work` | Durable admission (create), ingress worker (claim/transition)                      | Ingress worker (`pending`/`processing`/`completed`/`failed`) | None                                          | Forever                          |
 | `adapter_checkpoints`  | Cursor-owning adapters through runtime-bound storage callbacks                     | Cursor-owning adapters                                       | None                                          | Forever                          |
-| `plugin_state`         | Schema-reserved (no current API exposed)                                           | Not exposed                                                  | None                                          | Reserved / future plugin-defined |
+| `plugin_state`         | Schema-reserved (no current API exposed; planned — not implemented; tracked for post-prerelease) | Not exposed                                                  | None                                          | Reserved / future plugin-defined |
 | `_medre_schema_meta`   | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                                 | None                                          | Forever                          |
 
 ### 16.2 Ownership Rules

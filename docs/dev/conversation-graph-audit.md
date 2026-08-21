@@ -23,7 +23,7 @@ It records what exists today — types, ownership, lookup paths, and boundaries 
 
 ## 2. Current Conversation Model
 
-`conversation_id` and `root_event_id` are populated at pipeline Stage 2.5 by `ConversationGraphAuthority` after relation resolution. Conversation structure is reconstructed at query time from two orthogonal mechanisms:
+`conversation_id` and `root_event_id` are populated inside the pipeline `RESOLVE_RELATIONS` phase by `ConversationGraphAuthority` after relation resolution. Conversation structure is reconstructed at query time from two orthogonal mechanisms:
 
 | Mechanism              | Field                                        | What it represents                                                   | Source file                          |
 | ---------------------- | -------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------ |
@@ -44,8 +44,8 @@ It records what exists today — types, ownership, lookup paths, and boundaries 
 | `relations`         | `tuple[EventRelation, ...]` | Semantic edges to other events                 | Populated by adapter codec                                                                                                                                                                                                                              |
 | `source_channel_id` | `str \| None`               | Native channel where event originated          | Set by codec (room ID, channel index, etc.)                                                                                                                                                                                                             |
 | `source_native_ref` | `NativeRef \| None`         | Inbound native message reference               | Set by codec                                                                                                                                                                                                                                            |
-| `root_event_id`     | `str \| None`               | Root event in relation chain                   | Populated by `ConversationGraphAuthority` at pipeline Stage 2.5; equals `event_id` when self-rooting (no resolved relations); otherwise inherited from the resolved ancestor chain (single- or multi-hop) via `ConversationGraphAuthority` at Stage 2.5 |
-| `conversation_id`   | `str \| None`               | Conversation identifier                        | Populated by `ConversationGraphAuthority` at pipeline Stage 2.5; currently equals `root_event_id`                                                                                                                                                       |
+| `root_event_id`     | `str \| None`               | Root event in relation chain                   | Populated by `ConversationGraphAuthority` inside the pipeline `RESOLVE_RELATIONS` phase; equals `event_id` when self-rooting (no resolved relations); otherwise inherited from the resolved ancestor chain (single- or multi-hop) via `ConversationGraphAuthority` |
+| `conversation_id`   | `str \| None`               | Conversation identifier                        | Populated by `ConversationGraphAuthority` inside the pipeline `RESOLVE_RELATIONS` phase; currently equals `root_event_id`                                                                                                                                  |
 
 **Root selection rule (first-resolved-relation-wins)**: When an event carries multiple relations, `ConversationGraphAuthority` walks them in storage order and selects the root from the _first_ relation whose `target_event_id` is present in storage. Subsequent relations are ignored for root selection. This keeps root assignment deterministic and avoids ambiguity when different relation targets could lead to different conversation roots. If no resolved target is found in storage, the event roots to itself.
 
@@ -167,7 +167,7 @@ text rather than treated as unverified native support.
 | `NativeMessageRef`           | `src/medre/core/events/canonical.py`             | Persisted canonical↔native mapping                                                  |
 | `OutboundNativeRefRecord`    | `src/medre/core/contracts/adapter.py`            | Delayed queue-based native ID report                                                |
 | `RelationResolver`           | `src/medre/core/planning/relation_resolution.py` | Resolves `target_native_ref` → `target_event_id` via `resolve_native_ref()`         |
-| `ConversationGraphAuthority` | `src/medre/core/planning/conversation_graph.py`  | Assigns `root_event_id` and `conversation_id` at pipeline Stage 2.5                 |
+| `ConversationGraphAuthority` | `src/medre/core/planning/conversation_graph.py`  | Assigns `root_event_id` and `conversation_id` inside the pipeline `RESOLVE_RELATIONS` phase |
 | `RelationEnricher`           | `src/medre/core/planning/relation_enricher.py`   | Resolves target canonical event → target-adapter `NativeRef` + text/sender metadata |
 | `RenderingPipeline`          | `src/medre/core/rendering/renderer.py`           | Ordered renderer dispatch with frozen context                                       |
 | `RenderingContext`           | `src/medre/core/rendering/renderer.py`           | Frozen dispatch context (strategy, platform, capabilities, budgets)                 |
@@ -247,7 +247,7 @@ The following boundary is consistent with prior audit findings:
 
 ### 8.1 `conversation_id` currently equals `root_event_id`
 
-`conversation_id` is populated at pipeline Stage 2.5 by `ConversationGraphAuthority`, but currently always equals `root_event_id`. The field exists independently to allow future divergence (e.g. merging threads, cross-transport conversation grouping), but no such logic exists yet. Cross-transport conversations (a Matrix room bridged to a Meshtastic channel) share a `conversation_id` only when linked by relation chains.
+`conversation_id` is populated inside the pipeline `RESOLVE_RELATIONS` phase by `ConversationGraphAuthority`, but currently always equals `root_event_id`. The field exists independently to allow future divergence (e.g. merging threads, cross-transport conversation grouping), but no such logic exists yet. Cross-transport conversations (a Matrix room bridged to a Meshtastic channel) share a `conversation_id` only when linked by relation chains.
 
 > **Design note (intentional equality):** The current implementation intentionally sets `conversation_id = root_event_id` in every code path (`_assign_identity`). Ancestor `conversation_id` values are **not** independently propagated — when the authority walks an ancestor chain, it reads only `root_event_id`, never the ancestor's `conversation_id`. Future divergence (e.g. merged threads, cross-transport grouping) will require a new authority rule and a separate iteration over the conversation-graph module. This is a deliberate simplification, not an oversight.
 
@@ -255,7 +255,7 @@ The following boundary is consistent with prior audit findings:
 
 ### 8.2 `root_event_id` ancestor walk bounded by storage availability
 
-`root_event_id` is populated at pipeline Stage 2.5 by `ConversationGraphAuthority`. When the target event (or any ancestor) is not yet in storage — for example, an out-of-order reply arriving before the original — the authority degrades safely and sets `root_event_id = event.event_id`. The ancestor walk is bounded to 64 hops.
+`root_event_id` is populated inside the pipeline `RESOLVE_RELATIONS` phase by `ConversationGraphAuthority`. When the target event (or any ancestor) is not yet in storage — for example, an out-of-order reply arriving before the original — the authority degrades safely and sets `root_event_id = event.event_id`. The ancestor walk is bounded to 64 hops.
 
 **Impact**: Events that arrive out of order may initially self-root. Once the true root is stored, later events in the chain will correctly inherit it. There is no retroactive repair of previously self-rooted events.
 
@@ -322,7 +322,7 @@ This document does **not** include:
 | `src/medre/core/storage/sqlite/_native_ref.py`   | `store_native_ref()`, `resolve_native_ref()`, `list_native_refs_for_event()`             |
 | `src/medre/core/storage/backend.py`              | `StorageBackend` protocol, `EventFilter`                                                 |
 | `src/medre/core/planning/relation_resolution.py` | `RelationResolver` — native ref → canonical ID                                           |
-| `src/medre/core/planning/conversation_graph.py`  | `ConversationGraphAuthority` — root_event_id and conversation_id assignment at Stage 2.5 |
+| `src/medre/core/planning/conversation_graph.py`  | `ConversationGraphAuthority` — root_event_id and conversation_id assignment inside the pipeline `RESOLVE_RELATIONS` phase |
 | `src/medre/core/planning/relation_enricher.py`   | `RelationEnricher` — canonical event → target-adapter native ref + text                  |
 | `src/medre/core/rendering/renderer.py`           | `RenderingContext`, `RenderingResult`, `Renderer` protocol, `RenderingPipeline`          |
 | `src/medre/core/contracts/adapter.py`            | `AdapterDeliveryResult`, `OutboundNativeRefRecord`, `AdapterCapabilities`                |

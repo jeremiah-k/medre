@@ -444,15 +444,12 @@ through `metadata.native.data[<transport_name>]`.
 
 ## Lifecycle States
 
-Adapters report their state through `health_check()` and diagnostics:
-
-| State            | Ingress | Delivery                   | Notes                               |
-| ---------------- | ------- | -------------------------- | ----------------------------------- |
-| **INITIALIZING** | Buffer  | Buffer                     | `start()` has not returned yet      |
-| **RUNNING**      | Accept  | Queue and deliver          | Normal operation                    |
-| **DEGRADED**     | Accept  | Queue, delay, may fallback | Connection unstable                 |
-| **DRAINING**     | Reject  | Complete in-flight only    | Graceful shutdown. Reject new work. |
-| **STOPPED**      | Reject  | None                       | Terminal state                      |
+Adapters report their state through `health_check()` and diagnostics. The
+normative state vocabulary, transition graph, and per-state ingress/delivery
+policies live only in
+[spec/adapter-runtime.md §8](../spec/adapter-runtime.md#8-adapter-lifecycle-states).
+Adapter implementations and authoring guidance must defer to that table rather
+than restating the state machine here.
 
 Every state change emits a `system.lifecycle` canonical event.
 

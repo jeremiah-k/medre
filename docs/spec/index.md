@@ -37,6 +37,7 @@ Table of contents for the MEDRE normative specification.
 | [appendices/failure-taxonomy.md](appendices/failure-taxonomy.md)           | Per-transport failure classification       |
 | [appendices/evidence-levels.md](appendices/evidence-levels.md)             | Evidence provenance tiers                  |
 | [appendices/transport-limitations.md](appendices/transport-limitations.md) | Cross-transport limitation summary         |
+| [appendices/known-limitations.md](appendices/known-limitations.md)         | Limitations surfaced from test annotations |
 | [appendices/release-readiness.md](appendices/release-readiness.md)         | Transport maturity and readiness checklist |
 
 ## Reading Order

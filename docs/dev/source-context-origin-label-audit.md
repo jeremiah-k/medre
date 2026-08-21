@@ -73,7 +73,6 @@ dict) are:
 | `dest_adapters`       | `tuple[str, ...]` (list in YAML) | required, non-empty | `src/medre/config/routes.py:475-491`                                                               |
 | `directionality`      | `RouteDirectionality` enum       | `source_to_dest`    | `src/medre/config/routes.py:493-503`                                                               |
 | `enabled`             | `bool`                           | `True`              | `src/medre/config/routes.py:506`                                                                   |
-| `filter_hooks`        | `tuple[str, ...]`                | `()`                | `src/medre/config/routes.py:509-521` (non-empty is **rejected** — reserved)                        |
 | `source_channel`      | `str \| None`                    | `None`              | `src/medre/config/routes.py:524`; aliasing at `src/medre/config/routes.py:531-559`                 |
 | `dest_channel`        | `str \| None`                    | `None`              | `src/medre/config/routes.py:525`; aliasing at `src/medre/config/routes.py:543-559`                 |
 | `source_room`         | `str \| None`                    | `None`              | `src/medre/config/routes.py:526`; aliases `source_channel` at `src/medre/config/routes.py:556-557` |
