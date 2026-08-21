@@ -328,6 +328,9 @@ class _SQLiteStorageBase:
                 db.row_factory = (
                     sqlite3.Row
                 )  # redundant guard (connect won't fail), mirrors initialize() pattern
+                # Readonly readers must also wait on a busy writer instead of
+                # failing instantly — matches the write-path pragma.
+                await db.execute("PRAGMA busy_timeout=5000")
             except BaseException:
                 await db.close()
                 raise

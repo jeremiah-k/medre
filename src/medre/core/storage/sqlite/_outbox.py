@@ -509,6 +509,7 @@ class _OutboxMixin:
                   AND (status IN ({claimable_ph})
                        OR (status = 'in_progress' AND lease_until <= ?)
                        OR (status = 'queued' AND updated_at <= ?))
+                  AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                   AND (lease_until IS NULL OR lease_until <= ?)""",  # nosec: placeholders are only ? markers, values passed as params
             (
                 now,
@@ -519,6 +520,7 @@ class _OutboxMixin:
                 *claimable_params,
                 now,
                 stale_cutoff,
+                now,
                 now,
             ),
         )

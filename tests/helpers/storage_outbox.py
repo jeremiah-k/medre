@@ -38,6 +38,9 @@ from medre.core.events import (
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 
+SENTINEL_EVENT_ID: str = "__outbox_default__"
+
+
 def make_outbox_item(
     delivery_plan_id: str = "plan-1",
     target_adapter: str = "fake_presentation",
@@ -45,7 +48,7 @@ def make_outbox_item(
     attempt_number: int = 1,
     status: str = "pending",
     next_attempt_at: str | None = None,
-    event_id: str = "__outbox_default__",
+    event_id: str = SENTINEL_EVENT_ID,
 ) -> DeliveryOutboxItem:
     """Build a minimal DeliveryOutboxItem for tests.
 
@@ -65,7 +68,6 @@ def make_outbox_item(
     )
 
 
-SENTINEL_EVENT_ID = "__outbox_default__"
 
 
 async def admit_event(storage: StorageBackend, event_id: str) -> None:

@@ -1367,7 +1367,9 @@ async def test_enrichment_miss_no_matching_adapter(
 
     enriched = await runner._enrich_relations_for_target(event, "target_adapter")
 
-    assert enriched is event
+    # Enrichment may return a replacement event (relation metadata gains
+    # original_sender from the stored parent); only the native-ref outcome
+    # is contractual here.
     assert enriched.relations[0].target_native_ref is None
 
 

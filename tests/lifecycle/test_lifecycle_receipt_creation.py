@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.helpers.storage_outbox import admit_event
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     RetryPolicy,
@@ -61,7 +62,7 @@ class TestBuildAndPersistDeadLetterReceipt:
     ) -> None:
         """Dead-letter receipt preserves replay_run_id and source."""
         lifecycle = _make_lifecycle()
-        await admit_event(temp_storage, "evt-001")
+        await admit_event(temp_storage, "evt-002")
         policy = RetryPolicy(max_attempts=1)
         plan = _make_plan(retry_policy=policy)
 
@@ -127,7 +128,7 @@ class TestBuildAndPersistSuppressionReceipt:
     ) -> None:
         """Suppression receipt preserves replay context."""
         lifecycle = _make_lifecycle()
-        await admit_event(temp_storage, "evt-001")
+        await admit_event(temp_storage, "evt-002")
 
         receipt = await lifecycle.build_and_persist_suppression_receipt(
             temp_storage,
