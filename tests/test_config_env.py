@@ -345,6 +345,26 @@ class TestCoreOverrides:
         result = apply_env_overrides(base)
         assert result.logging.level == "DEBUG"
 
+    def test_log_level_lowercase_is_uppercased(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Lowercase ``debug`` is accepted and stored uppercase (defence in depth)."""
+        monkeypatch.setenv("MEDRE_LOG_LEVEL", "debug")
+        base = _make_base_config()
+        result = apply_env_overrides(base)
+        assert result.logging.level == "DEBUG"
+
+    def test_log_level_invalid_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Garbage log level raises ConfigValidationError naming logging.level."""
+        monkeypatch.setenv("MEDRE_LOG_LEVEL", "garbage")
+        base = _make_base_config()
+        with pytest.raises(
+            ConfigValidationError, match=r"logging\.level must be one of"
+        ):
+            apply_env_overrides(base)
+
     def test_no_env_vars_returns_same_config(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -728,7 +748,7 @@ class TestProvenanceAndRedaction:
         env = MedreEnvConfig.from_environ()
 
         redacted = dict(env.provenance.redacted_items())
-        assert redacted["MEDRE_ADAPTER__FROM_TOML__access_token"] == "***REDACTED***"
+        assert redacted["MEDRE_ADAPTER__FROM_TOML__access_token"] == "[REDACTED]"
 
     def test_secret_field_patterns_redacted(
         self, monkeypatch: pytest.MonkeyPatch
@@ -755,7 +775,7 @@ class TestProvenanceAndRedaction:
             "CREDENTIAL",
         ):
             assert (
-                redacted[f"MEDRE_ADAPTER__FROM_TOML__{field_name}"] == "***REDACTED***"
+                redacted[f"MEDRE_ADAPTER__FROM_TOML__{field_name}"] == "[REDACTED]"
             )
 
     def test_homeserver_not_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -778,7 +798,7 @@ class TestProvenanceAndRedaction:
 
         r = env.redacted_repr()
         assert "secret123" not in r
-        assert "***REDACTED***" in r
+        assert "[REDACTED]" in r
         assert "https://matrix.test" in r
 
     def test_to_dict_contains_unredacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -828,7 +848,7 @@ class TestProvenanceAndRedaction:
         monkeypatch.setenv("MEDRE_ADAPTER__MC_BLE__ble_address", "AA:BB:CC:DD:EE:FF")
         env = MedreEnvConfig.from_environ()
         redacted = dict(env.provenance.redacted_items())
-        assert redacted["MEDRE_ADAPTER__MC_BLE__ble_address"] == "***REDACTED***"
+        assert redacted["MEDRE_ADAPTER__MC_BLE__ble_address"] == "[REDACTED]"
 
     def test_identity_path_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """identity_path is redacted (matches IDENTITY pattern)."""
@@ -838,7 +858,7 @@ class TestProvenanceAndRedaction:
         env = MedreEnvConfig.from_environ()
         redacted = dict(env.provenance.redacted_items())
         assert (
-            redacted["MEDRE_ADAPTER__LXMF_RECEIVER__identity_path"] == "***REDACTED***"
+            redacted["MEDRE_ADAPTER__LXMF_RECEIVER__identity_path"] == "[REDACTED]"
         )
 
     def test_homeserver_host_port_not_redacted(
@@ -853,6 +873,46 @@ class TestProvenanceAndRedaction:
         assert redacted["MEDRE_ADAPTER__FROM_TOML__homeserver"] == "https://m.test"
         assert redacted["MEDRE_ADAPTER__RADIO_A__host"] == "10.0.0.1"
         assert redacted["MEDRE_ADAPTER__RADIO_A__port"] == "4403"
+
+    # -- Tokenized-field-name heuristic (A12) -------------------------------
+
+    @pytest.mark.parametrize(
+        ("field_name", "expect_redacted"),
+        [
+            # Substring-regex false positives that the new tokenization
+            # correctly leaves alone.
+            ("enabled", False),
+            ("disabled", False),
+            ("monkey", False),
+            # Real secrets — tokens match.
+            ("ble_address", True),
+            ("access_token", True),
+            ("api_key", True),
+            ("identity", True),
+            ("identity_path", True),
+            ("private_key", True),
+            # Whole-token matching, no false-positive substring trap.
+            ("enabler", False),
+            ("keystore_dir", False),
+        ],
+    )
+    def test_field_name_tokenization(
+        self,
+        field_name: str,
+        expect_redacted: bool,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Field-name tokenization matches secret *words*, not substrings."""
+        monkeypatch.setenv(
+            f"MEDRE_ADAPTER__FROM_TOML__{field_name}", "value-to-redact"
+        )
+        env = MedreEnvConfig.from_environ()
+        redacted = dict(env.provenance.redacted_items())
+        actual = redacted[f"MEDRE_ADAPTER__FROM_TOML__{field_name}"]
+        if expect_redacted:
+            assert actual == "[REDACTED]"
+        else:
+            assert actual == "value-to-redact"
 
 
 # ---------------------------------------------------------------------------

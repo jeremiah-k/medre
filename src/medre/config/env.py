@@ -70,6 +70,11 @@ from medre.config.model import (
     RetryConfig,
     RuntimeConfig,
 )
+from medre.core.observability.sanitization import (
+    REDACTED_TOKEN,
+    SECRET_FIELD_TOKENS,
+)
+from medre.core.observability.log_levels import VALID_LEVEL_NAMES
 from medre.config.routes import RouteConfig, RouteConfigSet
 
 __all__ = [
@@ -197,16 +202,28 @@ def _coerce_set(raw: str) -> set[str]:
 # ---------------------------------------------------------------------------
 # Heuristic secret detection
 # ---------------------------------------------------------------------------
-
-_SECRET_FIELD_RE = re.compile(
-    r"TOKEN|SECRET|PASSWORD|KEY|AUTH|CREDENTIAL|BLE|IDENTITY",
-    re.IGNORECASE,
-)
+#
+# Tokenization-based detector: split the lowercased field name on
+# non-alphanumeric runs (so ``ble_address`` → ``{"ble", "address"}`` and
+# ``enabled`` → ``{"enabled"}``) and check token membership against the
+# canonical :data:`SECRET_FIELD_TOKENS` set exported from
+# :mod:`medre.core.observability.sanitization`.  Replaces the previous
+# substring regex which incorrectly matched ``enabled`` because it
+# contains the substring ``ble``.
 
 
 def _is_secret_field(field_name: str) -> bool:
-    """Return ``True`` if *field_name* looks like a secret field."""
-    return bool(_SECRET_FIELD_RE.search(field_name))
+    """Return ``True`` if any *field_name* token matches a known secret word.
+
+    Whitespace, underscores, hyphens, and dots are all treated as
+    token separators — operators may write any of these as the visual
+    separator.  Tokens never include ``"ble"`` from the word
+    ``"enabled"`` because that is one whole token.
+    """
+    if not isinstance(field_name, str) or not field_name:
+        return False
+    tokens = {tok for tok in re.split(r"[^a-z0-9]+", field_name.lower()) if tok}
+    return bool(tokens & SECRET_FIELD_TOKENS)
 
 
 # ---------------------------------------------------------------------------
@@ -277,17 +294,17 @@ class EnvProvenance:
                 parts = name.split("__", 2)
                 field_part = parts[2] if len(parts) >= 3 else ""
                 if _is_secret_field(field_part):
-                    result.append((name, "***REDACTED***"))
+                    result.append((name, REDACTED_TOKEN))
                     continue
             # For MEDRE_ROUTE__TOKEN__FIELD, extract FIELD.
             if name.startswith(ROUTE_ENV_PREFIX):
                 parts = name.split("__", 2)
                 field_part = parts[2] if len(parts) >= 3 else ""
                 if _is_secret_field(field_part):
-                    result.append((name, "***REDACTED***"))
+                    result.append((name, REDACTED_TOKEN))
                     continue
             if _is_secret_field(name):
-                result.append((name, "***REDACTED***"))
+                result.append((name, REDACTED_TOKEN))
                 continue
             result.append((name, value))
         return result
@@ -1045,7 +1062,7 @@ def apply_instance_env_overrides(
     # -- Create new adapters from env tokens with TRANSPORT ----------------
 
     for token, field_map in created_tokens.items():
-        transport_raw = field_map["transport"].raw_value.strip().lower()
+        transport_raw = field_map["transport"].raw_value.strip()
         if transport_raw not in _TRANSPORT_REGISTRY:
             supported = sorted(_TRANSPORT_REGISTRY.keys())
             raise ConfigValidationError(
@@ -1074,7 +1091,7 @@ def apply_instance_env_overrides(
         # Determine adapter_kind (defaults to "real").
         adapter_kind = "real"
         if "adapter_kind" in field_map:
-            adapter_kind = field_map["adapter_kind"].raw_value.strip().lower()
+            adapter_kind = field_map["adapter_kind"].raw_value.strip()
             if adapter_kind not in ("real", "fake"):
                 raise ConfigValidationError(
                     f"ADAPTER_KIND for token {token!r} must be 'real' or 'fake', "
@@ -1454,7 +1471,20 @@ def apply_env_overrides(
     # ------------------------------------------------------------------
     new_logging = config.logging
     if env.log_level is not None:
-        new_logging = dataclasses.replace(config.logging, level=env.log_level)
+        # Mirror loader._validate_logging_section: case-insensitive accept
+        # but validate the uppercased form against the canonical level
+        # set so ``MEDRE_LOG_LEVEL=garbage`` fails at load rather than
+        # silently breaking logging setup at runtime.
+        normalized_level = env.log_level.strip().upper()
+        if normalized_level not in VALID_LEVEL_NAMES:
+            raise ConfigValidationError(
+                f"logging.level must be one of "
+                f"{', '.join(sorted(VALID_LEVEL_NAMES))}, "
+                f"got {env.log_level!r}"
+            )
+        new_logging = dataclasses.replace(
+            config.logging, level=normalized_level
+        )
 
     new_storage = config.storage
     if env.db_path is not None:

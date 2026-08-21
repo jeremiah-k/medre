@@ -385,7 +385,7 @@ class TestEnvCreatedAdapters:
 
         env = MedreEnvConfig.from_environ()
         redacted = dict(env.provenance.redacted_items())
-        assert redacted["MEDRE_ADAPTER__MATRIX_SEC__ACCESS_TOKEN"] == "***REDACTED***"
+        assert redacted["MEDRE_ADAPTER__MATRIX_SEC__ACCESS_TOKEN"] == "[REDACTED]"
         assert redacted["MEDRE_ADAPTER__MATRIX_SEC__HOMESERVER"] == "https://matrix.env"
 
     # (m) Config-declared radio-a + env-created radio_a collision raises.
