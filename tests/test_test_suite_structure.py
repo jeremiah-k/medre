@@ -35,51 +35,37 @@ DELETED_MONOLITHS = (
     "test_docker_bridge_artifacts",
 )
 
-# New bridge / operator files — must not contain fixed asyncio.sleep(N) with N>0.
-NEW_BRIDGE_OPERATOR_FILES = [
-    "test_fake_adapter_ingress_equivalence.py",
-    "test_bidirectional_bridge_safety.py",
-    "test_fake_runtime_soak.py",
-    "test_fake_runtime_startup_snapshot.py",
-    "test_fanout_source_exclusion.py",
-    "test_matrix_wrapper_ingress.py",
-    "test_meshtastic_fake_bridge_errors.py",
-    "test_meshtastic_fake_bridge_session.py",
-    "test_meshtastic_wrapper_ingress.py",
-    "test_meshcore_wrapper_ingress.py",
-    "test_longrun_bidirectional_bridge.py",
-    "test_self_message_prevention.py",
-    "test_wrapper_multi_callback.py",
-    "test_loop_prevention_persistence.py",
-    "test_cli_config_workflows.py",
-    "test_cli_route_workflows.py",
-    "test_cli_diagnostics_workflows.py",
-    "test_cli_run_workflows.py",
-    "test_cli_install_metadata.py",
-    "test_cli_smoke_run_session.py",
-    "test_cli_scenario_crosscheck.py",
-    "test_cli_route_commands.py",
-    "test_cli_config_commands.py",
-    "test_cli_parser.py",
-    "test_cli_smoke_commands.py",
-    "test_cli_diagnostics_commands.py",
-    "test_cli_run_commands.py",
-    "test_cli_inspect_commands.py",
-    "test_cli_evidence_commands.py",
-    "test_cli_command_help_hints.py",
-    "test_cli_replay_surface.py",
-    "test_cli_config_and_smoke.py",
-    "test_cli_inspect_flow.py",
-    "test_cli_replay_flow.py",
-    "test_cli_error_paths.py",
-    "test_docker_artifact_core.py",
-    "test_docker_artifact_plan.py",
-    "test_docker_artifact_metadata.py",
-    "test_docker_artifact_honesty.py",
-]
+# Marker names whose presence on a module, class, or test function exempts
+# the file from the project-wide fixed-sleep check. Live/soak tests run
+# against real services and need real-time pacing; hardware/docker tests
+# gate on availability checks that already use bounded waits.
+EXEMPT_MARKERS = frozenset({"live", "soak", "hardware", "docker"})
 
-# New helper modules — must not contain broad type: ignore / pyright: ignore.
-HELPER_FILES = [
+# Explicit allowlist of fixed-sleep sites that are load-bearing for the
+# behaviour under test. Each entry is ``(relative_path, line_number)``.
+# Add a new entry here ONLY when the sleep cannot be removed without
+# changing the test's intent, and pair it with a justification comment in
+# the source so future readers understand why it stays.
+ALLOW_FIXED_SLEEP: tuple[tuple[str, int], ...] = (
+    # Slow adapter delivery simulation — required so the test pipeline
+    # observes a non-instant delivery and exercises the delivery success
+    # path through the outbox.
+    ("tests/test_pipeline_outbox.py", 673),
+    # Slow adapter for ≥1 renewal cycle to fire — required so the renewal
+    # loop has time to attempt multiple renewals before the slow delivery
+    # completes.
+    ("tests/test_pipeline_outbox.py", 1136),
+    # SlowStopOnStartFailure.stop() simulates a hung stop that ignores
+    # CancelledError, exercising the bounded-poll stop helper.
+    ("tests/helpers/startup_cleanup.py", 215),
+    # _slow_cancel pause before raising CancelledError so the test has a
+    # window to call task.cancel() before the stop returns.
+    ("tests/helpers/startup_cleanup.py", 347),
+)
+
+
+# Helper modules — must not contain broad type: ignore / pyright: ignore.
+HELPER_FILES_LEGACY = [
     "helpers/walkthrough.py",
     "helpers/async_utils.py",
     "helpers/assertions.py",
@@ -112,37 +98,136 @@ def _count_lines(path: Path) -> int:
         return sum(1 for _ in f)
 
 
-def _has_fixed_sleep(source: str) -> bool:
-    """Return True if *source* contains ``asyncio.sleep(<literal>)`` with a
-    positive numeric literal (not zero and not a variable).
+def _expr_references_marker(node: ast.AST, names: set[str]) -> bool:
+    """Return True if *node* (any expression) references one of *names*
+    via an ``Attribute`` (e.g. ``pytest.mark.live``) or by collecting a
+    list/tuple of such markers. Bare ``Name`` nodes do NOT count — alias
+    resolution is handled in :func:`_module_has_marker`.
     """
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        # Fallback to regex if the file can't be parsed.
-        return bool(re.search(r"asyncio\.sleep\(\s*[1-9]\d*(?:\.\d+)?\s*\)", source))
+    if isinstance(node, ast.Attribute):
+        # Direct match: ``pytest.mark.live`` or chained ``pytest.mark.something.live``.
+        if node.attr in names and _is_pytest_mark_chain(node):
+            return True
+        # Otherwise descend into the chain (e.g. ``pytest.mark.live.something``).
+        return _expr_references_marker(node.value, names)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return any(_expr_references_marker(elt, names) for elt in node.elts)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _expr_references_marker(node.left, names) or _expr_references_marker(
+            node.right, names
+        )
+    if isinstance(node, ast.Call):
+        return _expr_references_marker(node.func, names) or any(
+            _expr_references_marker(a, names) for a in node.args
+        )
+    return False
 
+
+def _is_pytest_mark_chain(node: ast.Attribute) -> bool:
+    """Return True if *node* is the terminal of a ``pytest.mark.<name>``
+    attribute chain (e.g. ``pytest.mark.live``).
+    """
+    inner = node.value
+    # Walk up: ``pytest.mark.X`` ⇒ inner is ``Attribute(value=Name('pytest'), attr='mark')``
+    while isinstance(inner, ast.Attribute):
+        if inner.attr == "mark" and isinstance(inner.value, ast.Name):
+            return inner.value.id == "pytest"
+        inner = inner.value
+    return False
+
+
+def _decorators_refer_to_marker(
+    decorators: list[ast.expr], names: set[str]
+) -> bool:
+    """Return True if any decorator in *decorators* references one of *names*.
+
+    Walks decorator chains so that ``@pytest.mark.skipif(...)`` decorating
+    a class also marks the class as live/soak/etc when the skipif reason
+    references a live-only environment variable (best-effort heuristic
+    based on direct attribute references).
+    """
+    for dec in decorators:
+        if _expr_references_marker(dec, names):
+            return True
+        # Handle ``name = [pytest.mark.live, ...]`` references: if a
+        # decorator is a bare Name that resolves to a module-level list,
+        # the caller must look up the alias via the module's local
+        # namespace.  We don't resolve aliases here — pytestmark aliases
+        # are handled in :func:`_module_has_marker`.
+    return False
+
+
+def _module_has_marker(tree: ast.Module, names: set[str]) -> bool:
+    """Return True if *tree* applies any of *names* via module-level
+    ``pytestmark = ...`` or top-level function/class decorators.
+    """
+    # Pre-compute alias values for module-level ``foo = [...]`` markers.
+    aliases: dict[str, ast.AST] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            tgt = node.targets[0]
+            if isinstance(tgt, ast.Name):
+                aliases[tgt.id] = node.value
+
+    def _value_resolves_marker(value: ast.AST) -> bool:
+        if _expr_references_marker(value, names):
+            return True
+        # Resolve a bare alias: ``pytestmark = pytestmark_matrix``.
+        if isinstance(value, ast.Name) and value.id in aliases:
+            return _value_resolves_marker(aliases[value.id])
+        return False
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Name)
+                    and target.id == "pytestmark"
+                    and _value_resolves_marker(node.value)
+                ):
+                    return True
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if _decorators_refer_to_marker(node.decorator_list, names):
+                return True
+            # Classes may also carry a class-level pytestmark = ...
+            if isinstance(node, ast.ClassDef):
+                for sub in node.body:
+                    if isinstance(sub, ast.Assign) and any(
+                        isinstance(t, ast.Name) and t.id == "pytestmark"
+                        for t in sub.targets
+                    ):
+                        if _value_resolves_marker(sub.value):
+                            return True
+    return False
+
+
+def _collect_fixed_sleep_calls(tree: ast.Module) -> list[tuple[int, str]]:
+    """Return a list of ``(line_number, qualified_name)`` for every fixed
+    sleep call in *tree* — i.e. ``asyncio.sleep(<positive literal>)`` or
+    ``time.sleep(<positive literal>)``.
+    """
+    found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        # Match ``asyncio.sleep(...)``.
         func = node.func
         if not (
             isinstance(func, ast.Attribute)
             and isinstance(func.value, ast.Name)
-            and func.value.id == "asyncio"
             and func.attr == "sleep"
+            and func.value.id in ("asyncio", "time")
         ):
             continue
         if not node.args:
             continue
         arg = node.args[0]
-        if isinstance(arg, (ast.Constant,)):
-            # ast.Constant in 3.8+ covers int/float literals.
-            val = arg.value
-            if isinstance(val, (int, float)) and val > 0:
-                return True
-    return False
+        if not isinstance(arg, ast.Constant):
+            continue
+        val = arg.value
+        if not isinstance(val, (int, float)) or val <= 0:
+            continue
+        found.append((node.lineno, f"{func.value.id}.sleep({val})"))
+    return found
 
 
 # ===================================================================
@@ -207,24 +292,60 @@ def test_no_imports_from_deleted_monoliths(monolith_stem: str) -> None:
 
 
 # ===================================================================
-# Check 3 — no fixed sleeps in new files
+# Check 3 — no fixed sleeps project-wide
 # ===================================================================
 
 
-@pytest.mark.parametrize("filename", NEW_BRIDGE_OPERATOR_FILES)
-def test_no_fixed_sleeps_in_new_files(filename: str) -> None:
-    """New bridge/operator test files must not contain ``asyncio.sleep(N)``
-    with a positive numeric literal.
-    """
-    path = TESTS_DIR / filename
-    if not path.exists():
-        pytest.skip(f"{filename} does not exist yet")
-        return
+def test_no_fixed_sleeps_project_wide() -> None:
+    """Project-wide check: no ``tests/`` file (other than the integration
+    suite, files marked live/soak/hardware/docker, or the explicit
+    allowlist) may contain ``asyncio.sleep(<positive literal>)`` or
+    ``time.sleep(<positive literal>)`` calls.
 
-    source = path.read_text(encoding="utf-8")
-    assert not _has_fixed_sleep(source), (
-        f"{filename} contains a fixed asyncio.sleep(N) with N > 0. "
-        f"Use an event, flag, or short poll loop instead."
+    Use an ``Event``/``wait_until``/``wait_for(timeout=...)`` instead so
+    the suite stays deterministic and runs as fast as the production
+    code permits.
+    """
+    allow = {(p, ln) for p, ln in ALLOW_FIXED_SLEEP}
+    failures: list[str] = []
+
+    for path in sorted(TESTS_DIR.rglob("*.py")):
+        rel = path.relative_to(TESTS_DIR)
+        rel_str = str(rel)
+        # Skip pycache and this meta-test (which references the allowlist).
+        if "__pycache__" in rel_str or path.name == Path(__file__).name:
+            continue
+        # Integration suite is gated by docker + live hardware; skip.
+        if rel_str.startswith("integration/"):
+            continue
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+
+        # Skip files that declare an exempt marker (live/soak/hardware/docker)
+        # at module, class, or top-level function level.
+        if _module_has_marker(tree, set(EXEMPT_MARKERS)):
+            continue
+
+        # Also skip files where every fixed sleep lives in the allowlist.
+        offenders = [
+            (ln, name)
+            for ln, name in _collect_fixed_sleep_calls(tree)
+            if (f"tests/{rel_str}", ln) not in allow
+        ]
+        if offenders:
+            for ln, name in offenders:
+                failures.append(f"  {rel_str}:{ln}  {name}")
+
+    assert not failures, (
+        "Fixed sleeps detected outside the allowlist. "
+        "Use tests/helpers/async_utils.py::wait_until, an asyncio.Event, "
+        "or asyncio.wait_for(..., timeout=...) instead:\n" + "\n".join(failures)
     )
 
 
@@ -233,7 +354,7 @@ def test_no_fixed_sleeps_in_new_files(filename: str) -> None:
 # ===================================================================
 
 
-@pytest.mark.parametrize("rel_path", HELPER_FILES)
+@pytest.mark.parametrize("rel_path", HELPER_FILES_LEGACY)
 def test_no_broad_type_ignores_in_helpers(rel_path: str) -> None:
     """Helper modules must not contain ``# type: ignore`` or
     ``# pyright: ignore`` directives.
@@ -251,6 +372,10 @@ def test_no_broad_type_ignores_in_helpers(rel_path: str) -> None:
                 f"{rel_path}:{lineno} contains a broad type/pright ignore:\n"
                 f"  {line.strip()}"
             )
+
+
+# Helper-files allowlist is declared above the helper-function section so
+# the parametrize decorator can resolve the name at collection time.
 
 
 # ===================================================================
