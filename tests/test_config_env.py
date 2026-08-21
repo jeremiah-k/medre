@@ -14,6 +14,7 @@ from medre.config.env import (
     _coerce_bool,
     _coerce_int,
     _coerce_set,
+    _is_secret_field,
     apply_env_overrides,
     detect_token_collisions,
     normalize_adapter_id,
@@ -115,6 +116,39 @@ def _make_config_with_two_matrix() -> RuntimeConfig:
             },
         ),
     )
+
+
+@pytest.mark.parametrize("field_name", ["api.key", "api-key", "ACCESS-TOKEN"])
+def test_secret_field_tokenization_accepts_common_separators(field_name: str) -> None:
+    """Secret tokenization treats punctuation and case consistently."""
+    assert _is_secret_field(field_name) is True
+
+
+def test_secret_field_tokenization_rejects_empty_and_non_string() -> None:
+    """The private detector stays defensive for empty or malformed input."""
+    assert _is_secret_field("") is False
+    assert _is_secret_field(None) is False  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("env_name", "value", "expected_fragment"),
+    [
+        ("MEDRE_ADAPTER__NEW__TRANSPORT", "Matrix", "Invalid TRANSPORT"),
+        ("MEDRE_ADAPTER__NEW__ADAPTER_KIND", "REAL", "must be 'real' or 'fake'"),
+    ],
+)
+def test_new_adapter_meta_values_are_case_sensitive(
+    monkeypatch: pytest.MonkeyPatch,
+    env_name: str,
+    value: str,
+    expected_fragment: str,
+) -> None:
+    """Transport and adapter-kind values use their canonical lowercase form."""
+    monkeypatch.setenv("MEDRE_ADAPTER__NEW__TRANSPORT", "matrix")
+    monkeypatch.setenv(env_name, value)
+
+    with pytest.raises(ConfigValidationError, match=expected_fragment):
+        apply_env_overrides(_make_base_config())
 
 
 def _make_config_with_matrix_and_meshtastic() -> RuntimeConfig:
