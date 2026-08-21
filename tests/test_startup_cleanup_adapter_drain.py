@@ -171,12 +171,14 @@ class TestStartupCleanupDrainSites:
             def __init__(self, adapter_id: str) -> None:
                 self.adapter_id = adapter_id
                 self.stop_called = False
+                self.stop_entered = asyncio.Event()
 
             async def start(self, ctx: AdapterContext) -> None:
                 pass
 
             async def stop(self, timeout: float = 5.0) -> None:
                 self.stop_called = True
+                self.stop_entered.set()
                 # Yield long enough for an external cancel to land here.
                 try:
                     await asyncio.Event().wait()
@@ -214,7 +216,9 @@ class TestStartupCleanupDrainSites:
         with _set_shutdown_timeout(app, 0.2):
             async def _run_with_external_cancel() -> None:
                 task = asyncio.create_task(app._cleanup_started_adapters())
-                await asyncio.sleep(0)
+                # Prove the first adapter's stop() has started before
+                # cancelling, instead of guessing with a bare yield.
+                await alpha.stop_entered.wait()
                 task.cancel()
                 # _cleanup_started_adapters suppresses CancelledError (best-effort
                 # cleanup), so the task should complete normally.

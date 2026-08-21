@@ -442,6 +442,18 @@ class TestLxmfWrapperCallbackIngress:
             rendered = fake_target.delivered_payloads[0]
             assert isinstance(rendered, RenderingResult)
 
+            # Persistence lands on later turns than target delivery — poll
+            # for the canonical row before asserting on SQL reads.
+            async def _canonical_persisted() -> bool:
+                rows = await temp_storage._read_all(
+                    "SELECT event_id FROM canonical_events"
+                )
+                return len(rows) == 1
+
+            assert await wait_until(_canonical_persisted), (
+                "canonical event was not persisted after delivery"
+            )
+
             # Canonical event stored
             events = await temp_storage._read_all(
                 "SELECT source_adapter FROM canonical_events"
@@ -449,7 +461,7 @@ class TestLxmfWrapperCallbackIngress:
             assert len(events) == 1
             assert events[0]["source_adapter"] == "lxmf-sync-cb"
 
-            # Delivery receipt
+            # Delivery receipt (same turn as the canonical row's pipeline)
             receipts = await temp_storage._read_all(
                 "SELECT status FROM delivery_receipts"
             )

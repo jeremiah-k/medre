@@ -1023,11 +1023,13 @@ class TestMeshtasticInboundLifecycleGuard:
         }
         adapter._on_packet(late_pkt)  # Should be silently rejected
 
-        # Give the event loop a chance to process any scheduled coroutines.
-        # No positive condition to poll — verifying absence of events.
-        await asyncio.sleep(0)
+        # Deterministic absence proof: a late packet on a stopped adapter
+        # never schedules an inbound future — the tracking set is the
+        # observable, so no event-loop timing is involved.
+        assert adapter._inbound_futures == set()
 
-        # No new events should have been published.
+        # Belt-and-braces: drain one turn and confirm still nothing published.
+        await asyncio.sleep(0)
         assert len(published) == 0, (
             f"Late packet should have been rejected, but {len(published)} "
             f"event(s) were published after stop()"

@@ -408,8 +408,10 @@ class TestDelayedOutboundRefExceptionLogged:
         drain_task = asyncio.ensure_future(adapter._process_queue())
         adapter._drain_task = drain_task
 
-        # Wait for the first send to complete (including the failed callback).
-        await wait_until(lambda: call_count >= 1)
+        # Wait for the FIRST ITERATION to fully complete — including the
+        # failing native-ref callback — observable as entry into the
+        # second send_one call (which then parks until we cancel).
+        await wait_until(lambda: call_count >= 2)
 
         # Drain task should still be running (exception was caught).
         assert not drain_task.done()
@@ -453,7 +455,9 @@ class TestDelayedOutboundRefExceptionLogged:
         drain_task = asyncio.ensure_future(adapter._process_queue())
         adapter._drain_task = drain_task
 
-        await wait_until(lambda: call_count >= 1)
+        # Entry into the second send_one proves the ctx=None handling of
+        # the first iteration has finished.
+        await wait_until(lambda: call_count >= 2)
         assert not drain_task.done()
 
         drain_task.cancel()
@@ -865,8 +869,12 @@ class TestNativeRefExceptionAfterCancel:
         # Now let the callback raise its exception.
         callback_should_raise.set()
 
-        # Give the event loop a moment to process the callback exception.
-        await wait_until(cb_task.done)
+        # Wait for BOTH the task completing and the observer's done
+        # callback removing it from _background_tasks — these happen on
+        # different event-loop turns.
+        await wait_until(
+            lambda: cb_task.done() and cb_task not in adapter._background_tasks
+        )
 
         # _background_tasks should now be empty because the done callback
         # in _observe_callback_task observes the exception and removes it.

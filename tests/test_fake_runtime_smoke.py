@@ -549,8 +549,23 @@ class TestRuntimeStopsCleanly:
         # Track tasks before stop.
         await clean_stop(app)
 
-        # Give the event loop a tick to clean up.
-        await asyncio.sleep(0)
+        # Cleanup awaits may need several turns; poll until no runtime-
+        # named tasks remain (bounded), rather than trusting one tick.
+        def _runtime_named_count() -> int:
+            current_task = asyncio.current_task()
+            return sum(
+                1
+                for t in asyncio.all_tasks()
+                if t is not current_task
+                and any(
+                    kw in t.get_name().lower()
+                    for kw in ("adapter", "pipeline", "runner", "medre")
+                )
+            )
+
+        from tests.helpers.async_utils import wait_until as _wu
+
+        await _wu(lambda: _runtime_named_count() == 0)
 
         current_task = asyncio.current_task()
         all_tasks = asyncio.all_tasks()

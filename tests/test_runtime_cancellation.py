@@ -948,12 +948,10 @@ class TestDeliveryFanoutCancellation:
             result = await cc.acquire_delivery()
             results.append(result)
             if result:
-                # Intentional: simulate work during delivery — bounded
-                # by wait_for so the test does not depend on real time.
-                try:
-                    await asyncio.wait_for(asyncio.Event().wait(), timeout=0.01)
-                except asyncio.TimeoutError:
-                    pass
+                # Simulate work with two loop yields: deterministic, keeps
+                # acquisitions interleaved, and never depends on real time.
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
                 await cc.release_delivery()
             if idx == 3 and not stop_triggered:
                 cc.stop_accepting()
@@ -1051,21 +1049,14 @@ class TestAdapterLifecycleDuringCancellation:
         app = _build_app(config, tmp_paths)
         await app.start()
 
-        # Set shutdown event in background.
-        async def set_shutdown():
-            # Intentional: simulate a brief delay before shutdown is
-            # signalled — bounded by wait_for so the test does not
-            # depend on real time.
-            try:
-                await asyncio.wait_for(asyncio.Event().wait(), timeout=0.05)
-            except asyncio.TimeoutError:
-                pass
-            app.shutdown_event.set()
-
-        asyncio.create_task(set_shutdown())
+        # Start the waiter first so it is parked on the event, then set it —
+        # pure scheduling order, no wall-clock delay.
+        waiter = asyncio.create_task(app.wait_for_shutdown(timeout=2.0))
+        await asyncio.sleep(0)
+        app.shutdown_event.set()
 
         # wait_for_shutdown should complete.
-        await app.wait_for_shutdown(timeout=2.0)
+        await asyncio.wait_for(waiter, timeout=2.0)
 
         await app.stop()
 

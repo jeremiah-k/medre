@@ -132,7 +132,7 @@ class TestRetryWorkerStopOrphan:
                 # await is a fresh cancel delivery point but the
                 # except handler continues until released.
                 try:
-                    await asyncio.sleep(0)
+                    await _release.wait()
                 except asyncio.CancelledError:
                     continue
             return []
@@ -228,7 +228,7 @@ class TestRetryWorkerStopOrphan:
                 pass
             while not _release.is_set():
                 try:
-                    await asyncio.sleep(0)
+                    await _release.wait()
                 except asyncio.CancelledError:
                     continue
             return []
@@ -610,7 +610,7 @@ class TestRetryWorkerStopOrphan:
                 pass
             while not _release.is_set():
                 try:
-                    await asyncio.sleep(0)
+                    await _release.wait()
                 except asyncio.CancelledError:
                     continue
             return []

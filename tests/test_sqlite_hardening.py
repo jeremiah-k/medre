@@ -244,16 +244,13 @@ class TestExecutorLifecycle:
         real_close = s._db.close
         entered = asyncio.Event()
         finished_real_close = asyncio.Event()
+        # Test-owned barrier: holds the inner close open until the test has
+        # proven cancellation was absorbed by the shield.
+        release = asyncio.Event()
 
         async def _slow_close() -> None:
             entered.set()
-            # Hold the close open long enough for the cancel to arrive.
-            # Use wait_for with a never-set event so the close finishes
-            # within a bounded duration without a fixed sleep.
-            try:
-                await asyncio.wait_for(asyncio.Event().wait(), timeout=0.15)
-            except asyncio.TimeoutError:
-                pass
+            await release.wait()
             await real_close()
             finished_real_close.set()
 
@@ -269,6 +266,10 @@ class TestExecutorLifecycle:
 
         # Cancel the outer close() task while the inner close is still running.
         task.cancel()
+        await asyncio.sleep(0)
+        # Cancellation has been absorbed by the shield; the inner close is
+        # now parked on our event.  Release it and let the shield finish.
+        release.set()
 
         try:
             # The shield catches the cancel, waits for the inner close to finish,

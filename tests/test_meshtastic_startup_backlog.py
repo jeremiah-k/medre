@@ -91,7 +91,9 @@ class TestStalePacketsSuppressed:
         packet = _make_stale_packet(rx_time=stale_rx)
         adapter._on_packet(packet)
 
-        await asyncio.sleep(0)
+        await wait_until(
+            lambda: adapter.diagnostics()["startup_backlog_packets_suppressed"] >= 1
+        )
 
         ctx.publish_inbound.assert_not_called()
         diag = adapter.diagnostics()
@@ -608,7 +610,9 @@ class TestOnPacketCallbackPath:
         packet = _make_stale_packet(rx_time=stale_rx)
         adapter._on_packet(packet)
 
-        await asyncio.sleep(0)
+        await wait_until(
+            lambda: adapter.diagnostics()["startup_backlog_packets_suppressed"] >= 1
+        )
 
         ctx.publish_inbound.assert_not_called()
         assert adapter.diagnostics()["startup_backlog_packets_suppressed"] == 1
