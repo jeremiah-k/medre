@@ -18,7 +18,7 @@ from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 from medre.core.events import CanonicalEvent
-from tests.helpers.matrix import to_event_dict  # noqa: F401 — re-export
+from tests.helpers.matrix import to_event_dict  # noqa: F401
 
 
 def make_matrix_config(**overrides: Any) -> MatrixConfig:

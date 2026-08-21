@@ -1357,7 +1357,7 @@ class TestEnsureJoinedCancellationSafety:
 
             async def _slow_join(rid: str) -> MagicMock:
                 join_started.set()
-                await asyncio.sleep(10)  # long enough to cancel waiter
+                await asyncio.Event().wait()  # long enough to cancel waiter
                 resp = MagicMock(name="ok")
                 resp.room_id = rid
                 return resp
@@ -1402,7 +1402,7 @@ class TestEnsureJoinedCancellationSafety:
 
             async def _slow_join(rid: str) -> MagicMock:
                 join_started.set()
-                await asyncio.sleep(10)
+                await asyncio.Event().wait()
                 resp = MagicMock(name="ok")
                 resp.room_id = rid
                 return resp

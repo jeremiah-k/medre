@@ -26,14 +26,14 @@ lxmf_module: ModuleType | None
 """The ``lxmf`` module, or ``None`` when not installed."""
 
 try:
-    import RNS  # noqa: F401
+    import RNS
 
     rns_module = RNS
 except ImportError:
     rns_module = None
 
 try:
-    import LXMF  # noqa: F401
+    import LXMF
 
     lxmf_module = LXMF
 except ImportError:

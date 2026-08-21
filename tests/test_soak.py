@@ -578,7 +578,9 @@ class TestMeshtasticSoak:
         await adapter.start(ctx)
         try:
             deadline = time.monotonic() + duration
-            while time.monotonic() < deadline:
+            # Time-boxed soak window: sleep is the intended wait, not a
+            # busy-wait — an Event cannot express "run for duration".
+            while time.monotonic() < deadline:  # noqa: ASYNC110
                 await asyncio.sleep(min(5.0, duration / 4))
 
             # Collect inbound packet IDs from the mock

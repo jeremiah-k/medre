@@ -54,7 +54,7 @@ class TestTopLevelImportLightweight:
         assert not loaded, f"importing 'medre' pulled in heavy module(s): {loaded}"
 
     def test_medre_has_no_substantive_all(self) -> None:
-        import medre  # noqa: F811
+        import medre
 
         # __all__ should not contain runtime builders, adapters, pipeline
         if hasattr(medre, "__all__"):
@@ -95,11 +95,11 @@ class TestObservabilityFacadeRemoved:
 
     def test_from_medre_observability_import_fails(self) -> None:
         """medre.observability should not be importable as a facade."""
-        import medre.core.observability.sanitization  # noqa: F401 — canonical path works
+        import medre.core.observability.sanitization  # noqa: F401
 
         with pytest.raises(ImportError):
-            from medre.observability import (  # type: ignore[import-not-found]  # noqa: F401
-                sanitize_error,
+            from medre.observability import (  # type: ignore[import-not-found]
+                sanitize_error,  # noqa: F401
             )
 
 

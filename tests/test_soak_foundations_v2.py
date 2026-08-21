@@ -41,6 +41,7 @@ from medre.config.paths import resolve
 from medre.core.routing.stats import RouteStats
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.errors import RuntimeStartupError
 from tests.helpers.soak import (
     DiagnosticsSnapshot,
     SoakRuntime,
@@ -459,7 +460,7 @@ class TestStartupFailureRecovery:
 
         builder1 = RuntimeBuilder(config_empty, paths)
         app1 = builder1.build()
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(RuntimeStartupError):
             # Empty adapters → RuntimeStartupError on start.
             await app1.start()
 

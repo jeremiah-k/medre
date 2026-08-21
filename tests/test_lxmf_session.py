@@ -25,6 +25,7 @@ from medre.adapters.lxmf.session import (
     _map_delivery_state,
 )
 from medre.config.adapters.lxmf import LxmfConfig
+from tests.helpers.async_utils import wait_until
 
 
 def _make_config(**overrides: Any) -> LxmfConfig:
@@ -932,7 +933,7 @@ class TestCallbackThreadingSafety:
         session.inject_inbound(packet)
 
         # Give the event loop a turn to process the scheduled coroutine.
-        await asyncio.sleep(0.05)
+        await wait_until(lambda: len(received) == 1)
 
         assert len(received) == 1
         assert received[0]["content"] == "async-test"

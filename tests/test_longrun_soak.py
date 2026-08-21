@@ -50,6 +50,7 @@ from medre.core.routing.stats import RouteStats
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.errors import RuntimeStartupError
 from medre.runtime.snapshot import (
     build_runtime_snapshot,
 )
@@ -430,7 +431,7 @@ class TestStartupFailureRecovery:
             # Step 1: Empty config → startup failure.
             config_empty = _build_empty_config(name=f"fail-{cycle}")
             app_fail = _build_app(config_empty, paths)
-            with pytest.raises(Exception):  # noqa: B017
+            with pytest.raises(RuntimeStartupError):
                 await app_fail.start()
             assert app_fail.state is RuntimeState.FAILED
 

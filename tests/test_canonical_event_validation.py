@@ -393,7 +393,9 @@ def test_schema_version_model_rejects_bool_and_non_positive_values() -> None:
 def test_schema_registry_rejects_invalid_version_keys() -> None:
     """Registry mutation cannot alias ``True`` to the integer version ``1``."""
     registry = SchemaRegistry()
-    validator = lambda payload: []
+
+    def validator(payload: object) -> list[str]:
+        return []
 
     for value in (True, 0, -1, 1.0, "1"):
         with pytest.raises(ValueError, match="positive integer"):

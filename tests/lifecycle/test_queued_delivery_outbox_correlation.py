@@ -27,7 +27,6 @@ import pytest
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from tests.helpers.storage_outbox import (
-    admit_event,
     append_receipt_with_parent,
     create_outbox_item_with_parent,
 )
@@ -122,17 +121,19 @@ async def temp_storage() -> Any:
     f.close()
     storage = SQLiteStorage(db_path=db_path)
     try:
+        # A CancelledError/KeyboardInterrupt from initialize() propagates
+        # unchanged; the finally below still removes the temp database.
         await storage.initialize()
-    except BaseException:
-        with suppress(FileNotFoundError):
-            os.unlink(db_path)
-        raise
-    try:
         yield storage
     finally:
-        await storage.close()
-        with suppress(FileNotFoundError):
-            os.unlink(db_path)
+        try:
+            # close() may itself raise CancelledError/KeyboardInterrupt;
+            # the unlink must still run while that exception propagates.
+            with suppress(Exception):
+                await storage.close()
+        finally:
+            with suppress(FileNotFoundError):
+                os.unlink(db_path)
 
 
 # ===================================================================

@@ -26,6 +26,7 @@ from medre.core.contracts.adapter import (
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.kinds import EventKind
 from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.async_utils import wait_until
 
 
 def _make_config(**overrides) -> LxmfConfig:
@@ -662,7 +663,12 @@ class TestLxmfAdapterTaskScheduling:
         packet = _make_text_packet(content="tracked")
         adapter._on_packet(packet)
 
-        await asyncio.sleep(0.05)
+        # Wait for the event AND the task's done-callback removing it from
+        # _background_tasks — publication and cleanup land on different turns.
+        await wait_until(
+            lambda: len(inbound_collector.events) == 1
+            and not adapter._background_tasks
+        )
 
         assert len(inbound_collector.events) == 1
         assert inbound_collector.events[0].payload["body"] == "tracked"
@@ -675,7 +681,7 @@ class TestLxmfAdapterTaskScheduling:
         await adapter.start(ctx)
 
         async def _slow():
-            await asyncio.sleep(100)
+            await asyncio.Event().wait()
 
         task = asyncio.create_task(_slow())
         adapter._background_tasks.add(task)
@@ -778,7 +784,7 @@ class TestLxmfAdapterSessionIntegration:
         packet = _make_text_packet(content="via session")
         adapter._on_packet(packet)
 
-        await asyncio.sleep(0.05)
+        await wait_until(lambda: len(inbound_collector.events) == 1)
 
         assert len(inbound_collector.events) == 1
         event = inbound_collector.events[0]

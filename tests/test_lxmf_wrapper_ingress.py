@@ -10,8 +10,6 @@ packages required.
 
 from __future__ import annotations
 
-import asyncio
-
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.config.adapters.lxmf import LxmfConfig
@@ -23,6 +21,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
+from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import make_adapter_context, make_pipeline_config
 
 # ---------------------------------------------------------------------------
@@ -436,15 +435,24 @@ class TestLxmfWrapperCallbackIngress:
             lxmf_adapter._on_packet(packet)
 
             # Wait for the background task to complete
-            for _ in range(50):
-                if fake_target.delivered_payloads:
-                    break
-                await asyncio.sleep(0.01)
+            await wait_until(lambda: bool(fake_target.delivered_payloads))
 
             # Fake target received the delivery
             assert len(fake_target.delivered_payloads) == 1
             rendered = fake_target.delivered_payloads[0]
             assert isinstance(rendered, RenderingResult)
+
+            # Persistence lands on later turns than target delivery — poll
+            # for the canonical row before asserting on SQL reads.
+            async def _canonical_persisted() -> bool:
+                rows = await temp_storage._read_all(
+                    "SELECT event_id FROM canonical_events"
+                )
+                return len(rows) == 1
+
+            assert await wait_until(_canonical_persisted), (
+                "canonical event was not persisted after delivery"
+            )
 
             # Canonical event stored
             events = await temp_storage._read_all(
@@ -453,7 +461,7 @@ class TestLxmfWrapperCallbackIngress:
             assert len(events) == 1
             assert events[0]["source_adapter"] == "lxmf-sync-cb"
 
-            # Delivery receipt
+            # Delivery receipt (same turn as the canonical row's pipeline)
             receipts = await temp_storage._read_all(
                 "SELECT status FROM delivery_receipts"
             )

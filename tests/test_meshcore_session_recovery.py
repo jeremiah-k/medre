@@ -407,10 +407,9 @@ class TestMockedSDKCallbackNormalization:
         t1 = session.last_message_time
         assert t1 is not None
 
-        import asyncio
-
-        await asyncio.sleep(0.01)
-
+        # The contract is a non-decreasing last_message_time: two events
+        # handled within the same clock tick may share an identical
+        # timestamp, and no injectable clock exists on the session.
         await session._on_sdk_event(
             MockEvent(
                 event_type=MockEventType.CHANNEL_MSG_RECV,

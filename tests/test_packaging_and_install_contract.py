@@ -186,7 +186,7 @@ class TestBaseImportBoundary:
     """Core imports must succeed without any optional transport SDK."""
 
     def test_import_medre(self) -> None:
-        import medre  # noqa: F401
+        import medre
 
         assert medre is not None
 

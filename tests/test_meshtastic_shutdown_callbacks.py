@@ -29,6 +29,7 @@ from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterDeliveryResult,
 )
+from tests.helpers.async_utils import wait_until
 from tests.helpers.meshtastic import make_meshtastic_config
 
 # ---------------------------------------------------------------------------
@@ -330,7 +331,7 @@ class TestNoUntrackedTasksAfterStop:
         async def mock_send_one():
             if results:
                 return results.pop(0)
-            await asyncio.sleep(10)  # block until cancelled
+            await asyncio.Event().wait()  # block until cancelled
 
         adapter.send_one = mock_send_one
         adapter._report_cancelled_and_drain = AsyncMock()
@@ -338,8 +339,8 @@ class TestNoUntrackedTasksAfterStop:
         drain_task = asyncio.ensure_future(adapter._process_queue())
         adapter._drain_task = drain_task
 
-        # Give the loop a moment to process the result and run the callback.
-        await asyncio.sleep(0.2)
+        # Wait for the loop to process the result and run the callback.
+        await wait_until(lambda: len(records_seen) == 1)
 
         # Cancel and drain (simulating stop).
         drain_task.cancel()
@@ -400,15 +401,17 @@ class TestDelayedOutboundRefExceptionLogged:
             if call_count == 1:
                 return _delivery_result()
             # Second call returns None so loop sleeps; we cancel shortly.
-            await asyncio.sleep(10)
+            await asyncio.Event().wait()
 
         adapter.send_one = mock_send_one
 
         drain_task = asyncio.ensure_future(adapter._process_queue())
         adapter._drain_task = drain_task
 
-        # Wait for the first send to complete (including the failed callback).
-        await asyncio.sleep(0.3)
+        # Wait for the FIRST ITERATION to fully complete — including the
+        # failing native-ref callback — observable as entry into the
+        # second send_one call (which then parks until we cancel).
+        await wait_until(lambda: call_count >= 2)
 
         # Drain task should still be running (exception was caught).
         assert not drain_task.done()
@@ -445,14 +448,16 @@ class TestDelayedOutboundRefExceptionLogged:
                 # sees ctx=None.
                 adapter.ctx = None
                 return _delivery_result()
-            await asyncio.sleep(10)
+            await asyncio.Event().wait()
 
         adapter.send_one = mock_send_one
 
         drain_task = asyncio.ensure_future(adapter._process_queue())
         adapter._drain_task = drain_task
 
-        await asyncio.sleep(0.3)
+        # Entry into the second send_one proves the ctx=None handling of
+        # the first iteration has finished.
+        await wait_until(lambda: call_count >= 2)
         assert not drain_task.done()
 
         drain_task.cancel()
@@ -517,7 +522,7 @@ class TestGenericExceptionTriggersSleep:
             adapter._drain_task = drain_task
 
             # Wait for the error to be caught and the sleep to happen.
-            await asyncio.sleep(0.3)
+            await wait_until(lambda: 1.0 in sleep_args)
 
             drain_task.cancel()
             try:
@@ -838,7 +843,7 @@ class TestNativeRefExceptionAfterCancel:
             if call_count == 1:
                 return _delivery_result()
             # Second call blocks until we cancel.
-            await asyncio.sleep(60)
+            await asyncio.Event().wait()
 
         adapter.send_one = mock_send_one
 
@@ -864,8 +869,12 @@ class TestNativeRefExceptionAfterCancel:
         # Now let the callback raise its exception.
         callback_should_raise.set()
 
-        # Give the event loop a moment to process the callback exception.
-        await asyncio.sleep(0.2)
+        # Wait for BOTH the task completing and the observer's done
+        # callback removing it from _background_tasks — these happen on
+        # different event-loop turns.
+        await wait_until(
+            lambda: cb_task.done() and cb_task not in adapter._background_tasks
+        )
 
         # _background_tasks should now be empty because the done callback
         # in _observe_callback_task observes the exception and removes it.
@@ -902,7 +911,7 @@ class TestNativeRefExceptionAfterCancel:
                     item={"event_id": "evt-term", "channel_index": 0},
                     outcome="exhausted",
                 )
-            await asyncio.sleep(60)
+            await asyncio.Event().wait()
 
         adapter.send_one = mock_send_one
 
@@ -941,7 +950,7 @@ class TestDrainBackgroundTasksTimeout:
         adapter.ctx = _make_ctx()
 
         async def slow_callback():
-            await asyncio.sleep(60)
+            await asyncio.Event().wait()
 
         # Manually add a slow background task.
         task = asyncio.ensure_future(slow_callback())
@@ -967,7 +976,7 @@ class TestDrainBackgroundTasksTimeout:
         adapter._background_tasks.add(task)
 
         # Let the task fail.
-        await asyncio.sleep(0.1)
+        await wait_until(task.done)
 
         # Drain observes the exception.
         await adapter._drain_background_tasks(timeout=2.0)
@@ -1040,7 +1049,7 @@ class TestStubbornCallbackTimeout:
                 await stuck_event.wait()
             except asyncio.CancelledError:
                 # Suppress, wait forever (simulating stuck callback).
-                await asyncio.sleep(3600)
+                await asyncio.Event().wait()
 
         task = asyncio.ensure_future(stubborn_then_fails())
         adapter._background_tasks.add(task)
@@ -1063,7 +1072,7 @@ class TestStubbornCallbackTimeout:
             # The task is still pending.  Cancel it so it completes —
             # this simulates the process exiting or a hard kill.
             task.cancel()
-            await asyncio.sleep(0.2)
+            await wait_until(task.done)
 
             # The task should have completed (CancelledError propagated
             # through the sleep), and the done callback observed it.

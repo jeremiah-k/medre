@@ -22,6 +22,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
 )
 from medre.core.events import CanonicalEvent, EventMetadata
+from tests.helpers.async_utils import wait_until
 from tests.helpers.meshtastic import (
     make_meshtastic_config,
     make_meshtastic_rendering_result,
@@ -607,7 +608,12 @@ class TestMeshtasticAdapterTaskScheduling:
         adapter._on_packet(packet)
 
         # Allow the background task to complete
-        await asyncio.sleep(0.05)
+        # Wait for the event AND the task's done-callback removing it from
+        # _background_tasks — publication and cleanup land on different turns.
+        await wait_until(
+            lambda: len(inbound_collector.events) == 1
+            and not adapter._background_tasks
+        )
 
         assert len(inbound_collector.events) == 1
         assert inbound_collector.events[0].payload["body"] == "tracked"
@@ -622,7 +628,7 @@ class TestMeshtasticAdapterTaskScheduling:
 
         # Inject a long-running task
         async def _slow():
-            await asyncio.sleep(100)
+            await asyncio.Event().wait()
 
         task = asyncio.create_task(_slow())
         adapter._background_tasks.add(task)
@@ -642,7 +648,7 @@ class TestMeshtasticAdapterTaskScheduling:
 
         async def _block_forever():
             try:
-                await asyncio.sleep(1000)
+                await asyncio.Event().wait()
             except asyncio.CancelledError:
                 # Swallow to test drain behavior
                 pass
