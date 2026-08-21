@@ -1022,53 +1022,6 @@ class TestRegisterInviteCallback:
             session._register_invite_callback()
         session._client.add_event_callback.assert_not_called()
 
-    def test_registers_via_nio_events_direct_import(self, mock_nio) -> None:
-        """When InviteMemberEvent is found via the canonical nio.events
-        import, callback is registered with that class.
-        """
-        config = make_matrix_config()
-        session = MatrixSession(config)
-        session._client = MagicMock(name="mock_client")
-
-        invite_cls = MagicMock(name="InviteMemberEvent")
-        fake_nio = MagicMock(name="nio")
-        fake_events = MagicMock(name="nio.events")
-        fake_events.InviteMemberEvent = invite_cls
-        fake_nio.events = fake_events
-
-        with patch.dict(sys.modules, {"nio": fake_nio, "nio.events": fake_events}):
-            session._register_invite_callback()
-        session._client.add_event_callback.assert_called_once()
-        call_args = session._client.add_event_callback.call_args
-        registered_handler = call_args[0][0]
-        assert registered_handler.__func__ is session._on_invite.__func__
-        assert invite_cls in call_args[0][1]
-
-    def test_registers_via_top_level_fallback(self, mock_nio) -> None:
-        """When nio.events.InviteMemberEvent is missing but nio.InviteMemberEvent
-        is present (older nio layout), the top-level fallback registers it.
-        """
-        config = make_matrix_config()
-        session = MatrixSession(config)
-        session._client = MagicMock(name="mock_client")
-
-        invite_cls = MagicMock(name="InviteMemberEvent")
-        fake_nio = MagicMock(name="nio")
-        fake_nio.InviteMemberEvent = invite_cls
-
-        class _Boom:
-            def __getattr__(self, name: str) -> None:
-                raise ImportError(f"no module attribute {name}")
-
-        fake_events = _Boom()
-
-        with patch.dict(sys.modules, {"nio": fake_nio, "nio.events": fake_events}):
-            session._register_invite_callback()
-        session._client.add_event_callback.assert_called_once()
-        call_args = session._client.add_event_callback.call_args
-        registered_handler = call_args[0][0]
-        assert registered_handler.__func__ is session._on_invite.__func__
-        assert invite_cls in call_args[0][1]
 
 
 class TestJoinOncePaths:

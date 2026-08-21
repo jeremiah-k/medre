@@ -1333,11 +1333,6 @@ class MatrixSession:
 
         try:
             from nio.events import InviteMemberEvent
-
-            self._client.add_event_callback(
-                self._on_invite,
-                (InviteMemberEvent,),
-            )
         except ImportError:
             try:
                 import nio
@@ -1348,8 +1343,21 @@ class MatrixSession:
                         self._on_invite,
                         (invite_cls,),
                     )
-            except (ImportError, AttributeError):
+            except Exception:
+                # Invite auto-join is optional. Registration failure must not
+                # prevent the Matrix session from starting.
                 pass
+            return
+
+        try:
+            self._client.add_event_callback(
+                self._on_invite,
+                (InviteMemberEvent,),
+            )
+        except Exception:
+            # Invite auto-join is optional. Registration failure must not
+            # prevent the Matrix session from starting.
+            pass
 
     # ensure_joined helper
     async def ensure_joined(self, room_id: str) -> bool:

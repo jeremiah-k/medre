@@ -2,7 +2,7 @@
 
 Each test pins one knob on a fake (LXMF signature_validated, MeshCore
 ``type: PRIV`` direct-event helper, Meshtastic connection_generation
-passthrough) to a behavior the real SDK can produce.  Defaults preserve
+passthrough) to a behavior the real SDK can produce. Defaults preserve
 the historical happy-path behavior.
 """
 
@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from unittest.mock import patch
 
 from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
@@ -27,7 +28,7 @@ def _make_context(adapter_id: str) -> AdapterContext:
         event_bus=None,
         publish_inbound=lambda _e: asyncio.sleep(0),
         logger=logging.getLogger(f"test.{adapter_id}"),
-        clock=lambda: datetime.now(timezone.utc),
+        clock=lambda: datetime.now(UTC),
         shutdown_event=asyncio.Event(),
     )
 
@@ -54,143 +55,103 @@ def _seeded_meshtastic() -> FakeMeshtasticAdapter:
     )
 
 
-class TestFakeLxmfSignatureValidated:
-    """``FakeLxmfAdapter.make_text_event`` accepts ``signature_validated``
-    so tests can exercise the unverified-signature attribution branch
-    the real SDK can produce (LXMessage.unpack_from_bytes may report
-    ``signature_validated=False`` for messages without a verified
-    signature).
-    """
+def test_fake_lxmf_default_signature_is_validated() -> None:
+    adapter = _seeded_lxmf()
 
-    async def test_default_signature_is_validated(self) -> None:
-        adapter = _seeded_lxmf()
+    event = adapter.make_text_event(body="hello", source_name="alice")
 
-        event = adapter.make_text_event(body="hello", source_name="alice")
+    assert event.payload["body"] == "hello"
 
-        assert event.payload["body"] == "hello"
 
-    async def test_unvalidated_signature_flows_through_attribution(self) -> None:
-        """An unvalidated signature does not change attribution: the
-        canonical event is structurally identical whether the signature
-        is verified or not, because attribution derives from
-        announce-derived display names rather than signature state.
-        """
-        adapter = _seeded_lxmf()
+def test_fake_lxmf_unvalidated_signature_reaches_codec_input() -> None:
+    """The fidelity knob is preserved on the packet consumed by the codec."""
+    adapter = _seeded_lxmf()
+    validated = adapter.make_text_event(
+        body="hi", source_name="alice", signature_validated=True
+    )
 
-        validated = adapter.make_text_event(
-            body="hi", source_name="alice", signature_validated=True
-        )
+    with patch.object(adapter._codec, "decode", wraps=adapter._codec.decode) as decode:
         unvalidated = adapter.make_text_event(
             body="hi", source_name="alice", signature_validated=False
         )
 
-        assert validated.payload["body"] == unvalidated.payload["body"]
-        assert validated.event_kind == unvalidated.event_kind
-        assert validated.source_adapter == unvalidated.source_adapter
-        assert (
-            validated.metadata.native.data["lxmf"]["source_hash"]
-            == unvalidated.metadata.native.data["lxmf"]["source_hash"]
-        )
+    packet = decode.call_args.args[0]
+    assert packet["signature_validated"] is False
+    assert validated.payload["body"] == unvalidated.payload["body"]
+    assert validated.event_kind == unvalidated.event_kind
+    assert validated.source_adapter == unvalidated.source_adapter
+    assert (
+        validated.metadata.native.data["lxmf"]["source_hash"]
+        == unvalidated.metadata.native.data["lxmf"]["source_hash"]
+    )
 
 
-class TestFakeMeshCoreDirectEvent:
-    """``FakeMeshCoreAdapter.make_direct_event`` emits the
-    ``type:"PRIV"`` payload shape that real ``CONTACT_MSG_RECV`` events
-    carry, so tests can exercise the direct-message classification path.
-    """
+def test_fake_meshcore_direct_event_marks_direct_message() -> None:
+    adapter = _seeded_meshcore()
 
-    def test_make_direct_event_marks_direct_message(self) -> None:
-        adapter = _seeded_meshcore()
+    event = adapter.make_direct_event(body="hi", sender="abc123")
 
-        event = adapter.make_direct_event(body="hi", sender="abc123")
-
-        meshcore_meta = event.metadata.native.data["meshcore"]
-        assert meshcore_meta["is_direct_message"] is True
-        assert meshcore_meta["channel"] is None
-
-    def test_priv_event_has_no_channel_index(self) -> None:
-        """``type:"PRIV"`` events have no channel index (real
-        ``CONTACT_MSG_RECV`` semantics: DMs are not scoped to a channel).
-        The codec records this as ``channel=None`` in the canonical
-        native metadata.
-        """
-        adapter = _seeded_meshcore()
-
-        event = adapter.make_direct_event(body="hi")
-
-        meshcore_meta = event.metadata.native.data["meshcore"]
-        assert meshcore_meta["is_direct_message"] is True
-        assert meshcore_meta["channel"] is None
+    meshcore_meta = event.metadata.native.data["meshcore"]
+    assert meshcore_meta["is_direct_message"] is True
+    assert meshcore_meta["channel"] is None
 
 
-class TestFakeMeshtasticConnectionGeneration:
-    """``FakeMeshtasticAdapter.simulate_inbound`` accepts an optional
-    ``connection_generation`` token, mirroring the real adapter's
-    staleness check at publish time.
-    """
+def test_fake_meshcore_direct_event_has_no_channel_index() -> None:
+    """Real contact-message receive events are not scoped to a channel."""
+    adapter = _seeded_meshcore()
 
-    async def test_default_does_not_set_connection_generation(self) -> None:
-        adapter = _seeded_meshtastic()
-        await adapter.start(_make_context("meshtastic-fidelity"))
+    event = adapter.make_direct_event(body="hi")
 
-        packet = {
-            "fromId": "!sender",
-            "toId": "^all",
-            "channel": 0,
-            "decoded": {
-                "portnum": "text_message",
-                "text": "hello",
-            },
-            "id": 12345,
-        }
-        await adapter.simulate_inbound(packet)
+    meshcore_meta = event.metadata.native.data["meshcore"]
+    assert meshcore_meta["is_direct_message"] is True
+    assert meshcore_meta["channel"] is None
 
-        assert "_connection_generation" not in packet
 
-    async def test_passthrough_records_token_on_packet(self) -> None:
-        """When ``connection_generation`` is provided, the fake stores it
-        on the packet dict so downstream publish-path tests can verify
-        staleness-check coverage (mirrors the real adapter's
-        ``_publish_via_session`` re-validation).
-        """
-        adapter = _seeded_meshtastic()
-        await adapter.start(_make_context("meshtastic-fidelity"))
+async def test_fake_meshtastic_default_omits_connection_generation() -> None:
+    adapter = _seeded_meshtastic()
+    await adapter.start(_make_context("meshtastic-fidelity"))
 
-        packet = {
-            "fromId": "!sender",
-            "toId": "^all",
-            "channel": 0,
-            "decoded": {
-                "portnum": "text_message",
-                "text": "hello",
-            },
-            "id": 12345,
-        }
-        await adapter.simulate_inbound(packet, connection_generation=7)
+    packet = {
+        "fromId": "!sender",
+        "toId": "^all",
+        "channel": 0,
+        "decoded": {"portnum": "text_message", "text": "hello"},
+        "id": 12345,
+    }
+    await adapter.simulate_inbound(packet)
 
-        assert packet["_connection_generation"] == 7
+    assert "_connection_generation" not in packet
 
-    async def test_passthrough_does_not_change_classification(self) -> None:
-        """The connection-generation passthrough is metadata-only; the
-        classifier's relay/ignore decision for the same packet must be
-        identical with and without the token.
-        """
-        adapter = _seeded_meshtastic()
-        await adapter.start(_make_context("meshtastic-fidelity"))
 
-        base_packet = {
-            "fromId": "!sender",
-            "toId": "^all",
-            "channel": 0,
-            "decoded": {
-                "portnum": "text_message",
-                "text": "hello",
-            },
-            "id": 12345,
-        }
-        await adapter.simulate_inbound(dict(base_packet))
-        await adapter.simulate_inbound(
-            dict(base_packet), connection_generation=99
-        )
+async def test_fake_meshtastic_records_connection_generation() -> None:
+    adapter = _seeded_meshtastic()
+    await adapter.start(_make_context("meshtastic-fidelity"))
 
-        assert len(adapter.inbound_events) == 2
+    packet = {
+        "fromId": "!sender",
+        "toId": "^all",
+        "channel": 0,
+        "decoded": {"portnum": "text_message", "text": "hello"},
+        "id": 12345,
+    }
+    await adapter.simulate_inbound(packet, connection_generation=7)
+
+    assert packet["_connection_generation"] == 7
+
+
+async def test_fake_meshtastic_generation_does_not_change_classification() -> None:
+    """The generation token is metadata-only for the inbound classifier."""
+    adapter = _seeded_meshtastic()
+    await adapter.start(_make_context("meshtastic-fidelity"))
+
+    packet = {
+        "fromId": "!sender",
+        "toId": "^all",
+        "channel": 0,
+        "decoded": {"portnum": "text_message", "text": "hello"},
+        "id": 12345,
+    }
+    await adapter.simulate_inbound(dict(packet))
+    await adapter.simulate_inbound(dict(packet), connection_generation=99)
+
+    assert len(adapter.inbound_events) == 2

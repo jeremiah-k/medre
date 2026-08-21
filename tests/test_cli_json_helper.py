@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import msgspec
@@ -56,18 +57,24 @@ def test_to_json_msgspec_struct_is_sorted_and_indented() -> None:
     assert out.index('"count"') < out.index('"name"') < out.index('"tags"')
 
 
-def test_to_json_datetime_falls_through_to_str() -> None:
-    """``datetime`` values are not msgspec-native, so the helper falls
-    back to ``default=str`` and renders them as ISO strings instead of
-    raising ``TypeError``.
-    """
+def test_to_json_datetime_uses_msgspec_native_encoding() -> None:
+    """Aware datetimes use msgspec's native RFC 3339 JSON encoding."""
 
     class _Struct(msgspec.Struct):
         when: Any
 
-    out = to_json(_Struct(when="2026-01-01T00:00:00"))
+    out = to_json(_Struct(when=datetime(2026, 1, 1, tzinfo=UTC)))
     parsed = json.loads(out)
-    assert parsed == {"when": "2026-01-01T00:00:00"}
+    assert parsed == {"when": "2026-01-01T00:00:00Z"}
+
+
+def test_to_json_unsupported_value_falls_back_to_str() -> None:
+    class _Unsupported:
+        def __str__(self) -> str:
+            return "unsupported-value"
+
+    out = to_json({"value": _Unsupported()})
+    assert json.loads(out) == {"value": "unsupported-value"}
 
 
 def test_to_json_list_at_root_is_supported() -> None:

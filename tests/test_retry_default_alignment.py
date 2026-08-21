@@ -64,12 +64,12 @@ class TestRouteRetryConfigDefault:
 
 
 class TestRetryWorkerDefault:
-    """RetryWorker (runtime) constructor parameter default."""
+    """RetryWorker inherits the configured default unless explicitly overridden."""
 
-    def test_constructor_default_max_attempts(self) -> None:
+    def test_constructor_uses_none_as_inherit_sentinel(self) -> None:
         sig = inspect.signature(RetryWorker.__init__)
         max_attempts_param = sig.parameters["max_attempts"]
-        assert max_attempts_param.default == _EXPECTED_MAX_ATTEMPTS
+        assert max_attempts_param.default is None
 
 
 class TestCrossSourceAlignment:
@@ -85,7 +85,8 @@ class TestCrossSourceAlignment:
         config_default = _config_fields["max_attempts"].default
         route_default = _route_fields["max_attempts"].default
         sig = inspect.signature(RetryWorker.__init__)
-        worker_default = sig.parameters["max_attempts"].default
+        worker_override_default = sig.parameters["max_attempts"].default
 
-        assert planning_default == config_default == route_default == worker_default
+        assert planning_default == config_default == route_default
         assert planning_default == _EXPECTED_MAX_ATTEMPTS
+        assert worker_override_default is None

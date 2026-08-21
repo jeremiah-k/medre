@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import signal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -327,6 +328,31 @@ class TestLoginHelpEpilog:
         assert exc_info.value.code == 0
         output = stdout_buf.getvalue()
         assert "bare domain" in output or "matrix.example.com" in output
+
+
+@pytest.mark.asyncio
+async def test_interactive_matrix_login_sigint_interrupts_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SIGINT interrupts the terminal prompt without leaving worker threads."""
+    from medre.adapters.matrix.cli import _adapter_matrix_auth_login
+
+    args = SimpleNamespace(
+        homeserver=None,
+        user=None,
+        password=None,
+        password_stdin=False,
+        adapter_id=None,
+        reset_cross_signing=False,
+    )
+
+    def _interrupt(_prompt: str) -> str:
+        signal.raise_signal(signal.SIGINT)
+        raise AssertionError("SIGINT did not interrupt the interactive prompt")
+
+    monkeypatch.setattr("builtins.input", _interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        await _adapter_matrix_auth_login(args)
 
 
 # ---------------------------------------------------------------------------

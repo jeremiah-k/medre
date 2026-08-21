@@ -9,12 +9,13 @@ from pathlib import Path
 
 
 def _prompt_credentials_interactive() -> tuple[str, str]:
-    """Read interactive Matrix credentials without blocking the event loop.
+    """Read interactive Matrix credentials on the controlling terminal.
 
-    Synchronous helper invoked via :func:`asyncio.to_thread` from
-    :func:`_adapter_matrix_auth_login`.  Prompts for the user ID and
-    password on the controlling terminal; ``sys.exit(1)`` preserves the
-    historical exit-code contract for missing input.
+    Interactive login performs no concurrent async work while prompting, so
+    keeping the blocking terminal reads on the main thread lets SIGINT and
+    ``KeyboardInterrupt`` terminate the prompt deterministically.  Moving
+    ``input()``/``getpass()`` into a worker thread would leave that worker
+    blocked after cancellation.
     """
     user_id = input("Matrix user ID (e.g. @bot:example.com): ").strip()
     if not user_id:
@@ -71,11 +72,10 @@ async def _adapter_matrix_auth_login(args: object) -> None:
 
     if provided == 0:
         # --- FULLY INTERACTIVE ----------------------------------------------
-        # input() and getpass.getpass() are blocking stdlib calls; run them
-        # off the asyncio loop via ``asyncio.to_thread`` so the event loop
-        # stays responsive while the operator types.  Exit codes and
-        # prompt/error text are preserved verbatim.
-        user_id, password = await asyncio.to_thread(_prompt_credentials_interactive)
+        # No concurrent async work is active while credentials are being
+        # requested.  Prompt on the main thread so terminal SIGINT can
+        # interrupt input()/getpass() rather than leaving a worker blocked.
+        user_id, password = _prompt_credentials_interactive()
 
     elif provided > 0:
         # Check whether we have enough for non-interactive mode.

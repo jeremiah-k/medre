@@ -34,9 +34,10 @@ def to_json(obj: Any) -> str:
        :func:`dataclasses.asdict` and then dumped the same way.  This
        matches the historical shape produced by callers that already
        did ``json.dumps(asdict(...))``.
-    3. Fallback for unknown types — ``default=str`` so ``datetime`` and
-       similar repr-strings still serialise instead of raising
-       ``TypeError``.
+    3. Fallback for values unsupported by msgspec — ``default=str`` so
+       operator-facing JSON emission remains total instead of raising
+       ``TypeError``.  Types natively supported by msgspec, including
+       ``datetime``, are handled before this fallback.
 
     All branches produce the same canonical shape (sorted keys,
     indent=2, trailing newline omitted — callers add it if needed).

@@ -73,6 +73,7 @@ if TYPE_CHECKING:
 __all__ = ["MedreApp", "RuntimeState"]
 
 _logger = logging.getLogger(__name__)
+_ROUTE_IDS_DISPLAY_LIMIT = 10
 
 
 class RuntimeState(enum.Enum):
@@ -766,9 +767,8 @@ class MedreApp:
                 if r.retry is not None and r.retry.enabled
             ]
             if stale:
-                _route_ids_display_limit = 10
-                shown = ", ".join(stale[:_route_ids_display_limit])
-                extra = len(stale) - _route_ids_display_limit
+                shown = ", ".join(stale[:_ROUTE_IDS_DISPLAY_LIMIT])
+                extra = len(stale) - _ROUTE_IDS_DISPLAY_LIMIT
                 suffix = f", and {extra} more" if extra > 0 else ""
                 _logger.warning(
                     "global retry worker disabled; per-route retry policies "
