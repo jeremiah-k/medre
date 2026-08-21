@@ -40,6 +40,7 @@ from medre.adapters.matrix.identity import (
 )
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.ingress import INGRESS_PROVENANCE_VALUES, IngressProvenance
+from medre.core.ingress.types import DurableIngressDeferredError
 
 _logger = logging.getLogger(__name__)
 _sleep = asyncio.sleep
@@ -983,7 +984,32 @@ class MatrixSession:
         await self._message_callback(normalized)
 
     async def _on_nio_admission(self, room: Any, event: Any, provenance: Any) -> None:
-        """Durably admit a nio timeline event before ordinary callback fanout."""
+        """Durably admit a nio timeline event before ordinary callback fanout.
+
+        Exception taxonomy (per mindroom-nio contract):
+        * :class:`medre.core.ingress.types.DurableIngressDeferredError` —
+          raised by the durable admission callback when an event must
+          remain pending for a later cycle (capacity, shutdown).  We
+          translate this into ``CallbackNotAcceptedError`` so nio keeps
+          the event pending and redispatches on the next sync loop /
+          recovery pump.  See
+          ``nio/client/async_client.py:1305-1326`` (``_dispatch_timeline_event``)
+          and ``nio/client/sync_recovery.py:1707-1718`` (``_finish_recovery_dispatch``):
+          both branches catch ``CallbackNotAcceptedError`` and propagate
+          it as ``_LiveCallbackError(..., accepted=False)``, which tells
+          nio the event is not yet consumed.
+        * Anything else — programming errors (AttributeError, TypeError,
+          unsupported provenance), unexpected storage failures (sqlite
+          write errors), or any other ``Exception`` — must NOT masquerade
+          as deferral.  We log via ``logger.exception`` (with an
+          explicit marker) and re-raise the **original** exception.
+          nio wraps it in ``_LiveCallbackError(..., accepted=True)``
+          (``async_client.py:1314-1318``) for the live path or logs and
+          drops it (``sync_recovery.py:1711-1716``) for the recovered
+          path.  Either way, the event is consumed and will not be
+          redispatched indefinitely, surfacing the underlying bug to the
+          operator instead of looping forever.
+        """
         if self._admission_callback is None:
             return
         normalized = self._normalize_event(room, event)
@@ -1005,17 +1031,24 @@ class MatrixSession:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            import nio
-
-            rejection = getattr(nio, "CallbackNotAcceptedError", None)
-            if rejection is None:
-                try:
-                    from nio.exceptions import CallbackNotAcceptedError as rejection
-                except ImportError:
+            # Expected deferral signal — translate to CallbackNotAcceptedError
+            # so nio keeps the event pending for redispatch.
+            if isinstance(exc, DurableIngressDeferredError):
+                rejection = self._resolve_callback_not_accepted_error()
+                if rejection is None:
                     raise exc from None
-            if isinstance(exc, rejection):
-                raise
-            raise rejection(f"MEDRE durable ingress admission failed: {exc}") from exc
+                raise rejection(str(exc)) from exc
+            # Unexpected failure — surface to the operator and re-raise
+            # the original exception so nio wraps it in
+            # ``_LiveCallbackError(accepted=True)`` (live) or logs+drops
+            # (recovered).  Do NOT translate to CallbackNotAcceptedError;
+            # that would loop forever.
+            self._logger.exception(
+                "MATRIX_ADMISSION_UNEXPECTED_ERROR: provenance=%s event_id=%s",
+                provenance_value,
+                getattr(event, "event_id", None),
+            )
+            raise
 
     @staticmethod
     def _abandonment_metadata(response: Any) -> dict[str, tuple[str, ...]]:
@@ -1029,6 +1062,36 @@ class MatrixSession:
                 values.append(str(value if value is not None else reason))
             result[str(room_id)] = tuple(sorted(values))
         return result
+
+    @staticmethod
+    def _resolve_callback_not_accepted_error() -> Any | None:
+        """Return ``nio.CallbackNotAcceptedError`` if mindroom-nio exposes it.
+
+        Resolves both the top-level ``nio`` symbol (used by older nio
+        versions) and the ``nio.exceptions`` location (canonical
+        mindroom-nio 0.40 layout).  Returns ``None`` only when nio is
+        not importable at all, in which case ``_on_nio_admission`` must
+        re-raise the original ``DurableIngressDeferredError`` because
+        we have no way to translate it.
+        """
+        try:
+            import nio
+        except ImportError:
+            try:
+                from nio.exceptions import CallbackNotAcceptedError
+
+                return CallbackNotAcceptedError
+            except ImportError:
+                return None
+        rejection = getattr(nio, "CallbackNotAcceptedError", None)
+        if rejection is not None:
+            return rejection
+        try:
+            from nio.exceptions import CallbackNotAcceptedError
+
+            return CallbackNotAcceptedError
+        except ImportError:
+            return None
 
     @staticmethod
     def _abandonment_diagnostic(
@@ -1260,26 +1323,33 @@ class MatrixSession:
     def _register_invite_callback(self) -> None:
         """Register an InviteMemberEvent callback for auto-join.
 
-        Discovers ``InviteMemberEvent`` from nio and registers
-        ``self._on_invite`` as the handler.  Wrapped in try/except for
-        older nio versions that may not expose this class.
+        Imports ``InviteMemberEvent`` directly from ``nio.events``
+        (the canonical mindroom-nio 0.40 location).  Older nio versions
+        that only expose it at the top level fall back to a
+        ``getattr(nio, ...)`` probe.
         """
         if self._client is None:
             return
 
         try:
-            import nio
+            from nio.events import InviteMemberEvent
 
-            invite_cls = getattr(nio, "InviteMemberEvent", None)
-            if invite_cls is None:
-                invite_cls = getattr(nio.events, "InviteMemberEvent", None)
-            if invite_cls is not None:
-                self._client.add_event_callback(
-                    self._on_invite,
-                    (invite_cls,),
-                )
-        except (ImportError, AttributeError):
-            pass
+            self._client.add_event_callback(
+                self._on_invite,
+                (InviteMemberEvent,),
+            )
+        except ImportError:
+            try:
+                import nio
+
+                invite_cls = getattr(nio, "InviteMemberEvent", None)
+                if invite_cls is not None:
+                    self._client.add_event_callback(
+                        self._on_invite,
+                        (invite_cls,),
+                    )
+            except (ImportError, AttributeError):
+                pass
 
     # ensure_joined helper
     async def ensure_joined(self, room_id: str) -> bool:

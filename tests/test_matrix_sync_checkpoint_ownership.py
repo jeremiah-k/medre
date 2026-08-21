@@ -78,9 +78,13 @@ def test_classic_client_config_selects_nio_owned_classic_state() -> None:
     }
 
 
-async def test_unsupported_admission_provenance_is_rejected_before_callback(
+async def test_unsupported_admission_provenance_propagates_value_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Programming-error path: unknown provenance raises ValueError that
+    propagates unchanged so nio wraps it in ``_LiveCallbackError(accepted=True)``
+    instead of looping the event forever.
+    """
     class CallbackNotAcceptedError(Exception):
         pass
 
@@ -104,25 +108,68 @@ async def test_unsupported_admission_provenance_is_rejected_before_callback(
         },
     )
 
-    with pytest.raises(
-        CallbackNotAcceptedError, match="unsupported Matrix ingress provenance"
-    ) as rejected:
+    with pytest.raises(ValueError, match="unsupported Matrix ingress provenance"):
         await session._on_nio_admission(
             room, event, SimpleNamespace(value="unsupported")
         )
 
     admission.assert_not_awaited()
-    assert isinstance(rejected.value.__cause__, ValueError)
 
 
-async def test_admission_failure_rejects_event_for_nio_replay(
+async def test_durable_deferred_admission_yields_callback_not_accepted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The expected deferral signal — :class:`DurableIngressDeferredError` —
+    is translated to ``CallbackNotAcceptedError`` so nio keeps the event
+    pending for redispatch on the next sync loop or recovery pump.
+    """
+    from medre.core.ingress import DurableIngressDeferredError
+
     class CallbackNotAcceptedError(Exception):
         pass
 
+    async def defer(_event: dict[str, object], _provenance: str) -> None:
+        raise DurableIngressDeferredError("$event", ("capacity_full",))
+
+    session = _durable_session(admission_callback=defer)
+    fake_nio = SimpleNamespace(CallbackNotAcceptedError=CallbackNotAcceptedError)
+    monkeypatch.setitem(sys.modules, "nio", fake_nio)
+    room = SimpleNamespace(room_id="!room:example.org")
+    event = SimpleNamespace(
+        sender="@alice:example.org",
+        event_id="$event",
+        body="hello",
+        source={
+            "event_id": "$event",
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+            "content": {"msgtype": "m.text", "body": "hello"},
+        },
+    )
+
+    with pytest.raises(CallbackNotAcceptedError, match="capacity_full"):
+        await session._on_nio_admission(room, event, SimpleNamespace(value="live"))
+
+
+async def test_unexpected_runtime_error_propagates_and_is_logged(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Programming/storage errors must NOT masquerade as deferral — nio
+    sees the original ``RuntimeError`` and wraps it in
+    ``_LiveCallbackError(accepted=True)`` (live) or logs+drops (recovered),
+    so the event is consumed rather than redispatched forever.
+
+    The session also logs ``MATRIX_ADMISSION_UNEXPECTED_ERROR`` so the
+    operator can correlate the failure.
+    """
+    class CallbackNotAcceptedError(Exception):
+        pass
+
+    original = RuntimeError("sqlite write failed")
+
     async def reject(_event: dict[str, object], _provenance: str) -> None:
-        raise RuntimeError("sqlite write failed")
+        raise original
 
     session = _durable_session(admission_callback=reject)
     fake_nio = SimpleNamespace(CallbackNotAcceptedError=CallbackNotAcceptedError)
@@ -140,20 +187,33 @@ async def test_admission_failure_rejects_event_for_nio_replay(
         },
     )
 
-    with pytest.raises(CallbackNotAcceptedError, match="durable ingress"):
+    caplog.set_level(
+        "ERROR", logger="medre.adapters.matrix.session"
+    )
+    with pytest.raises(RuntimeError, match="sqlite write failed") as caught:
         await session._on_nio_admission(room, event, SimpleNamespace(value="recovered"))
+
+    assert caught.value is original
+    assert not isinstance(caught.value, CallbackNotAcceptedError)
+    assert any(
+        "MATRIX_ADMISSION_UNEXPECTED_ERROR" in rec.message
+        for rec in caplog.records
+    ), [rec.message for rec in caplog.records]
     assert session._recovered_event_count == 1
 
 
 async def test_admission_failure_preserves_original_error_when_rejection_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original = RuntimeError("sqlite write failed")
+    """When nio is not importable at all, deferral signals also propagate
+    unchanged so nio never sees a translated class it cannot handle.
+    """
+    from medre.core.ingress import DurableIngressDeferredError
 
-    async def reject(_event: dict[str, object], _provenance: str) -> None:
-        raise original
+    async def defer(_event: dict[str, object], _provenance: str) -> None:
+        raise DurableIngressDeferredError("$event", ("deferred",))
 
-    session = _durable_session(admission_callback=reject)
+    session = _durable_session(admission_callback=defer)
     monkeypatch.setitem(sys.modules, "nio", SimpleNamespace())
     monkeypatch.delitem(sys.modules, "nio.exceptions", raising=False)
 
@@ -170,10 +230,8 @@ async def test_admission_failure_preserves_original_error_when_rejection_missing
         },
     )
 
-    with pytest.raises(RuntimeError, match="sqlite write failed") as caught:
+    with pytest.raises(DurableIngressDeferredError, match="deferred"):
         await session._on_nio_admission(room, event, SimpleNamespace(value="live"))
-
-    assert caught.value is original
 
 
 async def test_sync_response_commits_checkpoint_before_nio_ack() -> None:
