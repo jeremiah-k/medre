@@ -36,7 +36,7 @@ commitment.
 | Local delivery outbox               | synthetic-tested   | synthetic-tested        | synthetic-tested         | synthetic-tested         |
 | Matrix live adapter (local Synapse) | docker-validated   |                         |                          |                          |
 | Installed-SDK contract              | conformance-tested | conformance-tested      | conformance-tested       | conformance-tested       |
-| Deterministic local integration     | docker-validated   | docker-validated        | implemented-not-executed | implemented-not-executed |
+| Deterministic local integration     | docker-validated   | docker-validated        | local-integration-validated | local-integration-validated |
 | Transport soak harness              | synthetic-tested   | opt-in live test exists | implemented-not-executed | implemented-not-executed |
 
 ## 2. Status Definitions
@@ -45,10 +45,11 @@ commitment.
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `not started`              | No implementation exists.                                                                                             |
 | `designed`                 | Spec/contract exists. No working code.                                                                                |
-| `implemented-not-executed` | Working harness exists, but no current-commit execution evidence is recorded.                                         |
+| `implemented-not-executed` | Working harness exists, but no current-tree execution evidence is recorded.                                          |
 | `synthetic-tested`         | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
-| `conformance-tested`       | Tested against the current codebase with deterministic fixtures. Reproducible at the same commit.                     |
+| `conformance-tested`       | Tested against the current codebase with deterministic fixtures. Reproducible for the same Git tree.                     |
 | `docker-validated`         | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
+| `local-integration-validated` | Tested against a deterministic local endpoint/process with the pinned real SDK. Not external network or hardware. |
 | `opt-in live test exists`  | Test harness exists, gated by env vars. Not yet run against a real transport with recorded results.                   |
 | `live-validated`           | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
 
@@ -97,7 +98,7 @@ not external network behavior, federation, or real-world rate limits.
 - [x] Installed-SDK contract matrix
 - [x] Deterministic real-SDK TCP local-integration harness
 - [x] Local-integration lifecycle/send soak harness
-- [ ] Record current-commit execution of local-integration harness
+- [x] Record current-tree execution of local-integration harness
 - [ ] Live validation against physical node
 - [ ] BLE hardware validation
 - [ ] Delivery reliability with real hardware
@@ -110,7 +111,7 @@ not external network behavior, federation, or real-world rate limits.
 - [x] Installed-SDK contract matrix
 - [x] Process-isolated real RNS/LXMRouter local-integration harness
 - [x] Local-integration repeated lifecycle soak harness
-- [ ] Record current-commit execution of local-integration harness
+- [x] Record current-tree execution of local-integration harness
 - [ ] Live validation against Reticulum network
 - [ ] Multi-hop delivery testing
 - [ ] Delivery state progression observation
@@ -118,9 +119,8 @@ not external network behavior, federation, or real-world rate limits.
 ## 4. Known Blockers
 
 No capabilities are currently `blocked`. The primary remaining gaps are
-current-commit execution of the new MeshCore/LXMF local-integration gates,
-physical Meshtastic and MeshCore devices, and an external LXMF peer/network for
-remote delivery and multi-hop observation.
+physical Meshtastic and MeshCore devices, external Matrix validation, and an
+external LXMF peer/network for remote delivery and multi-hop observation.
 
 ## 5. Pre-Release Status
 
@@ -147,7 +147,7 @@ release readiness.
 ## 7. Readiness Gates
 
 Gates that must pass before any release. Each gate records whether it has been
-executed at the current commit.
+executed for the current Git tree.
 
 ### 7.1 Executed gates (evidence exists)
 
@@ -163,6 +163,16 @@ executed at the current commit.
 | Doc structure tests (single authority, status vocabulary)        | conformance    | Pass   |
 | Matrix Docker SDK-boundary validation                            | docker         | Pass   |
 | Meshtastic Docker local integration                              | docker         | Pass   |
+| MeshCore deterministic real-SDK TCP local integration            | conformance    | Pass   |
+| LXMF process-isolated real RNS/LXMRouter local integration       | conformance    | Pass   |
+
+Current-tree local-integration evidence was recorded on 2026-08-21. Git tree
+`ba2bceffad6810855e1858d202aee6039ac49824` was exercised by Tests and
+Coverage workflow run `32529498484` at PR head
+`409762d0cbba1d46aab1fafb60449eca0370ae00`; both
+`transport-local-integration (meshcore)` and
+`transport-local-integration (lxmf)` completed successfully. Landed `main`
+commit `5c8a67e922612f18ab01deefaeeb39c429b4df02` has the identical Git tree.
 
 ### 7.2 Not-executed gates (no evidence at any tier)
 
@@ -174,8 +184,6 @@ executed at the current commit.
 | Meshtastic live validation (radio)       | Meshtastic release     | NOT EXECUTED |
 | MeshCore live validation (node)          | MeshCore release       | NOT EXECUTED |
 | LXMF live validation (Reticulum)         | LXMF release           | NOT EXECUTED |
-| MeshCore deterministic local integration | MeshCore prerelease    | NOT EXECUTED |
-| LXMF process-isolated local integration  | LXMF prerelease        | NOT EXECUTED |
 | Hardware byte-budget measurement         | Constrained transports | NOT EXECUTED |
 
 ### 7.3 Future release gates (not required for prerelease)

@@ -94,6 +94,7 @@ def test_evidence_levels_defines_shared_status_labels() -> None:
         "implemented-not-executed",
         "synthetic-tested",
         "docker-validated",
+        "local-integration-validated",
         "live-validated",
     ]
     for label in shared_labels:
@@ -105,6 +106,20 @@ def test_evidence_levels_defines_shared_status_labels() -> None:
             f"release-readiness.md must use '{label}' from evidence-levels.md "
             f"vocabulary"
         )
+
+
+def test_local_integration_execution_evidence_is_recorded() -> None:
+    """MeshCore/LXMF local integration is no longer marked unexecuted."""
+    text = _read(_READINESS)
+
+    assert "local-integration-validated" in text
+    assert "transport-local-integration (meshcore)" in text
+    assert "transport-local-integration (lxmf)" in text
+    assert "Record current-tree execution of local-integration harness" in text
+
+    not_executed = text.split("### 7.2", 1)[1].split("### 7.3", 1)[0]
+    assert "MeshCore deterministic local integration" not in not_executed
+    assert "LXMF process-isolated local integration" not in not_executed
 
 
 # ===========================================================================
