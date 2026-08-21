@@ -20,6 +20,11 @@ _VALID_ENCRYPTION_MODES: frozenset[str] = frozenset(
     {"plaintext", "e2ee_required", "e2ee_optional"}
 )
 
+MetadataEmbeddingMode = Literal["off", "minimal", "safe", "full"]
+_VALID_METADATA_EMBEDDING_MODES: frozenset[str] = frozenset(
+    {"off", "minimal", "safe", "full"}
+)
+
 
 @dataclass(frozen=True)
 class MatrixConfig:
@@ -72,7 +77,7 @@ class MatrixConfig:
     device_id: str | None = None
     access_token: str = ""
     room_allowlist: set[str] | None = None
-    metadata_embedding_mode: str = "safe"
+    metadata_embedding_mode: MetadataEmbeddingMode = "safe"
     store_path: str | None = None
     sync_timeout_ms: int = 30000
     encryption_mode: str = "plaintext"
@@ -189,6 +194,17 @@ class MatrixConfig:
                 f"encryption_mode must be one of "
                 f"{sorted(_VALID_ENCRYPTION_MODES)}, "
                 f"got {self.encryption_mode!r}"
+            )
+
+        # --- metadata_embedding_mode validation ---
+        # Case-sensitive against the schema-declared enum so a typo
+        # ("sfae") or different casing ("SAFE") fails loudly at load time
+        # instead of silently passing through to renderer behaviour.
+        if self.metadata_embedding_mode not in _VALID_METADATA_EMBEDDING_MODES:
+            raise MatrixConfigError(
+                f"metadata_embedding_mode must be one of "
+                f"{sorted(_VALID_METADATA_EMBEDDING_MODES)}, "
+                f"got {self.metadata_embedding_mode!r}"
             )
 
         if self.encryption_mode == "e2ee_required":
