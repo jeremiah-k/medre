@@ -179,7 +179,7 @@ class TestMeshCoreSdkImportBoundary:
 
     def test_compat_defines_has_meshcore(self) -> None:
         """``compat.py`` must export :data:`HAS_MESHCORE`."""
-        from medre.adapters.meshcore.compat import HAS_MESHCORE as _  # noqa: F401
+        from medre.adapters.meshcore.compat import HAS_MESHCORE as _
 
         # If we got here, the import succeeded — compat is valid.
         assert isinstance(_, bool)

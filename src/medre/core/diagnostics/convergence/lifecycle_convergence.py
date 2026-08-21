@@ -15,7 +15,7 @@ from .helpers import (
     _target_key,
     _TargetKey,
 )
-from .lifecycle_checks import (  # noqa: F401 (internal, via orchestration)
+from .lifecycle_checks import (
     _check_attempt_count_regression,
     _check_receipt_sequence_gap,
     _check_retry_wait_outboxes,

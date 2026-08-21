@@ -54,27 +54,27 @@ class TestCanonicalImports:
     """Canonical module paths must be importable."""
 
     def test_models_importable(self) -> None:
-        from medre.core.recovery.models import (  # noqa: F401
-            RecoveryOwnershipAction,
-            RecoveryOwnershipStatus,
-            RecoverySummary,
-            StartupRecoveryLedger,
+        from medre.core.recovery.models import (
+            RecoveryOwnershipAction,  # noqa: F401
+            RecoveryOwnershipStatus,  # noqa: F401
+            RecoverySummary,  # noqa: F401
+            StartupRecoveryLedger,  # noqa: F401
         )
 
     def test_builder_importable(self) -> None:
-        from medre.core.recovery.builder import (  # noqa: F401
-            build_recovery_summary,
-            build_startup_recovery_ledger,
+        from medre.core.recovery.builder import (
+            build_recovery_summary,  # noqa: F401
+            build_startup_recovery_ledger,  # noqa: F401
         )
 
     def test_classification_importable(self) -> None:
-        from medre.core.recovery.classification import (  # noqa: F401
-            classify_startup_reclamation,
+        from medre.core.recovery.classification import (
+            classify_startup_reclamation,  # noqa: F401
         )
 
     def test_recovery_source_importable(self) -> None:
-        from medre.core.recovery.recovery_source import (  # noqa: F401
-            RecoverySource,
+        from medre.core.recovery.recovery_source import (
+            RecoverySource,  # noqa: F401
         )
 
 

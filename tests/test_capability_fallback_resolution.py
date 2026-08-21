@@ -359,7 +359,7 @@ class TestPipelineGetAdapterCapabilities:
     @pytest.mark.asyncio
     async def test_returns_default_when_target_adapter_is_none(
         self,
-        temp_storage,  # noqa: ANN001 — injected by pytest
+        temp_storage,
     ) -> None:
         """RouteTarget with adapter=None returns default AdapterCapabilities."""
         from medre.core.engine.pipeline import PipelineRunner
@@ -394,7 +394,7 @@ class TestPipelineGetAdapterCapabilities:
     @pytest.mark.asyncio
     async def test_returns_default_when_adapter_not_in_config(
         self,
-        temp_storage,  # noqa: ANN001
+        temp_storage,
     ) -> None:
         """Adapter ID not present in config.adapters returns default caps."""
         from medre.core.engine.pipeline import PipelineRunner
@@ -428,7 +428,7 @@ class TestPipelineGetAdapterCapabilities:
     @pytest.mark.asyncio
     async def test_returns_caps_when_adapter_has_valid_capabilities(
         self,
-        temp_storage,  # noqa: ANN001
+        temp_storage,
     ) -> None:
         """Adapter with _capabilities attribute returns them."""
         from medre.adapters.fakes.presentation import FakePresentationAdapter
@@ -472,7 +472,7 @@ class TestPipelineGetAdapterCapabilities:
     @pytest.mark.asyncio
     async def test_returns_default_when_adapter_lacks_capabilities_attr(
         self,
-        temp_storage,  # noqa: ANN001
+        temp_storage,
     ) -> None:
         """Adapter without _capabilities returns default caps (line 2578)."""
 

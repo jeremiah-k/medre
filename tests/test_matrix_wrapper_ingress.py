@@ -7,7 +7,6 @@ Uses mocked nio SDK — no live Matrix connection required.
 No Docker, no live transports, no SDK dependencies required.
 """
 
-# ruff: noqa: F811
 
 from __future__ import annotations
 
@@ -23,11 +22,10 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.async_utils import wait_until
 from tests.helpers.bridge import make_adapter_context, make_pipeline_config
-from tests.helpers.matrix import (  # noqa: F401
+from tests.helpers.matrix import (
     make_matrix_config,
     make_nio_event,
     make_nio_room,
-    mock_nio,
     to_event_dict,
 )
 

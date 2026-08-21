@@ -268,19 +268,19 @@ class TestSupervisionImportIndependence:
 
     def test_import_succeeds_without_transport_sdks(self) -> None:
         """Importing supervision must not trigger any SDK import."""
-        from medre.core.supervision.supervision import (  # noqa: F401
-            RuntimeHealth,
-            classify_runtime_health,
+        from medre.core.supervision.supervision import (
+            RuntimeHealth,  # noqa: F401
+            classify_runtime_health,  # noqa: F401
         )
 
     def test_import_via_runtime_package(self) -> None:
         """Supervision symbols are available via the runtime package."""
-        from medre.core.supervision import (  # noqa: F401
-            AdapterFailureSeverity,
-            RuntimeHealth,
-            StartupOutcome,
-            classify_adapter_failure_severity,
-            classify_runtime_health,
-            classify_startup_outcome,
-            runtime_supervision_snapshot,
+        from medre.core.supervision import (
+            AdapterFailureSeverity,  # noqa: F401
+            RuntimeHealth,  # noqa: F401
+            StartupOutcome,  # noqa: F401
+            classify_adapter_failure_severity,  # noqa: F401
+            classify_runtime_health,  # noqa: F401
+            classify_startup_outcome,  # noqa: F401
+            runtime_supervision_snapshot,  # noqa: F401
         )

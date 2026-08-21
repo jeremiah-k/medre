@@ -1233,7 +1233,7 @@ class TestChannelRoomMapEndToEnd:
 
     async def test_reply_enrichment_is_channel_strict(
         self,
-        temp_storage,  # noqa: ANN001 – pytest fixture
+        temp_storage,
     ) -> None:
         """Reply/reaction native-ref mapping is channel-strict.
 
@@ -1348,7 +1348,7 @@ class TestChannelRoomMapEndToEnd:
 
     async def test_reply_enrichment_rejects_wrong_channel_ref(
         self,
-        temp_storage,  # noqa: ANN001 – pytest fixture
+        temp_storage,
     ) -> None:
         """When only a wrong-channel native ref exists, enrichment does
         NOT attach it."""

@@ -9,22 +9,15 @@ from pathlib import Path
 
 
 def _prompt_credentials_interactive() -> tuple[str, str]:
-    """Read interactive Matrix credentials on the controlling terminal.
+    """Synchronous interactive credential prompt.
 
-    Interactive login performs no concurrent async work while prompting, so
-    keeping the blocking terminal reads on the main thread lets SIGINT and
-    ``KeyboardInterrupt`` terminate the prompt deterministically.  Moving
-    ``input()``/``getpass()`` into a worker thread would leave that worker
-    blocked after cancellation.
+    Invoked via :func:`asyncio.to_thread` from the async login handler —
+    ``input()`` and ``getpass.getpass()`` block, so they must not run on
+    the event loop.  Returns ``(user_id, password)``; empty fields are
+    rejected by the caller.
     """
     user_id = input("Matrix user ID (e.g. @bot:example.com): ").strip()
-    if not user_id:
-        print("Error: user ID required", file=sys.stderr)
-        sys.exit(1)
     password = getpass.getpass("Matrix password: ")
-    if not password:
-        print("Error: password is required", file=sys.stderr)
-        sys.exit(1)
     return user_id, password
 
 
@@ -72,10 +65,12 @@ async def _adapter_matrix_auth_login(args: object) -> None:
 
     if provided == 0:
         # --- FULLY INTERACTIVE ----------------------------------------------
-        # No concurrent async work is active while credentials are being
-        # requested.  Prompt on the main thread so terminal SIGINT can
-        # interrupt input()/getpass() rather than leaving a worker blocked.
-        user_id, password = _prompt_credentials_interactive()
+        # input()/getpass are blocking stdlib calls; run them off the
+        # asyncio loop so an enclosing event loop stays responsive.
+        user_id, password = await asyncio.to_thread(_prompt_credentials_interactive)
+        if not user_id:
+            print("Error: user ID required", file=sys.stderr)
+            sys.exit(1)
 
     elif provided > 0:
         # Check whether we have enough for non-interactive mode.
