@@ -409,7 +409,7 @@ class TestMockedSDKCallbackNormalization:
 
         import asyncio
 
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0)
 
         await session._on_sdk_event(
             MockEvent(

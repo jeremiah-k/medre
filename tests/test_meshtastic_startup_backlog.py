@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock
 
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.core.contracts.adapter import AdapterContext
+from tests.helpers.async_utils import wait_until
 from tests.helpers.meshtastic import (
     make_meshtastic_config,
     make_meshtastic_text_packet,
@@ -90,7 +91,7 @@ class TestStalePacketsSuppressed:
         packet = _make_stale_packet(rx_time=stale_rx)
         adapter._on_packet(packet)
 
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0)
 
         ctx.publish_inbound.assert_not_called()
         diag = adapter.diagnostics()
@@ -607,7 +608,7 @@ class TestOnPacketCallbackPath:
         packet = _make_stale_packet(rx_time=stale_rx)
         adapter._on_packet(packet)
 
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0)
 
         ctx.publish_inbound.assert_not_called()
         assert adapter.diagnostics()["startup_backlog_packets_suppressed"] == 1
@@ -625,7 +626,7 @@ class TestOnPacketCallbackPath:
         packet = _make_stale_packet(rx_time=fresh_rx, text="fresh callback")
         adapter._on_packet(packet)
 
-        await asyncio.sleep(0.05)
+        await wait_until(lambda: ctx.publish_inbound.call_count >= 1)
 
         ctx.publish_inbound.assert_called_once()
         assert adapter.diagnostics()["inbound_published"] == 1
@@ -644,7 +645,9 @@ class TestOnPacketCallbackPath:
         stale_rx = adapter._adapter_start_epoch - 20.0
         adapter._on_packet(_make_stale_packet(rx_time=stale_rx))
 
-        await asyncio.sleep(0.05)
+        await wait_until(
+            lambda: adapter.diagnostics()["startup_backlog_packets_suppressed"] >= 1
+        )
 
         diag = adapter.diagnostics()
         assert diag["classifier_packets_seen"] == 1

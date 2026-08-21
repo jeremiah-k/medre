@@ -84,7 +84,7 @@ class TestDrainPendingCancellations:
             nonlocal drain_count
             # Let the task start before the outer cancels arrive.
             try:
-                await asyncio.sleep(0.01)
+                await asyncio.Event().wait()
             except asyncio.CancelledError:
                 # CancelledError caught; cancelling() still reports N
                 # (the framework does not auto-decrement).
@@ -95,7 +95,7 @@ class TestDrainPendingCancellations:
                     current.cancel()
                 # The next await should raise CancelledError again.
                 try:
-                    await asyncio.sleep(0.01)
+                    await asyncio.Event().wait()
                 except asyncio.CancelledError:
                     return  # expected
             raise AssertionError("Should not reach here")
@@ -142,7 +142,7 @@ class TestDrainPendingCancellations:
             # *within* _target, guaranteeing execution reaches
             # _drain_pending_cancellations().
             try:
-                await asyncio.sleep(10)
+                await asyncio.Event().wait()
             except asyncio.CancelledError:
                 pass  # caught inside _target
             # Now drain the cancellation (there should be exactly 1).
@@ -253,16 +253,18 @@ class TestPerAdapterStartFailureCleanupDrainAccounting:
             def __init__(self, adapter_id: str) -> None:
                 self.adapter_id = adapter_id
                 self.stop_called = False
+                self.stop_entered = asyncio.Event()
 
             async def start(self, ctx: AdapterContext) -> None:
                 raise RuntimeError(f"Start failure: {self.adapter_id}")
 
             async def stop(self, timeout: float = 5.0) -> None:
                 self.stop_called = True
+                self.stop_entered.set()
                 # Yield long enough for external cancel to arrive
                 # during _stop_adapter_with_deadline's polling loop.
                 try:
-                    await asyncio.sleep(1.0)
+                    await asyncio.Event().wait()
                 except asyncio.CancelledError:
                     raise
 
@@ -329,9 +331,9 @@ class TestPerAdapterStartFailureCleanupDrainAccounting:
 
             async def _run_with_double_cancel() -> None:
                 start_task = asyncio.create_task(app.start())
-                # Let start() reach alpha's start (which fails immediately)
-                # and then the cleanup stop (which is slow).
-                await asyncio.sleep(0.05)
+                # Wait for alpha's start to fail and its cleanup stop to
+                # enter the polling loop.
+                await app.adapters["alpha"].stop_entered.wait()
                 # First cancel: arrives during alpha's cleanup stop.
                 start_task.cancel()
                 # Wait for beta's start to be reached (after alpha's
@@ -669,7 +671,7 @@ class TestStopAdapterWithDeadlineCancelCountPreserved:
                 # polling loop stays active when the external cancel
                 # arrives.
                 try:
-                    await asyncio.sleep(300.0)
+                    await asyncio.Event().wait()
                 except asyncio.CancelledError:
                     raise
 
@@ -714,7 +716,7 @@ class TestStopAdapterWithDeadlineCancelCountPreserved:
             # Wait for the adapter's stop() to be reached so the
             # helper's cooperative polling loop is active.
             await stop_entered.wait()
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0)
 
             # Cancel N times — these should be drained by the caller
             # in _stop_all_adapters, not consumed inside the helper.

@@ -205,7 +205,7 @@ class TestBounded:
         """A coroutine that exceeds timeout raises RuntimeError with context."""
 
         async def slow() -> str:
-            await asyncio.sleep(10)
+            await asyncio.Event().wait()
             return "never"
 
         with pytest.raises(RuntimeError) as exc_info:

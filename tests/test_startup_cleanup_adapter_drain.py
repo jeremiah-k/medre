@@ -179,7 +179,7 @@ class TestStartupCleanupDrainSites:
                 self.stop_called = True
                 # Yield long enough for an external cancel to land here.
                 try:
-                    await asyncio.sleep(0.1)
+                    await asyncio.Event().wait()
                 except asyncio.CancelledError:
                     raise
 
@@ -209,15 +209,18 @@ class TestStartupCleanupDrainSites:
 
         # Cancel the cleanup task externally while it's processing the
         # first adapter.  Wrap in a helper so we can use pytest.raises.
-        async def _run_with_external_cancel() -> None:
-            task = asyncio.create_task(app._cleanup_started_adapters())
-            await asyncio.sleep(0)
-            task.cancel()
-            # _cleanup_started_adapters suppresses CancelledError (best-effort
-            # cleanup), so the task should complete normally.
-            await task
+        # Bound the shutdown timeout so the test does not wait for the
+        # default 10 s deadline on the second adapter's stuck stop().
+        with _set_shutdown_timeout(app, 0.2):
+            async def _run_with_external_cancel() -> None:
+                task = asyncio.create_task(app._cleanup_started_adapters())
+                await asyncio.sleep(0)
+                task.cancel()
+                # _cleanup_started_adapters suppresses CancelledError (best-effort
+                # cleanup), so the task should complete normally.
+                await task
 
-        await _run_with_external_cancel()
+            await _run_with_external_cancel()
 
         # Both adapters should have had stop() called, even though CE
         # arrived during the first one's stop.
@@ -254,14 +257,19 @@ class TestStartupCleanupDrainAccounting:
             def __init__(self, adapter_id: str) -> None:
                 self.adapter_id = adapter_id
                 self.stop_called = False
+                self.stop_entered = asyncio.Event()
 
             async def start(self, ctx: AdapterContext) -> None:
                 raise RuntimeError(f"Start failure: {self.adapter_id}")
 
             async def stop(self, timeout: float = 5.0) -> None:
                 self.stop_called = True
+                self.stop_entered.set()
                 # Yield to allow external cancel to arrive.
-                await asyncio.sleep(0.5)
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    raise
 
             async def health_check(self) -> AdapterInfo:
                 return AdapterInfo(
@@ -323,7 +331,8 @@ class TestStartupCleanupDrainAccounting:
 
             async def _run() -> None:
                 start_task = asyncio.create_task(app.start())
-                await asyncio.sleep(0.05)  # let start() reach alpha
+                # Wait for alpha's cleanup stop to enter its polling loop.
+                await alpha.stop_entered.wait()
                 start_task.cancel()  # first cancel — during alpha's cleanup stop
                 await beta.started.wait()  # wait for beta's start to be reached
                 start_task.cancel()  # second cancel — triggers outer CE handler

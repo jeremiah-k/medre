@@ -16,6 +16,7 @@ import pytest
 from medre.adapters.lxmf.errors import LxmfConnectionError, LxmfSendError
 from medre.adapters.lxmf.session import LxmfSession
 from medre.config.adapters.lxmf import LxmfConfig
+from tests.helpers.async_utils import wait_until
 
 
 def _make_config(**overrides: Any) -> LxmfConfig:
@@ -173,7 +174,7 @@ async def test_announce_increments_success_counter() -> None:
         await session.start()
 
         # Wait for multiple announces.
-        await asyncio.sleep(0.3)
+        await wait_until(lambda: session.announces_sent >= 1)
 
     assert session.announces_sent >= 1
     assert mock_router.announce.call_count >= 1
@@ -195,7 +196,7 @@ async def test_announce_failure_increments_failure_counter() -> None:
         await session.start()
 
         # Wait for at least one failed announce.
-        await asyncio.sleep(0.2)
+        await wait_until(lambda: session.announce_failures >= 1)
 
     assert session.announce_failures >= 1
     assert session.last_announce_error is not None
@@ -239,7 +240,7 @@ async def test_announce_counters_reset_on_stop() -> None:
 
     with _patch_lxmf_env(mock_rns, mock_lxmf):
         await session.start()
-        await asyncio.sleep(0.2)
+        await wait_until(lambda: session.announces_sent >= 1)
 
     pre_stop_sent = session.announces_sent
     assert pre_stop_sent >= 1
@@ -414,7 +415,7 @@ async def test_session_diagnostics_includes_announce_counters_reticulum() -> Non
 
     with _patch_lxmf_env(mock_rns, mock_lxmf):
         await session.start()
-        await asyncio.sleep(0.2)
+        await wait_until(lambda: session.announce_failures >= 1)
 
     diag = session.diagnostics()
     assert diag.announce_failures >= 1

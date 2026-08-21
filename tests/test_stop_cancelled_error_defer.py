@@ -19,6 +19,7 @@ import pytest
 
 from medre.config.paths import MedrePaths, resolve
 from medre.runtime.app import RuntimeState
+from tests.helpers.async_utils import wait_until
 from tests.helpers.startup_cleanup import (
     _build_app,
     _config_with_one_fake_adapter,
@@ -176,8 +177,9 @@ class TestDrainLoopCancelledError:
             # Run stop() in a task, then cancel it once it's inside the drain loop.
             stop_task = asyncio.create_task(app.stop())
 
-            # Give stop() enough time to enter the drain loop and hit sleep(0.1).
-            await asyncio.sleep(0.3)
+            # Wait for stop() to reach the drain loop (capacity controller
+            # snapshot is polled there).
+            await wait_until(lambda: cc.snapshot.call_count >= 1)
             stop_task.cancel()
 
             # The task should finish (CE is deferred internally) or raise

@@ -17,6 +17,7 @@ from medre.config.paths import MedrePaths, resolve
 from medre.core.lifecycle.states import AdapterState
 from medre.runtime.app import RuntimeState
 from medre.runtime.errors import RuntimeShutdownError
+from tests.helpers.async_utils import wait_until
 from tests.helpers.startup_cleanup import (
     _build_app,
     _config_with_one_fake_adapter,
@@ -406,8 +407,11 @@ class TestAdapterStopTimeoutSupervision:
             finally:
                 # Unblock the adapter's stop() so the test can clean up.
                 resistant.release()
-                # Wait for the adapter's task to actually finish.
-                await asyncio.sleep(0.01)
+                # Wait for the retained stop task's done callback to
+                # remove it from _abandoned_adapter_stop_tasks.
+                await wait_until(
+                    lambda: not app._abandoned_adapter_stop_tasks
+                )
                 # Close storage so the aiosqlite connection is not leaked
                 # into subsequent tests' warnings.catch_warnings() context.
                 if app.storage is not None and not app.storage._closed:
@@ -468,10 +472,9 @@ class TestAdapterStopTimeoutSupervision:
                 # Release the adapter so the task can finish.
                 resistant.release()
                 # Give the done callback a chance to run.
-                for _ in range(20):
-                    if not app._abandoned_adapter_stop_tasks:
-                        break
-                    await asyncio.sleep(0.01)
+                await wait_until(
+                    lambda: not app._abandoned_adapter_stop_tasks
+                )
                 # Close storage so the aiosqlite connection is not leaked
                 # into subsequent tests' warnings.catch_warnings() context.
                 if app.storage is not None and not app.storage._closed:

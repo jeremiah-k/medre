@@ -987,7 +987,7 @@ class TestStartReconnectTaskIdempotency:
         session._started = True
 
         async def _blocked_reconnect_loop(self_inner):
-            await asyncio.sleep(10)
+            await asyncio.Event().wait()
 
         with patch.object(
             MeshtasticSession, "_reconnect_loop", _blocked_reconnect_loop
@@ -1021,7 +1021,7 @@ class TestStartReconnectTaskIdempotency:
         session._started = True
 
         async def _blocked_reconnect_loop(self_inner):
-            await asyncio.sleep(10)
+            await asyncio.Event().wait()
 
         with patch.object(
             MeshtasticSession, "_reconnect_loop", _blocked_reconnect_loop
@@ -1065,7 +1065,7 @@ class TestStartReconnectTaskIdempotency:
         session._started = True
 
         async def _blocked_reconnect_loop(self_inner):
-            await asyncio.sleep(10)
+            await asyncio.Event().wait()
 
         with patch.object(
             MeshtasticSession, "_reconnect_loop", _blocked_reconnect_loop

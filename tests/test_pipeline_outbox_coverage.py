@@ -250,8 +250,10 @@ class TestCancelRenewal:
 
         from medre.core.engine.pipeline.outbox_manager import OutboxManager
 
+        _block = asyncio.Event()
+
         async def _long_running():
-            await asyncio.sleep(3600)
+            await _block.wait()
 
         task = asyncio.create_task(_long_running())
         assert not task.done()

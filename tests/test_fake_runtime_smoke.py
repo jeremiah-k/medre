@@ -550,7 +550,7 @@ class TestRuntimeStopsCleanly:
         await clean_stop(app)
 
         # Give the event loop a tick to clean up.
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0)
 
         current_task = asyncio.current_task()
         all_tasks = asyncio.all_tasks()

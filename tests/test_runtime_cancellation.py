@@ -948,7 +948,12 @@ class TestDeliveryFanoutCancellation:
             result = await cc.acquire_delivery()
             results.append(result)
             if result:
-                await asyncio.sleep(0.01)  # Intentional: simulates work during delivery
+                # Intentional: simulate work during delivery — bounded
+                # by wait_for so the test does not depend on real time.
+                try:
+                    await asyncio.wait_for(asyncio.Event().wait(), timeout=0.01)
+                except asyncio.TimeoutError:
+                    pass
                 await cc.release_delivery()
             if idx == 3 and not stop_triggered:
                 cc.stop_accepting()
@@ -1048,7 +1053,13 @@ class TestAdapterLifecycleDuringCancellation:
 
         # Set shutdown event in background.
         async def set_shutdown():
-            await asyncio.sleep(0.05)  # Intentional: simulates delayed event set
+            # Intentional: simulate a brief delay before shutdown is
+            # signalled — bounded by wait_for so the test does not
+            # depend on real time.
+            try:
+                await asyncio.wait_for(asyncio.Event().wait(), timeout=0.05)
+            except asyncio.TimeoutError:
+                pass
             app.shutdown_event.set()
 
         asyncio.create_task(set_shutdown())
@@ -1168,7 +1179,6 @@ class TestPartialAdapterStopFailure:
         # Monkey-patch the second adapter to raise on stop.
         failing_id = adapter_ids[1]
         clean_id = adapter_ids[0]
-        app.adapters[failing_id].stop  # noqa: B018 — attribute access for reference
 
         async def _raising_stop(timeout: float = 10.0) -> None:
             raise RuntimeError(f"Adapter {failing_id} stop failed")

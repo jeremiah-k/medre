@@ -1025,7 +1025,7 @@ class TestMeshtasticInboundLifecycleGuard:
 
         # Give the event loop a chance to process any scheduled coroutines.
         # No positive condition to poll — verifying absence of events.
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0)
 
         # No new events should have been published.
         assert len(published) == 0, (

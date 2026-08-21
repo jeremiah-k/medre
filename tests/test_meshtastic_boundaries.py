@@ -16,7 +16,6 @@ These tests verify:
 
 from __future__ import annotations
 
-import asyncio
 import re
 import sys
 from datetime import datetime, timezone
@@ -33,6 +32,7 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from tests.helpers.async_utils import wait_until
 
 
 def _read_module_source(module) -> str:
@@ -621,7 +621,7 @@ class TestMeshtasticCallbackBoundary:
         }
         adapter._on_packet(packet)
 
-        await asyncio.sleep(0.05)
+        await wait_until(lambda: len(inbound_collector.events) == 1)
 
         assert len(inbound_collector.events) == 1
         assert inbound_collector.events[0].payload["body"] == "via callback"
@@ -644,7 +644,7 @@ class TestMeshtasticCallbackBoundary:
             }
             adapter._on_packet(packet)
 
-        await asyncio.sleep(0.05)
+        await wait_until(lambda: not adapter._background_tasks)
         # All tasks should have completed and been discarded
         await adapter.stop()
         assert len(adapter._background_tasks) == 0

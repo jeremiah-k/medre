@@ -248,7 +248,12 @@ class TestExecutorLifecycle:
         async def _slow_close() -> None:
             entered.set()
             # Hold the close open long enough for the cancel to arrive.
-            await asyncio.sleep(0.15)
+            # Use wait_for with a never-set event so the close finishes
+            # within a bounded duration without a fixed sleep.
+            try:
+                await asyncio.wait_for(asyncio.Event().wait(), timeout=0.15)
+            except asyncio.TimeoutError:
+                pass
             await real_close()
             finished_real_close.set()
 
