@@ -101,7 +101,7 @@ selecting `fallback_text`; unknown relation types fail closed.
 - **Authority:** Assigns `root_event_id` and `conversation_id` based on resolved relation ancestry.
 - **Input:** `CanonicalEvent` (after relation resolution)
 - **Output:** Event with `root_event_id` and `conversation_id` populated
-- **Consumers:** `PipelineRunner._assign_conversation_identity` (Stage 2.5)
+- **Consumers:** `PipelineRunner._assign_conversation_identity` (inside the `RESOLVE_RELATIONS` phase)
 - **Core rule:** `conversation_id` always equals `root_event_id`. Walks relation ancestors via storage, bounded to depth 64. If event already has `root_event_id`, preserves it (never overwritten by relation walking). Self-roots when no resolved target found.
 
 ### 2.5 FallbackResolver (Delivery Planner)
