@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.events import EventBuffer
 
+from medre.config.model import RetryConfig
 from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
@@ -103,20 +104,28 @@ class RetryWorker:
         pipeline: PipelineRunner,
         capacity_controller: CapacityController | None,
         *,
-        enabled: bool = True,
-        interval_seconds: float = 10.0,
-        batch_size: int = 20,
-        max_attempts: int = 3,
+        retry_config: RetryConfig | None = None,
+        enabled: bool | None = None,
+        interval_seconds: float | None = None,
+        batch_size: int | None = None,
+        max_attempts: int | None = None,
         event_buffer: EventBuffer | None = None,
         stop_timeout_seconds: float = 5.0,
     ) -> None:
+        config = retry_config if retry_config is not None else RetryConfig()
         self._storage = storage
         self._pipeline = pipeline
         self._capacity = capacity_controller
-        self._enabled = enabled
-        self._interval = interval_seconds
-        self._batch_size = batch_size
-        self._max_attempts = max_attempts
+        self._enabled = enabled if enabled is not None else config.enabled
+        self._interval = (
+            interval_seconds
+            if interval_seconds is not None
+            else config.interval_seconds
+        )
+        self._batch_size = batch_size if batch_size is not None else config.batch_size
+        self._max_attempts = (
+            max_attempts if max_attempts is not None else config.max_attempts
+        )
         self._event_buffer = event_buffer
         if stop_timeout_seconds <= 0:
             raise ValueError(
@@ -135,7 +144,7 @@ class RetryWorker:
         self._stop_lock = asyncio.Lock()
         self._outbox_counts: dict[str, int] = {}
         self._cycle_completed: bool = False
-        self.state = RetryWorkerState(enabled=enabled)
+        self.state = RetryWorkerState(enabled=self._enabled)
 
     @property
     def outbox_counts(self) -> dict[str, int] | None:

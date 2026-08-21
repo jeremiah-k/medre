@@ -930,3 +930,133 @@ class TestSourceAttributionRegistry:
         # Both adapter configs wired into renderer for target-aware rendering.
         assert "radio_real" in renderer._configs
         assert "radio_fake" in renderer._configs
+
+
+# ---------------------------------------------------------------------------
+# Route retry-disabled startup warning (D1)
+# ---------------------------------------------------------------------------
+
+
+class TestRouteRetryDisabledWarning:
+    """When the global retry worker is disabled but a route declares
+    per-route retry, the operator gets exactly one startup warning that
+    names the affected route_ids.
+    """
+
+    @staticmethod
+    def _config_with_routes(route_ids: tuple[str, ...]) -> RuntimeConfig:
+        from medre.config.routes import (
+            RouteConfig,
+            RouteConfigSet,
+            RouteRetryConfig,
+        )
+
+        routes = tuple(
+            RouteConfig(
+                route_id=rid,
+                source_adapters=("alpha",),
+                dest_adapters=("beta",),
+                retry=RouteRetryConfig(enabled=True, max_attempts=2),
+            )
+            for rid in route_ids
+        )
+        return RuntimeConfig(
+            runtime=RuntimeOptions(name="test-route-retry-disabled-warning"),
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "alpha": MatrixRuntimeConfig(
+                        adapter_id="alpha",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                    "beta": MatrixRuntimeConfig(
+                        adapter_id="beta",
+                        enabled=True,
+                        adapter_kind="fake",
+                        config=None,
+                    ),
+                },
+            ),
+            routes=RouteConfigSet(routes=routes),
+        )
+
+    @pytest.mark.asyncio
+    async def test_warning_fires_when_global_retry_disabled(
+        self,
+        tmp_paths: MedrePaths,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Single warning names the affected route_ids when global retry is off."""
+        config = self._config_with_routes(("route_a", "route_b"))
+        assert config.retry.enabled is False
+
+        app: MedreApp = RuntimeBuilder(config, tmp_paths).build()
+        with caplog.at_level("WARNING", logger="medre.runtime.app"):
+            try:
+                await app.start()
+            finally:
+                await app.stop()
+
+        warnings = [
+            r for r in caplog.records if "global retry worker disabled" in r.message
+        ]
+        assert len(warnings) == 1, f"Expected one warning, got {len(warnings)}"
+        msg = warnings[0].message
+        assert "route_a" in msg
+        assert "route_b" in msg
+
+    @pytest.mark.asyncio
+    async def test_warning_caps_list_display_with_and_N_more(
+        self,
+        tmp_paths: MedrePaths,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """When >10 routes opt in, the warning caps the visible list at 10
+        and appends ``and N more`` for the overflow."""
+        ids = tuple(f"r{i}" for i in range(13))
+        config = self._config_with_routes(ids)
+        app: MedreApp = RuntimeBuilder(config, tmp_paths).build()
+        with caplog.at_level("WARNING", logger="medre.runtime.app"):
+            try:
+                await app.start()
+            finally:
+                await app.stop()
+
+        warnings = [
+            r for r in caplog.records if "global retry worker disabled" in r.message
+        ]
+        assert len(warnings) == 1
+        msg = warnings[0].message
+        assert "r0" in msg
+        assert "r9" in msg
+        assert "r10" not in msg
+        assert "and 3 more" in msg
+
+    @pytest.mark.asyncio
+    async def test_warning_does_not_fire_when_global_retry_enabled(
+        self,
+        tmp_paths: MedrePaths,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """No warning fires when the global retry worker is enabled."""
+        from medre.config.model import RetryConfig
+
+        config = self._config_with_routes(("route_a",))
+        config = config.__class__(
+            **{**config.__dict__, "retry": RetryConfig(enabled=True)}
+        )
+        app: MedreApp = RuntimeBuilder(config, tmp_paths).build()
+        with caplog.at_level("WARNING", logger="medre.runtime.app"):
+            try:
+                await app.start()
+            finally:
+                await app.stop()
+
+        warnings = [
+            r for r in caplog.records if "global retry worker disabled" in r.message
+        ]
+        assert warnings == [], (
+            f"Unexpected warnings: {[r.message for r in warnings]}"
+        )
