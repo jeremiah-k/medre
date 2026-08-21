@@ -356,12 +356,13 @@ class TestAppendQueuedToSentErrorPaths:
         all_r = await temp_storage.list_receipts_for_event("evt-001")
         assert all(r.status != "sent" for r in all_r)
 
-    async def test_outbox_transition_error_logged(
+    async def test_lost_outbox_guard_logged_not_raised(
         self,
         temp_storage: StorageBackend,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """mark_outbox_sent raises → logged, does not propagate."""
+        """Finalization losing its outbox guard logs a warning and does
+        not raise — no evidence is committed for a stale attempt."""
         caplog.set_level(logging.DEBUG)
         from unittest.mock import AsyncMock, patch
 
@@ -374,10 +375,9 @@ class TestAppendQueuedToSentErrorPaths:
                 adapter="m",
                 channel="0",
                 outbox_id="obox-supp-err",
-            )
+            ),
         )
-
-        # Create a matching outbox item in storage so exact correlation works.
+        # Matching outbox row so exact correlation reaches finalization.
         outbox_item = DeliveryOutboxItem(
             outbox_id="obox-supp-err",
             event_id="evt-001",
@@ -402,16 +402,73 @@ class TestAppendQueuedToSentErrorPaths:
         )
         with patch.object(
             temp_storage,
-            "mark_outbox_sent",
-            AsyncMock(side_effect=RuntimeError("outbox write fail")),
+            "finalize_queued_delivery",
+            AsyncMock(return_value=False),
         ):
+            # Must not raise even though the atomic transaction reported
+            # that the guarded attempt was no longer finalizable.
             await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=datetime.now(timezone.utc),
             )
-        # Verify the error was actually logged.
-        assert "outbox write fail" in caplog.text
+        assert "lost its outbox guard" in caplog.text
+
+    async def test_finalization_storage_error_propagates(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """A storage failure inside the atomic finalization propagates to
+        the caller instead of being swallowed as success."""
+        from unittest.mock import AsyncMock, patch
+
+        from medre.core.storage.backend import StorageError
+
+        lifecycle = _make_lifecycle()
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-ob",
+                status="queued",
+                adapter="m",
+                channel="0",
+                outbox_id="obox-supp-err",
+            ),
+        )
+        # Matching outbox row so exact correlation reaches finalization.
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-supp-err",
+            event_id="evt-001",
+            route_id="route-1",
+            delivery_plan_id="plan-001",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
+        await temp_storage.mark_outbox_queued("obox-supp-err")
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt",
+            delivery_plan_id="plan-001",
+            outbox_id="obox-supp-err",
+            attempt_number=1,
+        )
+        with patch.object(
+            temp_storage,
+            "finalize_queued_delivery",
+            AsyncMock(side_effect=StorageError("finalization txn failed")),
+        ):
+            with pytest.raises(StorageError, match="finalization txn failed"):
+                await lifecycle.finalize_queued_delivery(
+                    temp_storage,
+                    record=record,
+                    now=datetime.now(timezone.utc),
+                )
 
 
 # ===================================================================
