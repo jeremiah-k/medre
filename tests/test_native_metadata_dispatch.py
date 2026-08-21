@@ -13,6 +13,7 @@ from medre.adapters.lxmf.event_shape import LXMF_NATIVE_SCHEMA_VERSION
 from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshcore.event_shape import MESHCORE_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
+from tests.helpers.native_metadata import matrix_native_data
 
 _CURRENT_VERSIONS = {
     "matrix": MATRIX_NATIVE_SCHEMA_VERSION,
@@ -62,6 +63,15 @@ def test_native_namespace_dispatch_rejects_unknown_transport() -> None:
 
     assert current_native_namespace(native, "unknown") == {}
     assert versioned_native_namespace(native, "unknown") == {}
+
+
+def test_native_metadata_fixture_keyword_override_has_final_precedence() -> None:
+    native = matrix_native_data(
+        {"sender": "@mapping:example.com"},
+        sender="@keyword:example.com",
+    )
+
+    assert native["matrix"]["sender"] == "@keyword:example.com"
 
 
 @pytest.mark.parametrize("transport", sorted(_CURRENT_VERSIONS))

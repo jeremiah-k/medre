@@ -6,6 +6,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from medre.adapters._native_metadata import (
+    current_namespace as _current_namespace,
+    versioned_namespace as _versioned_namespace,
+)
+
 MESHTASTIC_NATIVE_NAMESPACE = "meshtastic"
 MESHTASTIC_NATIVE_SCHEMA_VERSION = 1
 
@@ -90,18 +95,13 @@ def meshtastic_versioned_namespace(
     native_data: Mapping[str, Any],
 ) -> Mapping[str, Any]:
     """Return any positively versioned Meshtastic namespace for detection."""
-    data = native_data.get(MESHTASTIC_NATIVE_NAMESPACE)
-    if not isinstance(data, Mapping):
-        return {}
-    version = data.get("schema_version")
-    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        return {}
-    return data
+    return _versioned_namespace(native_data, MESHTASTIC_NATIVE_NAMESPACE)
 
 
 def meshtastic_namespace(native_data: Mapping[str, Any]) -> Mapping[str, Any]:
     """Return the current Meshtastic namespace or an empty mapping."""
-    data = meshtastic_versioned_namespace(native_data)
-    if data.get("schema_version") != MESHTASTIC_NATIVE_SCHEMA_VERSION:
-        return {}
-    return data
+    return _current_namespace(
+        native_data,
+        MESHTASTIC_NATIVE_NAMESPACE,
+        MESHTASTIC_NATIVE_SCHEMA_VERSION,
+    )

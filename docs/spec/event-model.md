@@ -373,12 +373,14 @@ The registry is extensible by plugins via `plugin.custom`.
 ### 5.2 Registration
 
 The schema registry maps `(event_kind, schema_version)` to a validation
-function. New kinds are registered at adapter/plugin load time.
+function. New kinds are registered at adapter/plugin load time. Registration
+has explicit overwrite semantics: a second registration for the same
+`(event_kind, schema_version)` replaces the first validator.
 
 ```python
 class SchemaRegistry:
-    def register(self, event_kind: str, schema_version: int,
-                 validator: Callable[[dict], list[str]]) -> None: ...
+    def register_or_replace(self, event_kind: str, schema_version: int,
+                            validator: Callable[[dict], list[str]]) -> None: ...
 ```
 
 A validator receives the event payload dict and returns a list of error strings.

@@ -70,7 +70,7 @@ class TestSchemaRegistryHardening:
     def test_register_or_replace_overwrites(self) -> None:
         """register_or_replace overwrites an existing validator."""
         registry = SchemaRegistry()
-        registry.register("msg", 1, lambda p: ["old error"])
+        registry.register_or_replace("msg", 1, lambda p: ["old error"])
         registry.register_or_replace("msg", 1, lambda p: [])
         assert registry.validate("msg", {}) is True
 
@@ -89,6 +89,13 @@ class TestSchemaRegistryHardening:
 # ===================================================================
 # Schema version compatibility
 # ===================================================================
+
+
+def test_schema_registry_exposes_one_mutation_surface() -> None:
+    """Registration has one explicit overwrite-capable entry point."""
+    registry = SchemaRegistry()
+    assert callable(registry.register_or_replace)
+    assert not hasattr(registry, "register")
 
 
 class TestSchemaVersionContract:
@@ -362,7 +369,9 @@ def test_schema_version_from_event_rejects_invalid_explicit_values() -> None:
 def test_schema_registry_rejects_invalid_payload_version() -> None:
     """Registry validation reports an invalid explicit payload version."""
     registry = SchemaRegistry()
-    registry.register("message.text", CURRENT_SCHEMA_VERSION, lambda payload: [])
+    registry.register_or_replace(
+        "message.text", CURRENT_SCHEMA_VERSION, lambda payload: []
+    )
     errors: list[str] = []
 
     assert not registry.validate(
@@ -388,12 +397,6 @@ def test_schema_registry_rejects_invalid_version_keys() -> None:
 
     for value in (True, 0, -1, 1.0, "1"):
         with pytest.raises(ValueError, match="positive integer"):
-            registry.register(
-                "message.text",
-                value,  # type: ignore[arg-type]
-                validator,
-            )
-        with pytest.raises(ValueError, match="positive integer"):
             registry.register_or_replace(
                 "message.text", value, validator  # type: ignore[arg-type]
             )
@@ -402,7 +405,9 @@ def test_schema_registry_rejects_invalid_version_keys() -> None:
 def test_schema_registry_invalid_queries_do_not_match_current_version() -> None:
     """Invalid version identifiers cannot retrieve or validate against v1."""
     registry = SchemaRegistry()
-    registry.register("message.text", CURRENT_SCHEMA_VERSION, lambda payload: [])
+    registry.register_or_replace(
+        "message.text", CURRENT_SCHEMA_VERSION, lambda payload: []
+    )
 
     assert registry.get("message.text", True) is None  # type: ignore[arg-type]
     errors: list[str] = []

@@ -129,7 +129,7 @@ class SchemaRegistry:
     Example
     -------
     >>> registry = SchemaRegistry()
-    >>> registry.register("message.text", 1, lambda p: [])
+    >>> registry.register_or_replace("message.text", 1, lambda p: [])
     >>> registry.validate("message.text", {"body": "hello"})
     True
     """
@@ -139,31 +139,6 @@ class SchemaRegistry:
 
     # -- Mutation ---------------------------------------------------------
 
-    def register(
-        self,
-        event_kind: str,
-        schema_version: int,
-        validator: Validator,
-    ) -> None:
-        """Register a validator for an event kind and version.
-
-        If a validator was already registered for the same
-        ``(event_kind, schema_version)`` pair it is silently replaced.
-
-        Parameters
-        ----------
-        event_kind:
-            The event kind string (e.g. ``"message.text"``).
-        schema_version:
-            The schema version number.
-        validator:
-            A callable that accepts a payload dict and returns a list of
-            error strings (empty if valid).
-        """
-        if not _is_valid_schema_version(schema_version):
-            raise ValueError("schema_version must be a positive integer")
-        self._schemas[(event_kind, schema_version)] = validator
-
     def register_or_replace(
         self,
         event_kind: str,
@@ -172,8 +147,7 @@ class SchemaRegistry:
     ) -> None:
         """Register a validator, explicitly overwriting any existing one.
 
-        Unlike :meth:`register`, this method is named to make the
-        overwrite semantics explicit at the call site.
+        The method name makes overwrite semantics explicit at the call site.
 
         Parameters
         ----------

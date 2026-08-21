@@ -195,13 +195,13 @@ def test_direct_route_config_rejects_non_normalized_channel_key() -> None:
 
 def test_channel_room_map_entry_validates_direct_construction() -> None:
     """Direct entry construction enforces the parsed room/label shape."""
-    with pytest.raises(ValueError, match="room must be a non-empty string"):
+    with pytest.raises(ConfigValidationError, match="must be a non-empty string"):
         ChannelRoomMapEntry(room="")
-    with pytest.raises(ValueError, match="canonical Matrix room ID"):
+    with pytest.raises(ConfigValidationError, match="canonical Matrix room ID"):
         ChannelRoomMapEntry(room="room:example.org")
-    with pytest.raises(ValueError, match="room aliases are not supported"):
+    with pytest.raises(ConfigValidationError, match="room alias"):
         ChannelRoomMapEntry(room="#alias:example.org")
-    with pytest.raises(ValueError, match="source_origin_label"):
+    with pytest.raises(ConfigValidationError, match="source_origin_label"):
         ChannelRoomMapEntry(
             room="!room:example.org",
             source_origin_label=True,  # type: ignore[arg-type]

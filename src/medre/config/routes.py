@@ -385,6 +385,58 @@ _CRM_ENTRY_KNOWN_KEYS: frozenset[str] = frozenset(
 )
 
 
+def _normalize_matrix_room_id(
+    value: Any,
+    *,
+    context: str,
+    section_path: str | None = None,
+) -> str:
+    """Return a stripped canonical Matrix room ID or raise a config error."""
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigValidationError(
+            f"{context} must be a non-empty string, got {value!r}",
+            section_path=section_path,
+        )
+    room = value.strip()
+    if room.startswith("#"):
+        raise ConfigValidationError(
+            f"{context} is a room alias ({room!r}); aliases are not supported "
+            "yet — use canonical room IDs starting with '!'",
+            section_path=section_path,
+        )
+    if not room.startswith("!"):
+        raise ConfigValidationError(
+            f"{context} {room!r} must be a canonical Matrix room ID starting "
+            "with '!'",
+            section_path=section_path,
+        )
+    return room
+
+
+def _normalize_optional_origin_label(
+    value: Any,
+    *,
+    field_name: str,
+    context: str,
+    section_path: str | None = None,
+) -> str | None:
+    """Validate an optional per-entry origin label through one code path."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ConfigValidationError(
+            f"{context}: {field_name!r} must be a string, got boolean {value!r}",
+            section_path=section_path,
+        )
+    if not isinstance(value, str):
+        raise ConfigValidationError(
+            f"{context}: {field_name!r} must be a string, "
+            f"got {type(value).__name__}",
+            section_path=section_path,
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class ChannelRoomMapEntry:
     """A single ``channel_room_map`` entry with optional per-entry origin labels.
@@ -407,9 +459,9 @@ class ChannelRoomMapEntry:
         ``source_origin_label`` but applied when the direction is swapped
         during expansion.
 
-    Direct construction raises :class:`ValueError` for value-object invariants.
-    User-facing route parsing and route-shape validation raise
-    :class:`ConfigValidationError` with the route section path.
+    Direct construction and parsed configuration use the same
+    :class:`ConfigValidationError` invariant family. Parsed route errors also
+    carry the route section path.
     """
 
     room: str
@@ -417,22 +469,27 @@ class ChannelRoomMapEntry:
     dest_origin_label: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.room, str) or not self.room.strip():
-            raise ValueError("room must be a non-empty string")
-        room = self.room.strip()
-        if room.startswith("#"):
-            raise ValueError("room aliases are not supported; use a canonical !room ID")
-        if not room.startswith("!"):
-            raise ValueError(
-                "room must be a canonical Matrix room ID starting with '!'"
-            )
-        object.__setattr__(self, "room", room)
+        object.__setattr__(
+            self,
+            "room",
+            _normalize_matrix_room_id(
+                self.room,
+                context="channel_room_map room",
+            ),
+        )
         for field_name, value in (
             ("source_origin_label", self.source_origin_label),
             ("dest_origin_label", self.dest_origin_label),
         ):
-            if value is not None and not isinstance(value, str):
-                raise ValueError(f"{field_name} must be a string or None")
+            object.__setattr__(
+                self,
+                field_name,
+                _normalize_optional_origin_label(
+                    value,
+                    field_name=field_name,
+                    context="channel_room_map entry",
+                ),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -549,8 +606,6 @@ def _parse_channel_room_map_entry(
         ``room`` key, or has a label that is not a string.
     """
     entry_path = f"{section_path}.channel_room_map.{ch_normalized}"
-    entry_source_label: str | None = None
-    entry_dest_label: str | None = None
     if not isinstance(raw_value, dict):
         raise ConfigValidationError(
             f"Route {route_id!r}: channel_room_map entry for "
@@ -576,46 +631,22 @@ def _parse_channel_room_map_entry(
             section_path=entry_path,
         )
     room_value_raw = raw_value["room"]
-    # --- per-entry source_origin_label ---
-    raw_sol = raw_value.get("source_origin_label")
-    if raw_sol is not None:
-        if isinstance(raw_sol, bool):
-            raise ConfigValidationError(
-                f"Route {route_id!r}: channel_room_map entry "
-                f"for channel {ch_normalized!r}: "
-                f"'source_origin_label' must be a string, "
-                f"got {type(raw_sol).__name__}",
-                section_path=entry_path,
-            )
-        if not isinstance(raw_sol, str):
-            raise ConfigValidationError(
-                f"Route {route_id!r}: channel_room_map entry "
-                f"for channel {ch_normalized!r}: "
-                f"'source_origin_label' must be a string, "
-                f"got {type(raw_sol).__name__}",
-                section_path=entry_path,
-            )
-        entry_source_label = raw_sol
-    # --- per-entry dest_origin_label ---
-    raw_dol = raw_value.get("dest_origin_label")
-    if raw_dol is not None:
-        if isinstance(raw_dol, bool):
-            raise ConfigValidationError(
-                f"Route {route_id!r}: channel_room_map entry "
-                f"for channel {ch_normalized!r}: "
-                f"'dest_origin_label' must be a string, "
-                f"got {type(raw_dol).__name__}",
-                section_path=entry_path,
-            )
-        if not isinstance(raw_dol, str):
-            raise ConfigValidationError(
-                f"Route {route_id!r}: channel_room_map entry "
-                f"for channel {ch_normalized!r}: "
-                f"'dest_origin_label' must be a string, "
-                f"got {type(raw_dol).__name__}",
-                section_path=entry_path,
-            )
-        entry_dest_label = raw_dol
+    context = (
+        f"Route {route_id!r}: channel_room_map entry "
+        f"for channel {ch_normalized!r}"
+    )
+    entry_source_label = _normalize_optional_origin_label(
+        raw_value.get("source_origin_label"),
+        field_name="source_origin_label",
+        context=context,
+        section_path=entry_path,
+    )
+    entry_dest_label = _normalize_optional_origin_label(
+        raw_value.get("dest_origin_label"),
+        field_name="dest_origin_label",
+        context=context,
+        section_path=entry_path,
+    )
     return room_value_raw, entry_source_label, entry_dest_label
 
 
@@ -661,30 +692,14 @@ def _validate_room_string(
         If the value is not a non-empty string, is a ``#`` alias, or
         does not start with ``!``.
     """
-    if not isinstance(room_value_raw, str) or not room_value_raw.strip():
-        raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map room for "
-            f"channel {ch_normalized!r} must be a non-empty "
-            f"string, got {room_value_raw!r}",
-            section_path=section_path,
-        )
-    room_value = room_value_raw.strip()
-    if room_value.startswith("#"):
-        raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map room for "
-            f"channel {ch_normalized!r} is a room alias "
-            f"({room_value!r}); aliases are not supported yet — "
-            f"use canonical room IDs starting with '!'",
-            section_path=section_path,
-        )
-    if not room_value.startswith("!"):
-        raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map value "
-            f"{room_value!r} for channel {ch_normalized!r} must "
-            f"be a canonical Matrix room ID starting with '!'",
-            section_path=section_path,
-        )
-    return room_value
+    return _normalize_matrix_room_id(
+        room_value_raw,
+        context=(
+            f"Route {route_id!r}: channel_room_map room "
+            f"for channel {ch_normalized!r}"
+        ),
+        section_path=section_path,
+    )
 
 
 # ---------------------------------------------------------------------------

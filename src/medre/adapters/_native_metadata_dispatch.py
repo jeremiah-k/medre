@@ -46,23 +46,13 @@ _VERSIONED_NAMESPACE_READERS: dict[str, _NamespaceReader] = {
 }
 
 
-def _dispatch_namespace(
-    native_data: Mapping[str, Any],
-    transport: str,
-    readers: Mapping[str, _NamespaceReader],
-) -> Mapping[str, Any]:
-    reader = readers.get(transport)
-    if reader is None:
-        return {}
-    return reader(native_data)
-
-
 def current_native_namespace(
     native_data: Mapping[str, Any],
     transport: str,
 ) -> Mapping[str, Any]:
     """Return the current versioned namespace for *transport*."""
-    return _dispatch_namespace(native_data, transport, _CURRENT_NAMESPACE_READERS)
+    reader = _CURRENT_NAMESPACE_READERS.get(transport)
+    return reader(native_data) if reader is not None else {}
 
 
 def versioned_native_namespace(
@@ -74,4 +64,5 @@ def versioned_native_namespace(
     This lookup is for platform detection only. Consumers that interpret
     transport-specific fields MUST use :func:`current_native_namespace`.
     """
-    return _dispatch_namespace(native_data, transport, _VERSIONED_NAMESPACE_READERS)
+    reader = _VERSIONED_NAMESPACE_READERS.get(transport)
+    return reader(native_data) if reader is not None else {}

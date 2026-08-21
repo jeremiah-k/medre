@@ -6,6 +6,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from medre.adapters._native_metadata import (
+    current_namespace as _current_namespace,
+    versioned_namespace as _versioned_namespace,
+)
+
 LXMF_NATIVE_NAMESPACE = "lxmf"
 LXMF_NATIVE_SCHEMA_VERSION = 1
 
@@ -69,20 +74,17 @@ def build_lxmf_native_metadata(
     return {LXMF_NATIVE_NAMESPACE: event.to_dict()}
 
 
-def lxmf_versioned_namespace(native_data: Mapping[str, Any]) -> Mapping[str, Any]:
+def lxmf_versioned_namespace(
+    native_data: Mapping[str, Any],
+) -> Mapping[str, Any]:
     """Return any positively versioned LXMF namespace for detection."""
-    data = native_data.get(LXMF_NATIVE_NAMESPACE)
-    if not isinstance(data, Mapping):
-        return {}
-    version = data.get("schema_version")
-    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        return {}
-    return data
+    return _versioned_namespace(native_data, LXMF_NATIVE_NAMESPACE)
 
 
 def lxmf_namespace(native_data: Mapping[str, Any]) -> Mapping[str, Any]:
     """Return the current LXMF namespace or an empty mapping."""
-    data = lxmf_versioned_namespace(native_data)
-    if data.get("schema_version") != LXMF_NATIVE_SCHEMA_VERSION:
-        return {}
-    return data
+    return _current_namespace(
+        native_data,
+        LXMF_NATIVE_NAMESPACE,
+        LXMF_NATIVE_SCHEMA_VERSION,
+    )

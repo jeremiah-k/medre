@@ -7,16 +7,20 @@
 - Remove readers and construction paths that existed only for abandoned MEDRE
   development shapes, while retaining external protocol, SDK, and current
   operational compatibility boundaries explicitly documented by the spec.
-- Make `channel_room_map` structured-only, with required `room` and optional
-  per-entry origin labels; bare room-ID entries are rejected.
+- Make `channel_room_map` structured-only, with a required canonical `!` Matrix
+  room ID and optional per-entry origin labels; bare room-ID entries and `#`
+  aliases are rejected.
 - Define the canonical event envelope as closed and versioned, with extension
   data preserved through `payload`, `metadata.custom`, and versioned native
   namespaces rather than unknown top-level fields.
 - Remove the unused canonical-event shape-conversion registry, alternate replay
   render hook, inline live-ingress fallback, flat smoke-report reader, and obsolete
-  mixed real-adapter example configuration.
+  mixed real-adapter example configuration. Runtime live adapter ingress now
+  requires durable storage.
 - Add machine schemas and examples for Meshtastic, MeshCore, and LXMF native
   metadata plus a generated current-state inventory that checks source/schema
   version authority and marks developer audits as historical snapshots.
 - Enforce positive integer schema-version identifiers consistently across canonical
   events, schema registry operations, and future-version native-platform detection.
+  Embedded Matrix and LXMF MEDRE relay envelopes remain current-version-only for
+  interpretation, as defined by the metadata specification.
