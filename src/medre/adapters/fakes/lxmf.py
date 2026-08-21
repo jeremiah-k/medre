@@ -398,6 +398,7 @@ class FakeLxmfAdapter(AdapterContract):
         msg_id: str | None = None,
         title: str = "",
         source_name: str = "",
+        *,
         signature_validated: bool = True,
     ) -> CanonicalEvent:
         """Create a minimal :class:`CanonicalEvent` from LXMF-like

@@ -58,8 +58,11 @@ def _seeded_meshtastic() -> FakeMeshtasticAdapter:
 def test_fake_lxmf_default_signature_is_validated() -> None:
     adapter = _seeded_lxmf()
 
-    event = adapter.make_text_event(body="hello", source_name="alice")
+    with patch.object(adapter._codec, "decode", wraps=adapter._codec.decode) as decode:
+        event = adapter.make_text_event(body="hello", source_name="alice")
 
+    packet = decode.call_args.args[0]
+    assert packet["signature_validated"] is True
     assert event.payload["body"] == "hello"
 
 

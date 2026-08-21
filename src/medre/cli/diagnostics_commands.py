@@ -90,6 +90,7 @@ def _diagnostics(config_path: str | None, *, output_format: str = "json") -> Non
             "adapter(s) failed to construct",
             file=sys.stderr,
         )
+        _teardown_unstarted_app(app)
         sys.exit(EXIT_BUILD)
 
     # Use fixed timestamps for deterministic output.
@@ -226,6 +227,7 @@ async def _diagnostics_refresh(
             "adapter(s) failed to construct",
             file=sys.stderr,
         )
+        _teardown_unstarted_app(app)
         sys.exit(EXIT_BUILD)
 
     # Start the runtime.  On failure, start() cleans up core resources

@@ -1345,8 +1345,13 @@ class MatrixSession:
                     )
             except Exception:
                 # Invite auto-join is optional. Registration failure must not
-                # prevent the Matrix session from starting.
-                pass
+                # prevent the Matrix session from starting — but operators
+                # need evidence that auto-join is disabled.
+                _logger.warning(
+                    "Matrix invite callback registration failed; "
+                    "auto-join is disabled",
+                    exc_info=True,
+                )
             return
 
         try:
@@ -1356,8 +1361,13 @@ class MatrixSession:
             )
         except Exception:
             # Invite auto-join is optional. Registration failure must not
-            # prevent the Matrix session from starting.
-            pass
+            # prevent the Matrix session from starting — but operators
+            # need evidence that auto-join is disabled.
+            _logger.warning(
+                "Matrix invite callback registration failed; "
+                "auto-join is disabled",
+                exc_info=True,
+            )
 
     # ensure_joined helper
     async def ensure_joined(self, room_id: str) -> bool:
