@@ -213,7 +213,7 @@ class EventBus:
 
     # -- Middleware ---------------------------------------------------------
 
-    def add_middleware(
+    async def add_middleware(
         self,
         middleware: EventMiddleware,
         priority: int = 0,
@@ -223,6 +223,14 @@ class EventBus:
         Lower priority values run first.  Middleware registered at the
         same priority are executed in insertion order.
 
+        The mutation is performed while holding :attr:`_lock` so that
+        concurrent middleware registration cannot interleave with the
+        in-progress iteration of ``self._middleware`` performed during
+        :meth:`publish`.  Without this guard, a ``publish`` coroutine
+        could observe a partially-mutated middleware list and either
+        skip a freshly-added middleware (silent loss) or read torn
+        comparator state from the in-progress ``insort``.
+
         Parameters
         ----------
         middleware:
@@ -231,7 +239,8 @@ class EventBus:
             Execution priority (default ``0``).
         """
         entry = _MiddlewareEntry(middleware, priority)
-        insort(self._middleware, entry)
+        async with self._lock:
+            insort(self._middleware, entry)
 
     def remove_middleware(self, middleware: EventMiddleware) -> None:
         """Remove *middleware* from the chain.
@@ -256,7 +265,10 @@ class EventBus:
 
         1. Acquire an internal lock to serialise concurrent publishes.
         2. Run each middleware in priority order.  If any middleware
-           returns ``None``, the event is dropped and no handlers run.
+           returns ``None`` (intentional drop) or raises (crash), the
+           event is dropped and no handlers run.  The two paths log at
+           different levels and with different messages so operators
+           can distinguish a deliberate filter from a bug.
         3. Collect all subscribers whose event type prefix matches the
            event's ``event_kind``.
         4. Invoke matching handlers concurrently via
@@ -266,13 +278,16 @@ class EventBus:
         Parameters
         ----------
         event:
-            The canonical event to distribute.
+            The canonical event being published.
         """
         async with self._lock:
             processed = await self._run_middleware(event)
 
         if processed is None:
-            _logger.debug("Event dropped by middleware")
+            # The drop reason was already logged inside _run_middleware
+            # at the appropriate level (debug for intentional,
+            # exception-with-stack for crash).  No additional log here
+            # to avoid double-spamming.
             return
 
         await self._dispatch(processed)
@@ -286,6 +301,16 @@ class EventBus:
         """Execute the middleware chain on *event*.
 
         Returns ``None`` if any middleware drops the event.
+
+        Two distinct drop paths:
+
+        * **Intentional drop** — middleware returns ``None``.  Logged at
+          DEBUG with the middleware identity so operators can trace
+          filtering decisions.
+        * **Middleware crash** — middleware raises.  Logged at ERROR
+          with the middleware identity and a full traceback so a
+          misbehaving middleware surfaces in operator alerts rather
+          than silently dropping events.
         """
         current: CanonicalEvent | None = event
         for entry in self._middleware:
@@ -295,8 +320,16 @@ class EventBus:
                 current = await entry.middleware.process(current)
             except Exception:
                 _logger.exception(
-                    "Middleware %r raised an exception; dropping event",
+                    "Middleware %r raised an exception; dropping event %s",
                     entry.middleware,
+                    event.event_id,
+                )
+                return None
+            if current is None:
+                _logger.debug(
+                    "Middleware %r filtered event %s",
+                    entry.middleware,
+                    event.event_id,
                 )
                 return None
         return current
