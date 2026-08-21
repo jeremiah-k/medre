@@ -73,6 +73,7 @@ if TYPE_CHECKING:
 __all__ = ["MedreApp", "RuntimeState"]
 
 _logger = logging.getLogger(__name__)
+_ROUTE_IDS_DISPLAY_LIMIT = 10
 
 
 class RuntimeState(enum.Enum):
@@ -759,6 +760,22 @@ class MedreApp:
             )
 
         # 2.5. Start the retry worker (if enabled).
+        if not self.config.retry.enabled and self.config.routes.routes:
+            stale = [
+                r.route_id
+                for r in self.config.routes.routes
+                if r.retry is not None and r.retry.enabled
+            ]
+            if stale:
+                shown = ", ".join(stale[:_ROUTE_IDS_DISPLAY_LIMIT])
+                extra = len(stale) - _ROUTE_IDS_DISPLAY_LIMIT
+                suffix = f", and {extra} more" if extra > 0 else ""
+                _logger.warning(
+                    "global retry worker disabled; per-route retry policies "
+                    "for [%s%s] will not be processed",
+                    shown,
+                    suffix,
+                )
         if self.config.retry.enabled and self.storage is not None:
             from medre.runtime.retry import RetryWorker as _RW
 
@@ -766,10 +783,7 @@ class MedreApp:
                 storage=self.storage,
                 pipeline=self.pipeline_runner,
                 capacity_controller=self._capacity_controller,
-                enabled=self.config.retry.enabled,
-                interval_seconds=self.config.retry.interval_seconds,
-                batch_size=self.config.retry.batch_size,
-                max_attempts=self.config.retry.max_attempts,
+                retry_config=self.config.retry,
                 event_buffer=self._event_buffer,
                 stop_timeout_seconds=float(
                     self.config.runtime.shutdown_timeout_seconds

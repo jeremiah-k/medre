@@ -781,7 +781,11 @@ class TestLxmfAdapterSessionIntegration:
         await asyncio.sleep(0.05)
 
         assert len(inbound_collector.events) == 1
-        assert inbound_collector.events[0].payload["body"] == "via session"
+        event = inbound_collector.events[0]
+        assert event.payload["body"] == "via session"
+        # Regression: source_name is an optional pre-enrichment probe and
+        # must never leak into the normalized payload shape.
+        assert "source_name" not in event.payload
         await adapter.stop()
 
     async def test_session_diagnostics_accessible(self, make_adapter_context) -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json as _json
 import sys
 import time as _time
 
@@ -13,6 +12,7 @@ from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.runtime.builder import RuntimeBuilder
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG
+from .json import to_json
 
 _BEST_EFFORT_WARNING = (
     "WARNING: BEST_EFFORT replay incurs the same duplicate-send risk as "
@@ -109,7 +109,7 @@ async def _replay(
         await app.storage.close()
 
     if json_output:
-        print(_json.dumps(summary_dict, sort_keys=True, indent=2))
+        print(to_json(summary_dict))
     else:
         # Human-readable summary.
         print(f"Replay: {mode}")

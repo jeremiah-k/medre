@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import sys
 import zipfile
@@ -12,6 +11,7 @@ from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
+from .json import to_json
 
 logger = logging.getLogger("medre")
 
@@ -90,30 +90,84 @@ def _diagnostics(config_path: str | None, *, output_format: str = "json") -> Non
             "adapter(s) failed to construct",
             file=sys.stderr,
         )
+        _teardown_unstarted_app(app)
         sys.exit(EXIT_BUILD)
 
     # Use fixed timestamps for deterministic output.
     fixed_now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     fixed_mono = 0.0
 
-    snapshot = build_runtime_snapshot(
-        app,
-        now_fn=lambda: fixed_now,
-        monotonic_fn=lambda: fixed_mono,
-        snapshot_scope="build",
-    )
+    try:
+        snapshot = build_runtime_snapshot(
+            app,
+            now_fn=lambda: fixed_now,
+            monotonic_fn=lambda: fixed_mono,
+            snapshot_scope="build",
+        )
 
-    if output_format == "prometheus":
-        from medre.core.observability.export import snapshot_to_prometheus
+        if output_format == "prometheus":
+            from medre.core.observability.export import snapshot_to_prometheus
 
-        metrics_snapshot = _metrics_projection(snapshot, app.diagnostic_snapshot())
-        print(snapshot_to_prometheus(metrics_snapshot), end="")
-    else:
-        print(json.dumps(snapshot, sort_keys=True, indent=2))
+            metrics_snapshot = _metrics_projection(snapshot, app.diagnostic_snapshot())
+            print(snapshot_to_prometheus(metrics_snapshot), end="")
+        else:
+            print(to_json(snapshot))
+    finally:
+        # Diagnostic builds the runtime but never starts it.  The
+        # runtime holds open storage handles, the pipeline runner has
+        # attached middleware, the capacity controller and replay
+        # engine are constructed but never run.  Tear them down
+        # deterministically so process exit doesn't race with pending
+        # aiosqlite / asyncio tasks.
+        _teardown_unstarted_app(app)
 
-    # Process exit cleans up resources — adapter stop and storage close
-    # are async and this is a sync CLI command.  No explicit cleanup
-    # needed since ``sys.exit`` follows in normal usage.
+
+def _teardown_unstarted_app(app: object) -> None:
+    """Best-effort cleanup for a built-but-not-started ``MedreApp``.
+
+    The diagnostics CLI builds the runtime purely to introspect its
+    snapshot; it does **not** call :meth:`MedreApp.start`.  The
+    subsystems constructed during :meth:`RuntimeBuilder.build` still
+    hold storage handles, asyncio primitives, and event-bus middleware
+    that should be released before the CLI process exits.  Each call
+    is guarded so a failure in one subsystem does not leak the others.
+    """
+    import asyncio
+
+    capacity = getattr(app, "_capacity_controller", None)
+    if capacity is not None and hasattr(capacity, "stop_accepting"):
+        try:
+            capacity.stop_accepting()
+        except Exception as exc:
+            logger.debug("Diagnostics: error stopping capacity controller: %s", exc)
+
+    replay = getattr(app, "_replay_engine", None)
+    if replay is not None and hasattr(replay, "cancel"):
+        try:
+            replay.cancel()
+        except Exception as exc:
+            logger.debug("Diagnostics: error cancelling replay engine: %s", exc)
+
+    pipeline = getattr(app, "pipeline_runner", None)
+    if pipeline is not None:
+        try:
+            coro = pipeline.stop()
+        except Exception as exc:
+            logger.debug("Diagnostics: error scheduling pipeline stop: %s", exc)
+            coro = None
+        if coro is not None:
+            try:
+                asyncio.run(coro)
+            except Exception as exc:
+                logger.debug("Diagnostics: error stopping pipeline runner: %s", exc)
+
+    cleanup_storage = getattr(app, "_cleanup_storage_safely", None)
+    if cleanup_storage is not None:
+        coro = cleanup_storage()
+        try:
+            asyncio.run(coro)
+        except Exception as exc:
+            logger.debug("Diagnostics: error closing storage: %s", exc)
 
 
 async def _diagnostics_refresh(
@@ -173,6 +227,7 @@ async def _diagnostics_refresh(
             "adapter(s) failed to construct",
             file=sys.stderr,
         )
+        _teardown_unstarted_app(app)
         sys.exit(EXIT_BUILD)
 
     # Start the runtime.  On failure, start() cleans up core resources
@@ -206,7 +261,7 @@ async def _diagnostics_refresh(
             metrics_snapshot = _metrics_projection(snapshot, app.diagnostic_snapshot())
             print(snapshot_to_prometheus(metrics_snapshot), end="")
         else:
-            print(json.dumps(snapshot, sort_keys=True, indent=2))
+            print(to_json(snapshot))
     finally:
         # Always attempt clean shutdown after a successful start.
         try:

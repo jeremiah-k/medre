@@ -329,6 +329,33 @@ class TestLoginHelpEpilog:
         assert "bare domain" in output or "matrix.example.com" in output
 
 
+@pytest.mark.asyncio
+async def test_interactive_matrix_login_sigint_interrupts_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """KeyboardInterrupt from the terminal prompt propagates unchanged."""
+    from medre.adapters.matrix.cli import _adapter_matrix_auth_login
+
+    args = SimpleNamespace(
+        homeserver=None,
+        user=None,
+        password=None,
+        password_stdin=False,
+        adapter_id=None,
+        reset_cross_signing=False,
+    )
+
+    def _interrupt(_prompt: str) -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", _interrupt)
+    # Contract: KeyboardInterrupt raised by the terminal prompt propagates
+    # out of the login handler unchanged — no swallowing, no to_thread
+    # worker that would outlive cancellation.
+    with pytest.raises(KeyboardInterrupt):
+        await _adapter_matrix_auth_login(args)
+
+
 # ---------------------------------------------------------------------------
 # Integration flow (monkeypatched) — REWRITTEN for tristate + JSON credentials
 # ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 
 __all__ = [
     "MatrixCrossSigningDiagnostics",

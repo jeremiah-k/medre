@@ -461,6 +461,30 @@ class FakeMeshCoreAdapter(AdapterContract):
             packet["channel_idx"] = channel
         return self._codec.decode(packet)
 
+    def make_direct_event(
+        self,
+        body: str = "hello",
+        sender: str = "abc123",
+        packet_id: int = 12345,
+    ) -> CanonicalEvent:
+        """Create a :class:`CanonicalEvent` from a MeshCore PRIV/DM packet.
+
+        Mirrors the shape of a real ``CONTACT_MSG_RECV`` payload so the
+        fake exercises the same direct-message classification branch the
+        real SDK drives.  The codec receives ``type: "PRIV"`` (no
+        ``channel_idx``), which is how :class:`FakeMeshCoreClient` had
+        always omitted channel DMs; this helper makes the intent
+        explicit at call sites.
+        """
+        packet: dict[str, Any] = {
+            "text": body,
+            "pubkey_prefix": sender,
+            "sender_timestamp": packet_id,
+            "type": "PRIV",
+            "txt_type": 0,
+        }
+        return self._codec.decode(packet)
+
     @property
     def is_started(self) -> bool:
         """Whether :meth:`start` has been called without a corresponding
