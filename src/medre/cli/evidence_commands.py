@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json as _json
 import sys
 
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 
 from .exit_codes import EXIT_CONFIG
+from .json import to_json
 
 
 async def _evidence(
@@ -32,7 +32,7 @@ async def _evidence(
     )
 
     if json_output:
-        print(_json.dumps(report, sort_keys=True, indent=2))
+        print(to_json(report))
     else:
         # Human-readable summary.
         status = report["status"]

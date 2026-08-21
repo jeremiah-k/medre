@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import sys
-from dataclasses import asdict
 
 from medre.config.loader import load_config
 from medre.config.routes import RouteConfigSet, RouteDirectionality
 
 from .exit_codes import EXIT_CONFIG, EXIT_OK
+from .json import to_json
 
 
 def _routes_validate(config_path: str | None) -> None:
@@ -343,7 +342,7 @@ def _routes_plan(config_path: str | None, as_json: bool = False) -> None:
         sys.exit(EXIT_CONFIG)
 
     if as_json:
-        print(json.dumps(asdict(plan), indent=2, sort_keys=True))
+        print(to_json(plan))
         sys.exit(EXIT_CONFIG if _plan_has_errors(plan) else EXIT_OK)
 
     _render_route_plan(plan)

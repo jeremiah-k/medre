@@ -19,7 +19,7 @@ from medre.runtime.reporting import native_ref_to_report_dict
 from medre.runtime.trace import timeline_to_json
 
 from .exit_codes import EXIT_CONFIG, EXIT_NOT_FOUND
-from .json import _struct_to_json
+from .json import to_json
 from .storage_helpers import _open_readonly_storage
 
 
@@ -50,7 +50,7 @@ async def _inspect_event(
                 )
                 _exit_code = EXIT_NOT_FOUND
             else:
-                print(_struct_to_json(event))
+                print(to_json(event))
         finally:
             await storage.close()
         if _exit_code is not None:
@@ -96,7 +96,7 @@ async def _inspect_event(
                 # Event exists, so runbook is not None.
                 result["recovery"] = runbook
 
-            print(json.dumps(result, sort_keys=True, indent=2, default=str))
+            print(to_json(result))
     finally:
         await storage.close()
     if _exit_code is not None:
@@ -125,7 +125,7 @@ async def _inspect_receipts(
             _exit_code = EXIT_CONFIG
             receipts = None
         if _exit_code is None:
-            print(_struct_to_json(receipts))
+            print(to_json(receipts))
     finally:
         await storage.close()
     if _exit_code is not None:
@@ -177,7 +177,7 @@ async def _inspect_native_ref(
             event = await storage.get(ref.event_id)
             if event is not None:
                 result["event"] = json.loads(msgspec.json.encode(event))
-            print(json.dumps(result, sort_keys=True, indent=2))
+            print(to_json(result))
     finally:
         await storage.close()
     if _exit_code is not None:

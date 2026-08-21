@@ -70,7 +70,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # diagnostics
     diag_p = sub.add_parser(
         "diagnostics",
-        help="Print pre-flight diagnostics; default snapshot is read-only, --refresh-health starts live runtime (requires --config)",
+        help="Print pre-flight diagnostics; default snapshot is read-only (requires --config or discoverable default), --refresh-health starts live runtime",
     )
     diag_p.add_argument("--config", default=None, help="Path to config file")
     diag_p.add_argument(

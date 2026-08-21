@@ -11,7 +11,6 @@ access uses ``_open_readonly_storage``.
 
 from __future__ import annotations
 
-import json as _json
 import shlex
 import sys
 from typing import Any
@@ -29,6 +28,7 @@ from medre.core.observability.classification import (
 from medre.runtime.reporting import _derive_capability_evidence
 
 from .exit_codes import EXIT_NOT_FOUND
+from .json import to_json
 from .storage_helpers import _open_readonly_storage
 from .transport_constants import RADIO_TRANSPORTS
 
@@ -270,7 +270,7 @@ async def _recover(
             }
 
         if json_output:
-            print(_json.dumps(runbook, sort_keys=True, indent=2, default=str))
+            print(to_json(runbook))
         else:
             # Human-readable runbook.
             if event_id is not None:
