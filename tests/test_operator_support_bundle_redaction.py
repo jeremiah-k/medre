@@ -205,7 +205,7 @@ def test_matrix_access_token_redacted(tmp_path: Path) -> None:
         .get("redacted_config.yaml", b"")
         .decode("utf-8", errors="replace")
     )
-    assert "***REDACTED***" in redacted
+    assert "[REDACTED]" in redacted
 
 
 def test_password_field_redacted(tmp_path: Path) -> None:
@@ -235,7 +235,7 @@ def test_ble_pin_redacted(tmp_path: Path) -> None:
     )
     assert "123456" not in redacted_yaml, "ble_pin value leaked into redacted YAML"
     assert "ble_pin" in redacted_yaml  # key name preserved
-    assert "***REDACTED***" in redacted_yaml
+    assert "[REDACTED]" in redacted_yaml
 
 
 def test_identity_path_redacted(tmp_path: Path) -> None:
@@ -260,7 +260,7 @@ def test_redaction_recursesthrough_nested_dicts(tmp_path: Path) -> None:
     assert "nested-api-key-test" not in redacted_yaml
     assert "nested-client-secret-test" not in redacted_yaml
     # All three should show the redaction marker.
-    assert redacted_yaml.count("***REDACTED***") >= 3
+    assert redacted_yaml.count("[REDACTED]") >= 3
     # Full blob sweep for completeness.
     blob = _all_bundle_text(zip_path)
     for secret in (

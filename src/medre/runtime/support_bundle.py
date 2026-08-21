@@ -36,7 +36,11 @@ import yaml
 from medre.config._yaml import parse_yaml_config
 from medre.config.errors import ConfigError, ConfigValidationError
 from medre.config.loader import ConfigSource, find_config, load_config
-from medre.core.observability.sanitization import sanitize_error
+from medre.core.observability.sanitization import (
+    BROAD_SECRET_TOKENS,
+    REDACTED_TOKEN,
+    sanitize_error,
+)
 from medre.runtime.route_plan import build_route_plan
 
 __all__ = ["create_support_bundle", "BUNDLE_SCHEMA_VERSION"]
@@ -45,7 +49,10 @@ BUNDLE_SCHEMA_VERSION: int = 1
 """Manifest ``bundle_schema_version``. Frozen at 1 during pre-release."""
 
 _DEFAULT_OUTPUT_NAME = "medre-support-bundle.zip"
-_REDACTED = "***REDACTED***"
+# Centralized redaction marker — kept as a module alias so existing call
+# sites stay readable.  All three ``redacted_*`` outputs (support bundle,
+# env provenance, sanitized errors) now emit ``REDACTED_TOKEN``.
+_REDACTED = REDACTED_TOKEN
 
 
 # ---------------------------------------------------------------------------
@@ -137,31 +144,23 @@ class SchemasMember(msgspec.Struct, frozen=True):
     schema_source: str
 
 
-# Substring tokens (case-insensitive) for secret-key detection. Over-broad
-# on purpose: redacting a benign field is safe, leaking a secret is not.
-# Covers the union of the audit's five redaction surfaces plus the
-# task-specified token list.
-_SECRET_KEY_TOKENS: frozenset[str] = frozenset(
-    {
-        "token",
-        "secret",
-        "password",
-        "credential",
-        "auth",
-        "key",
-        "private",
-        "identity",
-        "pin",
-        "access_token",
-        "refresh_token",
-        "client_secret",
-        "bearer",
-    }
-)
+# Token set for secret-key detection. Substring match (case-insensitive)
+# over-broad on purpose: redacting a benign field is safe, leaking a secret
+# is not.  The canonical set lives in
+# ``medre.core.observability.sanitization.BROAD_SECRET_TOKENS`` so every
+# redaction site (logs, env provenance, support bundle) is auditable from
+# one location.
+_SECRET_KEY_TOKENS = BROAD_SECRET_TOKENS
 
 
 def _is_secret_key(key: Any) -> bool:
-    """Return True if *key* looks like a secret-named field."""
+    """Return True if *key* looks like a secret-named field.
+
+    Substring match against the canonical :data:`BROAD_SECRET_TOKENS`
+    set imported from :mod:`medre.core.observability.sanitization`.
+    Over-broad on purpose — the support bundle is used for operator
+    diagnostics where under-redaction is the worse failure mode.
+    """
     if not isinstance(key, str):
         return False
     lc = key.lower()
@@ -249,7 +248,7 @@ def _read_schema_meta(filename: str) -> SchemaEntry:
     path = _SCHEMAS_DIR / filename
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — schema metadata is best-effort
+    except Exception:
         # Failure path emits present=False. When schemas are present (the
         # normal case) all four keys appear; on failure the extra null
         # keys are informative rather than harmful.
@@ -493,7 +492,7 @@ def _build_adapters(config: Any) -> dict[str, Any]:
                     transport, cfg
                 )
                 entry["secret_fields_present"] = _secret_fields_present(transport, cfg)
-            except Exception:  # noqa: BLE001 — enrichment is best-effort
+            except Exception:
                 pass
             adapters.append(entry)
     except Exception:
@@ -590,7 +589,7 @@ def _build_route_plan_member(config: Any) -> dict[str, Any]:
     try:
         plan = build_route_plan(config)
         return asdict(plan)
-    except Exception as exc:  # noqa: BLE001 — bundle must stay JSON-valid
+    except Exception as exc:
         return {"error": _safe_error(exc)}
 
 
@@ -609,7 +608,7 @@ def _build_redacted_config_text(raw_text: str, source_label: str) -> str | None:
         return yaml.safe_dump(redacted, sort_keys=True, default_flow_style=False)
     except (
         Exception
-    ):  # noqa: BLE001 — any failure drops the member, never crashes the bundle
+    ):
         # Config-check already records the load failure; no config member.
         return None
 
@@ -671,7 +670,7 @@ def create_support_bundle(
 
     try:
         discovered_path, discovered_source = find_config(config_path)
-    except Exception as exc:  # noqa: BLE001 — bundle keeps going on config miss
+    except Exception as exc:
         config_check.error = _safe_error(exc)
 
     members["config_source.json"] = _json_bytes(
@@ -703,7 +702,7 @@ def create_support_bundle(
         except ConfigError as exc:
             config_check.success = False
             config_check.error = _safe_error(exc)
-        except Exception as exc:  # noqa: BLE001 — defensive: keep bundle alive
+        except Exception as exc:
             config_check.success = False
             config_check.error = _safe_error(exc)
 
