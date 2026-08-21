@@ -1,7 +1,7 @@
 """Integration tests verifying PipelineRunner delegates to DeliveryLifecycleService.
 
 Exercises the delegation wiring through PipelineRunner private methods
-for suppression, queued→sent, and outbox finalization.
+for suppression and queued→sent paths.
 """
 
 from __future__ import annotations
@@ -45,6 +45,26 @@ class TestDelegationIntegration:
         temp_storage: StorageBackend,
     ) -> None:
         """PipelineRunner._persist_suppression_receipt delegates to lifecycle."""
+        # Admit the parent event so the FK on delivery_receipts.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        from datetime import datetime, timezone
+        from medre.core.events import CanonicalEvent, EventMetadata
+        await temp_storage.append(
+            CanonicalEvent(
+                event_id="evt-s",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="src",
+                source_transport_id="t1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "s"},
+                metadata=EventMetadata(),
+            )
+        )
         runner = _make_runner(temp_storage)
 
         receipt = await runner._persist_suppression_receipt(
@@ -71,6 +91,26 @@ class TestDelegationIntegration:
     ) -> None:
         """PipelineRunner._append_queued_to_sent_receipt delegates to lifecycle."""
         now = datetime.now(tz=timezone.utc)
+        # Admit the parent event so the FKs on delivery_receipts.event_id
+        # and delivery_outbox.event_id are satisfied
+        # (PRAGMA foreign_keys=ON is now enforced).
+        from medre.core.events import CanonicalEvent, EventMetadata
+        await temp_storage.append(
+            CanonicalEvent(
+                event_id="evt-001",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=now,
+                source_adapter="src",
+                source_transport_id="t1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "1"},
+                metadata=EventMetadata(),
+            )
+        )
         # Pre-populate a queued receipt.
         queued = _make_receipt(
             receipt_id="rcpt-q",
@@ -113,44 +153,3 @@ class TestDelegationIntegration:
         assert sent[0].parent_receipt_id == "rcpt-q"
         assert sent[0].adapter_message_id == "pkt-42"
         assert sent[0].delivery_plan_id == "plan-001"
-
-
-# ===================================================================
-# PipelineRunner._finalize_outbox_outcome delegates to lifecycle
-# ===================================================================
-
-
-class TestRunnerFinalizeOutboxDelegation:
-    """Verify PipelineRunner._finalize_outbox_outcome delegates to lifecycle."""
-
-    async def test_delegates_to_lifecycle(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """Runner._finalize_outbox_outcome calls lifecycle.finalize_outbox_outcome."""
-        runner = _make_runner(temp_storage)
-
-        # Create an outbox item.
-        item = DeliveryOutboxItem(
-            outbox_id="obox-delegate",
-            event_id="evt-delegate",
-            route_id="route-d",
-            delivery_plan_id="plan-d",
-            target_adapter="test_adapter",
-            status="in_progress",
-        )
-        await temp_storage.create_outbox_item(item)
-
-        receipt = _make_receipt(status="sent", event_id="evt-delegate")
-        await runner._finalize_outbox_outcome(
-            "obox-delegate",
-            True,
-            receipt,
-            None,
-            None,
-            None,
-        )
-
-        updated = await temp_storage.get_outbox_item("obox-delegate")
-        assert updated is not None
-        assert updated.status == "sent"

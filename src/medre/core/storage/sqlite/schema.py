@@ -117,7 +117,7 @@ JOIN (
 
 CREATE TABLE IF NOT EXISTS delivery_outbox (
     outbox_id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
     route_id TEXT NOT NULL DEFAULT '',
     delivery_plan_id TEXT NOT NULL,
     target_adapter TEXT NOT NULL,
@@ -188,6 +188,8 @@ CREATE INDEX IF NOT EXISTS idx_events_timestamp
     ON canonical_events(timestamp, event_id);
 CREATE INDEX IF NOT EXISTS idx_relations_event_id
     ON event_relations(event_id, id);
+CREATE INDEX IF NOT EXISTS idx_relations_target_event_id
+    ON event_relations(target_event_id);
 CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
     ON native_message_refs(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_plan

@@ -33,7 +33,7 @@ from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 def _make_receipt(
     receipt_id: str = "rcpt-test",
     status: str = "queued",
-    event_id: str = "evt-test",
+    event_id: str = "__outbox_default__",
     delivery_plan_id: str = "plan-test",
     target_adapter: str = "fake_presentation",
     parent_receipt_id: str | None = None,
@@ -55,7 +55,7 @@ def _make_receipt(
 
 def _make_outbox_item(
     outbox_id: str = "obox-test",
-    event_id: str = "evt-test",
+    event_id: str = "__outbox_default__",
     status: str = "pending",
     delivery_plan_id: str = "plan-test",
     target_adapter: str = "fake_presentation",
@@ -155,13 +155,13 @@ class TestReceiptTerminalStates:
 class TestReceiptAppendOnlyInvariant:
     """Receipts are append-only: once persisted, rows are never changed."""
 
-    async def test_append_only_invariant(self, temp_storage: SQLiteStorage) -> None:
+    async def test_append_only_invariant(self, outbox_temp_storage: SQLiteStorage) -> None:
         """Create several receipts, then append more, and verify all
         original receipts are unchanged by comparing stored fields."""
         original_receipts = [
             _make_receipt(
                 receipt_id=f"rcpt-orig-{i}",
-                event_id="evt-append-only",
+                event_id="__outbox_default__",
                 delivery_plan_id="plan-ao",
                 status="queued" if i == 0 else "sent",
                 attempt_number=i + 1,
@@ -172,7 +172,7 @@ class TestReceiptAppendOnlyInvariant:
 
         # Persist originals.
         for r in original_receipts:
-            await temp_storage.append_receipt(r)
+            await outbox_temp_storage.append_receipt(r)
 
         # Snapshot original fields.
         snapshots = [
@@ -188,10 +188,10 @@ class TestReceiptAppendOnlyInvariant:
 
         # Append additional receipts (simulating retry lineage).
         for i in range(3, 5):
-            await temp_storage.append_receipt(
+            await outbox_temp_storage.append_receipt(
                 _make_receipt(
                     receipt_id=f"rcpt-extra-{i}",
-                    event_id="evt-append-only",
+                    event_id="__outbox_default__",
                     delivery_plan_id="plan-ao",
                     status="failed",
                     attempt_number=i + 1,
@@ -202,7 +202,7 @@ class TestReceiptAppendOnlyInvariant:
             )
 
         # Verify originals are unchanged in storage.
-        stored = await temp_storage.list_receipts_for_plan(
+        stored = await outbox_temp_storage.list_receipts_for_plan(
             "plan-ao", "fake_presentation"
         )
         # Filter to just our original receipt_ids.
@@ -225,24 +225,24 @@ class TestReceiptFailedToDeadLettered:
     """Verify failed → dead_lettered transition through retry exhaustion."""
 
     async def test_failed_to_dead_lettered_transition(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """When retry is exhausted, a dead_lettered receipt is created
         with ``parent_receipt_id`` linking to the preceding failed receipt."""
         failed_receipt = _make_receipt(
             receipt_id="rcpt-failed-001",
-            event_id="evt-dl-test",
+            event_id="__outbox_default__",
             delivery_plan_id="plan-dl",
             status="failed",
             attempt_number=1,
         )
-        await temp_storage.append_receipt(failed_receipt)
+        await outbox_temp_storage.append_receipt(failed_receipt)
 
         # Simulate the dead_lettered receipt that retry exhaustion produces.
         dead_lettered = DeliveryReceipt(
             sequence=0,
             receipt_id="rcpt-dl-001",
-            event_id="evt-dl-test",
+            event_id="__outbox_default__",
             delivery_plan_id="plan-dl",
             target_adapter="fake_presentation",
             route_id="route-test",
@@ -253,10 +253,10 @@ class TestReceiptFailedToDeadLettered:
             attempt_number=2,
             parent_receipt_id=failed_receipt.receipt_id,
         )
-        await temp_storage.append_receipt(dead_lettered)
+        await outbox_temp_storage.append_receipt(dead_lettered)
 
         # Verify the linkage.
-        receipts = await temp_storage.list_receipts_for_plan(
+        receipts = await outbox_temp_storage.list_receipts_for_plan(
             "plan-dl", "fake_presentation"
         )
         by_id = {r.receipt_id: r for r in receipts}
@@ -307,7 +307,7 @@ class TestOutboxReclaim:
     """Verify outbox reclaim semantics for terminal and active items."""
 
     async def test_terminal_existing_row_returned_unchanged_on_recreate(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """Creating an outbox item, marking it terminal, then creating
         again with the same key tuple returns the existing terminal
@@ -317,15 +317,15 @@ class TestOutboxReclaim:
         ``delivery_plan_id`` / ``attempt_number``)."""
         item1 = _make_outbox_item(
             outbox_id="obox-reclaim-1",
-            event_id="evt-reclaim",
+            event_id="__outbox_default__",
             delivery_plan_id="plan-reclaim",
             status="in_progress",
         )
-        created1 = await temp_storage.create_outbox_item(item1)
+        created1 = await outbox_temp_storage.create_outbox_item(item1)
         assert created1.outbox_id == "obox-reclaim-1"
 
         # Mark it as dead_lettered (terminal).
-        await temp_storage.mark_outbox_dead_lettered(
+        await outbox_temp_storage.mark_outbox_dead_lettered(
             created1.outbox_id,
             receipt_id=None,
             failure_kind="test",
@@ -333,7 +333,7 @@ class TestOutboxReclaim:
         )
 
         # Verify it's dead_lettered now.
-        fetched = await temp_storage.get_outbox_item("obox-reclaim-1")
+        fetched = await outbox_temp_storage.get_outbox_item("obox-reclaim-1")
         assert fetched is not None
         assert fetched.status == "dead_lettered"
 
@@ -342,14 +342,14 @@ class TestOutboxReclaim:
         # attempt_number).  The terminal row is returned unchanged.
         item2 = _make_outbox_item(
             outbox_id="obox-reclaim-2",
-            event_id="evt-reclaim",
+            event_id="__outbox_default__",
             delivery_plan_id="plan-reclaim",
             status="in_progress",
         )
-        created2 = await temp_storage.create_outbox_item(item2)
+        created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         # The "old" terminal row is preserved (not deleted).
-        old = await temp_storage.get_outbox_item("obox-reclaim-1")
+        old = await outbox_temp_storage.get_outbox_item("obox-reclaim-1")
         assert old is not None, "Terminal row must be preserved, not deleted"
         assert old.status == "dead_lettered"
 
@@ -458,14 +458,14 @@ class TestOutboxReceiptRelationship:
 
     async def test_outbox_transition_drives_receipt_creation(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router: Router,
     ) -> None:
         """Deliver an event through the pipeline, verify the outbox item
         exists AND has a receipt_id linking it to the delivery receipt."""
         fake = FakePresentationAdapter(adapter_id="fake_presentation")
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router,
             adapters={"fake_presentation": fake},
         )
@@ -478,7 +478,7 @@ class TestOutboxReceiptRelationship:
             await runner.handle_ingress(event)
 
             # Verify outbox item exists.
-            items = await temp_storage.list_outbox_items()
+            items = await outbox_temp_storage.list_outbox_items()
             assert len(items) >= 1, "Expected at least one outbox item"
 
             matching = [i for i in items if i.event_id == "evt-outbox-receipt-001"]
@@ -492,7 +492,7 @@ class TestOutboxReceiptRelationship:
             ), "Outbox item must have receipt_id linking to delivery receipt"
 
             # Verify the referenced receipt exists.
-            receipts = await temp_storage.list_receipts_for_event(
+            receipts = await outbox_temp_storage.list_receipts_for_event(
                 "evt-outbox-receipt-001"
             )
             receipt_ids = {r.receipt_id for r in receipts}
@@ -502,7 +502,7 @@ class TestOutboxReceiptRelationship:
 
     async def test_receipt_never_drives_outbox_transition(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
     ) -> None:
         """Appending a receipt must NOT change outbox state.
 
@@ -512,27 +512,27 @@ class TestOutboxReceiptRelationship:
         # Create an outbox item.
         item = _make_outbox_item(
             outbox_id="obox-rt-001",
-            event_id="evt-rt-001",
+            event_id="__outbox_default__",
             delivery_plan_id="plan-rt",
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
 
         # Snapshot the outbox item state.
-        before = await temp_storage.get_outbox_item("obox-rt-001")
+        before = await outbox_temp_storage.get_outbox_item("obox-rt-001")
         assert before is not None
 
         # Append a receipt (simulating a delivery outcome).
         receipt = _make_receipt(
             receipt_id="rcpt-rt-001",
-            event_id="evt-rt-001",
+            event_id="__outbox_default__",
             delivery_plan_id="plan-rt",
             status="sent",
         )
-        await temp_storage.append_receipt(receipt)
+        await outbox_temp_storage.append_receipt(receipt)
 
         # Verify the outbox item is unchanged.
-        after = await temp_storage.get_outbox_item("obox-rt-001")
+        after = await outbox_temp_storage.get_outbox_item("obox-rt-001")
         assert after is not None
         assert after.status == before.status, (
             f"Outbox status changed from {before.status!r} to {after.status!r} "

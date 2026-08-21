@@ -163,6 +163,8 @@ class _SQLiteStorageBase:
                 db.row_factory = sqlite3.Row
                 await db.executescript(_SCHEMA)
                 await db.execute("PRAGMA journal_mode=WAL")
+                await db.execute("PRAGMA busy_timeout=5000")
+                await db.execute("PRAGMA foreign_keys=ON")
                 await db.commit()
             except BaseException:
                 await db.close()
@@ -537,18 +539,27 @@ class _SQLiteStorageBase:
             raise StorageError(f"Database write failed: {exc}") from exc
 
     async def _write_batch(self, ops: list[tuple[str, tuple[Any, ...]]]) -> None:
-        """Execute multiple write statements in one transaction and commit."""
+        """Execute multiple write statements in one transaction and commit.
+
+        Atomicity is explicit on both code paths: the aiosqlite branch
+        issues ``BEGIN IMMEDIATE`` before the loop (so atomicity no
+        longer depends on the connection's legacy implicit-transaction
+        behaviour under ``isolation_level=""``) and the sync branch
+        delegates to :func:`connection.sync_write_batch` which wraps
+        the loop in ``BEGIN IMMEDIATE`` inside the write lock.
+        """
         db = self._require_db()
         try:
             if self._use_aiosqlite:
                 async with self._async_write_lock:
                     try:
+                        await db.execute("BEGIN IMMEDIATE")  # type: ignore[union-attr]
                         for sql, params in ops:
-                            await db.execute(sql, params)
+                            await db.execute(sql, params)  # type: ignore[union-attr]
                         await db.commit()
                     except BaseException:
                         try:
-                            await db.rollback()
+                            await db.rollback()  # type: ignore[union-attr]
                         except Exception:
                             pass
                         raise

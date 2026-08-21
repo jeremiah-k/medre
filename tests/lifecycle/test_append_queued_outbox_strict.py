@@ -28,7 +28,7 @@ def _make_queued_receipt_with_outbox(
     channel: str = "0",
     plan_id: str = "plan-q",
     attempt_number: int = 1,
-    event_id: str = "evt-001",
+    event_id: str = "__outbox_default__",
 ) -> DeliveryReceipt:
     """Create a queued receipt with outbox_id set."""
     base = _make_receipt(
@@ -45,7 +45,7 @@ def _make_queued_receipt_with_outbox(
 
 def _make_outbox_item(
     outbox_id: str = "obox-001",
-    event_id: str = "evt-001",
+    event_id: str = "__outbox_default__",
     route_id: str = "route-001",
     plan_id: str = "plan-q",
     target_adapter: str = "mesh-1",
@@ -73,7 +73,7 @@ async def _setup_outbox_and_receipt(
     channel: str = "0",
     plan_id: str = "plan-q",
     attempt_number: int = 1,
-    event_id: str = "evt-001",
+    event_id: str = "__outbox_default__",
 ) -> None:
     """Create outbox item + queued receipt with matching outbox_id."""
     outbox = _make_outbox_item(
@@ -109,7 +109,7 @@ class TestFieldMismatchRejected:
 
     async def test_wrong_delivery_plan_id_rejected(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
     ) -> None:
         """outbox_id correct but record.delivery_plan_id differs
         → no supplemental receipt."""
@@ -117,7 +117,7 @@ class TestFieldMismatchRejected:
         now = datetime.now(tz=timezone.utc)
 
         await _setup_outbox_and_receipt(
-            temp_storage,
+            outbox_temp_storage,
             outbox_id="obox-plan-mismatch",
             receipt_id="rcpt-plan-q",
             adapter="mesh-1",
@@ -126,7 +126,7 @@ class TestFieldMismatchRejected:
         )
 
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="pkt-plan-bad",
@@ -135,18 +135,18 @@ class TestFieldMismatchRejected:
             attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
 
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
     async def test_wrong_native_channel_id_rejected(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
     ) -> None:
         """outbox_id correct but record.native_channel_id differs
         → no supplemental receipt."""
@@ -154,7 +154,7 @@ class TestFieldMismatchRejected:
         now = datetime.now(tz=timezone.utc)
 
         await _setup_outbox_and_receipt(
-            temp_storage,
+            outbox_temp_storage,
             outbox_id="obox-ch-mismatch",
             receipt_id="rcpt-ch-q",
             adapter="mesh-1",
@@ -163,7 +163,7 @@ class TestFieldMismatchRejected:
         )
 
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="wrong-channel",
             native_message_id="pkt-ch-bad",
@@ -172,18 +172,18 @@ class TestFieldMismatchRejected:
             attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
 
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
     async def test_wrong_adapter_rejected(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
     ) -> None:
         """outbox_id correct but record.adapter differs
         → no supplemental receipt."""
@@ -191,7 +191,7 @@ class TestFieldMismatchRejected:
         now = datetime.now(tz=timezone.utc)
 
         await _setup_outbox_and_receipt(
-            temp_storage,
+            outbox_temp_storage,
             outbox_id="obox-adapter-mismatch",
             receipt_id="rcpt-adapter-q",
             adapter="mesh-1",
@@ -200,7 +200,7 @@ class TestFieldMismatchRejected:
         )
 
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="wrong-adapter",
             native_channel_id="0",
             native_message_id="pkt-adapter-bad",
@@ -209,18 +209,18 @@ class TestFieldMismatchRejected:
             attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
 
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
     async def test_wrong_attempt_number_rejected(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
     ) -> None:
         """outbox_id correct but record.attempt_number differs
         → no supplemental receipt."""
@@ -228,7 +228,7 @@ class TestFieldMismatchRejected:
         now = datetime.now(tz=timezone.utc)
 
         await _setup_outbox_and_receipt(
-            temp_storage,
+            outbox_temp_storage,
             outbox_id="obox-attempt-mismatch",
             receipt_id="rcpt-attempt-q",
             adapter="mesh-1",
@@ -238,7 +238,7 @@ class TestFieldMismatchRejected:
         )
 
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="pkt-attempt-bad",
@@ -247,12 +247,12 @@ class TestFieldMismatchRejected:
             attempt_number=5,
         )
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
 
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
@@ -267,7 +267,7 @@ class TestExactOutboxSelection:
 
     async def test_different_outbox_id_not_selected(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
     ) -> None:
         """Two queued receipts with same plan/channel but different
         outbox_id → only matching outbox_id selected."""
@@ -276,7 +276,7 @@ class TestExactOutboxSelection:
 
         # First outbox + receipt (attempt 1).
         await _setup_outbox_and_receipt(
-            temp_storage,
+            outbox_temp_storage,
             outbox_id="obox-first",
             receipt_id="rcpt-first",
             adapter="mesh-1",
@@ -289,7 +289,7 @@ class TestExactOutboxSelection:
         # (attempt 2 — retry).  Uses different attempt_number to satisfy
         # the outbox UNIQUE(plan_id, adapter, channel, attempt) constraint.
         await _setup_outbox_and_receipt(
-            temp_storage,
+            outbox_temp_storage,
             outbox_id="obox-second",
             receipt_id="rcpt-second",
             adapter="mesh-1",
@@ -300,7 +300,7 @@ class TestExactOutboxSelection:
 
         # Callback targets obox-second → should only match rcpt-second.
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="pkt-second",
@@ -309,12 +309,12 @@ class TestExactOutboxSelection:
             attempt_number=2,
         )
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
 
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-second"
@@ -339,7 +339,7 @@ class TestExactCallbackHappyPath:
 
     async def test_valid_exact_callback_succeeds(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
     ) -> None:
         """Correct outbox_id, adapter, plan, channel, attempt
         → supplemental sent receipt created."""
@@ -347,7 +347,7 @@ class TestExactCallbackHappyPath:
         now = datetime.now(tz=timezone.utc)
 
         await _setup_outbox_and_receipt(
-            temp_storage,
+            outbox_temp_storage,
             outbox_id="obox-valid",
             receipt_id="rcpt-valid-q",
             adapter="mesh-1",
@@ -357,7 +357,7 @@ class TestExactCallbackHappyPath:
         )
 
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="pkt-valid-42",
@@ -366,12 +366,12 @@ class TestExactCallbackHappyPath:
             attempt_number=1,
         )
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
 
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-valid-q"
@@ -380,13 +380,13 @@ class TestExactCallbackHappyPath:
         assert sent[0].outbox_id == "obox-valid"
 
         # Outbox should be transitioned to sent.
-        updated_outbox = await temp_storage.get_outbox_item("obox-valid")
+        updated_outbox = await outbox_temp_storage.get_outbox_item("obox-valid")
         assert updated_outbox is not None
         assert updated_outbox.status == "sent"
 
     async def test_duplicate_exact_callback_no_duplicate(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
     ) -> None:
         """Call twice with same outbox_id → only one supplemental sent
         receipt."""
@@ -394,7 +394,7 @@ class TestExactCallbackHappyPath:
         now = datetime.now(tz=timezone.utc)
 
         await _setup_outbox_and_receipt(
-            temp_storage,
+            outbox_temp_storage,
             outbox_id="obox-dup",
             receipt_id="rcpt-dup-q",
             adapter="mesh-1",
@@ -404,7 +404,7 @@ class TestExactCallbackHappyPath:
         )
 
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="pkt-dup",
@@ -415,7 +415,7 @@ class TestExactCallbackHappyPath:
 
         # First call — should create supplemental sent receipt.
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
@@ -424,12 +424,12 @@ class TestExactCallbackHappyPath:
         # sent), so the candidate filter `r.status == "queued"` won't
         # match it.  A second supplemental receipt should NOT be created.
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
 
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-dup-q"
@@ -440,12 +440,12 @@ class TestMissingAttemptNumberRejected:
 
     async def test_missing_attempt_number_no_sent_receipt(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
     ) -> None:
         """Callback with outbox_id but attempt_number=None → no sent receipt."""
-        await _setup_outbox_and_receipt(temp_storage)
+        await _setup_outbox_and_receipt(outbox_temp_storage)
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="pkt-no-attempt",
@@ -457,23 +457,23 @@ class TestMissingAttemptNumberRejected:
         now = datetime.now(tz=timezone.utc)
 
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
 
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
     async def test_missing_attempt_number_no_outbox_mutation(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
     ) -> None:
         """Callback with outbox_id but attempt_number=None → outbox stays queued."""
-        await _setup_outbox_and_receipt(temp_storage, outbox_id="obox-no-attempt")
+        await _setup_outbox_and_receipt(outbox_temp_storage, outbox_id="obox-no-attempt")
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="pkt-no-attempt",
@@ -485,24 +485,24 @@ class TestMissingAttemptNumberRejected:
         now = datetime.now(tz=timezone.utc)
 
         await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
+            outbox_temp_storage,
             record=record,
             now=now,
         )
 
-        outbox = await temp_storage.get_outbox_item("obox-no-attempt")
+        outbox = await outbox_temp_storage.get_outbox_item("obox-no-attempt")
         assert outbox is not None
         assert outbox.status == "queued"
 
     async def test_missing_attempt_number_logs_warning(
         self,
-        temp_storage: StorageBackend,
+        outbox_temp_storage: StorageBackend,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Callback with missing attempt_number produces a warning log."""
-        await _setup_outbox_and_receipt(temp_storage, outbox_id="obox-warn-attempt")
+        await _setup_outbox_and_receipt(outbox_temp_storage, outbox_id="obox-warn-attempt")
         record = OutboundNativeRefRecord(
-            event_id="evt-001",
+            event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="pkt-warn",
@@ -515,7 +515,7 @@ class TestMissingAttemptNumberRejected:
 
         with caplog.at_level(logging.WARNING):
             await lifecycle.append_queued_to_sent_receipt(
-                temp_storage,
+                outbox_temp_storage,
                 record=record,
                 now=now,
             )

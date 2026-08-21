@@ -39,6 +39,7 @@ from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import build_runtime_snapshot
 from tests.helpers.async_utils import wait_until
+from tests.helpers.storage_outbox import admit_default_event
 
 _LOG = __import__("logging").getLogger(__name__)
 
@@ -139,11 +140,18 @@ def _make_src_ctx(
 
 @pytest.fixture
 async def temp_db() -> AsyncGenerator[SQLiteStorage, None]:
-    """Provide an initialised SQLiteStorage backed by a temp file."""
+    """Provide an initialised SQLiteStorage backed by a temp file.
+
+    Pre-admits the outbox sentinel event so tests that write
+    ``delivery_outbox`` rows directly satisfy the
+    ``PRAGMA foreign_keys=ON`` constraint on
+    ``delivery_outbox.event_id``.
+    """
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     storage = SQLiteStorage(db_path=path)
     await storage.initialize()
+    await admit_default_event(storage)
     storage._tmp_db_path = path  # type: ignore[attr-defined]
     yield storage
     await storage.close()
@@ -466,7 +474,6 @@ class TestNoOrphanTasksAfterShutdown:
             "simulate_inbound",
             "_ingress_loop",
             "_deliver_single_target",
-            "_deliver_all",
         )
         orphans = [
             t
@@ -710,7 +717,7 @@ class TestFailureKindDetailDrainTimeout:
         receipt = DeliveryReceipt(
             sequence=0,
             receipt_id="rcpt-test-drain",
-            event_id="evt-test",
+            event_id="__outbox_default__",
             delivery_plan_id="plan-test",
             target_adapter="fake_dst",
             target_channel=None,
@@ -731,7 +738,7 @@ class TestFailureKindDetailDrainTimeout:
         assert report["failure_kind_detail"] == "shutdown_drain_timeout"
         assert report["status"] == "suppressed"
         assert report["error"] == "shutdown_drain_timeout"  # sanitized
-        assert report["event_id"] == "evt-test"
+        assert report["event_id"] == "__outbox_default__"
         assert report["target_adapter"] == "fake_dst"
         assert report["route_id"] == "r-1"
         assert report["attempt_number"] == 1
@@ -771,7 +778,7 @@ class TestPersistDrainAbandonedAttemptNumber:
         # Create an outbox item with attempt_number=3.
         outbox_item = DeliveryOutboxItem(
             outbox_id="ob-attempt-3",
-            event_id="evt-attempt-test",
+            event_id="__outbox_default__",
             route_id="r-1",
             delivery_plan_id="dp-1",
             target_adapter="fake_dst",
@@ -782,7 +789,7 @@ class TestPersistDrainAbandonedAttemptNumber:
         await temp_db.create_outbox_item(outbox_item)
 
         inflight = InflightDelivery(
-            event_id="evt-attempt-test",
+            event_id="__outbox_default__",
             route_id="r-1",
             target_adapter="fake_dst",
             target_channel="ch-0",
@@ -804,7 +811,7 @@ class TestPersistDrainAbandonedAttemptNumber:
         method = MedreApp._persist_drain_abandoned_evidence.__get__(app)
         await method()
 
-        receipts = await temp_db.list_receipts_for_event("evt-attempt-test")
+        receipts = await temp_db.list_receipts_for_event("__outbox_default__")
         assert len(receipts) >= 1
         assert receipts[0].attempt_number == 3
         assert receipts[0].status == "suppressed"
@@ -823,7 +830,7 @@ class TestPersistDrainAbandonedAttemptNumber:
         from medre.runtime.app import MedreApp
 
         inflight = InflightDelivery(
-            event_id="evt-fallback",
+            event_id="__outbox_default__",
             route_id="r-1",
             target_adapter="fake_dst",
             target_channel="ch-0",
@@ -849,7 +856,7 @@ class TestPersistDrainAbandonedAttemptNumber:
         method = MedreApp._persist_drain_abandoned_evidence.__get__(app)
         await method()
 
-        receipts = await temp_db.list_receipts_for_event("evt-fallback")
+        receipts = await temp_db.list_receipts_for_event("__outbox_default__")
         assert len(receipts) >= 1
         assert receipts[0].attempt_number == 1
 
@@ -864,7 +871,7 @@ class TestPersistDrainAbandonedAttemptNumber:
         from medre.runtime.app import MedreApp
 
         inflight = InflightDelivery(
-            event_id="evt-no-outbox",
+            event_id="__outbox_default__",
             route_id="r-1",
             target_adapter="fake_dst",
             target_channel="ch-0",
@@ -885,7 +892,7 @@ class TestPersistDrainAbandonedAttemptNumber:
         method = MedreApp._persist_drain_abandoned_evidence.__get__(app)
         await method()
 
-        receipts = await temp_db.list_receipts_for_event("evt-no-outbox")
+        receipts = await temp_db.list_receipts_for_event("__outbox_default__")
         assert len(receipts) >= 1
         assert receipts[0].attempt_number == 1
         assert receipts[0].source == "live"

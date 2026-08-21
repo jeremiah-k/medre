@@ -38,6 +38,7 @@ def make_outbox_item(
     attempt_number: int = 1,
     status: str = "pending",
     next_attempt_at: str | None = None,
+    event_id: str = "__outbox_default__",
 ) -> DeliveryOutboxItem:
     """Build a minimal DeliveryOutboxItem for tests.
 
@@ -46,12 +47,45 @@ def make_outbox_item(
     """
     return DeliveryOutboxItem(
         outbox_id=f"obox-{uuid.uuid4()}",
-        event_id="evt-1",
+        event_id=event_id,
         route_id="route-1",
         delivery_plan_id=delivery_plan_id,
         target_adapter=target_adapter,
         target_channel=target_channel,
-        attempt_number=attempt_number,
-        status=status,
-        next_attempt_at=next_attempt_at,
+         attempt_number=attempt_number,
+         status=status,
+         next_attempt_at=next_attempt_at,
+     )
+
+
+SENTINEL_EVENT_ID = "__outbox_default__"
+
+
+async def admit_default_event(storage) -> None:
+    """Append the sentinel canonical event used by ``make_outbox_item()``.
+
+    Tests that write ``delivery_outbox`` / ``native_message_refs`` /
+    ``delivery_receipts`` rows directly (bypassing runtime admission)
+    must satisfy ``PRAGMA foreign_keys=ON`` against
+    ``canonical_events(event_id)``.  Call once per freshly-initialised
+    storage, before the first direct outbox/native-ref/receipt write.
+    """
+    from medre.core.events import CanonicalEvent, EventMetadata
+    from datetime import datetime, timezone
+
+    await storage.append(
+        CanonicalEvent(
+            event_id=SENTINEL_EVENT_ID,
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=datetime.now(timezone.utc),
+            source_adapter="test-fixture",
+            source_transport_id="t1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "outbox fixture default"},
+            metadata=EventMetadata(),
+        )
     )

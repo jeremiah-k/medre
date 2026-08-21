@@ -21,7 +21,7 @@ class TestAtomicCreateOutboxItem:
     create_outbox_item."""
 
     async def test_concurrent_create_same_active_key_returns_one_row(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """Two concurrent creates with identical non-terminal key return the same row."""
         item1 = _make_outbox_item(
@@ -38,15 +38,15 @@ class TestAtomicCreateOutboxItem:
             attempt_number=1,
         )
         created1, created2 = await asyncio.gather(
-            temp_storage.create_outbox_item(item1),
-            temp_storage.create_outbox_item(item2),
+            outbox_temp_storage.create_outbox_item(item1),
+            outbox_temp_storage.create_outbox_item(item2),
         )
 
         # Both returns point to the same row
         assert created1.outbox_id == created2.outbox_id
 
         # Only one row in the table for this key
-        all_items = await temp_storage.list_outbox_items()
+        all_items = await outbox_temp_storage.list_outbox_items()
         matching = [
             i
             for i in all_items
@@ -55,7 +55,7 @@ class TestAtomicCreateOutboxItem:
         assert len(matching) == 1
 
     async def test_terminal_existing_row_returned_unchanged(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """If the existing row is terminal, re-creating with the same key
         returns the existing terminal row unchanged.  Terminal rows are
@@ -64,28 +64,28 @@ class TestAtomicCreateOutboxItem:
             delivery_plan_id="plan-term-rtn",
             target_channel="ch-term",
         )
-        created1 = await temp_storage.create_outbox_item(item1)
-        claimed = await temp_storage.claim_due_outbox_items(
+        created1 = await outbox_temp_storage.create_outbox_item(item1)
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00",
             worker_id="w1",
             lease_seconds=30,
             limit=10,
         )
         assert len(claimed) == 1
-        await temp_storage.mark_outbox_sent(created1.outbox_id, receipt_id="rcpt-1")
+        await outbox_temp_storage.mark_outbox_sent(created1.outbox_id, receipt_id="rcpt-1")
         # Item is now terminal.  Re-create with same key tuple.
         item2 = _make_outbox_item(
             delivery_plan_id="plan-term-rtn",
             target_channel="ch-term",
         )
-        created2 = await temp_storage.create_outbox_item(item2)
+        created2 = await outbox_temp_storage.create_outbox_item(item2)
         # Must return the existing terminal row, not insert a new one.
         assert created2.outbox_id == created1.outbox_id
         # Status remains terminal (sent).
         assert created2.status == "sent"
 
     async def test_non_terminal_existing_row_returned_unchanged(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """Re-creating with different metadata but same non-terminal key
         returns the original row unchanged."""
@@ -94,7 +94,7 @@ class TestAtomicCreateOutboxItem:
             target_channel="ch-unchanged",
         )
         item1.metadata = {"original": True}
-        created1 = await temp_storage.create_outbox_item(item1)
+        created1 = await outbox_temp_storage.create_outbox_item(item1)
 
         item2 = DeliveryOutboxItem(
             outbox_id=f"obox-{uuid.uuid4()}",
@@ -106,7 +106,7 @@ class TestAtomicCreateOutboxItem:
             attempt_number=1,
         )
         item2.metadata = {"modified": True}
-        created2 = await temp_storage.create_outbox_item(item2)
+        created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         # Returns the first row
         assert created2.outbox_id == created1.outbox_id
@@ -114,14 +114,14 @@ class TestAtomicCreateOutboxItem:
         assert created2.metadata == {"original": True}
 
     async def test_idempotent_create_same_delivery_plan(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """All fields match when creating the same delivery plan twice."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-atomic-idem",
             target_channel="ch-idem",
         )
-        created1 = await temp_storage.create_outbox_item(item1)
+        created1 = await outbox_temp_storage.create_outbox_item(item1)
 
         item2 = DeliveryOutboxItem(
             outbox_id=f"obox-{uuid.uuid4()}",
@@ -132,7 +132,7 @@ class TestAtomicCreateOutboxItem:
             target_channel="ch-idem",
             attempt_number=1,
         )
-        created2 = await temp_storage.create_outbox_item(item2)
+        created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         assert created2.outbox_id == created1.outbox_id
         assert created2.event_id == created1.event_id
@@ -144,7 +144,7 @@ class TestAtomicCreateOutboxItem:
         assert created2.status == created1.status
 
     async def test_idempotent_create_reclaims_pending_row(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """Re-creating with status=in_progress should reclaim a pending row.
 
@@ -158,7 +158,7 @@ class TestAtomicCreateOutboxItem:
             delivery_plan_id="plan-reclaim",
             target_channel="ch-reclaim",
         )
-        created1 = await temp_storage.create_outbox_item(item1)
+        created1 = await outbox_temp_storage.create_outbox_item(item1)
         assert created1.status == "pending"
         assert created1.worker_id is None
 
@@ -176,7 +176,7 @@ class TestAtomicCreateOutboxItem:
             locked_at="2026-01-01T00:00:00",
             lease_until="2026-01-01T00:01:00",
         )
-        created2 = await temp_storage.create_outbox_item(item2)
+        created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         # Same row (idempotent on key tuple).
         assert created2.outbox_id == created1.outbox_id
@@ -198,7 +198,7 @@ class TestCreateOutboxNoSteal:
     are returned unchanged."""
 
     async def test_create_does_not_steal_in_progress(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """An existing in_progress row must be returned unchanged when
         create_outbox_item is called with the same key tuple."""
@@ -207,8 +207,8 @@ class TestCreateOutboxNoSteal:
             delivery_plan_id="plan-nosteal-ip",
             target_channel="ch-nosteal-ip",
         )
-        created1 = await temp_storage.create_outbox_item(item1)
-        claimed = await temp_storage.claim_due_outbox_items(
+        created1 = await outbox_temp_storage.create_outbox_item(item1)
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00",
             worker_id="worker-original",
             lease_seconds=300,
@@ -231,7 +231,7 @@ class TestCreateOutboxNoSteal:
             locked_at="2026-01-01T00:00:00",
             lease_until="2026-01-01T00:05:00",
         )
-        created2 = await temp_storage.create_outbox_item(item2)
+        created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         # Should return the existing row, not the new one
         assert created2.outbox_id == original_oid
@@ -240,7 +240,7 @@ class TestCreateOutboxNoSteal:
         assert created2.worker_id == "worker-original"
 
     async def test_create_does_not_steal_queued(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """An existing queued row must be returned unchanged when
         create_outbox_item is called with the same key tuple."""
@@ -249,15 +249,15 @@ class TestCreateOutboxNoSteal:
             delivery_plan_id="plan-nosteal-q",
             target_channel="ch-nosteal-q",
         )
-        created1 = await temp_storage.create_outbox_item(item1)
-        claimed = await temp_storage.claim_due_outbox_items(
+        created1 = await outbox_temp_storage.create_outbox_item(item1)
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00",
             worker_id="worker-1",
             lease_seconds=300,
             limit=10,
         )
         assert len(claimed) == 1
-        await temp_storage.mark_outbox_queued(created1.outbox_id)
+        await outbox_temp_storage.mark_outbox_queued(created1.outbox_id)
         original_oid = created1.outbox_id
 
         # Try to create a new item with same key tuple
@@ -272,21 +272,21 @@ class TestCreateOutboxNoSteal:
             status="in_progress",
             worker_id="pipeline:new",
         )
-        created2 = await temp_storage.create_outbox_item(item2)
+        created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         # Should return the existing queued row unchanged
         assert created2.outbox_id == original_oid
         assert created2.status == "queued"
 
     async def test_create_still_reclaims_pending(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """Re-creating with same key tuple on a pending row still reclaims."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-reclaim-pending",
             target_channel="ch-reclaim-p",
         )
-        created1 = await temp_storage.create_outbox_item(item1)
+        created1 = await outbox_temp_storage.create_outbox_item(item1)
         assert created1.status == "pending"
 
         item2 = DeliveryOutboxItem(
@@ -302,7 +302,7 @@ class TestCreateOutboxNoSteal:
             locked_at="2026-01-01T00:00:00",
             lease_until="2026-01-01T00:05:00",
         )
-        created2 = await temp_storage.create_outbox_item(item2)
+        created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         # Reclaimed — same outbox_id, new status/worker
         assert created2.outbox_id == created1.outbox_id
@@ -310,15 +310,15 @@ class TestCreateOutboxNoSteal:
         assert created2.worker_id == "pipeline:abc"
 
     async def test_create_still_reclaims_retry_wait(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """Re-creating with same key tuple on a retry_wait row still reclaims."""
         item1 = _make_outbox_item(
             delivery_plan_id="plan-reclaim-rw",
             target_channel="ch-reclaim-rw",
         )
-        await temp_storage.create_outbox_item(item1)
-        claimed = await temp_storage.claim_due_outbox_items(
+        await outbox_temp_storage.create_outbox_item(item1)
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00",
             worker_id="worker-1",
             lease_seconds=30,
@@ -326,7 +326,7 @@ class TestCreateOutboxNoSteal:
         )
         assert len(claimed) == 1
         oid = claimed[0].outbox_id
-        await temp_storage.mark_outbox_retry_wait(
+        await outbox_temp_storage.mark_outbox_retry_wait(
             oid,
             next_attempt_at="2026-01-01T01:00:00",
             failure_kind="adapter_transient",
@@ -346,7 +346,7 @@ class TestCreateOutboxNoSteal:
             locked_at="2026-01-01T00:30:00",
             lease_until="2026-01-01T00:35:00",
         )
-        created2 = await temp_storage.create_outbox_item(item2)
+        created2 = await outbox_temp_storage.create_outbox_item(item2)
 
         # Reclaimed
         assert created2.outbox_id == oid

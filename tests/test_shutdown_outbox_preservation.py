@@ -41,6 +41,7 @@ from medre.core.evidence.shutdown import (
 )
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.storage_outbox import admit_default_event
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -63,7 +64,7 @@ def _make_outbox_item(
     """Build a minimal DeliveryOutboxItem for tests."""
     return DeliveryOutboxItem(
         outbox_id=f"obox-{uuid.uuid4()}",
-        event_id=f"evt-{uuid.uuid4()}",
+        event_id="__outbox_default__",
         route_id="route-1",
         delivery_plan_id=delivery_plan_id,
         target_adapter=target_adapter,
@@ -104,7 +105,7 @@ async def _seed_item_in_status(
     # issue in multi-item tests.
     item = DeliveryOutboxItem(
         outbox_id=f"obox-{uuid.uuid4()}",
-        event_id=f"evt-{uuid.uuid4()}",
+        event_id="__outbox_default__",
         route_id="route-1",
         delivery_plan_id=plan_id,
         target_adapter="adapter_a",
@@ -188,6 +189,7 @@ class TestPendingPreservedAcrossShutdown:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             item = _make_outbox_item(
                 delivery_plan_id="plan-pend-surv", target_channel="ch-p"
             )
@@ -216,6 +218,7 @@ class TestRetryWaitPreservedAcrossShutdown:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             created = await _seed_item_in_status(storage, "retry_wait", "plan-rw-surv")
             oid = created.outbox_id
             assert created.status == "retry_wait"
@@ -243,6 +246,7 @@ class TestInProgressPreservedAcrossShutdown:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             created = await _seed_item_in_status(storage, "in_progress", "plan-ip-surv")
             oid = created.outbox_id
             assert created.status == "in_progress"
@@ -273,6 +277,7 @@ class TestQueuedPreservedAcrossShutdown:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             created = await _seed_item_in_status(storage, "queued", "plan-q-surv")
             oid = created.outbox_id
             assert created.status == "queued"
@@ -305,6 +310,7 @@ class TestTerminalStatusesPreservedAcrossShutdown:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             created = await _seed_item_in_status(
                 storage, terminal_status, f"plan-term-{terminal_status}"
             )
@@ -336,6 +342,7 @@ class TestMixedStatusesPreservedAcrossShutdown:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             for status in all_statuses:
                 created = await _seed_item_in_status(
                     storage, status, f"plan-mixed-{status}"
@@ -373,6 +380,7 @@ class TestNoSpuriousCancelledOrAbandoned:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             for status in _NON_TERMINAL_STATUSES:
                 await _seed_item_in_status(storage, status, f"plan-no-cancel-{status}")
         finally:
@@ -404,6 +412,7 @@ class TestNoSpuriousCancelledOrAbandoned:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             # Create 2 pending + 1 retry_wait + 1 queued + 1 in_progress + 2 sent.
             for i in range(2):
                 await _seed_item_in_status(storage, "pending", f"plan-cnt-p-{i}")
@@ -447,6 +456,7 @@ class TestShutdownEvidenceFromLiveStorageCounts:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             await _seed_item_in_status(storage, "pending", "plan-ev-p")
             await _seed_item_in_status(storage, "retry_wait", "plan-ev-rw")
             await _seed_item_in_status(storage, "sent", "plan-ev-s")
@@ -475,6 +485,7 @@ class TestShutdownEvidenceFromLiveStorageCounts:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             await _seed_item_in_status(storage, "sent", "plan-ev-ts1")
             await _seed_item_in_status(storage, "dead_lettered", "plan-ev-dl1")
 
@@ -501,6 +512,7 @@ class TestShutdownEvidenceFromLiveStorageCounts:
             storage = SQLiteStorage(db_path=str(status_db_path))
             try:
                 await storage.initialize()
+                await admit_default_event(storage)
                 await _seed_item_in_status(storage, status, f"plan-ev-resume-{status}")
                 counts = await storage.count_outbox_by_status()
             finally:
@@ -527,6 +539,7 @@ class TestShutdownEvidenceFromLiveStorageCounts:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             await _seed_item_in_status(storage, "in_progress", "plan-ev-ip")
             counts = await storage.count_outbox_by_status()
         finally:
@@ -552,6 +565,7 @@ class TestShutdownEvidenceFromLiveStorageCounts:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             await _seed_item_in_status(storage, "pending", "plan-ev-json")
             await _seed_item_in_status(storage, "sent", "plan-ev-json-s")
             counts = await storage.count_outbox_by_status()
@@ -588,6 +602,7 @@ class TestClassifyOutboxPolicyFromStorageItems:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             created = await _seed_item_in_status(storage, status, f"plan-cls-{status}")
             assert created.status == status
         finally:
@@ -618,6 +633,7 @@ class TestClassifyOutboxPolicyFromStorageItems:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             created = await _seed_item_in_status(
                 storage, status, f"plan-cls-term-{status}"
             )
@@ -650,6 +666,7 @@ class TestClassifyOutboxPolicyFromStorageItems:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             # Create a pending item (claimable) and a queued item (not
             # directly claimable).  Also create a retry_wait item — BUT we
             # must NOT call claim, because claim grabs ALL due items.
@@ -712,6 +729,7 @@ class TestClassifyOutboxPolicyFromStorageItems:
         storage = SQLiteStorage(db_path=db_path)
         try:
             await storage.initialize()
+            await admit_default_event(storage)
             await _seed_item_in_status(storage, "retry_wait", "plan-rw-due")
         finally:
             await storage.close()

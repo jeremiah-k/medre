@@ -38,6 +38,8 @@ def sync_open(db_path: str) -> sqlite3.Connection:
         db.row_factory = sqlite3.Row
         db.executescript(_SCHEMA)
         db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA busy_timeout=5000")
+        db.execute("PRAGMA foreign_keys=ON")
         db.commit()
     except BaseException:
         db.close()
@@ -54,6 +56,7 @@ def sync_open_readonly(db_path: str) -> sqlite3.Connection:
     )
     try:
         db.row_factory = sqlite3.Row
+        db.execute("PRAGMA busy_timeout=5000")
     except BaseException:
         db.close()
         raise
@@ -139,9 +142,17 @@ def sync_write_batch(
     lock: threading.Lock,
     ops: list[tuple[str, tuple[Any, ...]]],
 ) -> None:
-    """Execute multiple writes in a single transaction."""
+    """Execute multiple writes in a single transaction.
+
+    Atomicity is explicit: ``BEGIN IMMEDIATE`` is issued before the
+    loop and the final ``COMMIT`` happens at the end.  This guards
+    against future changes to the connection's
+    :attr:`sqlite3.Connection.isolation_level` (autocommit / deferred /
+    exclusive modes) silently breaking batch atomicity.
+    """
     with lock:
         try:
+            db.execute("BEGIN IMMEDIATE")
             for sql, params in ops:
                 db.execute(sql, params)
             db.commit()

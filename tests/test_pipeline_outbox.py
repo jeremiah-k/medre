@@ -64,13 +64,13 @@ class TestOutboxCreation:
 
     async def test_outbox_created_for_accepted_target(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router_with_routes: Router,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
         """A successful delivery creates an outbox item."""
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router_with_routes,
             adapters={"fake_presentation": fake_presentation},
         )
@@ -83,7 +83,7 @@ class TestOutboxCreation:
             await runner.handle_ingress(event)
 
             # Outbox should exist for this delivery.
-            items = await temp_storage.list_outbox_items(
+            items = await outbox_temp_storage.list_outbox_items(
                 status_filter=[
                     "sent",
                     "queued",
@@ -104,7 +104,7 @@ class TestOutboxCreation:
 
     async def test_no_outbox_for_policy_suppressed(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
         """Policy-suppressed targets should NOT create outbox items."""
@@ -125,7 +125,7 @@ class TestOutboxCreation:
         router = Router(routes=[route])
 
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router,
             adapters={"fake_presentation": fake_presentation},
         )
@@ -145,7 +145,7 @@ class TestOutboxCreation:
             )
 
             # No outbox item should be created for this event.
-            items = await temp_storage.list_outbox_items()
+            items = await outbox_temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-policy-sup-001"]
             assert len(matching) == 0
         finally:
@@ -153,7 +153,7 @@ class TestOutboxCreation:
 
     async def test_no_outbox_for_loop_suppressed(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
         """Self-loop suppressed targets should NOT create outbox items."""
@@ -171,7 +171,7 @@ class TestOutboxCreation:
 
         transport = FakeTransportAdapter(adapter_id="fake_transport", channel="ch-0")
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router,
             adapters={
                 "fake_transport": transport,
@@ -189,7 +189,7 @@ class TestOutboxCreation:
             assert any(o.status == "skipped" for o in outcomes)
 
             # No outbox item for this event.
-            items = await temp_storage.list_outbox_items()
+            items = await outbox_temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-loop-sup-001"]
             assert len(matching) == 0
         finally:
@@ -197,13 +197,13 @@ class TestOutboxCreation:
 
     async def test_no_outbox_for_capacity_rejected(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router_with_routes: Router,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
         """Capacity-rejected targets should NOT create outbox items."""
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router_with_routes,
             adapters={"fake_presentation": fake_presentation},
         )
@@ -228,7 +228,7 @@ class TestOutboxCreation:
 
             # No outbox item for this event (capacity reject happens before
             # outbox creation phase).
-            items = await temp_storage.list_outbox_items()
+            items = await outbox_temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-cap-rej-001"]
             assert len(matching) == 0
         finally:
@@ -245,13 +245,13 @@ class TestOutboxStatusTransitions:
 
     async def test_successful_delivery_marks_sent(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router_with_routes: Router,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
         """Successful synchronous delivery marks outbox as sent."""
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router_with_routes,
             adapters={"fake_presentation": fake_presentation},
         )
@@ -263,7 +263,7 @@ class TestOutboxStatusTransitions:
         try:
             await runner.handle_ingress(event)
 
-            items = await temp_storage.list_outbox_items(
+            items = await outbox_temp_storage.list_outbox_items(
                 status_filter=["sent"],
             )
             matching = [i for i in items if i.event_id == "obox-sent-001"]
@@ -278,7 +278,7 @@ class TestNoRetryPolicyDeadLetters:
 
     async def test_transient_failure_with_no_retry_policy_dead_letters(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
     ) -> None:
         """A retryable transient failure with no retry policy dead-letters the
         outbox item instead of scheduling retry_wait."""
@@ -303,7 +303,7 @@ class TestNoRetryPolicyDeadLetters:
         router = Router(routes=[route])
 
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router,
             adapters={"transient_fail": adapter},
         )
@@ -316,7 +316,7 @@ class TestNoRetryPolicyDeadLetters:
             outcomes = await runner.handle_ingress(event)
             assert any(o.status in ("transient_failure", "failed") for o in outcomes)
 
-            items = await temp_storage.list_outbox_items()
+            items = await outbox_temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-no-retry-001"]
             assert len(matching) == 1
             assert (
@@ -327,7 +327,7 @@ class TestNoRetryPolicyDeadLetters:
 
     async def test_queued_delivery_marks_queued(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
     ) -> None:
         """Queue-based delivery marks outbox as queued."""
         from medre.core.contracts.adapter import (
@@ -361,7 +361,7 @@ class TestNoRetryPolicyDeadLetters:
         router = Router(routes=[route])
 
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router,
             adapters={"fake_presentation": queued_adapter},
         )
@@ -373,7 +373,7 @@ class TestNoRetryPolicyDeadLetters:
         try:
             await runner.handle_ingress(event)
 
-            items = await temp_storage.list_outbox_items(
+            items = await outbox_temp_storage.list_outbox_items(
                 status_filter=["queued"],
             )
             matching = [i for i in items if i.event_id == "obox-queued-001"]
@@ -395,7 +395,7 @@ class TestLiveDeliveryClaimRace:
 
     async def test_in_progress_not_claimable_by_retry_worker(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router_with_routes: Router,
     ) -> None:
         """A live in_progress item with an active lease should not be claimable."""
@@ -420,7 +420,7 @@ class TestLiveDeliveryClaimRace:
 
         blocking_adapter = BlockingAdapter()
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router_with_routes,
             adapters={"fake_presentation": blocking_adapter},
         )
@@ -439,7 +439,7 @@ class TestLiveDeliveryClaimRace:
                 nonlocal item
                 matches = [
                     i
-                    for i in await temp_storage.list_outbox_items()
+                    for i in await outbox_temp_storage.list_outbox_items()
                     if i.event_id == "obox-race-001"
                 ]
                 if matches and matches[0].status == "in_progress":
@@ -453,7 +453,7 @@ class TestLiveDeliveryClaimRace:
 
             # Try to claim with retry worker while lease is live — must fail
             assert item.locked_at is not None
-            claimed = await temp_storage.claim_due_outbox_items(
+            claimed = await outbox_temp_storage.claim_due_outbox_items(
                 now=item.locked_at,  # within lease window
                 worker_id="retry-worker",
                 lease_seconds=30,
@@ -471,13 +471,13 @@ class TestLiveDeliveryClaimRace:
 
     async def test_in_progress_lifecycle_transitions(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router_with_routes: Router,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
         """Live delivery transitions: in_progress -> sent/queued/retry_wait/dead_lettered."""
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router_with_routes,
             adapters={"fake_presentation": fake_presentation},
         )
@@ -489,7 +489,7 @@ class TestLiveDeliveryClaimRace:
         try:
             await runner.handle_ingress(event)
 
-            items = await temp_storage.list_outbox_items()
+            items = await outbox_temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-lifecycle-001"]
             assert len(matching) == 1
 
@@ -514,13 +514,13 @@ class TestOutboxShutdownBehavior:
 
     async def test_shutdown_after_send_succeeds_leaves_sent_outbox(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router_with_routes: Router,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
         """Delivery completed before shutdown leaves outbox item as sent."""
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router_with_routes,
             adapters={"fake_presentation": fake_presentation},
         )
@@ -537,7 +537,7 @@ class TestOutboxShutdownBehavior:
 
         # After shutdown, outbox should have a sent item (the delivery
         # completed before shutdown).
-        items = await temp_storage.list_outbox_items()
+        items = await outbox_temp_storage.list_outbox_items()
         matching = [i for i in items if i.event_id == "obox-shutdown-001"]
         assert len(matching) == 1
         # Delivery completed normally, so status should be sent.
@@ -552,7 +552,7 @@ class TestOutboxShutdownBehavior:
 class TestLeaseRenewal:
     """Live delivery leases should be renewable and prevent reclaim."""
 
-    async def test_renew_outbox_lease_method(self, temp_storage: SQLiteStorage) -> None:
+    async def test_renew_outbox_lease_method(self, outbox_temp_storage: SQLiteStorage) -> None:
         """renew_outbox_lease should extend the lease on an in_progress item."""
         from datetime import datetime, timedelta, timezone
 
@@ -561,7 +561,7 @@ class TestLeaseRenewal:
         now = datetime.now(timezone.utc)
         item = DeliveryOutboxItem(
             outbox_id="obox-renew-001",
-            event_id="evt-renew",
+            event_id="__outbox_default__",  # pre-admitted by outbox_temp_storage fixture
             route_id="route-1",
             delivery_plan_id="plan-1",
             target_adapter="fake_presentation",
@@ -570,20 +570,20 @@ class TestLeaseRenewal:
             lease_until=(now + timedelta(seconds=60)).isoformat(),
             locked_at=now.isoformat(),
         )
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
-        result = await temp_storage.renew_outbox_lease(
+        result = await outbox_temp_storage.renew_outbox_lease(
             "obox-renew-001", "pipeline:testworker", new_lease
         )
         assert result is True
 
-        updated = await temp_storage.get_outbox_item("obox-renew-001")
+        updated = await outbox_temp_storage.get_outbox_item("obox-renew-001")
         assert updated is not None
         assert updated.lease_until == new_lease
 
     async def test_renew_outbox_lease_wrong_worker(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """renew_outbox_lease should fail when the worker_id doesn't match."""
         from datetime import datetime, timedelta, timezone
@@ -593,7 +593,7 @@ class TestLeaseRenewal:
         now = datetime.now(timezone.utc)
         item = DeliveryOutboxItem(
             outbox_id="obox-wrong-001",
-            event_id="evt-wrong",
+            event_id="__outbox_default__",  # pre-admitted by outbox_temp_storage fixture
             route_id="route-1",
             delivery_plan_id="plan-1",
             target_adapter="fake_presentation",
@@ -602,16 +602,16 @@ class TestLeaseRenewal:
             lease_until=(now + timedelta(seconds=60)).isoformat(),
             locked_at=now.isoformat(),
         )
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
-        result = await temp_storage.renew_outbox_lease(
+        result = await outbox_temp_storage.renew_outbox_lease(
             "obox-wrong-001", "pipeline:other", new_lease
         )
         assert result is False
 
     async def test_renew_outbox_lease_not_in_progress(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """renew_outbox_lease should fail when item is not in_progress."""
         from datetime import datetime, timedelta, timezone
@@ -621,28 +621,28 @@ class TestLeaseRenewal:
         now = datetime.now(timezone.utc)
         item = DeliveryOutboxItem(
             outbox_id="obox-sent-001",
-            event_id="evt-sent",
+            event_id="__outbox_default__",  # pre-admitted by outbox_temp_storage fixture
             route_id="route-1",
             delivery_plan_id="plan-1",
             target_adapter="fake_presentation",
             status="pending",
         )
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
         # Transition to sent via claim → mark_sent (Pattern A).
-        await temp_storage.claim_due_outbox_items(
+        await outbox_temp_storage.claim_due_outbox_items(
             now=now.isoformat(), worker_id="w1", lease_seconds=30, limit=10
         )
-        await temp_storage.mark_outbox_sent("obox-sent-001", receipt_id="rcpt-sent")
+        await outbox_temp_storage.mark_outbox_sent("obox-sent-001", receipt_id="rcpt-sent")
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
-        result = await temp_storage.renew_outbox_lease(
+        result = await outbox_temp_storage.renew_outbox_lease(
             "obox-sent-001", "pipeline:worker", new_lease
         )
         assert result is False
 
     async def test_renewal_prevents_claim_during_long_delivery(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router_with_routes: Router,
     ) -> None:
         """A slow delivery should complete and reach a terminal outbox status.
@@ -678,7 +678,7 @@ class TestLeaseRenewal:
 
         slow_adapter = SlowAdapter()
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router_with_routes,
             adapters={"fake_presentation": slow_adapter},
         )
@@ -694,7 +694,7 @@ class TestLeaseRenewal:
             assert any(o.status in ("success", "queued") for o in outcomes)
 
             # Verify the outbox item ended in a terminal status.
-            items = await temp_storage.list_outbox_items()
+            items = await outbox_temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-slow-001"]
             assert len(matching) == 1
             assert matching[0].status in ("sent", "queued")
@@ -702,7 +702,7 @@ class TestLeaseRenewal:
             await runner.stop()
 
     async def test_renew_outbox_lease_after_queued_returns_false(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """After in_progress -> queued, renew_outbox_lease must return False.
 
@@ -716,7 +716,7 @@ class TestLeaseRenewal:
         now = datetime.now(timezone.utc)
         item = DeliveryOutboxItem(
             outbox_id="obox-renew-queued",
-            event_id="evt-rq",
+            event_id="__outbox_default__",  # pre-admitted by outbox_temp_storage fixture
             route_id="route-1",
             delivery_plan_id="plan-1",
             target_adapter="fake_presentation",
@@ -725,19 +725,19 @@ class TestLeaseRenewal:
             lease_until=(now + timedelta(seconds=60)).isoformat(),
             locked_at=now.isoformat(),
         )
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
 
         # Transition to queued.
-        await temp_storage.mark_outbox_queued("obox-renew-queued", receipt_id="rcpt-q")
+        await outbox_temp_storage.mark_outbox_queued("obox-renew-queued", receipt_id="rcpt-q")
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
-        result = await temp_storage.renew_outbox_lease(
+        result = await outbox_temp_storage.renew_outbox_lease(
             "obox-renew-queued", "pipeline:w1", new_lease
         )
         assert result is False
 
     async def test_renew_outbox_lease_after_retry_wait_returns_false(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """After in_progress -> retry_wait, renew_outbox_lease must return False.
 
@@ -750,7 +750,7 @@ class TestLeaseRenewal:
         now = datetime.now(timezone.utc)
         item = DeliveryOutboxItem(
             outbox_id="obox-renew-rw",
-            event_id="evt-rw",
+            event_id="__outbox_default__",  # pre-admitted by outbox_temp_storage fixture
             route_id="route-1",
             delivery_plan_id="plan-1",
             target_adapter="fake_presentation",
@@ -759,23 +759,23 @@ class TestLeaseRenewal:
             lease_until=(now + timedelta(seconds=60)).isoformat(),
             locked_at=now.isoformat(),
         )
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
 
         next_at = (now + timedelta(seconds=120)).isoformat()
-        await temp_storage.mark_outbox_retry_wait(
+        await outbox_temp_storage.mark_outbox_retry_wait(
             "obox-renew-rw",
             next_attempt_at=next_at,
             failure_kind="adapter_transient",
         )
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
-        result = await temp_storage.renew_outbox_lease(
+        result = await outbox_temp_storage.renew_outbox_lease(
             "obox-renew-rw", "pipeline:w1", new_lease
         )
         assert result is False
 
     async def test_renew_outbox_lease_after_dead_lettered_returns_false(
-        self, temp_storage: SQLiteStorage
+        self, outbox_temp_storage: SQLiteStorage
     ) -> None:
         """After in_progress -> dead_lettered, renew_outbox_lease must return False.
 
@@ -788,7 +788,7 @@ class TestLeaseRenewal:
         now = datetime.now(timezone.utc)
         item = DeliveryOutboxItem(
             outbox_id="obox-renew-dl",
-            event_id="evt-dl",
+            event_id="__outbox_default__",  # pre-admitted by outbox_temp_storage fixture
             route_id="route-1",
             delivery_plan_id="plan-1",
             target_adapter="fake_presentation",
@@ -797,15 +797,15 @@ class TestLeaseRenewal:
             lease_until=(now + timedelta(seconds=60)).isoformat(),
             locked_at=now.isoformat(),
         )
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
 
-        await temp_storage.mark_outbox_dead_lettered(
+        await outbox_temp_storage.mark_outbox_dead_lettered(
             "obox-renew-dl",
             failure_kind="adapter_permanent",
         )
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
-        result = await temp_storage.renew_outbox_lease(
+        result = await outbox_temp_storage.renew_outbox_lease(
             "obox-renew-dl", "pipeline:w1", new_lease
         )
         assert result is False
@@ -823,7 +823,7 @@ class TestTargetedOutboxLookupRegression:
 
     async def test_matching_outbox_transitions_sent_despite_many_noise_rows(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
     ) -> None:
         """Create 15 noise outbox rows + 1 target row, then call
         _record_outbound_native_ref and assert only the target transitions."""
@@ -845,7 +845,27 @@ class TestTargetedOutboxLookupRegression:
         TARGET_ROUTE_ID = "route-target"
 
         # -- 1. Create 15 noise outbox items (queued + in_progress) --------
+        # PRAGMA foreign_keys=ON now requires every outbox row's event_id
+        # to exist in canonical_events.  Admit the 15 noise events here.
+        from medre.core.events import CanonicalEvent, EventMetadata
+
+        base_now = datetime.now(tz=timezone.utc)
         for i in range(15):
+            noise_event = CanonicalEvent(
+                event_id=f"evt-noise-{i:03d}",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=base_now,
+                source_adapter="fake_transport",
+                source_transport_id="t1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": f"noise {i}"},
+                metadata=EventMetadata(),
+            )
+            await outbox_temp_storage.append(noise_event)
             noise_item = DeliveryOutboxItem(
                 outbox_id=f"obox-noise-{i:03d}",
                 event_id=f"evt-noise-{i:03d}",
@@ -855,10 +875,27 @@ class TestTargetedOutboxLookupRegression:
                 target_channel=f"ch-noise-{i:03d}",
                 status="in_progress",
             )
-            await temp_storage.create_outbox_item(noise_item)
+            await outbox_temp_storage.create_outbox_item(noise_item)
             if i % 2 == 0:
                 # Reach "queued" via in_progress → mark_queued (Pattern C).
-                await temp_storage.mark_outbox_queued(f"obox-noise-{i:03d}")
+                await outbox_temp_storage.mark_outbox_queued(f"obox-noise-{i:03d}")
+
+        # Admit the target event for the same reason.
+        target_event = CanonicalEvent(
+            event_id=TARGET_EVENT_ID,
+            event_kind="message.created",
+            schema_version=1,
+            timestamp=base_now,
+            source_adapter="fake_transport",
+            source_transport_id="t1",
+            source_channel_id=None,
+            parent_event_id=None,
+            lineage=(),
+            relations=(),
+            payload={"text": "target"},
+            metadata=EventMetadata(),
+        )
+        await outbox_temp_storage.append(target_event)
 
         # -- 2. Create the matching outbox item (queued) --------------------
         # Reach "queued" via in_progress → mark_queued (Pattern C).
@@ -871,8 +908,8 @@ class TestTargetedOutboxLookupRegression:
             target_channel=TARGET_CHANNEL,
             status="in_progress",
         )
-        await temp_storage.create_outbox_item(target_item)
-        await temp_storage.mark_outbox_queued("obox-target-regression")
+        await outbox_temp_storage.create_outbox_item(target_item)
+        await outbox_temp_storage.mark_outbox_queued("obox-target-regression")
 
         # -- 3. Create a "queued" receipt so _append_queued_to_sent_receipt
         #         can find it and inherit plan/route context. ---------------
@@ -896,15 +933,15 @@ class TestTargetedOutboxLookupRegression:
             source="live",
             outbox_id="obox-target-regression",
         )
-        await temp_storage.append_receipt(queued_receipt)
+        await outbox_temp_storage.append_receipt(queued_receipt)
 
         # -- 4. Build a minimal PipelineRunner and call the production path -
         router = Router(routes=[])
         config = PipelineConfig(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router,
             fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
+            relation_resolver=RelationResolver(storage=outbox_temp_storage),
             adapters={},
             event_bus=EventBus(),
         )
@@ -922,7 +959,7 @@ class TestTargetedOutboxLookupRegression:
         await runner._record_outbound_native_ref(record)
 
         # -- 5. Assert: target outbox item is now "sent" -------------------
-        updated_target = await temp_storage.get_outbox_item("obox-target-regression")
+        updated_target = await outbox_temp_storage.get_outbox_item("obox-target-regression")
         assert updated_target is not None, "Target outbox item should exist"
         assert (
             updated_target.status == "sent"
@@ -930,7 +967,7 @@ class TestTargetedOutboxLookupRegression:
 
         # -- 6. Assert: all noise rows remain unchanged --------------------
         for i in range(15):
-            noise = await temp_storage.get_outbox_item(f"obox-noise-{i:03d}")
+            noise = await outbox_temp_storage.get_outbox_item(f"obox-noise-{i:03d}")
             assert noise is not None, f"Noise item {i} should still exist"
             expected_status = "queued" if i % 2 == 0 else "in_progress"
             assert noise.status == expected_status, (
@@ -952,7 +989,7 @@ class TestLeaseRenewalResilience:
 
     async def test_renewal_continues_after_transient_exception(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router_with_routes: Router,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -990,14 +1027,14 @@ class TestLeaseRenewalResilience:
 
         blocking_adapter = BlockingAdapter()
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router_with_routes,
             adapters={"fake_presentation": blocking_adapter},
         )
         runner = PipelineRunner(config)
         await runner.start()
 
-        original_renew = temp_storage.renew_outbox_lease
+        original_renew = outbox_temp_storage.renew_outbox_lease
 
         async def _flaky_renew(*args, **kwargs):
             nonlocal call_count
@@ -1006,7 +1043,7 @@ class TestLeaseRenewalResilience:
                 raise ConnectionError("transient db blip")
             return await original_renew(*args, **kwargs)
 
-        temp_storage.renew_outbox_lease = _flaky_renew  # type: ignore[assignment]
+        outbox_temp_storage.renew_outbox_lease = _flaky_renew  # type: ignore[assignment]
 
         event = make_event(event_id="obox-resilient-001")
 
@@ -1031,7 +1068,7 @@ class TestLeaseRenewalResilience:
             )
 
             # Outbox should reach a terminal status.
-            items = await temp_storage.list_outbox_items()
+            items = await outbox_temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-resilient-001"]
             assert len(matching) == 1
             assert matching[0].status in ("sent", "queued")
@@ -1040,7 +1077,7 @@ class TestLeaseRenewalResilience:
 
     async def test_cancelled_error_exits_renewal_loop(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """asyncio.CancelledError must exit the renewal loop (not be swallowed
@@ -1048,11 +1085,32 @@ class TestLeaseRenewalResilience:
         import asyncio
 
         from medre.core.engine.pipeline import outbox_manager as outbox_mod
+        from medre.core.engine.pipeline.outbox_manager import OutboxContext
+        from medre.core.events import CanonicalEvent, EventMetadata
         from medre.core.storage.backend import DeliveryOutboxItem
 
         monkeypatch.setattr(outbox_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
 
         from datetime import datetime, timedelta, timezone
+
+        # Admit the parent event so the FK on delivery_outbox.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await outbox_temp_storage.append(
+            CanonicalEvent(
+                event_id="evt-cancel",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="fake_transport",
+                source_transport_id="t1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "cancel test"},
+                metadata=EventMetadata(),
+            )
+        )
 
         now = datetime.now(timezone.utc)
         item = DeliveryOutboxItem(
@@ -1066,12 +1124,12 @@ class TestLeaseRenewalResilience:
             lease_until=(now + timedelta(seconds=60)).isoformat(),
             locked_at=now.isoformat(),
         )
-        await temp_storage.create_outbox_item(item)
+        await outbox_temp_storage.create_outbox_item(item)
 
         async def _cancel_on_first(*args, **kwargs):
             raise asyncio.CancelledError("simulated cancellation")
 
-        temp_storage.renew_outbox_lease = _cancel_on_first  # type: ignore[assignment]
+        outbox_temp_storage.renew_outbox_lease = _cancel_on_first  # type: ignore[assignment]
 
         # Build a minimal runner to call the renewal starter.
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
@@ -1080,18 +1138,22 @@ class TestLeaseRenewalResilience:
         from medre.core.routing import Router
 
         config = PipelineConfig(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=Router(routes=[]),
             fallback_resolver=FallbackResolver(),
-            relation_resolver=RelationResolver(storage=temp_storage),
+            relation_resolver=RelationResolver(storage=outbox_temp_storage),
             adapters={},
             event_bus=EventBus(),
         )
         runner = PipelineRunner(config)
 
-        task = runner._start_outbox_lease_renewal(
-            "obox-cancel-test", True, "pipeline:w1"
+        ctx = OutboxContext(
+            outbox_id="obox-cancel-test",
+            created=True,
+            pipeline_worker="pipeline:w1",
+            skip_reason=None,
         )
+        task = runner._outbox_manager.start_lease_renewal(ctx)
         assert task is not None
 
         # Wait for the renewal task to finish.  It should raise
@@ -1101,7 +1163,7 @@ class TestLeaseRenewalResilience:
 
     async def test_finalization_still_runs_after_renewal_exception(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         router_with_routes: Router,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -1121,7 +1183,7 @@ class TestLeaseRenewalResilience:
             renew_call_count += 1
             raise RuntimeError("persistent failure")
 
-        temp_storage.renew_outbox_lease = _always_fail_renew  # type: ignore[assignment]
+        outbox_temp_storage.renew_outbox_lease = _always_fail_renew  # type: ignore[assignment]
 
         class SlowAdapter(FakePresentationAdapter):
             """Adapter slow enough for ≥1 renewal cycle to fire."""
@@ -1142,7 +1204,7 @@ class TestLeaseRenewalResilience:
         slow_adapter = SlowAdapter()
 
         config = make_pipeline_config_for_pipeline(
-            storage=temp_storage,
+            storage=outbox_temp_storage,
             router=router_with_routes,
             adapters={"fake_presentation": slow_adapter},
         )
@@ -1158,7 +1220,7 @@ class TestLeaseRenewalResilience:
             assert any(o.status in ("success", "queued") for o in outcomes)
 
             # Outbox should reach a terminal status despite renewal failures.
-            items = await temp_storage.list_outbox_items()
+            items = await outbox_temp_storage.list_outbox_items()
             matching = [i for i in items if i.event_id == "obox-finalize-001"]
             assert len(matching) == 1
             assert matching[0].status in ("sent", "queued")
@@ -1188,19 +1250,41 @@ class TestRecordTerminalAttemptNumber:
 
     async def test_terminal_receipt_uses_outbox_attempt_number(
         self,
-        temp_storage: SQLiteStorage,
+        outbox_temp_storage: SQLiteStorage,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Outbox item at attempt_number=3 → terminal receipt has attempt_number=3."""
+        from datetime import datetime, timezone
+
         from medre.core.contracts.adapter import QueueTerminalRecord
         from medre.core.engine.pipeline.delivery_lifecycle import (
             DeliveryLifecycleService,
         )
         from medre.core.engine.pipeline.outbox_manager import OutboxManager
+        from medre.core.events import CanonicalEvent, EventMetadata
         from medre.core.storage.backend import DeliveryOutboxItem
 
+        # Admit the parent event so the FK on delivery_outbox.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await outbox_temp_storage.append(
+            CanonicalEvent(
+                event_id="evt-terminal-attempt",
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=datetime.now(timezone.utc),
+                source_adapter="fake_transport",
+                source_transport_id="t1",
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": "terminal attempt"},
+                metadata=EventMetadata(),
+            )
+        )
+
         lifecycle = DeliveryLifecycleService()
-        manager = OutboxManager(temp_storage, lifecycle)
+        manager = OutboxManager(outbox_temp_storage, lifecycle)
 
         # Create an outbox item at attempt_number=3 (simulates retry #3).
         outbox_item = DeliveryOutboxItem(
@@ -1213,7 +1297,7 @@ class TestRecordTerminalAttemptNumber:
             status="in_progress",
             attempt_number=3,
         )
-        await temp_storage.create_outbox_item(outbox_item)
+        await outbox_temp_storage.create_outbox_item(outbox_item)
 
         record = QueueTerminalRecord(
             event_id="evt-terminal-attempt",
@@ -1232,7 +1316,7 @@ class TestRecordTerminalAttemptNumber:
             await manager.record_terminal(record)
 
         # Mismatched attempt_number → terminal outcome rejected, no receipt.
-        receipts = await temp_storage.list_receipts_for_event(
+        receipts = await outbox_temp_storage.list_receipts_for_event(
             "evt-terminal-attempt",
         )
         assert (
@@ -1241,6 +1325,6 @@ class TestRecordTerminalAttemptNumber:
         assert "attempt_number" in caplog.text
 
         # Outbox must remain in_progress (not mutated by rejected callback).
-        outbox = await temp_storage.get_outbox_item("obox-attempt-3")
+        outbox = await outbox_temp_storage.get_outbox_item("obox-attempt-3")
         assert outbox is not None
         assert outbox.status == "in_progress"

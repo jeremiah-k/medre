@@ -763,6 +763,11 @@ class TestReplayUsesStoredNativeRefsConsistently:
         temp_storage: SQLiteStorage,
     ) -> None:
         """Native refs are durable — repeated lookups yield the same result."""
+        # Admit the parent event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            _make_event_with_native_ref(event_id="dur-001")
+        )
         nref = NativeMessageRef(
             id="nref-dur-001",
             event_id="dur-001",
@@ -800,6 +805,11 @@ class TestRelationMappingWithNativeRefs:
         temp_storage: SQLiteStorage,
     ) -> None:
         """Relation gets correct native ref for a Matrix-style target adapter."""
+        # Admit the prior event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            _make_event_with_native_ref(event_id="prior-matrix-001")
+        )
         # Pre-store outbound native ref for prior event on matrix target
         prior_ref = NativeMessageRef(
             id="nref-matrix-rel",
@@ -861,6 +871,11 @@ class TestRelationMappingWithNativeRefs:
         temp_storage: SQLiteStorage,
     ) -> None:
         """Relation gets correct native ref for a Meshtastic-style target."""
+        # Admit the prior event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            _make_event_with_native_ref(event_id="prior-mesh-001")
+        )
         prior_ref = NativeMessageRef(
             id="nref-mesh-rel",
             event_id="prior-mesh-001",
@@ -917,6 +932,11 @@ class TestRelationMappingWithNativeRefs:
         temp_storage: SQLiteStorage,
     ) -> None:
         """Enriching for one adapter does not leak another adapter's ref."""
+        # Admit the prior event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            _make_event_with_native_ref(event_id="prior-cross-001")
+        )
         # Store refs for two different adapters
         await temp_storage.store_native_ref(
             NativeMessageRef(
@@ -995,6 +1015,11 @@ class TestRelationMappingWithNativeRefs:
     ) -> None:
         """Channel-aware enrichment selects the correct ref when multiple
         channels exist for the same adapter (Meshtastic multi-channel)."""
+        # Admit the prior event so the FK on native_message_refs.event_id
+        # is satisfied (PRAGMA foreign_keys=ON is now enforced).
+        await temp_storage.append(
+            _make_event_with_native_ref(event_id="prior-ch-001")
+        )
         # Two outbound refs for the same event/adapter but different channels
         await temp_storage.store_native_ref(
             NativeMessageRef(
