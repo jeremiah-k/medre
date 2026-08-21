@@ -156,7 +156,7 @@
         "radio_relay_prefix": {
           "type": "string",
           "default": "{sender_short}: ",
-          "description": "Template prepended to messages relayed from Matrix to Meshtastic radio."
+          "description": "Template prepended to messages relayed from Matrix to Meshtastic radio. Default preserves MMRelay wire parity for relayed text; set \"\" explicitly for prefix-free output."
         },
         "mmrelay_compatibility": {
           "type": "boolean",
@@ -282,7 +282,7 @@
           "type": "object",
           "additionalProperties": true,
           "default": {},
-          "description": "Opaque dict for future node-specific settings. Must not contain secret keys."
+          "description": "Opaque dict for future node-specific settings. Must not contain secret keys: validate-time enforcement in MeshCoreConfig rejects keys whose lowercased name matches {'private_key', 'secret', 'password'} (case-insensitive). Schema-level additionalProperties remains open by design — the runtime validator is the source of truth for the secret-key blocklist."
         },
         "max_text_bytes": {
           "type": "integer",

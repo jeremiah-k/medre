@@ -4,7 +4,6 @@
   "dest_adapters": ["longfast"],
   "directionality": "source_to_dest",
   "enabled": true,
-  "filter_hooks": [],
   "policy": {
     "allowed_event_types": ["message.text"],
     "allowed_source_adapters": [],
