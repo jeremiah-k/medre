@@ -234,7 +234,7 @@ def test_codec_decode_includes_contact_label_in_native_meta() -> None:
 
 
 def test_codec_decode_contact_label_defaults_none() -> None:
-    """decode() without contact_label stores None (backward compat)."""
+    """decode() without contact_label stores None."""
     codec = MeshCoreCodec("test_meshcore", _make_fake_config())
     packet = _make_text_packet(sender="deadbeef")
     event = codec.decode(packet)

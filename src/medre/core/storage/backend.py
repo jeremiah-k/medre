@@ -116,8 +116,8 @@ class PreReleaseSchemaMismatchError(StorageInitializationError):
             f"Pre-release schema shape mismatch: table '{table}' is "
             f"missing required columns {sorted(missing_columns)}.{path_hint} "
             f"The database does not match the current pre-release shape. "
-            f"Please recreate the database; MEDRE provides no automatic "
-            f"migration for pre-release database layouts."
+            f"Please recreate the database; MEDRE does not automatically "
+            f"transform pre-release database layouts."
         )
 
 

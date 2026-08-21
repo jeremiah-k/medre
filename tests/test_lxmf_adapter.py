@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from types import MappingProxyType
 
 import pytest
 
 from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
+from medre.adapters.lxmf.event_shape import LXMF_NATIVE_SCHEMA_VERSION
 from medre.adapters.lxmf.compat import HAS_LXMF
 from medre.adapters.lxmf.errors import LxmfConnectionError
 from medre.config.adapters.lxmf import LxmfConfig
@@ -453,6 +455,9 @@ class TestFakeLxmfAdapterDeliver:
         assert delivery is not None
         assert isinstance(delivery, AdapterDeliveryResult)
         assert delivery.native_message_id is not None
+        lxmf_metadata = delivery.metadata["lxmf"]
+        assert isinstance(lxmf_metadata, MappingProxyType)
+        assert lxmf_metadata["schema_version"] == LXMF_NATIVE_SCHEMA_VERSION
 
     async def test_deliver_returns_deterministic_message_id(self) -> None:
         adapter = FakeLxmfAdapter()

@@ -1,6 +1,6 @@
 """Tests for CanonicalEvent validation: schema registry hardening,
 schema version compatibility, relation validation, lineage validation,
-malformed payload validation, schema migration, event taxonomy audit,
+malformed payload validation, schema evolution, event taxonomy audit,
 and protocol-neutral readiness.
 """
 
@@ -22,6 +22,7 @@ from medre.core.events import (
     NativeMetadata,
     NativeRef,
     SchemaRegistry,
+    SchemaVersion,
     TransportMetadata,
     schema_version_from_event,
 )
@@ -90,9 +91,8 @@ class TestSchemaRegistryHardening:
 # ===================================================================
 
 
-class TestSchemaVersionCompatibility:
-    """Schema versioning contract: v1 is current, future versions accepted,
-    invalid versions rejected."""
+class TestSchemaVersionContract:
+    """Schema versioning contract: v1 is current and versions stay positive."""
 
     def test_current_schema_version_is_1(self) -> None:
         """CURRENT_SCHEMA_VERSION constant is 1."""
@@ -117,10 +117,10 @@ class TestSchemaVersionCompatibility:
         sv = schema_version_from_event("message.text", {"schema_version": 42})
         assert sv.version == 42
 
-    def test_schema_version_from_event_non_int_defaults(self) -> None:
-        """Non-int schema_version in payload defaults to 1."""
-        sv = schema_version_from_event("message.text", {"schema_version": "bad"})
-        assert sv.version == 1
+    def test_schema_version_from_event_non_int_rejected(self) -> None:
+        """An explicit non-integer schema version is rejected."""
+        with pytest.raises(ValueError, match="positive integer"):
+            schema_version_from_event("message.text", {"schema_version": "bad"})
 
     def test_valid_relation_types_constant(self) -> None:
         """VALID_RELATION_TYPES contains exactly the five known types."""
@@ -342,6 +342,74 @@ def test_schema_version_1_accepted() -> None:
     kw["schema_version"] = CURRENT_SCHEMA_VERSION
     event = CanonicalEvent(**kw)
     assert event.schema_version == CURRENT_SCHEMA_VERSION
+
+
+def test_schema_version_bool_rejected() -> None:
+    """Booleans are not valid canonical schema-version integers."""
+    kw = _valid_kwargs()
+    kw["schema_version"] = True
+    with pytest.raises(ValueError, match="positive integer"):
+        CanonicalEvent(**kw)
+
+
+def test_schema_version_from_event_rejects_invalid_explicit_values() -> None:
+    """Payload schema lookup does not reinterpret invalid explicit versions."""
+    for value in (True, 0, -1, 1.5, "1"):
+        with pytest.raises(ValueError, match="positive integer"):
+            schema_version_from_event("message.text", {"schema_version": value})
+
+
+def test_schema_registry_rejects_invalid_payload_version() -> None:
+    """Registry validation reports an invalid explicit payload version."""
+    registry = SchemaRegistry()
+    registry.register("message.text", CURRENT_SCHEMA_VERSION, lambda payload: [])
+    errors: list[str] = []
+
+    assert not registry.validate(
+        "message.text", {"schema_version": True}, errors=errors
+    )
+    assert errors == ["schema_version must be a positive integer"]
+
+
+def test_schema_version_model_rejects_bool_and_non_positive_values() -> None:
+    """SchemaVersion does not alias booleans or non-positive integers to v1."""
+    for value in (True, 0, -1, 1.0, "1"):
+        with pytest.raises(ValueError, match="positive integer"):
+            SchemaVersion(
+                event_kind="message.text",
+                version=value,  # type: ignore[arg-type]
+            )
+
+
+def test_schema_registry_rejects_invalid_version_keys() -> None:
+    """Registry mutation cannot alias ``True`` to the integer version ``1``."""
+    registry = SchemaRegistry()
+    validator = lambda payload: []
+
+    for value in (True, 0, -1, 1.0, "1"):
+        with pytest.raises(ValueError, match="positive integer"):
+            registry.register(
+                "message.text",
+                value,  # type: ignore[arg-type]
+                validator,
+            )
+        with pytest.raises(ValueError, match="positive integer"):
+            registry.register_or_replace(
+                "message.text", value, validator  # type: ignore[arg-type]
+            )
+
+
+def test_schema_registry_invalid_queries_do_not_match_current_version() -> None:
+    """Invalid version identifiers cannot retrieve or validate against v1."""
+    registry = SchemaRegistry()
+    registry.register("message.text", CURRENT_SCHEMA_VERSION, lambda payload: [])
+
+    assert registry.get("message.text", True) is None  # type: ignore[arg-type]
+    errors: list[str] = []
+    assert not registry.validate(
+        "message.text", {}, schema_version=True, errors=errors  # type: ignore[arg-type]
+    )
+    assert errors == ["schema_version must be a positive integer"]
 
 
 # ===================================================================

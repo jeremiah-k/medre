@@ -117,3 +117,97 @@ class TestRunSessionTempStorage:
 
             assert exc_info.value.code == 0
             assert mock_bridge.call_args.kwargs["storage_path"] == explicit_path
+
+
+async def test_run_session_human_output_lists_nested_commands(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Human output renders both authoritative command-text sections."""
+    from medre.cli.smoke_commands import _run_session
+    from medre.runtime.run_session import orchestration
+
+    storage_path = str(tmp_path / "session.db")
+    report = _fake_report(
+        storage_path=storage_path,
+        commands={
+            "commands_text": {
+                "primary": {
+                    "inspect_event": "medre inspect-event evt-test",
+                },
+                "specialized": {
+                    "recover_event": "medre recover --event evt-test",
+                },
+            }
+        },
+    )
+
+    async def _fake_run_bridge_session(
+        *args: object, **kwargs: object
+    ) -> dict[str, object]:
+        return report
+
+    monkeypatch.setattr(
+        orchestration,
+        "run_bridge_session",
+        _fake_run_bridge_session,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await _run_session(
+            config_path=None,
+            storage_path=storage_path,
+            snapshot_dir=None,
+            json_output=False,
+        )
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "  Commands:" in output
+    assert "    inspect_event: medre inspect-event evt-test" in output
+    assert "    recover_event: medre recover --event evt-test" in output
+
+
+async def test_run_session_human_output_ignores_flat_command_text_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """The removed flat command-text shape is not rendered."""
+    from medre.cli.smoke_commands import _run_session
+    from medre.runtime.run_session import orchestration
+
+    storage_path = str(tmp_path / "session.db")
+    report = _fake_report(
+        storage_path=storage_path,
+        commands={
+            "commands_text": {
+                "inspect_event": "medre inspect-event old-flat-shape",
+            }
+        },
+    )
+
+    async def _fake_run_bridge_session(
+        *args: object, **kwargs: object
+    ) -> dict[str, object]:
+        return report
+
+    monkeypatch.setattr(
+        orchestration,
+        "run_bridge_session",
+        _fake_run_bridge_session,
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await _run_session(
+            config_path=None,
+            storage_path=storage_path,
+            snapshot_dir=None,
+            json_output=False,
+        )
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "  Commands:" not in output
+    assert "old-flat-shape" not in output

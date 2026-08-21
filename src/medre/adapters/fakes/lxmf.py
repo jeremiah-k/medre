@@ -33,6 +33,7 @@ from types import MappingProxyType
 from typing import Any
 
 from medre.adapters.lxmf.codec import LxmfCodec
+from medre.adapters.lxmf.event_shape import LXMF_NATIVE_SCHEMA_VERSION
 from medre.adapters.lxmf.packet_classifier import LxmfPacketClassifier
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.contracts.adapter import (
@@ -333,10 +334,13 @@ class FakeLxmfAdapter(AdapterContract):
             native_channel_id=None,
             metadata=MappingProxyType(
                 {
-                    "lxmf": {
-                        "delivery_state": "outbound",
-                        "delivery_method": delivery_method,
-                    },
+                    "lxmf": MappingProxyType(
+                        {
+                            "schema_version": LXMF_NATIVE_SCHEMA_VERSION,
+                            "delivery_state": "outbound",
+                            "delivery_method": delivery_method,
+                        }
+                    ),
                 }
             ),
         )

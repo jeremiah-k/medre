@@ -39,7 +39,12 @@ For the detailed per-table ownership audit, see [persistence-authority-audit.md]
 
 ## Pre-Release Storage Reset
 
-MEDRE is prerelease software. The schema version is frozen at 1, but the column shape (which tables and columns exist) can change between builds. When you upgrade to a newer prerelease build that adds or renames columns, the existing database will be rejected at startup with a `PreReleaseSchemaMismatchError`. No automatic migration runs. You need to reset the database manually.
+MEDRE is prerelease software. The schema version is frozen at 1, but the
+column shape (which tables and columns exist) can change between builds. When
+you upgrade to a newer prerelease build that adds or renames columns, the
+existing database will be rejected at startup with a
+`PreReleaseSchemaMismatchError`. MEDRE does not transform the existing database
+automatically. You need to reset it manually.
 
 ### How to tell if your database is stale
 
@@ -52,7 +57,7 @@ PreReleaseSchemaMismatchError: Pre-release schema shape mismatch: table
 'delivery_outbox' is missing required columns ['failure_kind_detail'].
 (database: /home/user/.local/state/medre/medre.sqlite) The database was
 likely created by an older pre-release build.  Please recreate the database
-— no automatic migration is provided.
+— automatic schema transformation is not provided.
 ```
 
 then the database is stale and needs a reset.
@@ -107,7 +112,9 @@ If you need data from the old database, query the backup file with `sqlite3` or 
 
 ### When this does not apply
 
-This workflow only applies to prerelease builds where the column shape changed. After MEDRE makes its first release, schema migrations will be provided and this manual reset workflow will not be needed for compatible upgrades.
+This workflow applies only to prerelease builds where the column shape
+changed. It makes no promise about the storage-compatibility policy MEDRE may
+adopt after the first release.
 
 ## Preferred Product Path
 

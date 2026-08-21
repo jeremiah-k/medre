@@ -377,8 +377,12 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
             raise ValueError("event_id must be a non-empty string")
         if not isinstance(self.event_kind, str) or not self.event_kind:
             raise ValueError("event_kind must be a non-empty string")
-        if self.schema_version < 1:
-            raise ValueError("schema_version must be >= 1")
+        if (
+            isinstance(self.schema_version, bool)
+            or not isinstance(self.schema_version, int)
+            or self.schema_version < 1
+        ):
+            raise ValueError("schema_version must be a positive integer")
         if self.timestamp.tzinfo is None:
             raise ValueError("timestamp must be timezone-aware (UTC)")
         if self.depth < 0:

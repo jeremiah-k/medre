@@ -23,13 +23,10 @@ from __future__ import annotations
 from typing import Any
 
 from medre.adapters.lxmf.attribution import project_lxmf_attribution
-from medre.adapters.lxmf.event_shape import lxmf_versioned_namespace
 from medre.adapters.matrix.attribution import project_matrix_attribution
-from medre.adapters.matrix.event_shape import matrix_versioned_namespace
+from medre.adapters._native_metadata_dispatch import versioned_native_namespace
 from medre.adapters.meshcore.attribution import project_meshcore_attribution
-from medre.adapters.meshcore.event_shape import meshcore_versioned_namespace
 from medre.adapters.meshtastic.attribution import project_meshtastic_attribution
-from medre.adapters.meshtastic.event_shape import meshtastic_versioned_namespace
 
 __all__ = [
     "detect_source_platform",
@@ -46,13 +43,6 @@ _ID_HEURISTICS: tuple[tuple[str, str], ...] = (
     ("meshcore", "meshcore"),
     ("lxmf", "lxmf"),
 )
-
-# Characteristic native-metadata keys per platform (ordered by priority).
-# Matrix is recognized only through the versioned ``native["matrix"]``
-# sub-namespace carrying ``sender``, ``event_id``, and ``room_id``.
-
-_MATRIX_KEYS: frozenset[str] = frozenset({"sender", "event_id", "room_id"})
-
 
 # ---------------------------------------------------------------------------
 # Platform detection
@@ -78,7 +68,7 @@ def detect_source_platform(
     3. Native key shape inspection, in this order:
 
        a. Versioned MeshCore namespace.
-       b. Versioned Matrix namespace containing Matrix-characteristic keys.
+       b. Versioned Matrix namespace.
        c. Versioned Meshtastic namespace.
        d. Versioned LXMF namespace.
 
@@ -108,17 +98,16 @@ def detect_source_platform(
         return None
 
     # 3. Versioned native namespace fallback.
-    if meshcore_versioned_namespace(native_data):
+    if versioned_native_namespace(native_data, "meshcore"):
         return "meshcore"
 
-    matrix_ns = matrix_versioned_namespace(native_data)
-    if any(k in matrix_ns for k in _MATRIX_KEYS):
+    if versioned_native_namespace(native_data, "matrix"):
         return "matrix"
 
-    if meshtastic_versioned_namespace(native_data):
+    if versioned_native_namespace(native_data, "meshtastic"):
         return "meshtastic"
 
-    if lxmf_versioned_namespace(native_data):
+    if versioned_native_namespace(native_data, "lxmf"):
         return "lxmf"
 
     return None

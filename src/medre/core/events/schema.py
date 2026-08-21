@@ -59,12 +59,20 @@ class SchemaVersion(msgspec.Struct, frozen=True):
     event_kind:
         The event kind string this version applies to.
     version:
-        Monotonically increasing version number for the kind's payload
-        schema.
+        Positive version number for the kind's payload schema.
     """
 
     event_kind: str
     version: int
+
+    def __post_init__(self) -> None:
+        if not _is_valid_schema_version(self.version):
+            raise ValueError("version must be a positive integer")
+
+
+def _is_valid_schema_version(value: object) -> bool:
+    """Return whether *value* is a supported schema-version identifier."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
 def schema_version_from_event(
@@ -72,9 +80,9 @@ def schema_version_from_event(
 ) -> SchemaVersion:
     """Extract a :class:`SchemaVersion` from a raw event payload.
 
-    The payload is expected to contain a ``"schema_version"`` key with an
-    ``int`` value.  If the key is missing or not an ``int``, version ``1``
-    is assumed.
+    When ``"schema_version"`` is absent, the current version is used. When
+    present, the value MUST be a positive integer; invalid explicit values are
+    rejected rather than reinterpreted as the current version.
 
     Parameters
     ----------
@@ -88,9 +96,15 @@ def schema_version_from_event(
     SchemaVersion
         The extracted version pair.
     """
-    raw = payload.get("schema_version", 1)
-    version: int = raw if isinstance(raw, int) else 1  # type: ignore[assignment]
-    return SchemaVersion(event_kind=event_kind, version=version)
+    if "schema_version" not in payload:
+        return SchemaVersion(
+            event_kind=event_kind,
+            version=CURRENT_SCHEMA_VERSION,
+        )
+    raw = payload["schema_version"]
+    if not _is_valid_schema_version(raw):
+        raise ValueError("schema_version must be a positive integer")
+    return SchemaVersion(event_kind=event_kind, version=raw)
 
 
 # Type alias for validator callables.
@@ -146,6 +160,8 @@ class SchemaRegistry:
             A callable that accepts a payload dict and returns a list of
             error strings (empty if valid).
         """
+        if not _is_valid_schema_version(schema_version):
+            raise ValueError("schema_version must be a positive integer")
         self._schemas[(event_kind, schema_version)] = validator
 
     def register_or_replace(
@@ -169,6 +185,8 @@ class SchemaRegistry:
             A callable that accepts a payload dict and returns a list of
             error strings (empty if valid).
         """
+        if not _is_valid_schema_version(schema_version):
+            raise ValueError("schema_version must be a positive integer")
         self._schemas[(event_kind, schema_version)] = validator
 
     # -- Query ------------------------------------------------------------
@@ -189,6 +207,8 @@ class SchemaRegistry:
             The registered validator, or ``None`` if no schema has been
             registered for the given kind and version.
         """
+        if not _is_valid_schema_version(schema_version):
+            return None
         return self._schemas.get((event_kind, schema_version))
 
     # -- Validation -------------------------------------------------------
@@ -222,9 +242,18 @@ class SchemaRegistry:
             ``True`` if the payload is valid, ``False`` otherwise.
         """
         if schema_version is None:
-            sv = schema_version_from_event(event_kind, payload)
+            try:
+                sv = schema_version_from_event(event_kind, payload)
+            except ValueError as exc:
+                if errors is not None:
+                    errors.append(str(exc))
+                return False
             version = sv.version
         else:
+            if not _is_valid_schema_version(schema_version):
+                if errors is not None:
+                    errors.append("schema_version must be a positive integer")
+                return False
             version = schema_version
 
         validator = self._schemas.get((event_kind, version))

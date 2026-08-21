@@ -141,7 +141,7 @@ class _SQLiteStorageBase:
         StorageInitializationError
             If the database schema version does not match the expected
             version.  The operator must resolve the mismatch manually
-            (no silent migration or reset).
+            (no silent schema transformation or reset).
         """
         self._closed = False
         try:
@@ -217,7 +217,8 @@ class _SQLiteStorageBase:
             raise StorageInitializationError(
                 f"Storage schema version is not an integer: {stored_version!r}. "
                 f"Expected {_EXPECTED_SCHEMA_VERSION}. "
-                f"Resolve the mismatch manually — no auto-migration is performed."
+                "Resolve the mismatch manually — no automatic schema "
+                "transformation is performed."
             ) from None
 
         if stored_int != _EXPECTED_SCHEMA_VERSION:
@@ -225,7 +226,8 @@ class _SQLiteStorageBase:
                 f"Storage schema version mismatch: database has version "
                 f"{stored_int}, but this version of medre expects version "
                 f"{_EXPECTED_SCHEMA_VERSION}. "
-                f"Resolve the mismatch manually — no auto-migration or "
+                "Resolve the mismatch manually — no automatic schema transformation "
+                "or "
                 f"silent reset is performed.  Options: export data, delete "
                 f"the database file, and restart; or downgrade medre to "
                 f"match the database version."
@@ -243,8 +245,8 @@ class _SQLiteStorageBase:
         Raises
         ------
         StorageInitializationError
-            If any required table or column is missing.  No automatic
-            migration is performed; the operator must recreate the DB.
+            If any required table or column is missing.  No automatic schema
+            transformation is performed; the operator must recreate the DB.
         """
         for table, required in _REQUIRED_COLUMNS.items():
             rows = await self._read_all(f"PRAGMA table_info({table})")
@@ -357,7 +359,8 @@ class _SQLiteStorageBase:
             raise StorageInitializationError(
                 f"Storage schema version is not an integer: {stored_version!r}. "
                 f"Expected {_EXPECTED_SCHEMA_VERSION}. "
-                f"Resolve the mismatch manually — no auto-migration is performed."
+                "Resolve the mismatch manually — no automatic schema "
+                "transformation is performed."
             ) from None
 
         if stored_int != _EXPECTED_SCHEMA_VERSION:
@@ -365,7 +368,8 @@ class _SQLiteStorageBase:
                 f"Storage schema version mismatch: database has version "
                 f"{stored_int}, but this version of medre expects version "
                 f"{_EXPECTED_SCHEMA_VERSION}. "
-                f"Resolve the mismatch manually — no auto-migration or "
+                "Resolve the mismatch manually — no automatic schema transformation "
+                "or "
                 f"silent reset is performed.  Options: export data, delete "
                 f"the database file, and restart; or downgrade medre to "
                 f"match the database version."

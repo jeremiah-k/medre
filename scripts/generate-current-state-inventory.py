@@ -149,7 +149,7 @@ def render() -> str:
   extension mechanism and may be ignored during decode.
 - Extensible producer data belongs in `payload`, `metadata.custom`, or a
   versioned transport-native namespace.
-- No canonical-event migration registry is present.
+- No canonical-event shape-conversion registry is present.
 
 ## Built-In Native Metadata
 
@@ -293,7 +293,7 @@ def check() -> int:
     if "MIGRATION_REGISTRY" in (
         ROOT / "src" / "medre" / "core" / "events" / "schema.py"
     ).read_text(encoding="utf-8"):
-        print("canonical event migration registry unexpectedly present")
+        print("canonical event shape-conversion registry unexpectedly present")
         return 1
     for _label, namespace, source, constant in TRANSPORTS:
         source_version = _integer_constant(source, constant)
@@ -311,8 +311,8 @@ def check() -> int:
         example_version = _example_version(example_path, namespace)
         if source_version != schema_version or source_version != example_version:
             print(
-                f"{namespace}: schema-version drift "
-                f"source={source_version} schema={schema_version} example={example_version}"
+                f"{namespace}: schema-version drift source={source_version} "
+                f"schema={schema_version} example={example_version}"
             )
             return 1
     if not _channel_room_map_is_structured_only():

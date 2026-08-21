@@ -20,9 +20,10 @@ stored-event, native-metadata, configuration, report, or renderer shape solely
 because an earlier development build produced it.
 
 Breaking development-shape changes update source, schemas, examples, specs, and
-tests together. There is no canonical-event migration registry and no automatic
-SQLite schema migration. Incompatible pre-release databases are rejected with
-an actionable error and must be recreated or handled explicitly by the operator.
+tests together. There is no canonical-event shape-conversion registry and no
+automatic SQLite schema transformation. Incompatible pre-release databases are
+rejected with an actionable error and must be recreated or handled explicitly by
+the operator.
 
 ## 2. Explicitly Retained External Interoperability
 
@@ -132,7 +133,7 @@ MMRelay interoperability, when present, is separately namespaced under
 
 ## 6. Review Rule
 
-Any new use of terms such as `legacy`, `backward compatibility`, `deprecated`,
-or `migration` in production code must be reviewed against this document. A new
-compatibility branch must identify the external or operator contract that
-requires it. Development history alone is not sufficient justification.
+Any production reader that accepts an alternate or obsolete representation MUST
+be reviewed against this document. The branch must identify the external or
+operator contract that requires it. Development history alone is not sufficient
+justification.

@@ -949,8 +949,8 @@ def collect_docker_bridge_artifacts(
     medre_evidence_limitations_note: str | None = None
     if not metadata_available:
         medre_evidence_limitations_note = (
-            "run-metadata.json not found: evidence derived from deprecated "
-            "fallback (pytest stdout parsing — less reliable than "
+            "run-metadata.json not found: evidence derived from a "
+            "lower-confidence fallback (pytest stdout parsing — less reliable than "
             "structured run metadata)"
         )
 

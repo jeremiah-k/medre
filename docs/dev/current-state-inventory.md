@@ -20,7 +20,7 @@
   extension mechanism and may be ignored during decode.
 - Extensible producer data belongs in `payload`, `metadata.custom`, or a
   versioned transport-native namespace.
-- No canonical-event migration registry is present.
+- No canonical-event shape-conversion registry is present.
 
 ## Built-In Native Metadata
 

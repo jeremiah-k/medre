@@ -308,18 +308,18 @@ class TestConfigCheckStrictValidation:
 
     Covers:
 
-    * TOML config rejection with the migration message.
+    * TOML config rejection with the unsupported-format message.
     * YAML parse errors reported with ``path:line:column:`` information.
     * Typed validation errors (unknown root key, unknown adapter key)
       reporting the ``section_path`` and the offending key name.
     * Secret values must never appear in CLI error output — only key names.
     """
 
-    def test_check_rejects_toml_with_migration_message(self, tmp_path: Path) -> None:
+    def test_check_rejects_toml_with_format_error(self, tmp_path: Path) -> None:
         """``medre config check --config <file>.toml`` exits nonzero and the
-        error includes the dedicated TOML migration pointer."""
-        toml_path = tmp_path / "legacy.toml"
-        toml_path.write_text("# legacy TOML config\n")
+        error includes the dedicated TOML unsupported-format message."""
+        toml_path = tmp_path / "unsupported.toml"
+        toml_path.write_text("# unsupported TOML config\n")
         _stdout, stderr, code = _run_cli_raw(
             "config", "check", "--config", str(toml_path)
         )

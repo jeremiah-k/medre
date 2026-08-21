@@ -412,6 +412,24 @@ class ChannelRoomMapEntry:
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.room, str) or not self.room.strip():
+            raise ValueError("room must be a non-empty string")
+        room = self.room.strip()
+        if room.startswith("#"):
+            raise ValueError("room aliases are not supported; use a canonical !room ID")
+        if not room.startswith("!"):
+            raise ValueError(
+                "room must be a canonical Matrix room ID starting with '!'"
+            )
+        object.__setattr__(self, "room", room)
+        for field_name, value in (
+            ("source_origin_label", self.source_origin_label),
+            ("dest_origin_label", self.dest_origin_label),
+        ):
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{field_name} must be a string or None")
+
 
 # ---------------------------------------------------------------------------
 # Channel-room-map parsing helpers (extracted from RouteConfig.from_dict)
@@ -765,6 +783,41 @@ class RouteConfig:
     channel_room_map: dict[str, ChannelRoomMapEntry] | None = None
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
+
+    def __post_init__(self) -> None:
+        """Enforce the normalized in-memory ``channel_room_map`` shape."""
+        if self.channel_room_map is None:
+            return
+        section_path = f"routes.{self.route_id}"
+        if not isinstance(self.channel_room_map, dict):
+            raise ConfigValidationError(
+                f"Route {self.route_id!r}: channel_room_map must be a dict",
+                section_path=section_path,
+            )
+        if not self.channel_room_map:
+            raise ConfigValidationError(
+                f"Route {self.route_id!r}: channel_room_map must not be empty",
+                section_path=section_path,
+            )
+        for channel, entry in self.channel_room_map.items():
+            normalized_channel = _validate_channel_key(
+                channel,
+                self.route_id,
+                section_path,
+            )
+            if normalized_channel != channel:
+                raise ConfigValidationError(
+                    f"Route {self.route_id!r}: channel_room_map key {channel!r} "
+                    f"must use normalized string form {normalized_channel!r}",
+                    section_path=section_path,
+                )
+            if not isinstance(entry, ChannelRoomMapEntry):
+                raise ConfigValidationError(
+                    f"Route {self.route_id!r}: channel_room_map entry for "
+                    f"channel {channel!r} must be ChannelRoomMapEntry, got "
+                    f"{type(entry).__name__}",
+                    section_path=f"{section_path}.channel_room_map.{channel}",
+                )
 
     @classmethod
     def from_dict(cls, route_id: str, data: dict[str, Any]) -> Self:

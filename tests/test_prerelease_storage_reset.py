@@ -319,6 +319,6 @@ async def test_schema_mismatch_error_is_actionable() -> None:
         msg = str(exc_info.value).lower()
         # The error should tell the operator what to do.
         assert "recreate" in msg
-        assert "no automatic migration" in msg or "no auto" in msg
+        assert "does not automatically transform" in msg
     finally:
         os.unlink(db_path)

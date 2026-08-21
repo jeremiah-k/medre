@@ -929,7 +929,9 @@ The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaim
 
 MEDRE has not yet made its first release. The schema version is frozen at `1` and will not be bumped until storage compatibility becomes release-tracked. However, the column shape (which tables exist, which columns each table has) may still change between prerelease builds.
 
-There is no automatic migration support. No code path migrates old data to a new schema shape. The `initialize()` method **MUST** perform two validation checks that reject stale prerelease databases:
+There is no automatic prerelease schema transformation. No code path rewrites
+old data into a new schema shape. The `initialize()` method **MUST** perform two
+validation checks that reject stale prerelease databases:
 
 ### 10.1 Schema Version Check
 
@@ -947,15 +949,15 @@ prerelease tables. If any required table or column is missing,
 `PreReleaseSchemaMismatchError` (a subclass of `StorageInitializationError`)
 **MUST** be raised. The error message **MUST** identify the affected table, the
 missing columns, and the database file path. It **MUST NOT** suggest that
-automatic migration is available.
+automatic schema transformation is available.
 
 This validation catches old prerelease databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape validation is the primary guard against stale prerelease databases.
 
 This change adds the required `delivery_receipts.confirmation_level` column while
 the prerelease schema version remains `1`. A database created by an earlier
 prerelease build therefore fails required-column validation by design. Operators
-MUST back up/reset that prerelease database using §10.3; MEDRE does not perform an
-in-place migration.
+MUST back up/reset that prerelease database using §10.3; MEDRE does not
+transform that database in place.
 
 ### 10.3 Pre-Release Stale Database Reset
 
@@ -1184,8 +1186,9 @@ This section states which code owns each table's rows, who may create/mutate/del
 9. **Schema metadata identifies the current prerelease shape.**
    `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen
    until MEDRE reaches a release-tracked milestone. Column-shape validation
-   (Section 10.2) catches prerelease drift without a version bump. No migration or
-   schema bump work is required now.
+   (Section 10.2) catches prerelease drift without a version bump. No schema
+   transformation or
+   version-bump work is required now.
 
 10. **Adapters report facts; core records persistence.** Adapters surface canonical
     events, adapter delivery facts, and native transport facts to the runtime. Core

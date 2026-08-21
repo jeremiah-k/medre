@@ -206,16 +206,22 @@ async def _run_session(
                 f"  Snapshot:    schema_version={snap_checks.get('schema_version', '?')} "
                 f"runtime_state={snap_checks.get('runtime_state', '?')}"
             )
-        if commands:
-            print("  Commands:")
-            text_commands = commands.get("commands_text", {})
-            primary = text_commands.get("primary", {})
-            specialized = text_commands.get("specialized", {})
-            if isinstance(primary, dict):
-                for label, cmd in primary.items():
-                    print(f"    {label}: {cmd}")
-            if isinstance(specialized, dict):
-                for label, cmd in specialized.items():
-                    print(f"    {label}: {cmd}")
+        text_commands = (
+            commands.get("commands_text") if isinstance(commands, dict) else None
+        )
+        if isinstance(text_commands, dict):
+            sections = tuple(
+                section
+                for section in (
+                    text_commands.get("primary"),
+                    text_commands.get("specialized"),
+                )
+                if isinstance(section, dict)
+            )
+            if any(sections):
+                print("  Commands:")
+                for section in sections:
+                    for label, cmd in section.items():
+                        print(f"    {label}: {cmd}")
 
     sys.exit(0 if report["status"] == "passed" else 1)

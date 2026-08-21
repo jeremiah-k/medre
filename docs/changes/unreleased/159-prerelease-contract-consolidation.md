@@ -12,9 +12,11 @@
 - Define the canonical event envelope as closed and versioned, with extension
   data preserved through `payload`, `metadata.custom`, and versioned native
   namespaces rather than unknown top-level fields.
-- Remove the unused canonical-event migration registry, alternate replay render
-  hook, inline live-ingress fallback, flat smoke-report reader, and obsolete
+- Remove the unused canonical-event shape-conversion registry, alternate replay
+  render hook, inline live-ingress fallback, flat smoke-report reader, and obsolete
   mixed real-adapter example configuration.
 - Add machine schemas and examples for Meshtastic, MeshCore, and LXMF native
   metadata plus a generated current-state inventory that checks source/schema
   version authority and marks developer audits as historical snapshots.
+- Enforce positive integer schema-version identifiers consistently across canonical
+  events, schema registry operations, and future-version native-platform detection.
