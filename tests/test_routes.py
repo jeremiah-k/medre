@@ -85,7 +85,6 @@ class TestRouteConfigValid:
         assert r.dest_adapters == ("radio",)
         assert r.directionality == RouteDirectionality.SOURCE_TO_DEST
         assert r.enabled is True
-        assert r.filter_hooks == ()
         assert r.source_channel is None
         assert r.dest_channel is None
         assert r.source_room is None
@@ -112,7 +111,6 @@ class TestRouteConfigValid:
         assert r.dest_adapters == ("radio", "lxmf_local")
         assert r.directionality == RouteDirectionality.BIDIRECTIONAL
         assert r.enabled is False
-        assert r.filter_hooks == ()
         # source_room aliases to source_channel when source_channel is absent
         assert r.source_channel == "!room_a:example.com"
         assert r.dest_channel == "!room_b:example.com"
@@ -389,23 +387,15 @@ class TestRouteConfigValidation:
                 },
             )
 
-    def test_filter_hooks_not_list(self) -> None:
-        with pytest.raises(
-            ConfigValidationError, match="'filter_hooks' must be a list"
-        ):
-            RouteConfig.from_dict(
-                "bad",
-                {
-                    "source_adapters": ["a"],
-                    "dest_adapters": ["b"],
-                    "filter_hooks": "not_a_list",
-                },
-            )
+    # --- filter_hooks key removed (A8) ---
 
-    # --- filter_hooks rejection (reserved/unsupported) ---
+    def test_filter_hooks_now_treated_as_unknown_key(self) -> None:
+        """filter_hooks is removed from the schema and from RouteConfig.
 
-    def test_filter_hooks_nonempty_rejected(self) -> None:
-        with pytest.raises(ConfigValidationError, match="filter_hooks.*reserved"):
+        It is now an unknown route-level key and is rejected the same
+        way as any other typo.
+        """
+        with pytest.raises(ConfigValidationError, match=r"unknown key\(s\)"):
             RouteConfig.from_dict(
                 "bad",
                 {
@@ -749,7 +739,6 @@ class TestRouteLoaderIntegration:
         assert r.route_id == "radio_to_lxmf"
         assert r.directionality == RouteDirectionality.DEST_TO_SOURCE
         assert r.enabled is False
-        assert r.filter_hooks == ()
         assert r.policy is None
 
     def test_no_routes_section(self, tmp_path: Path) -> None:

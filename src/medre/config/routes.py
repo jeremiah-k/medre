@@ -295,13 +295,10 @@ class RouteRetryConfig:
         ConfigValidationError
             If values are invalid.
         """
-        enabled: bool = data.get("enabled", True)
-        max_attempts = data.get("max_attempts", 3)
-        backoff_base = data.get("backoff_base", 2.0)
-        max_delay_seconds = data.get("max_delay_seconds", 60.0)
-        jitter: bool = data.get("jitter", False)
-
-        # Reject unknown keys so operators don't silently misconfigure.
+        # Reject unknown keys so a typo like ``max_attempt`` (singular)
+        # produces the unknown-key error rather than confusing
+        # ``"retry.max_attempts must be >0, got None"`` after the field
+        # is read with a default and then rejected by the type check.
         # Mirrors :meth:`BridgePolicy.from_dict` and the JSON schemas'
         # ``additionalProperties: false``.
         unknown = set(data) - _RETRY_KNOWN_FIELDS
@@ -313,6 +310,12 @@ class RouteRetryConfig:
                 f"{sorted(_RETRY_KNOWN_FIELDS)}"
             )
             raise ConfigValidationError(msg, section_path=f"{section_path}.retry")
+
+        enabled: bool = data.get("enabled", True)
+        max_attempts = data.get("max_attempts", 3)
+        backoff_base = data.get("backoff_base", 2.0)
+        max_delay_seconds = data.get("max_delay_seconds", 60.0)
+        jitter: bool = data.get("jitter", False)
 
         if not isinstance(enabled, bool):
             raise ConfigValidationError(
@@ -716,7 +719,6 @@ _ROUTE_KNOWN_FIELDS: frozenset[str] = frozenset(
         "dest_adapters",
         "directionality",
         "enabled",
-        "filter_hooks",
         "source_channel",
         "dest_channel",
         "source_room",
@@ -746,9 +748,6 @@ class RouteConfig:
         Direction of event flow.
     enabled:
         Whether this route is enabled at startup.
-    filter_hooks:
-        Optional tuple of static filter hook names for later ownership.
-        These are identifiers only — no callable code.
     source_channel:
         Optional source channel/conversation ID for targeting.
     dest_channel:
@@ -792,7 +791,6 @@ class RouteConfig:
     dest_adapters: tuple[str, ...]
     directionality: RouteDirectionality = RouteDirectionality.SOURCE_TO_DEST
     enabled: bool = True
-    filter_hooks: tuple[str, ...] = ()
     source_channel: str | None = None
     dest_channel: str | None = None
     source_room: str | None = None
@@ -913,21 +911,6 @@ class RouteConfig:
 
         # --- enabled ---
         enabled: bool = data.pop("enabled", True)
-
-        # --- filter_hooks ---
-        raw_hooks = data.pop("filter_hooks", [])
-        if not isinstance(raw_hooks, list):
-            raise ConfigValidationError(
-                f"Route {route_id!r}: 'filter_hooks' must be a list",
-                section_path=section_path,
-            )
-        filter_hooks = tuple(str(h) for h in raw_hooks)
-        if filter_hooks:
-            raise ConfigValidationError(
-                f"Route {route_id!r}: 'filter_hooks' are reserved and not "
-                f"yet supported. Remove filter_hooks to proceed.",
-                section_path=section_path,
-            )
 
         # --- targeting fields ---
         source_channel: str | None = data.pop("source_channel", None)
@@ -1164,7 +1147,6 @@ class RouteConfig:
             dest_adapters=dest_adapters,
             directionality=directionality,
             enabled=enabled,
-            filter_hooks=filter_hooks,
             source_channel=source_channel,
             dest_channel=dest_channel,
             source_room=source_room,
