@@ -60,7 +60,7 @@ Runtime started — 2 adapter(s) in 457ms
 
 ### Degraded Startup
 
-If at least one adapter starts but others fail, the runtime enters `RUNNING` with `DEGRADED` health and continues operating. Routes referencing failed adapters are skipped or degraded.
+If at least one adapter starts but others fail, the runtime enters `READY` with `DEGRADED` health and continues operating. Routes referencing failed adapters are skipped or degraded.
 
 Diagnostic surfaces for degraded startup:
 

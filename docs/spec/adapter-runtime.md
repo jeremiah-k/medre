@@ -343,38 +343,90 @@ The adapter sets its own health state. The runtime reads it. The runtime **MUST 
 
 ### 8.1 Lifecycle State Enum
 
+The lifecycle state machine has **eight** states, defined by the
+`AdapterState` enum in `src/medre/core/lifecycle/states.py`. The runtime owns
+the transitions recorded in `VALID_TRANSITIONS`. Terminal states (no outgoing
+transitions) are `FAILED` and `STOPPED`.
+
 ```python
-class AdapterLifecycleState(str, Enum):
-    INITIALIZING = "initializing"
-    RUNNING      = "running"
-    DEGRADED     = "degraded"
-    DRAINING     = "draining"
-    STOPPED      = "stopped"
+class AdapterState(Enum):
+    INITIALIZING  = "initializing"
+    READY         = "ready"
+    DEGRADED      = "degraded"
+    BACKPRESSURED = "backpressured"
+    DISCONNECTED  = "disconnected"
+    STOPPING      = "stopping"
+    FAILED        = "failed"          # Terminal
+    STOPPED       = "stopped"         # Terminal
 ```
 
-### 8.2 State Transitions
+| State             | Meaning                                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| `INITIALIZING`    | Adapter is being set up; not yet ready to process events.                                              |
+| `READY`           | Adapter is fully operational.                                                                         |
+| `DEGRADED`        | Adapter is partially functional (e.g., high latency, missing features).                               |
+| `BACKPRESSURED`   | Adapter's outbound queue is full; inbound traffic **MUST** be throttled.                              |
+| `DISCONNECTED`    | Adapter has lost its transport connection.                                                            |
+| `STOPPING`        | Adapter is shutting down gracefully.                                                                   |
+| `FAILED`          | Adapter has encountered an unrecoverable error. Terminal — no outgoing transitions.                   |
+| `STOPPED`         | Adapter has shut down cleanly. Terminal — no outgoing transitions.                                     |
+
+### 8.2 State Transition Graph
+
+`VALID_TRANSITIONS[source]` is the frozenset of states that `source` may move
+to in a single transition. The runtime **MUST** raise
+`InvalidStateTransition` for any move not listed below.
 
 ```text
-INITIALIZING --> RUNNING
-RUNNING       --> DEGRADED
-DEGRADED      --> RUNNING           (recovered)
-DEGRADED      --> DRAINING
-RUNNING       --> DRAINING
-DRAINING      --> STOPPED
-any           --> STOPPED           (forced, e.g., timeout during drain)
+INITIALIZING  -> READY
+INITIALIZING  -> STOPPING
+INITIALIZING  -> STOPPED
+INITIALIZING  -> FAILED
+
+READY         -> DEGRADED
+READY         -> BACKPRESSURED
+READY         -> DISCONNECTED
+READY         -> STOPPING
+READY         -> FAILED
+
+DEGRADED      -> READY
+DEGRADED      -> BACKPRESSURED
+DEGRADED      -> DISCONNECTED
+DEGRADED      -> STOPPING
+DEGRADED      -> FAILED
+
+BACKPRESSURED -> READY
+BACKPRESSURED -> DEGRADED
+BACKPRESSURED -> DISCONNECTED
+BACKPRESSURED -> STOPPING
+BACKPRESSURED -> FAILED
+
+DISCONNECTED  -> READY
+DISCONNECTED  -> STOPPING
+DISCONNECTED  -> FAILED
+
+STOPPING      -> STOPPED
+STOPPING      -> FAILED
+
+FAILED        -> (none)     # Terminal
+STOPPED       -> (none)     # Terminal
 ```
 
-Any transition not listed above is a bug.
+Any transition not listed above is a bug. `is_valid_transition()` returns
+`False` and `require_valid_transition()` raises `InvalidStateTransition`.
 
 ### 8.3 Behavior per State
 
-| State            | Ingress | Delivery                   | Notes                                                       |
-| ---------------- | ------- | -------------------------- | ----------------------------------------------------------- |
-| **INITIALIZING** | Buffer  | Buffer                     | Connection not yet established. `start()` has not returned. |
-| **RUNNING**      | Accept  | Queue and deliver          | Normal operation.                                           |
-| **DEGRADED**     | Accept  | Queue, delay, may fallback | Connection unstable. Queue events for later delivery.       |
-| **DRAINING**     | Reject  | Complete in-flight only    | Graceful shutdown. Reject new work.                         |
-| **STOPPED**      | Reject  | None                       | Terminal state. No further activity.                        |
+| State             | Ingress Policy        | Delivery Policy                       | Notes                                                       |
+| ----------------- | --------------------- | ------------------------------------- | ----------------------------------------------------------- |
+| `INITIALIZING`    | Buffer                | Buffer                                | Connection not yet established. `start()` has not returned. |
+| `READY`           | Accept                | Queue and deliver                     | Normal operation.                                           |
+| `DEGRADED`        | Accept                | Queue, delay, may fallback            | Connection unstable. Queue events for later delivery.       |
+| `BACKPRESSURED`   | Throttle              | Queue, refuse new outbound enqueues   | Outbound queue full. Inbound traffic **MUST** be throttled. |
+| `DISCONNECTED`    | Accept (buffered)     | Queue, no remote dispatch             | Transport endpoint unreachable. Recoverable on reconnect.   |
+| `STOPPING`        | Reject                | Complete in-flight only               | Graceful shutdown. Reject new work.                         |
+| `FAILED`          | Reject                | None                                  | Terminal. Adapter is no longer operational.                 |
+| `STOPPED`         | Reject                | None                                  | Terminal. Clean shutdown.                                   |
 
 ### 8.4 State Transition Events
 
@@ -395,15 +447,41 @@ Every lifecycle state change **MUST** emit a `system.lifecycle` canonical event:
 
 ### 8.5 Extended State Machines
 
-Adapters that require more granular lifecycle states (e.g., multi-phase connection handshakes) **MAY** define internal substates. These internal substates **MUST** map to the generic five-state model. The adapter reports internal state via `AdapterHealth.details` for observability. The lifecycle manager tracks only the generic states.
+Adapters that require more granular lifecycle states (e.g., multi-phase
+connection handshakes) **MAY** define internal substates. Internal substates
+**MUST** map to the eight-state enum. The adapter reports internal state via
+`AdapterHealth.details` for observability. The lifecycle manager tracks only
+the eight generic states.
 
-| Internal Substates                                | Maps To                      |
-| ------------------------------------------------- | ---------------------------- |
-| DISCONNECTED, CONNECTING, AUTHENTICATING, SYNCING | `INITIALIZING` or `DEGRADED` |
-| READY                                             | `RUNNING`                    |
-| DEGRADED                                          | `DEGRADED`                   |
-| DRAINING                                          | `DRAINING`                   |
-| STOPPING                                          | `DRAINING` or `STOPPED`      |
+| Internal Substate                          | Maps To                                                 |
+| ------------------------------------------ | ------------------------------------------------------- |
+| `DISCONNECTED`, `CONNECTING`, `AUTHENTICATING`, `SYNCING` | `INITIALIZING` or `DEGRADED` or `DISCONNECTED` |
+| `READY`                                    | `READY`                                                 |
+| `DEGRADED`                                 | `DEGRADED`                                              |
+| `BACKPRESSURED`                            | `BACKPRESSURED`                                         |
+| `STOPPING`                                 | `STOPPING` or `STOPPED`                                 |
+
+### 8.6 Simplified Vocabulary Mapping
+
+The operator-facing evidence labels in
+[`diagnostics-evidence.md`](diagnostics-evidence.md) §18 derive from the
+eight-state enum. The mapping below is the complete correspondence used by
+`normalize_adapter_health()`:
+
+| Evidence Label      | Source `AdapterState` value(s)                                       |
+| ------------------- | -------------------------------------------------------------------- |
+| `connected`         | `READY`                                                              |
+| `degraded`          | `DEGRADED` or `BACKPRESSURED`                                       |
+| `unavailable`       | `DISCONNECTED`                                                       |
+| `stopping`          | `STOPPING`                                                           |
+| `failed`            | `FAILED`                                                             |
+| `stopped`           | `STOPPED`                                                            |
+
+`INITIALIZING` is the transient period between `build()` and `start()`
+completion; evidence output uses the configuration-derived `starting` label
+during that window. See
+[`diagnostics-evidence.md`](diagnostics-evidence.md) §18.1 for the
+derivation rules.
 
 ---
 

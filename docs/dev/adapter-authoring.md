@@ -444,15 +444,22 @@ through `metadata.native.data[<transport_name>]`.
 
 ## Lifecycle States
 
-Adapters report their state through `health_check()` and diagnostics:
+Adapters report their state through `health_check()` and diagnostics. The
+eight-state enum is the source of truth — see
+[spec/adapter-runtime.md §8](../spec/adapter-runtime.md#8-adapter-lifecycle-states)
+for the full state machine, transition graph, and ingress/delivery policies
+per state.
 
-| State            | Ingress | Delivery                   | Notes                               |
-| ---------------- | ------- | -------------------------- | ----------------------------------- |
-| **INITIALIZING** | Buffer  | Buffer                     | `start()` has not returned yet      |
-| **RUNNING**      | Accept  | Queue and deliver          | Normal operation                    |
-| **DEGRADED**     | Accept  | Queue, delay, may fallback | Connection unstable                 |
-| **DRAINING**     | Reject  | Complete in-flight only    | Graceful shutdown. Reject new work. |
-| **STOPPED**      | Reject  | None                       | Terminal state                      |
+| State             | Ingress Policy        | Delivery Policy                       | Notes                                  |
+| ----------------- | --------------------- | ------------------------------------- | -------------------------------------- |
+| `INITIALIZING`    | Buffer                | Buffer                                | `start()` has not returned yet         |
+| `READY`           | Accept                | Queue and deliver                     | Normal operation                       |
+| `DEGRADED`        | Accept                | Queue, delay, may fallback            | Connection unstable                    |
+| `BACKPRESSURED`   | Throttle              | Queue, refuse new outbound enqueues   | Outbound queue full                    |
+| `DISCONNECTED`    | Accept (buffered)     | Queue, no remote dispatch             | Transport endpoint unreachable         |
+| `STOPPING`        | Reject                | Complete in-flight only               | Graceful shutdown. Reject new work.    |
+| `FAILED`          | Reject                | None                                  | Terminal state. Unrecoverable failure. |
+| `STOPPED`         | Reject                | None                                  | Terminal state. Clean shutdown.        |
 
 Every state change emits a `system.lifecycle` canonical event.
 

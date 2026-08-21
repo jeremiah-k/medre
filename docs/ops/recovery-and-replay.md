@@ -142,7 +142,7 @@ grep "Assembly complete" {state}/logs/medre.log | tail -1
 
 ### Symptoms
 
-- Runtime is `RUNNING` but one or more adapters report `failed` or `degraded` health.
+- Runtime is `READY` but one or more adapters report `failed` or `degraded` health.
 - Events from the failed adapter's transport are no longer being processed.
 - Delivery receipts show `ADAPTER_PERMANENT` or repeated `ADAPTER_TRANSIENT` failures for the affected adapter.
 
