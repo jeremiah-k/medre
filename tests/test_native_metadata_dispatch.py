@@ -65,13 +65,17 @@ def test_native_namespace_dispatch_rejects_unknown_transport() -> None:
     assert versioned_native_namespace(native, "unknown") == {}
 
 
-def test_native_metadata_fixture_keyword_override_has_final_precedence() -> None:
-    native = matrix_native_data(
-        {"sender": "@mapping:example.com"},
+def test_native_metadata_fixture_merge_precedence() -> None:
+    """Fixture merge order: transport defaults, positional mapping, keywords."""
+    matrix = matrix_native_data(
+        {"room_id": "!positional:example.com", "sender": "@mapping:example.com"},
         sender="@keyword:example.com",
-    )
+    )["matrix"]
+    assert isinstance(matrix, dict)
 
-    assert native["matrix"]["sender"] == "@keyword:example.com"
+    assert matrix["event_type"] == "m.room.message"
+    assert matrix["room_id"] == "!positional:example.com"
+    assert matrix["sender"] == "@keyword:example.com"
 
 
 @pytest.mark.parametrize("transport", sorted(_CURRENT_VERSIONS))
