@@ -171,12 +171,16 @@ def _module_has_marker(tree: ast.Module, names: set[str]) -> bool:
             if isinstance(tgt, ast.Name):
                 aliases[tgt.id] = node.value
 
-    def _value_resolves_marker(value: ast.AST) -> bool:
+    def _value_resolves_marker(
+        value: ast.AST, extra_aliases: dict[str, ast.AST] | None = None
+    ) -> bool:
         if _expr_references_marker(value, names):
             return True
         # Resolve a bare alias: ``pytestmark = pytestmark_matrix``.
-        if isinstance(value, ast.Name) and value.id in aliases:
-            return _value_resolves_marker(aliases[value.id])
+        if isinstance(value, ast.Name):
+            for table in (aliases, extra_aliases or {}):
+                if value.id in table:
+                    return _value_resolves_marker(table[value.id], extra_aliases)
         return False
 
     for node in tree.body:
@@ -191,14 +195,22 @@ def _module_has_marker(tree: ast.Module, names: set[str]) -> bool:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if _decorators_refer_to_marker(node.decorator_list, names):
                 return True
-            # Classes may also carry a class-level pytestmark = ...
+            # Classes may also carry a class-level pytestmark = ... whose
+            # RHS may reference aliases declared in the same class body.
             if isinstance(node, ast.ClassDef):
+                class_aliases: dict[str, ast.AST] = {}
+                for sub in node.body:
+                    if isinstance(sub, ast.Assign) and len(sub.targets) == 1:
+                        if isinstance(sub.targets[0], ast.Name):
+                            name = sub.targets[0].id
+                            if name != "pytestmark":
+                                class_aliases[name] = sub.value
                 for sub in node.body:
                     if isinstance(sub, ast.Assign) and any(
                         isinstance(t, ast.Name) and t.id == "pytestmark"
                         for t in sub.targets
                     ):
-                        if _value_resolves_marker(sub.value):
+                        if _value_resolves_marker(sub.value, class_aliases):
                             return True
     return False
 
@@ -220,12 +232,18 @@ def _collect_fixed_sleep_calls(tree: ast.Module) -> list[tuple[int, str, float]]
             and func.value.id in ("asyncio", "time")
         ):
             continue
-        if not node.args:
-            continue
-        arg = node.args[0]
-        if not isinstance(arg, ast.Constant):
-            continue
-        val = arg.value
+        # Accept both positional and keyword forms:
+        #   asyncio.sleep(0.1) / asyncio.sleep(delay=0.1)
+        val: object = None
+        if node.args:
+            arg = node.args[0]
+            if isinstance(arg, ast.Constant):
+                val = arg.value
+        else:
+            for kw in node.keywords:
+                if kw.arg == "delay" and isinstance(kw.value, ast.Constant):
+                    val = kw.value.value
+                    break
         if not isinstance(val, (int, float)) or val <= 0:
             continue
         found.append((node.lineno, f"{func.value.id}.sleep({val})", float(val)))
@@ -350,6 +368,35 @@ def test_no_fixed_sleeps_project_wide() -> None:
         "or asyncio.wait_for(..., timeout=...) instead:\n" + "\n".join(failures)
     )
 
+
+
+def test_fixed_sleep_detector_accepts_keyword_delay_form() -> None:
+    """``asyncio.sleep(delay=N)`` is a fixed sleep and must be detected."""
+    import ast
+
+    tree = ast.parse(
+        "import asyncio\n"
+        "async def f() -> None:\n"
+        "    await asyncio.sleep(delay=0.15)\n"
+    )
+    found = _collect_fixed_sleep_calls(tree)
+    assert found, "keyword delay= form must be flagged as a fixed sleep"
+    assert found[0][2] == 0.15
+
+
+def test_class_local_marker_alias_counts_as_exempt_marker() -> None:
+    """A class-local alias feeding ``pytestmark`` resolves as a marker."""
+    import ast
+
+    tree = ast.parse(
+        "import pytest\n"
+        "class TestLive:\n"
+        "    live_marks = [pytest.mark.live]\n"
+        "    pytestmark = live_marks\n"
+        "    async def test_x(self) -> None:\n"
+        "        pass\n"
+    )
+    assert _module_has_marker(tree, {"live"}) is True
 
 # ===================================================================
 # Check 4 — no broad type: ignore / pyright: ignore in helpers
