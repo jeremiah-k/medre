@@ -6,6 +6,19 @@ This module defines:
 * :data:`VALID_TRANSITIONS` – the directed graph of legal state transitions.
 * :func:`is_valid_transition` – predicate for checking transition legality.
 * :class:`InvalidStateTransition` – exception raised on illegal moves.
+
+State-machine paradigms (deliberate split)
+------------------------------------------
+Adapter states use a ``str``-valued ``Enum`` with a directed transition
+graph and exception-raising validators.  Delivery-domain statuses
+(receipts, outbox items, outcomes) intentionally use a different model:
+plain string constants and ``bool``-returning validators in
+:mod:`medre.core.engine.pipeline.delivery_state`.  The two domains cover
+disjoint responsibilities (adapter process lifecycle vs per-attempt
+delivery state) and the paradigm split is deliberate — see the
+:mod:`delivery_state` module header for the rationale.  Adding a third
+state-machine domain in the future should follow the domain that owns
+the new responsibility rather than forcing a unified convention.
 """
 
 from __future__ import annotations

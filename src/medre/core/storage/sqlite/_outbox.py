@@ -38,7 +38,7 @@ from medre.core.engine.pipeline.delivery_state import (
     OUTBOX_STATUSES,
     TERMINAL_OUTBOX_STATUSES,
 )
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
     _add_seconds_iso,
@@ -200,7 +200,19 @@ class _OutboxMixin:
                         return await self.get_outbox_item(existing["outbox_id"]) or item
                     await db.execute(insert_sql, insert_params)  # type: ignore[union-attr]
                     await db.execute("COMMIT")  # type: ignore[union-attr]
-                except sqlite3.IntegrityError:
+                except sqlite3.IntegrityError as exc:
+                    msg = str(exc)
+                    if "FOREIGN KEY" in msg:
+                        # FK violation (e.g. unknown event_id).  Roll back
+                        # the open transaction and surface as StorageError so
+                        # callers see the storage-domain error class.
+                        try:
+                            await db.execute("ROLLBACK")  # type: ignore[union-attr]
+                        except Exception:
+                            pass
+                        raise StorageError(
+                            f"Outbox create failed: {exc}"
+                        ) from exc
                     # UNIQUE race: another writer inserted between our SELECT
                     # and INSERT.  Rollback if the transaction is still active,
                     # then re-read the winning row.
@@ -239,7 +251,12 @@ class _OutboxMixin:
                 )
                 if existing_id is not None:
                     return await self.get_outbox_item(existing_id) or item
-            except sqlite3.IntegrityError:
+            except sqlite3.IntegrityError as exc:
+                msg = str(exc)
+                if "FOREIGN KEY" in msg:
+                    raise StorageError(
+                        f"Outbox create failed: {exc}"
+                    ) from exc
                 existing = await self._read_one(select_sql, select_params)
                 if existing is not None:
                     return await self.get_outbox_item(existing["outbox_id"]) or item
@@ -449,6 +466,17 @@ class _OutboxMixin:
         When moving a row to ``in_progress``, ``next_attempt_at`` is
         cleared (set to ``NULL``) since the item is no longer waiting
         for a scheduled retry.
+
+        Concurrent-call guarantee: the conditional ``UPDATE`` uses the
+        same status/lease/queue predicate as the ``SELECT`` so that two
+        workers executing simultaneously receive disjoint sets of items
+        — a worker's ``UPDATE`` only succeeds for rows whose predicates
+        still match at write time.  When contention occurs, the loser's
+        ``UPDATE`` no-ops on contested rows (those are already owned by
+        the winner) and the trailing worker-scoped re-read returns only
+        the rows that the worker actually owns.  No double-claim or
+        loss is possible, but a contested worker may legitimately
+        observe fewer rows than its initial ``SELECT`` saw.
         """
         lease_until = _add_seconds_iso(now, lease_seconds)
         stale_cutoff = (

@@ -23,6 +23,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
+from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
+
 from ._helpers import _get, _parse_as_utc, _to_str
 from .classification import (
     CLASS_IMMEDIATELY_CLAIMABLE,
@@ -107,7 +109,12 @@ _CLASSIFICATION_TO_OWNERSHIP: dict[str, str] = {
 # Public builders
 # ---------------------------------------------------------------------------
 
-_DEFAULT_STALE_QUEUED_GRACE: timedelta = timedelta(minutes=5)
+#: Default stale-queued grace period; mirrors the storage-layer
+#: :data:`~medre.core.storage.sqlite.constants.STALE_QUEUED_GRACE_SECONDS`
+#: so recovery classification and outbox reclaim use a single source of truth.
+_DEFAULT_STALE_QUEUED_GRACE: timedelta = timedelta(
+    seconds=STALE_QUEUED_GRACE_SECONDS
+)
 
 
 def build_startup_recovery_ledger(

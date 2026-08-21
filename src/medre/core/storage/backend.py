@@ -208,7 +208,10 @@ class DeliveryOutboxItem:
     target_channel:
         Target channel, if applicable.
     target_address:
-        Target address if used by delivery planning.
+        Hash of the route target's destination (``target.destination.destination_hash``)
+        as set by the outbox manager during creation.  Stored as a stable
+        identifier rather than a full address — the full address is reconstructed
+        from the route + plan context when needed.
     attempt_number:
         1-indexed attempt counter.
     status:

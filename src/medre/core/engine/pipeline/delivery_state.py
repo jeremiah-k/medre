@@ -147,12 +147,27 @@ RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
 #: after the configured grace period (``STALE_QUEUED_GRACE_SECONDS``).
 #: It does **not** make ``queued`` a directly-claimable status; see
 #: ``CLAIMABLE_OUTBOX_STATUSES``.
+#:
+#: Transition path notes
+#: ~~~~~~~~~~~~~~~~~~~~~
+#: - ``queued`` → ``sent`` is reachable only via the supplemental receipt
+#:   callback path in
+#:   :meth:`DeliveryLifecycleService.append_queued_to_sent_receipt`,
+#:   which validates the outbox status to ``queued`` or ``in_progress``
+#:   before performing the transition.  Live delivery paths do not
+#:   produce a ``queued`` → ``sent`` transition directly.
+#: - Lease-style claim transitions (``pending`` → ``in_progress``,
+#:   ``retry_wait`` → ``in_progress``, ``queued`` → ``in_progress``
+#:   for stale reclaim) are performed by
+#:   :meth:`claim_due_outbox_items`, not by the ``mark_outbox_*``
+#:   family of methods.  The transition table is the union of the
+#:   claim path and the explicit ``mark_outbox_*`` paths.
 OUTBOX_TRANSITIONS: dict[str, frozenset[str]] = {
-    # Lease acquisition paths.
+    # Lease acquisition paths (driven by claim_due_outbox_items).
     "pending": frozenset({"in_progress", "cancelled", "abandoned"}),
     "retry_wait": frozenset({"in_progress", "cancelled", "dead_lettered", "abandoned"}),
     "queued": frozenset({"in_progress", "sent", "cancelled", "abandoned"}),
-    # Delivery outcome from in_progress.
+    # Delivery outcome from in_progress (driven by mark_outbox_* methods).
     "in_progress": frozenset(
         {
             "pending",
