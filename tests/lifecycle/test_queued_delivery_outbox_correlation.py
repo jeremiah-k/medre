@@ -27,7 +27,6 @@ import pytest
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from tests.helpers.storage_outbox import (
-    admit_event,
     append_receipt_with_parent,
     create_outbox_item_with_parent,
 )

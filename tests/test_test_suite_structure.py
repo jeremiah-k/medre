@@ -42,25 +42,27 @@ DELETED_MONOLITHS = (
 EXEMPT_MARKERS = frozenset({"live", "soak", "hardware", "docker"})
 
 # Explicit allowlist of fixed-sleep sites that are load-bearing for the
-# behaviour under test. Each entry is ``(relative_path, line_number)``.
+# behaviour under test. Each entry is ``(relative_path, sleep_seconds)`` and
+# matches on the literal value rather than a line number, so upstream edits
+# shifting lines cannot silently re-enable or disable an exemption.
 # Add a new entry here ONLY when the sleep cannot be removed without
 # changing the test's intent, and pair it with a justification comment in
 # the source so future readers understand why it stays.
-ALLOW_FIXED_SLEEP: tuple[tuple[str, int], ...] = (
+ALLOW_FIXED_SLEEP: tuple[tuple[str, float], ...] = (
     # Slow adapter delivery simulation — required so the test pipeline
     # observes a non-instant delivery and exercises the delivery success
     # path through the outbox.
-    ("tests/test_pipeline_outbox.py", 673),
+    ("tests/test_pipeline_outbox.py", 0.1),
     # Slow adapter for ≥1 renewal cycle to fire — required so the renewal
     # loop has time to attempt multiple renewals before the slow delivery
     # completes.
-    ("tests/test_pipeline_outbox.py", 1136),
+    ("tests/test_pipeline_outbox.py", 0.15),
     # SlowStopOnStartFailure.stop() simulates a hung stop that ignores
     # CancelledError, exercising the bounded-poll stop helper.
-    ("tests/helpers/startup_cleanup.py", 215),
+    ("tests/helpers/startup_cleanup.py", 300.0),
     # _slow_cancel pause before raising CancelledError so the test has a
     # window to call task.cancel() before the stop returns.
-    ("tests/helpers/startup_cleanup.py", 347),
+    ("tests/helpers/startup_cleanup.py", 0.1),
 )
 
 
@@ -201,12 +203,12 @@ def _module_has_marker(tree: ast.Module, names: set[str]) -> bool:
     return False
 
 
-def _collect_fixed_sleep_calls(tree: ast.Module) -> list[tuple[int, str]]:
-    """Return a list of ``(line_number, qualified_name)`` for every fixed
+def _collect_fixed_sleep_calls(tree: ast.Module) -> list[tuple[int, str, float]]:
+    """Return ``(line_number, qualified_name, literal_seconds)`` for every fixed
     sleep call in *tree* — i.e. ``asyncio.sleep(<positive literal>)`` or
     ``time.sleep(<positive literal>)``.
     """
-    found: list[tuple[int, str]] = []
+    found: list[tuple[int, str, float]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -226,7 +228,7 @@ def _collect_fixed_sleep_calls(tree: ast.Module) -> list[tuple[int, str]]:
         val = arg.value
         if not isinstance(val, (int, float)) or val <= 0:
             continue
-        found.append((node.lineno, f"{func.value.id}.sleep({val})"))
+        found.append((node.lineno, f"{func.value.id}.sleep({val})", float(val)))
     return found
 
 
@@ -306,7 +308,7 @@ def test_no_fixed_sleeps_project_wide() -> None:
     the suite stays deterministic and runs as fast as the production
     code permits.
     """
-    allow = {(p, ln) for p, ln in ALLOW_FIXED_SLEEP}
+    allow = {(p, val) for p, val in ALLOW_FIXED_SLEEP}
     failures: list[str] = []
 
     for path in sorted(TESTS_DIR.rglob("*.py")):
@@ -335,8 +337,8 @@ def test_no_fixed_sleeps_project_wide() -> None:
         # Also skip files where every fixed sleep lives in the allowlist.
         offenders = [
             (ln, name)
-            for ln, name in _collect_fixed_sleep_calls(tree)
-            if (f"tests/{rel_str}", ln) not in allow
+            for ln, name, value in _collect_fixed_sleep_calls(tree)
+            if (f"tests/{rel_str}", value) not in allow
         ]
         if offenders:
             for ln, name in offenders:

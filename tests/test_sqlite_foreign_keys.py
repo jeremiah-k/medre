@@ -24,7 +24,6 @@ from medre.core.storage.backend import (
     StorageError,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.storage_outbox import make_outbox_item
 
 
 def _make_event(event_id: str = "evt-fk-1") -> CanonicalEvent:
