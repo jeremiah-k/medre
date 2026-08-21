@@ -1,6 +1,6 @@
 """Tests for source-aware candidate selection in queued→sent correlation.
 
-Exercises ``append_queued_to_sent_receipt`` source preference logic:
+Exercises ``finalize_queued_delivery`` source preference logic:
 live queued receipts are preferred over replay queued receipts when
 multiple candidates match the same (delivery_plan_id, adapter, channel).
 
@@ -30,7 +30,7 @@ from tests.helpers.storage_outbox import (
 
 
 class TestSourceAwareCandidateSelection:
-    """Verify that append_queued_to_sent_receipt prefers non-replay queued
+    """Verify that finalize_queued_delivery prefers non-replay queued
     receipts over replay queued receipts when multiple candidates match the
     same (delivery_plan_id, adapter, channel).
 
@@ -97,7 +97,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-live-vs-replay",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -169,7 +169,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-order",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -211,7 +211,7 @@ class TestSourceAwareCandidateSelection:
             delivery_plan_id="plan-replay-only",
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -274,7 +274,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-live-single",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -340,7 +340,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-dup-1",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -384,7 +384,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-dup-2",
             attempt_number=2,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record2,
             now=now,
@@ -454,7 +454,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-nc",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -508,7 +508,7 @@ class TestSourceAwareCandidateSelection:
             delivery_plan_id="plan-rmulti",
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -569,7 +569,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-single",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -634,7 +634,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-retry",
             attempt_number=2,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,

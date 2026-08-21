@@ -1117,89 +1117,43 @@ class PipelineRunner:
     async def _record_outbound_native_ref(
         self, record: OutboundNativeRefRecord
     ) -> None:
-        """Persist a delayed outbound :class:`NativeMessageRef`.
+        """Atomically finalize a delayed queue-backed outbound send.
 
-        Called by queue-based adapters after a queued send returns a real
-        native message ID.  This is the callback wired into
-        :class:`AdapterContext.record_outbound_native_ref`.
+        Queue adapters call this after the external SDK returns a real native
+        message ID.  Core validates exact outbox/attempt correlation and then
+        commits the outbound native ref, supplemental ``sent`` receipt, and
+        outbox terminal transition in one storage transaction.
 
-        The guard against empty ``native_message_id`` is a defensive check
-        for manually-constructed records; note that
-        :class:`OutboundNativeRefRecord` now rejects empty values at
-        construction.  Catches and logs all exceptions with
-        ``exc_info=True`` so that callback failures never crash the
-        adapter's queue drain.
-
-        After storing the native ref, appends a supplemental delivery
-        receipt with ``status="sent"`` and the real native message ID.
-        This bridges the evidence gap for queue-based adapters: the
-        initial receipt is ``status="queued"`` (from ``delivery_status``
-        ``"enqueued"``), and this supplemental receipt records the
-        transition to "sent" when the queue drain produces a real
-        native ID.
-
-        Parameters
-        ----------
-        record:
-            The outbound native reference record from the adapter.
+        Callback failures are logged rather than raised into the adapter queue
+        drain; stale callbacks commit no finalization evidence.
         """
         if not record.native_message_id:
             return
 
         try:
-            now = datetime.now(tz=timezone.utc)
-            outbound_ref = NativeMessageRef(
-                id=f"nref-outbound-{uuid.uuid4()}",
-                event_id=record.event_id,
-                adapter=record.adapter,
-                native_channel_id=record.native_channel_id,
-                native_message_id=record.native_message_id,
-                native_thread_id=record.native_thread_id,
-                native_relation_id=record.native_relation_id,
-                direction="outbound",
-                metadata=dict(record.metadata),
-                created_at=now,
+            await self._finalize_queued_delivery(
+                record=record,
+                now=datetime.now(tz=timezone.utc),
             )
-            await self._config.storage.store_native_ref(outbound_ref)
-
-            # Append a supplemental "sent" receipt to close the
-            # queued → sent evidence gap for queue-based adapters.
-            # Look up the most recent "queued" receipt for this
-            # event + adapter to inherit plan/route context.
-            try:
-                await self._append_queued_to_sent_receipt(record=record, now=now)
-            except Exception:
-                self._log.exception(
-                    "Failed to append supplemental sent receipt: "
-                    "event_id=%s adapter=%s",
-                    record.event_id,
-                    record.adapter,
-                )
         except Exception:
             self._log.exception(
-                "Failed to record delayed outbound native ref: "
+                "Failed to finalize delayed outbound delivery: "
                 "event_id=%s adapter=%s native_message_id=%s",
                 record.event_id,
                 record.adapter,
                 record.native_message_id,
             )
 
-    async def _append_queued_to_sent_receipt(
+    async def _finalize_queued_delivery(
         self,
         record: OutboundNativeRefRecord,
         now: datetime,
     ) -> None:
-        """Append a supplemental ``status="sent"`` receipt for a queue-based
-        delivery that transitioned from enqueued to sent.
-
-        Thin wrapper that delegates to
-        :class:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService`.
-
-        See :meth:`DeliveryLifecycleService.append_queued_to_sent_receipt`
-        for full documentation.
-        """
-        await self._lifecycle.append_queued_to_sent_receipt(
-            self._config.storage, record=record, now=now
+        """Delegate queue-backed finalization to lifecycle authority."""
+        await self._lifecycle.finalize_queued_delivery(
+            self._config.storage,
+            record=record,
+            now=now,
         )
 
     # -- Stage 3-4: Routing + Planning -------------------------------------

@@ -81,6 +81,27 @@ class _MemoryStorage:
         """Return the number of stored native refs."""
         return len(self._native_refs)
 
+    async def finalize_queued_delivery(
+        self,
+        native_ref: NativeMessageRef,
+        receipt: DeliveryReceipt,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+    ) -> bool:
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status not in {"queued", "in_progress"}
+            or item.attempt_number != attempt_number
+        ):
+            return False
+        self._native_refs.append(native_ref)
+        self._receipts.append(receipt)
+        object.__setattr__(item, "status", "sent")
+        object.__setattr__(item, "receipt_id", receipt.receipt_id)
+        return True
+
     # -- Outbox stubs for queued→sent correlation tests --
 
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
@@ -313,7 +334,7 @@ class TestDeliveryLifecycleConformance:
             outbox_id=outbox_id,
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(storage, record, now)
+        await lifecycle.finalize_queued_delivery(storage, record, now)
 
         receipts = await storage.list_receipts_for_event(event_id)
         assert len(receipts) == 2
@@ -373,7 +394,7 @@ class TestDeliveryLifecycleConformance:
             outbox_id=outbox_id,
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(storage, record, now)
+        await lifecycle.finalize_queued_delivery(storage, record, now)
 
         receipts = await storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"][0]

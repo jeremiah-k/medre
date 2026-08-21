@@ -149,7 +149,7 @@ This key is:
 - Returned in delayed callbacks (`OutboundNativeRefRecord`,
   `QueueTerminalRecord`).
 
-The correlation strategy for `append_queued_to_sent_receipt` is exact only:
+The correlation strategy for `finalize_queued_delivery` is exact only:
 
 1. **Exact `outbox_id` + `attempt_number` correlation** (required). Looks up the outbox item
    directly and validates its status is still `queued` or `in_progress`.
@@ -163,13 +163,20 @@ The correlation strategy for `append_queued_to_sent_receipt` is exact only:
 MUST NOT appear in rendered payloads sent to external platforms (Matrix,
 Meshtastic radio, MeshCore, LXMF). They are not public API.
 
+After correlation succeeds, storage MUST re-check the exact outbox attempt and
+atomically commit three facts: the outbound native-message reference, the new
+immutable `sent` receipt, and the outbox transition to `sent`. If the guarded
+outbox row is no longer finalizable, or any insert fails, none of those writes
+may commit. The unavoidable external-send-to-database boundary remains an
+ambiguity boundary; MEDRE does not claim exactly-once transport delivery.
+
 ### 3.5 Stale Callback Protection
 
 A stale callback is a delayed adapter callback that arrives after the outbox
 item it refers to has been reclaimed by a retry or reached a terminal state.
 Stale callbacks MUST NOT finalize a different delivery attempt.
 
-When `append_queued_to_sent_receipt` receives a callback with an `outbox_id`
+When `finalize_queued_delivery` receives a callback with an `outbox_id`
 whose outbox item has a status other than `queued` or `in_progress`, the
 callback is rejected: a warning is logged and no supplemental receipt is
 created. This prevents an old in-memory queue callback from corrupting a

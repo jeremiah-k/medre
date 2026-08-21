@@ -7,7 +7,7 @@ Verifies:
 - Transport-specific namespace facts (reply_id, emoji, channel, packet_id).
 
 These tests exercise the adapter's _record_delayed_outbound_ref and
-_append_queued_to_sent_receipt code paths, not the queue evidence counters
+_finalize_queued_delivery code paths, not the queue evidence counters
 (which live in test_meshtastic_queue_evidence.py).
 """
 
@@ -25,11 +25,11 @@ from tests.helpers.storage_outbox import (
 
 
 class TestSupplementalReceiptChannelCorrelation:
-    """_append_queued_to_sent_receipt correlates by event_id + adapter + channel.
+    """Preserve channel evidence after exact queued-delivery correlation.
 
     When one event fanouts to the same adapter on multiple channels,
-    the supplemental "sent" receipt must attach to the correct queued
-    parent (matching by channel).  Ambiguous cases produce no receipt.
+    exact outbox correlation selects the queued attempt while channel
+    metadata is preserved on the supplemental ``sent`` receipt.
     """
 
     async def test_two_channels_correlate_correctly(self, temp_storage) -> None:
@@ -121,7 +121,7 @@ class TestSupplementalReceiptChannelCorrelation:
             attempt_number=1,
             confirmation_level="local_transport",
         )
-        await runner._append_queued_to_sent_receipt(record=record_ch0, now=now)
+        await runner._finalize_queued_delivery(record=record_ch0, now=now)
 
         # Callback for channel "1".
         record_ch1 = OutboundNativeRefRecord(
@@ -134,7 +134,7 @@ class TestSupplementalReceiptChannelCorrelation:
             attempt_number=1,
             confirmation_level="local_transport",
         )
-        await runner._append_queued_to_sent_receipt(record=record_ch1, now=now)
+        await runner._finalize_queued_delivery(record=record_ch1, now=now)
 
         # Verify both supplemental receipts created.
         receipts = await temp_storage.list_receipts_for_event(event_id)
@@ -160,7 +160,7 @@ class TestSupplementalReceiptChannelCorrelation:
         assert sent_ch1[0].confirmation_level == "local_transport"
 
     async def test_ambiguous_no_channel_produces_no_receipt(self, temp_storage) -> None:
-        """Multiple queued candidates + no channel on record → no receipt."""
+        """Callbacks without an outbox ID are rejected before candidate selection."""
         from datetime import datetime, timezone
 
         from medre.core.contracts.adapter import OutboundNativeRefRecord
@@ -221,7 +221,7 @@ class TestSupplementalReceiptChannelCorrelation:
             native_message_id="packet-amb",
             delivery_plan_id="plan-shared",
         )
-        await runner._append_queued_to_sent_receipt(record=record, now=now)
+        await runner._finalize_queued_delivery(record=record, now=now)
 
         receipts = await temp_storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"]
@@ -293,7 +293,7 @@ class TestSupplementalReceiptChannelCorrelation:
             outbox_id="obox-single",
             attempt_number=1,
         )
-        await runner._append_queued_to_sent_receipt(record=record, now=now)
+        await runner._finalize_queued_delivery(record=record, now=now)
 
         receipts = await temp_storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"]
@@ -386,7 +386,7 @@ class TestSupplementalReceiptChannelCorrelation:
             outbox_id="obox-retry",
             attempt_number=2,
         )
-        await runner._append_queued_to_sent_receipt(record=record, now=now)
+        await runner._finalize_queued_delivery(record=record, now=now)
 
         receipts = await temp_storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"]

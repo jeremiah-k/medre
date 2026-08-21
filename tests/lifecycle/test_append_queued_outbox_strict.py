@@ -1,4 +1,4 @@
-"""Tests for outbox-strict field validations in append_queued_to_sent_receipt.
+"""Tests for outbox-strict field validations in finalize_queued_delivery.
 
 Validates that adapter, delivery_plan_id, native_channel_id, and
 attempt_number on the callback record are checked against the authoritative
@@ -134,7 +134,7 @@ class TestFieldMismatchRejected:
             outbox_id="obox-plan-mismatch",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -171,7 +171,7 @@ class TestFieldMismatchRejected:
             outbox_id="obox-ch-mismatch",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -208,7 +208,7 @@ class TestFieldMismatchRejected:
             outbox_id="obox-adapter-mismatch",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -246,7 +246,7 @@ class TestFieldMismatchRejected:
             outbox_id="obox-attempt-mismatch",
             attempt_number=5,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -308,7 +308,7 @@ class TestExactOutboxSelection:
             outbox_id="obox-second",
             attempt_number=2,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -365,7 +365,7 @@ class TestExactCallbackHappyPath:
             outbox_id="obox-valid",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -414,7 +414,7 @@ class TestExactCallbackHappyPath:
         )
 
         # First call — should create supplemental sent receipt.
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -423,7 +423,7 @@ class TestExactCallbackHappyPath:
         # Second call — the original queued receipt is gone (replaced by
         # sent), so the candidate filter `r.status == "queued"` won't
         # match it.  A second supplemental receipt should NOT be created.
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -456,7 +456,7 @@ class TestMissingAttemptNumberRejected:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -484,7 +484,7 @@ class TestMissingAttemptNumberRejected:
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             outbox_temp_storage,
             record=record,
             now=now,
@@ -514,7 +514,7 @@ class TestMissingAttemptNumberRejected:
         now = datetime.now(tz=timezone.utc)
 
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 outbox_temp_storage,
                 record=record,
                 now=now,
