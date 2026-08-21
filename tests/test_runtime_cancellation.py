@@ -942,20 +942,21 @@ class TestDeliveryFanoutCancellation:
 
         results: list[bool] = []
         stop_triggered = False
+        acquired: list[int] = []
 
         async def try_deliver(idx: int) -> None:
             nonlocal stop_triggered
             result = await cc.acquire_delivery()
             results.append(result)
             if result:
-                # Simulate work with two loop yields: deterministic, keeps
-                # acquisitions interleaved, and never depends on real time.
-                await asyncio.sleep(0)
-                await asyncio.sleep(0)
+                acquired.append(idx)
+                if idx == 3 and not stop_triggered:
+                    # Observable overlap proof: at least one OTHER task also
+                    # holds a delivery before acceptance stops.
+                    await wait_until(lambda: len(acquired) >= 2)
+                    cc.stop_accepting()
+                    stop_triggered = True
                 await cc.release_delivery()
-            if idx == 3 and not stop_triggered:
-                cc.stop_accepting()
-                stop_triggered = True
 
         await asyncio.gather(*[asyncio.create_task(try_deliver(i)) for i in range(20)])
 
@@ -1049,10 +1050,19 @@ class TestAdapterLifecycleDuringCancellation:
         app = _build_app(config, tmp_paths)
         await app.start()
 
-        # Start the waiter first so it is parked on the event, then set it —
-        # pure scheduling order, no wall-clock delay.
+        # Start the waiter and observe that it actually entered the event
+        # wait before setting the event — pure scheduling fact, no yield.
+        wait_entered = asyncio.Event()
+        real_wait = app.shutdown_event.wait
+
+        async def _traced_wait() -> None:
+            wait_entered.set()
+            await real_wait()
+
+        app.shutdown_event.wait = _traced_wait  # type: ignore[method-assign]
+
         waiter = asyncio.create_task(app.wait_for_shutdown(timeout=2.0))
-        await asyncio.sleep(0)
+        await wait_entered.wait()
         app.shutdown_event.set()
 
         # wait_for_shutdown should complete.

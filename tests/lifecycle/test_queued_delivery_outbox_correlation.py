@@ -126,10 +126,14 @@ async def temp_storage() -> Any:
         await storage.initialize()
         yield storage
     finally:
-        with suppress(Exception):
-            await storage.close()
-        with suppress(FileNotFoundError):
-            os.unlink(db_path)
+        try:
+            # close() may itself raise CancelledError/KeyboardInterrupt;
+            # the unlink must still run while that exception propagates.
+            with suppress(Exception):
+                await storage.close()
+        finally:
+            with suppress(FileNotFoundError):
+                os.unlink(db_path)
 
 
 # ===================================================================
