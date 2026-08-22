@@ -1,8 +1,10 @@
 """Pipeline runner that orchestrates the full event lifecycle.
 
 This module provides the central orchestration engine that wires together
-the framework's subsystems into a coherent processing pipeline.
-Single-target delivery execution is delegated to
+the framework's subsystems into a coherent processing pipeline. Per-target
+delivery sequencing is delegated to
+:class:`~medre.core.engine.pipeline.delivery_coordinator.DeliveryCoordinator`;
+rendering/adapter execution is delegated to
 :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`.
 """
 
@@ -11,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -21,7 +22,6 @@ from typing import (
     Callable,
     Literal,
     TypedDict,
-    TypeVar,
     cast,
 )
 
@@ -33,6 +33,11 @@ from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
 )
 from medre.core.engine.phases import PipelinePhase
+from medre.core.engine.pipeline.delivery_coordinator import (
+    DeliveryCoordinator,
+    InflightDelivery,
+    _bounded_ordered_map,
+)
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
     is_accepted_outcome_status as _is_accepted_outcome_status,
@@ -41,11 +46,7 @@ from medre.core.engine.pipeline.outbox_manager import (
     OUTBOX_CREATION_FAILED_REASON,
     OutboxManager,
 )
-from medre.core.engine.pipeline.target_delivery import (
-    TargetDeliveryService,
-    _AdapterDeliveryError,
-    _RendererDeliveryError,
-)
+from medre.core.engine.pipeline.target_delivery import TargetDeliveryService
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
     CanonicalEvent,
@@ -78,7 +79,6 @@ from medre.core.planning.delivery_plan import (
 from medre.core.planning.fallback_resolution import FallbackResolver
 from medre.core.planning.relation_enricher import RelationEnricher, SenderProjectionFn
 from medre.core.planning.relation_resolution import RelationResolver
-from medre.core.policies.route_policy import BLOCKED_VALUE_CUTOFF, evaluate_route_policy
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteTarget
@@ -95,64 +95,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 _logger = logging.getLogger(__name__)
-
-_ItemT = TypeVar("_ItemT")
-_ResultT = TypeVar("_ResultT")
-
-
-async def _bounded_ordered_map(
-    items: list[_ItemT],
-    handler: Callable[[_ItemT], Awaitable[_ResultT]],
-    *,
-    worker_limit: int,
-) -> list[_ResultT]:
-    """Apply *handler* with bounded task creation and stable result ordering.
-
-    Per-item failures are retained until every sibling item finishes, then the
-    first failure in input order is re-raised unchanged.  Cancellation of the
-    caller still cancels the worker group immediately.
-    """
-    if not items:
-        return []
-    worker_count = min(max(1, worker_limit), len(items))
-    sentinel = object()
-    results: list[object] = [sentinel] * len(items)
-    next_index = 0
-    index_lock = asyncio.Lock()
-
-    async def _worker() -> None:
-        nonlocal next_index
-        while True:
-            async with index_lock:
-                if next_index >= len(items):
-                    return
-                index = next_index
-                next_index += 1
-                item = items[index]
-            try:
-                results[index] = await handler(item)
-            except asyncio.CancelledError as exc:
-                current_task = asyncio.current_task()
-                if current_task is not None and current_task.cancelling():
-                    raise
-                # A handler may raise CancelledError directly even though the
-                # worker itself was not cancelled.  TaskGroup otherwise treats
-                # that as normal child cancellation and loses the exception.
-                results[index] = exc
-            except Exception as exc:
-                results[index] = exc
-
-    async with asyncio.TaskGroup() as task_group:
-        for _ in range(worker_count):
-            task_group.create_task(_worker())
-
-    if any(result is sentinel for result in results):
-        raise RuntimeError("bounded worker pool returned incomplete results")
-    for result in results:
-        if isinstance(result, BaseException):
-            raise result
-    return cast(list[_ResultT], results)
-
 
 # ---------------------------------------------------------------------------
 # Pipeline config
@@ -237,51 +179,6 @@ class _PipelineLoggingMiddleware:
             event.event_kind,
         )
         return event
-
-
-# ---------------------------------------------------------------------------
-# In-flight delivery tracking
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class InflightDelivery:
-    """Identity record for a delivery currently in-flight in the pipeline.
-
-    Used by :meth:`PipelineRunner.drain_abandoned_deliveries` to produce
-    structured shutdown evidence when drain timeout expires.
-
-    Attributes
-    ----------
-    event_id:
-        Canonical event ID being delivered.
-    route_id:
-        Route that matched this delivery.
-    target_adapter:
-        Target adapter for this delivery.
-    target_channel:
-        Channel on the target adapter, if applicable.
-    delivery_plan_id:
-        ID of the delivery plan governing this attempt.
-    source:
-        Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
-    replay_run_id:
-        When ``source="replay"``, the replay run identifier.
-    acquired_at:
-        Monotonic timestamp when the delivery slot was acquired.
-    outbox_id:
-        ID of the outbox item tracking this delivery, if created.
-    """
-
-    event_id: str
-    route_id: str
-    target_adapter: str
-    target_channel: str | None
-    delivery_plan_id: str
-    source: str
-    replay_run_id: str | None
-    acquired_at: float
-    outbox_id: str | None = None
 
 
 def _default_rendering_pipeline() -> RenderingPipeline:
@@ -394,6 +291,20 @@ class PipelineRunner:
         self._capacity_controller: CapacityController | None = None
         self._delivery_rejection_count: int = 0
         self._inflight_deliveries: dict[str, InflightDelivery] = {}
+        self._delivery_coordinator = DeliveryCoordinator(
+            storage=config.storage,
+            adapters=config.adapters,
+            lifecycle=self._lifecycle,
+            outbox_manager=self._outbox_manager,
+            diagnostician=self._diagnostician,
+            persist_suppression_receipt=self._coordinator_persist_suppression_receipt,
+            deliver_target=self._coordinator_deliver_to_target,
+            inflight_deliveries=self._inflight_deliveries,
+            record_capacity_rejection=self._record_delivery_capacity_rejection,
+            logger=self._log,
+            route_stats=self._route_stats,
+            runtime_accounting=self._runtime_accounting,
+        )
         self._conversation_projection_repair_failed: bool = False
         self._running: bool = False
 
@@ -530,11 +441,16 @@ class PipelineRunner:
     def set_capacity_controller(self, cc: CapacityController) -> None:
         """Wire a :class:`~medre.core.supervision.capacity.CapacityController`.
 
-        When set, each per-target delivery inside :meth:`_deliver_to_targets_fan_out`
-        acquires a delivery slot before processing and releases it on
-        completion (success, failure, or skip).
+        When set, :class:`DeliveryCoordinator` acquires one slot for each
+        accepted target delivery and owns its release across outbox creation,
+        execution, finalization failure, and cancellation.
         """
         self._capacity_controller = cc
+        self._delivery_coordinator.set_capacity_controller(cc)
+
+    def _record_delivery_capacity_rejection(self) -> None:
+        """Increment the runner-owned delivery rejection counter."""
+        self._delivery_rejection_count += 1
 
     async def stop(self) -> None:
         """Remove pipeline middleware from the event bus.
@@ -1493,6 +1409,60 @@ class PipelineRunner:
             replay_run_id=replay_run_id,
         )
 
+    async def _coordinator_persist_suppression_receipt(
+        self,
+        *,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+        route_id: str,
+        failure_kind: DeliveryFailureKind,
+        error: str,
+        source: str = "live",
+        replay_run_id: str | None = None,
+    ) -> DeliveryReceipt:
+        """Late-bind suppression persistence for delivery coordination."""
+        return await self._persist_suppression_receipt(
+            event_id=event_id,
+            delivery_plan_id=delivery_plan_id,
+            target_adapter=target_adapter,
+            target_channel=target_channel,
+            route_id=route_id,
+            failure_kind=failure_kind,
+            error=error,
+            source=source,
+            replay_run_id=replay_run_id,
+        )
+
+    async def _coordinator_deliver_to_target(
+        self,
+        event: CanonicalEvent,
+        route: Route,
+        plan: DeliveryPlan,
+        *,
+        previous_receipt: DeliveryReceipt | None = None,
+        source: str = "live",
+        replay_run_id: str | None = None,
+        cached_get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
+        cached_list_fn: (
+            Callable[[str], Awaitable[list[NativeMessageRef]]] | None
+        ) = None,
+        outbox_id: str | None = None,
+    ) -> DeliveryReceipt:
+        """Late-bind target delivery so controlled test hooks remain effective."""
+        return await self.deliver_to_target(
+            event,
+            route,
+            plan,
+            previous_receipt=previous_receipt,
+            source=source,
+            replay_run_id=replay_run_id,
+            cached_get_fn=cached_get_fn,
+            cached_list_fn=cached_list_fn,
+            outbox_id=outbox_id,
+        )
+
     async def _deliver_to_targets_fan_out(
         self,
         event: CanonicalEvent,
@@ -1505,710 +1475,14 @@ class PipelineRunner:
             Callable[[str], Awaitable[list[NativeMessageRef]]] | None
         ) = None,
     ) -> list[DeliveryOutcome]:
-
-        async def _deliver_single_target(
-            route: Route, route_plan: DeliveryPlan
-        ) -> DeliveryOutcome:
-            target = route_plan.target
-            with correlation_scope(
-                trace_id=event.trace_id,
-                event_id=event.event_id,
-                conversation_id=event.conversation_id,
-                route_id=route.id,
-                delivery_plan_id=route_plan.plan_id,
-                target_adapter=target.adapter,
-                source=source,
-                replay_run_id=replay_run_id,
-            ):
-                return await _deliver_single_target_scoped(route, route_plan)
-
-        async def _deliver_single_target_scoped(
-            route: Route, route_plan: DeliveryPlan
-        ) -> DeliveryOutcome:
-            target = route_plan.target
-            adapter_id = target.adapter or ""
-            t0 = time.monotonic()
-
-            replay_receipts: list[DeliveryReceipt] = []
-            if source == "replay":
-                try:
-                    replay_receipts = (
-                        await self._config.storage.list_receipts_for_event(
-                            event.event_id
-                        )
-                    )
-                except Exception:
-                    # Same-run suppression is a safety boundary: if a non-empty
-                    # run ID cannot be checked, fail closed rather than risk a
-                    # duplicate delivery.  Empty run IDs remain best-effort.
-                    if replay_run_id:
-                        raise
-                    self._log.debug(
-                        "Failed to load replay receipt history; proceeding "
-                        "without attempt lineage: event_id=%s adapter=%s",
-                        event.event_id,
-                        adapter_id,
-                        exc_info=True,
-                    )
-
-            if replay_run_id:
-                prior_accepted = any(
-                    receipt.source == "replay"
-                    and receipt.replay_run_id == replay_run_id
-                    and receipt.delivery_plan_id == route_plan.plan_id
-                    and receipt.target_adapter == adapter_id
-                    and (receipt.target_channel or None) == (target.channel or None)
-                    and receipt.status in {"queued", "sent"}
-                    for receipt in replay_receipts
-                )
-                if prior_accepted:
-                    error = "replay_duplicate_suppressed: run target already accepted"
-                    receipt = await self._persist_suppression_receipt(
-                        event_id=event.event_id,
-                        delivery_plan_id=route_plan.plan_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        failure_kind=DeliveryFailureKind.REPLAY_DUPLICATE_SUPPRESSED,
-                        error=error,
-                        source=source,
-                        replay_run_id=replay_run_id,
-                    )
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status="skipped",
-                        failure_kind=DeliveryFailureKind.REPLAY_DUPLICATE_SUPPRESSED,
-                        receipt=receipt,
-                        error=error,
-                        duration_ms=(time.monotonic() - t0) * 1000.0,
-                    )
-
-            # ── Phase 1: Loop checks (no state mutation) ──────────────
-
-            # Route-trace loop prevention: skip if this route has already
-            # been traversed in a *prior* routing pass.  The first occurrence
-            # of a route ID in the trace is the current pass — allow it.
-            # A second or later occurrence means the event was re-routed
-            # through the same route (e.g. during replay or multi-hop
-            # topologies).
-            routing_meta = event.metadata.routing
-            trace_count = 0
-            if routing_meta is not None:
-                trace_count = sum(
-                    1 for tid in routing_meta.route_trace if tid == route.id
-                )
-                if trace_count > 1:
-                    self._log.warning(
-                        "loop_prevented: route_id=%s already in route_trace "
-                        "for event_id=%s (trace=%s)",
-                        route.id,
-                        event.event_id,
-                        routing_meta.route_trace,
-                    )
-                    if self._route_stats is not None:
-                        self._route_stats.record_loop_prevented(route.id)
-                    if self._runtime_accounting is not None:
-                        self._runtime_accounting.record_loop_prevented()
-                    elapsed = (time.monotonic() - t0) * 1000.0
-                    loop_receipt = await self._persist_suppression_receipt(
-                        event_id=event.event_id,
-                        delivery_plan_id=route_plan.plan_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                        error="loop_prevented: route already traversed in prior routing pass",
-                        source=source,
-                        replay_run_id=replay_run_id,
-                    )
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status="skipped",
-                        failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                        receipt=loop_receipt,
-                        error="loop_prevented: route already traversed in prior routing pass",
-                        duration_ms=elapsed,
-                    )
-
-            # Self-loop guard: skip delivery back to the source adapter.
-            if adapter_id and adapter_id == event.source_adapter:
-                self._log.warning(
-                    "loop_prevented: skipping delivery of event_id=%s "
-                    "back to source_adapter=%s (route=%s)",
-                    event.event_id,
-                    adapter_id,
-                    route.id,
-                )
-                if self._route_stats is not None:
-                    self._route_stats.record_loop_prevented(route.id)
-                if self._runtime_accounting is not None:
-                    self._runtime_accounting.record_loop_prevented()
-                elapsed = (time.monotonic() - t0) * 1000.0
-                selfloop_receipt = await self._persist_suppression_receipt(
-                    event_id=event.event_id,
-                    delivery_plan_id=route_plan.plan_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                    error="loop_prevented",
-                    source=source,
-                    replay_run_id=replay_run_id,
-                )
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=route_plan.plan_id,
-                    status="skipped",
-                    failure_kind=DeliveryFailureKind.LOOP_SUPPRESSED,
-                    receipt=selfloop_receipt,
-                    error="loop_prevented",
-                    duration_ms=elapsed,
-                )
-
-            # ── Phase 2: Route-policy evaluation (no state mutation) ──
-
-            # Route-policy evaluation: enforce allowlists attached
-            # to the route.  Runs after structural loop/self-loop
-            # checks but BEFORE capacity acquisition so that
-            # policy-denied targets never consume capacity or
-            # increment capacity_rejection counters.
-            if route.policy is not None:
-                decision = evaluate_route_policy(
-                    route.policy,
-                    event,
-                    target,
-                )
-                if not decision.allowed:
-                    # Sanitize blocked_value FIRST: cap at 256 chars to prevent
-                    # large externally-sourced IDs from flooding logs/receipts.
-                    _blocked_val = decision.blocked_value or ""
-                    if len(_blocked_val) >= BLOCKED_VALUE_CUTOFF:
-                        _blocked_val = _blocked_val[:BLOCKED_VALUE_CUTOFF] + "..."
-                    self._log.info(
-                        "policy_suppressed: route_id=%s event_id=%s "
-                        "target_adapter=%s reason=%s "
-                        "blocked_field=%s blocked_value=%r",
-                        route.id,
-                        event.event_id,
-                        adapter_id,
-                        decision.reason,
-                        decision.blocked_field,
-                        _blocked_val,
-                    )
-                    if self._route_stats is not None:
-                        self._route_stats.record_policy_suppressed(route.id)
-                    if self._runtime_accounting is not None:
-                        self._runtime_accounting.record_policy_suppressed()
-                    elapsed = (time.monotonic() - t0) * 1000.0
-                    # Build safe error text with reason, blocked field,
-                    # capped blocked value, and the allowed summary.
-                    policy_error = (
-                        f"policy_suppressed: {decision.reason} "
-                        f"({decision.blocked_field}={_blocked_val!r}); "
-                        f"{decision.allowed_summary}"
-                    )
-                    policy_receipt = await self._persist_suppression_receipt(
-                        event_id=event.event_id,
-                        delivery_plan_id=route_plan.plan_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        failure_kind=DeliveryFailureKind.POLICY_SUPPRESSED,
-                        error=policy_error,
-                        source=source,
-                        replay_run_id=replay_run_id,
-                    )
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status="skipped",
-                        failure_kind=DeliveryFailureKind.POLICY_SUPPRESSED,
-                        receipt=policy_receipt,
-                        error=policy_error,
-                        duration_ms=elapsed,
-                    )
-
-            # ── Phase 2.5: Capability check (no state mutation) ──────
-
-            # Capability suppression: skip delivery when the delivery
-            # plan records capability_level == "unsupported".  The
-            # FallbackResolver already resolved capabilities during
-            # planning (route_event) and stored the decision on the
-            # DeliveryPlan — the runner trusts that provenance instead
-            # of re-resolving.
-            #
-            # Runs after route-policy checks but BEFORE capacity
-            # acquisition so that capability-unsupported targets never
-            # consume capacity or increment counters.
-            #
-            # IMPORTANT: Only apply for adapters that are actually
-            # registered.  Unknown / missing adapters must NOT be
-            # capability-suppressed — they need to fall through to
-            # deliver_to_target() which produces the correct
-            # ADAPTER_MISSING outcome with a meaningful error message.
-            _suppression_reason: str | None = None
-            if (
-                adapter_id
-                and adapter_id in self._config.adapters
-                and route_plan.capability_level == "unsupported"
-            ):
-                _suppression_reason = (
-                    route_plan.capability_reason
-                    or f"{route_plan.capability_field or 'capability'} unsupported"
-                )
-            if _suppression_reason is not None:
-                self._log.info(
-                    "capability_suppressed: route_id=%s event_id=%s "
-                    "target_adapter=%s reason=%s",
-                    route.id,
-                    event.event_id,
-                    adapter_id,
-                    _suppression_reason,
-                )
-                if self._route_stats is not None:
-                    self._route_stats.record_capability_suppressed(route.id)
-                if self._runtime_accounting is not None:
-                    self._runtime_accounting.record_capability_suppressed()
-                elapsed = (time.monotonic() - t0) * 1000.0
-                cap_error = f"capability_suppressed: {_suppression_reason}"
-                cap_receipt = await self._persist_suppression_receipt(
-                    event_id=event.event_id,
-                    delivery_plan_id=route_plan.plan_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
-                    error=cap_error,
-                    source=source,
-                    replay_run_id=replay_run_id,
-                )
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=route_plan.plan_id,
-                    status="skipped",
-                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
-                    receipt=cap_receipt,
-                    error=cap_error,
-                    duration_ms=elapsed,
-                )
-
-            # ── Phase 2.75: Plan-level skip (no state mutation) ────────
-
-            # Plan-level skip: when the delivery plan's primary strategy
-            # is "skip", produce a suppressed/skipped DeliveryOutcome
-            # BEFORE capacity acquisition, outbox creation, rendering,
-            # and success accounting.  This is the canonical skip path;
-            # the defense-in-depth skip inside deliver_to_target() exists
-            # only for direct calls that bypass _deliver_single_target().
-            #
-            # IMPORTANT: Only apply plan-level skip for adapters that
-            # are actually registered, mirroring the Phase 2.5 capability
-            # guard.  Unknown / missing adapters must NOT be classified as
-            # CAPABILITY_SUPPRESSED here - they need to fall through to
-            # deliver_to_target() which produces the correct ADAPTER_MISSING
-            # permanent failure with a meaningful error message.
-            if (
-                route_plan.primary_strategy.method == "skip"
-                and adapter_id
-                and adapter_id in self._config.adapters
-            ):
-                self._log.info(
-                    "plan_skip: route_id=%s event_id=%s target_adapter=%s "
-                    "plan_id=%s strategy_method=skip",
-                    route.id,
-                    event.event_id,
-                    adapter_id,
-                    route_plan.plan_id,
-                )
-                if self._route_stats is not None:
-                    self._route_stats.record_capability_suppressed(route.id)
-                if self._runtime_accounting is not None:
-                    self._runtime_accounting.record_capability_suppressed()
-                elapsed = (time.monotonic() - t0) * 1000.0
-                # Use the plan's capability_reason when available for
-                # operator-visible specificity; fall back to generic
-                # text when the reason is absent (e.g. hand-crafted
-                # plans without provenance).
-                _plan_reason = route_plan.capability_reason
-                if _plan_reason:
-                    skip_error = f"plan_skip: {_plan_reason}"
-                else:
-                    skip_error = (
-                        f"plan_skip: delivery strategy is 'skip' "
-                        f"(event_kind={event.event_kind})"
-                    )
-                skip_receipt = await self._persist_suppression_receipt(
-                    event_id=event.event_id,
-                    delivery_plan_id=route_plan.plan_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
-                    error=skip_error,
-                    source=source,
-                    replay_run_id=replay_run_id,
-                )
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=route_plan.plan_id,
-                    status="skipped",
-                    failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED,
-                    receipt=skip_receipt,
-                    error=skip_error,
-                    duration_ms=elapsed,
-                )
-
-            # ── Phase 3: Capacity acquisition ────────────────────────
-
-            # Per-target capacity guard: acquire a slot before any work.
-            if self._capacity_controller is not None:
-                acquired = await self._capacity_controller.acquire_delivery()
-                if not acquired:
-                    self._delivery_rejection_count += 1
-                    if self._runtime_accounting is not None:
-                        self._runtime_accounting.record_capacity_rejection()
-                    if self._route_stats is not None:
-                        self._route_stats.record_failed(
-                            route.id, "delivery_capacity_exceeded"
-                        )
-                    # Classify: shutdown vs capacity exhaustion.
-                    if not self._capacity_controller.accepting_work:
-                        capacity_failure_kind = DeliveryFailureKind.SHUTDOWN_REJECTION
-                        capacity_error = "delivery_rejected_shutdown"
-                    else:
-                        capacity_failure_kind = DeliveryFailureKind.CAPACITY_REJECTION
-                        capacity_error = "delivery_capacity_exceeded"
-                    elapsed = (time.monotonic() - t0) * 1000.0
-                    # Persist lightweight suppression evidence so operators
-                    # can inspect capacity/shutdown rejections via receipts.
-                    suppression_receipt = await self._persist_suppression_receipt(
-                        event_id=event.event_id,
-                        delivery_plan_id=route_plan.plan_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        failure_kind=capacity_failure_kind,
-                        error=capacity_error,
-                        source=source,
-                        replay_run_id=replay_run_id,
-                    )
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status="permanent_failure",
-                        failure_kind=capacity_failure_kind,
-                        receipt=suppression_receipt,
-                        error=capacity_error,
-                        duration_ms=elapsed,
-                    )
-
-            # ── Phase 3.5: Outbox creation ─────────────────────────
-
-            # Create a durable outbox item tracking this delivery attempt.
-            # The outbox is created AFTER route/policy/loop/capacity acceptance
-            # and BEFORE the adapter delivery attempt, so that pending work
-            # survives a crash between this point and the receipt commit.
-            #
-            # Capacity-safety note: create_for_delivery catches all exceptions
-            # internally and returns OutboxContext(skip_reason="outbox_creation_failed")
-            # on failure — it never propagates.  The skip_reason check below
-            # releases the acquired capacity slot in that case, so there is no
-            # capacity leak between acquisition (Phase 3) and the try/finally
-            # block (Phase 4).
-            _outbox_ctx = await self._outbox_manager.create_for_delivery(
-                event,
-                route,
-                route_plan,
-                target,
-                adapter_id,
-                source=source,
-            )
-
-            # If the pipeline does not own the outbox row (terminal / active
-            # / queued / other worker), skip delivery entirely.
-            if _outbox_ctx.skip_reason is not None:
-                # Release the capacity slot acquired earlier, if any.
-                if self._capacity_controller is not None:
-                    await self._capacity_controller.release_delivery()
-                elapsed = (time.monotonic() - t0) * 1000.0
-                return DeliveryOutcome(
-                    event_id=event.event_id,
-                    target_adapter=adapter_id,
-                    target_channel=target.channel,
-                    route_id=route.id,
-                    delivery_plan_id=route_plan.plan_id,
-                    status="skipped",
-                    failure_kind=DeliveryFailureKind.OUTBOX_NOT_OWNED,
-                    receipt=None,
-                    error=f"outbox row not owned: {_outbox_ctx.skip_reason}",
-                    duration_ms=elapsed,
-                    failure_kind_detail=_outbox_ctx.skip_reason,
-                )
-
-            # ── Phase 3.75: Lease renewal background task ────────────
-
-            # Start a background task that periodically renews the outbox
-            # lease during long adapter deliveries (e.g. radio-based
-            # transports).  The renewal task is cancelled in the finally
-            # block after the delivery attempt completes.
-            _renewal_task: asyncio.Task | None = (
-                self._outbox_manager.start_lease_renewal(_outbox_ctx)
-            )
-
-            # ── Phase 4: Inflight tracking + delivery ────────────────
-
-            # Compute tracking key outside try to satisfy static analysis.
-            _inflight_key: str = (
-                f"{event.event_id}:{route.id}:{adapter_id}:{route_plan.plan_id}"
-            )
-            # Track outcome for outbox update — declared here so the outer
-            # finally block always sees them (e.g. on CancelledError propagate).
-            _outcome_receipt: DeliveryReceipt | None = None
-            _outcome_failure_kind_val: DeliveryFailureKind | None = None
-            _outcome_error: str | None = None
-            try:
-                # Track in-flight delivery identity for shutdown evidence.
-                if self._capacity_controller is not None:
-                    self._inflight_deliveries[_inflight_key] = InflightDelivery(
-                        event_id=event.event_id,
-                        route_id=route.id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        delivery_plan_id=route_plan.plan_id,
-                        source=source,
-                        replay_run_id=replay_run_id,
-                        acquired_at=t0,
-                        outbox_id=_outbox_ctx.outbox_id,
-                    )
-
-                try:
-                    if self._runtime_accounting is not None:
-                        self._runtime_accounting.record_outbound_attempt()
-
-                    # For replay deliveries, look up the most recent
-                    # receipt for the same delivery identity so that
-                    # compute_attempt_context returns the correct
-                    # attempt_number instead of always 1.
-                    _previous_receipt: DeliveryReceipt | None = None
-                    if source == "replay":
-                        _matching = [
-                            receipt
-                            for receipt in replay_receipts
-                            if receipt.delivery_plan_id == route_plan.plan_id
-                            and receipt.target_adapter == adapter_id
-                            and (receipt.target_channel or None)
-                            == (target.channel or None)
-                        ]
-                        if _matching:
-                            _previous_receipt = max(
-                                _matching,
-                                key=lambda receipt: receipt.attempt_number,
-                            )
-
-                    receipt = await self.deliver_to_target(
-                        event,
-                        route,
-                        route_plan,
-                        previous_receipt=_previous_receipt,
-                        source=source,
-                        replay_run_id=replay_run_id,
-                        cached_get_fn=cached_get_fn,
-                        cached_list_fn=cached_list_fn,
-                        outbox_id=_outbox_ctx.outbox_id,
-                    )
-                    _outcome_receipt = receipt
-                    elapsed = (time.monotonic() - t0) * 1000.0
-                    if self._route_stats is not None:
-                        self._route_stats.record_delivered(route.id)
-                    if self._runtime_accounting is not None:
-                        self._runtime_accounting.record_outbound_delivered()
-                    # When the adapter returned delivery_status="enqueued",
-                    # the receipt has status="queued" — expose that in
-                    # DeliveryOutcome so callers can distinguish local
-                    # acceptance from confirmed delivery.
-                    delivery_status: Literal["success", "queued"] = (
-                        "queued" if receipt.status == "queued" else "success"
-                    )
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status=delivery_status,
-                        failure_kind=None,
-                        receipt=receipt,
-                        error=None,
-                        duration_ms=elapsed,
-                    )
-                except _AdapterDeliveryError as exc:
-                    elapsed = (time.monotonic() - t0) * 1000.0
-                    _outcome_receipt = exc.receipt
-                    _outcome_error = exc.error
-                    self._diagnostician.record_adapter_failure(
-                        event.event_id, adapter_id, exc.error
-                    )
-                    if self._route_stats is not None:
-                        self._route_stats.record_failed(route.id, exc.error)
-                    if self._runtime_accounting is not None:
-                        self._runtime_accounting.record_outbound_failed()
-                    # Use pre-classified failure_kind when available (e.g.
-                    # ADAPTER_MISSING, DEADLINE_EXCEEDED); otherwise classify
-                    # based on the original adapter exception.
-                    if exc.failure_kind is not None:
-                        failure_kind = exc.failure_kind
-                    elif exc.original is not None:
-                        failure_kind = self._lifecycle.classify_failure(
-                            exc.original,
-                            adapter_registered=True,
-                        )
-                    else:
-                        failure_kind = DeliveryFailureKind.ADAPTER_TRANSIENT
-                    _outcome_failure_kind_val = failure_kind
-                    outcome_status: Literal[
-                        "transient_failure", "permanent_failure"
-                    ] = (
-                        "transient_failure"
-                        if failure_kind.is_retryable
-                        else "permanent_failure"
-                    )
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status=outcome_status,
-                        failure_kind=failure_kind,
-                        receipt=None,
-                        error=exc.error,
-                        duration_ms=elapsed,
-                    )
-                except _RendererDeliveryError as exc:
-                    elapsed = (time.monotonic() - t0) * 1000.0
-                    _outcome_receipt = exc.receipt
-                    _outcome_error = exc.error
-                    _resolved_failure_kind = (
-                        exc.failure_kind
-                        if exc.failure_kind is not None
-                        else DeliveryFailureKind.RENDERER_FAILURE
-                    )
-                    _outcome_failure_kind_val = _resolved_failure_kind
-                    if self._route_stats is not None:
-                        self._route_stats.record_failed(route.id, exc.error)
-                    if self._runtime_accounting is not None:
-                        self._runtime_accounting.record_outbound_failed()
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status="permanent_failure",
-                        failure_kind=_resolved_failure_kind,
-                        receipt=None,
-                        error=exc.error,
-                        duration_ms=elapsed,
-                    )
-                except asyncio.CancelledError:
-                    # Shutdown cancellation must propagate cleanly and not
-                    # be swallowed as a permanent delivery failure.
-                    raise
-                except Exception as exc:
-                    elapsed = (time.monotonic() - t0) * 1000.0
-                    _outcome_error = f"{type(exc).__name__}: {exc}"
-                    exc_type = type(exc)
-                    failure_kind = self._lifecycle.classify_failure(
-                        exc,
-                        adapter_registered=(adapter_id in self._config.adapters),
-                    )
-                    _outcome_failure_kind_val = failure_kind
-                    status = (
-                        "transient_failure"
-                        if failure_kind.is_retryable
-                        else "permanent_failure"
-                    )
-                    error_msg = f"{exc_type.__name__}: {exc}"
-                    self._diagnostician.record_adapter_failure(
-                        event.event_id, adapter_id, error_msg
-                    )
-                    if self._route_stats is not None:
-                        self._route_stats.record_failed(route.id, error_msg)
-                    if self._runtime_accounting is not None:
-                        self._runtime_accounting.record_outbound_failed()
-                    return DeliveryOutcome(
-                        event_id=event.event_id,
-                        target_adapter=adapter_id,
-                        target_channel=target.channel,
-                        route_id=route.id,
-                        delivery_plan_id=route_plan.plan_id,
-                        status=status,
-                        failure_kind=failure_kind,
-                        receipt=None,
-                        error=error_msg,
-                        duration_ms=elapsed,
-                    )
-            finally:
-                # Stop lease renewal.
-                await OutboxManager.cancel_renewal(_renewal_task)
-
-                # Update outbox based on delivery outcome.
-                await self._outbox_manager.finalize_outcome(
-                    _outbox_ctx,
-                    _outcome_receipt,
-                    _outcome_failure_kind_val,
-                    _outcome_error,
-                    route_plan.retry_policy,
-                )
-
-                # Untrack in-flight delivery identity.
-                if self._capacity_controller is not None:
-                    self._inflight_deliveries.pop(_inflight_key, None)
-                    await self._capacity_controller.release_delivery()
-
-        if not route_targets:
-            return []
-
-        # Bound *task creation* as well as active adapter I/O.  A semaphore
-        # alone would still allocate one waiting task per configured target.
-        # The durable ingress row is our queue; fan-out uses at most the
-        # delivery capacity as fixed workers and preserves input ordering.
-        worker_limit = (
-            self._capacity_controller.delivery_limit
-            if self._capacity_controller is not None
-            else 1
-        )
-
-        async def _deliver_item(
-            item: tuple[Route, DeliveryPlan],
-        ) -> DeliveryOutcome:
-            return await _deliver_single_target(*item)
-
-        return await _bounded_ordered_map(
-            route_targets, _deliver_item, worker_limit=worker_limit
+        """Delegate bounded per-target coordination to ``DeliveryCoordinator``."""
+        return await self._delivery_coordinator.deliver_many(
+            event,
+            route_targets,
+            source=source,
+            replay_run_id=replay_run_id,
+            cached_get_fn=cached_get_fn,
+            cached_list_fn=cached_list_fn,
         )
 
     async def deliver_to_target(

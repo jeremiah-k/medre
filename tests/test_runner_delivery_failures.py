@@ -1,9 +1,9 @@
 """Tests for PipelineRunner._deliver_single_target exception handlers.
 
 Exercises the ``_AdapterDeliveryError``, ``_RendererDeliveryError``,
-``CancelledError``, and generic ``Exception`` paths in the inner
-``_deliver_single_target`` closure, verifying that each produces a correct
-:class:`DeliveryOutcome` with the expected failure kind and status.
+``CancelledError``, and generic ``Exception`` paths at the delivery-coordinator
+boundary, verifying that each produces a correct :class:`DeliveryOutcome` with
+the expected failure kind and status.
 """
 
 from __future__ import annotations
