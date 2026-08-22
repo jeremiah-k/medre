@@ -259,7 +259,9 @@ class DeliveryOutboxItem:
     payload_hash:
         Hash of render inputs, for change detection after restart.
     receipt_id:
-        Most recent delivery receipt ID for this attempt.
+        Most recent persisted delivery receipt linked to this outbox row.  If an
+        attempt fails before producing a receipt, the prior receipt remains as
+        the lineage anchor while ``attempt_number`` advances.
     parent_receipt_id:
         Previous receipt ID in retry lineage.
     error_summary:

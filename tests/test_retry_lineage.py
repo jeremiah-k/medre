@@ -964,6 +964,11 @@ class TestRetryWorkerReconstruction:
             "destination_hash": "hash_xyz123",
             "destination_name": "MeshNode C",
             "destination_metadata": {"port": 9999, "hops": 2},
+            "capability_level": None,
+            "delivery_strategy": "direct",
+            "capability_field": None,
+            "capability_reason": None,
+            "deadline": None,
         }
         outbox_item = DeliveryOutboxItem(
             outbox_id="obox-retry-recon",

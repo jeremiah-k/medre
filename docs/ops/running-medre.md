@@ -139,11 +139,12 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 | Adapter receive loops                                                  | Cancelled immediately on adapter `stop()`                                           |
 | Replay events                                                          | Cancelled; completed receipts preserved                                             |
 | Route statistics, diagnostic counters                                  | Lost — in-memory only                                                               |
-| Pending retry receipts                                                 | Preserved — remain in storage, processed on next startup                            |
-| Pending outbox items                                                   | Preserved — remain in storage, reclaimable on next startup                          |
+| Pending `retry_wait` outbox items                                     | Preserved — remain resumable work, claimed on next startup when due                 |
+| Retry receipt evidence                                                 | Preserved — remains immutable evidence; does not schedule work                      |
+| Other pending outbox items                                             | Preserved — remain in storage, reclaimable on next startup                          |
 | Non-terminal outbox (`pending`, `retry_wait`, `in_progress`, `queued`) | Preserved as resumable work. `ShutdownEvidence.resume_expected=True` when present.  |
 
-Pending retry receipts and outbox items survive shutdown in SQLite. On next startup, due retry receipts are discovered and processed by the RetryWorker (if retry is enabled). Pending, expired-lease, and stale queued outbox items are reclaimed through `claim_due_outbox_items()` or the normal dispatch path. This means work that was in flight when the runtime stopped is re-attempted. Non-terminal outbox work is intentionally preserved as resumable work, not cancelled. The `ShutdownEvidence` record reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals that the resumable policy is active.
+Non-terminal outbox items survive shutdown in SQLite. On next startup, due retry work is claimed from the durable outbox by the RetryWorker (if retry is enabled). Pending, expired-lease, and stale queued outbox items are reclaimed through `claim_due_outbox_items()` or the normal dispatch path. Receipts remain immutable evidence rather than scheduling authority. This means work that was in flight when the runtime stopped is re-attempted. Non-terminal outbox work is intentionally preserved as resumable work, not cancelled. The `ShutdownEvidence` record reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals that the resumable policy is active.
 
 ### Signal Handling
 

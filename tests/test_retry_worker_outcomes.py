@@ -93,6 +93,13 @@ class TestRetryCapacityRejectionBackoff:
             attempt_number=1,
             status="in_progress",
             receipt_id=receipt_id,
+            metadata={
+                "capability_level": None,
+                "delivery_strategy": "direct",
+                "capability_field": None,
+                "capability_reason": None,
+                "deadline": None,
+            },
         )
         created = await temp_storage.create_outbox_item(outbox_item)
         await temp_storage.mark_outbox_retry_wait(
@@ -726,6 +733,7 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     )
     storage = MagicMock()
     storage.get = AsyncMock(return_value=object())
+    storage.delivery_status = AsyncMock(return_value=None)
     storage.list_receipts_for_plan = AsyncMock(return_value=[])
     storage.mark_outbox_abandoned = AsyncMock()
     pipeline = MagicMock()
@@ -763,10 +771,365 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
 
     assert worker.state.processed == 1
     assert worker.state.succeeded == 0
+    assert worker.state.failed == 1
     storage.mark_outbox_abandoned.assert_awaited_once_with(
         item.outbox_id,
         error_summary="capability_suppressed",
     )
     assert not any(
         call.args and call.args[0] == "retry_succeeded" for call in emit.call_args_list
+    )
+    failed_event = next(
+        call for call in emit.call_args_list if call.args[0] == "retry_failed"
+    )
+    assert failed_event.args[1]["status"] == "suppressed"
+    assert failed_event.args[1]["error"] == "capability_suppressed"
+
+
+async def test_retry_worker_reconciles_persisted_attempt_before_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reclaimed rows repair persisted evidence without duplicate delivery."""
+    from types import SimpleNamespace
+
+    import medre.runtime.retry as retry_module
+    from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
+    from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-reconcile",
+        event_id="evt-reconcile",
+        route_id="route-reconcile",
+        delivery_plan_id="plan-reconcile",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+    )
+    storage = MagicMock()
+    storage.get = AsyncMock(return_value=object())
+    storage.delivery_status = AsyncMock(return_value=None)
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock()
+    lifecycle = MagicMock()
+    lifecycle.reconcile_retry_claim = AsyncMock(
+        return_value=RetryAttemptFinalization(
+            outcome="accepted",
+            receipt_id="rcpt-sent-2",
+            failure_kind=None,
+            attempt_number=2,
+        )
+    )
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+    )
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    lifecycle.reconcile_retry_claim.assert_awaited_once()
+    pipeline.deliver_to_target.assert_not_awaited()
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 1
+    assert worker.state.failed == 0
+    assert not any(
+        call.args and call.args[0] == "retry_attempted" for call in emit.call_args_list
+    )
+    success_event = next(
+        call for call in emit.call_args_list if call.args[0] == "retry_succeeded"
+    )
+    assert success_event.args[1]["reconciled"] is True
+    assert success_event.args[1]["retry_receipt_id"] == "rcpt-sent-2"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_event", "expected_failed", "expected_dead_lettered"),
+    [
+        ("retry_wait", "retry_failed", 1, 0),
+        ("dead_lettered", "retry_dead_lettered", 1, 1),
+        ("suppressed", "retry_failed", 1, 0),
+    ],
+)
+async def test_retry_worker_reports_reconciled_terminal_and_wait_outcomes(
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+    expected_event: str,
+    expected_failed: int,
+    expected_dead_lettered: int,
+) -> None:
+    """Claim reconciliation updates counters/events without redispatch."""
+    from types import SimpleNamespace
+
+    import medre.runtime.retry as retry_module
+    from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
+    from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id=f"obox-reconcile-{outcome}",
+        event_id=f"evt-reconcile-{outcome}",
+        route_id="route-reconcile",
+        delivery_plan_id=f"plan-reconcile-{outcome}",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+    )
+    storage = MagicMock()
+    storage.get = AsyncMock(return_value=object())
+    storage.delivery_status = AsyncMock(return_value=None)
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock()
+    lifecycle = MagicMock()
+    lifecycle.reconcile_retry_claim = AsyncMock(
+        return_value=RetryAttemptFinalization(
+            outcome=outcome,  # type: ignore[arg-type]
+            receipt_id=f"rcpt-{outcome}-2",
+            failure_kind="adapter_transient",
+            attempt_number=2,
+        )
+    )
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+    )
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    pipeline.deliver_to_target.assert_not_awaited()
+    assert worker.state.processed == 1
+    assert worker.state.failed == expected_failed
+    assert worker.state.dead_lettered == expected_dead_lettered
+    event = next(call for call in emit.call_args_list if call.args[0] == expected_event)
+    assert event.args[1]["reconciled"] is True
+    assert event.args[1]["retry_receipt_id"] == f"rcpt-{outcome}-2"
+    if outcome in {"retry_wait", "suppressed"}:
+        assert event.args[1]["status"] == outcome
+
+
+async def test_retry_worker_retry_wait_event_includes_exception_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty exception messages still produce a useful retry failure error."""
+    from types import SimpleNamespace
+
+    import medre.runtime.retry as retry_module
+    from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
+    from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-empty-error",
+        event_id="evt-empty-error",
+        route_id="route-empty-error",
+        delivery_plan_id="plan-empty-error",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+    )
+    storage = MagicMock()
+    storage.get = AsyncMock(return_value=object())
+    storage.delivery_status = AsyncMock(return_value=None)
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock(side_effect=ConnectionError())
+    lifecycle = MagicMock()
+    lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
+    lifecycle.finalize_retry_attempt_error = AsyncMock(
+        return_value=RetryAttemptFinalization(
+            outcome="retry_wait",
+            receipt_id=None,
+            failure_kind="adapter_transient",
+            attempt_number=2,
+        )
+    )
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+    )
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    failed_event = next(
+        call for call in emit.call_args_list if call.args[0] == "retry_failed"
+    )
+    assert failed_event.args[1]["error"] == "ConnectionError: "
+
+
+async def test_retry_worker_reports_retry_finalization_persistence_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lifecycle write errors report their own error, not the delivery error."""
+    from types import SimpleNamespace
+
+    import medre.runtime.retry as retry_module
+    from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-finalize-fail",
+        event_id="evt-finalize-fail",
+        route_id="route-finalize-fail",
+        delivery_plan_id="plan-finalize-fail",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+    )
+    storage = MagicMock()
+    storage.get = AsyncMock(return_value=object())
+    storage.delivery_status = AsyncMock(return_value=None)
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock(side_effect=ConnectionError("transport down"))
+    lifecycle = MagicMock()
+    lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
+    lifecycle.finalize_retry_attempt_error = AsyncMock(
+        side_effect=RuntimeError("injected outbox write failure")
+    )
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+    )
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 0
+    assert worker.state.failed == 1
+    failed_event = next(
+        call for call in emit.call_args_list if call.args[0] == "retry_failed"
+    )
+    detail = failed_event.args[1]
+    assert detail["status"] == "lifecycle_persistence_error"
+    assert detail["error"] == "RuntimeError: injected outbox write failure"
+    assert "transport down" not in detail["error"]
+
+
+async def test_retry_worker_reports_success_transition_persistence_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Post-send outbox write failure is visible and not counted successful."""
+    from types import SimpleNamespace
+
+    import medre.runtime.retry as retry_module
+    from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-success-write-fail",
+        event_id="evt-success-write-fail",
+        route_id="route-success-write-fail",
+        delivery_plan_id="plan-success-write-fail",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+    )
+    sent = DeliveryReceipt(
+        receipt_id="rcpt-success-2",
+        event_id=item.event_id,
+        delivery_plan_id=item.delivery_plan_id,
+        target_adapter=item.target_adapter,
+        route_id=item.route_id,
+        status="sent",
+        attempt_number=2,
+        outbox_id=item.outbox_id,
+    )
+    storage = MagicMock()
+    storage.get = AsyncMock(return_value=object())
+    storage.delivery_status = AsyncMock(return_value=None)
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock(return_value=sent)
+    lifecycle = MagicMock()
+    lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
+    lifecycle.finalize_retry_success = AsyncMock(
+        side_effect=RuntimeError("injected sent transition failure")
+    )
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+    )
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 0
+    assert worker.state.failed == 1
+    failed_event = next(
+        call for call in emit.call_args_list if call.args[0] == "retry_failed"
+    )
+    assert failed_event.args[1]["status"] == "lifecycle_persistence_error"
+    assert failed_event.args[1]["error"] == (
+        "RuntimeError: injected sent transition failure"
     )

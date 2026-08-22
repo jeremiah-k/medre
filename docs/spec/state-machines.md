@@ -267,7 +267,7 @@ example because the worker crashed or the adapter lost the queued message.
 
 When the runtime shuts down gracefully, the outbox is not mutated. Non-terminal
 outbox rows survive in SQLite and are processed on next startup through the
-normal reclaim and dispatch paths: due retry receipts (where `next_retry_at` has passed) by the RetryWorker,
+normal reclaim and dispatch paths: due `retry_wait` outbox rows (where `next_attempt_at` has passed) by the RetryWorker,
 due outbox items (`pending`, `retry_wait`, expired `in_progress`, stale `queued`) by `claim_due_outbox_items()`. The shutdown evidence model
 (`ShutdownEvidence`) records `resume_expected=True` when pending non-terminal
 work exists, and `outbox_shutdown_policy="resumable"` to signal the resumable
@@ -438,7 +438,7 @@ When the runtime starts, it reclaims ownership of non-terminal outbox items acco
 | Outbox status at startup | Startup ownership action                                                                                              |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | `pending`                | Eligible for immediate claim by `claim_due_outbox_items()`. No grace period required.                                 |
-| `retry_wait`             | Due retry_wait outbox items reclaimed by `claim_due_outbox_items()` when `next_retry_at` has passed. Otherwise waits. |
+| `retry_wait`             | Due retry_wait outbox items reclaimed by `claim_due_outbox_items()` when `next_attempt_at` has passed. Otherwise waits. |
 | `in_progress`            | Lease may have expired during prior shutdown. Reclaimed by `claim_due_outbox_items()` after lease expiry.             |
 | `queued`                 | Reclaimed by stale queued reclaim after `STALE_QUEUED_GRACE_SECONDS` (default 300 s) has elapsed.                     |
 | `sent`                   | Terminal. No startup action.                                                                                          |

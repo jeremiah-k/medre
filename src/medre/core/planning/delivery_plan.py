@@ -510,6 +510,7 @@ class RetryExecutor:
         source: str = "live",
         replay_run_id: str | None = None,
         target_channel: str | None = None,
+        outbox_id: str | None = None,
     ) -> DeliveryReceipt:
         """Build a ``dead_lettered`` receipt after all retries are
         exhausted.
@@ -534,6 +535,9 @@ class RetryExecutor:
             When ``source="replay"``, the replay run identifier.
         target_channel:
             Channel on the target adapter, if applicable.
+        outbox_id:
+            Durable outbox correlation key for the delivery attempt, when
+            this delivery is outbox-backed.
 
         Returns
         -------
@@ -557,6 +561,7 @@ class RetryExecutor:
             parent_receipt_id=previous_receipt_id,
             source=source,
             replay_run_id=replay_run_id,
+            outbox_id=outbox_id,
             retry_max_attempts=self._policy.max_attempts,
             retry_backoff_base=self._policy.backoff_base,
             retry_max_delay=self._policy.max_delay_seconds,

@@ -20,33 +20,13 @@ from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
 from medre.core.events.canonical import DeliveryReceipt
-from medre.core.planning.delivery_plan import DeliveryStrategy
-from medre.core.storage.backend import DeliveryOutboxItem
+
+from tests.helpers.retry_plan import make_retry_outbox as _make_outbox
+
 
 # ---------------------------------------------------------------------------
-# Helpers (same pattern as test_retry_plan_reconstruction.py)
+# Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_outbox(
-    *,
-    target_adapter: str = "matrix",
-    target_channel: str | None = "#general",
-    route_id: str = "route-1",
-    delivery_plan_id: str = "plan-abc",
-    event_id: str = "evt-001",
-    metadata: dict | None = None,
-) -> DeliveryOutboxItem:
-    """Create a minimal outbox item for testing."""
-    return DeliveryOutboxItem(
-        outbox_id="ob-1",
-        event_id=event_id,
-        route_id=route_id,
-        delivery_plan_id=delivery_plan_id,
-        target_adapter=target_adapter,
-        target_channel=target_channel,
-        metadata=metadata,
-    )
 
 
 def _make_receipt(
@@ -149,38 +129,45 @@ class TestRetryPreservesDeadline:
 
 
 # ===================================================================
-# TestRetryLegacyMetadataDegradation
+# Route metadata validation
 # ===================================================================
 
 
-class TestRetryLegacyMetadataDegradation:
-    """Legacy outbox rows without route-decision keys degrade gracefully."""
-
-    def test_legacy_outbox_no_route_decision_keys(self) -> None:
-        """Metadata with only destination keys (no capability_level,
-        no delivery_strategy, no deadline) degrades to defaults."""
-        ctx = _reconstruct(
-            metadata={
-                "destination_kind": "matrix_room",
-                "destination_hash": "abc123",
-                "destination_name": "my-room",
-            }
+def test_destination_only_metadata_is_rejected() -> None:
+    item = _make_outbox(
+        metadata={
+            "destination_kind": "matrix_room",
+            "destination_hash": "abc123",
+            "destination_name": "my-room",
+        },
+        include_route_metadata=False,
+    )
+    with pytest.raises(ValueError, match="missing route-decision metadata keys"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
         )
-        assert ctx.plan.capability_level is None
-        assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
-        assert ctx.plan.deadline is None
 
-    def test_empty_metadata(self) -> None:
-        ctx = _reconstruct(metadata={})
-        assert ctx.plan.capability_level is None
-        assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
-        assert ctx.plan.deadline is None
 
-    def test_none_metadata(self) -> None:
-        ctx = _reconstruct(metadata=None)
-        assert ctx.plan.capability_level is None
-        assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
-        assert ctx.plan.deadline is None
+def test_empty_metadata() -> None:
+    item = _make_outbox(metadata={}, include_route_metadata=False)
+    with pytest.raises(ValueError, match="missing route-decision metadata keys"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_none_metadata() -> None:
+    item = _make_outbox(metadata=None, include_route_metadata=False)
+    with pytest.raises(ValueError, match="missing metadata"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
 
 
 # ===================================================================
@@ -206,9 +193,9 @@ class TestRetryStrategyValidation:
         ctx = _reconstruct(metadata={"delivery_strategy": method})
         assert ctx.plan.primary_strategy.method == method
 
-    def test_unknown_strategy_falls_back_to_direct(self) -> None:
-        ctx = _reconstruct(metadata={"delivery_strategy": "bogus_method"})
-        assert ctx.plan.primary_strategy.method == "direct"
+    def test_unknown_strategy_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="invalid delivery_strategy"):
+            _reconstruct(metadata={"delivery_strategy": "bogus_method"})
 
 
 # ===================================================================

@@ -968,7 +968,7 @@ The ledger is a read-only projection. It does not create tables, modify schema, 
 When retry is enabled (via `[retry] enabled = true` and per-route retry configuration), the delivery pipeline produces an auditable retry chain:
 
 1. Initial delivery failure creates a receipt with `status="failed"`, `failure_kind="adapter_transient"`, and `next_retry_at` set to the scheduled retry time.
-2. The `RetryWorker` discovers due receipts via `list_due_retry_receipts()` and re-attempts delivery.
+2. The `RetryWorker` claims due durable outbox rows via `claim_due_outbox_items()` and re-attempts delivery. Receipts are immutable attempt evidence, not scheduling authority.
 3. Each retry attempt appends a new receipt row with incremented `attempt_number` and `parent_receipt_id` linking to the previous attempt.
 4. When retries are exhausted, the final receipt has `status="dead_lettered"` with `next_retry_at=NULL`.
 
@@ -989,8 +989,9 @@ Graceful shutdown does not cancel pending outbox items or scheduled retries.
 Non-terminal outbox rows (`pending`, `retry_wait`, `in_progress`, `queued`)
 survive in SQLite and are processed on next startup:
 
-- Due retry receipts (failed receipts with `next_retry_at` due) are discovered
-  and processed by the `RetryWorker` (if enabled).
+- Due `retry_wait` outbox rows (with `next_attempt_at` due) are claimed
+  and processed by the `RetryWorker` (if enabled). Failed receipts remain
+  immutable evidence.
 - Expired `in_progress` outbox rows are reclaimed by
   `claim_due_outbox_items()`.
 - Stale `queued` outbox rows are reclaimed after the configured grace period.
@@ -1016,10 +1017,10 @@ Key fields:
 | `resume_expected`        | `bool`        | `True` when non-terminal outbox work exists and runtime is in `stopped`/`stopping` state. Indicates pending work survives for restart recovery.                     |
 | `outbox_shutdown_policy` | `str or None` | `"resumable"` when outbox data was provided, indicating non-terminal rows were intentionally preserved. `None` when no outbox data was available.                   |
 
-Pending outbox rows (`pending`, `retry_wait`, expired `in_progress`, stale `queued`) are discovered by
-`claim_due_outbox_items()` on next startup. These rows are moved into dispatch
-according to normal outbox logic, independent of RetryWorker retry receipt
-processing.
+Pending outbox rows (`pending`, `retry_wait`, expired `in_progress`, stale `queued`) are discovered through
+`claim_due_outbox_items()` on next startup. The RetryWorker claims due retry
+work from that outbox path; receipts remain immutable evidence and are not a
+separate processing or scheduling authority.
 
 | `pending_outbox_counts` | `dict or None` | Per-status counts of non-terminal outbox items at shutdown time. `None` when no outbox data was provided. |
 | `pending_retry_work_total` | `int or None` | Total count of non-terminal outbox items across all statuses. `None` when no outbox data was provided. |

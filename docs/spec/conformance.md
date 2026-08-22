@@ -288,7 +288,7 @@ asserts all of the following for its fixtures:
 | `test_replay_conformance.py`                  | DRY_RUN parity, BEST_EFFORT stub conformance, BEST_EFFORT capability filtering via real PipelineRunner, replay evidence                                                                   |
 | `test_evidence_bundle_conformance.py`         | EvidenceBundle assembly conformance: sent, queued, queued→sent, suppressed, replay-origin, invalid rendering_evidence, schema version, deterministic JSON                                 |
 | `test_pipeline_live_replay_parity.py`         | Live/replay plan and receipt parity: deterministic plan IDs, strategy equivalence, capability field parity, receipt field matching after normalisation                                    |
-| `test_pipeline_suppression_no_send.py`        | Suppression gate conformance: capability skip, loop suppression, plan-level skip never call adapter send; suppressed receipts distinct from failed sends; no retry queue entry            |
+| `test_pipeline_suppression_no_send.py`        | Suppression gate conformance: capability skip, loop suppression, plan-level skip never call adapter send; suppressed receipts distinct from failed sends; no retryable outbox work            |
 | `test_receipt_lineage_retry_parity.py`        | Receipt lineage and retry conformance: delivery_plan_id/route_id/target preservation across retry chain; evidence append semantics; dead_lettered durability                              |
 | `test_pipeline_native_ref_loop_prevention.py` | Native ref persistence, dedup, bridge loop prevention, and suppression evidence completeness                                                                                              |
 | `test_evidence_operator_diagnostics.py`       | Operator-facing evidence bundle field coverage: all pipeline stages, all status values, capability/strategy/failure traceability, live vs replay source distinction                       |
@@ -324,7 +324,7 @@ This section documents conformance test coverage for transport capability semant
 | Capability skip suppression does not call adapter send                                                                       | `test_pipeline_suppression_no_send.py`                                                     | synthetic |
 | Loop suppression does not call adapter send                                                                                  | `test_pipeline_suppression_no_send.py`                                                     | synthetic |
 | Suppressed receipts have `status="suppressed"` (not `"failed"`) and distinct failure kinds                                   | `test_pipeline_suppression_no_send.py`                                                     | synthetic |
-| Suppressed deliveries do not enter retry queue                                                                               | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py`             | synthetic |
+| Suppressed deliveries do not create retryable outbox work                                                                               | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py`             | synthetic |
 | Retry reconstruction preserves `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`                            | `test_receipt_lineage_retry_parity.py`                                                     | synthetic |
 | Retry attempts append new receipts (not overwrite existing)                                                                  | `test_receipt_lineage_retry_parity.py`                                                     | synthetic |
 | Retry exhaustion produces durable `dead_lettered` evidence                                                                   | `test_receipt_lineage_retry_parity.py`                                                     | synthetic |
@@ -400,7 +400,7 @@ A conforming implementation satisfies:
 
 2. **Suppressed status distinct from failed**: Suppressed outcomes have `status="skipped"` and receipts have `status="suppressed"`. These are not `"failed"` or `"transient_failure"` or `"permanent_failure"`. The `failure_kind` is a suppression kind (`LOOP_SUPPRESSED`, `CAPABILITY_SUPPRESSED`, `POLICY_SUPPRESSED`), not an adapter error kind.
 
-3. **Suppressed deliveries not retried**: Suppressed receipts have `next_retry_at=None` and do not appear in `list_due_retry_receipts()`. They are permanently excluded from the retry queue.
+3. **Suppressed deliveries not retried**: Suppressed receipts have `next_retry_at=None`, and their durable outbox state is terminal rather than `retry_wait`. They are permanently excluded from retryable outbox work.
 
 4. **Suppression evidence persisted**: Suppressed receipts are persisted in storage and appear in evidence bundles with full `event_id`, `route_id`, `target_adapter`, `failure_kind`, and reason context.
 

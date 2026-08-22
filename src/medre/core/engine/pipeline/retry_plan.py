@@ -25,7 +25,6 @@ documented in one place.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import get_args
@@ -41,7 +40,6 @@ from medre.core.planning.delivery_plan import (
 from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
 
-logger = logging.getLogger(__name__)
 
 #: Valid capability-level values matching
 #: :data:`~medre.core.rendering.renderer.CapabilityLevel`.
@@ -113,16 +111,14 @@ def reconstruct_retry_delivery_plan(
       optional).
     * **Plan ID**: ``item.delivery_plan_id or ""``.
     * **Event ID**: ``item.event_id``.
-    * **Primary strategy**: recovered from ``item.metadata["delivery_strategy"]``
-      when present; falls back to ``"direct"`` for outbox rows with missing
-      or corrupt prerelease metadata that predate route-decision persistence.
-    * **Capability level**: recovered from ``item.metadata["capability_level"]``
-      when present; falls back to ``None`` for rows with missing or corrupt
-      prerelease metadata.
-    * **Capability field/reason**: recovered from ``item.metadata`` keys
-      ``capability_field`` and ``capability_reason`` when present.
-    * **Deadline**: recovered from ``item.metadata["deadline"]`` (ISO 8601
-      string) when present; falls back to ``None``.
+    * **Primary strategy**: recovered from the required
+      ``item.metadata["delivery_strategy"]`` value.
+    * **Capability level**: recovered from the required
+      ``item.metadata["capability_level"]`` key; the value may be ``None``.
+    * **Capability field/reason**: recovered from the required metadata keys
+      ``capability_field`` and ``capability_reason``; each value may be ``None``.
+    * **Deadline**: recovered from the required ``item.metadata["deadline"]``
+      value, which may be ``None`` or a timezone-aware ISO 8601 string.
     * **Retry policy**: restored from the previous receipt's
       ``retry_max_attempts``, ``retry_backoff_base``,
       ``retry_max_delay``, and ``retry_jitter`` fields.  Falls back to
@@ -197,59 +193,89 @@ def reconstruct_retry_delivery_plan(
     )
 
     # -- Route-decision metadata recovery ----------------------------------
-    # Recover capability/strategy/deadline from the outbox metadata dict.
-    # Outbox rows with missing or corrupt prerelease metadata that predate
-    # route-decision persistence will not have these keys; graceful
-    # degradation uses DeliveryPlan defaults.
-    _meta = item.metadata or {}
-    _capability_level_raw = _meta.get("capability_level")
-    _capability_level: str | None = (
-        _capability_level_raw if isinstance(_capability_level_raw, str) else None
-    )
-
-    if _capability_level_raw is not None and not isinstance(_capability_level_raw, str):
-        logger.warning(
-            "Non-string capability_level %r in outbox metadata for item %s; "
-            "falling back to None",
-            _capability_level_raw,
-            item.outbox_id,
+    # These keys are part of the current outbox contract.  Retry execution
+    # must reproduce the original planning decision; malformed durable state
+    # is rejected instead of being guessed into a different strategy.
+    if item.metadata is None:
+        raise ValueError(
+            f"Retry outbox item {item.outbox_id} is missing metadata"
+        )
+    _meta = item.metadata
+    required_keys = {
+        "capability_level",
+        "delivery_strategy",
+        "capability_field",
+        "capability_reason",
+        "deadline",
+    }
+    missing_keys = sorted(required_keys - _meta.keys())
+    if missing_keys:
+        raise ValueError(
+            f"Retry outbox item {item.outbox_id} is missing route-decision "
+            f"metadata keys: {', '.join(missing_keys)}"
         )
 
-    # Validate _capability_level against the closed vocabulary.
-    if (
-        _capability_level is not None
-        and _capability_level not in _VALID_CAPABILITY_LEVELS
+    _capability_level_raw = _meta["capability_level"]
+    if _capability_level_raw is not None and not isinstance(
+        _capability_level_raw, str
     ):
-        logger.warning(
-            "Invalid capability_level %r in outbox metadata for item %s; "
-            "falling back to None",
-            _capability_level,
-            item.outbox_id,
+        raise ValueError(
+            f"Retry outbox item {item.outbox_id} has non-string "
+            f"capability_level={_capability_level_raw!r}"
         )
-        _capability_level = None
+    if (
+        _capability_level_raw is not None
+        and _capability_level_raw not in _VALID_CAPABILITY_LEVELS
+    ):
+        raise ValueError(
+            f"Retry outbox item {item.outbox_id} has invalid "
+            f"capability_level={_capability_level_raw!r}"
+        )
+    _capability_level: str | None = _capability_level_raw
 
-    _delivery_strategy_raw: str | None = _meta.get("delivery_strategy")
-    _capability_field: str | None = _meta.get("capability_field")
-    _capability_reason: str | None = _meta.get("capability_reason")
-    _deadline_raw: str | None = _meta.get("deadline")
+    _delivery_strategy_raw = _meta["delivery_strategy"]
+    if not isinstance(_delivery_strategy_raw, str) or (
+        _delivery_strategy_raw not in get_args(DeliveryStrategyMethod)
+    ):
+        raise ValueError(
+            f"Retry outbox item {item.outbox_id} has invalid "
+            f"delivery_strategy={_delivery_strategy_raw!r}"
+        )
+    _strategy_method: DeliveryStrategyMethod = _delivery_strategy_raw  # type: ignore[assignment]
 
-    # Validate delivery_strategy against the closed vocabulary.
-    _strategy_method: DeliveryStrategyMethod = "direct"
-    if _delivery_strategy_raw is not None:
-        # Accept the raw string if it matches a known DeliveryStrategyMethod value.
-        if _delivery_strategy_raw in get_args(DeliveryStrategyMethod):
-            _strategy_method = _delivery_strategy_raw  # type: ignore[assignment]
+    _capability_field = _meta["capability_field"]
+    if _capability_field is not None and not isinstance(_capability_field, str):
+        raise ValueError(
+            f"Retry outbox item {item.outbox_id} has invalid "
+            f"capability_field={_capability_field!r}"
+        )
+    _capability_reason = _meta["capability_reason"]
+    if _capability_reason is not None and not isinstance(_capability_reason, str):
+        raise ValueError(
+            f"Retry outbox item {item.outbox_id} has invalid "
+            f"capability_reason={_capability_reason!r}"
+        )
 
+    _deadline_raw = _meta["deadline"]
     _deadline: datetime | None = None
     if _deadline_raw is not None:
+        if not isinstance(_deadline_raw, str):
+            raise ValueError(
+                f"Retry outbox item {item.outbox_id} has non-string "
+                f"deadline={_deadline_raw!r}"
+            )
         try:
-            _parsed = datetime.fromisoformat(_deadline_raw)
-            # Reject timezone-naive datetimes — comparison with
-            # datetime.now(tz=timezone.utc) would raise TypeError.
-            if _parsed.tzinfo is not None:
-                _deadline = _parsed
-        except (ValueError, TypeError):
-            pass  # Graceful degradation: deadline stays None.
+            _deadline = datetime.fromisoformat(_deadline_raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"Retry outbox item {item.outbox_id} has invalid "
+                f"deadline={_deadline_raw!r}"
+            ) from exc
+        if _deadline.tzinfo is None:
+            raise ValueError(
+                f"Retry outbox item {item.outbox_id} has timezone-naive "
+                f"deadline={_deadline_raw!r}"
+            )
 
     # -- Delivery plan ----------------------------------------------------
     plan = DeliveryPlan(

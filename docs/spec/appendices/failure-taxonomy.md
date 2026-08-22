@@ -135,7 +135,7 @@ appears more than once in the event's routing metadata). The adapter's
 | Outcome status   | `skipped`                                                                                       |
 | Receipt status   | `suppressed`                                                                                    |
 | Receipt evidence | `event_id`, `route_id`, `target_adapter`, `failure_kind="loop_suppressed"`, and a reason string |
-| Retryable        | No — `next_retry_at` is `None`, receipt does not enter retry queue                              |
+| Retryable        | No — `next_retry_at` is `None`; durable outbox work is not scheduled for retry                              |
 | Adapter called   | No                                                                                              |
 
 Self-loop and route-trace suppression produce the same `failure_kind` but are
@@ -157,7 +157,7 @@ invocation.
 | Outcome status   | `skipped`                                                                                                                |
 | Receipt status   | `suppressed`                                                                                                             |
 | Receipt evidence | `event_id`, `route_id`, `target_adapter`, `failure_kind="capability_suppressed"`, `capability_field`, `capability_level` |
-| Retryable        | No — `next_retry_at` is `None`, receipt does not enter retry queue                                                       |
+| Retryable        | No — `next_retry_at` is `None`; durable outbox work is not scheduled for retry                                                       |
 | Adapter called   | No                                                                                                                       |
 
 The receipt `error` field carries the capability reason (e.g. `"reactions
@@ -203,7 +203,7 @@ persisted.
    The adapter is not aware of suppressed events — there is no adapter-side
    counter or state change.
 8. Suppressed receipts have `status="suppressed"`, not `"failed"`. They do not
-   enter the retry queue. Operators checking for "failed deliveries" must
+   create retryable outbox work. Operators checking for "failed deliveries" must
    query for `status IN ('failed', 'dead_lettered')` to exclude suppressed
    entries, or query `status IN ('suppressed', 'failed', 'dead_lettered')` to
    include all non-successful outcomes.
@@ -277,10 +277,10 @@ When the runtime shuts down, the delivery evidence system aims to:
 Graceful shutdown preserves non-terminal outbox rows as resumable work. The
 runtime does not cancel, mutate, or append receipts to pending outbox items
 during shutdown. Non-terminal outbox statuses (`pending`, `retry_wait`,
-`in_progress`, `queued`) survive in SQLite and are processed on next startup:
-due retry receipts by the RetryWorker, and outbox items (`pending`,
-`retry_wait`, expired `in_progress`, stale `queued`) by
-`claim_due_outbox_items()`.
+`in_progress`, `queued`) survive in SQLite. The RetryWorker claims eligible
+rows through `claim_due_outbox_items()`; `retry_wait` rows become eligible when
+`next_attempt_at` is due. Receipts remain immutable evidence rather than a
+second scheduling authority.
 
 This is an intentional design choice, not a gap. Automatic cancellation of
 resumable outbox work is not performed because:
@@ -338,7 +338,7 @@ resumed on next startup.
 | In-flight delivery completes during drain        | Normal receipt with final status (`sent` or `failed`)       |
 | In-flight delivery abandoned after drain timeout | Suppressed receipt with error `shutdown_drain_timeout`      |
 | New delivery rejected during shutdown            | Suppressed receipt with error `delivery_rejected_shutdown`  |
-| Pending retry receipt in storage at shutdown     | No change — receipt remains, processed on next startup      |
+| Pending `retry_wait` outbox item at shutdown       | No change — row remains resumable and is claimed when due   |
 | Pending outbox item at shutdown                  | No change — outbox row remains, reclaimable on next startup |
 
 ## 14. Orphan and Invalid-Lineage Finding Kinds

@@ -550,9 +550,9 @@ Each retry receipt links to the previous attempt via `parent_receipt_id`. When r
 SELECT * FROM delivery_receipts WHERE delivery_plan_id = ? ORDER BY attempt_number;
 ```
 
-### Suppressed Deliveries and the Retry Queue
+### Suppressed Deliveries and Retry Work
 
-Suppressed deliveries (status `"suppressed"` with failure kind `loop_suppressed`, `capability_suppressed`, or `policy_suppressed`) do not enter the retry queue. Suppressed receipts have `next_retry_at=NULL` and are never returned by `list_due_retry_receipts()`. This is by design: suppression indicates a guard fired to prevent delivery, not a transient failure that might resolve with retry.
+Suppressed deliveries (status `"suppressed"` with failure kind `loop_suppressed`, `capability_suppressed`, or `policy_suppressed`) do not create retryable outbox work. Their receipts have `next_retry_at=NULL`, and the corresponding outbox state is terminal rather than `retry_wait`. This is by design: suppression indicates a guard fired to prevent delivery, not a transient failure that might resolve with retry.
 
 ### Querying Replay Receipts
 
@@ -638,7 +638,7 @@ ORDER BY e.created_at DESC;
 | **Trigger**        | `ADAPTER_TRANSIENT` failures only                                     | Operator-initiated via CLI                                   |
 | **Owner**          | `RetryWorker` (background)                                            | Operator                                                     |
 | **Lineage**        | `source='retry'`, linked via `parent_receipt_id`, same delivery chain | `source='replay'`, `replay_run_id`, new delivery execution   |
-| **Persistence**    | Pending retry state (`next_retry_at`) survives restart                | Receipts durable in SQLite. ReplaySummary is in-memory only. |
+| **Persistence**    | Outbox `status` and `next_attempt_at` survive restart                 | Receipts durable in SQLite. ReplaySummary is in-memory only. |
 | **Duplicate risk** | None — same delivery attempt                                          | High — new outbound messages, no dedup                       |
 | **Bounded by**     | `RetryPolicy` (max attempts, backoff)                                 | Operator decides scope                                       |
 | **Opt-in**         | Yes — requires `RetryPolicy` config                                   | Always available                                             |
@@ -648,17 +648,30 @@ ORDER BY e.created_at DESC;
 When retry is enabled, the system produces an auditable chain:
 
 1. Initial failure creates a receipt with `status="failed"`, `failure_kind="adapter_transient"`, and `next_retry_at` set.
-2. The RetryWorker discovers due receipts and re-attempts delivery.
+2. The RetryWorker claims due outbox rows through `claim_due_outbox_items()` and uses receipts only as immutable attempt evidence.
 3. Each retry appends a new receipt row with incremented `attempt_number` and `parent_receipt_id` linking to the previous attempt.
 4. When retries are exhausted, the final receipt has `status="dead_lettered"`.
 
-The full chain is queryable:
+Choose the exact `outbox_id` for the delivery execution being investigated. For
+a replay-origin execution, also retain its `replay_run_id` from the receipt
+evidence. Receipt `next_retry_at` values record the schedule chosen after each
+attempt as immutable evidence; they do not determine whether work is currently
+due. Operators must use the matching outbox row's `status` and `next_attempt_at`
+as the scheduling authority.
 
 ```sql
-SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at, created_at
+-- One execution's attempt history; next_retry_at is evidence only.
+SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at,
+       source, replay_run_id, outbox_id, created_at
 FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>'
+WHERE outbox_id = '<outbox_id>'
+  AND (replay_run_id IS NULL OR replay_run_id = '<replay_run_id>')
 ORDER BY attempt_number;
+
+-- Current scheduling state; use this row to determine whether work is due.
+SELECT outbox_id, status, attempt_number, next_attempt_at
+FROM delivery_outbox
+WHERE outbox_id = '<outbox_id>';
 ```
 
 ### Outbox Accountability
@@ -672,9 +685,9 @@ The outbox tracks in-progress deliveries:
 
 ### Resumable Shutdown Policy
 
-When the runtime shuts down gracefully, pending retry receipts (those with `next_retry_at` set) and pending outbox items are not cancelled. They remain in storage as resumable work. On next startup:
+When the runtime shuts down gracefully, non-terminal outbox items are not cancelled. They remain in storage as resumable work; retry receipts remain immutable evidence. On next startup:
 
-- Due retry receipts are discovered and processed by the RetryWorker.
+- The RetryWorker claims due `retry_wait` outbox rows through `claim_due_outbox_items()` and processes them when `next_attempt_at` is due.
 - Expired `in_progress` outbox rows are reclaimed by `claim_due_outbox_items()`.
 - Stale `queued` outbox rows are reclaimed after the configured grace period.
 
@@ -690,11 +703,11 @@ Operators can inspect these fields to understand what work will resume after res
 
 ### Retry States
 
-| State            | `status`        | `next_retry_at`   | `failure_kind`      | Meaning                                                  |
-| ---------------- | --------------- | ----------------- | ------------------- | -------------------------------------------------------- |
-| Pending retry    | `failed`        | Set (future time) | `adapter_transient` | RetryWorker will re-attempt                              |
-| Exhausted        | `dead_lettered` | `NULL`            | `adapter_transient` | Max retries exceeded; manual intervention needed         |
-| Successful retry | `sent`          | `NULL`            | `NULL`              | Retry succeeded; check `parent_receipt_id` to trace back |
+| State            | Outbox `status`  | Outbox `next_attempt_at` | Receipt evidence                    | Meaning                                                  |
+| ---------------- | ---------------- | ------------------------ | ----------------------------------- | -------------------------------------------------------- |
+| Pending retry    | `retry_wait`     | Set (future time)        | `failed` / `adapter_transient`      | RetryWorker will re-attempt                              |
+| Exhausted        | `dead_lettered`  | `NULL`                   | `dead_lettered`                     | Max retries exceeded; manual intervention needed         |
+| Successful retry | `sent`           | `NULL`                   | `sent`                              | Retry succeeded; check `parent_receipt_id` to trace back |
 
 ### When to Use Which
 
@@ -708,15 +721,16 @@ Operators can inspect these fields to understand what work will resume after res
 
 ### Replay and Route-Level Retry Interaction
 
-When `best_effort` replay delivers to a route that has retry enabled, transient failures create due retry receipts in storage. The `medre replay` command never starts the RetryWorker (it builds but never calls `app.start()`). This means:
+When `best_effort` replay delivers to a route that has retry enabled, transient failures create retryable outbox work plus immutable failure receipts in storage. The `medre replay` command never starts the RetryWorker (it builds but never calls `app.start()`). This means:
 
-- Due retry receipts created during replay sit in storage unprocessed.
-- If the operator later starts the runtime normally (`medre run`) with retry enabled, the RetryWorker will discover and process those receipts.
+- Retryable outbox rows created during replay sit in storage unprocessed.
+- If the operator later starts the runtime normally (`medre run`) with retry enabled, the RetryWorker will claim and process those due outbox rows; the receipts remain evidence.
 - This creates a cross-source retry chain: `source="replay"` to `source="retry"`, linked by `parent_receipt_id`.
 
 After `best_effort` replay, check for replay-created retry receipts:
 
 ```sql
+-- Receipt evidence that replay produced a retry schedule; not current due work.
 SELECT receipt_id, event_id, status, next_retry_at, source, replay_run_id
 FROM delivery_receipts
 WHERE source = 'replay' AND next_retry_at IS NOT NULL;
@@ -804,7 +818,7 @@ Operators seeing these messages should check whether the adapter callback is exp
 
 ### Replay Does Not Mutate Live Recovery State
 
-Replay execution (`medre replay`) produces its own receipts and outbox transitions, all tagged `source="replay"`. Replay does not modify existing live receipts, live outbox items, or live retry state. If a replay run creates due retry receipts (transient failure during `best_effort` mode), those retry receipts sit in storage unprocessed until the runtime starts normally with retry enabled.
+Replay execution (`medre replay`) produces its own receipts and outbox transitions, all tagged `source="replay"`. Replay does not modify existing live receipts, live outbox items, or live retry state. If a replay run creates retryable outbox work (transient failure during `best_effort` mode), those outbox rows sit in storage unprocessed until the runtime starts normally with retry enabled; the corresponding receipts remain evidence only.
 
 ## Convergence Diagnostics for Recovery
 

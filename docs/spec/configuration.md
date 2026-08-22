@@ -78,8 +78,8 @@ class RuntimeConfig:
 | Field              | Default | Description                                    |
 | ------------------ | ------- | ---------------------------------------------- |
 | `enabled`          | `False` | Whether the retry worker is active             |
-| `interval_seconds` | `10.0`  | Polling interval for due retry receipts        |
-| `batch_size`       | `20`    | Max retry receipts processed per cycle         |
+| `interval_seconds` | `10.0`  | Polling interval for due outbox work        |
+| `batch_size`       | `20`    | Max due outbox items claimed per cycle         |
 | `max_attempts`     | `3`     | Max total delivery attempts before dead-letter |
 
 ## 3. YAML Schema

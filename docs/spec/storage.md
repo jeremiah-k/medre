@@ -729,6 +729,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
 
 This closes the SQLite `NULL != NULL` gap for outbox uniqueness.
 
+`receipt_id` is the most recent persisted receipt linked to the outbox row. If an
+attempt fails before receipt persistence, lifecycle may advance the outbox attempt
+while retaining the prior `receipt_id` as the durable lineage anchor; it MUST NOT
+fabricate a receipt identifier merely to make the attempt numbers align.
+
 ### 4.11 durable_ingress_work
 
 ```sql
@@ -917,14 +922,16 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 
 ### 8.14 list_due_retry_receipts(now, limit, max_attempts)
 
+- Read-only receipt-evidence projection; it is **not** retry-scheduling authority.
 - Returns failed receipts where `next_retry_at <= now`, `status = 'failed'`, and `failure_kind = 'adapter_transient'`.
 - Excludes receipts where `attempt_number >= max_attempts` or `status = 'dead_lettered'`.
 - Ordered by `next_retry_at ASC, sequence ASC`.
+- Runtime retry work is claimed from `delivery_outbox` via `claim_due_outbox_items()`.
 
 ### 8.15 count_pending_retry(now, max_attempts)
 
-- Returns count of transient-failure receipts due for retry.
-- Same filter as `list_due_retry_receipts`.
+- Read-only count over the same receipt-evidence projection as `list_due_retry_receipts`.
+- It does not determine RetryWorker scheduling; outbox status/count APIs are operational authority.
 
 ### 8.16 Outbox Methods
 
