@@ -56,6 +56,10 @@ __all__ = ["RetryWorker", "RetryWorkerState", "RetryWorkerStorage"]
 
 _logger = logging.getLogger(__name__)
 
+# Bounded preflight for the startup evidence read so a stalled storage
+# backend cannot block RetryWorker.start() indefinitely.
+_STARTUP_EVIDENCE_TIMEOUT_SECONDS: float = 5.0
+
 
 class RetryWorkerStorage(Protocol):
     """Read/claim storage surface used directly by :class:`RetryWorker`.
@@ -207,8 +211,10 @@ class RetryWorker:
         # Prevents the event loop from garbage-collecting the task while
         # it is still alive; removed via a done callback when it finishes.
         self._abandoned_task: asyncio.Task[None] | None = None
-        # Serializes concurrent :meth:`stop` calls so the worker
-        # emits ``retry_stopped`` / ``retry_abandoned`` exactly once.
+        # Serializes lifecycle transitions so concurrent :meth:`start` calls
+        # cannot create duplicate workers and :meth:`stop` cannot observe a
+        # half-started one; ``stop`` also emits ``retry_stopped`` /
+        # ``retry_abandoned`` exactly once.
         self._stop_lock = asyncio.Lock()
         self._outbox_counts: dict[str, int] = {}
         self._cycle_completed: bool = False
@@ -245,13 +251,20 @@ class RetryWorker:
         ``in_progress`` rows seen here predate this worker generation and are
         useful evidence after a prior process stopped unexpectedly.
 
-        Storage-read failure is non-fatal: the normal worker loop remains the
-        recovery authority and can still claim due work later.
+        Storage-read failure or a stalled read exceeding the bounded preflight
+        budget is non-fatal: the normal worker loop remains the recovery
+        authority and can still claim due work later.
         """
 
         try:
-            counts = await self._storage.count_outbox_by_status()
+            counts = await asyncio.wait_for(
+                self._storage.count_outbox_by_status(),
+                timeout=_STARTUP_EVIDENCE_TIMEOUT_SECONDS,
+            )
         except Exception:
+            # Includes asyncio.TimeoutError raised by the bounded preflight
+            # above; a stalled backend records ``None`` instead of blocking
+            # startup indefinitely.
             _logger.debug(
                 "RetryWorker could not read startup outbox counts",
                 exc_info=True,
@@ -260,7 +273,13 @@ class RetryWorker:
             return
 
         raw_count = counts.get("in_progress", 0)
-        in_progress = raw_count if isinstance(raw_count, int) else 0
+        # ``bool`` is a subclass of ``int``; a boolean is not a valid row
+        # count and must not leak into the evidence value.
+        in_progress = (
+            raw_count
+            if isinstance(raw_count, int) and not isinstance(raw_count, bool)
+            else 0
+        )
         self.state.previous_run_in_progress = max(in_progress, 0)
         if self.state.previous_run_in_progress <= 0:
             return
@@ -512,54 +531,64 @@ class RetryWorker:
         still alive.  In the abandoned case launching again would
         silently double-process the outbox, so :attr:`state.abandoned`
         must be cleared by the caller first.
+
+        The whole transition is serialised by :attr:`_stop_lock`: the
+        startup evidence read below is an await point between the
+        already-running checks and task creation, and without the lock a
+        concurrent ``start()`` could pass the same checks and spawn a
+        duplicate worker (or a ``stop()`` could observe no task while
+        startup was still in flight).
         """
-        if not self._enabled:
-            return
-        if self.state.abandoned:
-            _logger.error(
-                "RetryWorker.start refused: previous stop abandoned the "
-                "background task; worker must not be restarted without "
-                "operator intervention"
+        async with self._stop_lock:
+            if not self._enabled:
+                return
+            if self.state.abandoned:
+                _logger.error(
+                    "RetryWorker.start refused: previous stop abandoned the "
+                    "background task; worker must not be restarted without "
+                    "operator intervention"
+                )
+                # NOTE: retry_start_refused is a runtime event for operational
+                # visibility into the current process's worker health.  It is
+                # an in-memory event buffer emission — not persisted state, not
+                # a lifecycle transition, and not durable across process restart.
+                # It exists solely so operators and diagnostic bundles can see
+                # that start was refused during this process's lifetime.
+                self._emit(
+                    "retry_start_refused",
+                    {
+                        "reason": "abandoned",
+                        "stop_timeout_seconds": self._stop_timeout,
+                        "processed": self.state.processed,
+                        "succeeded": self.state.succeeded,
+                        "failed": self.state.failed,
+                        "dead_lettered": self.state.dead_lettered,
+                    },
+                )
+                return
+            if self._task is not None:
+                return
+            await self._capture_startup_outbox_evidence()
+            self._shutdown_event.clear()
+            self.state.running = True
+            self._task = asyncio.create_task(self._run_loop())
+            _logger.info(
+                "RetryWorker started (interval=%ss, batch=%d, max_attempts=%d)",
+                self._interval,
+                self._batch_size,
+                self._max_attempts,
             )
-            # NOTE: retry_start_refused is a runtime event for operational
-            # visibility into the current process's worker health.  It is
-            # an in-memory event buffer emission — not persisted state, not
-            # a lifecycle transition, and not durable across process restart.
-            # It exists solely so operators and diagnostic bundles can see
-            # that start was refused during this process's lifetime.
             self._emit(
-                "retry_start_refused",
+                "retry_started",
                 {
-                    "reason": "abandoned",
-                    "stop_timeout_seconds": self._stop_timeout,
-                    "processed": self.state.processed,
-                    "succeeded": self.state.succeeded,
-                    "failed": self.state.failed,
-                    "dead_lettered": self.state.dead_lettered,
+                    "interval": self._interval,
+                    "batch_size": self._batch_size,
+                    "max_attempts": self._max_attempts,
+                    "previous_run_in_progress": (
+                        self.state.previous_run_in_progress
+                    ),
                 },
             )
-            return
-        if self._task is not None:
-            return
-        await self._capture_startup_outbox_evidence()
-        self._shutdown_event.clear()
-        self.state.running = True
-        self._task = asyncio.create_task(self._run_loop())
-        _logger.info(
-            "RetryWorker started (interval=%ss, batch=%d, max_attempts=%d)",
-            self._interval,
-            self._batch_size,
-            self._max_attempts,
-        )
-        self._emit(
-            "retry_started",
-            {
-                "interval": self._interval,
-                "batch_size": self._batch_size,
-                "max_attempts": self._max_attempts,
-                "previous_run_in_progress": self.state.previous_run_in_progress,
-            },
-        )
 
     async def stop(self) -> None:
         """Signal shutdown and wait for the worker to finish.

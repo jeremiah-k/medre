@@ -9,9 +9,13 @@ No outbox rows are created, mutated, or cancelled by these tests.
 
 from __future__ import annotations
 
+import asyncio
 import itertools
 from unittest.mock import AsyncMock
 
+import pytest
+
+import medre.runtime.retry as retry_module
 from medre.runtime.events import EventBuffer, RuntimeEventType
 from medre.runtime.retry import RetryWorker
 
@@ -112,6 +116,105 @@ async def test_startup_snapshot_failure_is_non_fatal() -> None:
         )
     finally:
         await worker.stop()
+
+
+async def test_startup_rejects_boolean_status_count() -> None:
+    """A bool is not a valid row count; it must not leak into evidence."""
+    buf = EventBuffer(clock=_fixed_clock)
+    worker = _make_worker(event_buffer=buf)
+    worker._storage.count_outbox_by_status = AsyncMock(  # type: ignore[attr-defined]
+        return_value={"in_progress": True}
+    )
+
+    await worker.start()
+    try:
+        assert worker.state.previous_run_in_progress == 0
+        assert not any(
+            event.event_type == RuntimeEventType.RETRY_UNFINISHED_WORK_DETECTED
+            for event in buf
+        )
+    finally:
+        await worker.stop()
+
+
+async def test_startup_read_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stalled storage read times out instead of blocking startup."""
+    monkeypatch.setattr(
+        retry_module, "_STARTUP_EVIDENCE_TIMEOUT_SECONDS", 0.05
+    )
+    buf = EventBuffer(clock=_fixed_clock)
+    worker = _make_worker(event_buffer=buf)
+
+    async def _stall() -> dict[str, int]:
+        await asyncio.sleep(30)
+        return {}
+
+    worker._storage.count_outbox_by_status = AsyncMock(  # type: ignore[attr-defined]
+        side_effect=_stall
+    )
+
+    loop = asyncio.get_running_loop()
+    started_at = loop.time()
+    await worker.start()
+    try:
+        assert loop.time() - started_at < 5
+        assert worker.state.previous_run_in_progress is None
+        assert worker.state.running is True
+    finally:
+        await worker.stop()
+
+
+async def test_concurrent_start_creates_single_worker() -> None:
+    """Two overlapping start() calls cannot spawn duplicate workers."""
+    buf = EventBuffer(clock=_fixed_clock)
+    worker = _make_worker(event_buffer=buf)
+
+    await asyncio.gather(worker.start(), worker.start())
+    try:
+        started_events = [
+            event
+            for event in buf
+            if event.event_type == RuntimeEventType.RETRY_STARTED
+        ]
+        assert len(started_events) == 1
+        assert worker.state.running is True
+    finally:
+        await worker.stop()
+
+
+async def test_stop_during_startup_waits_for_startup_to_finish() -> None:
+    """stop() cannot return while startup evidence capture is in flight."""
+    buf = EventBuffer(clock=_fixed_clock)
+    worker = _make_worker(event_buffer=buf)
+    read_entered = asyncio.Event()
+    release_read = asyncio.Event()
+
+    async def _gated_read() -> dict[str, int]:
+        read_entered.set()
+        await release_read.wait()
+        return {}
+
+    worker._storage.count_outbox_by_status = AsyncMock(  # type: ignore[attr-defined]
+        side_effect=_gated_read
+    )
+
+    start_task = asyncio.create_task(worker.start())
+    await read_entered.wait()
+    stop_task = asyncio.create_task(worker.stop())
+    await asyncio.sleep(0)
+    release_read.set()
+    await asyncio.gather(start_task, stop_task)
+
+    assert worker._task is None
+    assert worker.state.running is False
+    assert any(
+        event.event_type == RuntimeEventType.RETRY_STARTED for event in buf
+    )
+    assert any(
+        event.event_type == RuntimeEventType.RETRY_STOPPED for event in buf
+    )
 
 
 class TestRetryWorkerEventBufferWiring:

@@ -666,16 +666,17 @@ class TestDiagnosticsSectionSchemaStability:
         assert "plain-adapter" not in snap["diagnostics"]["adapters"]
 
 
+@dataclass
+class _RetryEvidenceState:
+    """Typed stand-in carrying the retry evidence fields under test."""
+
+    abandoned: bool = False
+    previous_run_in_progress: int | None = None
+
+
 def test_retry_runtime_evidence_values_are_propagated() -> None:
     """Runtime snapshot preserves retry abandonment/startup evidence."""
-    state = type(
-        "RetryState",
-        (),
-        {
-            "abandoned": True,
-            "previous_run_in_progress": 4,
-        },
-    )()
+    state = _RetryEvidenceState(abandoned=True, previous_run_in_progress=4)
     retry = build_runtime_snapshot(_make_fake_app(retry_state=state))["retry"]
 
     assert retry["abandoned"] is True
