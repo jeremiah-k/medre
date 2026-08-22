@@ -638,7 +638,7 @@ ORDER BY e.created_at DESC;
 | **Trigger**        | `ADAPTER_TRANSIENT` failures only                                     | Operator-initiated via CLI                                   |
 | **Owner**          | `RetryWorker` (background)                                            | Operator                                                     |
 | **Lineage**        | `source='retry'`, linked via `parent_receipt_id`, same delivery chain | `source='replay'`, `replay_run_id`, new delivery execution   |
-| **Persistence**    | Pending retry state (`next_retry_at`) survives restart                | Receipts durable in SQLite. ReplaySummary is in-memory only. |
+| **Persistence**    | Outbox `status` and `next_attempt_at` survive restart                 | Receipts durable in SQLite. ReplaySummary is in-memory only. |
 | **Duplicate risk** | None — same delivery attempt                                          | High — new outbound messages, no dedup                       |
 | **Bounded by**     | `RetryPolicy` (max attempts, backoff)                                 | Operator decides scope                                       |
 | **Opt-in**         | Yes — requires `RetryPolicy` config                                   | Always available                                             |
@@ -652,13 +652,22 @@ When retry is enabled, the system produces an auditable chain:
 3. Each retry appends a new receipt row with incremented `attempt_number` and `parent_receipt_id` linking to the previous attempt.
 4. When retries are exhausted, the final receipt has `status="dead_lettered"`.
 
-The full chain is queryable:
+The full chain is queryable. Receipt `next_retry_at` values record the schedule
+chosen after each attempt as immutable evidence; they do not determine whether
+work is currently due. Operators must use the matching outbox row's `status` and
+`next_attempt_at` as the scheduling authority.
 
 ```sql
+-- Attempt history; next_retry_at is evidence only.
 SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at, created_at
 FROM delivery_receipts
 WHERE delivery_plan_id = '<plan_id>'
 ORDER BY attempt_number;
+
+-- Current scheduling state; use this row to determine whether work is due.
+SELECT outbox_id, status, attempt_number, next_attempt_at
+FROM delivery_outbox
+WHERE delivery_plan_id = '<plan_id>';
 ```
 
 ### Outbox Accountability
@@ -717,6 +726,7 @@ When `best_effort` replay delivers to a route that has retry enabled, transient 
 After `best_effort` replay, check for replay-created retry receipts:
 
 ```sql
+-- Receipt evidence that replay produced a retry schedule; not current due work.
 SELECT receipt_id, event_id, status, next_retry_at, source, replay_run_id
 FROM delivery_receipts
 WHERE source = 'replay' AND next_retry_at IS NOT NULL;

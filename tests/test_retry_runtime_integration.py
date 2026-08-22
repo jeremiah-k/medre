@@ -18,18 +18,14 @@ from medre.adapters.fakes.presentation import (
 )
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
-    AdapterContext,
     AdapterDeliveryResult,
 )
-from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
-from medre.core.events.bus import EventBus
+from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.canonical import (
     CanonicalEvent,
     DeliveryReceipt,
 )
-from medre.core.events.metadata import EventMetadata
 from medre.core.observability.classification import infer_failure_kind
-from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
     DeliveryStrategy,
@@ -37,15 +33,16 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
-from medre.core.planning.relation_resolution import RelationResolver
-from medre.core.rendering.renderer import RenderingPipeline
-from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
-from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
+from tests.helpers.retry_runtime import (
+    build_retry_runner as _build_runner,
+    make_retry_event as _make_event,
+    start_retry_adapters as _start_adapters,
+)
 
 # ---------------------------------------------------------------------------
 # FallbackResolver that injects a retry_policy into every plan
@@ -234,71 +231,6 @@ class _RetryWorker:
             return receipt.failure_kind == "adapter_transient"
         kind = infer_failure_kind(receipt.error, receipt.status)
         return kind == "adapter_transient"
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_event(event_id: str | None = None) -> CanonicalEvent:
-    return CanonicalEvent(
-        event_id=event_id or f"evt-{uuid.uuid4()}",
-        event_kind="message.created",
-        schema_version=1,
-        timestamp=datetime.now(timezone.utc),
-        source_adapter="fake_source",
-        source_transport_id="node-1",
-        source_channel_id="ch-0",
-        parent_event_id=None,
-        lineage=(),
-        relations=(),
-        payload={"body": "hello from integration test"},
-        metadata=EventMetadata(),
-    )
-
-
-def _build_runner(
-    storage: SQLiteStorage,
-    adapters: dict,
-    router: Router,
-    accounting: RuntimeAccounting,
-    *,
-    fallback_resolver: FallbackResolver | None = None,
-) -> PipelineRunner:
-    render_pipe = RenderingPipeline()
-    render_pipe.register(TextRenderer(), priority=100)
-    for aid, adapter in adapters.items():
-        platform = getattr(adapter, "platform", None)
-        if isinstance(platform, str):
-            render_pipe.register_platforms_from({aid: platform})
-
-    config = PipelineConfig(
-        storage=storage,
-        router=router,
-        fallback_resolver=fallback_resolver or FallbackResolver(),
-        relation_resolver=RelationResolver(storage=storage),
-        adapters=adapters,
-        event_bus=EventBus(),
-        rendering_pipeline=render_pipe,
-        diagnostician=Diagnostician(),
-        route_stats=RouteStats(),
-        runtime_accounting=accounting,
-    )
-    return PipelineRunner(config)
-
-
-async def _start_adapters(adapters: dict) -> None:
-    for aid, adapter in adapters.items():
-        ctx = AdapterContext(
-            adapter_id=aid,
-            event_bus=None,
-            publish_inbound=AsyncMock(),
-            logger=__import__("logging").getLogger(f"test.{aid}"),
-            clock=lambda: datetime.now(timezone.utc),
-            shutdown_event=asyncio.Event(),
-        )
-        await adapter.start(ctx)
 
 
 # ---------------------------------------------------------------------------

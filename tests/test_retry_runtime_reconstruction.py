@@ -13,10 +13,10 @@ from medre.core.routing.router import Router
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
-from tests.test_retry_runtime_integration import (
-    _build_runner,
-    _make_event,
-    _start_adapters,
+from tests.helpers.retry_runtime import (
+    build_retry_runner,
+    make_retry_event,
+    start_retry_adapters,
 )
 
 
@@ -46,7 +46,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
     dest_metadata = {"room_id": "!abc:server", "via": ["server.org"]}
 
     # -- 1. Seed a canonical event into storage -----------------------
-    event = _make_event(event_id=event_id)
+    event = make_retry_event(event_id=event_id)
     await temp_storage.append(event)
 
     # -- 2. Seed a previous failed receipt with retry policy ----------
@@ -110,8 +110,8 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
     accounting = RuntimeAccounting()
     adapters = {adapter_id: adapter}
 
-    runner = _build_runner(temp_storage, adapters, router, accounting)
-    await _start_adapters(adapters)
+    runner = build_retry_runner(temp_storage, adapters, router, accounting)
+    await start_retry_adapters(adapters)
     await runner.start()
 
     try:

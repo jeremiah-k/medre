@@ -286,7 +286,13 @@ The planner constructs one `DeliveryPlan` per `(event, RouteTarget)` pair.
 
 `capability_level`, `capability_field`, and `capability_reason` mirror the :class:`CapabilityDecision` used to choose `primary_strategy`. The :class:`FallbackResolver` populates these fields from the resolver's decision on every plan it produces. They are `None` only when `None` is the current planning decision (for example, passthrough event kinds with no capability candidate) or on manually constructed plans. Durable outbox rows persist the complete route-decision key set, and retry reconstruction validates that contract; see § 6.4.
 
-Delivery plans are operational artifacts, not canonical events. They exist during pipeline execution to coordinate delivery. They are not stored in the canonical event log and are not subject to immutability guarantees. New delivery and replay MAY run routing and planning against current configuration. Retry does not: `reconstruct_retry_delivery_plan()` rebuilds the plan from persisted route-decision metadata and the frozen retry context so a later configuration change cannot alter an admitted retry attempt.
+Delivery plans are operational artifacts, not canonical events. They exist during
+pipeline execution to coordinate delivery. They are not stored in the canonical
+event log and are not subject to immutability guarantees. New delivery and replay
+MAY run routing and planning against current configuration. Retry does not:
+`reconstruct_retry_delivery_plan()` rebuilds the plan from persisted route-decision
+metadata and the frozen retry context so a later configuration change cannot alter
+an admitted retry attempt.
 
 **Planning decision authority.** `FallbackResolver` produces each `DeliveryPlan` by delegating capability strategy decisions to `CapabilityDecisionResolver`. The resulting plan is the authoritative planning decision for that `(event, target)` pair. Downstream stages — `TargetDeliveryService` (execution), `RenderingPipeline` (rendering), `RenderingEvidence`/`DeliveryReceipt` (evidence), and diagnostics — consume plan fields (`primary_strategy`, `capability_level`, `capability_field`, `capability_reason`) without re-deciding capability or strategy. The only exception is replay, which intentionally re-runs planning against current capabilities and configuration rather than reusing the original live plan (see § 6.3.9).
 

@@ -396,42 +396,6 @@ class TestCapabilityFieldsRoundtrip:
                 default_max_attempts=3,
             )
 
-    def test_non_string_capability_level_is_rejected(self) -> None:
-        item = _make_outbox(metadata={"capability_level": 7})
-        with pytest.raises(ValueError, match="non-string capability_level"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
-
-    def test_non_string_deadline_is_rejected(self) -> None:
-        item = _make_outbox(metadata={"deadline": 1767225599})
-        with pytest.raises(ValueError, match="non-string deadline"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
-
-    def test_non_string_capability_field_is_rejected(self) -> None:
-        item = _make_outbox(metadata={"capability_field": ["reactions"]})
-        with pytest.raises(ValueError, match="invalid capability_field"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
-
-    def test_non_string_capability_reason_is_rejected(self) -> None:
-        item = _make_outbox(metadata={"capability_reason": {"why": "no"}})
-        with pytest.raises(ValueError, match="invalid capability_reason"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
-
     def test_fallback_chain_still_empty(self) -> None:
         """Fallback chains are not persisted and cannot be recovered."""
         item = _make_outbox()
@@ -473,6 +437,46 @@ class TestCapabilityFieldsRoundtrip:
         assert ctx.plan.capability_level == "native"
         assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
         assert ctx.plan.deadline is None
+
+
+def test_non_string_capability_level_is_rejected() -> None:
+    item = _make_outbox(metadata={"capability_level": 7})
+    with pytest.raises(ValueError, match="non-string capability_level"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_non_string_deadline_is_rejected() -> None:
+    item = _make_outbox(metadata={"deadline": 1767225599})
+    with pytest.raises(ValueError, match="non-string deadline"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_non_string_capability_field_is_rejected() -> None:
+    item = _make_outbox(metadata={"capability_field": ["reactions"]})
+    with pytest.raises(ValueError, match="invalid capability_field"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_non_string_capability_reason_is_rejected() -> None:
+    item = _make_outbox(metadata={"capability_reason": {"why": "no"}})
+    with pytest.raises(ValueError, match="invalid capability_reason"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
 
 
 class TestTargetIdentityRecomputed:
