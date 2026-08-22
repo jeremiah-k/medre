@@ -726,6 +726,25 @@ class MedreApp:
                     f"Failed to initialise storage: {exc}{path_hint}"
                 ) from exc
 
+        # 1.25 Rebuild derived conversation membership before any worker or
+        #      adapter can consume stale pre-crash projection state.  Canonical
+        #      events remain immutable; this is a deterministic current-state
+        #      projection repair.
+        if self.storage is not None:
+            try:
+                summary = await self.pipeline_runner.rebuild_conversation_projection()
+                _logger.info(
+                    "Conversation projection rebuilt: scanned=%d changed=%d",
+                    summary.scanned_events,
+                    summary.changed_events,
+                )
+            except Exception as exc:
+                await self._cleanup_storage_safely()
+                self._set_state(RuntimeState.FAILED)
+                raise RuntimeStartupError(
+                    f"Failed to rebuild conversation projection: {exc}"
+                ) from exc
+
         # 1.5 Seed outbox counts from storage so snapshot has data before
         #     the first retry-worker cycle populates the worker cache.
         if self.storage is not None:

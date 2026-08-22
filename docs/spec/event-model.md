@@ -62,10 +62,20 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
 | `metadata`            | `EventMetadata`             | —       | Structured metadata organized into namespaces (Section 4).                                                                                                                                                                                                                                                                                                                                                                                            |
 | `depth`               | `int`                       | `0`     | Depth in the derivation tree. MUST be `>= 0`. `0` for source events.                                                                                                                                                                                                                                                                                                                                                                                  |
 | `trace_id`            | `str \| None`               | `None`  | Distributed tracing correlation ID, reserved for future protocol-neutral use.                                                                                                                                                                                                                                                                                                                                                                         |
-| `root_event_id`       | `str \| None`               | `None`  | Canonical event ID of the root event in a relation chain. `None` before `ConversationGraphAuthority` has computed conversation identity inside the pipeline `RESOLVE_RELATIONS` phase. After pipeline ingress: root events (no resolved relation targets in storage) have `root_event_id = event.event_id` (self-root); reply/reaction events inherit or walk to the resolved relation root; if all resolved relation targets are missing from storage, the event self-roots. |
-| `conversation_id`     | `str \| None`               | `None`  | Conversation identifier. Currently always equals `root_event_id` after `ConversationGraphAuthority` assignment — no independent computation exists. Ancestor `conversation_id` values are not independently propagated. The field exists separately to reserve future divergence (e.g. merged threads, cross-transport grouping), which would require a separate authority rule. Populated inside the pipeline `RESOLVE_RELATIONS` phase.                                     |
+| `root_event_id`       | `str \| None`               | `None`  | **Ingress-time root snapshot.** `ConversationGraphAuthority` assigns it before canonical persistence. Root events self-root; relation events use the first currently resolvable stored target. When a target is not yet resolvable, the stored event may self-root. The persisted value is immutable evidence and is not retroactively rewritten. |
+| `conversation_id`     | `str \| None`               | `None`  | **Ingress-time conversation snapshot.** Currently always equals the ingress-time `root_event_id`. It is immutable once the canonical row is stored. Current grouping after late relation resolution is represented by the separate conversation-membership projection. |
 
-**Planning-derived fields.** `root_event_id` and `conversation_id` are pipeline-assigned by `ConversationGraphAuthority` inside the `RESOLVE_RELATIONS` phase, not by adapters or codecs. Downstream stages (routing, delivery planning, rendering, diagnostics) consume these fields without re-computing relation ancestry. The pipeline authority that assigns these fields is documented in the Planning Authority Audit (§ 2.4).
+**Ingress snapshot vs current projection.** Adapters/codecs never assign conversation
+identity. `ConversationGraphAuthority` assigns the immutable canonical snapshot during
+`RESOLVE_RELATIONS`. `ConversationProjectionService` separately derives current ancestry
+from stored events, relation rows, and native-ref mappings. Routing/rendering may consume
+an in-memory event copy whose `root_event_id` / `conversation_id` are overlaid from the
+current projection; the canonical database row is never updated.
+
+This separation is intentional: historical evidence records what was known at admission,
+while the derived projection converges when an out-of-order parent or native target later
+becomes available. `conversation_id` still equals `root_event_id` in both representations;
+merged/cross-transport grouping remains a future authority rule.
 
 ### 1.3 Source Identity Examples
 
@@ -574,6 +584,40 @@ CREATE INDEX idx_relations_target ON event_relations(target_event_id);
 CREATE INDEX idx_relations_type ON event_relations(relation_type);
 ```
 
+Stored relation rows are immutable. A relation admitted with only
+`target_native_ref` remains that way in `event_relations` even if the native identity is
+resolved later. The runtime re-resolves such relations only on in-memory delivery copies.
+
+### 9.2.1 conversation_membership
+
+```sql
+CREATE TABLE conversation_membership (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    root_event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    conversation_id TEXT NOT NULL,
+    resolved_target_event_id TEXT REFERENCES canonical_events(event_id),
+    relation_type TEXT,
+    depth INTEGER NOT NULL,
+    resolution_state TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (depth >= 0),
+    CHECK (conversation_id = root_event_id),
+    CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))
+);
+```
+
+This table is not part of the canonical event envelope. It is a mutable, rebuildable
+projection of current relation ancestry. The deterministic parent rule is the first
+relation, in stored order, whose target currently resolves to an existing canonical
+event. An explicit `target_event_id` is authoritative and does not fall back to the same
+relation's native reference when that canonical target is missing.
+
+Arrival order does not define final grouping: child-before-parent and parent-before-child
+inputs with the same final immutable facts MUST converge to the same semantic membership.
+Restart during an incremental repair MUST converge after the startup full rebuild. Cycles
+use the lexicographically smallest event ID in the selected cycle as their deterministic
+projection root.
+
 ### 9.3 native_message_refs
 
 ```sql
@@ -606,6 +650,11 @@ The `relations` tuple on a `CanonicalEvent` is NOT duplicated inside the
 - **Loading:** When a `CanonicalEvent` is loaded from storage, its in-memory
   `relations` tuple is reconstructed by querying `event_relations` for that
   event's ID.
+- **Late resolution:** Before current delivery, unresolved native relations MAY be
+  re-resolved on the in-memory event copy. That refreshed `target_event_id` MUST NOT be
+  written back to `event_relations`.
+- **Current ancestry:** `conversation_membership` carries the mutable current graph
+  projection; it is not serialized into `CanonicalEvent` and is safe to rebuild.
 
 ---
 

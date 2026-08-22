@@ -11,9 +11,10 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 ## 1. Scope
 
 This document specifies the MEDRE storage layer. The current SQLite backend persists
-`canonical_events`, `event_relations`, `native_message_refs`, `delivery_receipts`,
-`delivery_outbox`, `durable_ingress_work`, `adapter_checkpoints`, a schema-reserved
-`plugin_state` table, and schema metadata.
+`canonical_events`, `event_relations`, the rebuildable `conversation_membership`
+projection, `native_message_refs`, `delivery_receipts`, `delivery_outbox`,
+`durable_ingress_work`, `adapter_checkpoints`, a schema-reserved `plugin_state` table,
+and schema metadata.
 
 The following tables are **planned — not implemented; tracked for
 post-prerelease**:
@@ -116,6 +117,10 @@ class StorageBackend(Protocol):
         MUST reconstruct the in-memory relations list from event_relations.
         Returns None if not found.
         """
+        ...
+
+    async def list_event_ids(self) -> list[str]:
+        """Return every canonical event ID in deterministic event order."""
         ...
 
     async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]:
@@ -425,6 +430,59 @@ CREATE TABLE event_relations (
 | `idx_relations_target_event_id` | `(target_event_id)` | Reverse lookup for `list_relation_sources(target_event_id)`    |
 
 The `target_native_*` split columns store the `NativeRef` fields when the canonical event ID for the relation target is not yet known. When a relation is unresolved, `target_event_id` is `NULL` and the four `target_native_*` columns carry the native reference. The relation resolution stage resolves these by calling `resolve_native_ref`.
+
+The canonical relation row is historical evidence and **MUST NOT** be rewritten when a
+late native target becomes resolvable. Current relation resolution for delivery happens
+on an in-memory event copy, while current ancestry is stored separately in the derived
+projection below.
+
+### 4.2.1 conversation_membership
+
+```sql
+CREATE TABLE conversation_membership (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    root_event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    conversation_id TEXT NOT NULL,
+    resolved_target_event_id TEXT REFERENCES canonical_events(event_id),
+    relation_type TEXT,
+    depth INTEGER NOT NULL,
+    resolution_state TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (depth >= 0),
+    CHECK (conversation_id = root_event_id),
+    CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))
+);
+```
+
+`conversation_membership` is **derived current state**, not ingress evidence. Its rows
+MAY be updated idempotently by `ConversationProjectionService` whenever immutable
+relation/native-reference facts make a different ancestry resolvable. Canonical event
+rows and relation rows remain unchanged.
+
+The four resolution states are:
+
+- `root`: the event has no conversational dependency and self-roots.
+- `unresolved`: the selected ancestry still depends on a target that is not currently
+  resolvable. The row may self-root or point through already-resolved ancestors to the
+  unresolved boundary.
+- `resolved`: the event has a currently resolvable parent chain.
+- `cycle`: the event itself belongs to a cycle in the selected-parent graph. All cycle
+  members use the lexicographically smallest cycle event ID as the deterministic root
+  and have projection depth `0`.
+
+For non-cycle descendants, `depth` is the number of selected parent edges to the
+projected root/cycle boundary. `conversation_id` currently **MUST** equal
+`root_event_id`.
+
+**Indexes:**
+
+| Index | Columns | Purpose |
+| ----- | ------- | ------- |
+| `idx_relations_target_native_ref` | `(target_native_adapter, target_native_channel_id, target_native_message_id)` | Reverse repair when a native target mapping arrives |
+
+During current pre-release development this table is part of schema version `1`. An
+older version-1 database that lacks this table is an incompatible development shape and
+**MUST** be rejected; MEDRE does not migrate or synthesize compatibility rows.
 
 ### 4.3 native_message_refs
 
@@ -891,6 +949,28 @@ SQLite transactions are atomic. An event write either completes fully or not at 
   traversal is deterministic.
 - Returns an empty list when no stored relation targets the event.
 
+#### 8.8.1 list_relation_sources_for_native_ref(adapter, channel, message_id)
+
+- Returns unique source event IDs whose immutable relation rows target the exact native
+  identity.
+- Ordering is deterministic by the first matching relation row.
+- This reverse lookup is the repair primitive used when a previously unresolved native
+  target later receives a `native_message_refs` mapping.
+
+#### 8.8.2 Conversation projection methods
+
+- `put_conversation_membership(membership)` atomically upserts one derived row and
+  returns `True` only when semantic projection content changed. Unchanged rows **MUST
+  NOT** receive a new `updated_at`.
+- `get_conversation_membership(event_id)` returns current derived membership or `None`.
+- `list_event_ids()` returns the unbounded deterministic scan used by the correctness-
+  first startup rebuild. It is an internal rebuild primitive, not a paginated operator
+  query.
+
+Projection writes **MUST NOT** update or delete `canonical_events`, `event_relations`,
+or `native_message_refs`. A crash during incremental repair is recovered by recomputing
+the projection from immutable facts at the next runtime startup.
+
 ### 8.9 append_receipt(receipt)
 
 - Inserts a new row into `delivery_receipts`.
@@ -1190,6 +1270,8 @@ class StorageConfig:
 | Idempotent correlation | Duplicate `(adapter, native_channel_id, native_message_id)` tuples **MUST NOT** create duplicate rows.                         |
 | Ordered append         | `canonical_events` ordered by `timestamp ASC`. `delivery_receipts` ordered by `sequence` (monotonic).                          |
 | Receipt immutability   | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts`. Capacity rejection creates a new receipt row.    |
+| Conversation convergence | `conversation_membership` is rebuildable derived state. Equivalent relation/native-ref facts **MUST** converge to the same semantic projection independent of event arrival order or interrupted repair. |
+| Evidence immutability  | Conversation repair **MUST NOT** rewrite `canonical_events`, `event_relations`, or `native_message_refs`.                            |
 | Concurrent reads       | WAL mode **MUST** be enabled for concurrent reads during writes.                                                               |
 | Replay support         | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria.                      |
 | Schema validation      | `initialize()` **MUST** validate schema version and column shape.                                                              |
@@ -1207,6 +1289,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 | ---------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------- | -------------------------------- |
 | `canonical_events`     | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                           | None                                          | Forever                          |
 | `event_relations`      | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                           | None                                          | Forever                          |
+| `conversation_membership` | `ConversationProjectionService` from immutable event/relation/native-ref facts | `ConversationProjectionService` (derived idempotent repair) | None; rebuilt in place                        | Rebuildable current projection   |
 | `native_message_refs`  | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                     | None                                          | Forever                          |
 | `delivery_receipts`    | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                           | None                                          | Forever                          |
 | `delivery_outbox`      | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only)      | None (terminal rows become immutable history) | Forever                          |
@@ -1217,13 +1300,15 @@ This section states which code owns each table's rows, who may create/mutate/del
 
 ### 16.2 Ownership Rules
 
-1. **`canonical_events` are canonical ingress facts.** Each row records a normalized event after codec processing and conversation assignment by `ConversationGraphAuthority`. Rows are never updated or deleted. The event log is the single source of truth for what happened.
+1. **`canonical_events` are canonical ingress facts.** Each row records a normalized event after codec processing and ingress-time conversation assignment by `ConversationGraphAuthority`. Rows are never updated or deleted. The stored `root_event_id` / `conversation_id` are historical admission snapshots, not mutable current grouping.
 
-2. **`native_message_refs` are native transport correlation facts.** Adapters report them as observations of native-to-canonical mappings. Inserts are idempotent. No code path updates or deletes a native ref.
+2. **`conversation_membership` is current derived ancestry.** `ConversationProjectionService` recomputes it from immutable events, relation rows, and native refs. Late parents/native mappings may update projection rows, but MUST NOT rewrite the evidence tables. Runtime startup performs a deterministic full rebuild before pipeline workers or adapters start so partial prior repairs self-heal.
 
-3. **`delivery_receipts` are append-only delivery evidence.** Every delivery attempt (live, retry, or replay) produces a new receipt row. Existing receipt rows are never modified or deleted. The current delivery status is a projection from the `delivery_status` view (Section 4.5), not a mutable field.
+3. **`native_message_refs` are native transport correlation facts.** Adapters report them as observations of native-to-canonical mappings. Inserts are idempotent. No code path updates or deletes a native ref.
 
-4. **`delivery_outbox` is mutable operational work state until terminal, then immutable operational history.** Non-terminal statuses (`pending`, `in_progress`, `queued`, `retry_wait`) may be updated by delivery workers. Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) are immutable. No code path deletes outbox rows.
+4. **`delivery_receipts` are append-only delivery evidence.** Every delivery attempt (live, retry, or replay) produces a new receipt row. Existing receipt rows are never modified or deleted. The current delivery status is a projection from the `delivery_status` view (Section 4.5), not a mutable field.
+
+5. **`delivery_outbox` is mutable operational work state until terminal, then immutable operational history.** Non-terminal statuses (`pending`, `in_progress`, `queued`, `retry_wait`) may be updated by delivery workers. Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) are immutable. No code path deletes outbox rows.
 
    A delayed queue callback that proves send acceptance MUST finalize its
    outbound native ref, supplemental `sent` receipt, and exact
@@ -1232,27 +1317,27 @@ This section states which code owns each table's rows, who may create/mutate/del
    that transaction. A failed guard or failed insert MUST leave all three
    categories unchanged.
 
-5. **Recovery and orphan detection are bookkeeping, not lifecycle success.** The orphan query (Section 13.5) identifies events without receipts, but producing a receipt requires an actual delivery attempt. Recovery never fabricates a `sent` receipt or transitions an outbox row to terminal without a real delivery outcome.
+6. **Recovery and orphan detection are bookkeeping, not lifecycle success.** The orphan query (Section 13.5) identifies events without receipts, but producing a receipt requires an actual delivery attempt. Recovery never fabricates a `sent` receipt or transitions an outbox row to terminal without a real delivery outcome.
 
-6. **Evidence bundles and operator reports are derived views.** `medre evidence`, `medre inspect`, `medre trace`, and diagnostic snapshots query SQLite and present projections. They are not authoritative lifecycle state. If a report contradicts the receipt chain, the receipts are the authority.
+7. **Evidence bundles and operator reports are derived views.** `medre evidence`, `medre inspect`, `medre trace`, and diagnostic snapshots query SQLite and present projections. They are not authoritative lifecycle state. If a report contradicts the receipt chain, the receipts are the authority.
 
-7. **Durable ingress couples acceptance to recoverable work.** Canonical event,
+8. **Durable ingress couples acceptance to recoverable work.** Canonical event,
    inbound native ref, and ingress-work creation occur in one transaction. Duplicate
    native admission resolves to the original canonical identity.
 
-8. **Application-owned adapter checkpoints never outrun durable admission.** A
+9. **Application-owned adapter checkpoints never outrun durable admission.** A
    checkpoint may advance before routing completes only because accepted routable
    events already have persistent ingress work; protocol-specific loss metadata is
    persisted with the cursor.
 
-9. **Schema metadata identifies the current prerelease shape.**
+10. **Schema metadata identifies the current prerelease shape.**
    `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen
    until MEDRE reaches a release-tracked milestone. Column-shape validation
    (Section 10.2) catches prerelease drift without a version bump. No schema
    transformation or
    version-bump work is required now.
 
-10. **Adapters report facts; core records persistence.** Adapters surface canonical
+11. **Adapters report facts; core records persistence.** Adapters surface canonical
     events, adapter delivery facts, and native transport facts to the runtime. Core
     pipeline/runtime code records those facts through storage methods such as
     `append`, `store_native_ref`, and `append_receipt`. Adapters do not own lifecycle

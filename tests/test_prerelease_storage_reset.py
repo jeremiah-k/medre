@@ -322,3 +322,27 @@ async def test_schema_mismatch_error_is_actionable() -> None:
         assert "does not automatically transform" in msg
     finally:
         os.unlink(db_path)
+
+
+async def test_missing_conversation_projection_table_is_rejected_without_migration(
+    tmp_path: Path,
+) -> None:
+    """A prerelease DB missing current projection shape is rejected, not upgraded."""
+    db_path = tmp_path / "missing-conversation-projection.db"
+    storage = SQLiteStorage(db_path=str(db_path))
+    await storage.initialize()
+    await storage.close()
+
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.execute("DROP TABLE conversation_membership")
+        raw.commit()
+    finally:
+        raw.close()
+
+    stale = SQLiteStorage(db_path=str(db_path))
+    with pytest.raises(PreReleaseSchemaMismatchError) as exc_info:
+        await stale.initialize()
+
+    assert exc_info.value.table == "conversation_membership"
+    assert "event_id" in exc_info.value.missing_columns

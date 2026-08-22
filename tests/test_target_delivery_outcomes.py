@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
@@ -130,6 +131,7 @@ def _make_service(
     adapters: dict[str, Any] | None = None,
     rendering_pipeline: Any | None = None,
     storage: _FakeStorage | None = None,
+    native_ref_persisted_fn: Callable[[str], Awaitable[None]] | None = None,
 ) -> tuple[TargetDeliveryService, _FakeStorage]:
     """Build a TargetDeliveryService with sensible fakes."""
     _storage = storage or _FakeStorage()
@@ -152,6 +154,7 @@ def _make_service(
         diagnostician=_diag,
         lifecycle=_lifecycle,
         logger=logging.getLogger("test.target_delivery"),
+        native_ref_persisted_fn=native_ref_persisted_fn,
     )
     return svc, _storage
 
@@ -231,6 +234,62 @@ class TestSuccessfulSentDelivery:
         assert nref.native_message_id == "$msg-456"
         assert nref.adapter == "test_adapter"
         assert nref.direction == "outbound"
+
+
+async def test_native_ref_callback_runs_after_persistence() -> None:
+    """Derived repair is notified only after the outbound native ref exists."""
+    adapter = _FakeAdapter(
+        result=AdapterDeliveryResult(
+            native_message_id="$msg-callback",
+            native_channel_id="!room:server",
+        )
+    )
+    observed: list[tuple[str, int]] = []
+    storage = _FakeStorage()
+
+    async def _on_native_ref(event_id: str) -> None:
+        observed.append((event_id, len(storage.native_refs)))
+
+    svc, _ = _make_service(
+        adapters={"test_adapter": adapter},
+        storage=storage,
+        native_ref_persisted_fn=_on_native_ref,
+    )
+
+    receipt = await svc.deliver_to_target(
+        _make_event(), *_make_route_and_plan()
+    )
+
+    assert receipt.status == "sent"
+    assert observed == [("evt-001", 1)]
+
+
+async def test_native_ref_callback_failure_does_not_reclassify_accepted_send() -> None:
+    """Projection repair failure cannot turn an accepted transport send into retry."""
+    adapter = _FakeAdapter(
+        result=AdapterDeliveryResult(
+            native_message_id="$msg-callback-fail",
+            native_channel_id="!room:server",
+        )
+    )
+
+    async def _fail_repair(event_id: str) -> None:
+        del event_id
+        raise RuntimeError("projection repair failed")
+
+    svc, storage = _make_service(
+        adapters={"test_adapter": adapter},
+        native_ref_persisted_fn=_fail_repair,
+    )
+
+    receipt = await svc.deliver_to_target(
+        _make_event(), *_make_route_and_plan()
+    )
+
+    assert receipt.status == "sent"
+    assert len(storage.native_refs) == 1
+    assert len(storage.receipts) == 1
+    assert storage.receipts[0].status == "sent"
 
 
 # ===================================================================

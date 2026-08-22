@@ -95,6 +95,16 @@ GROUP BY event_id
 ORDER BY MIN(id) ASC
 """
 
+_SELECT_RELATION_SOURCES_FOR_NATIVE_REF = """
+SELECT event_id
+FROM event_relations
+WHERE target_native_adapter = ?
+  AND target_native_channel_id IS ?
+  AND target_native_message_id = ?
+GROUP BY event_id
+ORDER BY MIN(id) ASC
+"""
+
 _RESOLVE_NATIVE_REF = """
 SELECT event_id FROM native_message_refs
 WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?

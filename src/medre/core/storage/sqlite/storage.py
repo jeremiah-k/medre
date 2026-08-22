@@ -9,6 +9,8 @@ Storage authority summary:
   - canonical_events: **create** (append-only ingress facts).
   - native_message_refs: **create** (idempotent transport correlation facts).
   - event_relations: **create** (append alongside events).
+  - conversation_membership: mutable, rebuildable derived graph projection;
+    canonical event evidence is never rewritten during repair.
   - delivery_receipts: **append** (append-only historical delivery evidence;
     never updated or deleted by runtime code).
   - delivery_outbox: mutable operational state until terminal, then immutable
@@ -39,6 +41,7 @@ from medre.core.storage.backend import (
 )
 
 # Mixin imports — method groups composed via multiple inheritance.
+from medre.core.storage.sqlite._conversation import _ConversationMixin
 from medre.core.storage.sqlite._count import _CountMixin
 from medre.core.storage.sqlite._delivery_finalize import _DeliveryFinalizationMixin
 from medre.core.storage.sqlite._event import _EventMixin
@@ -502,6 +505,7 @@ class SQLiteStorage(
     _IngressMixin,
     _NativeRefMixin,
     _RelationMixin,
+    _ConversationMixin,
     _ReceiptMixin,
     _OutboxMixin,
     _DeliveryFinalizationMixin,

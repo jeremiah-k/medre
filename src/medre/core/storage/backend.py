@@ -162,6 +162,63 @@ class DuplicateEventError(StorageError):
 # ---------------------------------------------------------------------------
 
 
+CONVERSATION_MEMBERSHIP_STATES: frozenset[str] = frozenset(
+    {"root", "resolved", "unresolved", "cycle"}
+)
+
+
+@dataclass(frozen=True)
+class ConversationMembership:
+    """Derived conversation membership for one canonical event.
+
+    Canonical events remain immutable ingress evidence.  This projection is
+    the mutable, rebuildable view of the relation graph after late parents or
+    native-reference mappings become available.
+
+    ``resolution_state`` is one of ``root``, ``resolved``, ``unresolved``, or
+    ``cycle``.  ``resolved_target_event_id`` records the relation target chosen
+    by the deterministic first-resolvable-relation rule.
+    """
+
+    event_id: str
+    root_event_id: str
+    conversation_id: str
+    resolved_target_event_id: str | None
+    relation_type: str | None
+    depth: int
+    resolution_state: str
+
+    def __post_init__(self) -> None:
+        if self.resolution_state not in CONVERSATION_MEMBERSHIP_STATES:
+            raise ValueError(
+                f"invalid conversation resolution state: {self.resolution_state!r}"
+            )
+        if self.depth < 0:
+            raise ValueError("conversation membership depth must be non-negative")
+        if self.conversation_id != self.root_event_id:
+            raise ValueError(
+                "conversation_id must equal root_event_id in the current projection"
+            )
+        if self.resolution_state == "root":
+            if self.root_event_id != self.event_id:
+                raise ValueError("root membership must self-root")
+            if self.resolved_target_event_id is not None:
+                raise ValueError("root membership cannot have a resolved target")
+            if self.depth != 0:
+                raise ValueError("root membership depth must be zero")
+        if self.resolution_state in {"resolved", "cycle"}:
+            if self.resolved_target_event_id is None:
+                raise ValueError(
+                    f"{self.resolution_state} membership requires a resolved target"
+                )
+            if self.relation_type is None:
+                raise ValueError(
+                    f"{self.resolution_state} membership requires a relation type"
+                )
+        if self.resolution_state == "cycle" and self.depth != 0:
+            raise ValueError("cycle membership depth must be zero")
+
+
 @dataclass
 class EventFilter:
     """Criteria for querying events from the storage backend.
@@ -395,6 +452,14 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_event_ids(self) -> list[str]:
+        """Return all canonical event IDs in deterministic event order.
+
+        Authority: **list/get** (read-only).  This unbounded internal scan is
+        used by correctness-first rebuilds of derived projections.
+        """
+        ...
+
     def query(self, event_filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
         """Yield events matching *event_filter*, ordered by timestamp ascending.
 
@@ -599,6 +664,38 @@ class StorageBackend(Protocol):
         Authority: **list/get** (read-only).  Each source event ID appears
         once, ordered by the first matching relation row.
         """
+        ...
+
+    async def list_relation_sources_for_native_ref(
+        self,
+        adapter: str,
+        native_channel_id: str | None,
+        native_message_id: str,
+    ) -> list[str]:
+        """Return relation-source events targeting one native identity.
+
+        Authority: **list/get** (read-only).  This reverse lookup lets a
+        derived conversation projection repair children when a previously
+        unresolved native target later becomes known.
+        """
+        ...
+
+    # -- Conversation projection -------------------------------------------
+
+    async def put_conversation_membership(
+        self, membership: ConversationMembership
+    ) -> bool:
+        """Create or replace one derived conversation-membership row.
+
+        Authority: **derived update**.  Returns ``True`` only when the
+        projection content changed.  Canonical event rows are never updated.
+        """
+        ...
+
+    async def get_conversation_membership(
+        self, event_id: str
+    ) -> ConversationMembership | None:
+        """Return current derived conversation membership for *event_id*."""
         ...
 
     # -- Receipts -----------------------------------------------------------
