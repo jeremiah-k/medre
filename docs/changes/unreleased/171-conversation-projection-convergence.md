@@ -34,8 +34,12 @@
 - Resume interrupted current-revision rebuilds from their persisted event cursor,
   share ancestry/event caches across one dependent-repair run, and preserve
   duplicate suppression when best-effort derived repair fails.
-- Record a clean projection marker only when storage was initialized and shutdown
-  abandoned no in-flight delivery/replay work; otherwise the next startup rebuilds.
+- Record a clean projection marker only when storage was initialized, shutdown
+  abandoned no in-flight delivery/replay work, and no projection repair failed in
+  the current runner generation; otherwise the next startup rebuilds.
+- Validate required SQL checks from parsed CHECK clauses rather than arbitrary
+  matching text in the table definition, so quoted identifiers cannot spoof the
+  pre-release constraint contract.
 
 ## Correctness evidence
 

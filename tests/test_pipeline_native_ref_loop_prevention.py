@@ -10,6 +10,10 @@ using fake adapters and SQLiteStorage.
 
 from __future__ import annotations
 
+import logging
+
+import pytest
+
 from datetime import datetime, timezone
 
 from medre.core.contracts.adapter import AdapterDeliveryResult
@@ -313,6 +317,7 @@ class TestDuplicateNativeMessageDetection:
 
 async def test_duplicate_suppression_survives_projection_repair_failure(
     temp_storage: SQLiteStorage,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Derived repair failure cannot turn a known duplicate into ingress error."""
     spy = _SpyAdapter("dedup-repair-target")
@@ -350,10 +355,20 @@ async def test_duplicate_suppression_survives_projection_repair_failure(
 
         runner._conversation_projection.repair_after_event_available = _fail_repair  # type: ignore[method-assign]
 
-        assert await runner.handle_ingress(duplicate) == []
+        with caplog.at_level(logging.ERROR, logger=runner._log.name):
+            assert await runner.handle_ingress(duplicate) == []
         assert await temp_storage.get(duplicate.event_id) is None
         assert len(spy.deliver_calls) == 1
         assert accounting.snapshot()["loop_prevented"] == 1
+        repair_logs = [
+            record
+            for record in caplog.records
+            if "Failed to repair conversation projection for duplicate native ref"
+            in record.getMessage()
+        ]
+        assert len(repair_logs) == 1
+        assert repair_logs[0].exc_info is not None
+        assert runner.conversation_projection_repair_failed is True
     finally:
         await runner.stop()
 

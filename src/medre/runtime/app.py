@@ -1319,22 +1319,27 @@ class MedreApp:
                 capacity_drain_abandoned = bool(
                     drain_snap["delivery_current"] or drain_snap["replay_current"]
                 )
-                _logger.warning(
-                    "Drain timed out — %d delivery, %d replay in-flight abandoned",
-                    drain_snap["delivery_current"],
-                    drain_snap["replay_current"],
-                )
-                # Persist structured abandonment evidence for in-flight
-                # deliveries that could not complete before the drain deadline.
-                try:
-                    await self._persist_drain_abandoned_evidence()
-                except asyncio.CancelledError as c_exc:
-                    _deferred_cancel_count += _drain_pending_cancellations()
-                    if _cancelled is None:
-                        _cancelled = c_exc
-                    _logger.debug(
-                        "Cancelled during drain abandoned evidence persist (deferred)"
+                if capacity_drain_abandoned:
+                    _logger.warning(
+                        "Drain timed out — %d delivery, %d replay in-flight abandoned",
+                        drain_snap["delivery_current"],
+                        drain_snap["replay_current"],
                     )
+                    # Persist structured abandonment evidence only when the final
+                    # snapshot still contains work.  A stale pre-deadline snapshot
+                    # must not manufacture shutdown-abandonment evidence.
+                    try:
+                        await self._persist_drain_abandoned_evidence()
+                    except asyncio.CancelledError as c_exc:
+                        _deferred_cancel_count += _drain_pending_cancellations()
+                        if _cancelled is None:
+                            _cancelled = c_exc
+                        _logger.debug(
+                            "Cancelled during drain abandoned evidence persist "
+                            "(deferred)"
+                        )
+                else:
+                    _logger.info("In-flight work drained at deadline")
 
         # Signal shutdown to adapters and waiters.
         self.shutdown_event.set()
@@ -1483,6 +1488,7 @@ class MedreApp:
             and _cancelled is None
             and not retry_abandoned
             and not capacity_drain_abandoned
+            and not self.pipeline_runner.conversation_projection_repair_failed
         ):
             try:
                 await self.pipeline_runner.mark_conversation_projection_clean()

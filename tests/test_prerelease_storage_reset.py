@@ -409,6 +409,50 @@ async def test_schema_check_validator_rejects_unconstrained_table_definition(
     }
 
 
+async def test_schema_check_validator_ignores_quoted_constraint_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Quoted CHECK-like identifiers do not prove constraint enforcement."""
+    storage = SQLiteStorage("unused.db")
+
+    def _current_table_definition(table: str) -> str:
+        prefix = f"CREATE TABLE IF NOT EXISTS {table} ("
+        start = _SCHEMA.index(prefix)
+        end = _SCHEMA.index("\n);", start) + len("\n);")
+        return _SCHEMA[start:end]
+
+    fake_labels = (
+        '"CHECK (singleton_id = 1)" TEXT',
+        '"CHECK (projection_revision >= 1)" TEXT',
+        "\"CHECK (status IN ('clean', 'dirty', 'rebuilding'))\" TEXT",
+        "\"CHECK (status = 'rebuilding' OR last_event_id IS NULL)\" TEXT",
+    )
+    spoofed_projection_state = (
+        "CREATE TABLE conversation_projection_state (\n    "
+        + ",\n    ".join(fake_labels)
+        + "\n)"
+    )
+
+    async def _definition(
+        sql: str, params: tuple[object, ...] = ()
+    ) -> dict[str, str]:
+        assert "sqlite_master" in sql
+        table = str(params[0])
+        if table == "conversation_projection_state":
+            return {"sql": spoofed_projection_state}
+        return {"sql": _current_table_definition(table)}
+
+    monkeypatch.setattr(storage, "_read_one", _definition)
+
+    with pytest.raises(
+        PreReleaseSchemaConstraintMismatchError,
+        match="conversation_projection_state",
+    ) as exc_info:
+        await storage._validate_schema_checks()
+
+    assert len(exc_info.value.missing_constraints) == 4
+
+
 async def test_corrupt_existing_db_raises_stable_initialization_error(
     tmp_path: Path,
 ) -> None:

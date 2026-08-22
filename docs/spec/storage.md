@@ -502,10 +502,11 @@ This singleton row is mutable operational state, not event evidence. `clean` mea
 orderly shutdown completed with the current projection revision; the next startup MAY
 skip the full rebuild after changing the marker to `dirty`. `dirty` means a runtime
 session was active or did not shut down cleanly, so the next startup MUST rebuild.
-`rebuilding` records the last completed event-ID page for operational visibility; an
-interrupted rebuild restarts from immutable evidence rather than trusting partial state.
-A projection-revision change also forces a full rebuild. The database schema version
-remains `1` during pre-release development.
+`rebuilding` records the last completed event-ID page. An interrupted rebuild of the
+current projection revision resumes after that cursor; every scanned event is still
+recomputed from immutable evidence rather than trusting partial derived rows. A
+projection-revision change discards the cursor and forces a full rebuild. The database
+schema version remains `1` during pre-release development.
 
 ### 4.3 native_message_refs
 

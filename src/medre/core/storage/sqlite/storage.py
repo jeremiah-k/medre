@@ -75,6 +75,96 @@ from medre.core.storage.sqlite.schema import (
 logger = logging.getLogger(__name__)
 
 
+def _skip_sql_quoted_or_comment(sql: str, index: int) -> int | None:
+    """Return the first index after a quoted/comment token starting at *index*.
+
+    SQLite table definitions may contain arbitrary text inside quoted
+    identifiers, string literals, or comments.  Schema validation must not
+    interpret a fake ``CHECK (...)`` embedded there as an enforced constraint.
+    """
+    if sql.startswith("--", index):
+        newline = sql.find("\n", index + 2)
+        return len(sql) if newline < 0 else newline + 1
+    if sql.startswith("/*", index):
+        end = sql.find("*/", index + 2)
+        return len(sql) if end < 0 else end + 2
+
+    opener = sql[index]
+    if opener == "[":
+        end = sql.find("]", index + 1)
+        return len(sql) if end < 0 else end + 1
+    if opener not in {"'", '"', "`"}:
+        return None
+
+    cursor = index + 1
+    while cursor < len(sql):
+        if sql[cursor] != opener:
+            cursor += 1
+            continue
+        if cursor + 1 < len(sql) and sql[cursor + 1] == opener:
+            cursor += 2
+            continue
+        return cursor + 1
+    return len(sql)
+
+
+def _extract_check_clauses(definition: str) -> tuple[str, ...]:
+    """Extract real table-level ``CHECK`` clauses from SQLite DDL.
+
+    The scanner recognizes ``CHECK`` only outside quoted identifiers, string
+    literals, and comments, then balances the constraint parentheses while
+    applying the same quoting rules.  It is deliberately small and SQLite
+    specific; it is not a general SQL parser.
+    """
+    clauses: list[str] = []
+    cursor = 0
+    length = len(definition)
+    while cursor < length:
+        skipped = _skip_sql_quoted_or_comment(definition, cursor)
+        if skipped is not None:
+            cursor = skipped
+            continue
+
+        if definition[cursor : cursor + 5].upper() != "CHECK":
+            cursor += 1
+            continue
+        before = definition[cursor - 1] if cursor else " "
+        after_index = cursor + 5
+        after = definition[after_index] if after_index < length else " "
+        if (before.isalnum() or before == "_") or (after.isalnum() or after == "_"):
+            cursor += 1
+            continue
+
+        paren = after_index
+        while paren < length and definition[paren].isspace():
+            paren += 1
+        if paren >= length or definition[paren] != "(":
+            cursor += 5
+            continue
+
+        depth = 0
+        scan = paren
+        while scan < length:
+            skipped = _skip_sql_quoted_or_comment(definition, scan)
+            if skipped is not None:
+                scan = skipped
+                continue
+            char = definition[scan]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    clauses.append(definition[cursor : scan + 1])
+                    cursor = scan + 1
+                    break
+            scan += 1
+        else:
+            cursor = length
+
+    return tuple(clauses)
+
+
 # ---------------------------------------------------------------------------
 # _SQLiteStorageBase — lifecycle, connection management, and read/write
 # primitives.  Domain methods live in the mixin classes above.
@@ -264,10 +354,14 @@ class _SQLiteStorageBase:
                 (table,),
             )
             definition = str(row["sql"]) if row is not None else ""
+            check_clauses = _extract_check_clauses(definition)
             missing = [
                 label
                 for label, pattern in required
-                if re.search(pattern, definition, flags=re.IGNORECASE) is None
+                if not any(
+                    re.fullmatch(pattern, clause, flags=re.IGNORECASE)
+                    for clause in check_clauses
+                )
             ]
             if missing:
                 raise PreReleaseSchemaConstraintMismatchError(

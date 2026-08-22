@@ -26,11 +26,11 @@ def test_runtime_rebuilds_projection_before_pipeline_and_adapters_start() -> Non
 def test_runtime_marks_projection_clean_after_pipeline_stop_before_storage_close() -> None:
     tree = ast.parse(_APP.read_text(encoding="utf-8"))
     stop = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef)
-        for node in node.body
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == "stop"
+        member
+        for cls in tree.body
+        if isinstance(cls, ast.ClassDef)
+        for member in cls.body
+        if isinstance(member, ast.AsyncFunctionDef) and member.name == "stop"
     )
 
     def _call_line(owner: str, method: str) -> int:
@@ -70,6 +70,11 @@ def test_pipeline_repairs_projection_after_event_and_native_identity_arrival() -
     )
     tree = ast.parse(runner)
     calls: Counter[tuple[str, str]] = Counter()
+    tracked = {
+        "_repair_conversation_after_event_available",
+        "repair_after_event_available",
+        "repair_after_native_ref_available",
+    }
 
     class _RepairCallVisitor(ast.NodeVisitor):
         def __init__(self) -> None:
@@ -85,11 +90,7 @@ def test_pipeline_repairs_projection_after_event_and_native_identity_arrival() -
             if (
                 self.function_name is not None
                 and isinstance(node.func, ast.Attribute)
-                and node.func.attr
-                in {
-                    "repair_after_event_available",
-                    "repair_after_native_ref_available",
-                }
+                and node.func.attr in tracked
             ):
                 calls[(self.function_name, node.func.attr)] += 1
             self.generic_visit(node)
@@ -98,9 +99,16 @@ def test_pipeline_repairs_projection_after_event_and_native_identity_arrival() -
 
     assert calls == Counter(
         {
-            ("handle_ingress", "repair_after_event_available"): 2,
-            ("admit_ingress", "repair_after_event_available"): 1,
-            ("process_admitted_event", "repair_after_event_available"): 1,
+            (
+                "_repair_conversation_after_event_available",
+                "repair_after_event_available",
+            ): 1,
+            ("handle_ingress", "_repair_conversation_after_event_available"): 2,
+            ("admit_ingress", "_repair_conversation_after_event_available"): 1,
+            (
+                "process_admitted_event",
+                "_repair_conversation_after_event_available",
+            ): 1,
             (
                 "_repair_conversation_after_native_ref",
                 "repair_after_native_ref_available",

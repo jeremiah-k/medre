@@ -67,6 +67,7 @@ from medre.core.planning.conversation_graph import (
     ConversationGraphAuthority,
     ConversationProjectionService,
     ConversationRebuildSummary,
+    ConversationRepairResult,
 )
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
@@ -393,6 +394,7 @@ class PipelineRunner:
         self._capacity_controller: CapacityController | None = None
         self._delivery_rejection_count: int = 0
         self._inflight_deliveries: dict[str, InflightDelivery] = {}
+        self._conversation_projection_repair_failed: bool = False
         self._running: bool = False
 
         # -- Phase instrumentation ------------------------------------------
@@ -445,6 +447,30 @@ class PipelineRunner:
         """Return the shared delivery lifecycle authority."""
         return self._lifecycle
 
+    @property
+    def conversation_projection_repair_failed(self) -> bool:
+        """Whether any conversation projection repair failed this run."""
+        return self._conversation_projection_repair_failed
+
+    def _record_conversation_projection_repair_failure(self) -> None:
+        """Latch projection repair failure until the next runner generation."""
+        self._conversation_projection_repair_failed = True
+
+    async def _repair_conversation_after_event_available(
+        self,
+        event_id: str,
+        *,
+        get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
+    ) -> ConversationRepairResult:
+        """Repair one event and latch any failure before it can be suppressed."""
+        try:
+            return await self._conversation_projection.repair_after_event_available(
+                event_id, get_fn=get_fn
+            )
+        except Exception:
+            self._record_conversation_projection_repair_failure()
+            raise
+
     async def start(self) -> None:
         """Register pipeline middleware with the event bus.
 
@@ -463,6 +489,7 @@ class PipelineRunner:
             )
             return
 
+        self._conversation_projection_repair_failed = False
         middleware_registered = False
         try:
             self._middleware = _PipelineLoggingMiddleware()
@@ -665,7 +692,7 @@ class PipelineRunner:
                 # the idempotent projection repair before suppressing this
                 # duplicate so replay can self-heal without a restart.
                 try:
-                    await self._conversation_projection.repair_after_event_available(
+                    await self._repair_conversation_after_event_available(
                         existing_event_id
                     )
                 except Exception:
@@ -745,7 +772,7 @@ class PipelineRunner:
             _event_cache[candidate_id] = result
             return result
 
-        await self._conversation_projection.repair_after_event_available(
+        await self._repair_conversation_after_event_available(
             event.event_id, get_fn=_projection_get
         )
         event = await self._conversation_projection.project_event(event)
@@ -859,7 +886,7 @@ class PipelineRunner:
                 # propagate into the durable adapter and stall source-checkpoint
                 # progress; startup rebuild is the eventual recovery path.
                 try:
-                    await self._conversation_projection.repair_after_event_available(
+                    await self._repair_conversation_after_event_available(
                         result.event_id
                     )
                 except Exception:
@@ -901,7 +928,7 @@ class PipelineRunner:
         # its parent/native mapping existed can use the now-known target without
         # mutating history.
         event = await self._resolve_relations(stored_event)
-        await self._conversation_projection.repair_after_event_available(
+        await self._repair_conversation_after_event_available(
             event_id, get_fn=_projection_get
         )
         event = await self._conversation_projection.project_event(event)
@@ -1234,6 +1261,7 @@ class PipelineRunner:
         try:
             await self._conversation_projection.repair_after_native_ref_available(event_id)
         except Exception:
+            self._record_conversation_projection_repair_failure()
             self._log.exception(
                 "Failed to repair conversation projection after native-ref "
                 "persistence: event_id=%s",

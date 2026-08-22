@@ -242,6 +242,14 @@ class ConversationRebuildSummary:
     skipped_current: bool
 
 
+@dataclass(frozen=True)
+class _DependentRepairResult:
+    """Internal result for one serialized dependent-repair traversal."""
+
+    changed_event_ids: tuple[str, ...]
+    requested_membership: ConversationMembership | None
+
+
 class ConversationProjectionStorage(Protocol):
     """Narrow storage surface required by the conversation projection."""
 
@@ -467,46 +475,18 @@ class ConversationProjectionService:
         is processed.
         """
         async with self._repair_lock:
-            pending: deque[str] = deque([event_id])
-            queued: set[str] = {event_id}
-            processed: set[str] = set()
-            changed: set[str] = set()
-            requested_membership: ConversationMembership | None = None
-            membership_cache: dict[str, ConversationMembership] = {}
-            event_cache: dict[str, CanonicalEvent | None] = {}
-
-            while pending:
-                current = pending.popleft()
-                processed.add(current)
-                result = await self._reconcile_event_unlocked(
-                    current,
-                    get_fn=get_fn,
-                    membership_cache=membership_cache,
-                    event_cache=event_cache,
-                )
-                if current == event_id:
-                    requested_membership = result.membership
-                changed.update(result.changed_event_ids)
-
-                # The newly available event itself is always an anchor, even when
-                # its own projection row was already correct: its newly stored
-                # canonical/native identity may resolve pre-existing child edges.
-                anchors = set(result.changed_event_ids)
-                anchors.add(current)
-                for anchor in sorted(anchors):
-                    for source_id in await self._dependent_sources(anchor):
-                        if source_id in processed or source_id in queued:
-                            continue
-                        pending.append(source_id)
-                        queued.add(source_id)
-
-            if requested_membership is None:
+            traversal = await self._repair_dependents_unlocked(
+                [event_id],
+                get_fn=get_fn,
+                requested_event_id=event_id,
+            )
+            if traversal.requested_membership is None:
                 raise RuntimeError(
                     f"conversation repair produced no membership for {event_id!r}"
                 )
             return ConversationRepairResult(
-                membership=requested_membership,
-                changed_event_ids=tuple(sorted(changed)),
+                membership=traversal.requested_membership,
+                changed_event_ids=traversal.changed_event_ids,
             )
 
     async def repair_after_native_ref_available(self, event_id: str) -> tuple[str, ...]:
@@ -521,29 +501,48 @@ class ConversationProjectionService:
         """
         async with self._repair_lock:
             initial = await self._native_dependent_sources(event_id)
-            return await self._repair_dependents_unlocked(initial)
+            traversal = await self._repair_dependents_unlocked(initial)
+            return traversal.changed_event_ids
 
     async def _repair_dependents_unlocked(
-        self, initial_event_ids: list[str]
-    ) -> tuple[str, ...]:
-        """Reconcile a dependent frontier while ``_repair_lock`` is held."""
+        self,
+        initial_event_ids: list[str],
+        *,
+        get_fn: _EventGetFn | None = None,
+        requested_event_id: str | None = None,
+    ) -> _DependentRepairResult:
+        """Reconcile one dependent frontier while ``_repair_lock`` is held.
+
+        One traversal owns the run-local membership and event caches, the
+        processed/queued deduplication sets, and the anchor-expansion rule.
+        ``requested_event_id`` lets the public event-repair entry point recover
+        the seed membership without maintaining a second breadth-first loop.
+        """
         pending: deque[str] = deque(initial_event_ids)
         queued: set[str] = set(initial_event_ids)
         processed: set[str] = set()
         changed: set[str] = set()
         membership_cache: dict[str, ConversationMembership] = {}
         event_cache: dict[str, CanonicalEvent | None] = {}
+        requested_membership: ConversationMembership | None = None
 
         while pending:
             current = pending.popleft()
             processed.add(current)
             result = await self._reconcile_event_unlocked(
                 current,
+                get_fn=get_fn,
                 membership_cache=membership_cache,
                 event_cache=event_cache,
             )
+            if current == requested_event_id:
+                requested_membership = result.membership
             changed.update(result.changed_event_ids)
 
+            # The current event is always an anchor, even when its projection
+            # row was already correct: a newly available canonical/native fact
+            # can resolve pre-existing child edges.  Newly changed ancestors
+            # are anchors too because their descendants may need new roots.
             anchors = set(result.changed_event_ids)
             anchors.add(current)
             for anchor in sorted(anchors):
@@ -553,7 +552,10 @@ class ConversationProjectionService:
                     pending.append(source_id)
                     queued.add(source_id)
 
-        return tuple(sorted(changed))
+        return _DependentRepairResult(
+            changed_event_ids=tuple(sorted(changed)),
+            requested_membership=requested_membership,
+        )
 
     async def project_event(self, event: CanonicalEvent) -> CanonicalEvent:
         """Overlay persisted current membership on an in-memory event copy.
