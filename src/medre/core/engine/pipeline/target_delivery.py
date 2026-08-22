@@ -35,7 +35,7 @@ import asyncio
 import json
 import logging
 import uuid
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import (
@@ -281,6 +281,12 @@ class TargetDeliveryService:
         The delivery lifecycle service for retry/dead-letter/attempt decisions.
     logger:
         Logger instance.
+    native_ref_persisted_fn:
+        Optional callback invoked after a successful outbound native-reference
+        write.  The pipeline uses it to repair derived conversation membership
+        for children that were waiting on that native identity.  Callback
+        failure is observational only after transport acceptance and never
+        reclassifies the delivery as failed.
     """
 
     def __init__(
@@ -292,6 +298,7 @@ class TargetDeliveryService:
         diagnostician: Diagnostician,
         lifecycle: DeliveryLifecycleService,
         logger: logging.Logger,
+        native_ref_persisted_fn: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._adapters = adapters
         self._rendering_pipeline = rendering_pipeline
@@ -299,6 +306,7 @@ class TargetDeliveryService:
         self._diagnostician = diagnostician
         self._lifecycle = lifecycle
         self._log = logger
+        self._native_ref_persisted_fn = native_ref_persisted_fn
 
     # -- Public API ---------------------------------------------------------
 
@@ -900,6 +908,19 @@ class TargetDeliveryService:
                 created_at=now_persist,
             )
             await self._storage.store_native_ref(native_ref)
+            if self._native_ref_persisted_fn is not None:
+                try:
+                    await self._native_ref_persisted_fn(event.event_id)
+                except Exception:
+                    # Native delivery and its durable reference are already
+                    # committed.  Derived conversation repair is recoverable on
+                    # startup and must not convert an accepted send into a
+                    # transport failure that could be retried and duplicated.
+                    self._log.exception(
+                        "Conversation projection repair failed after outbound "
+                        "native-ref persistence: event_id=%s",
+                        event.event_id,
+                    )
 
         # Re-raise adapter errors so that callers (deliver_to_targets)
         # can inspect the exception type for transient/permanent classification.

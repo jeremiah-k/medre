@@ -63,7 +63,11 @@ from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.capabilities import (
     resolve_adapter_capabilities,
 )
-from medre.core.planning.conversation_graph import ConversationGraphAuthority
+from medre.core.planning.conversation_graph import (
+    ConversationGraphAuthority,
+    ConversationProjectionService,
+    ConversationRebuildSummary,
+)
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryOutcome,
@@ -365,6 +369,10 @@ class PipelineRunner:
             storage=config.storage,
             logger=self._log,
         )
+        self._conversation_projection = ConversationProjectionService(
+            storage=config.storage,
+            logger=self._log,
+        )
         self._lifecycle = DeliveryLifecycleService(logger=self._log)
         self._outbox_manager = OutboxManager(
             storage=config.storage,
@@ -377,6 +385,7 @@ class PipelineRunner:
             diagnostician=self._diagnostician,
             lifecycle=self._lifecycle,
             logger=self._log,
+            native_ref_persisted_fn=self._repair_conversation_after_native_ref,
         )
         self._middleware: _PipelineLoggingMiddleware | None = None
         self._route_stats: RouteStats | None = config.route_stats
@@ -391,6 +400,21 @@ class PipelineRunner:
         self._phase_counts: dict[PipelinePhase, int] = {
             phase: 0 for phase in PipelinePhase
         }
+
+    # -- Conversation projection --------------------------------------------
+
+    async def rebuild_conversation_projection(self) -> ConversationRebuildSummary:
+        """Rebuild derived conversation membership from immutable evidence.
+
+        Called during runtime startup after storage initialization.  The
+        operation is idempotent and repairs any partial projection left by a
+        prior crash without rewriting canonical events or relation rows.
+        """
+        return await self._conversation_projection.rebuild_all()
+
+    async def mark_conversation_projection_clean(self) -> None:
+        """Persist the clean marker after an orderly runtime shutdown."""
+        await self._conversation_projection.mark_clean()
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -636,6 +660,20 @@ class PipelineRunner:
                 native_message_id=snr.native_message_id,
             )
             if existing_event_id is not None:
+                # A prior process may have committed the immutable event/native
+                # facts but crashed during derived conversation repair.  Re-run
+                # the idempotent projection repair before suppressing this
+                # duplicate so replay can self-heal without a restart.
+                try:
+                    await self._conversation_projection.repair_after_event_available(
+                        existing_event_id
+                    )
+                except Exception:
+                    self._log.exception(
+                        "Failed to repair conversation projection for duplicate "
+                        "native ref: event_id=%s",
+                        existing_event_id,
+                    )
                 self._log.info(
                     "Duplicate native ref suppressed: event_id=%s "
                     "native_ref=(%s,%s,%s) already mapped to %s",
@@ -677,9 +715,40 @@ class PipelineRunner:
 
         # Stage 3 – store
         await self.store_event(event)
+        # Seed the call-local event cache with the exact immutable event shape
+        # written above for later pipeline stages.  Projection repair below
+        # deliberately bypasses pre-store lookups for every other event ID.
+        _event_cache[event.event_id] = event
 
         # Stage 4 – persist inbound native ref
         await self._persist_inbound_native_ref(event)
+
+        # Stage 4.25 – re-resolve relation targets against the now-current
+        # native-ref map, then reconcile the rebuildable conversation
+        # projection.  Neither operation rewrites the canonical row: the
+        # refreshed relation target and conversation identity exist only on the
+        # in-memory copy consumed by routing/rendering.  This distinction lets
+        # a late native target converge both grouping and reply/reaction
+        # rendering while preserving immutable ingress evidence.
+        event = await self._resolve_relations(event)
+        # Refresh the current-event entry after relation re-resolution.  Positive
+        # ancestor hits are safe to reuse because canonical events are immutable,
+        # but a cached miss may have become stale if another ingress stored that
+        # parent concurrently between Stage 2.5 and this post-store repair.
+        _event_cache[event.event_id] = event
+
+        async def _projection_get(candidate_id: str) -> CanonicalEvent | None:
+            cached = _event_cache.get(candidate_id)
+            if cached is not None:
+                return cached
+            result = await self._config.storage.get(candidate_id)
+            _event_cache[candidate_id] = result
+            return result
+
+        await self._conversation_projection.repair_after_event_available(
+            event.event_id, get_fn=_projection_get
+        )
+        event = await self._conversation_projection.project_event(event)
 
         # Stage 4.5 – suppress reaction-to-reaction
         if await self._is_reaction_to_reaction(event, get_fn=_cached_get):
@@ -782,6 +851,23 @@ class PipelineRunner:
                     provenance,
                     suppress_routing=suppress_routing,
                 )
+                # Repair on both new and duplicate admission.  If a previous
+                # process committed ingress facts but failed during projection
+                # repair, a repeated native admission is the recovery path that
+                # completes the derived state before the source checkpoint can
+                # advance.  Best-effort: a transient repair outage must not
+                # propagate into the durable adapter and stall source-checkpoint
+                # progress; startup rebuild is the eventual recovery path.
+                try:
+                    await self._conversation_projection.repair_after_event_available(
+                        result.event_id
+                    )
+                except Exception:
+                    self._log.exception(
+                        "Failed to repair conversation projection after "
+                        "admit_ingress: event_id=%s",
+                        result.event_id,
+                    )
                 if self._runtime_accounting is not None:
                     if result.created:
                         self._runtime_accounting.record_inbound_accepted()
@@ -798,9 +884,27 @@ class PipelineRunner:
         send, so replay after a worker crash remains idempotent at the MEDRE
         work-state boundary.
         """
-        event = await self._config.storage.get(event_id)
-        if event is None:
+        stored_event = await self._config.storage.get(event_id)
+        if stored_event is None:
             raise RuntimeError(f"admitted ingress event is missing: {event_id}")
+
+        async def _projection_get(candidate_id: str) -> CanonicalEvent | None:
+            # Projection derives from immutable stored evidence.  Reuse the
+            # already-loaded admitted event while fetching only its ancestors
+            # or dependents from storage.
+            if candidate_id == event_id:
+                return stored_event
+            return await self._config.storage.get(candidate_id)
+
+        # Stored relations are immutable ingress evidence.  Refresh unresolved
+        # native targets on the in-memory delivery copy so work admitted before
+        # its parent/native mapping existed can use the now-known target without
+        # mutating history.
+        event = await self._resolve_relations(stored_event)
+        await self._conversation_projection.repair_after_event_available(
+            event_id, get_fn=_projection_get
+        )
+        event = await self._conversation_projection.project_event(event)
         with correlation_scope(
             trace_id=event.trace_id,
             event_id=event.event_id,
@@ -1119,6 +1223,23 @@ class PipelineRunner:
                         return True
         return False
 
+    async def _repair_conversation_after_native_ref(self, event_id: str) -> None:
+        """Best-effort repair after an outbound native identity is persisted.
+
+        The external delivery has already succeeded when this callback runs, so
+        a derived-projection failure must never retroactively turn that send
+        into a delivery failure.  Startup rebuild remains the durable recovery
+        path.
+        """
+        try:
+            await self._conversation_projection.repair_after_native_ref_available(event_id)
+        except Exception:
+            self._log.exception(
+                "Failed to repair conversation projection after native-ref "
+                "persistence: event_id=%s",
+                event_id,
+            )
+
     async def _record_outbound_native_ref(
         self, record: OutboundNativeRefRecord
     ) -> None:
@@ -1140,6 +1261,7 @@ class PipelineRunner:
                 record=record,
                 now=datetime.now(tz=timezone.utc),
             )
+            await self._repair_conversation_after_native_ref(record.event_id)
         except Exception:
             self._log.exception(
                 "Failed to finalize delayed outbound delivery: "

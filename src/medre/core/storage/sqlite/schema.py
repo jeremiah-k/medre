@@ -1,8 +1,10 @@
 """Schema DDL, indexes, and schema-version metadata.
 
 This module owns all database-shape definitions used by the SQLite storage
-backend.  No SQL content should be changed without a corresponding schema
-version bump (see :data:`_EXPECTED_SCHEMA_VERSION`).
+backend.  During pre-release development the schema version remains frozen at
+``1`` while the required shape evolves; old shapes are rejected rather than
+migrated.  Once a release compatibility boundary is declared, DDL changes must
+advance :data:`_EXPECTED_SCHEMA_VERSION`.
 """
 
 from __future__ import annotations
@@ -48,6 +50,32 @@ CREATE TABLE IF NOT EXISTS event_relations (
     fallback_text TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS conversation_membership (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    root_event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    conversation_id TEXT NOT NULL,
+    resolved_target_event_id TEXT REFERENCES canonical_events(event_id),
+    relation_type TEXT,
+    depth INTEGER NOT NULL,
+    resolution_state TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (depth >= 0),
+    CHECK (conversation_id = root_event_id),
+    CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))
+);
+
+CREATE TABLE IF NOT EXISTS conversation_projection_state (
+    singleton_id INTEGER PRIMARY KEY,
+    projection_revision INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    last_event_id TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK (singleton_id = 1),
+    CHECK (projection_revision >= 1),
+    CHECK (status IN ('clean', 'dirty', 'rebuilding')),
+    CHECK (status = 'rebuilding' OR last_event_id IS NULL)
 );
 
 CREATE TABLE IF NOT EXISTS native_message_refs (
@@ -190,6 +218,8 @@ CREATE INDEX IF NOT EXISTS idx_relations_event_id
     ON event_relations(event_id, id);
 CREATE INDEX IF NOT EXISTS idx_relations_target_event_id
     ON event_relations(target_event_id);
+CREATE INDEX IF NOT EXISTS idx_relations_target_native_ref
+    ON event_relations(target_native_adapter, target_native_channel_id, target_native_message_id);
 CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
     ON native_message_refs(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_plan
@@ -282,6 +312,27 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "fallback_text",
             "metadata",
             "created_at",
+        }
+    ),
+    "conversation_membership": frozenset(
+        {
+            "event_id",
+            "root_event_id",
+            "conversation_id",
+            "resolved_target_event_id",
+            "relation_type",
+            "depth",
+            "resolution_state",
+            "updated_at",
+        }
+    ),
+    "conversation_projection_state": frozenset(
+        {
+            "singleton_id",
+            "projection_revision",
+            "status",
+            "last_event_id",
+            "updated_at",
         }
     ),
     "native_message_refs": frozenset(
@@ -390,7 +441,55 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 # Existing pre-release databases must already carry these relationships; MEDRE
 # rejects older shapes rather than rebuilding them automatically.
 _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
+    "conversation_membership": frozenset(
+        {
+            ("event_id", "canonical_events", "event_id"),
+            ("root_event_id", "canonical_events", "event_id"),
+            ("resolved_target_event_id", "canonical_events", "event_id"),
+        }
+    ),
     "delivery_outbox": frozenset(
         {("event_id", "canonical_events", "event_id")}
+    ),
+}
+
+# Required table-level CHECK clauses.  Column/FK validation cannot detect an
+# existing pre-release table created without these invariants because
+# ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
+_REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "conversation_projection_state": (
+        ("CHECK (singleton_id = 1)", r"CHECK\s*\(\s*singleton_id\s*=\s*1\s*\)"),
+        (
+            "CHECK (projection_revision >= 1)",
+            r"CHECK\s*\(\s*projection_revision\s*>=\s*1\s*\)",
+        ),
+        (
+            "CHECK (status IN ('clean', 'dirty', 'rebuilding'))",
+            (
+                r"CHECK\s*\(\s*status\s+IN\s*\(\s*'clean'\s*,\s*'dirty'\s*,\s*"
+                r"'rebuilding'\s*\)\s*\)"
+            ),
+        ),
+        (
+            "CHECK (status = 'rebuilding' OR last_event_id IS NULL)",
+            (
+                r"CHECK\s*\(\s*status\s*=\s*'rebuilding'\s+OR\s+"
+                r"last_event_id\s+IS\s+NULL\s*\)"
+            ),
+        ),
+    ),
+    "conversation_membership": (
+        ("CHECK (depth >= 0)", r"CHECK\s*\(\s*depth\s*>=\s*0\s*\)"),
+        (
+            "CHECK (conversation_id = root_event_id)",
+            r"CHECK\s*\(\s*conversation_id\s*=\s*root_event_id\s*\)",
+        ),
+        (
+            "CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))",
+            (
+                r"CHECK\s*\(\s*resolution_state\s+IN\s*\(\s*'root'\s*,\s*"
+                r"'resolved'\s*,\s*'unresolved'\s*,\s*'cycle'\s*\)\s*\)"
+            ),
+        ),
     ),
 }

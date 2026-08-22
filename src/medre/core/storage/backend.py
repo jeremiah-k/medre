@@ -162,6 +162,91 @@ class DuplicateEventError(StorageError):
 # ---------------------------------------------------------------------------
 
 
+CONVERSATION_MEMBERSHIP_STATES: frozenset[str] = frozenset(
+    {"root", "resolved", "unresolved", "cycle"}
+)
+CONVERSATION_PROJECTION_STATUSES: frozenset[str] = frozenset(
+    {"clean", "dirty", "rebuilding"}
+)
+
+
+@dataclass(frozen=True)
+class ConversationMembership:
+    """Derived conversation membership for one canonical event.
+
+    Canonical events remain immutable ingress evidence.  This projection is
+    the mutable, rebuildable view of the relation graph after late parents or
+    native-reference mappings become available.
+
+    ``resolution_state`` is one of ``root``, ``resolved``, ``unresolved``, or
+    ``cycle``.  ``resolved_target_event_id`` records the relation target chosen
+    by the deterministic first-resolvable-relation rule.
+    """
+
+    event_id: str
+    root_event_id: str
+    conversation_id: str
+    resolved_target_event_id: str | None
+    relation_type: str | None
+    depth: int
+    resolution_state: str
+
+    def __post_init__(self) -> None:
+        if self.resolution_state not in CONVERSATION_MEMBERSHIP_STATES:
+            raise ValueError(
+                f"invalid conversation resolution state: {self.resolution_state!r}"
+            )
+        if self.depth < 0:
+            raise ValueError("conversation membership depth must be non-negative")
+        if self.conversation_id != self.root_event_id:
+            raise ValueError(
+                "conversation_id must equal root_event_id in the current projection"
+            )
+        if self.resolution_state == "root":
+            if self.root_event_id != self.event_id:
+                raise ValueError("root membership must self-root")
+            if self.resolved_target_event_id is not None:
+                raise ValueError("root membership cannot have a resolved target")
+            if self.relation_type is not None:
+                raise ValueError("root membership cannot have a relation type")
+            if self.depth != 0:
+                raise ValueError("root membership depth must be zero")
+        if self.resolution_state == "unresolved" and self.relation_type is None:
+            raise ValueError("unresolved membership requires a relation type")
+        if self.resolution_state in {"resolved", "cycle"}:
+            if self.resolved_target_event_id is None:
+                raise ValueError(
+                    f"{self.resolution_state} membership requires a resolved target"
+                )
+            if self.relation_type is None:
+                raise ValueError(
+                    f"{self.resolution_state} membership requires a relation type"
+                )
+        if self.resolution_state == "resolved" and self.depth == 0:
+            raise ValueError("resolved membership depth must be positive")
+        if self.resolution_state == "cycle" and self.depth != 0:
+            raise ValueError("cycle membership depth must be zero")
+
+
+@dataclass(frozen=True)
+class ConversationProjectionState:
+    """Persisted startup-rebuild state for the derived projection."""
+
+    projection_revision: int
+    status: str
+    last_event_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.projection_revision < 1:
+            raise ValueError("conversation projection revision must be positive")
+        if self.status not in CONVERSATION_PROJECTION_STATUSES:
+            raise ValueError(f"invalid conversation projection status: {self.status!r}")
+        if self.status != "rebuilding" and self.last_event_id is not None:
+            raise ValueError(
+                "only rebuilding conversation projection state may carry progress"
+            )
+
+
 @dataclass
 class EventFilter:
     """Criteria for querying events from the storage backend.
@@ -395,6 +480,12 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_event_ids_page(
+        self, *, after_event_id: str | None, limit: int
+    ) -> list[str]:
+        """Return a bounded lexicographic page of canonical event IDs."""
+        ...
+
     def query(self, event_filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
         """Yield events matching *event_filter*, ordered by timestamp ascending.
 
@@ -599,6 +690,50 @@ class StorageBackend(Protocol):
         Authority: **list/get** (read-only).  Each source event ID appears
         once, ordered by the first matching relation row.
         """
+        ...
+
+    async def list_relation_sources_for_native_ref(
+        self,
+        adapter: str,
+        native_channel_id: str | None,
+        native_message_id: str,
+    ) -> list[str]:
+        """Return relation-source events targeting one native identity.
+
+        Authority: **list/get** (read-only).  This reverse lookup lets a
+        derived conversation projection repair children when a previously
+        unresolved native target later becomes known.
+        """
+        ...
+
+    # -- Conversation projection -------------------------------------------
+
+    async def put_conversation_membership(
+        self, membership: ConversationMembership
+    ) -> bool:
+        """Create or replace one derived conversation-membership row.
+
+        Authority: **derived update**.  Returns ``True`` only when the
+        projection content changed.  Canonical event rows are never updated.
+        """
+        ...
+
+    async def get_conversation_membership(
+        self, event_id: str
+    ) -> ConversationMembership | None:
+        """Return current derived conversation membership for *event_id*."""
+        ...
+
+    async def get_conversation_projection_state(
+        self,
+    ) -> ConversationProjectionState | None:
+        """Return the persisted projection startup/rebuild state."""
+        ...
+
+    async def put_conversation_projection_state(
+        self, state: ConversationProjectionState
+    ) -> None:
+        """Persist the singleton projection startup/rebuild state."""
         ...
 
     # -- Receipts -----------------------------------------------------------

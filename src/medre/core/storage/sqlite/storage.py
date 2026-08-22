@@ -9,6 +9,10 @@ Storage authority summary:
   - canonical_events: **create** (append-only ingress facts).
   - native_message_refs: **create** (idempotent transport correlation facts).
   - event_relations: **create** (append alongside events).
+  - conversation_membership: mutable, rebuildable derived graph projection;
+    canonical event evidence is never rewritten during repair.
+  - conversation_projection_state: mutable singleton startup/rebuild marker;
+    never treated as event evidence.
   - delivery_receipts: **append** (append-only historical delivery evidence;
     never updated or deleted by runtime code).
   - delivery_outbox: mutable operational state until terminal, then immutable
@@ -25,6 +29,7 @@ import asyncio
 import functools
 import logging
 import os
+import re
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -39,6 +44,7 @@ from medre.core.storage.backend import (
 )
 
 # Mixin imports — method groups composed via multiple inheritance.
+from medre.core.storage.sqlite._conversation import _ConversationMixin
 from medre.core.storage.sqlite._count import _CountMixin
 from medre.core.storage.sqlite._delivery_finalize import _DeliveryFinalizationMixin
 from medre.core.storage.sqlite._event import _EventMixin
@@ -61,6 +67,7 @@ from medre.core.storage.sqlite.connection import (
 )
 from medre.core.storage.sqlite.schema import (
     _EXPECTED_SCHEMA_VERSION,
+    _REQUIRED_CHECK_CONSTRAINTS,
     _REQUIRED_COLUMNS,
     _REQUIRED_FOREIGN_KEYS,
 )
@@ -147,6 +154,7 @@ class _SQLiteStorageBase:
             # schema_version=1 but predate current columns or constraints.
             await self._validate_schema_shape()
             await self._validate_schema_foreign_keys()
+            await self._validate_schema_checks()
 
             # Create targeted indexes AFTER shape validation so that old-shape
             # databases fail with a clear StorageInitializationError before
@@ -248,6 +256,26 @@ class _SQLiteStorageBase:
                     missing_constraints=formatted,
                 )
 
+    async def _validate_schema_checks(self) -> None:
+        """Reject pre-release tables that omit required CHECK constraints."""
+        for table, required in _REQUIRED_CHECK_CONSTRAINTS.items():
+            row = await self._read_one(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            )
+            definition = str(row["sql"]) if row is not None else ""
+            missing = [
+                label
+                for label, pattern in required
+                if re.search(pattern, definition, flags=re.IGNORECASE) is None
+            ]
+            if missing:
+                raise PreReleaseSchemaConstraintMismatchError(
+                    path=self._db_path,
+                    table=table,
+                    missing_constraints=missing,
+                )
+
     async def _create_indexes(self) -> None:
         """Create targeted indexes for current query patterns.
 
@@ -287,6 +315,7 @@ class _SQLiteStorageBase:
             await instance._verify_schema_version_readonly()
             await instance._validate_schema_shape()
             await instance._validate_schema_foreign_keys()
+            await instance._validate_schema_checks()
         except BaseException:
             try:
                 await instance.close()
@@ -502,6 +531,7 @@ class SQLiteStorage(
     _IngressMixin,
     _NativeRefMixin,
     _RelationMixin,
+    _ConversationMixin,
     _ReceiptMixin,
     _OutboxMixin,
     _DeliveryFinalizationMixin,
