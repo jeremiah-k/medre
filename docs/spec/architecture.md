@@ -40,7 +40,7 @@ separate `PipelinePhase`.
 | **Resolve Relations** | Resolve event-level relations by looking up `target_native_ref` → `target_event_id` mappings via `RelationResolver`. Preserve unresolved refs unchanged. Assign the **ingress-time** `root_event_id` / `conversation_id` snapshot via `ConversationGraphAuthority` using the first currently resolvable relation target. | Event with the admission-time relation/identity snapshot populated. |
 | **Store**             | Persist the canonical event and inbound `NativeMessageRef` as immutable facts. Reconcile `conversation_membership` from the now-current event/relation/native-ref graph, and overlay current membership on the in-memory event before downstream work. Unresolved native relations may be re-resolved on that in-memory copy, never by updating stored relation rows. | Immutable facts durably stored; current derived membership repaired. |
 | **Route**             | Match the stored event against registered routes via `Router.match`. Create a `DeliveryPlan` per target using `FallbackResolver`. Attach route-level retry policies.                                                                     | Ordered list of `(Route, DeliveryPlan)` pairs.              |
-| **Deliver**           | For each target: evaluate route policy, acquire capacity, create outbox item, enrich target-specific relations, render, call adapter `deliver()`, persist a `DeliveryReceipt`, and update the outbox item.                               | `DeliveryOutcome` per target; receipt in storage.           |
+| **Deliver**           | `PipelineRunner` fans out ordered target work to `DeliveryCoordinator`. For each target the coordinator sequences replay/loop/policy/capability preflight, capacity ownership, `OutboxManager`, runner-owned relation enrichment, `TargetDeliveryService`, and lifecycle finalization. | `DeliveryOutcome` per target; receipt in storage.           |
 
 ### Stage Invariants
 
@@ -49,7 +49,7 @@ separate `PipelinePhase`.
 3. **Resolve Relations**: Relation resolution and ingress identity assignment produce immutable in-memory copies. They never mutate an already stored event/relation row.
 4. **Store**: Canonical events, relations, and native refs are immutable facts. `conversation_membership` is derived current state and MAY be updated idempotently. A late relation target affects routing/rendering only through an in-memory relation refresh plus the current conversation projection; historical rows are not rewritten.
 5. **Route**: An event that matches zero routes produces no deliveries and no receipts. The pipeline returns an empty outcome list.
-6. **Deliver**: Each target is independent — one target's failure does not prevent sibling deliveries. Every delivery attempt produces an append-only `DeliveryReceipt`. Receipt and outbox state machines are defined in [state-machines.md](state-machines.md).
+6. **Deliver**: Each target is independent — one target's failure does not prevent sibling deliveries. `DeliveryCoordinator` is orchestration only: it does not re-decide routing, rendering, retry policy, receipt lifecycle, or outbox transitions. Once a runtime delivery-capacity slot is acquired, that slot is released on every exit path, including cancellation during outbox creation and failure while finalizing the outbox. Every attempted adapter delivery produces append-only receipt evidence through the existing lifecycle authorities. Receipt and outbox state machines are defined in [state-machines.md](state-machines.md).
 
 ### Conversation Projection Convergence
 
@@ -109,7 +109,7 @@ src/medre/
     contracts/    adapter protocol and contract types
     events/       bus, canonical event, schema, kinds
     storage/      backend, SQLite implementation
-    engine/       pipeline runner, replay
+    engine/       pipeline runner, per-target delivery coordinator, replay
     routing/      models, router, stats
     planning/     delivery plan, fallback resolution, relation resolution
     rendering/    renderer pipeline, text renderer
