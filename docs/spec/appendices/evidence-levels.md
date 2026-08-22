@@ -111,7 +111,7 @@ adapters, deterministic tests) now covered:
 | Capability skip does not call adapter send             | `test_pipeline_suppression_no_send.py`                                         | synthetic |
 | Loop suppression does not call adapter send            | `test_pipeline_suppression_no_send.py`                                         | synthetic |
 | Suppressed receipts distinct from failed sends         | `test_pipeline_suppression_no_send.py`                                         | synthetic |
-| Suppressed deliveries do not enter retry queue         | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py` | synthetic |
+| Suppressed deliveries do not create retryable outbox work         | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py` | synthetic |
 | Retry reconstruction preserves plan/route/target       | `test_receipt_lineage_retry_parity.py`                                         | synthetic |
 | Retry attempts append evidence, not overwrite          | `test_receipt_lineage_retry_parity.py`                                         | synthetic |
 | Retry exhaustion produces dead_lettered evidence       | `test_receipt_lineage_retry_parity.py`                                         | synthetic |

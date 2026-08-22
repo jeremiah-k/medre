@@ -74,6 +74,18 @@ class _MemoryStorage:
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
         return [r for r in self._receipts if r.event_id == event_id]
 
+    async def list_receipts_for_plan(
+        self,
+        delivery_plan_id: str,
+        target_adapter: str,
+    ) -> list[DeliveryReceipt]:
+        return [
+            r
+            for r in self._receipts
+            if r.delivery_plan_id == delivery_plan_id
+            and r.target_adapter == target_adapter
+        ]
+
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
         self._native_refs.append(ref)
 

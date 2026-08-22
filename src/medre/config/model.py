@@ -209,9 +209,9 @@ class RetryConfig:
     enabled:
         Whether the background retry worker is active.
     interval_seconds:
-        Polling interval in seconds for checking due retry receipts.
+        Polling interval in seconds for checking due outbox work.
     batch_size:
-        Maximum number of retry receipts processed per polling cycle.
+        Maximum number of due outbox items claimed per polling cycle.
     max_attempts:
         Maximum total delivery attempts before dead-lettering.
     """

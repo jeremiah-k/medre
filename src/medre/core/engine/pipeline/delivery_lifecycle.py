@@ -73,8 +73,9 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.engine.pipeline.delivery_state import (
@@ -112,6 +113,12 @@ class DeliveryLifecycleStorage(Protocol):
     async def append_receipt(self, receipt: DeliveryReceipt) -> None: ...
 
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]: ...
+
+    async def list_receipts_for_plan(
+        self,
+        delivery_plan_id: str,
+        target_adapter: str,
+    ) -> list[DeliveryReceipt]: ...
 
     async def finalize_queued_delivery(
         self,
@@ -164,6 +171,28 @@ class DeliveryLifecycleStorage(Protocol):
         outbox_id: str,
         error_summary: str | None = None,
     ) -> None: ...
+
+
+# ---------------------------------------------------------------------------
+# Retry-attempt reconciliation result
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RetryAttemptFinalization:
+    """Durable lifecycle result after reconciling one retry exception.
+
+    ``RetryWorker`` owns operational counters and runtime events, but it must
+    not infer durable delivery state from receipt rows.  This value is the
+    lifecycle authority's compact answer after it has inspected the current
+    attempt's evidence and committed the corresponding outbox transition.
+    """
+
+    outcome: Literal["accepted", "suppressed", "retry_wait", "dead_lettered"]
+    receipt_id: str | None
+    failure_kind: str | None
+    attempt_number: int
+    next_retry_at: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +431,7 @@ class DeliveryLifecycleService:
         source: str,
         replay_run_id: str | None,
         target_channel: str | None,
+        outbox_id: str | None,
         plan: DeliveryPlan,
     ) -> DeliveryReceipt:
         """Build and persist a dead-letter receipt after the primary
@@ -433,6 +463,9 @@ class DeliveryLifecycleService:
             Replay run identifier, if applicable.
         target_channel:
             Channel on the target adapter.
+        outbox_id:
+            Durable outbox correlation key for the delivery attempt, when
+            this delivery is outbox-backed.
         plan:
             The delivery plan whose retry policy governs the dead-letter.
 
@@ -457,6 +490,7 @@ class DeliveryLifecycleService:
             source=source,
             replay_run_id=replay_run_id,
             target_channel=target_channel,
+            outbox_id=outbox_id,
         )
         await storage.append_receipt(dead_receipt)
         return dead_receipt
@@ -959,6 +993,315 @@ class DeliveryLifecycleService:
             error_summary=error_summary,
         )
 
+    @staticmethod
+    def _classify_retry_exception(error: Exception) -> DeliveryFailureKind:
+        """Resolve a retry exception to the canonical failure taxonomy.
+
+        Target-delivery exceptions carry a pre-classified ``failure_kind``
+        and, for adapter failures, the original transport exception.  The
+        retry authority consumes those attributes structurally so the runtime
+        worker does not import target-delivery private exception classes.
+        """
+        classified = getattr(error, "failure_kind", None)
+        if isinstance(classified, DeliveryFailureKind):
+            return classified
+        if isinstance(classified, str):
+            try:
+                return DeliveryFailureKind(classified)
+            except ValueError:
+                pass
+
+        original = getattr(error, "original", None)
+        if isinstance(original, Exception):
+            return RetryExecutor.classify_failure(original)
+        return RetryExecutor.classify_failure(error)
+
+    def _classify_retry_receipt(
+        self,
+        receipt: DeliveryReceipt,
+    ) -> DeliveryFailureKind:
+        """Resolve canonical failed-receipt evidence to the failure taxonomy.
+
+        Failed retry receipts are internal state-machine evidence.  Missing or
+        invalid ``failure_kind`` values are invariant violations; lifecycle
+        state must never depend on parsing an error string.
+        """
+        if receipt.failure_kind is None:
+            raise ValueError(
+                "Retry failed receipt is missing failure_kind: "
+                f"receipt_id={receipt.receipt_id} outbox_id={receipt.outbox_id}"
+            )
+        try:
+            return DeliveryFailureKind(receipt.failure_kind)
+        except ValueError as exc:
+            raise ValueError(
+                "Retry failed receipt has invalid failure_kind: "
+                f"receipt_id={receipt.receipt_id} "
+                f"failure_kind={receipt.failure_kind!r}"
+            ) from exc
+
+    @staticmethod
+    def _retry_attempt_evidence(
+        receipts: list[DeliveryReceipt],
+        item: DeliveryOutboxItem,
+        attempt_number: int,
+    ) -> DeliveryReceipt | None:
+        """Return evidence produced by exactly one outbox-backed retry attempt.
+
+        ``outbox_id`` is the correlation authority.  Higher-attempt evidence
+        is deliberately ignored so a stale worker snapshot cannot adopt a
+        later attempt.  Dead-letter evidence is one lineage step after the
+        failed attempt and must point back to evidence for this exact outbox.
+        """
+        target_receipts = [
+            receipt
+            for receipt in receipts
+            if receipt.outbox_id == item.outbox_id
+        ]
+        malformed_current = [
+            receipt
+            for receipt in receipts
+            if receipt.source == "retry"
+            and receipt.outbox_id is None
+            and receipt.attempt_number == attempt_number
+            and (receipt.target_channel or None) == (item.target_channel or None)
+        ]
+        if malformed_current:
+            raise ValueError(
+                "Retry receipt is missing required outbox_id: "
+                f"receipt_id={malformed_current[-1].receipt_id} "
+                f"attempt_number={attempt_number}"
+            )
+        wrong_channel = [
+            receipt
+            for receipt in target_receipts
+            if (receipt.target_channel or None) != (item.target_channel or None)
+        ]
+        if wrong_channel:
+            raise ValueError(
+                "Retry receipt outbox correlation has target_channel mismatch: "
+                f"outbox_id={item.outbox_id} receipt_id={wrong_channel[-1].receipt_id}"
+            )
+
+        current = [
+            receipt
+            for receipt in target_receipts
+            if receipt.attempt_number == attempt_number
+        ]
+        if current:
+            current_ids = {receipt.receipt_id for receipt in current}
+            malformed_dead_letters = [
+                receipt
+                for receipt in receipts
+                if receipt.source == "retry"
+                and receipt.outbox_id is None
+                and receipt.status == "dead_lettered"
+                and receipt.attempt_number == attempt_number + 1
+                and receipt.parent_receipt_id in current_ids
+            ]
+            if malformed_dead_letters:
+                raise ValueError(
+                    "Retry dead-letter receipt is missing required outbox_id: "
+                    f"receipt_id={malformed_dead_letters[-1].receipt_id}"
+                )
+            linked_dead_letters = [
+                receipt
+                for receipt in target_receipts
+                if receipt.status == "dead_lettered"
+                and receipt.attempt_number == attempt_number + 1
+                and receipt.parent_receipt_id in current_ids
+            ]
+            if linked_dead_letters:
+                return linked_dead_letters[-1]
+            return current[-1]
+        return None
+
+    async def _finalize_retry_evidence(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        retry_policy: RetryPolicy,
+        *,
+        evidence: DeliveryReceipt | None,
+        unpersisted_failure_kind: DeliveryFailureKind | None,
+        unpersisted_error_summary: str | None,
+        now: datetime | None = None,
+    ) -> RetryAttemptFinalization:
+        """Commit the outbox state implied by one retry attempt's evidence."""
+        attempt_number = item.attempt_number + 1
+
+        if evidence is not None and evidence.status in {"queued", "sent", "suppressed"}:
+            accepted = await self.finalize_retry_success(storage, item, evidence)
+            return RetryAttemptFinalization(
+                outcome="accepted" if accepted else "suppressed",
+                receipt_id=evidence.receipt_id,
+                failure_kind=evidence.failure_kind,
+                attempt_number=evidence.attempt_number,
+            )
+
+        if evidence is not None and evidence.status == "dead_lettered":
+            await storage.mark_outbox_dead_lettered(
+                item.outbox_id,
+                receipt_id=evidence.receipt_id,
+                failure_kind="retry_exhausted",
+                error_summary=evidence.error[:512] if evidence.error else None,
+                attempt_number=attempt_number,
+            )
+            return RetryAttemptFinalization(
+                outcome="dead_lettered",
+                receipt_id=evidence.receipt_id,
+                failure_kind="retry_exhausted",
+                attempt_number=attempt_number,
+            )
+
+        failure_kind = unpersisted_failure_kind
+        receipt_id: str | None = None
+        error_summary = (
+            unpersisted_error_summary[:512]
+            if unpersisted_error_summary is not None
+            else None
+        )
+        if evidence is not None and evidence.status == "failed":
+            receipt_id = evidence.receipt_id
+            error_summary = evidence.error[:512] if evidence.error else None
+            failure_kind = self._classify_retry_receipt(evidence)
+
+        if failure_kind is None:
+            raise ValueError(
+                "Retry failure finalization requires failed receipt evidence "
+                "or an exception classification"
+            )
+        if error_summary is None:
+            error_summary = "Retry delivery failed"
+
+        executor = RetryExecutor(retry_policy)
+        if not failure_kind.is_retryable or executor.is_exhausted(attempt_number):
+            terminal_kind = (
+                "retry_exhausted" if failure_kind.is_retryable else failure_kind.value
+            )
+            await storage.mark_outbox_dead_lettered(
+                item.outbox_id,
+                receipt_id=receipt_id,
+                failure_kind=terminal_kind,
+                error_summary=error_summary,
+                attempt_number=attempt_number,
+            )
+            return RetryAttemptFinalization(
+                outcome="dead_lettered",
+                receipt_id=receipt_id,
+                failure_kind=terminal_kind,
+                attempt_number=attempt_number,
+            )
+
+        if evidence is not None and evidence.next_retry_at is not None:
+            next_attempt_at = evidence.next_retry_at
+            await storage.mark_outbox_retry_wait(
+                item.outbox_id,
+                next_attempt_at=next_attempt_at.isoformat(),
+                receipt_id=receipt_id,
+                failure_kind=failure_kind.value,
+                error_summary=error_summary,
+                attempt_number=attempt_number,
+            )
+        else:
+            next_attempt_at = await self.defer_retry_outbox(
+                storage,
+                item,
+                retry_policy,
+                failure_kind=failure_kind.value,
+                attempt_number=attempt_number,
+                receipt_id=receipt_id,
+                now=now,
+            )
+
+        return RetryAttemptFinalization(
+            outcome="retry_wait",
+            receipt_id=receipt_id,
+            failure_kind=failure_kind.value,
+            attempt_number=attempt_number,
+            next_retry_at=next_attempt_at,
+        )
+
+    async def reconcile_retry_claim(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        retry_policy: RetryPolicy,
+        *,
+        now: datetime | None = None,
+    ) -> RetryAttemptFinalization | None:
+        """Repair a claimed outbox row from already-persisted next-attempt evidence.
+
+        This preflight closes the partial-persistence window where target
+        delivery appended receipt evidence but the corresponding outbox
+        transition failed.  If evidence for ``item.attempt_number + 1``
+        already exists, the lifecycle authority commits the missing outbox
+        transition and the caller MUST NOT invoke the transport again.
+
+        ``None`` means no uncommitted next-attempt evidence exists and normal
+        retry delivery may proceed.
+        """
+        attempt_number = item.attempt_number + 1
+        receipts = await storage.list_receipts_for_plan(
+            item.delivery_plan_id,
+            item.target_adapter,
+        )
+        evidence = self._retry_attempt_evidence(receipts, item, attempt_number)
+        if evidence is None:
+            return None
+
+        return await self._finalize_retry_evidence(
+            storage,
+            item,
+            retry_policy,
+            evidence=evidence,
+            unpersisted_failure_kind=None,
+            unpersisted_error_summary=None,
+            now=now,
+        )
+
+    async def finalize_retry_attempt_error(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        retry_policy: RetryPolicy,
+        *,
+        error: Exception,
+        now: datetime | None = None,
+    ) -> RetryAttemptFinalization:
+        """Reconcile durable evidence after a retry delivery raises.
+
+        This is the retry failure-classification authority.  It selects only
+        evidence attributable to the current outbox attempt, treats durable
+        ``queued``/``sent`` evidence as acceptance even when a later
+        persistence step raised, honours existing dead-letter evidence,
+        terminates non-retryable failures immediately, and otherwise commits
+        the retry-wait transition.
+
+        Storage errors are intentionally not swallowed.  If evidence lookup
+        or the selected outbox transition cannot be persisted, the worker must
+        not report a lifecycle state that storage did not commit; the claimed
+        row remains recoverable through its lease-expiry path, and claim
+        reconciliation will repair persisted attempt evidence before resend.
+        """
+        attempt_number = item.attempt_number + 1
+        receipts = await storage.list_receipts_for_plan(
+            item.delivery_plan_id,
+            item.target_adapter,
+        )
+        evidence = self._retry_attempt_evidence(receipts, item, attempt_number)
+        failure_kind = self._classify_retry_exception(error)
+        error_summary = f"{type(error).__name__}: {error}"
+        return await self._finalize_retry_evidence(
+            storage,
+            item,
+            retry_policy,
+            evidence=evidence,
+            unpersisted_failure_kind=failure_kind,
+            unpersisted_error_summary=error_summary,
+            now=now,
+        )
+
     async def defer_retry_outbox(
         self,
         storage: DeliveryLifecycleStorage,
@@ -981,42 +1324,6 @@ class DeliveryLifecycleService:
             attempt_number=attempt_number,
         )
         return next_attempt_at
-
-    async def finalize_retry_failure(
-        self,
-        storage: DeliveryLifecycleStorage,
-        item: DeliveryOutboxItem,
-        retry_policy: RetryPolicy,
-        *,
-        failure_kind: str,
-        attempt_number: int,
-        receipt_id: str | None = None,
-        force_dead_lettered: bool = False,
-        now: datetime | None = None,
-    ) -> bool:
-        """Persist retry-wait or dead-lettered state for one failed attempt.
-
-        Returns ``True`` when the retry is terminally dead-lettered.
-        """
-        if force_dead_lettered or attempt_number > retry_policy.max_attempts:
-            await storage.mark_outbox_dead_lettered(
-                item.outbox_id,
-                receipt_id=receipt_id,
-                failure_kind=failure_kind,
-                attempt_number=attempt_number,
-            )
-            return True
-
-        await self.defer_retry_outbox(
-            storage,
-            item,
-            retry_policy,
-            failure_kind=failure_kind,
-            attempt_number=attempt_number,
-            receipt_id=receipt_id,
-            now=now,
-        )
-        return False
 
     async def finalize_retry_success(
         self,

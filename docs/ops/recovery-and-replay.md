@@ -550,9 +550,9 @@ Each retry receipt links to the previous attempt via `parent_receipt_id`. When r
 SELECT * FROM delivery_receipts WHERE delivery_plan_id = ? ORDER BY attempt_number;
 ```
 
-### Suppressed Deliveries and the Retry Queue
+### Suppressed Deliveries and Retry Work
 
-Suppressed deliveries (status `"suppressed"` with failure kind `loop_suppressed`, `capability_suppressed`, or `policy_suppressed`) do not enter the retry queue. Suppressed receipts have `next_retry_at=NULL` and are never returned by `list_due_retry_receipts()`. This is by design: suppression indicates a guard fired to prevent delivery, not a transient failure that might resolve with retry.
+Suppressed deliveries (status `"suppressed"` with failure kind `loop_suppressed`, `capability_suppressed`, or `policy_suppressed`) do not create retryable outbox work. Their receipts have `next_retry_at=NULL`, and the corresponding outbox state is terminal rather than `retry_wait`. This is by design: suppression indicates a guard fired to prevent delivery, not a transient failure that might resolve with retry.
 
 ### Querying Replay Receipts
 
@@ -674,7 +674,7 @@ The outbox tracks in-progress deliveries:
 
 When the runtime shuts down gracefully, pending retry receipts (those with `next_retry_at` set) and pending outbox items are not cancelled. They remain in storage as resumable work. On next startup:
 
-- Due retry receipts are discovered and processed by the RetryWorker.
+- Due retry outbox rows are claimed and processed by the RetryWorker.
 - Expired `in_progress` outbox rows are reclaimed by `claim_due_outbox_items()`.
 - Stale `queued` outbox rows are reclaimed after the configured grace period.
 
@@ -708,9 +708,9 @@ Operators can inspect these fields to understand what work will resume after res
 
 ### Replay and Route-Level Retry Interaction
 
-When `best_effort` replay delivers to a route that has retry enabled, transient failures create due retry receipts in storage. The `medre replay` command never starts the RetryWorker (it builds but never calls `app.start()`). This means:
+When `best_effort` replay delivers to a route that has retry enabled, transient failures create retryable outbox work plus immutable failure receipts in storage. The `medre replay` command never starts the RetryWorker (it builds but never calls `app.start()`). This means:
 
-- Due retry receipts created during replay sit in storage unprocessed.
+- Retryable outbox rows created during replay sit in storage unprocessed.
 - If the operator later starts the runtime normally (`medre run`) with retry enabled, the RetryWorker will discover and process those receipts.
 - This creates a cross-source retry chain: `source="replay"` to `source="retry"`, linked by `parent_receipt_id`.
 
@@ -804,7 +804,7 @@ Operators seeing these messages should check whether the adapter callback is exp
 
 ### Replay Does Not Mutate Live Recovery State
 
-Replay execution (`medre replay`) produces its own receipts and outbox transitions, all tagged `source="replay"`. Replay does not modify existing live receipts, live outbox items, or live retry state. If a replay run creates due retry receipts (transient failure during `best_effort` mode), those retry receipts sit in storage unprocessed until the runtime starts normally with retry enabled.
+Replay execution (`medre replay`) produces its own receipts and outbox transitions, all tagged `source="replay"`. Replay does not modify existing live receipts, live outbox items, or live retry state. If a replay run creates retryable outbox work (transient failure during `best_effort` mode), those outbox rows sit in storage unprocessed until the runtime starts normally with retry enabled; the corresponding receipts remain evidence only.
 
 ## Convergence Diagnostics for Recovery
 

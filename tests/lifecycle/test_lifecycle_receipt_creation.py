@@ -46,12 +46,14 @@ class TestBuildAndPersistDeadLetterReceipt:
             source="live",
             replay_run_id=None,
             target_channel=None,
+            outbox_id=None,
             plan=plan,
         )
 
         assert receipt.status == "dead_lettered"
         assert receipt.parent_receipt_id == "rcpt-primary"
         assert receipt.attempt_number == 2  # attempt_number + 1
+        assert receipt.outbox_id is None
         stored = await temp_storage.list_receipts_for_event("evt-001")
         assert len(stored) == 1
         assert stored[0].receipt_id == receipt.receipt_id
@@ -77,6 +79,7 @@ class TestBuildAndPersistDeadLetterReceipt:
             source="replay",
             replay_run_id="run-42",
             target_channel="ch-0",
+            outbox_id=None,
             plan=plan,
         )
 
@@ -84,6 +87,31 @@ class TestBuildAndPersistDeadLetterReceipt:
         assert receipt.replay_run_id == "run-42"
         assert receipt.target_channel == "ch-0"
         assert receipt.attempt_number == 4
+
+    async def test_dead_letter_receipt_preserves_outbox_correlation(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        lifecycle = _make_lifecycle()
+        await admit_event(temp_storage, "evt-outbox")
+        plan = _make_plan(retry_policy=RetryPolicy(max_attempts=1))
+
+        receipt = await lifecycle.build_and_persist_dead_letter_receipt(
+            temp_storage,
+            event_id="evt-outbox",
+            delivery_plan_id="plan-outbox",
+            target_adapter="test_adapter",
+            previous_receipt_id="rcpt-primary",
+            attempt_number=1,
+            error="boom",
+            source="retry",
+            replay_run_id=None,
+            target_channel=None,
+            outbox_id="obox-123",
+            plan=plan,
+        )
+
+        assert receipt.outbox_id == "obox-123"
 
 
 # ===================================================================
@@ -177,6 +205,7 @@ class TestDeadLetterReceiptRuntimeGuard:
                 source="live",
                 replay_run_id=None,
                 target_channel=None,
+                outbox_id=None,
                 plan=plan,
             )
 

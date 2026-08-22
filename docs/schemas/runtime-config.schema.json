@@ -105,12 +105,12 @@
         "interval_seconds": {
           "type": "number",
           "default": 10.0,
-          "description": "Polling interval in seconds for checking due retry receipts."
+          "description": "Polling interval in seconds for checking due outbox work."
         },
         "batch_size": {
           "type": "integer",
           "default": 20,
-          "description": "Maximum retry receipts processed per polling cycle."
+          "description": "Maximum due outbox items claimed per polling cycle."
         },
         "max_attempts": {
           "type": "integer",

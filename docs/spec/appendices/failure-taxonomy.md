@@ -135,7 +135,7 @@ appears more than once in the event's routing metadata). The adapter's
 | Outcome status   | `skipped`                                                                                       |
 | Receipt status   | `suppressed`                                                                                    |
 | Receipt evidence | `event_id`, `route_id`, `target_adapter`, `failure_kind="loop_suppressed"`, and a reason string |
-| Retryable        | No — `next_retry_at` is `None`, receipt does not enter retry queue                              |
+| Retryable        | No — `next_retry_at` is `None`; durable outbox work is not scheduled for retry                              |
 | Adapter called   | No                                                                                              |
 
 Self-loop and route-trace suppression produce the same `failure_kind` but are
@@ -157,7 +157,7 @@ invocation.
 | Outcome status   | `skipped`                                                                                                                |
 | Receipt status   | `suppressed`                                                                                                             |
 | Receipt evidence | `event_id`, `route_id`, `target_adapter`, `failure_kind="capability_suppressed"`, `capability_field`, `capability_level` |
-| Retryable        | No — `next_retry_at` is `None`, receipt does not enter retry queue                                                       |
+| Retryable        | No — `next_retry_at` is `None`; durable outbox work is not scheduled for retry                                                       |
 | Adapter called   | No                                                                                                                       |
 
 The receipt `error` field carries the capability reason (e.g. `"reactions
@@ -203,7 +203,7 @@ persisted.
    The adapter is not aware of suppressed events — there is no adapter-side
    counter or state change.
 8. Suppressed receipts have `status="suppressed"`, not `"failed"`. They do not
-   enter the retry queue. Operators checking for "failed deliveries" must
+   create retryable outbox work. Operators checking for "failed deliveries" must
    query for `status IN ('failed', 'dead_lettered')` to exclude suppressed
    entries, or query `status IN ('suppressed', 'failed', 'dead_lettered')` to
    include all non-successful outcomes.
@@ -278,7 +278,7 @@ Graceful shutdown preserves non-terminal outbox rows as resumable work. The
 runtime does not cancel, mutate, or append receipts to pending outbox items
 during shutdown. Non-terminal outbox statuses (`pending`, `retry_wait`,
 `in_progress`, `queued`) survive in SQLite and are processed on next startup:
-due retry receipts by the RetryWorker, and outbox items (`pending`,
+due retry outbox rows by the RetryWorker, and outbox items (`pending`,
 `retry_wait`, expired `in_progress`, stale `queued`) by
 `claim_due_outbox_items()`.
 

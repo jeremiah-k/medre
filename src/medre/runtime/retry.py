@@ -17,8 +17,11 @@ For each due outbox item claimed, the RetryWorker:
 1. Loads the canonical event from storage.
 2. Finds the most recent receipt for this delivery plan / target.
 3. Reconstructs minimal Route + DeliveryPlan from outbox/receipt metadata.
-4. Calls ``PipelineRunner.deliver_to_target(... previous_receipt=...)``.
-5. Delegates durable outbox transitions to ``DeliveryLifecycleService``;
+4. Asks ``DeliveryLifecycleService`` to reconcile any receipt evidence from a
+   previously interrupted attempt before transport is invoked.
+5. Calls ``PipelineRunner.deliver_to_target(... previous_receipt=...)`` only
+   when no persisted next-attempt evidence already determines the outcome.
+6. Delegates durable outbox transitions to ``DeliveryLifecycleService``;
    the worker retains polling, capacity, counters, and event orchestration.
 """
 
@@ -29,12 +32,15 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 if TYPE_CHECKING:
     from medre.core.engine.pipeline import PipelineRunner
-    from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
-    from medre.core.storage.sqlite.storage import SQLiteStorage
+    from medre.core.engine.pipeline.delivery_lifecycle import (
+        DeliveryLifecycleService,
+        DeliveryLifecycleStorage,
+    )
+    from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.events import EventBuffer
 
@@ -45,9 +51,37 @@ from medre.core.engine.pipeline.retry_plan import (
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.events import RuntimeEventType
 
-__all__ = ["RetryWorker", "RetryWorkerState"]
+__all__ = ["RetryWorker", "RetryWorkerState", "RetryWorkerStorage"]
 
 _logger = logging.getLogger(__name__)
+
+
+class RetryWorkerStorage(Protocol):
+    """Read/claim storage surface used directly by :class:`RetryWorker`.
+
+    Durable lifecycle mutations are deliberately absent.  The worker passes
+    the concrete backend to :class:`DeliveryLifecycleService`, which owns all
+    retry outbox state transitions.
+    """
+
+    async def claim_due_outbox_items(
+        self,
+        now: str,
+        worker_id: str,
+        lease_seconds: int = 30,
+        limit: int = 20,
+    ) -> list[DeliveryOutboxItem]: ...
+
+    async def count_outbox_by_status(self) -> dict[str, int]: ...
+
+    async def get(self, event_id: str) -> CanonicalEvent | None: ...
+
+    async def delivery_status(
+        self,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None = None,
+    ) -> DeliveryReceipt | None: ...
 
 
 @dataclass
@@ -100,7 +134,7 @@ class RetryWorker:
 
     def __init__(
         self,
-        storage: SQLiteStorage,
+        storage: RetryWorkerStorage,
         pipeline: PipelineRunner,
         capacity_controller: CapacityController | None,
         *,
@@ -115,6 +149,11 @@ class RetryWorker:
     ) -> None:
         config = retry_config if retry_config is not None else RetryConfig()
         self._storage = storage
+        # The runtime backend is shared with lifecycle authority, but the
+        # worker retains only its narrow read/claim view.  The cast creates a
+        # separate collaborator view for lifecycle calls so static typing does
+        # not widen RetryWorkerStorage back into a mutation-capable protocol.
+        self._lifecycle_storage = cast("DeliveryLifecycleStorage", storage)
         self._pipeline = pipeline
         self._capacity = capacity_controller
         if lifecycle is None:
@@ -175,6 +214,37 @@ class RetryWorker:
         except ValueError:
             return
         self._event_buffer.emit(rt, detail)
+
+    def _record_lifecycle_persistence_error(
+        self,
+        item: DeliveryOutboxItem,
+        error: Exception,
+        *,
+        attempt_number: int,
+    ) -> None:
+        """Report a lifecycle write/read failure without inventing durable state.
+
+        The outbox lease remains the recovery mechanism.  This helper only
+        updates process-local observability and therefore never claims that a
+        retry/dead-letter/success transition committed when lifecycle storage
+        raised.
+        """
+        self.state.failed += 1
+        self._emit(
+            "retry_failed",
+            {
+                "receipt_id": item.receipt_id or item.outbox_id,
+                "parent_receipt_id": item.parent_receipt_id,
+                "retry_receipt_id": None,
+                "event_id": item.event_id,
+                "target_adapter": item.target_adapter,
+                "attempt_number": attempt_number,
+                "status": "lifecycle_persistence_error",
+                "failure_kind": "lifecycle_persistence_error",
+                "error": f"{type(error).__name__}: {error}",
+                "next_retry_at": None,
+            },
+        )
 
     def _finalize_task_outcome(
         self, task: asyncio.Task[None]
@@ -610,19 +680,17 @@ class RetryWorker:
                 item.outbox_id,
             )
             await self._lifecycle.abandon_retry_outbox(
-                self._storage,
+                self._lifecycle_storage,
                 item,
                 error_summary="Event not found in storage",
             )
             return
 
-        receipts = await self._storage.list_receipts_for_plan(
+        previous_receipt = await self._storage.delivery_status(
             item.delivery_plan_id,
             item.target_adapter,
+            item.target_channel,
         )
-        # Filter to the same target channel for correct lineage.
-        receipts = [r for r in receipts if r.target_channel == item.target_channel]
-        previous_receipt = receipts[-1] if receipts else None
 
         # Reconstruct the delivery context (route + plan + retry policy)
         # from the persisted outbox item and previous receipt.  The helper
@@ -642,9 +710,44 @@ class RetryWorker:
             self.state.processed += 1
             self.state.failed += 1
             await self._lifecycle.abandon_retry_outbox(
-                self._storage,
+                self._lifecycle_storage,
                 item,
                 error_summary="Reconstruction failure",
+            )
+            return
+
+        # A worker can reclaim an expired ``in_progress`` row after a prior
+        # process persisted receipt evidence but failed before committing the
+        # matching outbox transition.  Reconcile that evidence first: invoking
+        # the transport again could duplicate an already accepted delivery or
+        # repeat a failed attempt whose schedule/dead-letter decision is durable.
+        try:
+            reconciled = await self._lifecycle.reconcile_retry_claim(
+                self._lifecycle_storage,
+                item,
+                retry_context.retry_policy,
+            )
+        except Exception as lifecycle_exc:
+            self.state.processed += 1
+            _logger.exception(
+                "RetryWorker: failed to reconcile claimed retry evidence for outbox %s",
+                item.outbox_id,
+            )
+            self._record_lifecycle_persistence_error(
+                item,
+                lifecycle_exc,
+                attempt_number=item.attempt_number + 1,
+            )
+            return
+
+        if reconciled is not None:
+            self.state.processed += 1
+            _logger.info(
+                "RetryWorker: reconciled persisted attempt %d for outbox %s as %s; "
+                "skipping transport",
+                reconciled.attempt_number,
+                item.outbox_id,
+                reconciled.outcome,
             )
             return
 
@@ -664,7 +767,7 @@ class RetryWorker:
                     _cap_next: datetime | None = None
                     try:
                         _cap_next = await self._lifecycle.defer_retry_outbox(
-                            self._storage,
+                            self._lifecycle_storage,
                             item,
                             retry_context.retry_policy,
                             failure_kind="capacity_rejection",
@@ -705,7 +808,7 @@ class RetryWorker:
                     # cause immediate re-claim.  Delegate a durable backoff
                     # transition to the lifecycle authority instead.
                     await self._lifecycle.defer_retry_outbox(
-                        self._storage,
+                        self._lifecycle_storage,
                         item,
                         retry_context.retry_policy,
                         failure_kind="capacity_error",
@@ -746,162 +849,87 @@ class RetryWorker:
             )
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             self.state.processed += 1
-            self.state.failed += 1
-            # Check if retry exhausted: pipeline may have appended
-            # a dead-lettered receipt.
-            is_dead_lettered = False
-            if previous_receipt is not None:
-                try:
-                    is_dead_lettered = await self._check_dead_lettered(
-                        item.event_id,
-                        item.target_adapter,
-                        previous_receipt.receipt_id,
-                        target_channel=item.target_channel,
-                    )
-                    # Fallback: if parent-specific check missed, check for
-                    # any dead-lettered receipt for this event+adapter.
-                    # The pipeline may create a dead-lettered receipt whose
-                    # parent is the CURRENT attempt's receipt, not the
-                    # previous one.
-                    if not is_dead_lettered:
-                        is_dead_lettered = await self._check_dead_lettered(
-                            item.event_id,
-                            item.target_adapter,
-                            target_channel=item.target_channel,
-                        )
-                except Exception:
-                    _logger.exception(
-                        "RetryWorker: error checking dead-lettered for %s/%s",
-                        item.event_id,
-                        item.target_adapter,
-                    )
-
-            if is_dead_lettered:
-                self.state.dead_lettered += 1
-                # Find the dead-lettered receipt to link the outbox item.
-                _dl_receipt_id = None
-                try:
-                    _dl_receipts = await self._storage.list_receipts_for_plan(
-                        item.delivery_plan_id,
-                        item.target_adapter,
-                    )
-                    _dl_receipts = [
-                        r
-                        for r in _dl_receipts
-                        if r.target_channel == item.target_channel
-                        and r.status == "dead_lettered"
-                    ]
-                    if _dl_receipts:
-                        _dl_receipt_id = _dl_receipts[-1].receipt_id
-                except Exception:
-                    # cleanup-silent: best-effort cross-reference; the
-                    # lifecycle authority persists the dead-letter even
-                    # without this receipt cross-reference.
-                    pass
-                await self._lifecycle.finalize_retry_failure(
-                    self._storage,
+            try:
+                finalization = await self._lifecycle.finalize_retry_attempt_error(
+                    self._lifecycle_storage,
                     item,
                     retry_context.retry_policy,
-                    receipt_id=_dl_receipt_id,
-                    failure_kind="retry_exhausted",
-                    attempt_number=item.attempt_number + 1,
-                    force_dead_lettered=True,
+                    error=exc,
                 )
-                self._emit(
-                    "retry_dead_lettered",
-                    {
-                        "receipt_id": item.receipt_id or item.outbox_id,
-                        "parent_receipt_id": item.parent_receipt_id,
-                        "retry_receipt_id": item.receipt_id,
-                        "event_id": item.event_id,
-                        "target_adapter": item.target_adapter,
-                        "attempt_number": item.attempt_number + 1,
-                    },
+            except Exception as lifecycle_exc:
+                _logger.exception(
+                    "RetryWorker: failed to reconcile retry lifecycle for outbox %s",
+                    item.outbox_id,
+                )
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=item.attempt_number + 1,
                 )
             else:
-                _exhausted = False
-                try:
-                    # Try to get the actual failure kind from the latest
-                    # receipt (which the pipeline already persisted).
-                    _actual_kind = "delivery_failure"
-                    _latest_receipt_id: str | None = None
-                    try:
-                        _latest_receipts = await self._storage.list_receipts_for_plan(
-                            item.delivery_plan_id,
-                            item.target_adapter,
-                        )
-                        _latest_receipts = [
-                            r
-                            for r in _latest_receipts
-                            if r.target_channel == item.target_channel
-                        ]
-                        if _latest_receipts:
-                            _latest = _latest_receipts[-1]
-                            _latest_receipt_id = _latest.receipt_id
-                            if _latest.failure_kind:
-                                _actual_kind = _latest.failure_kind
-                    except Exception:
-                        pass  # fall through to default
-
-                    policy = retry_context.retry_policy
-                    next_attempt = item.attempt_number + 1
-                    _exhausted = await self._lifecycle.finalize_retry_failure(
-                        self._storage,
-                        item,
-                        policy,
-                        failure_kind=_actual_kind,
-                        attempt_number=next_attempt,
-                        receipt_id=_latest_receipt_id,
+                if finalization.outcome == "accepted":
+                    self.state.succeeded += 1
+                    self._emit(
+                        "retry_succeeded",
+                        {
+                            "receipt_id": finalization.receipt_id
+                            or item.receipt_id
+                            or item.outbox_id,
+                            "parent_receipt_id": item.receipt_id or item.outbox_id,
+                            "retry_receipt_id": finalization.receipt_id,
+                            "event_id": item.event_id,
+                            "target_adapter": item.target_adapter,
+                            "attempt_number": finalization.attempt_number,
+                        },
                     )
-                    if _exhausted:
-                        _logger.warning(
-                            "RetryWorker: retries exhausted for outbox %s "
-                            "(attempt %d > max %d)",
-                            item.outbox_id,
-                            next_attempt,
-                            policy.max_attempts,
-                        )
-                        self.state.dead_lettered += 1
-                        self._emit(
-                            "retry_dead_lettered",
-                            {
-                                "receipt_id": item.receipt_id or item.outbox_id,
-                                "parent_receipt_id": item.parent_receipt_id,
-                                "retry_receipt_id": item.receipt_id,
-                                "event_id": item.event_id,
-                                "target_adapter": item.target_adapter,
-                                "attempt_number": next_attempt,
-                            },
-                        )
-                except Exception:
-                    _logger.exception(
-                        "RetryWorker: failed to backoff outbox %s",
-                        item.outbox_id,
+                elif finalization.outcome == "dead_lettered":
+                    self.state.failed += 1
+                    self.state.dead_lettered += 1
+                    self._emit(
+                        "retry_dead_lettered",
+                        {
+                            "receipt_id": item.receipt_id or item.outbox_id,
+                            "parent_receipt_id": item.parent_receipt_id,
+                            "retry_receipt_id": finalization.receipt_id,
+                            "event_id": item.event_id,
+                            "target_adapter": item.target_adapter,
+                            "attempt_number": finalization.attempt_number,
+                            "failure_kind": finalization.failure_kind,
+                        },
                     )
-                if not _exhausted:
+                elif finalization.outcome == "retry_wait":
+                    self.state.failed += 1
                     self._emit(
                         "retry_failed",
                         {
                             "receipt_id": item.receipt_id or item.outbox_id,
                             "parent_receipt_id": item.parent_receipt_id,
-                            "retry_receipt_id": None,
+                            "retry_receipt_id": finalization.receipt_id,
                             "event_id": item.event_id,
                             "target_adapter": item.target_adapter,
-                            "attempt_number": item.attempt_number,
+                            "attempt_number": finalization.attempt_number,
+                            "status": "retry_wait",
+                            "failure_kind": finalization.failure_kind,
+                            "error": str(exc),
+                            "next_retry_at": (
+                                finalization.next_retry_at.isoformat()
+                                if finalization.next_retry_at is not None
+                                else None
+                            ),
                         },
                     )
             _logger.debug(
-                "RetryWorker: delivery failed for outbox %s",
+                "RetryWorker: delivery raised for outbox %s",
                 item.outbox_id,
-                exc_info=True,
+                exc_info=(type(exc), exc, exc.__traceback__),
             )
         else:
             self.state.processed += 1
             try:
                 retry_succeeded = await self._lifecycle.finalize_retry_success(
-                    self._storage,
+                    self._lifecycle_storage,
                     item,
                     result_receipt,
                 )
@@ -918,36 +946,16 @@ class RetryWorker:
                             "attempt_number": result_receipt.attempt_number,
                         },
                     )
-            except Exception:
+            except Exception as lifecycle_exc:
                 _logger.exception(
                     "RetryWorker: failed to update outbox %s after successful delivery",
                     item.outbox_id,
                 )
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=result_receipt.attempt_number,
+                )
         finally:
             if capacity_acquired and self._capacity is not None:
                 await self._capacity.release_delivery()
-
-    async def _check_dead_lettered(
-        self,
-        event_id: str,
-        target_adapter: str,
-        parent_receipt_id: str | None = None,
-        target_channel: str | None = None,
-    ) -> bool:
-        """Check if a dead-lettered receipt exists for this event+adapter.
-
-        When *parent_receipt_id* is provided, matches receipts whose parent
-        is that receipt.  When omitted, matches ANY dead-lettered receipt
-        for the event+adapter pair (used by the exhaustion guard).
-
-        When *target_channel* is provided, only matches receipts targeting
-        that channel, preventing cross-channel false positives.
-        """
-        receipts = await self._storage.list_receipts_for_event(event_id)
-        return any(
-            r.status == "dead_lettered"
-            and r.target_adapter == target_adapter
-            and (parent_receipt_id is None or r.parent_receipt_id == parent_receipt_id)
-            and (target_channel is None or r.target_channel == target_channel)
-            for r in receipts
-        )

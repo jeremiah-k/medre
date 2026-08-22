@@ -868,6 +868,7 @@ class TargetDeliveryService:
                 source=source,
                 replay_run_id=replay_run_id,
                 target_channel=target.channel,
+                outbox_id=outbox_id,
                 plan=plan,
             )
 

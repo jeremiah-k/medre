@@ -585,7 +585,7 @@ consuming its poison-work attempt budget and is retried later.
 
 ### `retry`
 
-Controls the background RetryWorker that polls for due retry receipts.
+Controls the background RetryWorker that polls for due durable outbox work.
 
 ```yaml
 retry:

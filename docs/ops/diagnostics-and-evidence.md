@@ -601,7 +601,7 @@ ORDER BY attempt_number;
 
 ### "Were suppressed deliveries retried?"
 
-No. Suppressed deliveries (status `suppressed`) do not enter the retry queue. Their `next_retry_at` is always `None`. Suppression indicates a guard prevented delivery entirely — it is not a transient condition that retrying would resolve.
+No. Suppressed deliveries (status `suppressed`) do not create retryable outbox work. Their `next_retry_at` is always `None`, and the durable outbox does not return them to `retry_wait`. Suppression indicates a guard prevented delivery entirely — it is not a transient condition that retrying would resolve.
 
 ## Adapter Status Lifecycle
 
@@ -643,7 +643,7 @@ When the runtime shuts down, the delivery evidence system records what happened 
 | Pending retry receipt at shutdown                  | No change; receipt stays in storage for next startup                                          |
 | Pending outbox item at shutdown                    | No change; outbox row stays for next startup                                                  |
 
-Pending retry receipts and outbox items are not cancelled during shutdown. They survive in SQLite and are processed on next startup by the RetryWorker (for due retry receipts) or by the normal outbox reclaim path (`claim_due_outbox_items`) for plain pending/queued/in_progress rows. This is an intentional design choice: non-terminal outbox work is preserved as resumable work, not implicitly transitioned to a cancelled state. The `ShutdownEvidence` record (in the evidence bundle) reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals the resumable policy is active. Operators can inspect `pending_outbox_counts` in the shutdown evidence to see exactly which statuses and counts were preserved.
+Non-terminal outbox items are not cancelled during shutdown. They survive in SQLite and are processed on next startup through `claim_due_outbox_items()` by the RetryWorker or the normal dispatch/reclaim paths. Receipts remain immutable evidence and are not scheduling work. This is an intentional design choice: non-terminal outbox work is preserved as resumable work, not implicitly transitioned to a cancelled state. The `ShutdownEvidence` record (in the evidence bundle) reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals the resumable policy is active. Operators can inspect `pending_outbox_counts` in the shutdown evidence to see exactly which statuses and counts were preserved.
 
 Use `--snapshot-on-shutdown PATH` to capture the final runtime state including counters, route stats, and the bounded event buffer:
 
@@ -715,7 +715,7 @@ No action needed. Outbox and receipts agree on the delivery state.
 
 Work is stalled or mid-flight. This is normal for recent events during startup recovery. If degraded persists well after startup, check whether:
 
-- The RetryWorker is enabled and processing due retry receipts.
+- The RetryWorker is enabled and processing due outbox work.
 - `claim_due_outbox_items()` is reclaiming expired leases and stale queued items.
 - The adapter is connected and accepting deliveries.
 

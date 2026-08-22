@@ -3,7 +3,7 @@
 > **Status:** Active
 > **Classification:** Normative
 > **Authority:** Authoritative specification for MEDRE route model, fanout, loop suppression, delivery planning, retry/outbox semantics, failure taxonomy, local acceptance vs remote delivery, and non-goals.
-> **Last reviewed:** 2026-05-27
+> **Last reviewed:** 2026-08-22
 
 This document is the single normative reference for everything between "the pipeline has a derived event ready to deliver" and "the adapter reports back with a receipt." An implementer MUST be able to build routing and delivery from these definitions without consulting any other document.
 
@@ -228,7 +228,7 @@ Three runtime pipeline guards prevent loop propagation during live delivery:
 
 1. **Native-ref duplicate suppression** — The pipeline checks inbound events against stored native message references. If the event's `source_native_ref` matches a previously seen ref (same `(adapter, native_channel_id, native_message_id)` triple), the event is dropped. This prevents echo from re-delivered or duplicate packets at the pipeline boundary. Native refs are persisted to storage and are used consistently during replay — :func:`resolve_native_ref` returns the original `event_id` for previously seen triples, enabling replay to detect already-processed events.
 
-2. **Self-loop guard** — The pipeline checks whether `target_adapter == event.source_adapter` for each delivery target. If true, the delivery is suppressed with `DeliveryOutcome(status="skipped")` and `failure_kind=LOOP_SUPPRESSED`. A `DeliveryReceipt(status="suppressed")` is persisted with `event_id`, `route_id`, `target_adapter`, `failure_kind="loop_suppressed"`, and a reason string. The adapter's `send()` method is NOT called. The suppressed receipt does NOT enter the retry queue (`next_retry_at` is `None`).
+2. **Self-loop guard** — The pipeline checks whether `target_adapter == event.source_adapter` for each delivery target. If true, the delivery is suppressed with `DeliveryOutcome(status="skipped")` and `failure_kind=LOOP_SUPPRESSED`. A `DeliveryReceipt(status="suppressed")` is persisted with `event_id`, `route_id`, `target_adapter`, `failure_kind="loop_suppressed"`, and a reason string. The adapter's `send()` method is NOT called. The suppressed receipt does not create retryable outbox work (`next_retry_at` is `None`).
 
 3. **Route-trace guard** — The pipeline checks the `route_trace` counter on the event's `RoutingMetadata`. If a route ID appears more than once in the trace (indicating a cycle), the delivery is skipped.
 
@@ -284,7 +284,7 @@ The planner constructs one `DeliveryPlan` per `(event, RouteTarget)` pair.
 
 `target_identity` is a stable JSON representation produced by :func:`delivery_target_identity`, which serialises the :class:`RouteTarget` `adapter`, `channel`, and `destination` fields with sorted keys and compact separators. It is the same value used inside :func:`stable_delivery_plan_id` and is populated for every plan, not only for manually constructed ones.
 
-`capability_level`, `capability_field`, and `capability_reason` mirror the :class:`CapabilityDecision` used to choose `primary_strategy`. The :class:`FallbackResolver` populates these fields from the resolver's decision on every plan it produces. They are `None` only for manually constructed plans, passthrough event kinds that have no capability candidate, or outbox rows with missing or corrupt prerelease metadata that predate route-decision metadata persistence. Retry reconstruction recovers these fields from the outbox `metadata` dict when present; see § 6.4.
+`capability_level`, `capability_field`, and `capability_reason` mirror the :class:`CapabilityDecision` used to choose `primary_strategy`. The :class:`FallbackResolver` populates these fields from the resolver's decision on every plan it produces. They are `None` only when `None` is the current planning decision (for example, passthrough event kinds with no capability candidate) or on manually constructed plans. Durable outbox rows persist the complete route-decision key set, and retry reconstruction validates that contract; see § 6.4.
 
 Delivery plans are operational artifacts, not canonical events. They exist during pipeline execution to coordinate delivery. They are not stored in the canonical event log and are not subject to immutability guarantees. Delivery plans MAY be reconstructed at any time by re-running the routing and planning stages against current configuration.
 
@@ -519,7 +519,7 @@ When `OutboxManager.create_for_delivery()` creates a `DeliveryOutboxItem`, the o
 
 Retry reconstruction (`reconstruct_retry_delivery_plan()`) reads these keys back from the outbox `metadata` dict and populates the reconstructed `DeliveryPlan`. This ensures retry delivery uses the same capability and strategy decisions as the original live delivery, rather than defaulting to `capability_level=None` (silently treated as `"native"`) and `strategy="direct"`.
 
-Outbox rows with missing or corrupt prerelease metadata that predate this persistence gracefully default to `capability_level=None` and `strategy="direct"` when the keys are absent.
+Missing, incomplete, or malformed route-decision metadata is an invariant violation. Retry reconstruction raises instead of guessing a capability level, strategy, or deadline; the retry worker then abandons the malformed outbox item through lifecycle authority rather than dispatching under invented semantics.
 
 **Wire protocol**: These keys are internal correlation metadata stored in the SQLite `metadata` column. They MUST NOT be rendered into Meshtastic, Matrix, MeshCore, or LXMF wire payloads.
 
@@ -550,7 +550,9 @@ Retry is **opt-in** — it is disabled by default. The `RetryWorker` only activa
 
 When `RetryPolicy` is configured, the following failure kind is auto-retried:
 
-- `ADAPTER_TRANSIENT` — timeout, connection error, `OSError` hierarchy. The RetryWorker picks up the failed receipt when `next_retry_at` is due and re-invokes delivery through the same planning path, incrementing `attempt_number`.
+- `ADAPTER_TRANSIENT` — timeout, connection error, `OSError` hierarchy. The durable outbox row enters `retry_wait`; `RetryWorker` claims it when `next_attempt_at` is due and re-invokes delivery through the same planning path, incrementing `attempt_number`.
+
+Receipts remain append-only evidence. They describe what happened during each delivery attempt, but they are not the retry work queue.
 
 ### 7.3 Non-Retryable Failures
 
@@ -558,35 +560,46 @@ The following failure kinds are never auto-retried:
 
 - `ADAPTER_PERMANENT`, `RENDERER_FAILURE`, `PLANNER_FAILURE`, `DEADLINE_EXCEEDED`, `ADAPTER_MISSING`, `LOOP_SUPPRESSED`, `POLICY_SUPPRESSED`, `CAPABILITY_SUPPRESSED`, `CAPACITY_REJECTION`, `SHUTDOWN_REJECTION`
 
+A non-retryable failure discovered during a retry attempt is terminal immediately; it MUST NOT be rescheduled merely because `RetryPolicy.max_attempts` has not been reached.
+
 ### 7.4 Retry Flow
 
-1. `deliver_to_target` records a `failed` receipt with `next_retry_at` populated and `failure_kind=ADAPTER_TRANSIENT`.
-2. `RetryWorker` loads due receipts (where `next_retry_at <= now` and `status = 'failed'` and `failure_kind = 'adapter_transient'`). The query excludes dead-lettered receipts sharing the same delivery lineage.
-3. The worker attempts to acquire delivery capacity. If capacity is unavailable, the worker advances the existing receipt's `next_retry_at` by one backoff interval. No new receipt is created. Capacity rejection does not advance `attempt_number`.
-4. If capacity is acquired, the worker re-invokes delivery with the same `delivery_plan_id` and `event_id`, incrementing `attempt_number` and linking via `parent_receipt_id`. The retry receipt carries `source='retry'`, `target_channel`, and `route_id` from the original delivery context. Retry reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, and `target_identity` — these identity fields are frozen at first delivery and carried through the entire retry chain. **Route-decision metadata recovery**: retry also preserves the original `capability_level`, `delivery_strategy` (primary strategy method), `capability_field`, `capability_reason`, and `deadline` from the outbox `metadata` dict. These fields were persisted at outbox creation time by the live delivery path. Outbox rows with missing or corrupt prerelease metadata that predate this persistence gracefully default to `capability_level=None` (which downstream code treats as `"native"`) and `strategy="direct"`. Each retry attempt appends a new receipt row; earlier receipts are not overwritten.
-5. If `retry_policy` is set and `is_exhausted(attempt_number)` is true, a `dead_lettered` receipt is appended instead of retrying. This receipt carries the same `delivery_plan_id`, `route_id`, `target_adapter`, and `target_channel` as the preceding failed receipts, with `parent_receipt_id` linking to the last failed attempt. Retry exhaustion produces durable dead-lettered evidence — the receipt remains in storage with `status="dead_lettered"`, `next_retry_at=None`, and the full retry chain is visible via `parent_receipt_id` links.
-6. Retry uses the same delivery planning pipeline. No special bypass path exists.
+1. `deliver_to_target` records append-only attempt evidence. A retryable adapter failure produces a `failed` receipt with `failure_kind=ADAPTER_TRANSIENT` and `next_retry_at`; the corresponding outbox row is transitioned to `retry_wait`.
+2. `RetryWorker` claims due outbox rows through `claim_due_outbox_items()`, loads the canonical event, reads the latest delivery status, and reconstructs the original delivery context from durable outbox metadata plus prior receipt evidence. Its direct storage surface is intentionally limited to claim/read operations; it does not inspect failure/dead-letter receipt chains or write durable lifecycle state directly. Reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, `target_identity`, `capability_level`, `delivery_strategy`, `capability_field`, `capability_reason`, and `deadline`. The route-decision keys are required durable state; missing or malformed values fail reconstruction and are abandoned rather than silently re-planned or defaulted.
+3. Before capacity acquisition or transport dispatch, the worker calls `DeliveryLifecycleService.reconcile_retry_claim()`. This preflight inspects only evidence attributable to `item.attempt_number + 1`. If a previous process persisted that attempt's receipt but failed before committing the matching outbox transition, lifecycle reconciliation repairs the outbox and the worker MUST skip transport dispatch. This makes lease reclaim safe after partial persistence and prevents duplicate sends of already accepted deliveries.
+4. If no persisted next-attempt evidence exists, the worker attempts to acquire delivery capacity. If capacity is unavailable, it asks `DeliveryLifecycleService` to schedule outbox backoff. Receipts remain immutable; capacity rejection does not modify an existing receipt and does not advance `attempt_number`.
+5. If capacity is acquired, the worker re-invokes the same delivery pipeline. The retry receipt carries `source='retry'`, `target_channel`, and `route_id`. Each attempt appends new receipt evidence; earlier receipts are never overwritten.
+6. If delivery raises, `DeliveryLifecycleService` is the sole durable retry-classification authority. It resolves evidence for the current outbox attempt using `outbox_id` plus exact attempt/target/lineage correlation, then commits exactly one resulting outbox transition. Current-attempt receipt classification overrides generic exception inference when both exist.
+7. Durable `queued` or `sent` evidence wins over an exception raised later in the same delivery call. This covers failures after adapter acceptance (for example, native-reference persistence after a `sent` receipt): the outbox is finalized as accepted rather than retried, preventing an unsafe duplicate transport send. A `suppressed` receipt is finalized as terminal abandonment and is not counted as retry success.
+8. A retryable failure below the attempt limit returns to `retry_wait`. When the failed receipt already persisted `next_retry_at`, the outbox MUST reuse that exact timestamp so receipt evidence and scheduler state cannot drift. If no current-attempt failure receipt exists, lifecycle policy computes the backoff from the attempt number.
+9. A non-retryable current-attempt failure is dead-lettered immediately. A retryable failure at `attempt_number >= max_attempts` is dead-lettered as retry exhaustion. When `deliver_to_target` already appended a linked `dead_lettered` receipt, lifecycle reconciliation preserves that receipt as the terminal evidence link.
+10. Evidence lookup and lifecycle persistence failures propagate out of `DeliveryLifecycleService`. `RetryWorker` MAY emit an operational `retry_failed` event describing `lifecycle_persistence_error`, but MUST NOT report a durable retry/dead-letter/success transition that storage did not commit. An untransitioned claimed row remains recoverable through outbox lease expiry; if attempt evidence was persisted, the next claim preflight repairs it before any resend.
+11. Retry uses the same delivery planning and target-delivery pipeline as live work. No special transport bypass path exists.
 
 ### 7.5 Policy Persistence
 
-When a delivery first fails with `failure_kind='adapter_transient'` and a `RetryPolicy` is configured, the policy parameters (`max_attempts`, `backoff_base`, `backoff_max`, `jitter`) are persisted as columns on the failure receipt. The `RetryWorker` reads these values from the stored receipt rather than re-reading route configuration. The retry policy is frozen at first failure: subsequent route or `RetryPolicy` configuration changes do not affect in-flight retry behavior.
+When a delivery first fails with `failure_kind='adapter_transient'` and a `RetryPolicy` is configured, the policy parameters (`max_attempts`, `backoff_base`, `max_delay_seconds`, `jitter`) are persisted on the failure receipt. `RetryWorker` reconstructs policy from persisted receipt evidence rather than re-reading current route configuration, so once a retry chain has evidence its policy is frozen. A reclaimed `pending` outbox row can legitimately predate its first receipt; in that recovery case the worker's configured retry defaults apply until the first delivery attempt persists policy evidence.
 
 ### 7.6 Frozen Target Metadata
 
-Retry uses the `target_adapter` and `target_channel` from the original failed receipt, not the current route configuration. Route targets, channel assignments, and adapter mappings MAY change between the original failure and a retry attempt, but the retry continues to target the originally recorded adapter and channel. Before executing the retry, the `RetryWorker` validates that the target adapter still exists at runtime. If the adapter has been removed, the retry is not attempted and the receipt is dead-lettered.
+Retry uses the `target_adapter`, `target_channel`, destination, and route-decision metadata persisted with the original outbox item rather than re-planning against current route configuration. Route targets, channel assignments, and adapter mappings MAY change between the original failure and a retry attempt, but the retry continues to target the recorded destination. If that adapter is no longer registered, the normal target-delivery path records `failure_kind=ADAPTER_MISSING`; lifecycle reconciliation classifies it as terminal and dead-letters the outbox item.
 
 ### 7.7 Retry Properties Summary
 
-| Property                     | Detail                                                                      |
-| ---------------------------- | --------------------------------------------------------------------------- |
-| Single-process               | Retry is single-process, in-process, and bounded by `RetryPolicy`           |
-| Survives restart             | Persistent receipts with `next_retry_at` survive process restart            |
-| NOT EXISTS exclusion         | RetryWorker excludes receipts that already have a `dead_lettered` successor |
-| Capacity rejection           | No new receipt is created; existing receipt is rescheduled                  |
-| Opt-in                       | Requires explicit `RetryPolicy`; no automatic retry without it              |
-| Policy persistence           | Retry policy parameters are stored on first failure receipt                 |
-| Frozen target metadata       | Retry targets original adapter and channel from failed receipt              |
-| Adapter existence validation | Missing adapters are dead-lettered before retry attempt                     |
+| Property | Detail |
+| --- | --- |
+| Operational authority | Durable outbox rows are the retry work queue; receipts are immutable attempt evidence |
+| Single-process | Retry execution is single-process/in-process and bounded by `RetryPolicy` |
+| Survives restart | `retry_wait` and expired `in_progress` outbox rows remain claimable; preflight reconciliation repairs persisted attempt evidence before resend |
+| Worker storage boundary | `RetryWorker` directly claims/reads only; `DeliveryLifecycleService` owns retry-state writes and failure-evidence interpretation |
+| Evidence correlation | Current-attempt evidence is correlated by outbox ID, target channel, attempt, and receipt lineage |
+| Capacity rejection | No receipt mutation; lifecycle reschedules the outbox without advancing the delivery attempt |
+| Non-retryable failure | Dead-lettered immediately, independent of remaining retry budget |
+| Retry exhaustion | `attempt_number >= max_attempts` is terminal |
+| Post-acceptance error | Durable `queued`/`sent` evidence prevents duplicate resend after a later exception |
+| Persistence failure | No durable outcome is claimed unless the lifecycle transition commits; reclaimed rows reconcile persisted attempt evidence before transport |
+| Opt-in | Requires explicit retry policy/global worker enablement; no automatic retry without it |
+| Frozen context | Retry reconstructs target, policy, and planning metadata from durable prior evidence |
 
 ### 7.8 Backoff Formula
 
@@ -875,7 +888,7 @@ When a single event matches a route with multiple destinations, each destination
 | `permanent_failure` | Adapter reported an unrecoverable error, or delivery exhausted retries.                                                                               | Yes (last attempt)                                                          | No                     |
 | `skipped`           | Pre-outbox suppression. A guard fired before rendering, capacity acquisition, or adapter invocation. Reason in `error`. No renderer. No adapter call. | Yes for stored route-target suppressions; none for no-route/pre-store dedup | No                     |
 
-> **Distinction from failed send:** A `skipped` outcome and its corresponding `suppressed` receipt are semantically distinct from a failed send. Suppressed deliveries never invoke the adapter's `send()` method. The receipt `status` is `"suppressed"`, not `"failed"`. The `failure_kind` is a suppression kind (`LOOP_SUPPRESSED`, `POLICY_SUPPRESSED`, or `CAPABILITY_SUPPRESSED`), not an adapter error kind (`ADAPTER_TRANSIENT`, `ADAPTER_PERMANENT`). Suppressed deliveries do not enter the retry queue — `next_retry_at` is always `None` and `is_retryable` is always `False`.
+> **Distinction from failed send:** A `skipped` outcome and its corresponding `suppressed` receipt are semantically distinct from a failed send. Suppressed deliveries never invoke the adapter's `send()` method. The receipt `status` is `"suppressed"`, not `"failed"`. The `failure_kind` is a suppression kind (`LOOP_SUPPRESSED`, `POLICY_SUPPRESSED`, or `CAPABILITY_SUPPRESSED`), not an adapter error kind (`ADAPTER_TRANSIENT`, `ADAPTER_PERMANENT`). Suppressed deliveries do not create retryable outbox work — `next_retry_at` is always `None` and `is_retryable` is always `False`.
 
 ### 11.2.1 Three Suppression Categories
 

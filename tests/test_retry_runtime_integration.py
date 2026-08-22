@@ -1373,6 +1373,11 @@ class TestRetryRuntimeIntegration:
                 "destination_hash": "deadbeef",
                 "destination_name": "test-room",
                 "destination_metadata": dest_metadata,
+                "capability_level": None,
+                "delivery_strategy": "direct",
+                "capability_field": None,
+                "capability_reason": None,
+                "deadline": None,
             },
         )
         await temp_storage.create_outbox_item(outbox_item)
