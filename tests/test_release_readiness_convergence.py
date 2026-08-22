@@ -94,6 +94,7 @@ def test_evidence_levels_defines_shared_status_labels() -> None:
         "implemented-not-executed",
         "synthetic-tested",
         "docker-validated",
+        "local-integration-validated",
         "live-validated",
     ]
     for label in shared_labels:
@@ -105,6 +106,54 @@ def test_evidence_levels_defines_shared_status_labels() -> None:
             f"release-readiness.md must use '{label}' from evidence-levels.md "
             f"vocabulary"
         )
+
+
+def test_local_integration_execution_evidence_is_recorded() -> None:
+    """MeshCore/LXMF local integration is no longer marked unexecuted."""
+    text = _read(_READINESS)
+
+    # Capability-matrix row: BOTH MeshCore and LXMF columns carry the
+    # executed label. Require both section markers and parse the row cells so
+    # stray prose or misplaced rows cannot satisfy the gate.
+    matrix_marker = "## 1. Capability Matrix"
+    definitions_marker = "## 2. Status Definitions"
+    assert matrix_marker in text, "release-readiness must define capability matrix"
+    assert definitions_marker in text, (
+        "release-readiness must define status definitions"
+    )
+    matrix = text.split(matrix_marker, 1)[1].split(definitions_marker, 1)[0]
+    matrix_rows = [
+        ln for ln in matrix.splitlines()
+        if ln.startswith("| Deterministic local integration")
+    ]
+    assert len(matrix_rows) == 1, "capability matrix must have exactly one row"
+    cells = [cell.strip() for cell in matrix_rows[0].strip("|").split("|")]
+    assert len(cells) == 5, "capability matrix row must have five columns"
+    assert cells[0] == "Deterministic local integration"
+    assert cells[3] == "local-integration-validated"
+    assert cells[4] == "local-integration-validated"
+
+    # Section 7.1 must record the two executed gates explicitly.
+    executed = (
+        text.split("### 7.1 Executed gates (evidence exists)", 1)[1]
+        .split("### 7.2", 1)[0]
+    )
+    assert "| MeshCore deterministic real-SDK TCP local integration" in executed
+    assert "| LXMF process-isolated real RNS/LXMRouter local integration" in executed
+
+    # Evidence metadata block: execution date, exact tree hash, workflow
+    # run id, PR head, and the identical-tree statement tying it to the
+    # landed main commit.
+    assert "Current-tree local-integration evidence was recorded on" in executed
+    assert "`ba2bceffad6810855e1858d202aee6039ac49824` was exercised" in executed
+    assert "workflow run `32529498484`" in executed
+    assert "`409762d0cbba1d46aab1fafb60449eca0370ae00`" in executed
+    assert "has the identical Git tree." in executed
+    assert "`5c8a67e922612f18ab01deefaeeb39c429b4df02`" in executed
+
+    not_executed = text.split("### 7.2", 1)[1].split("### 7.3", 1)[0]
+    assert "MeshCore deterministic local integration" not in not_executed
+    assert "LXMF process-isolated local integration" not in not_executed
 
 
 # ===========================================================================

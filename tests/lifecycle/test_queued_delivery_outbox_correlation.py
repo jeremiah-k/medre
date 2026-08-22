@@ -195,7 +195,7 @@ class TestStaleCallbackRejection:
             outbox_id="obox-dl",
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -253,7 +253,7 @@ class TestStaleCallbackRejection:
             outbox_id="obox-sent",
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -307,7 +307,7 @@ class TestStaleCallbackRejection:
             outbox_id="obox-cancel",
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -361,7 +361,7 @@ class TestStaleCallbackRejection:
             outbox_id="obox-abandon",
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -464,7 +464,7 @@ class TestStaleCallbackAfterRetryReclaim:
             attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=stale_record,
                 now=now,
@@ -486,7 +486,7 @@ class TestStaleCallbackAfterRetryReclaim:
             outbox_id="obox-b",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=fresh_record,
             now=now,
@@ -645,7 +645,7 @@ class TestTerminalOutcomeExhausted:
 
 
 class TestExactOutboxIdCorrelation:
-    """Verify append_queued_to_sent_receipt correlates exactly via outbox_id
+    """Verify finalize_queued_delivery correlates exactly via outbox_id
     and transitions the outbox from queued to sent."""
 
     @pytest.mark.asyncio
@@ -692,7 +692,7 @@ class TestExactOutboxIdCorrelation:
             outbox_id="obox-exact",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -766,7 +766,7 @@ class TestExactOutboxIdCorrelation:
             outbox_id="obox-plan-a",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -814,7 +814,7 @@ class TestExactOutboxIdCorrelation:
             outbox_id="obox-nonexistent",
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -833,7 +833,7 @@ class TestExactOutboxIdCorrelation:
 
 
 class TestDuplicateCallbackIdempotent:
-    """Verify that a second append_queued_to_sent_receipt with the same
+    """Verify that a second finalize_queued_delivery with the same
     outbox_id does not create a duplicate receipt or crash."""
 
     @pytest.mark.asyncio
@@ -882,7 +882,7 @@ class TestDuplicateCallbackIdempotent:
         )
 
         # First call: should succeed.
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -895,7 +895,7 @@ class TestDuplicateCallbackIdempotent:
 
         # Second call with same outbox_id: should be a no-op (stale).
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -954,7 +954,7 @@ class TestDuplicateCallbackIdempotent:
             outbox_id="obox-dup2",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record1,
             now=now,
@@ -971,7 +971,7 @@ class TestDuplicateCallbackIdempotent:
             attempt_number=1,
         )
         # Must not raise.
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record2,
             now=now,

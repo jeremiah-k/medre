@@ -10,6 +10,7 @@ Internal authority:
   - sync_create_indexes: infrastructure (DDL).
   - sync_write / sync_write_batch: **internal write primitives** — all
     domain authority is enforced by the calling mixin methods, not here.
+  - sync_finalize_queued_delivery: guarded cross-table transaction primitive.
   - sync_read_one / sync_read_all: **internal read primitives**.
 """
 
@@ -156,6 +157,55 @@ def sync_write_batch(
             for sql, params in ops:
                 db.execute(sql, params)
             db.commit()
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+
+
+def sync_finalize_queued_delivery(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    *,
+    native_identity: tuple[str, str | None, str],
+    native_event_id: str,
+    native_insert_params: tuple[object, ...],
+    receipt_insert_params: tuple[object, ...],
+    outbox_update_params: tuple[object, ...],
+) -> tuple[bool, str | None]:
+    """Atomically finalize one queue-backed delivery attempt.
+
+    Returns ``(committed, conflicting_event_id)``.  A false commit with no
+    conflict means the guarded outbox attempt was no longer finalizable.
+    """
+    from medre.core.storage.sqlite.statements import (
+        _FINALIZE_QUEUED_OUTBOX_SENT,
+        _INSERT_NATIVE_REF_STRICT,
+        _INSERT_RECEIPT,
+        _RESOLVE_NATIVE_REF,
+    )
+
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(_RESOLVE_NATIVE_REF, native_identity).fetchone()
+            existing_event_id = str(row[0]) if row is not None else None
+            if existing_event_id is not None and existing_event_id != native_event_id:
+                db.rollback()
+                return False, existing_event_id
+
+            cursor = db.execute(_FINALIZE_QUEUED_OUTBOX_SENT, outbox_update_params)
+            if int(cursor.rowcount) != 1:
+                db.rollback()
+                return False, None
+
+            if existing_event_id is None:
+                db.execute(_INSERT_NATIVE_REF_STRICT, native_insert_params)
+            db.execute(_INSERT_RECEIPT, receipt_insert_params)
+            db.commit()
+            return True, None
         except BaseException:
             try:
                 db.rollback()

@@ -911,7 +911,7 @@ class TestTargetedOutboxLookupRegression:
         await outbox_temp_storage.create_outbox_item(target_item)
         await outbox_temp_storage.mark_outbox_queued("obox-target-regression")
 
-        # -- 3. Create a "queued" receipt so _append_queued_to_sent_receipt
+        # -- 3. Create a "queued" receipt so _finalize_queued_delivery
         #         can find it and inherit plan/route context. ---------------
         now = datetime.now(tz=timezone.utc)
         queued_receipt = DeliveryReceipt(

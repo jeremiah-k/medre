@@ -610,6 +610,23 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def finalize_queued_delivery(
+        self,
+        native_ref: NativeMessageRef,
+        receipt: DeliveryReceipt,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+    ) -> bool:
+        """Atomically finalize one queue-backed delivery attempt.
+
+        Implementations MUST commit the outbound native ref, sent receipt, and
+        exact outbox ``queued|in_progress -> sent`` transition in one
+        transaction.  Return ``False`` when the guarded outbox attempt is no
+        longer finalizable; in that case none of the three writes may commit.
+        """
+        ...
+
     async def delivery_status(
         self,
         delivery_plan_id: str,

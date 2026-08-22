@@ -202,7 +202,7 @@ class TestQueuedReceiptCreation:
 
 class TestQueuedSentCorrelation:
     """outbox_id correlates queued receipts to supplemental sent
-    receipts via DeliveryLifecycleService.append_queued_to_sent_receipt."""
+    receipts via DeliveryLifecycleService.finalize_queued_delivery."""
 
     @pytest.mark.asyncio
     async def test_exact_plan_id_and_channel_finds_queued_receipt(self) -> None:
@@ -250,7 +250,7 @@ class TestQueuedSentCorrelation:
             attempt_number=1,
         )
 
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             storage, record=record, now=datetime.now(timezone.utc)
         )
 
@@ -317,7 +317,7 @@ class TestQueuedSentCorrelation:
             attempt_number=1,
         )
 
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             storage, record=record, now=datetime.now(timezone.utc)
         )
 
@@ -387,7 +387,7 @@ class TestQueuedSentCorrelation:
             attempt_number=2,
         )
 
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             storage, record=record, now=datetime.now(timezone.utc)
         )
 
@@ -437,7 +437,7 @@ class TestQueuedSentCorrelation:
             metadata={},
         )
 
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             storage, record=record, now=datetime.now(timezone.utc)
         )
 
@@ -488,7 +488,7 @@ class TestQueuedSentCorrelation:
             metadata={},
         )
 
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             storage, record=record, now=datetime.now(timezone.utc)
         )
 
@@ -497,7 +497,7 @@ class TestQueuedSentCorrelation:
 
     @pytest.mark.asyncio
     async def test_no_matching_queued_receipt_silent_return(self) -> None:
-        """When no queued receipt matches, append_queued_to_sent_receipt
+        """When no queued receipt matches, finalize_queued_delivery
         returns silently without creating any receipt."""
         storage = _FakeStorage()
         lifecycle = DeliveryLifecycleService(logger=logging.getLogger("test"))
@@ -511,7 +511,7 @@ class TestQueuedSentCorrelation:
             metadata={},
         )
 
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             storage, record=record, now=datetime.now(timezone.utc)
         )
         assert len(storage._receipts) == 0

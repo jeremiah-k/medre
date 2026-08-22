@@ -3,7 +3,7 @@
 This module provides :class:`DeliveryLifecycleService`, the central authority
 for delivery state transitions within the pipeline.  It owns retry decisions,
 retry scheduling, attempt context, retry lineage, dead-letter progression,
-supplemental queued->sent receipts, suppression receipt creation, outbox
+atomic queued->sent finalization, suppression receipt creation, outbox
 finalization decisions, and terminal-state determination.
 
 Architecture
@@ -72,6 +72,7 @@ Observed transitions
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
 
@@ -83,7 +84,7 @@ from medre.core.engine.pipeline.delivery_state import (
     is_valid_queued_to_sent_transition as _is_valid_queued_to_sent_transition,
 )
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
-from medre.core.events.canonical import DeliveryReceipt
+from medre.core.events.canonical import DeliveryReceipt, NativeMessageRef
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryPlan,
@@ -111,6 +112,15 @@ class DeliveryLifecycleStorage(Protocol):
     async def append_receipt(self, receipt: DeliveryReceipt) -> None: ...
 
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]: ...
+
+    async def finalize_queued_delivery(
+        self,
+        native_ref: NativeMessageRef,
+        receipt: DeliveryReceipt,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+    ) -> bool: ...
 
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None: ...
 
@@ -594,16 +604,16 @@ class DeliveryLifecycleService:
         )
         return None
 
-    # -- Supplemental queued->sent receipt -----------------------------------
+    # -- Atomic queued->sent finalization ------------------------------------
 
-    async def append_queued_to_sent_receipt(
+    async def finalize_queued_delivery(
         self,
         storage: DeliveryLifecycleStorage,
         record: OutboundNativeRefRecord,
         now: datetime,
     ) -> None:
-        """Append a supplemental ``status="sent"`` receipt for a
-        queue-based delivery that transitioned from enqueued to sent.
+        """Finalize a queue-backed delivery that transitioned from
+        ``enqueued`` to ``sent``.
 
         **Correlation strategy**:
 
@@ -640,11 +650,11 @@ class DeliveryLifecycleService:
         transition helper.  If the status is invalid, the method logs
         and returns.
 
-        Finally, the method appends a new immutable receipt with
-        ``status="sent"``, the real ``adapter_message_id``, and the
-        correlated ``outbox_id``, then transitions the outbox item from
-        ``queued`` -> ``sent`` using the already-validated outbox item
-        (no heuristic re-lookup).
+        Finally, the method builds the outbound native ref and immutable sent
+        receipt, then asks storage to commit those facts together with the
+        exact outbox ``queued|in_progress -> sent`` transition in one
+        transaction. The storage transaction re-checks outbox ID, attempt
+        number, and status so a concurrent reclaim cannot partially commit.
 
         If no matching ``"queued"`` receipt is found (e.g. non-queued
         adapter or replay context), the method returns silently.
@@ -791,7 +801,16 @@ class DeliveryLifecycleService:
                 for r in existing
                 if r.status == "queued" and r.target_adapter == record.adapter
             ]
-            outbox_matches = [r for r in candidates if r.outbox_id == record.outbox_id]
+            # Filter by BOTH outbox_id and attempt_number: historical or
+            # malformed queued receipts can share an outbox_id across
+            # attempts, and source-preference must never finalize another
+            # attempt's receipt for this callback.
+            outbox_matches = [
+                r
+                for r in candidates
+                if r.outbox_id == record.outbox_id
+                and r.attempt_number == record.attempt_number
+            ]
 
             if not outbox_matches:
                 self._log.debug(
@@ -887,26 +906,37 @@ class DeliveryLifecycleService:
             outbox_id=record.outbox_id,
             confirmation_level=record.confirmation_level,
         )
-        await storage.append_receipt(supplemental)
+        if validated_outbox is None:
+            return
 
-        # Transition the matching outbox item from queued -> sent.
-        # Use the already-validated outbox item from exact correlation
-        # instead of re-querying via heuristic delivery-key lookup.
-        if validated_outbox is not None:
-            try:
-                await storage.mark_outbox_sent(
-                    validated_outbox.outbox_id,
-                    receipt_id=supplemental.receipt_id,
-                    attempt_number=supplemental.attempt_number,
-                )
-            except Exception:
-                self._log.exception(
-                    "Failed to transition outbox queued->sent: "
-                    "outbox_id=%s event_id=%s adapter=%s",
-                    validated_outbox.outbox_id,
-                    record.event_id,
-                    record.adapter,
-                )
+        native_ref = NativeMessageRef(
+            id=f"nref-outbound-{uuid.uuid4()}",
+            event_id=record.event_id,
+            adapter=record.adapter,
+            native_channel_id=record.native_channel_id,
+            native_message_id=record.native_message_id,
+            native_thread_id=record.native_thread_id,
+            native_relation_id=record.native_relation_id,
+            direction="outbound",
+            metadata=dict(record.metadata),
+            created_at=now,
+        )
+        committed = await storage.finalize_queued_delivery(
+            native_ref,
+            supplemental,
+            outbox_id=validated_outbox.outbox_id,
+            attempt_number=supplemental.attempt_number,
+        )
+        if not committed:
+            self._log.warning(
+                "Queued delivery finalization lost its outbox guard: "
+                "outbox_id=%s event_id=%s adapter=%s attempt=%d; "
+                "no native ref or sent receipt was committed",
+                validated_outbox.outbox_id,
+                record.event_id,
+                record.adapter,
+                supplemental.attempt_number,
+            )
 
     # -- Outbox finalization ------------------------------------------------
 

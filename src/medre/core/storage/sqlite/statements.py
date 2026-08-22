@@ -41,6 +41,14 @@ INSERT OR IGNORE INTO native_message_refs
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
+_INSERT_NATIVE_REF_STRICT = """
+INSERT INTO native_message_refs
+    (id, event_id, adapter, native_channel_id,
+     native_message_id, native_thread_id, native_relation_id,
+     direction, metadata, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
 _INSERT_RECEIPT = """
 INSERT INTO delivery_receipts
     (receipt_id, event_id, delivery_plan_id, target_adapter,
@@ -51,6 +59,25 @@ INSERT INTO delivery_receipts
      confirmation_level, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+_FINALIZE_QUEUED_OUTBOX_SENT = """
+UPDATE delivery_outbox
+SET status = 'sent',
+    failure_kind = NULL,
+    failure_kind_detail = NULL,
+    next_attempt_at = NULL,
+    updated_at = ?,
+    last_attempt_at = ?,
+    locked_at = NULL,
+    lease_until = NULL,
+    worker_id = NULL,
+    receipt_id = ?,
+    error_summary = NULL
+WHERE outbox_id = ?
+  AND attempt_number = ?
+  AND status IN ('queued', 'in_progress')
+"""
+
 
 # ---------------------------------------------------------------------------
 # SELECT statements

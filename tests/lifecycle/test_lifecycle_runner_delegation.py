@@ -89,7 +89,7 @@ class TestDelegationIntegration:
         self,
         temp_storage: StorageBackend,
     ) -> None:
-        """PipelineRunner._append_queued_to_sent_receipt delegates to lifecycle."""
+        """PipelineRunner._finalize_queued_delivery delegates to lifecycle."""
         now = datetime.now(tz=timezone.utc)
         # Admit the parent event so the FKs on delivery_receipts.event_id
         # and delivery_outbox.event_id are satisfied
@@ -145,7 +145,7 @@ class TestDelegationIntegration:
             outbox_id="obox-delegate-qs",
             attempt_number=1,
         )
-        await runner._append_queued_to_sent_receipt(record=record, now=now)
+        await runner._finalize_queued_delivery(record=record, now=now)
 
         stored = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in stored if r.status == "sent"]

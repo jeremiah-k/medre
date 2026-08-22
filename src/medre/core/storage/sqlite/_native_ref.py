@@ -27,6 +27,27 @@ from medre.core.storage.sqlite.statements import (
 )
 
 
+def _native_ref_identity(ref: NativeMessageRef) -> tuple[str, str | None, str]:
+    """Return the transport-native idempotency key for *ref*."""
+    return ref.adapter, ref.native_channel_id, ref.native_message_id
+
+
+def _native_ref_insert_params(ref: NativeMessageRef) -> tuple[object, ...]:
+    """Serialize one native-reference row for SQLite insertion."""
+    return (
+        ref.id,
+        ref.event_id,
+        ref.adapter,
+        ref.native_channel_id,
+        ref.native_message_id,
+        ref.native_thread_id,
+        ref.native_relation_id,
+        ref.direction,
+        _encode_json(ref.metadata),
+        ref.created_at.isoformat(),
+    )
+
+
 class _NativeRefMixin:
     """Native message ref methods for SQLiteStorage.
 
@@ -52,25 +73,14 @@ class _NativeRefMixin:
         # SQLite UNIQUE treats as distinct per SQL standard.
         existing = await self._read_one(
             _RESOLVE_NATIVE_REF,
-            (ref.adapter, ref.native_channel_id, ref.native_message_id),
+            _native_ref_identity(ref),
         )
         if existing is not None:
             return
 
         await self._write(
             _INSERT_NATIVE_REF,
-            (
-                ref.id,
-                ref.event_id,
-                ref.adapter,
-                ref.native_channel_id,
-                ref.native_message_id,
-                ref.native_thread_id,
-                ref.native_relation_id,
-                ref.direction,
-                _encode_json(ref.metadata),
-                ref.created_at.isoformat(),
-            ),
+            _native_ref_insert_params(ref),
         )
 
     async def resolve_native_ref(

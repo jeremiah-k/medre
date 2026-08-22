@@ -217,6 +217,18 @@ class StorageBackend(Protocol):
         """Append a delivery receipt record.  MUST NOT update existing rows."""
         ...
 
+    async def finalize_queued_delivery(
+        self, native_ref: NativeMessageRef, receipt: DeliveryReceipt, *,
+        outbox_id: str, attempt_number: int,
+    ) -> bool:
+        """Atomically finalize one queue-backed delivery attempt.
+
+        The outbound native ref, immutable sent receipt, and exact outbox
+        transition to sent MUST commit in one transaction.  If the outbox
+        guard no longer matches, return False and commit none of those writes.
+        """
+        ...
+
     async def delivery_status(
         self, delivery_plan_id: str, target_adapter: str,
         target_channel: str | None = None,
@@ -1154,7 +1166,7 @@ class StorageConfig:
 
 | Guarantee              | Requirement                                                                                                                    |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Atomic writes          | Events, native refs, and receipts **MUST** be written atomically. Partial writes **MUST NOT** leave the database inconsistent. |
+| Atomic writes          | Multi-row lifecycle operations **MUST** commit atomically. Durable ingress couples event/native-ref/work creation; queued-send finalization couples outbound native ref/sent receipt/outbox transition. Partial writes **MUST NOT** leave contradictory evidence. |
 | Idempotent correlation | Duplicate `(adapter, native_channel_id, native_message_id)` tuples **MUST NOT** create duplicate rows.                         |
 | Ordered append         | `canonical_events` ordered by `timestamp ASC`. `delivery_receipts` ordered by `sequence` (monotonic).                          |
 | Receipt immutability   | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts`. Capacity rejection creates a new receipt row.    |
@@ -1192,6 +1204,13 @@ This section states which code owns each table's rows, who may create/mutate/del
 3. **`delivery_receipts` are append-only delivery evidence.** Every delivery attempt (live, retry, or replay) produces a new receipt row. Existing receipt rows are never modified or deleted. The current delivery status is a projection from the `delivery_status` view (Section 4.5), not a mutable field.
 
 4. **`delivery_outbox` is mutable operational work state until terminal, then immutable operational history.** Non-terminal statuses (`pending`, `in_progress`, `queued`, `retry_wait`) may be updated by delivery workers. Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) are immutable. No code path deletes outbox rows.
+
+   A delayed queue callback that proves send acceptance MUST finalize its
+   outbound native ref, supplemental `sent` receipt, and exact
+   outbox-attempt transition in one storage transaction. Storage MUST
+   re-check `outbox_id`, `attempt_number`, and finalizable status inside
+   that transaction. A failed guard or failed insert MUST leave all three
+   categories unchanged.
 
 5. **Recovery and orphan detection are bookkeeping, not lifecycle success.** The orphan query (Section 13.5) identifies events without receipts, but producing a receipt requires an actual delivery attempt. Recovery never fabricates a `sent` receipt or transitions an outbox row to terminal without a real delivery outcome.
 

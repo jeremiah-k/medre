@@ -728,16 +728,27 @@ The `outbox_id` field provides **exact** correlation between a `queued` receipt 
 
 1. `TargetDeliveryService` stamps `RenderingResult.outbox_id` and `RenderingResult.attempt_number` before adapter delivery.
 2. Queue-based adapters propagate `outbox_id` and `attempt_number` through their internal queue items (e.g., `QueuedOutboundItem`).
-3. When the adapter reports send confirmation, `DeliveryLifecycleService.append_queued_to_sent_receipt()` requires `outbox_id` and `attempt_number` on the `OutboundNativeRefRecord`, then validates all callback fields against the authoritative outbox row.
+3. When the adapter reports send confirmation,
+   `DeliveryLifecycleService.finalize_queued_delivery()` requires
+   `outbox_id` and `attempt_number` on the `OutboundNativeRefRecord`, then
+   validates all callback fields against the authoritative outbox row.
 
-The correlation algorithm in `append_queued_to_sent_receipt`:
+The correlation algorithm in `finalize_queued_delivery`:
 
 1. **Missing `outbox_id`** — hard reject. No supplemental receipt, no outbox mutation. Logged as a warning.
 2. **Missing `attempt_number`** — hard reject. Same behavior as missing `outbox_id`.
 3. **Outbox row lookup** — the service loads the outbox item by `outbox_id`. If not found or already terminal, the callback is rejected as stale.
 4. **Field validation** — `event_id`, `adapter`, `delivery_plan_id` (when present), `native_channel_id` (when present), and `attempt_number` are validated against the outbox row. Any mismatch rejects the callback.
-5. **Exact receipt selection** — the queued receipt is selected by `receipt.outbox_id == record.outbox_id` **and** `receipt.attempt_number == record.attempt_number`. The two-key match preserves the stale-safe invariant end-to-end. No plan-id-only or heuristic fallback exists.
-6. **Supplemental receipt** — if all validations pass, exactly one `sent` receipt is appended and the validated outbox row is transitioned to `sent`.
+5. **Exact receipt selection** — the queued receipt is selected by
+   `receipt.outbox_id == record.outbox_id` **and**
+   `receipt.attempt_number == record.attempt_number`. The two-key match
+   preserves the stale-safe invariant end-to-end. No plan-id-only or
+   heuristic fallback exists.
+6. **Atomic finalization** — if all validations pass, storage re-checks
+   the exact outbox attempt and commits the outbound native ref, one
+   `sent` receipt, and the outbox `sent` transition in a single
+   transaction. A stale guard or persistence failure commits none of the
+   three.
 
 #### 8.5.2 Invariant: Exact Outbox Correlation
 

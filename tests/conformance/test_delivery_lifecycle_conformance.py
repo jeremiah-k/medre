@@ -53,7 +53,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 
 # ---------------------------------------------------------------------------
 # In-memory storage for receipt inspection
@@ -80,6 +80,52 @@ class _MemoryStorage:
     async def count_native_refs(self) -> int:
         """Return the number of stored native refs."""
         return len(self._native_refs)
+
+    async def finalize_queued_delivery(
+        self,
+        native_ref: NativeMessageRef,
+        receipt: DeliveryReceipt,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+    ) -> bool:
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status not in {"queued", "in_progress"}
+            or item.attempt_number != attempt_number
+        ):
+            return False
+
+        identity = (
+            native_ref.adapter,
+            native_ref.native_channel_id or "",
+            native_ref.native_message_id,
+        )
+        existing_ref = next(
+            (
+                ref
+                for ref in self._native_refs
+                if (
+                    ref.adapter,
+                    ref.native_channel_id or "",
+                    ref.native_message_id,
+                )
+                == identity
+            ),
+            None,
+        )
+        if existing_ref is not None and existing_ref.event_id != native_ref.event_id:
+            raise StorageError(
+                "Native identity already maps to a different canonical event: "
+                f"{existing_ref.event_id}"
+            )
+        if existing_ref is None:
+            self._native_refs.append(native_ref)
+        self._receipts.append(receipt)
+        object.__setattr__(item, "status", "sent")
+        object.__setattr__(item, "receipt_id", receipt.receipt_id)
+        return True
 
     # -- Outbox stubs for queued→sent correlation tests --
 
@@ -167,6 +213,62 @@ class _MemoryStorage:
 
 def test_memory_storage_satisfies_delivery_lifecycle_storage_contract() -> None:
     assert isinstance(_MemoryStorage(), DeliveryLifecycleStorage)
+
+
+async def test_memory_storage_rejects_conflicting_native_identity() -> None:
+    storage = _MemoryStorage()
+    await storage.store_native_ref(
+        NativeMessageRef(
+            id="nref-existing",
+            event_id="evt-existing",
+            adapter="mesh",
+            native_channel_id=None,
+            native_message_id="pkt-shared",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+        )
+    )
+    outbox = DeliveryOutboxItem(
+        outbox_id="obox-conflict",
+        event_id="evt-new",
+        route_id="route-1",
+        delivery_plan_id="plan-1",
+        target_adapter="mesh",
+        target_channel=None,
+        status="queued",
+        attempt_number=1,
+    )
+    await storage.create_outbox_item(outbox)
+    native_ref = NativeMessageRef(
+        id="nref-new",
+        event_id="evt-new",
+        adapter="mesh",
+        native_channel_id=None,
+        native_message_id="pkt-shared",
+        native_thread_id=None,
+        native_relation_id=None,
+        direction="outbound",
+    )
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-new",
+        event_id="evt-new",
+        delivery_plan_id="plan-1",
+        target_adapter="mesh",
+        status="sent",
+        adapter_message_id="pkt-shared",
+        attempt_number=1,
+        outbox_id="obox-conflict",
+    )
+
+    with pytest.raises(StorageError):
+        await storage.finalize_queued_delivery(
+            native_ref, receipt, outbox_id="obox-conflict", attempt_number=1
+        )
+
+    assert outbox.status == "queued"
+    assert await storage.count_native_refs() == 1
+    assert await storage.list_receipts_for_event("evt-new") == []
 
 
 async def test_memory_storage_ignores_stale_outbox_attempt_updates() -> None:
@@ -265,7 +367,7 @@ class TestDeliveryLifecycleConformance:
 
     @pytest.mark.asyncio
     async def test_queued_to_sent_supplemental_receipt(self, storage, lifecycle):
-        """Queued -> sent supplemental receipt correlates by outbox_id and attempt_number."""
+        """Queued -> sent supplemental receipt correlates by outbox ID and attempt."""
         event_id = str(uuid.uuid4())
         plan_id = f"plan-{uuid.uuid4()}"
         now = datetime(2025, 1, 1, tzinfo=timezone.utc)
@@ -313,7 +415,7 @@ class TestDeliveryLifecycleConformance:
             outbox_id=outbox_id,
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(storage, record, now)
+        await lifecycle.finalize_queued_delivery(storage, record, now)
 
         receipts = await storage.list_receipts_for_event(event_id)
         assert len(receipts) == 2
@@ -373,7 +475,7 @@ class TestDeliveryLifecycleConformance:
             outbox_id=outbox_id,
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(storage, record, now)
+        await lifecycle.finalize_queued_delivery(storage, record, now)
 
         receipts = await storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"][0]

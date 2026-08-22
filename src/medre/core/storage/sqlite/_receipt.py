@@ -32,6 +32,53 @@ from medre.core.storage.sqlite.statements import (
 )
 
 
+def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
+    """Validate and serialize one immutable receipt row."""
+    if receipt.status not in RECEIPT_STATUSES:
+        raise ValueError(
+            f"Unknown receipt status {receipt.status!r}; "
+            f"expected one of {sorted(RECEIPT_STATUSES)}"
+        )
+    if not isinstance(receipt.confirmation_level, str) or (
+        receipt.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES
+    ):
+        raise ValueError(
+            f"Unknown confirmation level {receipt.confirmation_level!r}; "
+            f"expected one of {sorted(DELIVERY_CONFIRMATION_LEVEL_VALUES)}"
+        )
+
+    channel = receipt.target_channel or None
+    return (
+        receipt.receipt_id,
+        receipt.event_id,
+        receipt.delivery_plan_id,
+        receipt.target_adapter,
+        channel,
+        receipt.route_id,
+        receipt.status,
+        receipt.error,
+        receipt.failure_kind,
+        receipt.adapter_message_id,
+        receipt.next_retry_at.isoformat() if receipt.next_retry_at else None,
+        receipt.attempt_number,
+        receipt.parent_receipt_id,
+        receipt.source,
+        receipt.replay_run_id,
+        receipt.retry_max_attempts,
+        receipt.retry_backoff_base,
+        receipt.retry_max_delay,
+        (
+            1
+            if receipt.retry_jitter is True
+            else (0 if receipt.retry_jitter is False else None)
+        ),
+        receipt.rendering_evidence,
+        receipt.outbox_id,
+        receipt.confirmation_level,
+        receipt.created_at.isoformat(),
+    )
+
+
 class _ReceiptMixin:
     """Delivery receipt methods for SQLiteStorage.
 
@@ -55,53 +102,7 @@ class _ReceiptMixin:
         Raises :class:`ValueError` if ``receipt.status`` is not a known
         receipt status (not in ``RECEIPT_STATUSES``).
         """
-        if receipt.status not in RECEIPT_STATUSES:
-            raise ValueError(
-                f"Unknown receipt status {receipt.status!r}; "
-                f"expected one of {sorted(RECEIPT_STATUSES)}"
-            )
-        if not isinstance(receipt.confirmation_level, str) or (
-            receipt.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES
-        ):
-            raise ValueError(
-                f"Unknown confirmation level {receipt.confirmation_level!r}; "
-                f"expected one of {sorted(DELIVERY_CONFIRMATION_LEVEL_VALUES)}"
-            )
-
-        # Normalise empty-string target_channel to NULL.
-        channel = receipt.target_channel or None
-        await self._write(
-            _INSERT_RECEIPT,
-            (
-                receipt.receipt_id,
-                receipt.event_id,
-                receipt.delivery_plan_id,
-                receipt.target_adapter,
-                channel,
-                receipt.route_id,
-                receipt.status,
-                receipt.error,
-                receipt.failure_kind,
-                receipt.adapter_message_id,
-                receipt.next_retry_at.isoformat() if receipt.next_retry_at else None,
-                receipt.attempt_number,
-                receipt.parent_receipt_id,
-                receipt.source,
-                receipt.replay_run_id,
-                receipt.retry_max_attempts,
-                receipt.retry_backoff_base,
-                receipt.retry_max_delay,
-                (
-                    1
-                    if receipt.retry_jitter is True
-                    else (0 if receipt.retry_jitter is False else None)
-                ),
-                receipt.rendering_evidence,
-                receipt.outbox_id,
-                receipt.confirmation_level,
-                receipt.created_at.isoformat(),
-            ),
-        )
+        await self._write(_INSERT_RECEIPT, _receipt_insert_params(receipt))
 
     async def delivery_status(
         self,

@@ -1,6 +1,6 @@
 """Tests for supplemental queued→sent receipt generation.
 
-Exercises ``append_queued_to_sent_receipt`` including happy paths,
+Exercises ``finalize_queued_delivery`` including happy paths,
 outbox transitions, error handling, outbox_id-based correlation,
 retry lineage, and delivery state guards.
 
@@ -74,7 +74,7 @@ class TestAppendQueuedToSentReceipt:
             outbox_id="obox-supplemental-sent",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -98,7 +98,7 @@ class TestSameChannelRetryLineageRegression:
     """Regression tests for same-channel retry lineage when
     native_channel_id is missing.
 
-    These tests verify that ``append_queued_to_sent_receipt`` correctly
+    These tests verify that ``finalize_queued_delivery`` correctly
     resolves unambiguous same-channel retry lineages and correctly
     rejects cross-channel ambiguity for the exact outbox_id + attempt_number path.
     """
@@ -162,7 +162,7 @@ class TestSameChannelRetryLineageRegression:
             outbox_id="obox-retry-multi",
             attempt_number=2,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -213,7 +213,7 @@ class TestSameChannelRetryLineageRegression:
             delivery_plan_id="plan-bx",
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -276,7 +276,7 @@ class TestSupplementalOutboxTransition:
             outbox_id="obox-supplemental",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -295,126 +295,6 @@ class TestSupplementalOutboxTransition:
 
 
 # ===================================================================
-# append_queued_to_sent_receipt — error paths
-# ===================================================================
-
-
-class TestAppendQueuedToSentErrorPaths:
-    """Error paths in append_queued_to_sent_receipt."""
-
-    async def test_list_receipts_error_logged(
-        self,
-        temp_storage: StorageBackend,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """storage.list_receipts_for_event raises → logged, returns."""
-        from unittest.mock import AsyncMock, patch
-
-        lifecycle = _make_lifecycle()
-        record = OutboundNativeRefRecord(
-            event_id="evt-list-err",
-            adapter="mesh-1",
-            native_channel_id=None,
-            native_message_id="pkt",
-        )
-        with patch.object(
-            temp_storage,
-            "list_receipts_for_event",
-            AsyncMock(side_effect=RuntimeError("db fail")),
-        ):
-            await lifecycle.append_queued_to_sent_receipt(
-                temp_storage,
-                record=record,
-                now=datetime.now(timezone.utc),
-            )
-        assert "Failed to list receipts" in caplog.text
-
-    async def test_channel_mismatch_skips_supplemental(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """Queued receipts exist but none match channel → skip."""
-        lifecycle = _make_lifecycle()
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-ch", status="queued", adapter="m", channel="0"
-            )
-        )
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="1",
-            native_message_id="pkt",
-            delivery_plan_id="plan-001",
-        )
-        await lifecycle.append_queued_to_sent_receipt(
-            temp_storage,
-            record=record,
-            now=datetime.now(timezone.utc),
-        )
-        all_r = await temp_storage.list_receipts_for_event("evt-001")
-        assert all(r.status != "sent" for r in all_r)
-
-    async def test_outbox_transition_error_logged(
-        self,
-        temp_storage: StorageBackend,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """mark_outbox_sent raises → logged, does not propagate."""
-        caplog.set_level(logging.DEBUG)
-        from unittest.mock import AsyncMock, patch
-
-        lifecycle = _make_lifecycle()
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-ob",
-                status="queued",
-                adapter="m",
-                channel="0",
-                outbox_id="obox-supp-err",
-            )
-        )
-
-        # Create a matching outbox item in storage so exact correlation works.
-        outbox_item = DeliveryOutboxItem(
-            outbox_id="obox-supp-err",
-            event_id="evt-001",
-            route_id="route-1",
-            delivery_plan_id="plan-001",
-            target_adapter="m",
-            target_channel="0",
-            status="in_progress",
-            attempt_number=1,
-        )
-        await create_outbox_item_with_parent(temp_storage, outbox_item)
-        await temp_storage.mark_outbox_queued("obox-supp-err")
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt",
-            delivery_plan_id="plan-001",
-            outbox_id="obox-supp-err",
-            attempt_number=1,
-        )
-        with patch.object(
-            temp_storage,
-            "mark_outbox_sent",
-            AsyncMock(side_effect=RuntimeError("outbox write fail")),
-        ):
-            await lifecycle.append_queued_to_sent_receipt(
-                temp_storage,
-                record=record,
-                now=datetime.now(timezone.utc),
-            )
-        # Verify the error was actually logged.
-        assert "outbox write fail" in caplog.text
-
-
-# ===================================================================
 # outbox_id-based correlation regression
 # ===================================================================
 
@@ -422,7 +302,7 @@ class TestAppendQueuedToSentErrorPaths:
 class TestDeterministicPlanIdCorrelation:
     """Regression tests for outbox_id-based queued→sent correlation.
 
-    These tests verify that ``append_queued_to_sent_receipt`` uses
+    These tests verify that ``finalize_queued_delivery`` uses
     ``outbox_id`` for exact receipt selection, with ``delivery_plan_id``
     serving as a validation field.  When ``outbox_id`` is absent, the
     callback is hard-rejected and no supplemental receipt is created.
@@ -487,7 +367,7 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-plan-b",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -577,7 +457,7 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-a2",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record_a,
             now=now,
@@ -593,7 +473,7 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-b2",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record_b,
             now=now,
@@ -669,7 +549,7 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-retry-latest",
             attempt_number=2,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -708,7 +588,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-nope",
             delivery_plan_id="plan-nonexistent",
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -755,7 +635,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-ambig",
             delivery_plan_id="plan-multi",
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -804,7 +684,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-ghost",
             delivery_plan_id="plan-nonexistent",
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -842,7 +722,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-no-plan",
             # delivery_plan_id is None
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -882,7 +762,7 @@ class TestDeterministicPlanIdCorrelation:
             # delivery_plan_id is None
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -941,7 +821,7 @@ class TestDeterministicPlanIdCorrelation:
             attempt_number=1,
             # delivery_plan_id is None
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -979,7 +859,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-mismatch",
             delivery_plan_id="plan-x",
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -1033,7 +913,7 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-match",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -1073,7 +953,7 @@ class TestDeterministicPlanIdCorrelation:
             native_message_id="pkt-ch-mismatch",
             delivery_plan_id="plan-ch",
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -1090,7 +970,7 @@ class TestDeterministicPlanIdCorrelation:
 
 
 class TestDeliveryStateTransitionGuard:
-    """Verify that append_queued_to_sent_receipt validates the selected
+    """Verify that finalize_queued_delivery validates the selected
     queued receipt can transition to sent via delivery_state helper."""
 
     async def test_non_queued_status_skips_supplemental(
@@ -1119,7 +999,7 @@ class TestDeliveryStateTransitionGuard:
             native_channel_id="0",
             native_message_id="pkt-noop",
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -1136,7 +1016,7 @@ class TestDeliveryStateTransitionGuard:
 
 
 class TestAppendQueuedToSentEdgeCases:
-    """Edge-case rejection paths in append_queued_to_sent_receipt."""
+    """Edge-case rejection paths in finalize_queued_delivery."""
 
     async def test_event_id_mismatch_rejects_callback(
         self,
@@ -1173,7 +1053,7 @@ class TestAppendQueuedToSentEdgeCases:
             attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -1235,7 +1115,7 @@ class TestAppendQueuedToSentEdgeCases:
             attempt_number=1,
         )
         with caplog.at_level(logging.DEBUG):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -1296,16 +1176,21 @@ class TestAppendQueuedToSentEdgeCases:
             attempt_number=2,
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
             )
 
+        # Outcome-focused: the stale callback must not commit any sent
+        # evidence, regardless of whether the attempt filter (pre-selection)
+        # or the downstream mismatch guard performed the rejection.
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
-        assert "Attempt number mismatch" in caplog.text
+        assert not [
+            r for r in all_receipts if r.adapter_message_id == "pkt-atm"
+        ]
 
     async def test_invalid_status_transition_skips_supplemental(
         self,
@@ -1378,7 +1263,7 @@ class TestAppendQueuedToSentEdgeCases:
                 return_value=fake_receipt,
             ),
         ):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -1434,7 +1319,7 @@ class TestAppendQueuedToSentEdgeCases:
             outbox_id="obox-vo",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,

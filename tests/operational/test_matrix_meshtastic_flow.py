@@ -54,7 +54,7 @@ from medre.core.rendering.renderer import (
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 
 # ---------------------------------------------------------------------------
@@ -191,9 +191,152 @@ class _FakeStorage:
         if item is not None:
             object.__setattr__(item, "status", "abandoned")
 
+    async def finalize_queued_delivery(
+        self,
+        native_ref: NativeMessageRef,
+        receipt: DeliveryReceipt,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+    ) -> bool:
+        """In-memory mirror of the atomic storage contract: guarded outbox
+        transition plus native ref plus sent receipt, or nothing."""
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status not in ("queued", "in_progress")
+            or item.attempt_number != attempt_number
+            or item.event_id != native_ref.event_id
+            or receipt.event_id != item.event_id
+            or receipt.outbox_id != outbox_id
+            or receipt.attempt_number != attempt_number
+            or receipt.status != "sent"
+        ):
+            return False
+
+        identity = (
+            native_ref.adapter,
+            native_ref.native_channel_id or "",
+            native_ref.native_message_id,
+        )
+        existing_event = self._native_ref_index.get(identity)
+        if existing_event is not None and existing_event != native_ref.event_id:
+            raise StorageError(
+                "Native identity already maps to a different canonical event: "
+                f"{existing_event}"
+            )
+
+        if existing_event is None:
+            await self.store_native_ref(native_ref)
+        await self.append_receipt(receipt)
+        object.__setattr__(item, "status", "sent")
+        object.__setattr__(item, "receipt_id", receipt.receipt_id)
+        return True
+
 
 def test_fake_storage_satisfies_delivery_lifecycle_storage_contract() -> None:
     assert isinstance(_FakeStorage(), DeliveryLifecycleStorage)
+
+
+async def test_fake_storage_finalization_normalizes_missing_native_channel() -> None:
+    storage = _FakeStorage()
+    await storage.store_native_ref(
+        NativeMessageRef(
+            id="nref-existing",
+            event_id="evt-existing",
+            adapter="mesh",
+            native_channel_id=None,
+            native_message_id="pkt-shared",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+        )
+    )
+    outbox = DeliveryOutboxItem(
+        outbox_id="obox-conflict",
+        event_id="evt-new",
+        route_id="route-1",
+        delivery_plan_id="plan-1",
+        target_adapter="mesh",
+        target_channel=None,
+        status="queued",
+        attempt_number=1,
+    )
+    await storage.create_outbox_item(outbox)
+    native_ref = NativeMessageRef(
+        id="nref-new",
+        event_id="evt-new",
+        adapter="mesh",
+        native_channel_id=None,
+        native_message_id="pkt-shared",
+        native_thread_id=None,
+        native_relation_id=None,
+        direction="outbound",
+    )
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-new",
+        event_id="evt-new",
+        delivery_plan_id="plan-1",
+        target_adapter="mesh",
+        status="sent",
+        adapter_message_id="pkt-shared",
+        attempt_number=1,
+        outbox_id="obox-conflict",
+    )
+
+    with pytest.raises(StorageError):
+        await storage.finalize_queued_delivery(
+            native_ref, receipt, outbox_id="obox-conflict", attempt_number=1
+        )
+
+    assert outbox.status == "queued"
+    assert storage._receipts == []
+    assert set(storage._native_refs) == {"nref-existing"}
+
+
+async def test_fake_storage_finalization_rejects_mismatched_receipt_attempt() -> None:
+    storage = _FakeStorage()
+    outbox = DeliveryOutboxItem(
+        outbox_id="obox-attempt",
+        event_id="evt-1",
+        route_id="route-1",
+        delivery_plan_id="plan-1",
+        target_adapter="mesh",
+        target_channel="0",
+        status="queued",
+        attempt_number=1,
+    )
+    await storage.create_outbox_item(outbox)
+    native_ref = NativeMessageRef(
+        id="nref-attempt",
+        event_id="evt-1",
+        adapter="mesh",
+        native_channel_id="0",
+        native_message_id="pkt-attempt",
+        native_thread_id=None,
+        native_relation_id=None,
+        direction="outbound",
+    )
+    receipt = DeliveryReceipt(
+        receipt_id="rcpt-attempt",
+        event_id="evt-1",
+        delivery_plan_id="plan-1",
+        target_adapter="mesh",
+        target_channel="0",
+        status="sent",
+        adapter_message_id="pkt-attempt",
+        attempt_number=2,
+        outbox_id="obox-attempt",
+    )
+
+    committed = await storage.finalize_queued_delivery(
+        native_ref, receipt, outbox_id="obox-attempt", attempt_number=1
+    )
+
+    assert committed is False
+    assert outbox.status == "queued"
+    assert storage._receipts == []
+    assert storage._native_refs == {}
 
 
 def _make_ctx(

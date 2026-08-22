@@ -708,18 +708,21 @@ Queue callbacks MUST carry both `outbox_id` and `attempt_number`. Callbacks miss
 
 `delivery_plan_id` is a validation field, not the correlation selector. When the callback carries `delivery_plan_id`, the lifecycle service validates it against the outbox item's `delivery_plan_id` to detect mismatched or corrupted callbacks. It does NOT use `delivery_plan_id` for receipt selection.
 
-When `outbox_id` is present on the outbound ref, `append_queued_to_sent_receipt()` performs an exact match against the corresponding outbox item's `queued` receipt. This is deterministic regardless of how many overlapping deliveries share the same adapter and channel.
+When `outbox_id` is present on the outbound ref,
+`finalize_queued_delivery()` performs an exact match against the corresponding
+outbox item's `queued` receipt. This is deterministic regardless of how many
+overlapping deliveries share the same adapter and channel.
 
 ### 15.3 Evidence Signals
 
 | Signal                             | Source                          | Meaning                                                                                                                                                      |
 | ---------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Supplemental `sent` receipt        | `append_queued_to_sent_receipt` | Queued receipt was successfully correlated via `outbox_id` and finalized                                                                                     |
-| No supplemental receipt created    | `append_queued_to_sent_receipt` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                                       |
-| Replay-only skip warning           | `append_queued_to_sent_receipt` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation                                                                |
-| Missing outbox_id on callback      | `append_queued_to_sent_receipt` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                                                           |
-| Missing attempt_number on callback | `append_queued_to_sent_receipt` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                                                      |
-| Delivery-plan metadata absent      | `append_queued_to_sent_receipt` | `delivery_plan_id` validation field absent on outbound ref; exact correlation proceeds via `outbox_id` + `attempt_number` but validation is degraded/skipped |
+| Supplemental `sent` receipt        | `finalize_queued_delivery` | Queued receipt was successfully correlated via `outbox_id` and finalized                                                                                     |
+| No supplemental receipt created    | `finalize_queued_delivery` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                                       |
+| Replay-only skip warning           | `finalize_queued_delivery` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation                                                                |
+| Missing outbox_id on callback      | `finalize_queued_delivery` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                                                           |
+| Missing attempt_number on callback | `finalize_queued_delivery` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                                                      |
+| Delivery-plan metadata absent      | `finalize_queued_delivery` | `delivery_plan_id` validation field absent on outbound ref; exact correlation proceeds via `outbox_id` + `attempt_number` but validation is degraded/skipped |
 
 ### 15.4 Normative Requirements
 

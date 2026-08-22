@@ -1,6 +1,6 @@
 """Tests for source-aware candidate selection in queued→sent correlation.
 
-Exercises ``append_queued_to_sent_receipt`` source preference logic:
+Exercises ``finalize_queued_delivery`` source preference logic:
 live queued receipts are preferred over replay queued receipts when
 multiple candidates match the same (delivery_plan_id, adapter, channel).
 
@@ -30,7 +30,7 @@ from tests.helpers.storage_outbox import (
 
 
 class TestSourceAwareCandidateSelection:
-    """Verify that append_queued_to_sent_receipt prefers non-replay queued
+    """Verify that finalize_queued_delivery prefers non-replay queued
     receipts over replay queued receipts when multiple candidates match the
     same (delivery_plan_id, adapter, channel).
 
@@ -97,7 +97,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-live-vs-replay",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -169,7 +169,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-order",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -200,8 +200,22 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-replay-only",
                 source="replay",
                 replay_run_id="run-77",
+                outbox_id="obox-replay-only",
+                attempt_number=1,
             )
         )
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-replay-only",
+            event_id="evt-001",
+            route_id="route-001",
+            delivery_plan_id="plan-replay-only",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
+        await temp_storage.mark_outbox_queued("obox-replay-only")
 
         record = OutboundNativeRefRecord(
             event_id="evt-001",
@@ -209,9 +223,11 @@ class TestSourceAwareCandidateSelection:
             native_channel_id="0",
             native_message_id="pkt-replay",
             delivery_plan_id="plan-replay-only",
+            outbox_id="obox-replay-only",
+            attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -219,16 +235,17 @@ class TestSourceAwareCandidateSelection:
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
-        # No supplemental sent receipt — hard reject fires (no outbox_id).
         assert len(sent) == 0
-        # The original queued receipt remains untouched.
+        # The replay receipt remains untouched and the outbox is still queued.
         queued = [r for r in all_receipts if r.status == "queued"]
         assert len(queued) == 1
         assert queued[0].receipt_id == "rcpt-replay-only"
-        assert "Hard reject" in caplog.text
-        assert "lacks outbox_id" in caplog.text
-        # Must NOT log the spurious "Logic error" warning.
-        assert "Logic error" not in caplog.text
+        outbox = await temp_storage.get_outbox_item("obox-replay-only")
+        assert outbox is not None
+        assert outbox.status == "queued"
+        assert "only replay-sourced" in caplog.text
+        assert "skipping replay candidate" in caplog.text
+        assert "Hard reject" not in caplog.text
 
     async def test_normal_live_only_unchanged(
         self,
@@ -274,7 +291,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-live-single",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -340,7 +357,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-dup-1",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -384,7 +401,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-dup-2",
             attempt_number=2,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record2,
             now=now,
@@ -454,7 +471,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-nc",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -485,6 +502,8 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-rmulti",
                 source="replay",
                 replay_run_id="run-a",
+                outbox_id="obox-rmulti",
+                attempt_number=1,
             )
         )
         await append_receipt_with_parent(
@@ -497,8 +516,22 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-rmulti",
                 source="replay",
                 replay_run_id="run-b",
+                outbox_id="obox-rmulti",
+                attempt_number=1,
             )
         )
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-rmulti",
+            event_id="evt-001",
+            route_id="route-001",
+            delivery_plan_id="plan-rmulti",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
+        await temp_storage.mark_outbox_queued("obox-rmulti")
 
         record = OutboundNativeRefRecord(
             event_id="evt-001",
@@ -506,9 +539,11 @@ class TestSourceAwareCandidateSelection:
             native_channel_id="0",
             native_message_id="pkt-rmulti",
             delivery_plan_id="plan-rmulti",
+            outbox_id="obox-rmulti",
+            attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.append_queued_to_sent_receipt(
+            await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
                 now=now,
@@ -516,15 +551,16 @@ class TestSourceAwareCandidateSelection:
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
-        # No supplemental sent receipt — hard reject fires (no outbox_id).
         assert len(sent) == 0
-        # Both queued receipts remain untouched.
+        # Both replay receipts remain untouched and the outbox stays queued.
         queued = [r for r in all_receipts if r.status == "queued"]
         assert len(queued) == 2
-        assert "Hard reject" in caplog.text
-        assert "lacks outbox_id" in caplog.text
-        # Must NOT log the spurious "Logic error" warning.
-        assert "Logic error" not in caplog.text
+        outbox = await temp_storage.get_outbox_item("obox-rmulti")
+        assert outbox is not None
+        assert outbox.status == "queued"
+        assert "only replay-sourced" in caplog.text
+        assert "skipping all replay candidates" in caplog.text
+        assert "Hard reject" not in caplog.text
 
     async def test_single_candidate_no_channel_succeeds(
         self,
@@ -569,7 +605,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-single",
             attempt_number=1,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,
@@ -634,7 +670,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-retry",
             attempt_number=2,
         )
-        await lifecycle.append_queued_to_sent_receipt(
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
             record=record,
             now=now,

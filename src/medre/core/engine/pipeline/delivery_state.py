@@ -152,7 +152,7 @@ RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
 #: ~~~~~~~~~~~~~~~~~~~~~
 #: - ``queued`` → ``sent`` is reachable only via the supplemental receipt
 #:   callback path in
-#:   :meth:`DeliveryLifecycleService.append_queued_to_sent_receipt`,
+#:   :meth:`DeliveryLifecycleService.finalize_queued_delivery`,
 #:   which validates the outbox status to ``queued`` or ``in_progress``
 #:   before performing the transition.  Live delivery paths do not
 #:   produce a ``queued`` → ``sent`` transition directly.
