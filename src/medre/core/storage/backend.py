@@ -591,6 +591,14 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_relation_sources(self, target_event_id: str) -> list[str]:
+        """Return event IDs whose relations target *target_event_id*.
+
+        Authority: **list/get** (read-only).  Each source event ID appears
+        once, ordered by the first matching relation row.
+        """
+        ...
+
     # -- Receipts -----------------------------------------------------------
     # Authority: append (append-only).  Delivery receipts are historical
     # delivery evidence — once appended they are never updated or deleted
