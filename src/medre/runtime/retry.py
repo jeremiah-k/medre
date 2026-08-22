@@ -826,6 +826,7 @@ class RetryWorker:
                     # Try to get the actual failure kind from the latest
                     # receipt (which the pipeline already persisted).
                     _actual_kind = "delivery_failure"
+                    _latest_receipt_id: str | None = None
                     try:
                         _latest_receipts = await self._storage.list_receipts_for_plan(
                             item.delivery_plan_id,
@@ -838,6 +839,7 @@ class RetryWorker:
                         ]
                         if _latest_receipts:
                             _latest = _latest_receipts[-1]
+                            _latest_receipt_id = _latest.receipt_id
                             if _latest.failure_kind:
                                 _actual_kind = _latest.failure_kind
                     except Exception:
@@ -851,6 +853,7 @@ class RetryWorker:
                         policy,
                         failure_kind=_actual_kind,
                         attempt_number=next_attempt,
+                        receipt_id=_latest_receipt_id,
                     )
                     if _exhausted:
                         _logger.warning(

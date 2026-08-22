@@ -95,6 +95,7 @@ async def test_finalize_retry_failure_schedules_available_attempt(
         policy,
         failure_kind="adapter_transient",
         attempt_number=2,
+        receipt_id="rcpt-retry-2",
         now=datetime(2026, 8, 21, 20, 0, tzinfo=UTC),
     )
 
@@ -102,6 +103,7 @@ async def test_finalize_retry_failure_schedules_available_attempt(
     updated = await temp_storage.get_outbox_item(item.outbox_id)
     assert updated is not None
     assert updated.status == "retry_wait"
+    assert updated.receipt_id == "rcpt-retry-2"
     assert updated.attempt_number == 2
 
 

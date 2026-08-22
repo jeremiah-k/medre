@@ -967,6 +967,7 @@ class DeliveryLifecycleService:
         *,
         failure_kind: str,
         attempt_number: int,
+        receipt_id: str | None = None,
         now: datetime | None = None,
     ) -> datetime:
         """Schedule one retry attempt with lifecycle-owned backoff."""
@@ -975,6 +976,7 @@ class DeliveryLifecycleService:
         await storage.mark_outbox_retry_wait(
             item.outbox_id,
             next_attempt_at=next_attempt_at.isoformat(),
+            receipt_id=receipt_id,
             failure_kind=failure_kind,
             attempt_number=attempt_number,
         )
@@ -1011,6 +1013,7 @@ class DeliveryLifecycleService:
             retry_policy,
             failure_kind=failure_kind,
             attempt_number=attempt_number,
+            receipt_id=receipt_id,
             now=now,
         )
         return False
