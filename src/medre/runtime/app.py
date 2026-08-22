@@ -785,6 +785,7 @@ class MedreApp:
                 capacity_controller=self._capacity_controller,
                 retry_config=self.config.retry,
                 event_buffer=self._event_buffer,
+                lifecycle=self.pipeline_runner.delivery_lifecycle,
                 stop_timeout_seconds=float(
                     self.config.runtime.shutdown_timeout_seconds
                 ),

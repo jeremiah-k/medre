@@ -416,6 +416,11 @@ class PipelineRunner:
         """Whether the pipeline has been started and not yet stopped."""
         return self._running
 
+    @property
+    def delivery_lifecycle(self) -> DeliveryLifecycleService:
+        """Return the shared delivery lifecycle authority."""
+        return self._lifecycle
+
     async def start(self) -> None:
         """Register pipeline middleware with the event bus.
 

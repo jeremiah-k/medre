@@ -702,3 +702,71 @@ class TestRetryWorkerStopAbandonedEarlyReturn:
             await worker._task
         except asyncio.CancelledError:
             pass
+
+
+async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Suppressed delivery is terminal but must not increment retry success."""
+    from types import SimpleNamespace
+
+    import medre.runtime.retry as retry_module
+    from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-suppressed",
+        event_id="evt-suppressed",
+        route_id="route-suppressed",
+        delivery_plan_id="plan-suppressed",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+    )
+    storage = MagicMock()
+    storage.get = AsyncMock(return_value=object())
+    storage.list_receipts_for_plan = AsyncMock(return_value=[])
+    storage.mark_outbox_abandoned = AsyncMock()
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock(
+        return_value=DeliveryReceipt(
+            receipt_id="rcpt-suppressed",
+            event_id=item.event_id,
+            delivery_plan_id=item.delivery_plan_id,
+            target_adapter=item.target_adapter,
+            route_id=item.route_id,
+            status="suppressed",
+            error="capability_suppressed",
+            attempt_number=1,
+        )
+    )
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+    )
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 0
+    storage.mark_outbox_abandoned.assert_awaited_once_with(
+        item.outbox_id,
+        error_summary="capability_suppressed",
+    )
+    assert not any(
+        call.args and call.args[0] == "retry_succeeded" for call in emit.call_args_list
+    )
