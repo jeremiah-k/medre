@@ -9,6 +9,10 @@ Storage authority summary:
   - canonical_events: **create** (append-only ingress facts).
   - native_message_refs: **create** (idempotent transport correlation facts).
   - event_relations: **create** (append alongside events).
+  - conversation_membership: mutable, rebuildable derived graph projection;
+    canonical event evidence is never rewritten during repair.
+  - conversation_projection_state: mutable singleton startup/rebuild marker;
+    never treated as event evidence.
   - delivery_receipts: **append** (append-only historical delivery evidence;
     never updated or deleted by runtime code).
   - delivery_outbox: mutable operational state until terminal, then immutable
@@ -25,6 +29,7 @@ import asyncio
 import functools
 import logging
 import os
+import re
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -39,6 +44,7 @@ from medre.core.storage.backend import (
 )
 
 # Mixin imports — method groups composed via multiple inheritance.
+from medre.core.storage.sqlite._conversation import _ConversationMixin
 from medre.core.storage.sqlite._count import _CountMixin
 from medre.core.storage.sqlite._delivery_finalize import _DeliveryFinalizationMixin
 from medre.core.storage.sqlite._event import _EventMixin
@@ -61,11 +67,102 @@ from medre.core.storage.sqlite.connection import (
 )
 from medre.core.storage.sqlite.schema import (
     _EXPECTED_SCHEMA_VERSION,
+    _REQUIRED_CHECK_CONSTRAINTS,
     _REQUIRED_COLUMNS,
     _REQUIRED_FOREIGN_KEYS,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _skip_sql_quoted_or_comment(sql: str, index: int) -> int | None:
+    """Return the first index after a quoted/comment token starting at *index*.
+
+    SQLite table definitions may contain arbitrary text inside quoted
+    identifiers, string literals, or comments.  Schema validation must not
+    interpret a fake ``CHECK (...)`` embedded there as an enforced constraint.
+    """
+    if sql.startswith("--", index):
+        newline = sql.find("\n", index + 2)
+        return len(sql) if newline < 0 else newline + 1
+    if sql.startswith("/*", index):
+        end = sql.find("*/", index + 2)
+        return len(sql) if end < 0 else end + 2
+
+    opener = sql[index]
+    if opener == "[":
+        end = sql.find("]", index + 1)
+        return len(sql) if end < 0 else end + 1
+    if opener not in {"'", '"', "`"}:
+        return None
+
+    cursor = index + 1
+    while cursor < len(sql):
+        if sql[cursor] != opener:
+            cursor += 1
+            continue
+        if cursor + 1 < len(sql) and sql[cursor + 1] == opener:
+            cursor += 2
+            continue
+        return cursor + 1
+    return len(sql)
+
+
+def _extract_check_clauses(definition: str) -> tuple[str, ...]:
+    """Extract real table-level ``CHECK`` clauses from SQLite DDL.
+
+    The scanner recognizes ``CHECK`` only outside quoted identifiers, string
+    literals, and comments, then balances the constraint parentheses while
+    applying the same quoting rules.  It is deliberately small and SQLite
+    specific; it is not a general SQL parser.
+    """
+    clauses: list[str] = []
+    cursor = 0
+    length = len(definition)
+    while cursor < length:
+        skipped = _skip_sql_quoted_or_comment(definition, cursor)
+        if skipped is not None:
+            cursor = skipped
+            continue
+
+        if definition[cursor : cursor + 5].upper() != "CHECK":
+            cursor += 1
+            continue
+        before = definition[cursor - 1] if cursor else " "
+        after_index = cursor + 5
+        after = definition[after_index] if after_index < length else " "
+        if (before.isalnum() or before == "_") or (after.isalnum() or after == "_"):
+            cursor += 1
+            continue
+
+        paren = after_index
+        while paren < length and definition[paren].isspace():
+            paren += 1
+        if paren >= length or definition[paren] != "(":
+            cursor += 5
+            continue
+
+        depth = 0
+        scan = paren
+        while scan < length:
+            skipped = _skip_sql_quoted_or_comment(definition, scan)
+            if skipped is not None:
+                scan = skipped
+                continue
+            char = definition[scan]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    clauses.append(definition[cursor : scan + 1])
+                    cursor = scan + 1
+                    break
+            scan += 1
+        else:
+            cursor = length
+
+    return tuple(clauses)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +244,7 @@ class _SQLiteStorageBase:
             # schema_version=1 but predate current columns or constraints.
             await self._validate_schema_shape()
             await self._validate_schema_foreign_keys()
+            await self._validate_schema_checks()
 
             # Create targeted indexes AFTER shape validation so that old-shape
             # databases fail with a clear StorageInitializationError before
@@ -248,6 +346,30 @@ class _SQLiteStorageBase:
                     missing_constraints=formatted,
                 )
 
+    async def _validate_schema_checks(self) -> None:
+        """Reject pre-release tables that omit required CHECK constraints."""
+        for table, required in _REQUIRED_CHECK_CONSTRAINTS.items():
+            row = await self._read_one(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            )
+            definition = str(row["sql"]) if row is not None else ""
+            check_clauses = _extract_check_clauses(definition)
+            missing = [
+                label
+                for label, pattern in required
+                if not any(
+                    re.fullmatch(pattern, clause, flags=re.IGNORECASE)
+                    for clause in check_clauses
+                )
+            ]
+            if missing:
+                raise PreReleaseSchemaConstraintMismatchError(
+                    path=self._db_path,
+                    table=table,
+                    missing_constraints=missing,
+                )
+
     async def _create_indexes(self) -> None:
         """Create targeted indexes for current query patterns.
 
@@ -287,6 +409,7 @@ class _SQLiteStorageBase:
             await instance._verify_schema_version_readonly()
             await instance._validate_schema_shape()
             await instance._validate_schema_foreign_keys()
+            await instance._validate_schema_checks()
         except BaseException:
             try:
                 await instance.close()
@@ -502,6 +625,7 @@ class SQLiteStorage(
     _IngressMixin,
     _NativeRefMixin,
     _RelationMixin,
+    _ConversationMixin,
     _ReceiptMixin,
     _OutboxMixin,
     _DeliveryFinalizationMixin,

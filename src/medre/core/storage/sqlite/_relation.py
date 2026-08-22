@@ -17,6 +17,7 @@ from medre.core.storage.sqlite.statements import (
     _INSERT_RELATION,
     _SELECT_RELATIONS,
     _SELECT_RELATION_SOURCES,
+    _SELECT_RELATION_SOURCES_FOR_NATIVE_REF,
 )
 
 
@@ -73,4 +74,17 @@ class _RelationMixin:
         traversal is deterministic.
         """
         rows = await self._read_all(_SELECT_RELATION_SOURCES, (target_event_id,))
+        return [str(row["event_id"]) for row in rows]
+
+    async def list_relation_sources_for_native_ref(
+        self,
+        adapter: str,
+        native_channel_id: str | None,
+        native_message_id: str,
+    ) -> list[str]:
+        """Return relation-source events targeting one native identity."""
+        rows = await self._read_all(
+            _SELECT_RELATION_SOURCES_FOR_NATIVE_REF,
+            (adapter, native_channel_id, native_message_id),
+        )
         return [str(row["event_id"]) for row in rows]

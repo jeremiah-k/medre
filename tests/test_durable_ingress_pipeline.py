@@ -5,11 +5,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import msgspec
 import pytest
 
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
-from medre.core.events import NativeRef
+from medre.core.events import CanonicalEvent, EventRelation, NativeMessageRef, NativeRef
 from medre.core.ingress import DurableIngressDeferredError
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
@@ -37,6 +38,16 @@ def _runner(
     config = make_pipeline_config_for_pipeline(storage, Router([]))
     config.runtime_accounting = accounting
     return PipelineRunner(config)
+
+
+def _stored_admitted_event(event_id: str) -> CanonicalEvent:
+    """Build the canonical shape process_admitted_event actually consumes."""
+    event = make_event(event_id=event_id)
+    return msgspec.structs.replace(
+        event,
+        root_event_id=event_id,
+        conversation_id=event_id,
+    )
 
 
 async def test_admit_ingress_tracks_created_duplicate_and_history(
@@ -111,7 +122,7 @@ async def test_process_admitted_event_suppresses_reaction_to_reaction(
     temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = _runner(temp_storage)
-    event = make_event(event_id="evt-reaction")
+    event = _stored_admitted_event("evt-reaction")
     await temp_storage.append(event)
     is_reaction = AsyncMock(return_value=True)
     route_event = AsyncMock()
@@ -127,7 +138,7 @@ async def test_process_admitted_event_handles_no_routes(
     temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = _runner(temp_storage)
-    event = make_event(event_id="evt-no-routes")
+    event = _stored_admitted_event("evt-no-routes")
     await temp_storage.append(event)
     monkeypatch.setattr(
         runner, "_is_reaction_to_reaction", AsyncMock(return_value=False)
@@ -142,11 +153,66 @@ async def test_process_admitted_event_handles_no_routes(
     deliver.assert_not_awaited()
 
 
+async def test_process_admitted_event_refreshes_late_native_relation_in_memory(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Late native targets affect delivery copies without rewriting evidence."""
+    runner = _runner(temp_storage)
+    native_target = NativeRef(
+        adapter="matrix-main",
+        native_channel_id="!room:example.org",
+        native_message_id="$late-parent",
+    )
+    relation = EventRelation(
+        relation_type="reply",
+        target_event_id=None,
+        target_native_ref=native_target,
+        key=None,
+        fallback_text=None,
+    )
+    child = msgspec.structs.replace(
+        _stored_admitted_event("evt-late-child"),
+        relations=(relation,),
+    )
+    parent = _stored_admitted_event("evt-late-parent")
+    await temp_storage.append(child)
+    await temp_storage.append(parent)
+    await temp_storage.store_native_ref(
+        NativeMessageRef(
+            id="nref-late-parent",
+            event_id=parent.event_id,
+            adapter=native_target.adapter,
+            native_channel_id=native_target.native_channel_id,
+            native_message_id=native_target.native_message_id,
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="inbound",
+        )
+    )
+    monkeypatch.setattr(
+        runner, "_is_reaction_to_reaction", AsyncMock(return_value=False)
+    )
+    route_event = AsyncMock(side_effect=lambda event: (event, []))
+    monkeypatch.setattr(runner, "route_event", route_event)
+
+    assert await runner.process_admitted_event(child.event_id) == []
+
+    delivered_event = route_event.await_args.args[0]
+    assert delivered_event.root_event_id == parent.event_id
+    assert delivered_event.conversation_id == parent.event_id
+    assert delivered_event.relations[0].target_event_id == parent.event_id
+
+    stored_child = await temp_storage.get(child.event_id)
+    assert stored_child is not None
+    assert stored_child.root_event_id == child.event_id
+    assert stored_child.relations[0].target_event_id is None
+
+
 async def test_process_admitted_event_delivers_routed_targets(
     temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = _runner(temp_storage)
-    event = make_event(event_id="evt-routed")
+    event = _stored_admitted_event("evt-routed")
     await temp_storage.append(event)
     delivery = object()
     outcome = DeliveryOutcome(
@@ -206,7 +272,7 @@ async def test_process_admitted_event_defers_when_delivery_responsibility_not_tr
     expected_reason: str,
 ) -> None:
     runner = _runner(temp_storage)
-    event = make_event(event_id="evt-deferred")
+    event = _stored_admitted_event("evt-deferred")
     await temp_storage.append(event)
     delivery = object()
     monkeypatch.setattr(
@@ -238,7 +304,7 @@ async def test_process_admitted_event_accepts_terminal_existing_outbox_skip(
     temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runner = _runner(temp_storage)
-    event = make_event(event_id="evt-terminal-outbox")
+    event = _stored_admitted_event("evt-terminal-outbox")
     await temp_storage.append(event)
     delivery = object()
     monkeypatch.setattr(
@@ -271,7 +337,7 @@ async def test_partial_deferral_does_not_redeliver_successful_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = _runner(temp_storage)
-    event = make_event(event_id="evt-partial-deferral")
+    event = _stored_admitted_event("evt-partial-deferral")
     await temp_storage.append(event)
     route = Route(
         id="route-partial-deferral",

@@ -10,6 +10,10 @@ using fake adapters and SQLiteStorage.
 
 from __future__ import annotations
 
+import logging
+
+import pytest
+
 from datetime import datetime, timezone
 
 from medre.core.contracts.adapter import AdapterDeliveryResult
@@ -309,6 +313,64 @@ class TestDuplicateNativeMessageDetection:
             assert len(spy.deliver_calls) == 2
         finally:
             await runner.stop()
+
+
+async def test_duplicate_suppression_survives_projection_repair_failure(
+    temp_storage: SQLiteStorage,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Derived repair failure cannot turn a known duplicate into ingress error."""
+    spy = _SpyAdapter("dedup-repair-target")
+    accounting = RuntimeAccounting()
+    route = Route(
+        id="dedup-repair-route",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[RouteTarget(adapter="dedup-repair-target")],
+    )
+    config = make_pipeline_config_for_pipeline(
+        storage=temp_storage,
+        router=Router(routes=[route]),
+        adapters={"dedup-repair-target": spy},
+    )
+    config.runtime_accounting = accounting
+    runner = PipelineRunner(config)
+    await runner.start()
+
+    first = _make_event_with_native_ref(
+        event_id="dedup-repair-001",
+        nref_message_id="$dedup-repair",
+    )
+    duplicate = _make_event_with_native_ref(
+        event_id="dedup-repair-002",
+        nref_message_id="$dedup-repair",
+    )
+
+    try:
+        assert await runner.handle_ingress(first)
+
+        async def _fail_repair(event_id: str, **_: object) -> object:
+            raise RuntimeError(f"projection unavailable for {event_id}")
+
+        runner._conversation_projection.repair_after_event_available = _fail_repair  # type: ignore[method-assign]
+
+        with caplog.at_level(logging.ERROR, logger=runner._log.name):
+            assert await runner.handle_ingress(duplicate) == []
+        assert await temp_storage.get(duplicate.event_id) is None
+        assert len(spy.deliver_calls) == 1
+        assert accounting.snapshot()["loop_prevented"] == 1
+        repair_logs = [
+            record
+            for record in caplog.records
+            if "Failed to repair conversation projection for duplicate native ref"
+            in record.getMessage()
+        ]
+        assert len(repair_logs) == 1
+        assert repair_logs[0].exc_info is not None
+        assert runner.conversation_projection_repair_failed is True
+    finally:
+        await runner.stop()
 
 
 # ===================================================================

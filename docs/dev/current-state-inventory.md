@@ -55,6 +55,24 @@ with required `room` plus optional `source_origin_label` and
 - Replay renderers implement `render_replay_event`; there is no alternate
   replay-render hook.
 
+## Conversation Graph
+
+- Stored canonical `root_event_id` / `conversation_id` values are immutable
+  ingress-time snapshots assigned by `ConversationGraphAuthority`.
+- `conversation_membership` is the mutable, rebuildable current ancestry
+  projection owned by `ConversationProjectionService`.
+- `conversation_projection_state` is the singleton revision/cleanliness/progress
+  marker used to decide whether startup may skip or must run the rebuild.
+- Late canonical/native relation targets repair dependent projection rows via
+  reverse traversal without rewriting `canonical_events`, `event_relations`, or
+  `native_message_refs`.
+- Runtime startup uses persisted projection revision/cleanliness before pipeline
+  workers or adapters start. Dirty or interrupted state rebuilds in bounded pages;
+  a clean current marker skips the full scan. Routing/rendering receives an
+  in-memory current-identity overlay.
+- Current projection semantics keep `conversation_id == root_event_id`; broader
+  merged/cross-transport grouping remains deferred.
+
 ## Historical Audit Snapshots
 
 There are 27 historical audit snapshot files. Every file listed below

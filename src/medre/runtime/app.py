@@ -310,6 +310,7 @@ class MedreApp:
     _live_health_poll_count: int = field(default=0, init=False)
     _outbox_state: dict[str, int] = field(default_factory=dict, init=False)
     _outbox_storage_authoritative: bool = field(default=False, init=False)
+    _storage_initialized: bool = field(default=False, init=False)
 
     # -- Post-init --------------------------------------------------------------
 
@@ -712,6 +713,7 @@ class MedreApp:
         if self.storage is not None:
             try:
                 await self.storage.initialize()
+                self._storage_initialized = True
                 _logger.info("Storage initialised")
             except Exception as exc:
                 self._set_state(RuntimeState.FAILED)
@@ -724,6 +726,34 @@ class MedreApp:
                     path_hint = f"\n  SQLite database: {db_path}" if db_path else ""
                 raise RuntimeStartupError(
                     f"Failed to initialise storage: {exc}{path_hint}"
+                ) from exc
+
+        # 1.25 Rebuild derived conversation membership before any worker or
+        #      adapter can consume stale pre-crash projection state.  Canonical
+        #      events remain immutable; this is a deterministic current-state
+        #      projection repair.
+        if self.storage is not None:
+            try:
+                summary = await self.pipeline_runner.rebuild_conversation_projection()
+                if summary.skipped_current:
+                    _logger.info("Conversation projection is already current")
+                else:
+                    _logger.info(
+                        "Conversation projection rebuilt: scanned=%d changed=%d",
+                        summary.scanned_events,
+                        summary.changed_events,
+                    )
+            except asyncio.CancelledError:
+                try:
+                    await self._cleanup_storage_safely()
+                finally:
+                    self._set_state(RuntimeState.FAILED)
+                raise
+            except Exception as exc:
+                await self._cleanup_storage_safely()
+                self._set_state(RuntimeState.FAILED)
+                raise RuntimeStartupError(
+                    f"Failed to rebuild conversation projection: {exc}"
                 ) from exc
 
         # 1.5 Seed outbox counts from storage so snapshot has data before
@@ -1260,6 +1290,7 @@ class MedreApp:
         _logger.info("Runtime stopping — accepting no new work")
 
         # Drain remaining in-flight work within the shared shutdown deadline.
+        capacity_drain_abandoned = False
         if self._capacity_controller is not None:
             drain_snap: dict | None = None
             while _time.monotonic() < drain_deadline:
@@ -1279,24 +1310,36 @@ class MedreApp:
                     _logger.debug("Cancelled during drain loop (deferred)")
                     break
             else:
-                if drain_snap is None:
-                    drain_snap = self._capacity_controller.snapshot()
-                _logger.warning(
-                    "Drain timed out — %d delivery, %d replay in-flight abandoned",
-                    drain_snap["delivery_current"],
-                    drain_snap["replay_current"],
+                # Re-snapshot at the deadline.  ``drain_snap`` from the last
+                # loop iteration is taken BEFORE the final ``asyncio.sleep(0.1)``
+                # and is therefore stale by one polling interval; if work
+                # completed during that sleep, the stale nonzero counters would
+                # falsely mark the projection dirty and log abandoned work.
+                drain_snap = self._capacity_controller.snapshot()
+                capacity_drain_abandoned = bool(
+                    drain_snap["delivery_current"] or drain_snap["replay_current"]
                 )
-                # Persist structured abandonment evidence for in-flight
-                # deliveries that could not complete before the drain deadline.
-                try:
-                    await self._persist_drain_abandoned_evidence()
-                except asyncio.CancelledError as c_exc:
-                    _deferred_cancel_count += _drain_pending_cancellations()
-                    if _cancelled is None:
-                        _cancelled = c_exc
-                    _logger.debug(
-                        "Cancelled during drain abandoned evidence persist (deferred)"
+                if capacity_drain_abandoned:
+                    _logger.warning(
+                        "Drain timed out — %d delivery, %d replay in-flight abandoned",
+                        drain_snap["delivery_current"],
+                        drain_snap["replay_current"],
                     )
+                    # Persist structured abandonment evidence only when the final
+                    # snapshot still contains work.  A stale pre-deadline snapshot
+                    # must not manufacture shutdown-abandonment evidence.
+                    try:
+                        await self._persist_drain_abandoned_evidence()
+                    except asyncio.CancelledError as c_exc:
+                        _deferred_cancel_count += _drain_pending_cancellations()
+                        if _cancelled is None:
+                            _cancelled = c_exc
+                        _logger.debug(
+                            "Cancelled during drain abandoned evidence persist "
+                            "(deferred)"
+                        )
+                else:
+                    _logger.info("In-flight work drained at deadline")
 
         # Signal shutdown to adapters and waiters.
         self.shutdown_event.set()
@@ -1431,10 +1474,40 @@ class MedreApp:
             _logger.error("Error stopping pipeline runner: %s", exc)
             errors.append(("pipeline", exc))
 
+        # 2.5. Mark the projection current only after all writers and the
+        # pipeline have stopped cleanly.  Cancellation, abandoned retry work,
+        # or any shutdown error leaves the startup marker dirty so the next
+        # run performs a full repair.
+        retry_abandoned = (
+            self._retry_worker is not None and self._retry_worker.state.abandoned
+        )
+        if (
+            self.storage is not None
+            and self._storage_initialized
+            and not errors
+            and _cancelled is None
+            and not retry_abandoned
+            and not capacity_drain_abandoned
+            and not self.pipeline_runner.conversation_projection_repair_failed
+        ):
+            try:
+                await self.pipeline_runner.mark_conversation_projection_clean()
+            except asyncio.CancelledError as c_exc:
+                _deferred_cancel_count += _drain_pending_cancellations()
+                if _cancelled is None:
+                    _cancelled = c_exc
+                _logger.debug(
+                    "Cancelled while marking conversation projection clean (deferred)"
+                )
+            except Exception as exc:
+                _logger.error("Error marking conversation projection clean: %s", exc)
+                errors.append(("conversation_projection", exc))
+
         # 3. Close storage.
         if self.storage is not None:
             try:
                 await self.storage.close()
+                self._storage_initialized = False
                 _logger.info("Storage closed")
             except asyncio.CancelledError as c_exc:
                 _deferred_cancel_count += _drain_pending_cancellations()
@@ -2041,6 +2114,8 @@ class MedreApp:
                 _logger.info("Storage closed during startup cleanup")
             except Exception as exc:
                 _logger.error("Error closing storage during startup cleanup: %s", exc)
+            finally:
+                self._storage_initialized = False
 
     def _ensure_dirs(self) -> None:
         """Create required runtime directories.

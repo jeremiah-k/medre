@@ -15,11 +15,11 @@ Events flow through a fixed sequence of stages. Each stage has a defined
 responsibility and produces traceable output. The runtime implements
 **six** top-level stages, defined by the `PipelinePhase` enum in
 `src/medre/core/engine/phases.py`: `INGRESS`, `DEDUP`,
-`RESOLVE_RELATIONS`, `STORE`, `ROUTE`, `DELIVER`. Conversation identity
-assignment happens inside `RESOLVE_RELATIONS` execution (see §2
-"Resolve Relations" below) and is observable via the
-`root_event_id` / `conversation_id` fields it populates on the event
-that emerges from that stage — it is not a separate phase.
+`RESOLVE_RELATIONS`, `STORE`, `ROUTE`, `DELIVER`. Ingress-time conversation
+identity assignment happens inside `RESOLVE_RELATIONS` execution (see §2), while
+current conversation ancestry is a separate rebuildable projection repaired after
+storage facts change and overlaid before routing/rendering. Neither operation is a
+separate `PipelinePhase`.
 
 ```text
 [Adapters] --> ingress --> dedup --> resolve_relations --> store
@@ -37,8 +37,8 @@ that emerges from that stage — it is not a separate phase.
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | **Ingress**           | Validate required fields (`event_id`, `event_kind`, `source_adapter`) on inbound canonical events. Reject malformed events at the boundary.                                                                                              | Validated event in memory.                                  |
 | **Dedup**             | Check the inbound native-message ref (`source_native_ref`) against persisted refs. Suppress duplicate native refs before storage to prevent echo loops.                                                                                  | Duplicate suppressed (returns `[]`); or unique event.       |
-| **Resolve Relations** | Resolve event-level relations by looking up `target_native_ref` → `target_event_id` mappings via `RelationResolver`. Preserve unresolved refs unchanged. Also assign conversation identity via `ConversationGraphAuthority`: populate `root_event_id` and `conversation_id` by threading the event into its conversation graph using the resolved relation IDs (especially `parent_event_id`). An event with no parent becomes its own root. | Event with resolved relation IDs and `root_event_id` / `conversation_id` populated. |
-| **Store**             | Persist the canonical event to the storage backend via `StorageBackend.append`. Also persist the inbound `NativeMessageRef`. This is the immutable record.                                                                               | Event durably stored; native ref recorded.                  |
+| **Resolve Relations** | Resolve event-level relations by looking up `target_native_ref` → `target_event_id` mappings via `RelationResolver`. Preserve unresolved refs unchanged. Assign the **ingress-time** `root_event_id` / `conversation_id` snapshot via `ConversationGraphAuthority` using the first currently resolvable relation target. | Event with the admission-time relation/identity snapshot populated. |
+| **Store**             | Persist the canonical event and inbound `NativeMessageRef` as immutable facts. Reconcile `conversation_membership` from the now-current event/relation/native-ref graph, and overlay current membership on the in-memory event before downstream work. Unresolved native relations may be re-resolved on that in-memory copy, never by updating stored relation rows. | Immutable facts durably stored; current derived membership repaired. |
 | **Route**             | Match the stored event against registered routes via `Router.match`. Create a `DeliveryPlan` per target using `FallbackResolver`. Attach route-level retry policies.                                                                     | Ordered list of `(Route, DeliveryPlan)` pairs.              |
 | **Deliver**           | For each target: evaluate route policy, acquire capacity, create outbox item, enrich target-specific relations, render, call adapter `deliver()`, persist a `DeliveryReceipt`, and update the outbox item.                               | `DeliveryOutcome` per target; receipt in storage.           |
 
@@ -46,10 +46,31 @@ that emerges from that stage — it is not a separate phase.
 
 1. **Ingress**: Events missing `event_id`, `event_kind`, or `source_adapter` raise `ValueError`.
 2. **Dedup**: Suppressed duplicates produce no `DeliveryReceipt`. Evidence is recorded via `RuntimeAccounting` counters only.
-3. **Resolve Relations**: The stored event is never mutated. If relations change, a new immutable event is created via `msgspec.structs.replace`. Conversation identity is populated here as a side effect of authority execution — it is not a distinct phase counter.
-4. **Store**: Events are appended immutably. No `UPDATE` or `DELETE` is issued on event rows.
+3. **Resolve Relations**: Relation resolution and ingress identity assignment produce immutable in-memory copies. They never mutate an already stored event/relation row.
+4. **Store**: Canonical events, relations, and native refs are immutable facts. `conversation_membership` is derived current state and MAY be updated idempotently. A late relation target affects routing/rendering only through an in-memory relation refresh plus the current conversation projection; historical rows are not rewritten.
 5. **Route**: An event that matches zero routes produces no deliveries and no receipts. The pipeline returns an empty outcome list.
 6. **Deliver**: Each target is independent — one target's failure does not prevent sibling deliveries. Every delivery attempt produces an append-only `DeliveryReceipt`. Receipt and outbox state machines are defined in [state-machines.md](state-machines.md).
+
+### Conversation Projection Convergence
+
+`ConversationProjectionService` owns current relation ancestry independently of the
+canonical ingress snapshot. The selected parent is the first stored relation, in relation
+order, whose target currently resolves to an existing canonical event. Explicit
+`target_event_id` values are authoritative; a missing explicit canonical target does not
+fall back to the same relation's native reference.
+
+When a canonical event or native-message mapping becomes available, the projection uses
+reverse relation traversal to recompute dependent children and descendants. Incremental
+repair/rebuild operations are serialized by the projection authority so an older
+calculation cannot overwrite the result of a newer completed repair. Runtime startup
+checks persisted projection revision/cleanliness **after storage initialization and
+before pipeline workers or adapters start**. Dirty, interrupted, or older-revision state
+triggers a deterministic paged rebuild; a clean current marker skips the full scan. This
+makes interrupted incremental repair self-healing without mutation of evidence.
+
+The projection is required to be idempotent and arrival-order convergent. The same final
+set of immutable events, relation rows, and native refs must yield the same semantic
+membership whether parents arrive before or after children.
 
 ### Future Extension Points
 
@@ -73,7 +94,7 @@ When implemented, each extension stage MUST produce derived events with
 1. Events flow in one direction through the pipeline. No cycles.
 2. Adapters never call other adapters directly.
 3. All inter-adapter communication goes through the pipeline.
-4. The canonical event log is the only persistent record of event history.
+4. The canonical event log and relation/native-ref facts are the persistent historical record. `conversation_membership` is a rebuildable current-state projection, not additional event history.
 5. Adapter state (connection status, queue depth) is tracked separately from events.
 
 ## 4. Module Boundaries

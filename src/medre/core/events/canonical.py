@@ -312,29 +312,22 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
     trace_id:
         Distributed tracing correlation ID.
     root_event_id:
-        Canonical event ID of the root event in a relation chain.
-        Assigned by :class:`~medre.core.planning.conversation_graph.ConversationGraphAuthority`
-        during pipeline ingress after relation resolution.
+        Ingress-time root snapshot assigned by
+        :class:`~medre.core.planning.conversation_graph.ConversationGraphAuthority`
+        after relation resolution and before canonical persistence.  The stored
+        value is immutable evidence of what ancestry was resolvable at admission
+        time; an out-of-order relation may therefore self-root historically.
 
-        ``None`` **only** before ConversationGraphAuthority has computed
-        conversation identity, or for events that have not yet passed
-        through pipeline ingress.
-
-        After pipeline ingress, every event is resolved:
-
-        * **Root / no-relation events** self-root with
-          ``root_event_id = event.event_id``.
-        * **Relation events** inherit or walk to a resolved relation
-          root.  If all resolved relation targets are missing, the event
-          self-roots.
+        Runtime consumers that need *current* ancestry use the rebuildable
+        ``conversation_membership`` projection.  The pipeline overlays that
+        projection on an in-memory event copy without rewriting this field in
+        ``canonical_events``.
     conversation_id:
-        Canonical conversation identifier.  After assignment by
-        ConversationGraphAuthority, ``conversation_id`` is always set
-        to ``root_event_id`` — there is no independent propagation
-        path.  The field exists as a stable seam for future grouping
-        semantics (e.g. merged threads, cross-transport conversation
-        grouping) without coupling callers to the root-event identity
-        model.
+        Ingress-time conversation snapshot.  It currently always equals the
+        ingress-time ``root_event_id``.  The rebuildable conversation projection
+        also currently keeps ``conversation_id == root_event_id`` while allowing
+        late relation facts to change current membership independently of the
+        immutable canonical row.
     """
 
     event_id: str

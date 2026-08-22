@@ -23,10 +23,11 @@ from pathlib import Path
 import pytest
 
 from medre.core.storage.backend import (
+    PreReleaseSchemaConstraintMismatchError,
     PreReleaseSchemaMismatchError,
     StorageInitializationError,
 )
-from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION
+from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION, _SCHEMA
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
@@ -287,6 +288,171 @@ async def test_fresh_db_no_schema_mismatch() -> None:
         os.unlink(db_path)
 
 
+async def test_conversation_membership_missing_checks_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """Current columns and foreign keys do not compensate for missing checks."""
+    db_path = tmp_path / "missing-conversation-checks.db"
+    ddl = _SCHEMA.replace(
+        "    updated_at TEXT NOT NULL,\n"
+        "    CHECK (depth >= 0),\n"
+        "    CHECK (conversation_id = root_event_id),\n"
+        "    CHECK (resolution_state IN "
+        "('root', 'resolved', 'unresolved', 'cycle'))\n",
+        "    updated_at TEXT NOT NULL\n",
+    )
+    assert ddl != _SCHEMA
+
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.executescript(ddl)
+        raw.execute(
+            "INSERT INTO _medre_schema_meta (key, value) VALUES (?, ?)",
+            ("schema_version", "1"),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    storage = SQLiteStorage(str(db_path))
+    try:
+        with pytest.raises(
+            PreReleaseSchemaConstraintMismatchError,
+            match="conversation_membership",
+        ):
+            await storage.initialize()
+    finally:
+        await storage.close()
+
+
+async def test_conversation_projection_state_missing_checks_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """Projection progress tables must retain singleton/state invariants."""
+    db_path = tmp_path / "missing-projection-state-checks.db"
+    constrained = (
+        "    updated_at TEXT NOT NULL,\n"
+        "    CHECK (singleton_id = 1),\n"
+        "    CHECK (projection_revision >= 1),\n"
+        "    CHECK (status IN ('clean', 'dirty', 'rebuilding')),\n"
+        "    CHECK (status = 'rebuilding' OR last_event_id IS NULL)\n"
+    )
+    ddl = _SCHEMA.replace(constrained, "    updated_at TEXT NOT NULL\n", 1)
+    assert ddl != _SCHEMA
+
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.executescript(ddl)
+        raw.execute(
+            "INSERT INTO _medre_schema_meta (key, value) VALUES (?, ?)",
+            ("schema_version", "1"),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    storage = SQLiteStorage(str(db_path))
+    try:
+        with pytest.raises(
+            PreReleaseSchemaConstraintMismatchError,
+            match="conversation_projection_state",
+        ):
+            await storage.initialize()
+    finally:
+        await storage.close()
+
+
+async def test_schema_check_validator_rejects_unconstrained_table_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """sqlite_master DDL, not column presence, proves required checks exist."""
+    storage = SQLiteStorage("unused.db")
+
+    def _current_table_definition(table: str) -> str:
+        prefix = f"CREATE TABLE IF NOT EXISTS {table} ("
+        start = _SCHEMA.index(prefix)
+        end = _SCHEMA.index("\n);", start) + len("\n);")
+        return _SCHEMA[start:end]
+
+    async def _unconstrained_definition(
+        sql: str, params: tuple[object, ...] = ()
+    ) -> dict[str, str]:
+        assert "sqlite_master" in sql
+        assert len(params) == 1
+        table = str(params[0])
+        if table != "conversation_membership":
+            return {"sql": _current_table_definition(table)}
+        return {
+            "sql": """
+                CREATE TABLE conversation_membership (
+                    event_id TEXT PRIMARY KEY,
+                    depth INTEGER NOT NULL,
+                    conversation_id TEXT NOT NULL,
+                    root_event_id TEXT NOT NULL,
+                    resolution_state TEXT NOT NULL
+                )
+            """
+        }
+
+    monkeypatch.setattr(storage, "_read_one", _unconstrained_definition)
+
+    with pytest.raises(
+        PreReleaseSchemaConstraintMismatchError,
+        match="conversation_membership",
+    ) as exc_info:
+        await storage._validate_schema_checks()
+
+    assert set(exc_info.value.missing_constraints) == {
+        "CHECK (depth >= 0)",
+        "CHECK (conversation_id = root_event_id)",
+        "CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))",
+    }
+
+
+async def test_schema_check_validator_ignores_quoted_constraint_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Quoted CHECK-like identifiers do not prove constraint enforcement."""
+    storage = SQLiteStorage("unused.db")
+
+    def _current_table_definition(table: str) -> str:
+        prefix = f"CREATE TABLE IF NOT EXISTS {table} ("
+        start = _SCHEMA.index(prefix)
+        end = _SCHEMA.index("\n);", start) + len("\n);")
+        return _SCHEMA[start:end]
+
+    fake_labels = (
+        '"CHECK (singleton_id = 1)" TEXT',
+        '"CHECK (projection_revision >= 1)" TEXT',
+        "\"CHECK (status IN ('clean', 'dirty', 'rebuilding'))\" TEXT",
+        "\"CHECK (status = 'rebuilding' OR last_event_id IS NULL)\" TEXT",
+    )
+    spoofed_projection_state = (
+        "CREATE TABLE conversation_projection_state (\n    "
+        + ",\n    ".join(fake_labels)
+        + "\n)"
+    )
+
+    async def _definition(
+        sql: str, params: tuple[object, ...] = ()
+    ) -> dict[str, str]:
+        assert "sqlite_master" in sql
+        table = str(params[0])
+        if table == "conversation_projection_state":
+            return {"sql": spoofed_projection_state}
+        return {"sql": _current_table_definition(table)}
+
+    monkeypatch.setattr(storage, "_read_one", _definition)
+
+    with pytest.raises(
+        PreReleaseSchemaConstraintMismatchError,
+        match="conversation_projection_state",
+    ) as exc_info:
+        await storage._validate_schema_checks()
+
+    assert len(exc_info.value.missing_constraints) == 4
+
+
 async def test_corrupt_existing_db_raises_stable_initialization_error(
     tmp_path: Path,
 ) -> None:
@@ -322,3 +488,27 @@ async def test_schema_mismatch_error_is_actionable() -> None:
         assert "does not automatically transform" in msg
     finally:
         os.unlink(db_path)
+
+
+async def test_missing_conversation_projection_table_is_rejected_without_migration(
+    tmp_path: Path,
+) -> None:
+    """A prerelease DB missing current projection shape is rejected, not upgraded."""
+    db_path = tmp_path / "missing-conversation-projection.db"
+    storage = SQLiteStorage(db_path=str(db_path))
+    await storage.initialize()
+    await storage.close()
+
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.execute("DROP TABLE conversation_membership")
+        raw.commit()
+    finally:
+        raw.close()
+
+    stale = SQLiteStorage(db_path=str(db_path))
+    with pytest.raises(PreReleaseSchemaMismatchError) as exc_info:
+        await stale.initialize()
+
+    assert exc_info.value.table == "conversation_membership"
+    assert "event_id" in exc_info.value.missing_columns
