@@ -351,10 +351,9 @@ class _SQLiteStorageBase:
 
         Idempotent — safe to call multiple times.  ``_closed`` is set before
         I/O so concurrent callers cannot dispatch new work while shutdown is
-        in progress.  Connection close runs on the same private executor used
-        for SQLite operations.  If outer task cancellation arrives while that
-        close is running, the close is allowed to finish before cancellation
-        is re-raised.  A close failure restores state so a later call can retry.
+        in progress.  Cancellation is deferred until executor-owned cleanup
+        completes.  A genuine connection-close failure restores state so a
+        later call can retry.
         """
         if self._closed:
             return
@@ -365,6 +364,10 @@ class _SQLiteStorageBase:
         if db is not None and executor is None:
             executor = ThreadPoolExecutor(max_workers=1)
             self._executor = executor
+
+        deferred_cancel: asyncio.CancelledError | None = None
+        close_error: BaseException | None = None
+        shutdown_error: BaseException | None = None
         try:
             if db is not None:
                 assert executor is not None
@@ -373,24 +376,54 @@ class _SQLiteStorageBase:
                 close_future = loop.run_in_executor(
                     executor, sync_close, db, self._lock
                 )
-                try:
-                    await asyncio.shield(close_future)
-                except asyncio.CancelledError as original_cancel:
+                while not close_future.done():
                     try:
-                        await close_future
-                    except BaseException as close_exc:
-                        self._db = db
-                        self._closed = False
-                        raise close_exc from original_cancel
-                    raise original_cancel
-                except BaseException:
+                        await asyncio.shield(close_future)
+                    except asyncio.CancelledError as exc:
+                        if deferred_cancel is None:
+                            deferred_cancel = exc
+                    except BaseException as exc:
+                        close_error = exc
+                        break
+                if close_error is None:
+                    try:
+                        close_future.result()
+                    except BaseException as exc:
+                        close_error = exc
+                if close_error is not None:
                     self._db = db
                     self._closed = False
-                    raise
         finally:
             if executor is not None:
                 self._executor = None
-                await asyncio.to_thread(executor.shutdown, wait=True)
+                shutdown_future = asyncio.ensure_future(
+                    asyncio.to_thread(executor.shutdown, wait=True)
+                )
+                while not shutdown_future.done():
+                    try:
+                        await asyncio.shield(shutdown_future)
+                    except asyncio.CancelledError as exc:
+                        if deferred_cancel is None:
+                            deferred_cancel = exc
+                    except BaseException as exc:
+                        shutdown_error = exc
+                        break
+                if shutdown_error is None:
+                    try:
+                        shutdown_future.result()
+                    except BaseException as exc:
+                        shutdown_error = exc
+
+        if close_error is not None:
+            if deferred_cancel is not None:
+                raise close_error from deferred_cancel
+            raise close_error
+        if shutdown_error is not None:
+            if deferred_cancel is not None:
+                raise shutdown_error from deferred_cancel
+            raise shutdown_error
+        if deferred_cancel is not None:
+            raise deferred_cancel
 
     # -- Read / write primitives --------------------------------------------
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -180,6 +181,101 @@ class TestExecutorLifecycle:
         s._db = None
         await s.close()
 
+
+    async def test_close_repeated_cancellation_keeps_closed_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Repeated cancellation cannot resurrect a closing connection."""
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        entered = threading.Event()
+        release = threading.Event()
+        real_sync_close = sqlite_storage_module.sync_close
+
+        def _slow_close(db: object, lock: threading.Lock) -> None:
+            entered.set()
+            if not release.wait(timeout=2):
+                raise RuntimeError("test close barrier timed out")
+            real_sync_close(db, lock)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(sqlite_storage_module, "sync_close", _slow_close)
+        task = asyncio.create_task(s.close())
+        while not entered.is_set():
+            await asyncio.sleep(0)
+
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert s._closed is True
+        assert s._db is None
+        assert s._executor is None
+
+    async def test_close_failure_after_cancellation_restores_retryable_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A genuine close failure wins over cancellation and restores state."""
+        s = SQLiteStorage(":memory:")
+        entered = threading.Event()
+        release = threading.Event()
+
+        class _FailingConn:
+            def close(self) -> None:
+                entered.set()
+                if not release.wait(timeout=2):
+                    raise RuntimeError("test close barrier timed out")
+                raise RuntimeError("simulated db close failure")
+
+        failing = _FailingConn()
+        s._db = failing  # type: ignore[assignment]
+        task = asyncio.create_task(s.close())
+        while not entered.is_set():
+            await asyncio.sleep(0)
+
+        task.cancel()
+        release.set()
+        with pytest.raises(RuntimeError, match="simulated db close failure") as exc_info:
+            await task
+
+        assert isinstance(exc_info.value.__cause__, asyncio.CancelledError)
+        assert s._closed is False
+        assert s._db is failing
+        assert s._executor is None
+
+    async def test_close_drains_executor_shutdown_before_reraising_cancellation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cancellation during executor shutdown is deferred until it finishes."""
+        s = SQLiteStorage(str(tmp_path / "test.db"))
+        await s.initialize()
+        entered = threading.Event()
+        release = threading.Event()
+        real_shutdown = ThreadPoolExecutor.shutdown
+
+        def _slow_shutdown(executor, *args, **kwargs) -> None:
+            entered.set()
+            if not release.wait(timeout=2):
+                raise RuntimeError("test shutdown barrier timed out")
+            real_shutdown(executor, *args, **kwargs)
+
+        monkeypatch.setattr(ThreadPoolExecutor, "shutdown", _slow_shutdown)
+        task = asyncio.create_task(s.close())
+        while not entered.is_set():
+            await asyncio.sleep(0)
+
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert s._closed is True
+        assert s._db is None
+        assert s._executor is None
 
     async def test_close_safe_when_db_is_none(self) -> None:
         """close() on a never-initialized storage clears executor if present."""
