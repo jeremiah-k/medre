@@ -719,6 +719,14 @@ Work is stalled or mid-flight. This is normal for recent events during startup r
 - `claim_due_outbox_items()` is reclaiming expired leases and stale queued items.
 - The adapter is connected and accepting deliveries.
 
+For a live runtime snapshot, also check `retry.previous_run_in_progress` and
+the runtime event buffer. A positive value, paired with
+`retry_unfinished_work_detected`, means the process started while durable
+`in_progress` rows already existed. Those rows predate the current worker
+generation, but the signal does **not** prove a prior RetryWorker abandonment:
+an unexpired lease can legitimately delay reclamation. `retry.abandoned`
+instead describes abandonment of the current in-memory worker generation.
+
 #### `inconsistent`
 
 State mismatch that cannot be explained by normal flow. Investigate the specific target:

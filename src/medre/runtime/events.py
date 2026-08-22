@@ -112,6 +112,10 @@ class RuntimeEventType(str, enum.Enum):
 
     **Diagnostics** — health and observational signals only:
 
+    * ``retry_unfinished_work_detected`` — retry-worker startup observed
+      durable ``in_progress`` outbox rows that predate the new worker
+      generation.  This is diagnostic evidence of unfinished work, not
+      proof that the prior worker was abandoned and not a claim action.
     * ``health_refreshed`` — a periodic health check completed.  This is
       a read-only diagnostic signal and does **not** imply any change in
       runtime execution state.
@@ -139,6 +143,9 @@ class RuntimeEventType(str, enum.Enum):
     # -- Diagnostics (read-only signals) -------------------------------------
     HEALTH_REFRESHED = (
         "health_refreshed"  # periodic health check result (no execution state change)
+    )
+    RETRY_UNFINISHED_WORK_DETECTED = (
+        "retry_unfinished_work_detected"  # startup saw pre-existing in_progress work
     )
 
     # -- Retry lifecycle: progression ----------------------------------------

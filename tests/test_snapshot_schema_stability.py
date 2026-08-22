@@ -195,6 +195,7 @@ def _make_fake_app(
     health_state: Any = None,
     accounting: Any = None,
     boot_summary: Any = None,
+    retry_state: Any = None,
 ) -> Any:
     """Build a fake app object for testing."""
 
@@ -214,6 +215,7 @@ def _make_fake_app(
         _health_state: Any = None
         _runtime_accounting: Any = None
         _boot_summary: Any = None
+        retry_state: Any = None
 
     return _FakeApp(
         adapters=adapters or {},
@@ -229,6 +231,7 @@ def _make_fake_app(
         _health_state=health_state,
         _runtime_accounting=accounting,
         _boot_summary=boot_summary,
+        retry_state=retry_state,
     )
 
 
@@ -333,11 +336,13 @@ _EXPECTED_DIAG_SNAPSHOT_KEYS: frozenset[str] = frozenset({"routes", "replay"})
 
 _EXPECTED_RETRY_KEYS: frozenset[str] = frozenset(
     {
+        "abandoned",
         "dead_lettered",
         "enabled",
         "failed",
         "last_run_at",
         "live_refresh",
+        "previous_run_in_progress",
         "processed",
         "running",
         "scope",
@@ -661,6 +666,23 @@ class TestDiagnosticsSectionSchemaStability:
         assert "plain-adapter" not in snap["diagnostics"]["adapters"]
 
 
+@dataclass
+class _RetryEvidenceState:
+    """Typed stand-in carrying the retry evidence fields under test."""
+
+    abandoned: bool = False
+    previous_run_in_progress: int | None = None
+
+
+def test_retry_runtime_evidence_values_are_propagated() -> None:
+    """Runtime snapshot preserves retry abandonment/startup evidence."""
+    state = _RetryEvidenceState(abandoned=True, previous_run_in_progress=4)
+    retry = build_runtime_snapshot(_make_fake_app(retry_state=state))["retry"]
+
+    assert retry["abandoned"] is True
+    assert retry["previous_run_in_progress"] == 4
+
+
 class TestRetrySchemaStability:
     """Retry section key shape is stable."""
 
@@ -672,6 +694,7 @@ class TestRetrySchemaStability:
     def test_retry_default_values(self) -> None:
         app = _make_fake_app()
         retry = build_runtime_snapshot(app)["retry"]
+        assert retry["abandoned"] is False
         assert retry["enabled"] is False
         assert retry["running"] is False
         assert retry["processed"] == 0
@@ -679,12 +702,14 @@ class TestRetrySchemaStability:
         assert retry["failed"] == 0
         assert retry["dead_lettered"] == 0
         assert retry["last_run_at"] is None
+        assert retry["previous_run_in_progress"] is None
         assert retry["scope"] == "process_local"
         assert retry["live_refresh"] is False
 
     def test_retry_values_are_correct_types(self) -> None:
         app = _make_fake_app()
         retry = build_runtime_snapshot(app)["retry"]
+        assert isinstance(retry["abandoned"], bool)
         assert isinstance(retry["enabled"], bool)
         assert isinstance(retry["running"], bool)
         assert isinstance(retry["processed"], int)
@@ -692,6 +717,9 @@ class TestRetrySchemaStability:
         assert isinstance(retry["failed"], int)
         assert isinstance(retry["dead_lettered"], int)
         assert retry["last_run_at"] is None or isinstance(retry["last_run_at"], str)
+        assert retry["previous_run_in_progress"] is None or isinstance(
+            retry["previous_run_in_progress"], int
+        )
         assert isinstance(retry["scope"], str)
         assert isinstance(retry["live_refresh"], bool)
 
