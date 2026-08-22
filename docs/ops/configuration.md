@@ -599,7 +599,7 @@ retry:
 | ------------------ | ----- | ------- | ------------------------------------------------------------------- |
 | `enabled`          | bool  | `false` | Whether the RetryWorker runs.                                       |
 | `interval_seconds` | float | `10.0`  | Polling interval.                                                   |
-| `batch_size`       | int   | `20`    | Max receipts processed per cycle.                                   |
+| `batch_size`       | int   | `20`    | Max due outbox items claimed and processed per cycle.               |
 | `max_attempts`     | int   | `3`     | Global max attempts before dead-lettering. Each route may override. |
 
 Both the route retry and the global retry need to be enabled for automatic retry to occur.

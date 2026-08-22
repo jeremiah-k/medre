@@ -434,6 +434,10 @@ async def test_finalize_retry_attempt_error_ignores_unrelated_dead_letter(
     assert updated.status == "retry_wait"
     assert updated.receipt_id == item.receipt_id
     assert updated.failure_kind == "adapter_transient"
+    assert (
+        updated.error_summary
+        == "ConnectionError: current attempt failed before receipt persistence"
+    )
 
 
 async def test_finalize_retry_attempt_error_propagates_retry_wait_write_failure(

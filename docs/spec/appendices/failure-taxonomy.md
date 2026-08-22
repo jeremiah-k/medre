@@ -277,10 +277,10 @@ When the runtime shuts down, the delivery evidence system aims to:
 Graceful shutdown preserves non-terminal outbox rows as resumable work. The
 runtime does not cancel, mutate, or append receipts to pending outbox items
 during shutdown. Non-terminal outbox statuses (`pending`, `retry_wait`,
-`in_progress`, `queued`) survive in SQLite and are processed on next startup:
-due retry outbox rows by the RetryWorker, and outbox items (`pending`,
-`retry_wait`, expired `in_progress`, stale `queued`) by
-`claim_due_outbox_items()`.
+`in_progress`, `queued`) survive in SQLite. The RetryWorker claims eligible
+rows through `claim_due_outbox_items()`; `retry_wait` rows become eligible when
+`next_attempt_at` is due. Receipts remain immutable evidence rather than a
+second scheduling authority.
 
 This is an intentional design choice, not a gap. Automatic cancellation of
 resumable outbox work is not performed because:
@@ -338,7 +338,7 @@ resumed on next startup.
 | In-flight delivery completes during drain        | Normal receipt with final status (`sent` or `failed`)       |
 | In-flight delivery abandoned after drain timeout | Suppressed receipt with error `shutdown_drain_timeout`      |
 | New delivery rejected during shutdown            | Suppressed receipt with error `delivery_rejected_shutdown`  |
-| Pending retry receipt in storage at shutdown     | No change — receipt remains, processed on next startup      |
+| Pending `retry_wait` outbox item at shutdown       | No change — row remains resumable and is claimed when due   |
 | Pending outbox item at shutdown                  | No change — outbox row remains, reclaimable on next startup |
 
 ## 14. Orphan and Invalid-Lineage Finding Kinds

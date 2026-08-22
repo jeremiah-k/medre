@@ -1017,10 +1017,10 @@ Key fields:
 | `resume_expected`        | `bool`        | `True` when non-terminal outbox work exists and runtime is in `stopped`/`stopping` state. Indicates pending work survives for restart recovery.                     |
 | `outbox_shutdown_policy` | `str or None` | `"resumable"` when outbox data was provided, indicating non-terminal rows were intentionally preserved. `None` when no outbox data was available.                   |
 
-Pending outbox rows (`pending`, `retry_wait`, expired `in_progress`, stale `queued`) are discovered by
-`claim_due_outbox_items()` on next startup. These rows are moved into dispatch
-according to normal outbox logic, independent of RetryWorker retry receipt
-processing.
+Pending outbox rows (`pending`, `retry_wait`, expired `in_progress`, stale `queued`) are discovered through
+`claim_due_outbox_items()` on next startup. The RetryWorker claims due retry
+work from that outbox path; receipts remain immutable evidence and are not a
+separate processing or scheduling authority.
 
 | `pending_outbox_counts` | `dict or None` | Per-status counts of non-terminal outbox items at shutdown time. `None` when no outbox data was provided. |
 | `pending_retry_work_total` | `int or None` | Total count of non-terminal outbox items across all statuses. `None` when no outbox data was provided. |

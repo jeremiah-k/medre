@@ -22,5 +22,11 @@
 - Add transition fault injection, strict durable-evidence tests, and architecture
   guards so failed lifecycle persistence is never reported as a committed state
   and durable retry transitions remain reviewable in one authority.
+- Make the RetryWorker composition boundary require both its narrow read/claim
+  storage surface and the lifecycle storage surface explicitly; no unchecked
+  widening cast remains.
+- Report reconciled, suppressed, retry-wait, accepted, and dead-lettered
+  lifecycle outcomes through the runtime counters/events, and preserve the
+  latest error summary on every retry-wait persistence path.
 - Correct retry documentation and configuration descriptions so the durable
   outbox is the operational work queue and receipts are immutable evidence.

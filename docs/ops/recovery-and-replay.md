@@ -648,7 +648,7 @@ ORDER BY e.created_at DESC;
 When retry is enabled, the system produces an auditable chain:
 
 1. Initial failure creates a receipt with `status="failed"`, `failure_kind="adapter_transient"`, and `next_retry_at` set.
-2. The RetryWorker discovers due receipts and re-attempts delivery.
+2. The RetryWorker claims due outbox rows through `claim_due_outbox_items()` and uses receipts only as immutable attempt evidence.
 3. Each retry appends a new receipt row with incremented `attempt_number` and `parent_receipt_id` linking to the previous attempt.
 4. When retries are exhausted, the final receipt has `status="dead_lettered"`.
 
@@ -672,9 +672,9 @@ The outbox tracks in-progress deliveries:
 
 ### Resumable Shutdown Policy
 
-When the runtime shuts down gracefully, pending retry receipts (those with `next_retry_at` set) and pending outbox items are not cancelled. They remain in storage as resumable work. On next startup:
+When the runtime shuts down gracefully, non-terminal outbox items are not cancelled. They remain in storage as resumable work; retry receipts remain immutable evidence. On next startup:
 
-- Due retry outbox rows are claimed and processed by the RetryWorker.
+- The RetryWorker claims due `retry_wait` outbox rows through `claim_due_outbox_items()` and processes them when `next_attempt_at` is due.
 - Expired `in_progress` outbox rows are reclaimed by `claim_due_outbox_items()`.
 - Stale `queued` outbox rows are reclaimed after the configured grace period.
 
@@ -690,11 +690,11 @@ Operators can inspect these fields to understand what work will resume after res
 
 ### Retry States
 
-| State            | `status`        | `next_retry_at`   | `failure_kind`      | Meaning                                                  |
-| ---------------- | --------------- | ----------------- | ------------------- | -------------------------------------------------------- |
-| Pending retry    | `failed`        | Set (future time) | `adapter_transient` | RetryWorker will re-attempt                              |
-| Exhausted        | `dead_lettered` | `NULL`            | `adapter_transient` | Max retries exceeded; manual intervention needed         |
-| Successful retry | `sent`          | `NULL`            | `NULL`              | Retry succeeded; check `parent_receipt_id` to trace back |
+| State            | Outbox `status`  | Outbox `next_attempt_at` | Receipt evidence                    | Meaning                                                  |
+| ---------------- | ---------------- | ------------------------ | ----------------------------------- | -------------------------------------------------------- |
+| Pending retry    | `retry_wait`     | Set (future time)        | `failed` / `adapter_transient`      | RetryWorker will re-attempt                              |
+| Exhausted        | `dead_lettered`  | `NULL`                   | `dead_lettered`                     | Max retries exceeded; manual intervention needed         |
+| Successful retry | `sent`           | `NULL`                   | `sent`                              | Retry succeeded; check `parent_receipt_id` to trace back |
 
 ### When to Use Which
 
@@ -711,7 +711,7 @@ Operators can inspect these fields to understand what work will resume after res
 When `best_effort` replay delivers to a route that has retry enabled, transient failures create retryable outbox work plus immutable failure receipts in storage. The `medre replay` command never starts the RetryWorker (it builds but never calls `app.start()`). This means:
 
 - Retryable outbox rows created during replay sit in storage unprocessed.
-- If the operator later starts the runtime normally (`medre run`) with retry enabled, the RetryWorker will discover and process those receipts.
+- If the operator later starts the runtime normally (`medre run`) with retry enabled, the RetryWorker will claim and process those due outbox rows; the receipts remain evidence.
 - This creates a cross-source retry chain: `source="replay"` to `source="retry"`, linked by `parent_receipt_id`.
 
 After `best_effort` replay, check for replay-created retry receipts:

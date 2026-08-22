@@ -67,12 +67,14 @@ def _self_emit_literals(tree: ast.AST) -> set[str]:
 
 def test_retry_worker_direct_storage_surface_is_read_claim_only() -> None:
     calls = _self_storage_calls(_source_tree(_RETRY))
-
-    assert calls == _ALLOWED_WORKER_STORAGE_CALLS
-    assert not any(
-        name.startswith(("mark_", "append_", "create_", "finalize_", "release_"))
+    mutations = {
+        name
         for name in calls
-    )
+        if name.startswith(("mark_", "append_", "create_", "finalize_", "release_"))
+    }
+
+    assert not mutations, f"worker calls storage mutations directly: {sorted(mutations)}"
+    assert calls == _ALLOWED_WORKER_STORAGE_CALLS
 
 
 def test_retry_worker_storage_protocol_matches_direct_surface() -> None:
@@ -116,16 +118,31 @@ def test_retry_worker_retains_operational_orchestration_authority() -> None:
 
 
 def test_retry_claim_reconciliation_precedes_transport_dispatch() -> None:
-    retry_source = _RETRY.read_text(encoding="utf-8")
-
-    reconcile = retry_source.index(
-        "reconciled = await self._lifecycle.reconcile_retry_claim"
+    tree = _source_tree(_RETRY)
+    target = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "_retry_outbox_item"
     )
-    dispatch = retry_source.index(
-        "result_receipt = await self._pipeline.deliver_to_target"
-    )
+    reconcile_lines = [
+        node.lineno
+        for node in ast.walk(target)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "reconcile_retry_claim"
+    ]
+    dispatch_lines = [
+        node.lineno
+        for node in ast.walk(target)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "deliver_to_target"
+    ]
 
-    assert reconcile < dispatch
+    assert reconcile_lines, "reconcile_retry_claim not called in _retry_outbox_item"
+    assert dispatch_lines, "deliver_to_target not called in _retry_outbox_item"
+    assert max(reconcile_lines) < min(dispatch_lines)
 
 
 def test_retry_worker_uses_separate_storage_view_for_lifecycle_authority() -> None:
@@ -145,11 +162,54 @@ def test_retry_worker_uses_separate_storage_view_for_lifecycle_authority() -> No
         delegated += 1
         assert node.args
         storage_arg = node.args[0]
-        assert (
-            isinstance(storage_arg, ast.Attribute)
-            and storage_arg.attr == "_lifecycle_storage"
-            and isinstance(storage_arg.value, ast.Name)
-            and storage_arg.value.id == "self"
-        )
+        assert isinstance(storage_arg, ast.Attribute)
+        assert storage_arg.attr == "_lifecycle_storage"
+        assert isinstance(storage_arg.value, ast.Name)
+        assert storage_arg.value.id == "self"
 
     assert delegated > 0
+
+
+def test_retry_worker_never_calls_lifecycle_storage_directly() -> None:
+    tree = _source_tree(_RETRY)
+    direct_calls: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        owner = node.func.value
+        if (
+            isinstance(owner, ast.Attribute)
+            and owner.attr == "_lifecycle_storage"
+            and isinstance(owner.value, ast.Name)
+            and owner.value.id == "self"
+        ):
+            direct_calls.add(node.func.attr)
+
+    assert not direct_calls, (
+        "RetryWorker calls lifecycle storage directly: " f"{sorted(direct_calls)}"
+    )
+
+
+def test_retry_worker_constructor_requires_combined_storage_backend() -> None:
+    tree = _source_tree(_RETRY)
+    backend = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == "RetryWorkerBackend"
+    )
+    base_names = {base.id for base in backend.bases if isinstance(base, ast.Name)}
+    assert base_names == {"RetryWorkerStorage", "DeliveryLifecycleStorage", "Protocol"}
+
+    worker = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "RetryWorker"
+    )
+    init = next(
+        node
+        for node in worker.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+    storage_arg = next(arg for arg in init.args.args if arg.arg == "storage")
+    assert isinstance(storage_arg.annotation, ast.Name)
+    assert storage_arg.annotation.id == "RetryWorkerBackend"

@@ -1211,6 +1211,7 @@ class DeliveryLifecycleService:
                 failure_kind=failure_kind.value,
                 attempt_number=attempt_number,
                 receipt_id=receipt_id,
+                error_summary=error_summary,
                 now=now,
             )
 
@@ -1311,6 +1312,7 @@ class DeliveryLifecycleService:
         failure_kind: str,
         attempt_number: int,
         receipt_id: str | None = None,
+        error_summary: str | None = None,
         now: datetime | None = None,
     ) -> datetime:
         """Schedule one retry attempt with lifecycle-owned backoff."""
@@ -1321,6 +1323,7 @@ class DeliveryLifecycleService:
             next_attempt_at=next_attempt_at.isoformat(),
             receipt_id=receipt_id,
             failure_kind=failure_kind,
+            error_summary=error_summary,
             attempt_number=attempt_number,
         )
         return next_attempt_at

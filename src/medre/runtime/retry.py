@@ -32,7 +32,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from medre.core.engine.pipeline import PipelineRunner
@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from medre.runtime.events import EventBuffer
 
 from medre.config.model import RetryConfig
+from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
 from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
@@ -82,6 +83,18 @@ class RetryWorkerStorage(Protocol):
         target_adapter: str,
         target_channel: str | None = None,
     ) -> DeliveryReceipt | None: ...
+
+
+if TYPE_CHECKING:
+
+    class RetryWorkerBackend(RetryWorkerStorage, DeliveryLifecycleStorage, Protocol):
+        """Storage backend required at the RetryWorker composition boundary.
+
+        ``RetryWorker`` itself retains only the narrow ``RetryWorkerStorage``
+        read/claim view.  The same backend is exposed separately to
+        ``DeliveryLifecycleService`` for lifecycle-owned evidence reads and
+        durable transitions.
+        """
 
 
 @dataclass
@@ -134,7 +147,7 @@ class RetryWorker:
 
     def __init__(
         self,
-        storage: RetryWorkerStorage,
+        storage: RetryWorkerBackend,
         pipeline: PipelineRunner,
         capacity_controller: CapacityController | None,
         *,
@@ -148,12 +161,11 @@ class RetryWorker:
         stop_timeout_seconds: float = 5.0,
     ) -> None:
         config = retry_config if retry_config is not None else RetryConfig()
-        self._storage = storage
-        # The runtime backend is shared with lifecycle authority, but the
-        # worker retains only its narrow read/claim view.  The cast creates a
-        # separate collaborator view for lifecycle calls so static typing does
-        # not widen RetryWorkerStorage back into a mutation-capable protocol.
-        self._lifecycle_storage = cast("DeliveryLifecycleStorage", storage)
+        self._storage: RetryWorkerStorage = storage
+        # The constructor requires the shared backend to satisfy both storage
+        # protocols.  Internally the worker keeps the read/claim view narrow,
+        # while lifecycle-owned mutations receive the lifecycle view only.
+        self._lifecycle_storage: DeliveryLifecycleStorage = storage
         self._pipeline = pipeline
         self._capacity = capacity_controller
         if lifecycle is None:
@@ -244,6 +256,88 @@ class RetryWorker:
                 "error": f"{type(error).__name__}: {error}",
                 "next_retry_at": None,
             },
+        )
+
+    def _record_retry_finalization(
+        self,
+        item: DeliveryOutboxItem,
+        finalization: RetryAttemptFinalization,
+        *,
+        error_summary: str | None = None,
+        reconciled: bool = False,
+    ) -> None:
+        """Project one committed lifecycle outcome onto runtime observability.
+
+        Durable state is already authoritative when this method runs.  This
+        helper keeps counters and runtime events exhaustive and consistent for
+        live retry finalization and claim-time reconciliation alike.
+        """
+        detail = {
+            "event_id": item.event_id,
+            "target_adapter": item.target_adapter,
+            "attempt_number": finalization.attempt_number,
+        }
+        if reconciled:
+            detail["reconciled"] = True
+
+        if finalization.outcome == "accepted":
+            self.state.succeeded += 1
+            self._emit(
+                "retry_succeeded",
+                {
+                    **detail,
+                    "receipt_id": finalization.receipt_id
+                    or item.receipt_id
+                    or item.outbox_id,
+                    "parent_receipt_id": item.receipt_id or item.outbox_id,
+                    "retry_receipt_id": finalization.receipt_id,
+                },
+            )
+            return
+
+        if finalization.outcome == "dead_lettered":
+            self.state.failed += 1
+            self.state.dead_lettered += 1
+            self._emit(
+                "retry_dead_lettered",
+                {
+                    **detail,
+                    "receipt_id": item.receipt_id or item.outbox_id,
+                    "parent_receipt_id": item.parent_receipt_id,
+                    "retry_receipt_id": finalization.receipt_id,
+                    "failure_kind": finalization.failure_kind,
+                },
+            )
+            return
+
+        if finalization.outcome in {"retry_wait", "suppressed"}:
+            self.state.failed += 1
+            self._emit(
+                "retry_failed",
+                {
+                    **detail,
+                    "receipt_id": item.receipt_id or item.outbox_id,
+                    "parent_receipt_id": item.parent_receipt_id,
+                    "retry_receipt_id": finalization.receipt_id,
+                    "status": finalization.outcome,
+                    "failure_kind": finalization.failure_kind,
+                    "error": error_summary
+                    or finalization.failure_kind
+                    or finalization.outcome,
+                    "next_retry_at": (
+                        finalization.next_retry_at.isoformat()
+                        if finalization.next_retry_at is not None
+                        else None
+                    ),
+                },
+            )
+            return
+
+        _logger.warning(
+            "RetryWorker: unhandled retry finalization outcome %r for outbox %s; "
+            "no counter or event recorded",
+            finalization.outcome,
+            item.outbox_id,
         )
 
     def _finalize_task_outcome(
@@ -742,6 +836,7 @@ class RetryWorker:
 
         if reconciled is not None:
             self.state.processed += 1
+            self._record_retry_finalization(item, reconciled, reconciled=True)
             _logger.info(
                 "RetryWorker: reconciled persisted attempt %d for outbox %s as %s; "
                 "skipping transport",
@@ -869,57 +964,11 @@ class RetryWorker:
                     attempt_number=item.attempt_number + 1,
                 )
             else:
-                if finalization.outcome == "accepted":
-                    self.state.succeeded += 1
-                    self._emit(
-                        "retry_succeeded",
-                        {
-                            "receipt_id": finalization.receipt_id
-                            or item.receipt_id
-                            or item.outbox_id,
-                            "parent_receipt_id": item.receipt_id or item.outbox_id,
-                            "retry_receipt_id": finalization.receipt_id,
-                            "event_id": item.event_id,
-                            "target_adapter": item.target_adapter,
-                            "attempt_number": finalization.attempt_number,
-                        },
-                    )
-                elif finalization.outcome == "dead_lettered":
-                    self.state.failed += 1
-                    self.state.dead_lettered += 1
-                    self._emit(
-                        "retry_dead_lettered",
-                        {
-                            "receipt_id": item.receipt_id or item.outbox_id,
-                            "parent_receipt_id": item.parent_receipt_id,
-                            "retry_receipt_id": finalization.receipt_id,
-                            "event_id": item.event_id,
-                            "target_adapter": item.target_adapter,
-                            "attempt_number": finalization.attempt_number,
-                            "failure_kind": finalization.failure_kind,
-                        },
-                    )
-                elif finalization.outcome == "retry_wait":
-                    self.state.failed += 1
-                    self._emit(
-                        "retry_failed",
-                        {
-                            "receipt_id": item.receipt_id or item.outbox_id,
-                            "parent_receipt_id": item.parent_receipt_id,
-                            "retry_receipt_id": finalization.receipt_id,
-                            "event_id": item.event_id,
-                            "target_adapter": item.target_adapter,
-                            "attempt_number": finalization.attempt_number,
-                            "status": "retry_wait",
-                            "failure_kind": finalization.failure_kind,
-                            "error": str(exc),
-                            "next_retry_at": (
-                                finalization.next_retry_at.isoformat()
-                                if finalization.next_retry_at is not None
-                                else None
-                            ),
-                        },
-                    )
+                self._record_retry_finalization(
+                    item,
+                    finalization,
+                    error_summary=f"{type(exc).__name__}: {exc}",
+                )
             _logger.debug(
                 "RetryWorker: delivery raised for outbox %s",
                 item.outbox_id,
@@ -933,19 +982,17 @@ class RetryWorker:
                     item,
                     result_receipt,
                 )
-                if retry_succeeded:
-                    self.state.succeeded += 1
-                    self._emit(
-                        "retry_succeeded",
-                        {
-                            "receipt_id": result_receipt.receipt_id,
-                            "parent_receipt_id": item.receipt_id or item.outbox_id,
-                            "retry_receipt_id": result_receipt.receipt_id,
-                            "event_id": item.event_id,
-                            "target_adapter": item.target_adapter,
-                            "attempt_number": result_receipt.attempt_number,
-                        },
-                    )
+                finalization = RetryAttemptFinalization(
+                    outcome="accepted" if retry_succeeded else "suppressed",
+                    receipt_id=result_receipt.receipt_id,
+                    failure_kind=result_receipt.failure_kind,
+                    attempt_number=result_receipt.attempt_number,
+                )
+                self._record_retry_finalization(
+                    item,
+                    finalization,
+                    error_summary=result_receipt.error,
+                )
             except Exception as lifecycle_exc:
                 _logger.exception(
                     "RetryWorker: failed to update outbox %s after successful delivery",

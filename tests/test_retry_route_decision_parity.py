@@ -21,48 +21,13 @@ from medre.core.engine.pipeline.retry_plan import (
 )
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.planning.delivery_plan import DeliveryStrategy
-from medre.core.storage.backend import DeliveryOutboxItem
+
+from tests.helpers.retry_plan import make_retry_outbox as _make_outbox
+
 
 # ---------------------------------------------------------------------------
-# Helpers (same pattern as test_retry_plan_reconstruction.py)
+# Helpers
 # ---------------------------------------------------------------------------
-
-_ROUTE_DECISION_METADATA: dict[str, object] = {
-    "capability_level": None,
-    "delivery_strategy": "direct",
-    "capability_field": None,
-    "capability_reason": None,
-    "deadline": None,
-}
-
-
-def _make_outbox(
-    *,
-    target_adapter: str = "matrix",
-    target_channel: str | None = "#general",
-    route_id: str = "route-1",
-    delivery_plan_id: str = "plan-abc",
-    event_id: str = "evt-001",
-    metadata: dict | None = None,
-    include_route_metadata: bool = True,
-) -> DeliveryOutboxItem:
-    """Create a minimal outbox item for testing."""
-    resolved_metadata: dict | None
-    if include_route_metadata:
-        resolved_metadata = dict(_ROUTE_DECISION_METADATA)
-        if metadata is not None:
-            resolved_metadata.update(metadata)
-    else:
-        resolved_metadata = metadata
-    return DeliveryOutboxItem(
-        outbox_id="ob-1",
-        event_id=event_id,
-        route_id=route_id,
-        delivery_plan_id=delivery_plan_id,
-        target_adapter=target_adapter,
-        target_channel=target_channel,
-        metadata=resolved_metadata,
-    )
 
 
 def _make_receipt(

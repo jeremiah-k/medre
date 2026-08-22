@@ -438,7 +438,7 @@ When the runtime starts, it reclaims ownership of non-terminal outbox items acco
 | Outbox status at startup | Startup ownership action                                                                                              |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | `pending`                | Eligible for immediate claim by `claim_due_outbox_items()`. No grace period required.                                 |
-| `retry_wait`             | Due retry_wait outbox items reclaimed by `claim_due_outbox_items()` when `next_retry_at` has passed. Otherwise waits. |
+| `retry_wait`             | Due retry_wait outbox items reclaimed by `claim_due_outbox_items()` when `next_attempt_at` has passed. Otherwise waits. |
 | `in_progress`            | Lease may have expired during prior shutdown. Reclaimed by `claim_due_outbox_items()` after lease expiry.             |
 | `queued`                 | Reclaimed by stale queued reclaim after `STALE_QUEUED_GRACE_SECONDS` (default 300 s) has elapsed.                     |
 | `sent`                   | Terminal. No startup action.                                                                                          |
