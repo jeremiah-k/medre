@@ -1310,8 +1310,12 @@ class MedreApp:
                     _logger.debug("Cancelled during drain loop (deferred)")
                     break
             else:
-                if drain_snap is None:
-                    drain_snap = self._capacity_controller.snapshot()
+                # Re-snapshot at the deadline.  ``drain_snap`` from the last
+                # loop iteration is taken BEFORE the final ``asyncio.sleep(0.1)``
+                # and is therefore stale by one polling interval; if work
+                # completed during that sleep, the stale nonzero counters would
+                # falsely mark the projection dirty and log abandoned work.
+                drain_snap = self._capacity_controller.snapshot()
                 capacity_drain_abandoned = bool(
                     drain_snap["delivery_current"] or drain_snap["replay_current"]
                 )

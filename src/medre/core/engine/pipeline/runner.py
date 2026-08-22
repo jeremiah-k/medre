@@ -855,10 +855,19 @@ class PipelineRunner:
                 # process committed ingress facts but failed during projection
                 # repair, a repeated native admission is the recovery path that
                 # completes the derived state before the source checkpoint can
-                # advance.
-                await self._conversation_projection.repair_after_event_available(
-                    result.event_id
-                )
+                # advance.  Best-effort: a transient repair outage must not
+                # propagate into the durable adapter and stall source-checkpoint
+                # progress; startup rebuild is the eventual recovery path.
+                try:
+                    await self._conversation_projection.repair_after_event_available(
+                        result.event_id
+                    )
+                except Exception:
+                    self._log.exception(
+                        "Failed to repair conversation projection after "
+                        "admit_ingress: event_id=%s",
+                        result.event_id,
+                    )
                 if self._runtime_accounting is not None:
                     if result.created:
                         self._runtime_accounting.record_inbound_accepted()
