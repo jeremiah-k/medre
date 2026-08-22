@@ -6,8 +6,11 @@ import ast
 from pathlib import Path
 
 
-_RUNNER = Path("src/medre/core/engine/pipeline/runner.py")
-_COORDINATOR = Path("src/medre/core/engine/pipeline/delivery_coordinator.py")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_RUNNER = _REPO_ROOT / "src/medre/core/engine/pipeline/runner.py"
+_COORDINATOR = (
+    _REPO_ROOT / "src/medre/core/engine/pipeline/delivery_coordinator.py"
+)
 
 
 def _function(tree: ast.AST, name: str) -> ast.AsyncFunctionDef:
@@ -16,7 +19,7 @@ def _function(tree: ast.AST, name: str) -> ast.AsyncFunctionDef:
         for node in ast.walk(tree)
         if isinstance(node, ast.AsyncFunctionDef) and node.name == name
     ]
-    assert len(matches) == 1
+    assert len(matches) == 1, f"expected one async def {name}, found {len(matches)}"
     return matches[0]
 
 
@@ -32,9 +35,49 @@ def test_runner_fanout_is_only_a_delivery_coordinator_boundary() -> None:
     """PipelineRunner keeps routing/ingress ownership, not per-target phases."""
     tree = ast.parse(_RUNNER.read_text(encoding="utf-8"))
     fanout = _function(tree, "_deliver_to_targets_fan_out")
-    attrs = [name for _, name in _attribute_calls(fanout)]
+    calls = [
+        child
+        for child in ast.walk(fanout)
+        if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
+    ]
+    assert len(calls) == 1
+    call = calls[0]
+    assert call.func.attr == "deliver_many"
+    assert isinstance(call.func.value, ast.Attribute)
+    assert isinstance(call.func.value.value, ast.Name)
+    assert call.func.value.value.id == "self"
+    assert call.func.value.attr == "_delivery_coordinator"
 
-    assert attrs == ["deliver_many"]
+
+def test_runner_capacity_wiring_targets_delivery_coordinator_only() -> None:
+    """Capacity wiring has one delivery authority after coordinator extraction."""
+    tree = ast.parse(_RUNNER.read_text(encoding="utf-8"))
+    setters = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "set_capacity_controller"
+    ]
+    assert len(setters) == 1, "expected one set_capacity_controller method"
+    setter = setters[0]
+    assignments = [
+        node
+        for node in ast.walk(setter)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+    ]
+    assert assignments == []
+
+    calls = [
+        child
+        for child in ast.walk(setter)
+        if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
+    ]
+    assert len(calls) == 1
+    call = calls[0]
+    assert call.func.attr == "set_capacity_controller"
+    assert isinstance(call.func.value, ast.Attribute)
+    assert isinstance(call.func.value.value, ast.Name)
+    assert call.func.value.value.id == "self"
+    assert call.func.value.attr == "_delivery_coordinator"
 
 
 def test_delivery_coordinator_does_not_write_storage_state_directly() -> None:
@@ -68,7 +111,6 @@ def test_capacity_release_is_outermost_owned_delivery_cleanup() -> None:
     final_calls = _attribute_calls(ast.Module(body=owned.finalbody, type_ignores=[]))
     assert "create_for_delivery" in {name for _, name in body_calls}
     assert "release_delivery" in {name for _, name in final_calls}
-
 
 
 def test_preflight_order_is_explicit_and_stable() -> None:
