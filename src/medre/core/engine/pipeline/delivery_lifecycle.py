@@ -100,6 +100,11 @@ from medre.core.storage.backend import DeliveryOutboxItem
 
 _logger = logging.getLogger(__name__)
 
+# Failed receipt evidence without a canonical taxonomy value is unsafe to
+# retry.  Treat it as a permanent adapter failure so claim reconciliation can
+# terminate the row instead of repeating the same invariant violation forever.
+_MALFORMED_RETRY_EVIDENCE_KIND = DeliveryFailureKind.ADAPTER_PERMANENT
+
 
 # ---------------------------------------------------------------------------
 # Delivery lifecycle storage contract
@@ -1023,22 +1028,26 @@ class DeliveryLifecycleService:
         """Resolve canonical failed-receipt evidence to the failure taxonomy.
 
         Failed retry receipts are internal state-machine evidence.  Missing or
-        invalid ``failure_kind`` values are invariant violations; lifecycle
-        state must never depend on parsing an error string.
+        invalid ``failure_kind`` values are invariant violations.  They use a
+        conservative permanent fallback so claim reconciliation terminates the
+        outbox row instead of repeatedly reclaiming malformed evidence.
         """
-        if receipt.failure_kind is None:
-            raise ValueError(
-                "Retry failed receipt is missing failure_kind: "
-                f"receipt_id={receipt.receipt_id} outbox_id={receipt.outbox_id}"
-            )
-        try:
-            return DeliveryFailureKind(receipt.failure_kind)
-        except ValueError as exc:
-            raise ValueError(
-                "Retry failed receipt has invalid failure_kind: "
-                f"receipt_id={receipt.receipt_id} "
-                f"failure_kind={receipt.failure_kind!r}"
-            ) from exc
+        if receipt.failure_kind is not None:
+            try:
+                return DeliveryFailureKind(receipt.failure_kind)
+            except ValueError:
+                pass
+
+        self._log.error(
+            "Retry failed receipt has malformed failure_kind; "
+            "dead-lettering with fallback %s: receipt_id=%s outbox_id=%s "
+            "failure_kind=%r",
+            _MALFORMED_RETRY_EVIDENCE_KIND.value,
+            receipt.receipt_id,
+            receipt.outbox_id,
+            receipt.failure_kind,
+        )
+        return _MALFORMED_RETRY_EVIDENCE_KIND
 
     @staticmethod
     def _retry_attempt_evidence(
@@ -1140,17 +1149,18 @@ class DeliveryLifecycleService:
             )
 
         if evidence is not None and evidence.status == "dead_lettered":
+            terminal_kind = evidence.failure_kind or "retry_exhausted"
             await storage.mark_outbox_dead_lettered(
                 item.outbox_id,
                 receipt_id=evidence.receipt_id,
-                failure_kind="retry_exhausted",
+                failure_kind=terminal_kind,
                 error_summary=evidence.error[:512] if evidence.error else None,
                 attempt_number=attempt_number,
             )
             return RetryAttemptFinalization(
                 outcome="dead_lettered",
                 receipt_id=evidence.receipt_id,
-                failure_kind="retry_exhausted",
+                failure_kind=terminal_kind,
                 attempt_number=attempt_number,
             )
 

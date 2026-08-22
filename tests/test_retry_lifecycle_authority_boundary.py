@@ -185,9 +185,8 @@ def test_retry_worker_never_calls_lifecycle_storage_directly() -> None:
         ):
             direct_calls.add(node.func.attr)
 
-    assert not direct_calls, (
-        "RetryWorker calls lifecycle storage directly: " f"{sorted(direct_calls)}"
-    )
+    message = f"RetryWorker calls lifecycle storage directly: {sorted(direct_calls)}"
+    assert not direct_calls, message
 
 
 def test_retry_worker_constructor_requires_combined_storage_backend() -> None:

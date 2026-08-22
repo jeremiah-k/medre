@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -199,8 +200,7 @@ async def test_retry_claim_reconciliation_rejects_receipt_without_outbox_id(
 
 
 @pytest.mark.parametrize("failure_kind", [None, "not-a-failure-kind"])
-async def test_retry_failure_evidence_requires_canonical_failure_kind(
-    temp_storage: StorageBackend,
+async def test_retry_claim_reconciliation_dead_letters_malformed_failure_kind(
     failure_kind: str | None,
 ) -> None:
     lifecycle = _make_lifecycle()
@@ -210,7 +210,6 @@ async def test_retry_failure_evidence_requires_canonical_failure_kind(
         attempt_number=1,
         receipt_id="rcpt-parent",
     )
-    await create_outbox_item_with_parent(temp_storage, item)
     malformed = _make_receipt(
         receipt_id="rcpt-invalid-kind",
         status="failed",
@@ -222,19 +221,79 @@ async def test_retry_failure_evidence_requires_canonical_failure_kind(
         source="retry",
         outbox_id=item.outbox_id,
     )
-    await temp_storage.append_receipt(malformed)
+    storage = AsyncMock(spec=StorageBackend)
+    storage.list_receipts_for_plan.return_value = [malformed]
 
-    with pytest.raises(ValueError, match="failure_kind"):
-        await lifecycle.finalize_retry_attempt_error(
-            temp_storage,
-            item,
-            RetryPolicy(max_attempts=4, backoff_base=1.0, jitter=False),
-            error=ConnectionError("must not override malformed evidence"),
-        )
+    result = await lifecycle.reconcile_retry_claim(
+        storage,
+        item,
+        RetryPolicy(max_attempts=4, backoff_base=1.0, jitter=False),
+    )
 
-    updated = await temp_storage.get_outbox_item(item.outbox_id)
-    assert updated is not None
-    assert updated.status == "in_progress"
+    assert result is not None
+    assert result.outcome == "dead_lettered"
+    assert result.receipt_id == malformed.receipt_id
+    assert result.failure_kind == "adapter_permanent"
+    storage.mark_outbox_dead_lettered.assert_awaited_once_with(
+        item.outbox_id,
+        receipt_id=malformed.receipt_id,
+        failure_kind="adapter_permanent",
+        error_summary="Retry delivery failed",
+        attempt_number=2,
+    )
+
+
+async def test_retry_claim_reconciliation_preserves_dead_letter_failure_kind() -> None:
+    lifecycle = _make_lifecycle()
+    item = _retry_item(
+        outbox_id="obox-terminal-kind",
+        event_id="evt-terminal-kind",
+        attempt_number=1,
+        receipt_id="rcpt-parent",
+    )
+    failed = _make_receipt(
+        receipt_id="rcpt-terminal-failed",
+        status="failed",
+        attempt_number=2,
+        event_id=item.event_id,
+        adapter=item.target_adapter,
+        plan_id=item.delivery_plan_id,
+        failure_kind="adapter_permanent",
+        source="retry",
+        outbox_id=item.outbox_id,
+    )
+    dead = _make_receipt(
+        receipt_id="rcpt-terminal-dead",
+        status="dead_lettered",
+        attempt_number=3,
+        event_id=item.event_id,
+        adapter=item.target_adapter,
+        plan_id=item.delivery_plan_id,
+        failure_kind="adapter_permanent",
+        parent_receipt_id=failed.receipt_id,
+        source="retry",
+        outbox_id=item.outbox_id,
+    )
+    storage = AsyncMock(spec=StorageBackend)
+    storage.list_receipts_for_plan.return_value = [failed, dead]
+
+    result = await lifecycle.reconcile_retry_claim(
+        storage,
+        item,
+        RetryPolicy(max_attempts=4, backoff_base=1.0, jitter=False),
+    )
+
+    assert result is not None
+    assert result.outcome == "dead_lettered"
+    assert result.receipt_id == dead.receipt_id
+    assert result.failure_kind == "adapter_permanent"
+    storage.mark_outbox_dead_lettered.assert_awaited_once_with(
+        item.outbox_id,
+        receipt_id=dead.receipt_id,
+        failure_kind="adapter_permanent",
+        error_summary=None,
+        attempt_number=2,
+    )
 
 
 async def test_finalize_retry_attempt_error_links_existing_dead_letter_evidence(

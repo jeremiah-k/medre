@@ -338,64 +338,6 @@ class TestCapabilityFieldsRoundtrip:
         assert ctx.plan.deadline is not None
         assert ctx.plan.deadline.isoformat() == deadline_str
 
-    def test_missing_route_decision_metadata_is_rejected(self) -> None:
-        item = _make_outbox(metadata=None, include_route_metadata=False)
-        with pytest.raises(ValueError, match="missing metadata"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
-
-    def test_empty_route_decision_metadata_is_rejected(self) -> None:
-        item = _make_outbox(metadata={}, include_route_metadata=False)
-        with pytest.raises(ValueError, match="missing route-decision metadata keys"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
-
-    def test_route_decision_nullable_values_are_preserved(self) -> None:
-        item = _make_outbox()
-        ctx = reconstruct_retry_delivery_plan(
-            item=item,
-            previous_receipt=None,
-            default_max_attempts=3,
-        )
-        assert ctx.plan.capability_level is None
-        assert ctx.plan.capability_field is None
-        assert ctx.plan.capability_reason is None
-        assert ctx.plan.deadline is None
-        assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
-
-    def test_unknown_strategy_is_rejected(self) -> None:
-        item = _make_outbox(metadata={"delivery_strategy": "unknown_method"})
-        with pytest.raises(ValueError, match="invalid delivery_strategy"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
-
-    def test_invalid_deadline_is_rejected(self) -> None:
-        item = _make_outbox(metadata={"deadline": "not-a-date"})
-        with pytest.raises(ValueError, match="invalid deadline"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
-
-    def test_timezone_naive_deadline_is_rejected(self) -> None:
-        item = _make_outbox(metadata={"deadline": "2026-12-31T23:59:59"})
-        with pytest.raises(ValueError, match="timezone-naive deadline"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
-
     def test_fallback_chain_still_empty(self) -> None:
         """Fallback chains are not persisted and cannot be recovered."""
         item = _make_outbox()
@@ -437,6 +379,70 @@ class TestCapabilityFieldsRoundtrip:
         assert ctx.plan.capability_level == "native"
         assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
         assert ctx.plan.deadline is None
+
+
+def test_missing_route_decision_metadata_is_rejected() -> None:
+    item = _make_outbox(metadata=None, include_route_metadata=False)
+    with pytest.raises(ValueError, match="missing metadata"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_empty_route_decision_metadata_is_rejected() -> None:
+    item = _make_outbox(metadata={}, include_route_metadata=False)
+    with pytest.raises(ValueError, match="missing route-decision metadata keys"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_route_decision_nullable_values_are_preserved() -> None:
+    item = _make_outbox()
+    ctx = reconstruct_retry_delivery_plan(
+        item=item,
+        previous_receipt=None,
+        default_max_attempts=3,
+    )
+    assert ctx.plan.capability_level is None
+    assert ctx.plan.capability_field is None
+    assert ctx.plan.capability_reason is None
+    assert ctx.plan.deadline is None
+    assert ctx.plan.primary_strategy == DeliveryStrategy(method="direct")
+
+
+def test_unknown_strategy_is_rejected() -> None:
+    item = _make_outbox(metadata={"delivery_strategy": "unknown_method"})
+    with pytest.raises(ValueError, match="invalid delivery_strategy"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_invalid_deadline_is_rejected() -> None:
+    item = _make_outbox(metadata={"deadline": "not-a-date"})
+    with pytest.raises(ValueError, match="invalid deadline"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_timezone_naive_deadline_is_rejected() -> None:
+    item = _make_outbox(metadata={"deadline": "2026-12-31T23:59:59"})
+    with pytest.raises(ValueError, match="timezone-naive deadline"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
 
 
 def test_non_string_capability_level_is_rejected() -> None:

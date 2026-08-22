@@ -652,22 +652,26 @@ When retry is enabled, the system produces an auditable chain:
 3. Each retry appends a new receipt row with incremented `attempt_number` and `parent_receipt_id` linking to the previous attempt.
 4. When retries are exhausted, the final receipt has `status="dead_lettered"`.
 
-The full chain is queryable. Receipt `next_retry_at` values record the schedule
-chosen after each attempt as immutable evidence; they do not determine whether
-work is currently due. Operators must use the matching outbox row's `status` and
-`next_attempt_at` as the scheduling authority.
+Choose the exact `outbox_id` for the delivery execution being investigated. For
+a replay-origin execution, also retain its `replay_run_id` from the receipt
+evidence. Receipt `next_retry_at` values record the schedule chosen after each
+attempt as immutable evidence; they do not determine whether work is currently
+due. Operators must use the matching outbox row's `status` and `next_attempt_at`
+as the scheduling authority.
 
 ```sql
--- Attempt history; next_retry_at is evidence only.
-SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at, created_at
+-- One execution's attempt history; next_retry_at is evidence only.
+SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at,
+       source, replay_run_id, outbox_id, created_at
 FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>'
+WHERE outbox_id = '<outbox_id>'
+  AND (replay_run_id IS NULL OR replay_run_id = '<replay_run_id>')
 ORDER BY attempt_number;
 
 -- Current scheduling state; use this row to determine whether work is due.
 SELECT outbox_id, status, attempt_number, next_attempt_at
 FROM delivery_outbox
-WHERE delivery_plan_id = '<plan_id>';
+WHERE outbox_id = '<outbox_id>';
 ```
 
 ### Outbox Accountability

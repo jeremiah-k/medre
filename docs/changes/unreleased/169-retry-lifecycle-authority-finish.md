@@ -7,15 +7,15 @@
   lifecycle mutations use a separate storage-protocol view of the shared backend.
 - Correlate retry evidence by exact `outbox_id`, target, attempt, and receipt
   lineage. Retry/dead-letter receipts without required outbox correlation are
-  invariant violations; failed retry receipts must carry a canonical
-  `failure_kind` and are never classified by parsing error text.
+  invariant violations; malformed failed-receipt taxonomy is repaired as a
+  terminal `adapter_permanent` outcome rather than reclaimed indefinitely.
 - Require complete, valid route-decision metadata during retry reconstruction.
   Missing or malformed strategy/capability/deadline state is abandoned rather
   than silently defaulted to different delivery semantics.
 - Reuse persisted retry timestamps and prevent duplicate resend when durable
   queued/sent evidence exists before a later delivery-call exception.
-- Dead-letter non-retryable retry failures immediately and preserve exact
-  linked retry-exhaustion evidence, including `outbox_id` on generated
+- Dead-letter non-retryable retry failures immediately and preserve the linked
+  terminal receipt's failure taxonomy, including `outbox_id` on generated
   dead-letter receipts.
 - Reconcile persisted next-attempt evidence before transport after lease reclaim,
   repairing partial receipt/outbox persistence without duplicate resend.

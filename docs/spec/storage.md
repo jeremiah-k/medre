@@ -922,7 +922,7 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 
 ### 8.14 list_due_retry_receipts(now, limit, max_attempts)
 
-- Read-only receipt-evidence projection; it is **not** retry scheduling authority.
+- Read-only receipt-evidence projection; it is **not** retry-scheduling authority.
 - Returns failed receipts where `next_retry_at <= now`, `status = 'failed'`, and `failure_kind = 'adapter_transient'`.
 - Excludes receipts where `attempt_number >= max_attempts` or `status = 'dead_lettered'`.
 - Ordered by `next_retry_at ASC, sequence ASC`.

@@ -20,7 +20,6 @@ from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
 from medre.core.events.canonical import DeliveryReceipt
-from medre.core.planning.delivery_plan import DeliveryStrategy
 
 from tests.helpers.retry_plan import make_retry_outbox as _make_outbox
 
@@ -130,46 +129,45 @@ class TestRetryPreservesDeadline:
 
 
 # ===================================================================
-# TestRetryRouteMetadataValidation
+# Route metadata validation
 # ===================================================================
 
 
-class TestRetryRouteMetadataValidation:
-    """Malformed route-decision metadata is rejected rather than guessed."""
-
-    def test_destination_only_metadata_is_rejected(self) -> None:
-        item = _make_outbox(
-            metadata={
-                "destination_kind": "matrix_room",
-                "destination_hash": "abc123",
-                "destination_name": "my-room",
-            },
-            include_route_metadata=False,
+def test_destination_only_metadata_is_rejected() -> None:
+    item = _make_outbox(
+        metadata={
+            "destination_kind": "matrix_room",
+            "destination_hash": "abc123",
+            "destination_name": "my-room",
+        },
+        include_route_metadata=False,
+    )
+    with pytest.raises(ValueError, match="missing route-decision metadata keys"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
         )
-        with pytest.raises(ValueError, match="missing route-decision metadata keys"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
 
-    def test_empty_metadata(self) -> None:
-        item = _make_outbox(metadata={}, include_route_metadata=False)
-        with pytest.raises(ValueError, match="missing route-decision metadata keys"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
 
-    def test_none_metadata(self) -> None:
-        item = _make_outbox(metadata=None, include_route_metadata=False)
-        with pytest.raises(ValueError, match="missing metadata"):
-            reconstruct_retry_delivery_plan(
-                item=item,
-                previous_receipt=None,
-                default_max_attempts=3,
-            )
+def test_empty_metadata() -> None:
+    item = _make_outbox(metadata={}, include_route_metadata=False)
+    with pytest.raises(ValueError, match="missing route-decision metadata keys"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
+
+
+def test_none_metadata() -> None:
+    item = _make_outbox(metadata=None, include_route_metadata=False)
+    with pytest.raises(ValueError, match="missing metadata"):
+        reconstruct_retry_delivery_plan(
+            item=item,
+            previous_receipt=None,
+            default_max_attempts=3,
+        )
 
 
 # ===================================================================

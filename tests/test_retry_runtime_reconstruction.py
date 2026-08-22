@@ -6,8 +6,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
-from medre.core.events.canonical import DeliveryReceipt
-from medre.core.planning.delivery_plan import DeliveryStrategy
+from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.storage.backend import DeliveryOutboxItem
@@ -118,7 +118,12 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
         # Capture what deliver_to_target receives
         captured: dict = {}
 
-        async def capturing_deliver(event, route, plan, **kwargs):
+        async def capturing_deliver(
+            event: CanonicalEvent,
+            route: Route,
+            plan: DeliveryPlan,
+            **kwargs: object,
+        ) -> DeliveryReceipt:
             captured["event"] = event
             captured["route"] = route
             captured["plan"] = plan
