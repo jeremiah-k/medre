@@ -412,7 +412,7 @@ class TestAdapterStopTimeoutSupervision:
                 await wait_until(
                     lambda: not app._abandoned_adapter_stop_tasks
                 )
-                # Close storage so the aiosqlite connection is not leaked
+                # Close storage so the SQLite connection is not leaked
                 # into subsequent tests' warnings.catch_warnings() context.
                 if app.storage is not None and not app.storage._closed:
                     await app.storage.close()
@@ -475,7 +475,7 @@ class TestAdapterStopTimeoutSupervision:
                 await wait_until(
                     lambda: not app._abandoned_adapter_stop_tasks
                 )
-                # Close storage so the aiosqlite connection is not leaked
+                # Close storage so the SQLite connection is not leaked
                 # into subsequent tests' warnings.catch_warnings() context.
                 if app.storage is not None and not app.storage._closed:
                     await app.storage.close()

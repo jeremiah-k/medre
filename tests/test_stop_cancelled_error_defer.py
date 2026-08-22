@@ -87,7 +87,7 @@ class TestPipelineRunnerCancelledError:
 
         # Restore so teardown doesn't break.
         app.pipeline_runner.stop = original_pipeline_stop  # type: ignore[assignment]
-        # Ensure aiosqlite connection is fully cleaned up.
+        # Ensure the SQLite connection is fully cleaned up.
         if app.storage is not None and not app.storage._closed:
             await app.storage.close()
         await asyncio.sleep(0)
@@ -170,7 +170,7 @@ class TestDrainLoopCancelledError:
 
         pipeline_called = _make_tracking_pipeline_stop(app)
         # Do NOT wrap storage.close — the real close must complete so
-        # the aiosqlite connection is cleaned up without ResourceWarning.
+        # the SQLite connection is cleaned up without ResourceWarning.
         assert app.storage is not None
 
         try:
@@ -198,11 +198,10 @@ class TestDrainLoopCancelledError:
             object.__setattr__(
                 app.config.limits, "shutdown_drain_timeout_seconds", original_drain
             )
-            # Safety net: ensure aiosqlite connection is closed.
+            # Safety net: ensure the SQLite connection is closed.
             if app.storage is not None and not app.storage._closed:
                 await app.storage.close()
-            # Give the event loop a chance to process aiosqlite's internal
-            # cleanup callbacks so ResourceWarning is not emitted.
+            # Yield once after storage cleanup so pending cancellation callbacks run.
             await asyncio.sleep(0)
 
 
@@ -275,6 +274,5 @@ class TestPersistDrainAbandonedCancelledError:
             )
             if app.storage is not None and not app.storage._closed:
                 await app.storage.close()
-            # Give the event loop a chance to process aiosqlite's internal
-            # cleanup callbacks so ResourceWarning is not emitted.
+            # Yield once after storage cleanup so pending cancellation callbacks run.
             await asyncio.sleep(0)

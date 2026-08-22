@@ -1,6 +1,4 @@
-"""Tests for delivery_outbox concurrency and edge cases: aiosqlite write lock
-serialisation, async transaction rollback, stale queued reclaim, and the
-is_claimable model property."""
+"""Tests for delivery_outbox concurrency and edge cases."""
 
 from __future__ import annotations
 
@@ -15,68 +13,50 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import make_outbox_item as _make_outbox_item
 
 # ===================================================================
-# Async transaction rollback
+# Transaction rollback
 # ===================================================================
 
 
-class TestAsyncTransactionRollback:
-    """Regression: aiosqlite create_outbox_item must rollback on any failure
-    between BEGIN IMMEDIATE and COMMIT, leaving the connection usable."""
+async def test_rollback_after_mid_transaction_error(
+    outbox_temp_storage: SQLiteStorage,
+) -> None:
+    """Outbox creation rolls back a failed explicit transaction."""
+    real_db = outbox_temp_storage._require_db()
 
-    async def test_rollback_after_mid_transaction_error(
-        self, outbox_temp_storage: SQLiteStorage
-    ) -> None:
-        """Force an error between BEGIN and INSERT, then verify the same
-        storage connection can still create outbox items."""
+    class _FailingConnection:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.rollback_called = False
 
-        item = _make_outbox_item(delivery_plan_id="plan-txn-rollback")
-        await outbox_temp_storage.create_outbox_item(item)
-        fetched = await outbox_temp_storage.get_outbox_item(item.outbox_id)
-        assert fetched is not None
-
-        # Now force a failure inside the aiosqlite path by making execute
-        # raise after the BEGIN.  We patch at the storage layer.
-        # Intentional direct monkeypatch of ``outbox_temp_storage._db.execute``.
-        # This test verifies the aiosqlite transaction rollback contract
-        # (BEGIN ... failure ... connection still usable).  No production
-        # hook should be added for this prerelease cleanup — direct patching
-        # is the smallest change that exercises the rollback path.
-        if not outbox_temp_storage._use_aiosqlite:
-            # Sync path uses threading.Lock and _sync_atomic_create_outbox
-            # which already has proper rollback via BaseException handler.
-            pytest.skip("aiosqlite not available")
-
-        real_execute = outbox_temp_storage._db.execute
-        call_count = 0
-
-        def _flaky_execute(stmt, params=None) -> object:
-            nonlocal call_count
-            call_count += 1
-            # Let BEGIN succeed (call 1), fail on the SELECT (call 2).
-            if call_count == 2:
+        def execute(self, statement: str, params: tuple[object, ...] = ()):
+            if statement == "ROLLBACK":
+                self.rollback_called = True
+            self.calls += 1
+            if self.calls == 2:
                 raise RuntimeError("injected mid-transaction error")
-            # Delegate to the real aiosqlite Connection.execute, which is a
-            # regular function returning a Result that supports both ``await``
-            # and ``async with``.
-            if params is not None:
-                return real_execute(stmt, params)
-            return real_execute(stmt)
+            return real_db.execute(statement, params)
 
-        outbox_temp_storage._db.execute = _flaky_execute  # type: ignore[assignment]
+        def commit(self) -> None:
+            real_db.commit()
 
-        try:
-            item2 = _make_outbox_item(delivery_plan_id="plan-txn-rollback-2")
-            with pytest.raises(RuntimeError, match="injected mid-transaction"):
-                await outbox_temp_storage.create_outbox_item(item2)
-        finally:
-            outbox_temp_storage._db.execute = real_execute  # type: ignore[assignment]
+        def rollback(self) -> None:
+            self.rollback_called = True
+            real_db.rollback()
 
-        # The connection must still be usable after the failed transaction.
-        item3 = _make_outbox_item(delivery_plan_id="plan-txn-recovery")
-        await outbox_temp_storage.create_outbox_item(item3)
-        fetched3 = await outbox_temp_storage.get_outbox_item(item3.outbox_id)
-        assert fetched3 is not None
-        assert fetched3.delivery_plan_id == "plan-txn-recovery"
+    failing = _FailingConnection()
+    outbox_temp_storage._db = failing  # type: ignore[assignment]
+    item = _make_outbox_item(delivery_plan_id="plan-txn-rollback")
+    try:
+        with pytest.raises(RuntimeError, match="injected mid-transaction"):
+            await outbox_temp_storage.create_outbox_item(item)
+    finally:
+        outbox_temp_storage._db = real_db
+
+    assert failing.rollback_called is True
+    recovery = _make_outbox_item(delivery_plan_id="plan-txn-recovery")
+    await outbox_temp_storage.create_outbox_item(recovery)
+    fetched = await outbox_temp_storage.get_outbox_item(recovery.outbox_id)
+    assert fetched is not None
 
 
 # ===================================================================
@@ -171,26 +151,21 @@ class TestStaleQueuedReclaim:
 
 
 # ===================================================================
-# Aiosqlite write lock serialisation
+# Private-executor write serialisation
 # ===================================================================
 
 
-class TestAiosqliteWriteLock:
-    """Verify that the asyncio write lock prevents aiosqlite write
-    interleaving.  This test uses a single-event-loop concurrency
-    pattern rather than timing-based checks."""
+class TestSerializedWrites:
+    """Concurrent async callers serialize through the private executor."""
 
     async def test_concurrent_writes_are_serialised(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
-        """Two concurrent _write calls should not interleave on the
-        aiosqlite connection.  We verify serialisation by checking that
-        both writes complete successfully without corruption."""
+        """Two concurrent outbox creates complete without corruption."""
         item1 = _make_outbox_item(delivery_plan_id="plan-lock-1")
         item2 = _make_outbox_item(delivery_plan_id="plan-lock-2")
 
-        # Fire two create_outbox_item calls concurrently.
-        # Both should succeed; the write lock ensures serialisation.
+        # Both calls share the same single-worker SQLite executor.
         results = await asyncio.gather(
             outbox_temp_storage.create_outbox_item(item1),
             outbox_temp_storage.create_outbox_item(item2),
@@ -207,8 +182,7 @@ class TestAiosqliteWriteLock:
     async def test_write_and_create_outbox_serialised(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
-        """A _write call and create_outbox_item running concurrently
-        should not interleave on the aiosqlite connection."""
+        """A direct write and outbox transaction serialize safely."""
         item = _make_outbox_item(delivery_plan_id="plan-lock-3")
 
         # Run a direct _write and a create_outbox_item concurrently

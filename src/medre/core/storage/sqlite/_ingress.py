@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import sqlite3
 import threading
@@ -25,15 +24,7 @@ from medre.core.storage.sqlite.connection import (
     sync_claim_ingress_work,
     sync_upsert_checkpoint,
 )
-from medre.core.storage.sqlite.ingress_sql import (
-    CLAIM_INGRESS_SELECT,
-    CLAIM_INGRESS_UPDATE,
-    INSERT_INGRESS_WORK,
-    SELECT_CANONICAL_EVENT_ID,
-    SELECT_INGRESS_WORK_STATE,
-    SELECT_NATIVE_EVENT_ID,
-    claimed_ingress_row,
-)
+from medre.core.storage.sqlite.ingress_sql import SELECT_INGRESS_WORK_STATE
 from medre.core.storage.sqlite.serde import _encode_json, _now_iso, _serialize_metadata
 from medre.core.storage.sqlite.statements import _INSERT_EVENT
 
@@ -44,8 +35,6 @@ class _IngressMixin:
     if TYPE_CHECKING:
         _db_path: str
         _lock: threading.Lock
-        _async_write_lock: asyncio.Lock
-        _use_aiosqlite: bool
 
         async def _run_in_thread(self, func: Any, *args: Any, **kwargs: Any) -> Any: ...
 
@@ -157,70 +146,6 @@ class _IngressMixin:
             )
         db = self._require_db()
         try:
-            if self._use_aiosqlite:
-                async with self._async_write_lock:
-                    try:
-                        await db.execute("BEGIN IMMEDIATE")
-                        existing_event_id: str | None = None
-                        if native_identity is not None:
-                            async with db.execute(
-                                SELECT_NATIVE_EVENT_ID,
-                                native_identity,
-                            ) as cur:
-                                row = await cur.fetchone()
-                            if row is not None:
-                                existing_event_id = str(row[0])
-                        else:
-                            async with db.execute(
-                                SELECT_CANONICAL_EVENT_ID,
-                                (event.event_id,),
-                            ) as cur:
-                                row = await cur.fetchone()
-                            if row is not None:
-                                existing_event_id = event.event_id
-                        if existing_event_id is not None:
-                            async with db.execute(
-                                "SELECT 1 FROM durable_ingress_work WHERE event_id = ?",
-                                (existing_event_id,),
-                            ) as cur:
-                                work_row = await cur.fetchone()
-                            if work_row is None:
-                                await db.execute(
-                                    INSERT_INGRESS_WORK,
-                                    (
-                                        existing_event_id,
-                                        provenance,
-                                        work_status,
-                                        now,
-                                        now,
-                                    ),
-                                )
-                            await db.commit()
-                            return await self._admission_result_for_existing(
-                                existing_event_id
-                            )
-
-                        for sql, params in event_ops:
-                            await db.execute(sql, params)
-                        if native_insert is not None:
-                            await db.execute(*native_insert)
-                        await db.execute(
-                            INSERT_INGRESS_WORK,
-                            (event.event_id, provenance, work_status, now, now),
-                        )
-                        await db.commit()
-                        return AdmissionResult(
-                            event_id=event.event_id,
-                            created=True,
-                            provenance=provenance,
-                            work_status=work_status,
-                        )
-                    except BaseException:
-                        try:
-                            await db.rollback()
-                        except Exception:
-                            pass
-                        raise
             event_id, created = await self._run_in_thread(
                 sync_admit_ingress,
                 db,
@@ -298,25 +223,9 @@ class _IngressMixin:
         params = (adapter_id, stream, cursor, metadata_json, now)
         db = self._require_db()
         try:
-            if self._use_aiosqlite:
-                async with self._async_write_lock:
-                    await db.execute(
-                        """
-                        INSERT INTO adapter_checkpoints
-                            (adapter_id, stream, cursor, metadata, updated_at)
-                        VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT(adapter_id, stream) DO UPDATE SET
-                            cursor=excluded.cursor,
-                            metadata=excluded.metadata,
-                            updated_at=excluded.updated_at
-                        """,
-                        params,
-                    )
-                    await db.commit()
-            else:
-                await self._run_in_thread(
-                    sync_upsert_checkpoint, db, self._lock, params
-                )
+            await self._run_in_thread(
+                sync_upsert_checkpoint, db, self._lock, params
+            )
         except sqlite3.Error as exc:
             raise StorageError(f"Checkpoint write failed: {exc}") from exc
 
@@ -354,46 +263,15 @@ class _IngressMixin:
         lease_until = (now + timedelta(seconds=lease_seconds)).isoformat()
         db = self._require_db()
         try:
-            if self._use_aiosqlite:
-                async with self._async_write_lock:
-                    try:
-                        await db.execute("BEGIN IMMEDIATE")
-                        async with db.execute(
-                            CLAIM_INGRESS_SELECT, (now_iso, limit)
-                        ) as cur:
-                            rows = await cur.fetchall()
-                        claimed: list[dict[str, Any]] = []
-                        for row in rows:
-                            event_id = str(row[0])
-                            await db.execute(
-                                CLAIM_INGRESS_UPDATE,
-                                (now_iso, lease_until, worker_id, now_iso, event_id),
-                            )
-                            claimed.append(
-                                claimed_ingress_row(
-                                    row,
-                                    now_iso=now_iso,
-                                    lease_until=lease_until,
-                                    worker_id=worker_id,
-                                )
-                            )
-                        await db.commit()
-                    except BaseException:
-                        try:
-                            await db.rollback()
-                        except Exception:
-                            pass
-                        raise
-            else:
-                claimed = await self._run_in_thread(
-                    sync_claim_ingress_work,
-                    db,
-                    self._lock,
-                    now_iso=now_iso,
-                    lease_until=lease_until,
-                    worker_id=worker_id,
-                    limit=limit,
-                )
+            claimed = await self._run_in_thread(
+                sync_claim_ingress_work,
+                db,
+                self._lock,
+                now_iso=now_iso,
+                lease_until=lease_until,
+                worker_id=worker_id,
+                limit=limit,
+            )
             return [
                 IngressWorkItem(
                     event_id=row["event_id"],

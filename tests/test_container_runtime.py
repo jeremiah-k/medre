@@ -218,7 +218,7 @@ class TestBindMountStatePersistence:
 class TestSQLitePersistence:
     """SQLite storage retains data across simulated container restarts.
 
-    Uses raw sqlite3 (no aiosqlite needed) to verify on-disk persistence.
+    Uses raw sqlite3 to verify on-disk persistence independently.
     """
 
     def test_sqlite_data_survives_rebuild(

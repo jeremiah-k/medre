@@ -118,7 +118,7 @@ def _diagnostics(config_path: str | None, *, output_format: str = "json") -> Non
         # attached middleware, the capacity controller and replay
         # engine are constructed but never run.  Tear them down
         # deterministically so process exit doesn't race with pending
-        # aiosqlite / asyncio tasks.
+        # storage executor / asyncio tasks.
         _teardown_unstarted_app(app)
 
 

@@ -32,7 +32,7 @@ class TestRetryWorkerStopOrphan:
 
         storage = MagicMock()
         # claim_due_outbox_items that honours task.cancel() (i.e. the
-        # underlying aiosqlite connection or similar cooperates).  We
+        # underlying storage call cooperates).  We
         # model this as "waits on an event that is set when the task
         # is cancelled".
         _cancelled_evt = asyncio.Event()
