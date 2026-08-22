@@ -211,6 +211,10 @@ class StorageBackend(Protocol):
         """Return all relations belonging to event_id."""
         ...
 
+    async def list_relation_sources(self, target_event_id: str) -> list[str]:
+        """Return unique source event IDs whose relations target event_id."""
+        ...
+
     # -- Receipts -----------------------------------------------------------
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
@@ -415,9 +419,10 @@ CREATE TABLE event_relations (
 
 **Indexes:**
 
-| Index                    | Columns          | Purpose                                                  |
-| ------------------------ | ---------------- | -------------------------------------------------------- |
-| `idx_relations_event_id` | `(event_id, id)` | list_relations(event_id) with deterministic row ordering |
+| Index                           | Columns             | Purpose                                                        |
+| ------------------------------- | ------------------- | -------------------------------------------------------------- |
+| `idx_relations_event_id`        | `(event_id, id)`    | `list_relations(event_id)` with deterministic row ordering     |
+| `idx_relations_target_event_id` | `(target_event_id)` | Reverse lookup for `list_relation_sources(target_event_id)`    |
 
 The `target_native_*` split columns store the `NativeRef` fields when the canonical event ID for the relation target is not yet known. When a relation is unresolved, `target_event_id` is `NULL` and the four `target_native_*` columns carry the native reference. The relation resolution stage resolves these by calling `resolve_native_ref`.
 
@@ -873,7 +878,15 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 
 - Returns `list[EventRelation]` from `event_relations`, reconstructing each from the stored row.
 
-### 8.8 append_receipt(receipt)
+### 8.8 list_relation_sources(target_event_id)
+
+- Returns unique source `event_id` values for rows whose `target_event_id`
+  matches the requested canonical event.
+- Orders source IDs by the first matching relation row so reverse graph
+  traversal is deterministic.
+- Returns an empty list when no stored relation targets the event.
+
+### 8.9 append_receipt(receipt)
 
 - Inserts a new row into `delivery_receipts`.
 - **MUST NOT** update an existing row. Every call creates a new row.
@@ -883,37 +896,37 @@ SQLite transactions are atomic. An event write either completes fully or not at 
   handoffs record the strongest fact actually proven and never infer end-to-end
   delivery from lifecycle status.
 
-### 8.9 delivery_status(delivery_plan_id, target_adapter, target_channel)
+### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel)
 
 - Returns the latest receipt for the given triple.
 - `target_channel` is **REQUIRED** for precise lookup. When `None`, only NULL-channel receipts are considered.
 - Returns `None` when no receipt exists.
 
-### 8.10 list_receipts_for_plan(delivery_plan_id, target_adapter)
+### 8.11 list_receipts_for_plan(delivery_plan_id, target_adapter)
 
 - Returns all receipts for a delivery plan / adapter in attempt order.
 
-### 8.11 list_receipts_by_replay_run(run_id)
+### 8.12 list_receipts_by_replay_run(run_id)
 
 - Returns all receipts whose `replay_run_id` matches, ordered by `sequence` ascending.
 - Returns empty list when no receipts match.
 
-### 8.12 list_receipts_for_event(event_id)
+### 8.13 list_receipts_for_event(event_id)
 
 - Returns all delivery receipts for a specific event, ordered by `sequence` ascending.
 
-### 8.13 list_due_retry_receipts(now, limit, max_attempts)
+### 8.14 list_due_retry_receipts(now, limit, max_attempts)
 
 - Returns failed receipts where `next_retry_at <= now`, `status = 'failed'`, and `failure_kind = 'adapter_transient'`.
 - Excludes receipts where `attempt_number >= max_attempts` or `status = 'dead_lettered'`.
 - Ordered by `next_retry_at ASC, sequence ASC`.
 
-### 8.14 count_pending_retry(now, max_attempts)
+### 8.15 count_pending_retry(now, max_attempts)
 
 - Returns count of transient-failure receipts due for retry.
 - Same filter as `list_due_retry_receipts`.
 
-### 8.15 Outbox Methods
+### 8.16 Outbox Methods
 
 - `create_outbox_item`: Creates or reclaims an outbox item (Section 9.3).
 - `get_outbox_item`: Retrieves an item by `outbox_id`.

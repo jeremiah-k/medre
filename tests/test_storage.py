@@ -150,6 +150,40 @@ class TestRelations:
         relations = await temp_storage.list_relations("evt-no-rel")
         assert relations == []
 
+    async def test_list_relation_sources_returns_unique_deterministic_sources(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        target_id = "evt-target"
+        for event_id in ("evt-child-a", "evt-child-b"):
+            await temp_storage.append(make_storage_event(event_id=event_id))
+
+        first = EventRelation(
+            relation_type="reply",
+            target_event_id=target_id,
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        second = EventRelation(
+            relation_type="reaction",
+            target_event_id=target_id,
+            target_native_ref=None,
+            key="👍",
+            fallback_text=None,
+        )
+        await temp_storage.store_relation("evt-child-a", first)
+        await temp_storage.store_relation("evt-child-a", second)
+        await temp_storage.store_relation("evt-child-b", first)
+
+        sources = await temp_storage.list_relation_sources(target_id)
+
+        assert sources == ["evt-child-a", "evt-child-b"]
+
+    async def test_list_relation_sources_returns_empty_for_unknown_target(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        assert await temp_storage.list_relation_sources("evt-missing") == []
+
     async def test_inline_relations_stored_on_append(
         self, temp_storage: SQLiteStorage
     ) -> None:

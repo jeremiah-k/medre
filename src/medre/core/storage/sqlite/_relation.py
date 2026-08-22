@@ -1,9 +1,10 @@
 """Relation mixins for SQLiteStorage.
 
 Authority surface:
-  - _relation_op:    internal (builds SQL/params, no I/O).
-  - store_relation:  **create** (append-only alongside events).
-  - list_relations:  **list/get** (read-only).
+  - _relation_op:          internal (builds SQL/params, no I/O).
+  - store_relation:        **create** (append-only alongside events).
+  - list_relations:        **list/get** (forward relation read).
+  - list_relation_sources: **list/get** (reverse relation read).
 """
 
 from __future__ import annotations
@@ -12,7 +13,11 @@ from typing import Any
 
 from medre.core.events import EventRelation
 from medre.core.storage.sqlite.serde import _encode_json, _now_iso, _row_to_relation
-from medre.core.storage.sqlite.statements import _INSERT_RELATION, _SELECT_RELATIONS
+from medre.core.storage.sqlite.statements import (
+    _INSERT_RELATION,
+    _SELECT_RELATIONS,
+    _SELECT_RELATION_SOURCES,
+)
 
 
 class _RelationMixin:
@@ -60,3 +65,12 @@ class _RelationMixin:
         """
         rows = await self._read_all(_SELECT_RELATIONS, (event_id,))
         return [_row_to_relation(r) for r in rows]
+
+    async def list_relation_sources(self, target_event_id: str) -> list[str]:
+        """Return unique source event IDs targeting *target_event_id*.
+
+        Results are ordered by the first matching relation row so reverse
+        traversal is deterministic.
+        """
+        rows = await self._read_all(_SELECT_RELATION_SOURCES, (target_event_id,))
+        return [str(row["event_id"]) for row in rows]
