@@ -131,6 +131,22 @@ class TestRetryWorkerConstruction:
 
         assert worker.state.enabled is False
 
+    def test_retry_worker_accepts_shared_lifecycle_authority(self) -> None:
+        """Runtime wiring can reuse the pipeline's lifecycle service."""
+        mock_storage = MagicMock()
+        mock_pipeline = AsyncMock()
+        mock_lifecycle = MagicMock()
+
+        worker = RetryWorker(
+            storage=mock_storage,
+            pipeline=mock_pipeline,
+            capacity_controller=None,
+            enabled=False,
+            lifecycle=mock_lifecycle,
+        )
+
+        assert worker._lifecycle is mock_lifecycle
+
     def test_retry_worker_state_reflects_enabled(self) -> None:
         """When enabled=True is passed, state.enabled is True."""
         mock_storage = MagicMock()

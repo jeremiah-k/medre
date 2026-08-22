@@ -191,6 +191,15 @@ class _MemoryStorage:
         ):
             object.__setattr__(item, "status", "dead_lettered")
 
+    async def mark_outbox_abandoned(
+        self,
+        outbox_id: str,
+        error_summary: str | None = None,
+    ) -> None:
+        item = self._outbox.get(outbox_id)
+        if item is not None:
+            object.__setattr__(item, "status", "abandoned")
+
     # -- Required by abstract protocol but unused in these tests --
 
     async def append(self, event) -> None:

@@ -193,6 +193,12 @@ resistant case it returns within `2 * stop_timeout_seconds`.
 The in-flight batch loop checks `_shutdown_event.is_set()` between items,
 so a shutdown mid-batch completes the current item but skips the rest.
 
+**Lifecycle authority.** `RetryWorker` owns polling, claim orchestration,
+capacity acquisition, runtime counters, and operational events. Durable outbox
+transitions are delegated to the same `DeliveryLifecycleService` instance used
+by `PipelineRunner`: abandonment, retry backoff, retry exhaustion/dead-letter,
+and queued/sent retry success are lifecycle-service decisions.
+
 **Lease model.** Each cycle calls `storage.claim_due_outbox_items()` with a
 lease of `interval * 1.5` seconds (minimum 30 s). There is no periodic lease
 renewal heartbeat. Leases naturally expire if the worker crashes; the next

@@ -3,7 +3,7 @@
 > **Status:** Active
 > **Classification:** Normative
 > **Authority:** Authoritative specification for the MEDRE delivery lifecycle authority hierarchy, vocabulary provenance, boundary definitions, replay/recovery constraints, and conformance rules.
-> **Last reviewed:** 2026-06-04
+> **Last reviewed:** 2026-08-21
 
 This document defines the authority hierarchy governing the MEDRE delivery
 lifecycle. It specifies which sources are authoritative, which are derived, and
@@ -52,6 +52,11 @@ decisions made by higher layers.
 6. Projections, views, convergence diagnostics, and report dicts are derived.
    They MUST NOT be treated as lifecycle authorities and MUST NOT be used to
    drive state transitions.
+7. `DeliveryLifecycleService` is the runtime authority for delivery/outbox
+   transition decisions. `RetryWorker` MAY poll, claim, acquire capacity, and
+   emit operational events, but it MUST delegate abandonment, retry backoff,
+   retry exhaustion/dead-letter, and retry-success outbox transitions to the
+   lifecycle service rather than mutating those states directly.
 
 ---
 

@@ -18,8 +18,8 @@ For each due outbox item claimed, the RetryWorker:
 2. Finds the most recent receipt for this delivery plan / target.
 3. Reconstructs minimal Route + DeliveryPlan from outbox/receipt metadata.
 4. Calls ``PipelineRunner.deliver_to_target(... previous_receipt=...)``.
-5. Marks terminal on success or updates the existing item to retry_wait
-   for the next attempt (or marks dead-lettered on exhaustion).
+5. Delegates durable outbox transitions to ``DeliveryLifecycleService``;
+   the worker retains polling, capacity, counters, and event orchestration.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from medre.core.engine.pipeline import PipelineRunner
+    from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
     from medre.core.storage.sqlite.storage import SQLiteStorage
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.events import EventBuffer
@@ -41,7 +42,6 @@ from medre.config.model import RetryConfig
 from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
-from medre.core.planning.delivery_plan import RetryExecutor
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.events import RuntimeEventType
 
@@ -110,12 +110,20 @@ class RetryWorker:
         batch_size: int | None = None,
         max_attempts: int | None = None,
         event_buffer: EventBuffer | None = None,
+        lifecycle: DeliveryLifecycleService | None = None,
         stop_timeout_seconds: float = 5.0,
     ) -> None:
         config = retry_config if retry_config is not None else RetryConfig()
         self._storage = storage
         self._pipeline = pipeline
         self._capacity = capacity_controller
+        if lifecycle is None:
+            from medre.core.engine.pipeline.delivery_lifecycle import (
+                DeliveryLifecycleService,
+            )
+
+            lifecycle = DeliveryLifecycleService(logger=_logger)
+        self._lifecycle = lifecycle
         self._enabled = enabled if enabled is not None else config.enabled
         self._interval = (
             interval_seconds
@@ -601,8 +609,9 @@ class RetryWorker:
                 item.event_id,
                 item.outbox_id,
             )
-            await self._storage.mark_outbox_abandoned(
-                item.outbox_id,
+            await self._lifecycle.abandon_retry_outbox(
+                self._storage,
+                item,
                 error_summary="Event not found in storage",
             )
             return
@@ -632,8 +641,9 @@ class RetryWorker:
             )
             self.state.processed += 1
             self.state.failed += 1
-            await self._storage.mark_outbox_abandoned(
-                item.outbox_id,
+            await self._lifecycle.abandon_retry_outbox(
+                self._storage,
+                item,
                 error_summary="Reconstruction failure",
             )
             return
@@ -649,16 +659,14 @@ class RetryWorker:
                         "RetryWorker: capacity rejected for outbox %s",
                         item.outbox_id,
                     )
-                    # Compute backoff so the item isn't immediately retried.
-                    _cap_policy = retry_context.retry_policy
-                    _cap_backoff = RetryExecutor(_cap_policy).compute_backoff(
-                        item.attempt_number,
-                    )
-                    _cap_next = datetime.now(timezone.utc) + _cap_backoff
+                    # Backoff is a lifecycle decision; the worker only
+                    # reports the resulting schedule when it was persisted.
+                    _cap_next: datetime | None = None
                     try:
-                        await self._storage.mark_outbox_retry_wait(
-                            item.outbox_id,
-                            next_attempt_at=_cap_next.isoformat(),
+                        _cap_next = await self._lifecycle.defer_retry_outbox(
+                            self._storage,
+                            item,
+                            retry_context.retry_policy,
                             failure_kind="capacity_rejection",
                             attempt_number=item.attempt_number,
                         )
@@ -679,7 +687,9 @@ class RetryWorker:
                             "status": "capacity_rejection",
                             "failure_kind": "capacity_rejection",
                             "error": "delivery capacity not available",
-                            "next_retry_at": _cap_next.isoformat(),
+                            "next_retry_at": (
+                                _cap_next.isoformat() if _cap_next else None
+                            ),
                         },
                     )
                     return
@@ -691,17 +701,13 @@ class RetryWorker:
                 )
                 try:
                     # claim_due_outbox_items clears next_attempt_at, so
-                    # release_outbox_claim would always restore to "pending"
-                    # and cause immediate re-claim.  Use mark_outbox_retry_wait
-                    # with a proper backoff instead.
-                    _err_policy = retry_context.retry_policy
-                    _err_backoff = RetryExecutor(_err_policy).compute_backoff(
-                        item.attempt_number,
-                    )
-                    _err_next = datetime.now(timezone.utc) + _err_backoff
-                    await self._storage.mark_outbox_retry_wait(
-                        item.outbox_id,
-                        next_attempt_at=_err_next.isoformat(),
+                    # release_outbox_claim would restore to "pending" and
+                    # cause immediate re-claim.  Delegate a durable backoff
+                    # transition to the lifecycle authority instead.
+                    await self._lifecycle.defer_retry_outbox(
+                        self._storage,
+                        item,
+                        retry_context.retry_policy,
                         failure_kind="capacity_error",
                         attempt_number=item.attempt_number,
                     )
@@ -791,15 +797,17 @@ class RetryWorker:
                         _dl_receipt_id = _dl_receipts[-1].receipt_id
                 except Exception:
                     # cleanup-silent: best-effort cross-reference; the
-                    # dead-letter itself is persisted at the
-                    # mark_outbox_dead_lettered call below without
-                    # relying on _dl_receipt_id.
+                    # lifecycle authority persists the dead-letter even
+                    # without this receipt cross-reference.
                     pass
-                await self._storage.mark_outbox_dead_lettered(
-                    item.outbox_id,
+                await self._lifecycle.finalize_retry_failure(
+                    self._storage,
+                    item,
+                    retry_context.retry_policy,
                     receipt_id=_dl_receipt_id,
                     failure_kind="retry_exhausted",
                     attempt_number=item.attempt_number + 1,
+                    force_dead_lettered=True,
                 )
                 self._emit(
                     "retry_dead_lettered",
@@ -837,23 +845,20 @@ class RetryWorker:
 
                     policy = retry_context.retry_policy
                     next_attempt = item.attempt_number + 1
-                    # Guard: if attempt count exceeds policy, mark
-                    # dead-lettered instead of scheduling another retry.
-                    # This prevents infinite retries when the pipeline
-                    # creates a dead-lettered receipt but the parent chain
-                    # doesn't align with _check_dead_lettered.
-                    if next_attempt > policy.max_attempts:
+                    _exhausted = await self._lifecycle.finalize_retry_failure(
+                        self._storage,
+                        item,
+                        policy,
+                        failure_kind=_actual_kind,
+                        attempt_number=next_attempt,
+                    )
+                    if _exhausted:
                         _logger.warning(
                             "RetryWorker: retries exhausted for outbox %s "
                             "(attempt %d > max %d)",
                             item.outbox_id,
                             next_attempt,
                             policy.max_attempts,
-                        )
-                        await self._storage.mark_outbox_dead_lettered(
-                            item.outbox_id,
-                            failure_kind=_actual_kind,
-                            attempt_number=next_attempt,
                         )
                         self.state.dead_lettered += 1
                         self._emit(
@@ -866,18 +871,6 @@ class RetryWorker:
                                 "target_adapter": item.target_adapter,
                                 "attempt_number": next_attempt,
                             },
-                        )
-                        _exhausted = True
-                    else:
-                        backoff = RetryExecutor(policy).compute_backoff(
-                            next_attempt,
-                        )
-                        next_at = datetime.now(timezone.utc) + backoff
-                        await self._storage.mark_outbox_retry_wait(
-                            item.outbox_id,
-                            next_attempt_at=next_at.isoformat(),
-                            failure_kind=_actual_kind,
-                            attempt_number=next_attempt,
                         )
                 except Exception:
                     _logger.exception(
@@ -905,18 +898,11 @@ class RetryWorker:
             self.state.processed += 1
             self.state.succeeded += 1
             try:
-                if result_receipt.status == "queued":
-                    await self._storage.mark_outbox_queued(
-                        item.outbox_id,
-                        receipt_id=result_receipt.receipt_id,
-                        attempt_number=result_receipt.attempt_number,
-                    )
-                else:
-                    await self._storage.mark_outbox_sent(
-                        item.outbox_id,
-                        receipt_id=result_receipt.receipt_id,
-                        attempt_number=result_receipt.attempt_number,
-                    )
+                await self._lifecycle.finalize_retry_success(
+                    self._storage,
+                    item,
+                    result_receipt,
+                )
                 self._emit(
                     "retry_succeeded",
                     {

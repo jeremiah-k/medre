@@ -159,6 +159,12 @@ class DeliveryLifecycleStorage(Protocol):
         attempt_number: int | None = None,
     ) -> None: ...
 
+    async def mark_outbox_abandoned(
+        self,
+        outbox_id: str,
+        error_summary: str | None = None,
+    ) -> None: ...
+
 
 # ---------------------------------------------------------------------------
 # DeliveryLifecycleService
@@ -937,6 +943,97 @@ class DeliveryLifecycleService:
                 record.adapter,
                 supplemental.attempt_number,
             )
+
+    # -- Retry-worker outbox transitions -----------------------------------
+
+    async def abandon_retry_outbox(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        *,
+        error_summary: str,
+    ) -> None:
+        """Persist terminal abandonment for an unreconstructable retry item."""
+        await storage.mark_outbox_abandoned(
+            item.outbox_id,
+            error_summary=error_summary,
+        )
+
+    async def defer_retry_outbox(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        retry_policy: RetryPolicy,
+        *,
+        failure_kind: str,
+        attempt_number: int,
+        now: datetime | None = None,
+    ) -> datetime:
+        """Schedule one retry attempt with lifecycle-owned backoff."""
+        backoff = RetryExecutor(retry_policy).compute_backoff(attempt_number)
+        next_attempt_at = (now or datetime.now(timezone.utc)) + backoff
+        await storage.mark_outbox_retry_wait(
+            item.outbox_id,
+            next_attempt_at=next_attempt_at.isoformat(),
+            failure_kind=failure_kind,
+            attempt_number=attempt_number,
+        )
+        return next_attempt_at
+
+    async def finalize_retry_failure(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        retry_policy: RetryPolicy,
+        *,
+        failure_kind: str,
+        attempt_number: int,
+        receipt_id: str | None = None,
+        force_dead_lettered: bool = False,
+        now: datetime | None = None,
+    ) -> bool:
+        """Persist retry-wait or dead-lettered state for one failed attempt.
+
+        Returns ``True`` when the retry is terminally dead-lettered.
+        """
+        if force_dead_lettered or attempt_number > retry_policy.max_attempts:
+            await storage.mark_outbox_dead_lettered(
+                item.outbox_id,
+                receipt_id=receipt_id,
+                failure_kind=failure_kind,
+                attempt_number=attempt_number,
+            )
+            return True
+
+        await self.defer_retry_outbox(
+            storage,
+            item,
+            retry_policy,
+            failure_kind=failure_kind,
+            attempt_number=attempt_number,
+            now=now,
+        )
+        return False
+
+    async def finalize_retry_success(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        receipt: DeliveryReceipt,
+    ) -> None:
+        """Persist the outbox transition for a successful retry result."""
+        if receipt.status == "queued":
+            await storage.mark_outbox_queued(
+                item.outbox_id,
+                receipt_id=receipt.receipt_id,
+                attempt_number=receipt.attempt_number,
+            )
+            return
+        await storage.mark_outbox_sent(
+            item.outbox_id,
+            receipt_id=receipt.receipt_id,
+            attempt_number=receipt.attempt_number,
+        )
 
     # -- Outbox finalization ------------------------------------------------
 
