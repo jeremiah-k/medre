@@ -146,23 +146,28 @@ async def test_startup_read_is_bounded(
     )
     buf = EventBuffer(clock=_fixed_clock)
     worker = _make_worker(event_buffer=buf)
+    read_entered = asyncio.Event()
+    release_read = asyncio.Event()
 
     async def _stall() -> dict[str, int]:
-        await asyncio.sleep(30)
+        read_entered.set()
+        await release_read.wait()
         return {}
 
     worker._storage.count_outbox_by_status = AsyncMock(  # type: ignore[attr-defined]
         side_effect=_stall
     )
 
-    loop = asyncio.get_running_loop()
-    started_at = loop.time()
-    await worker.start()
+    start_task = asyncio.create_task(worker.start())
+    await asyncio.wait_for(read_entered.wait(), timeout=1.0)
     try:
-        assert loop.time() - started_at < 5
+        await asyncio.wait_for(start_task, timeout=1.0)
         assert worker.state.previous_run_in_progress is None
         assert worker.state.running is True
     finally:
+        release_read.set()
+        if not start_task.done():
+            await start_task
         await worker.stop()
 
 
@@ -170,17 +175,48 @@ async def test_concurrent_start_creates_single_worker() -> None:
     """Two overlapping start() calls cannot spawn duplicate workers."""
     buf = EventBuffer(clock=_fixed_clock)
     worker = _make_worker(event_buffer=buf)
+    read_entered = asyncio.Event()
+    release_read = asyncio.Event()
+    second_start_requested = asyncio.Event()
 
-    await asyncio.gather(worker.start(), worker.start())
+    async def _gated_read() -> dict[str, int]:
+        read_entered.set()
+        await release_read.wait()
+        return {}
+
+    async def _second_start() -> None:
+        second_start_requested.set()
+        await worker.start()
+
+    worker._storage.count_outbox_by_status = AsyncMock(  # type: ignore[attr-defined]
+        side_effect=_gated_read
+    )
+
+    first_start = asyncio.create_task(worker.start())
+    await asyncio.wait_for(read_entered.wait(), timeout=1.0)
+    second_start = asyncio.create_task(_second_start())
+    await asyncio.wait_for(second_start_requested.wait(), timeout=1.0)
     try:
+        assert not first_start.done()
+        assert not second_start.done()
+        assert worker._task is None
+        release_read.set()
+        await asyncio.wait_for(
+            asyncio.gather(first_start, second_start), timeout=1.0
+        )
+
         started_events = [
             event
             for event in buf
             if event.event_type == RuntimeEventType.RETRY_STARTED
         ]
         assert len(started_events) == 1
+        startup_count = worker._storage.count_outbox_by_status  # type: ignore[attr-defined]
+        assert startup_count.await_count == 1
         assert worker.state.running is True
     finally:
+        release_read.set()
+        await asyncio.gather(first_start, second_start, return_exceptions=True)
         await worker.stop()
 
 
@@ -190,22 +226,34 @@ async def test_stop_during_startup_waits_for_startup_to_finish() -> None:
     worker = _make_worker(event_buffer=buf)
     read_entered = asyncio.Event()
     release_read = asyncio.Event()
+    stop_requested = asyncio.Event()
 
     async def _gated_read() -> dict[str, int]:
         read_entered.set()
         await release_read.wait()
         return {}
 
+    async def _stop() -> None:
+        stop_requested.set()
+        await worker.stop()
+
     worker._storage.count_outbox_by_status = AsyncMock(  # type: ignore[attr-defined]
         side_effect=_gated_read
     )
 
     start_task = asyncio.create_task(worker.start())
-    await read_entered.wait()
-    stop_task = asyncio.create_task(worker.stop())
-    await asyncio.sleep(0)
-    release_read.set()
-    await asyncio.gather(start_task, stop_task)
+    await asyncio.wait_for(read_entered.wait(), timeout=1.0)
+    stop_task = asyncio.create_task(_stop())
+    await asyncio.wait_for(stop_requested.wait(), timeout=1.0)
+    try:
+        assert not stop_task.done()
+        release_read.set()
+        await asyncio.wait_for(
+            asyncio.gather(start_task, stop_task), timeout=1.0
+        )
+    finally:
+        release_read.set()
+        await asyncio.gather(start_task, stop_task, return_exceptions=True)
 
     assert worker._task is None
     assert worker.state.running is False
