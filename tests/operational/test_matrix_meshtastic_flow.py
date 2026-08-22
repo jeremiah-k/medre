@@ -191,6 +191,46 @@ class _FakeStorage:
         if item is not None:
             object.__setattr__(item, "status", "abandoned")
 
+    async def finalize_queued_delivery(
+        self,
+        native_ref: NativeMessageRef,
+        receipt: DeliveryReceipt,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+    ) -> bool:
+        """In-memory mirror of the atomic storage contract: guarded outbox
+        transition plus native ref plus sent receipt, or nothing."""
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status not in ("queued", "in_progress")
+            or item.attempt_number != attempt_number
+            or item.event_id != native_ref.event_id
+        ):
+            return False
+
+        identity = (
+            native_ref.adapter,
+            native_ref.native_channel_id,
+            native_ref.native_message_id,
+        )
+        existing_event = self._native_ref_index.get(identity)
+        if existing_event is not None and existing_event != native_ref.event_id:
+            from medre.core.storage.backend import StorageError
+
+            raise StorageError(
+                "Native identity already maps to a different canonical event: "
+                f"{existing_event}"
+            )
+
+        if existing_event is None:
+            await self.store_native_ref(native_ref)
+        await self.append_receipt(receipt)
+        object.__setattr__(item, "status", "sent")
+        object.__setattr__(item, "receipt_id", receipt.receipt_id)
+        return True
+
 
 def test_fake_storage_satisfies_delivery_lifecycle_storage_contract() -> None:
     assert isinstance(_FakeStorage(), DeliveryLifecycleStorage)

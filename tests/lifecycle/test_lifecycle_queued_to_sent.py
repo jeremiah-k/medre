@@ -20,6 +20,7 @@ from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
 from .conftest import _make_lifecycle, _make_receipt
 from tests.helpers.storage_outbox import (
+    admit_event,
     append_receipt_with_parent,
     create_outbox_item_with_parent,
 )
@@ -469,6 +470,91 @@ class TestAppendQueuedToSentErrorPaths:
                     record=record,
                     now=datetime.now(timezone.utc),
                 )
+
+
+    async def test_attempt_filter_selects_matching_attempt_receipt(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Queued receipts sharing an outbox_id across attempts must be
+        filtered by attempt_number before finalization."""
+        lifecycle = _make_lifecycle()
+        await admit_event(temp_storage, "evt-attempt-filter")
+
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-attempt-filter",
+            event_id="evt-attempt-filter",
+            route_id="route-af",
+            delivery_plan_id="plan-af",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=2,
+        )
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
+        await temp_storage.mark_outbox_queued("obox-attempt-filter")
+
+        # Two queued receipts share the outbox_id but belong to different
+        # attempts; only attempt 2 may be finalized for this callback.
+        # Attempt 2 is appended FIRST so that unfiltered "latest wins"
+        # preference would pick attempt 1 — proving the explicit
+        # attempt_number filter is what selects the right receipt.
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-af-a2",
+                status="queued",
+                adapter="m",
+                channel="0",
+                event_id="evt-attempt-filter",
+                outbox_id="obox-attempt-filter",
+                attempt_number=2,
+            ),
+        )
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-af-a1",
+                status="queued",
+                adapter="m",
+                channel="0",
+                event_id="evt-attempt-filter",
+                outbox_id="obox-attempt-filter",
+                attempt_number=1,
+            ),
+        )
+
+        record = OutboundNativeRefRecord(
+            event_id="evt-attempt-filter",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-af-2",
+            delivery_plan_id="plan-af",
+            outbox_id="obox-attempt-filter",
+            attempt_number=2,
+        )
+        await lifecycle.finalize_queued_delivery(
+            temp_storage,
+            record=record,
+            now=datetime.now(timezone.utc),
+        )
+
+        receipts = {
+            r.receipt_id: r
+            for r in await temp_storage.list_receipts_for_event("evt-attempt-filter")
+        }
+        # Attempt 1's queued receipt is untouched.
+        assert receipts["rcpt-af-a1"].status == "queued"
+        # Attempt 2 gained a sent supplemental receipt tied to this callback.
+        sent = [
+            r
+            for r in receipts.values()
+            if r.status == "sent"
+            and r.attempt_number == 2
+            and r.adapter_message_id == "pkt-af-2"
+        ]
+        assert len(sent) == 1
+        assert sent[0].outbox_id == "obox-attempt-filter"
 
 
 # ===================================================================
@@ -1359,10 +1445,15 @@ class TestAppendQueuedToSentEdgeCases:
                 now=now,
             )
 
+        # Outcome-focused: the stale callback must not commit any sent
+        # evidence, regardless of whether the attempt filter (pre-selection)
+        # or the downstream mismatch guard performed the rejection.
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
-        assert "Attempt number mismatch" in caplog.text
+        assert not [
+            r for r in all_receipts if r.adapter_message_id == "pkt-atm"
+        ]
 
     async def test_invalid_status_transition_skips_supplemental(
         self,
