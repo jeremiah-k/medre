@@ -179,18 +179,20 @@ async def test_concurrent_start_creates_single_worker() -> None:
     release_read = asyncio.Event()
     second_start_requested = asyncio.Event()
 
-    async def _gated_read() -> dict[str, int]:
+    async def _gated_capture() -> None:
         read_entered.set()
         await release_read.wait()
-        return {}
 
     async def _second_start() -> None:
         second_start_requested.set()
         await worker.start()
 
-    worker._storage.count_outbox_by_status = AsyncMock(  # type: ignore[attr-defined]
-        side_effect=_gated_read
-    )
+    # Mock the startup-evidence preflight directly.  ``count_outbox_by_status``
+    # is also called by ``_process_due`` for the per-cycle idle refresh, so a
+    # storage-level mock would inflate ``await_count`` with polling reads that
+    # are unrelated to the concurrent-start invariant under test.
+    startup_capture = AsyncMock(side_effect=_gated_capture)
+    worker._capture_startup_outbox_evidence = startup_capture  # type: ignore[method-assign]
 
     first_start = asyncio.create_task(worker.start())
     await asyncio.wait_for(read_entered.wait(), timeout=1.0)
@@ -211,8 +213,7 @@ async def test_concurrent_start_creates_single_worker() -> None:
             if event.event_type == RuntimeEventType.RETRY_STARTED
         ]
         assert len(started_events) == 1
-        startup_count = worker._storage.count_outbox_by_status  # type: ignore[attr-defined]
-        assert startup_count.await_count == 1
+        assert startup_capture.await_count == 1
         assert worker.state.running is True
     finally:
         release_read.set()
