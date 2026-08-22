@@ -974,6 +974,16 @@ When retry is enabled (via `[retry] enabled = true` and per-route retry configur
 
 The retry chain is fully durable in SQLite. Operators can trace the complete retry history for any delivery by following `parent_receipt_id` links.
 
+At worker startup, MEDRE also captures the count of durable outbox rows already
+in `in_progress` before the new retry-worker generation begins. A positive
+`retry.previous_run_in_progress` value and the corresponding
+`retry_unfinished_work_detected` runtime event mean that unfinished work was
+present before this worker generation. This is diagnostic evidence only: it does
+not prove that the prior worker was abandoned, does not mutate the row, and
+does not bypass lease/staleness rules in `claim_due_outbox_items()`. The
+current-process `retry.abandoned` snapshot field remains separate and reports
+whether this worker generation itself was abandoned during bounded shutdown.
+
 ### 20.2 Outbox Accountability
 
 The outbox tracks in-progress deliveries:
@@ -982,6 +992,15 @@ The outbox tracks in-progress deliveries:
 - When the delivery completes (success or failure), the outbox row is finalized.
 - On crash recovery, expired `in_progress` outbox rows are reclaimable by
   `claim_due_outbox_items()`.
+
+The startup retry snapshot distinguishes observation from reclamation:
+
+- `previous_run_in_progress = None` means the startup outbox-count read failed
+  or was unavailable.
+- `previous_run_in_progress = 0` means the read succeeded and no pre-existing
+  `in_progress` rows were observed.
+- A positive value records how many such rows predated this worker generation;
+  each row is still reclaimed only when normal storage claim rules allow it.
 
 ### 20.3 Resumable Shutdown Policy
 

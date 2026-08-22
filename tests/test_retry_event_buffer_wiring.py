@@ -34,6 +34,7 @@ def _make_worker(
     interval_seconds: float = 300.0,
     batch_size: int = 5,
     max_attempts: int = 3,
+    startup_counts: dict[str, int] | None = None,
 ) -> RetryWorker:
     """Build a RetryWorker with fake storage/pipeline.
 
@@ -42,7 +43,7 @@ def _make_worker(
     """
     storage = AsyncMock()
     storage.claim_due_outbox_items = AsyncMock(return_value=[])
-    storage.count_outbox_by_status = AsyncMock(return_value={})
+    storage.count_outbox_by_status = AsyncMock(return_value=startup_counts or {})
 
     pipeline = AsyncMock()
 
@@ -68,6 +69,51 @@ def _event_types(buf: EventBuffer) -> list[RuntimeEventType]:
 # ---------------------------------------------------------------------------
 
 
+async def test_start_surfaces_preexisting_in_progress_work() -> None:
+    """Startup reports durable unfinished work predating this worker."""
+    buf = EventBuffer(clock=_fixed_clock)
+    worker = _make_worker(
+        event_buffer=buf,
+        startup_counts={"in_progress": 3, "retry_wait": 2},
+    )
+
+    await worker.start()
+    try:
+        assert worker.state.previous_run_in_progress == 3
+        events = [
+            event
+            for event in buf
+            if event.event_type == RuntimeEventType.RETRY_UNFINISHED_WORK_DETECTED
+        ]
+        assert len(events) == 1
+        assert events[0].detail == {
+            "in_progress_count": 3,
+            "source": "durable_outbox_startup_snapshot",
+        }
+    finally:
+        await worker.stop()
+
+
+async def test_startup_snapshot_failure_is_non_fatal() -> None:
+    """Failure to read startup counts does not prevent retry startup."""
+    buf = EventBuffer(clock=_fixed_clock)
+    worker = _make_worker(event_buffer=buf)
+    worker._storage.count_outbox_by_status = AsyncMock(  # type: ignore[attr-defined]
+        side_effect=RuntimeError("read failed")
+    )
+
+    await worker.start()
+    try:
+        assert worker.state.running is True
+        assert worker.state.previous_run_in_progress is None
+        assert not any(
+            event.event_type == RuntimeEventType.RETRY_UNFINISHED_WORK_DETECTED
+            for event in buf
+        )
+    finally:
+        await worker.stop()
+
+
 class TestRetryWorkerEventBufferWiring:
     """RetryWorker emits lifecycle events when given an EventBuffer."""
 
@@ -85,6 +131,7 @@ class TestRetryWorkerEventBufferWiring:
             assert ev.detail["interval"] == 300.0
             assert ev.detail["batch_size"] == 5
             assert ev.detail["max_attempts"] == 3
+            assert ev.detail["previous_run_in_progress"] == 0
         finally:
             await worker.stop()
 

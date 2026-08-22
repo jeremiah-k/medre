@@ -819,11 +819,15 @@ def build_runtime_snapshot(
     retry_snapshot: dict[str, Any]
     if retry_state_obj is not None:
         retry_snapshot = {
+            "abandoned": getattr(retry_state_obj, "abandoned", False),
             "dead_lettered": getattr(retry_state_obj, "dead_lettered", 0),
             "enabled": getattr(retry_state_obj, "enabled", False),
             "failed": getattr(retry_state_obj, "failed", 0),
             "last_run_at": getattr(retry_state_obj, "last_run_at", None),
             "live_refresh": False,
+            "previous_run_in_progress": getattr(
+                retry_state_obj, "previous_run_in_progress", None
+            ),
             "processed": getattr(retry_state_obj, "processed", 0),
             "running": getattr(retry_state_obj, "running", False),
             "scope": "process_local",
@@ -831,11 +835,13 @@ def build_runtime_snapshot(
         }
     else:
         retry_snapshot = {
+            "abandoned": False,
             "dead_lettered": 0,
             "enabled": False,
             "failed": 0,
             "last_run_at": None,
             "live_refresh": False,
+            "previous_run_in_progress": None,
             "processed": 0,
             "running": False,
             "scope": "process_local",

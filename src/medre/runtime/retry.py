@@ -126,11 +126,20 @@ class RetryWorkerState:
         in the current process's memory.  It is *not* written to storage
         and will be ``False`` after a process restart, since the abandoned
         task from the previous process no longer exists.
+    previous_run_in_progress:
+        Count of durable outbox rows observed in ``in_progress`` immediately
+        before this worker generation starts.  ``None`` means the startup
+        storage snapshot could not be read; ``0`` means it was read and no
+        unfinished rows were present.  A positive value is evidence of work
+        that predates this worker generation, but is **not** proof that the
+        prior worker was abandoned and does not imply that every row is already
+        reclaimable (an unexpired lease may still defer a claim).
     """
 
     enabled: bool = False
     running: bool = False
     abandoned: bool = False
+    previous_run_in_progress: int | None = None
     last_run_at: str | None = None
     processed: int = 0
     succeeded: int = 0
@@ -226,6 +235,49 @@ class RetryWorker:
         except ValueError:
             return
         self._event_buffer.emit(rt, detail)
+
+    async def _capture_startup_outbox_evidence(self) -> None:
+        """Capture pre-existing ``in_progress`` work before this worker runs.
+
+        The read is deliberately observational.  It does not claim, release,
+        or otherwise transition any durable outbox row.  Because the retry
+        worker starts before adapters begin accepting new ingress, any
+        ``in_progress`` rows seen here predate this worker generation and are
+        useful evidence after a prior process stopped unexpectedly.
+
+        Storage-read failure is non-fatal: the normal worker loop remains the
+        recovery authority and can still claim due work later.
+        """
+
+        try:
+            counts = await self._storage.count_outbox_by_status()
+        except Exception:
+            _logger.debug(
+                "RetryWorker could not read startup outbox counts",
+                exc_info=True,
+            )
+            self.state.previous_run_in_progress = None
+            return
+
+        raw_count = counts.get("in_progress", 0)
+        in_progress = raw_count if isinstance(raw_count, int) else 0
+        self.state.previous_run_in_progress = max(in_progress, 0)
+        if self.state.previous_run_in_progress <= 0:
+            return
+
+        _logger.warning(
+            "RetryWorker startup observed %d pre-existing in_progress "
+            "outbox item(s); these rows predate this worker generation and "
+            "will be reclaimed only when storage claim rules allow",
+            self.state.previous_run_in_progress,
+        )
+        self._emit(
+            "retry_unfinished_work_detected",
+            {
+                "in_progress_count": self.state.previous_run_in_progress,
+                "source": "durable_outbox_startup_snapshot",
+            },
+        )
 
     def _record_lifecycle_persistence_error(
         self,
@@ -489,6 +541,7 @@ class RetryWorker:
             return
         if self._task is not None:
             return
+        await self._capture_startup_outbox_evidence()
         self._shutdown_event.clear()
         self.state.running = True
         self._task = asyncio.create_task(self._run_loop())
@@ -504,6 +557,7 @@ class RetryWorker:
                 "interval": self._interval,
                 "batch_size": self._batch_size,
                 "max_attempts": self._max_attempts,
+                "previous_run_in_progress": self.state.previous_run_in_progress,
             },
         )
 
