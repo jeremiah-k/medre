@@ -131,7 +131,7 @@ class TestSQLiteNormalClose:
 class TestSQLiteFailureClose:
     """Failure during open must not leak connections."""
 
-    async def testsync_open_failure_closes_connection(self, tmp_path: Path) -> None:
+    async def test_sync_open_failure_closes_connection(self, tmp_path: Path) -> None:
         """If executescript fails inside sync_open, the raw connection is closed.
 
         We patch the _SCHEMA constant to invalid SQL so that db.executescript()
@@ -199,7 +199,7 @@ class TestSQLiteFailureClose:
             resource_warnings == []
         ), f"ResourceWarning(s) raised on schema mismatch path: {resource_warnings}"
 
-    async def testsync_open_readonly_failure_closes_connection(
+    async def test_sync_open_readonly_failure_closes_connection(
         self, tmp_path: Path
     ) -> None:
         """If sync_open_readonly encounters an error, the connection is closed."""
@@ -226,14 +226,14 @@ class TestSQLiteFailureClose:
 
 
 # ---------------------------------------------------------------------------
-# Tests: sync_open_readonly row_factory assignment failure (lines 933-935)
+# Tests: sync_open_readonly row_factory assignment failure
 # ---------------------------------------------------------------------------
 
 
 class TestOpenReadonlyRowFactoryFailure:
     """sync_open_readonly must close the connection if row_factory fails."""
 
-    async def testsync_open_readonly_row_factory_failure_closes_connection(
+    async def test_sync_open_readonly_row_factory_failure_closes_connection(
         self, tmp_path: Path
     ) -> None:
         """When db.row_factory = sqlite3.Row raises inside sync_open_readonly,

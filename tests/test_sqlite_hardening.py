@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 from medre.core.storage.backend import EventFilter
-from medre.core.storage.sqlite import storage as sqlite_storage_module
+import medre.core.storage.sqlite.storage as sqlite_storage_module
 from medre.core.storage.sqlite.query import _build_query_sql
 from medre.core.storage.sqlite.serde import _row_to_outbox_item, _row_to_relation
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -200,8 +200,7 @@ class TestExecutorLifecycle:
 
         monkeypatch.setattr(sqlite_storage_module, "sync_close", _slow_close)
         task = asyncio.create_task(s.close())
-        while not entered.is_set():
-            await asyncio.sleep(0)
+        assert await asyncio.to_thread(entered.wait, 2)
 
         task.cancel()
         await asyncio.sleep(0)
@@ -232,8 +231,7 @@ class TestExecutorLifecycle:
         failing = _FailingConn()
         s._db = failing  # type: ignore[assignment]
         task = asyncio.create_task(s.close())
-        while not entered.is_set():
-            await asyncio.sleep(0)
+        assert await asyncio.to_thread(entered.wait, 2)
 
         task.cancel()
         release.set()
@@ -263,8 +261,7 @@ class TestExecutorLifecycle:
 
         monkeypatch.setattr(ThreadPoolExecutor, "shutdown", _slow_shutdown)
         task = asyncio.create_task(s.close())
-        while not entered.is_set():
-            await asyncio.sleep(0)
+        assert await asyncio.to_thread(entered.wait, 2)
 
         task.cancel()
         await asyncio.sleep(0)

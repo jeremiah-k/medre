@@ -90,6 +90,8 @@ call:
 4. Clears `_executor` and joins it with
    `asyncio.to_thread(executor.shutdown, wait=True)` so worker-thread teardown
    does not block the event loop.
+5. Defers `CancelledError` until steps 3 and 4 finish. The cancellation is then
+   re-raised, or attached as `__cause__` of a close or shutdown error.
 
 **Logging.** The `close()` method itself emits no logs. Debug-level logging
 appears only in the error-recovery path if `close()` itself fails during a

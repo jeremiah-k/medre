@@ -376,20 +376,11 @@ class _SQLiteStorageBase:
                 close_future = loop.run_in_executor(
                     executor, sync_close, db, self._lock
                 )
-                while not close_future.done():
-                    try:
-                        await asyncio.shield(close_future)
-                    except asyncio.CancelledError as exc:
-                        if deferred_cancel is None:
-                            deferred_cancel = exc
-                    except BaseException as exc:
-                        close_error = exc
-                        break
-                if close_error is None:
-                    try:
-                        close_future.result()
-                    except BaseException as exc:
-                        close_error = exc
+                close_error, cancelled = await self._await_deferring_cancel(
+                    close_future
+                )
+                if deferred_cancel is None:
+                    deferred_cancel = cancelled
                 if close_error is not None:
                     self._db = db
                     self._closed = False
@@ -399,20 +390,11 @@ class _SQLiteStorageBase:
                 shutdown_future = asyncio.ensure_future(
                     asyncio.to_thread(executor.shutdown, wait=True)
                 )
-                while not shutdown_future.done():
-                    try:
-                        await asyncio.shield(shutdown_future)
-                    except asyncio.CancelledError as exc:
-                        if deferred_cancel is None:
-                            deferred_cancel = exc
-                    except BaseException as exc:
-                        shutdown_error = exc
-                        break
-                if shutdown_error is None:
-                    try:
-                        shutdown_future.result()
-                    except BaseException as exc:
-                        shutdown_error = exc
+                shutdown_error, cancelled = await self._await_deferring_cancel(
+                    shutdown_future
+                )
+                if deferred_cancel is None:
+                    deferred_cancel = cancelled
 
         if close_error is not None:
             if deferred_cancel is not None:
@@ -424,6 +406,29 @@ class _SQLiteStorageBase:
             raise shutdown_error
         if deferred_cancel is not None:
             raise deferred_cancel
+
+    @staticmethod
+    async def _await_deferring_cancel(
+        future: asyncio.Future[Any],
+    ) -> tuple[BaseException | None, asyncio.CancelledError | None]:
+        """Await *future* to completion while deferring caller cancellation."""
+        deferred: asyncio.CancelledError | None = None
+        error: BaseException | None = None
+        while not future.done():
+            try:
+                await asyncio.shield(future)
+            except asyncio.CancelledError as exc:
+                if deferred is None:
+                    deferred = exc
+            except BaseException as exc:
+                error = exc
+                break
+        if error is None:
+            try:
+                future.result()
+            except BaseException as exc:
+                error = exc
+        return error, deferred
 
     # -- Read / write primitives --------------------------------------------
 

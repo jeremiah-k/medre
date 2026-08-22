@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import msgspec
 import pytest
@@ -427,7 +428,7 @@ async def test_missing_checkpoint_and_missing_existing_work_return_expected_resu
 
 
 async def test_single_driver_admits_deduplicates_claims_and_checkpoints(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     storage = SQLiteStorage(str(tmp_path / "medre.db"))
     await storage.initialize()
@@ -474,7 +475,7 @@ async def test_single_driver_admits_deduplicates_claims_and_checkpoints(
 
 
 async def test_single_driver_deduplicates_canonical_id_and_repairs_work(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     storage = SQLiteStorage(str(tmp_path / "medre.db"))
     await storage.initialize()
@@ -499,7 +500,7 @@ async def test_single_driver_deduplicates_canonical_id_and_repairs_work(
 
 
 async def test_single_driver_rolls_back_admission_and_wraps_rowcount_errors(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     storage = SQLiteStorage(str(tmp_path / "medre.db"))
     await storage.initialize()
@@ -529,7 +530,7 @@ async def test_single_driver_rolls_back_admission_and_wraps_rowcount_errors(
         await storage.close()
 
 
-async def test_single_driver_wraps_checkpoint_and_claim_errors(tmp_path) -> None:
+async def test_single_driver_wraps_checkpoint_and_claim_errors(tmp_path: Path) -> None:
     checkpoint_storage = SQLiteStorage(str(tmp_path / "checkpoint.db"))
     await checkpoint_storage.initialize()
     try:

@@ -17,46 +17,46 @@ from tests.helpers.storage_outbox import make_outbox_item as _make_outbox_item
 # ===================================================================
 
 
-class TestTransactionRollback:
+async def test_rollback_after_mid_transaction_error(
+    outbox_temp_storage: SQLiteStorage,
+) -> None:
     """Outbox creation rolls back a failed explicit transaction."""
+    real_db = outbox_temp_storage._require_db()
 
-    async def test_rollback_after_mid_transaction_error(
-        self, outbox_temp_storage: SQLiteStorage
-    ) -> None:
-        real_db = outbox_temp_storage._require_db()
+    class _FailingConnection:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.rollback_called = False
 
-        class _FailingConnection:
-            def __init__(self) -> None:
-                self.calls = 0
-                self.rollback_called = False
-
-            def execute(self, statement: str, params: tuple[object, ...] = ()):
-                self.calls += 1
-                if self.calls == 2:
-                    raise RuntimeError("injected mid-transaction error")
-                return real_db.execute(statement, params)
-
-            def commit(self) -> None:
-                real_db.commit()
-
-            def rollback(self) -> None:
+        def execute(self, statement: str, params: tuple[object, ...] = ()):
+            if statement == "ROLLBACK":
                 self.rollback_called = True
-                real_db.rollback()
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("injected mid-transaction error")
+            return real_db.execute(statement, params)
 
-        failing = _FailingConnection()
-        outbox_temp_storage._db = failing  # type: ignore[assignment]
-        item = _make_outbox_item(delivery_plan_id="plan-txn-rollback")
-        try:
-            with pytest.raises(RuntimeError, match="injected mid-transaction"):
-                await outbox_temp_storage.create_outbox_item(item)
-        finally:
-            outbox_temp_storage._db = real_db
+        def commit(self) -> None:
+            real_db.commit()
 
-        assert failing.rollback_called is True
-        recovery = _make_outbox_item(delivery_plan_id="plan-txn-recovery")
-        await outbox_temp_storage.create_outbox_item(recovery)
-        fetched = await outbox_temp_storage.get_outbox_item(recovery.outbox_id)
-        assert fetched is not None
+        def rollback(self) -> None:
+            self.rollback_called = True
+            real_db.rollback()
+
+    failing = _FailingConnection()
+    outbox_temp_storage._db = failing  # type: ignore[assignment]
+    item = _make_outbox_item(delivery_plan_id="plan-txn-rollback")
+    try:
+        with pytest.raises(RuntimeError, match="injected mid-transaction"):
+            await outbox_temp_storage.create_outbox_item(item)
+    finally:
+        outbox_temp_storage._db = real_db
+
+    assert failing.rollback_called is True
+    recovery = _make_outbox_item(delivery_plan_id="plan-txn-recovery")
+    await outbox_temp_storage.create_outbox_item(recovery)
+    fetched = await outbox_temp_storage.get_outbox_item(recovery.outbox_id)
+    assert fetched is not None
 
 
 # ===================================================================
