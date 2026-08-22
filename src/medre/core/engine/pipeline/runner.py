@@ -36,7 +36,6 @@ from medre.core.engine.phases import PipelinePhase
 from medre.core.engine.pipeline.delivery_coordinator import (
     DeliveryCoordinator,
     InflightDelivery,
-    _bounded_ordered_map,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
@@ -288,7 +287,6 @@ class PipelineRunner:
         self._middleware: _PipelineLoggingMiddleware | None = None
         self._route_stats: RouteStats | None = config.route_stats
         self._runtime_accounting: RuntimeAccounting | None = config.runtime_accounting
-        self._capacity_controller: CapacityController | None = None
         self._delivery_rejection_count: int = 0
         self._inflight_deliveries: dict[str, InflightDelivery] = {}
         self._delivery_coordinator = DeliveryCoordinator(
@@ -445,7 +443,6 @@ class PipelineRunner:
         accepted target delivery and owns its release across outbox creation,
         execution, finalization failure, and cancellation.
         """
-        self._capacity_controller = cc
         self._delivery_coordinator.set_capacity_controller(cc)
 
     def _record_delivery_capacity_rejection(self) -> None:
@@ -1365,7 +1362,7 @@ class PipelineRunner:
             One :class:`DeliveryOutcome` per target, preserving the
             order of *route_targets*.
         """
-        # Per-target capacity acquire/release happens inside _deliver_single_target().
+        # Per-target capacity acquire/release is owned by DeliveryCoordinator.
         return await self._deliver_to_targets_fan_out(
             event,
             route_targets,

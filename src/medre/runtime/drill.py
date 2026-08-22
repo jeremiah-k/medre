@@ -757,7 +757,7 @@ async def _drill_capacity_rejection(
         await small_cc._delivery_sem.acquire()
         small_cc._delivery_current = 1
         app._capacity_controller = small_cc
-        app.pipeline_runner._capacity_controller = small_cc
+        app.pipeline_runner.set_capacity_controller(small_cc)
         steps.append(_step("exhaust_capacity", "ok", delivery_limit=1))
 
         source_aid, source_adapter = _pick_source_adapter(app)

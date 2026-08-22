@@ -196,7 +196,7 @@ async def _inject_scenario(
         await small_cc._delivery_sem.acquire()
         small_cc._delivery_current = 1
         app._capacity_controller = small_cc
-        app.pipeline_runner._capacity_controller = small_cc
+        app.pipeline_runner.set_capacity_controller(small_cc)
 
     elif scenario == "degraded_live_health":
         target_aid = None

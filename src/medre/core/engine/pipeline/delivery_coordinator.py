@@ -702,6 +702,9 @@ class DeliveryCoordinator:
         replay_receipts: list[DeliveryReceipt],
         outbox_ctx: OutboxContext,
     ) -> _ExecutionResult:
+        status: Literal[
+            "success", "queued", "transient_failure", "permanent_failure"
+        ]
         try:
             if self._runtime_accounting is not None:
                 self._runtime_accounting.record_outbound_attempt()
@@ -722,9 +725,7 @@ class DeliveryCoordinator:
                 self._route_stats.record_delivered(ctx.route.id)
             if self._runtime_accounting is not None:
                 self._runtime_accounting.record_outbound_delivered()
-            status: Literal["success", "queued"] = (
-                "queued" if receipt.status == "queued" else "success"
-            )
+            status = "queued" if receipt.status == "queued" else "success"
             outcome = self._build_outcome(
                 ctx,
                 status=status,
@@ -747,13 +748,16 @@ class DeliveryCoordinator:
                 )
             else:
                 failure_kind = DeliveryFailureKind.ADAPTER_TRANSIENT
-            status: Literal["transient_failure", "permanent_failure"] = (
-                "transient_failure" if failure_kind.is_retryable else "permanent_failure"
+            status = (
+                "transient_failure"
+                if failure_kind.is_retryable
+                else "permanent_failure"
             )
             outcome = self._build_outcome(
                 ctx,
                 status=status,
                 failure_kind=failure_kind,
+                receipt=exc.receipt,
                 error=exc.error,
             )
             return _ExecutionResult(outcome, exc.receipt, failure_kind, exc.error)
@@ -768,6 +772,7 @@ class DeliveryCoordinator:
                 ctx,
                 status="permanent_failure",
                 failure_kind=failure_kind,
+                receipt=exc.receipt,
                 error=exc.error,
             )
             return _ExecutionResult(outcome, exc.receipt, failure_kind, exc.error)
@@ -779,7 +784,7 @@ class DeliveryCoordinator:
                 exc,
                 adapter_registered=(ctx.adapter_id in self._adapters),
             )
-            status: Literal["transient_failure", "permanent_failure"] = (
+            status = (
                 "transient_failure"
                 if failure_kind.is_retryable
                 else "permanent_failure"

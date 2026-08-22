@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 
 import pytest
 
@@ -16,10 +17,11 @@ from medre.core.supervision.capacity import CapacityController
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 
+@dataclass(frozen=True)
 class _Limits:
-    max_inflight_deliveries = 1
-    max_inflight_replay_events = 1
-    delivery_acquire_timeout_seconds = 1.0
+    max_inflight_deliveries: int = 1
+    max_inflight_replay_events: int = 1
+    delivery_acquire_timeout_seconds: float = 1.0
 
 
 class _Adapter:
