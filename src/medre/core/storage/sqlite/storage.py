@@ -1,9 +1,9 @@
 """SQLite-backed storage backend for the medre.
 
-Uses *aiosqlite* when available for native async database access; otherwise
-falls back to synchronous ``sqlite3`` dispatched through a private
-``ThreadPoolExecutor``.  The database runs in WAL mode for safe concurrent
-reads.
+Uses the standard-library ``sqlite3`` driver behind a private single-worker
+``ThreadPoolExecutor`` so the public storage API remains asynchronous without
+maintaining a second SQLite implementation.  The database runs in WAL mode for
+safe concurrent reads.
 
 Storage authority summary:
   - canonical_events: **create** (append-only ingress facts).
@@ -48,6 +48,7 @@ from medre.core.storage.sqlite._outbox import _OutboxMixin
 from medre.core.storage.sqlite._receipt import _ReceiptMixin
 from medre.core.storage.sqlite._relation import _RelationMixin
 from medre.core.storage.sqlite.connection import (
+    sync_close,
     sync_create_indexes,
     sync_open,
     sync_open_readonly,
@@ -60,19 +61,9 @@ from medre.core.storage.sqlite.connection import (
 )
 from medre.core.storage.sqlite.schema import (
     _EXPECTED_SCHEMA_VERSION,
-    _INDEXES,
     _REQUIRED_COLUMNS,
     _REQUIRED_FOREIGN_KEYS,
-    _SCHEMA,
 )
-
-try:
-    import aiosqlite  # type: ignore[import-untyped]
-
-    _HAS_AIOSQLITE: bool = True
-except ImportError:
-    aiosqlite = None  # type: ignore[assignment]
-    _HAS_AIOSQLITE = False
 
 logger = logging.getLogger(__name__)
 
@@ -92,15 +83,8 @@ class _SQLiteStorageBase:
 
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
-        # The underlying connection is either an aiosqlite.Connection or a
-        # plain sqlite3.Connection, depending on whether aiosqlite is
-        # available.  We keep the type as ``Any`` because the two
-        # connection types are not related and every public method
-        # dispatches on ``_use_aiosqlite`` before calling async/sync APIs.
-        self._db: Any = None
+        self._db: sqlite3.Connection | None = None
         self._lock = threading.Lock()
-        self._async_write_lock = asyncio.Lock()
-        self._use_aiosqlite = _HAS_AIOSQLITE
         self._executor: ThreadPoolExecutor | None = None
         self._closed: bool = False
 
@@ -112,13 +96,6 @@ class _SQLiteStorageBase:
             raise RuntimeError("SQLiteStorage is closed.")
         executor = self._executor
         if executor is None:
-            if self._db is None and self._use_aiosqlite:
-                # aiosqlite path never needs the executor; raise if called
-                # before initialize() or after close().
-                raise RuntimeError(
-                    "SQLiteStorage private executor is closed. "
-                    "Cannot dispatch work after close()."
-                )
             executor = ThreadPoolExecutor(max_workers=1)
             self._executor = executor
         loop = asyncio.get_running_loop()
@@ -126,7 +103,7 @@ class _SQLiteStorageBase:
             func = functools.partial(func, **kwargs)
         return await loop.run_in_executor(executor, func, *args)
 
-    def _require_db(self) -> Any:
+    def _require_db(self) -> sqlite3.Connection:
         """Return the active connection or raise if not initialised."""
         if self._db is None:
             raise StorageInitializationError(
@@ -160,21 +137,7 @@ class _SQLiteStorageBase:
             raise PreReleaseSchemaMismatchError(
                 path=self._db_path, table=table, missing_columns=missing
             )
-        if self._use_aiosqlite:
-            db = await aiosqlite.connect(self._db_path)  # type: ignore[union-attr]
-            try:
-                db.row_factory = sqlite3.Row
-                await db.executescript(_SCHEMA)
-                await db.execute("PRAGMA journal_mode=WAL")
-                await db.execute("PRAGMA busy_timeout=5000")
-                await db.execute("PRAGMA foreign_keys=ON")
-                await db.commit()
-            except BaseException:
-                await db.close()
-                raise
-            self._db = db
-        else:
-            self._db = await self._run_in_thread(sync_open, self._db_path)
+        self._db = await self._run_in_thread(sync_open, self._db_path)
 
         try:
             # Verify schema version after DDL.
@@ -292,11 +255,7 @@ class _SQLiteStorageBase:
         databases raise :class:`StorageInitializationError` *before*
         any index DDL references columns that may not exist.
         """
-        if self._use_aiosqlite:
-            await self._db.executescript(_INDEXES)  # type: ignore[union-attr]
-            await self._db.commit()  # type: ignore[union-attr]
-        else:
-            await self._run_in_thread(sync_create_indexes, self._require_db())
+        await self._run_in_thread(sync_create_indexes, self._require_db())
 
     @classmethod
     async def open_readonly(cls, db_path: str) -> SQLiteStorage:
@@ -319,27 +278,9 @@ class _SQLiteStorageBase:
             )
 
         instance = cls(db_path)
-
-        if instance._use_aiosqlite:
-            db = await aiosqlite.connect(  # type: ignore[union-attr]
-                f"file:{db_path}?mode=ro",
-                uri=True,
-            )
-            try:
-                db.row_factory = (
-                    sqlite3.Row
-                )  # redundant guard (connect won't fail), mirrors initialize() pattern
-                # Readonly readers must also wait on a busy writer instead of
-                # failing instantly — matches the write-path pragma.
-                await db.execute("PRAGMA busy_timeout=5000")
-            except BaseException:
-                await db.close()
-                raise
-            instance._db = db
-        else:
-            instance._db = await instance._run_in_thread(
-                sync_open_readonly, instance._db_path
-            )
+        instance._db = await instance._run_in_thread(
+            sync_open_readonly, instance._db_path
+        )
 
         try:
             # Validate metadata and shape without writing anything.
@@ -406,115 +347,47 @@ class _SQLiteStorageBase:
             )
 
     async def close(self) -> None:
-        """Close the underlying database connection and release resources.
+        """Close the SQLite connection and private executor.
 
-        Idempotent — safe to call multiple times.  Sets ``_closed`` early
-        as a race-safety gate to prevent concurrent-close races; restored
-        to ``False`` if the close I/O fails so a later ``close()`` can
-        retry.  The aiosqlite close is wrapped in an explicit task and
-        shielded so that a stray ``CancelledError`` delivered at this
-        await checkpoint (e.g. from caller cancellation or an external
-        ``CancelledError``) does not abort the close before aiosqlite's
-        internal thread is joined — which would leave the connection
-        half-closed and trigger ``ResourceWarning:
-        <aiosqlite.core.Connection ...> was deleted before being closed``
-        on ``__del__``.
-
-        The private executor is shut down via ``asyncio.to_thread`` with
-        ``wait=True`` to fully join worker threads without blocking the
-        event loop.
+        Idempotent — safe to call multiple times.  ``_closed`` is set before
+        I/O so concurrent callers cannot dispatch new work while shutdown is
+        in progress.  Connection close runs on the same private executor used
+        for SQLite operations.  If outer task cancellation arrives while that
+        close is running, the close is allowed to finish before cancellation
+        is re-raised.  A close failure restores state so a later call can retry.
         """
-        # Mark closed defensively *before* any I/O so that concurrent
-        # callers see the closed flag immediately and do not race.
         if self._closed:
             return
         self._closed = True
 
+        db = self._db
+        executor = self._executor
+        if db is not None and executor is None:
+            executor = ThreadPoolExecutor(max_workers=1)
+            self._executor = executor
         try:
-            db = self._db
             if db is not None:
-                # Clear the reference *before* the await so concurrent
-                # callers see _db as None and return early rather than
-                # racing to close the same connection.
+                assert executor is not None
                 self._db = None
-                if self._use_aiosqlite:
-                    # Run the close on an explicit task with a strong
-                    # reference held by a local binding.  ``asyncio.shield``
-                    # then protects the await from being interrupted by a
-                    # stray CancelledError, while the local binding keeps
-                    # the task alive for the duration of the close.
-                    close_task = asyncio.create_task(db.close())
+                loop = asyncio.get_running_loop()
+                close_future = loop.run_in_executor(
+                    executor, sync_close, db, self._lock
+                )
+                try:
+                    await asyncio.shield(close_future)
+                except asyncio.CancelledError as original_cancel:
                     try:
-                        await asyncio.shield(close_task)
-                        # Yield once so aiosqlite's worker thread can deliver
-                        # any pending call_soon_threadsafe callbacks while
-                        # the event loop is still alive.  Without this,
-                        # SystemExit-triggered loop teardown can close the
-                        # loop before the thread finishes, causing
-                        # PytestUnhandledThreadExceptionWarning.
-                        await asyncio.sleep(0)
-                    except asyncio.CancelledError as orig_cancelled:
-                        # Outer cancellation arrived after the close had
-                        # already started; let the close finish so aiosqlite
-                        # can join its internal thread, then re-raise so the
-                        # caller's exception flow continues.
-                        try:
-                            await close_task
-                        except asyncio.CancelledError:
-                            # If the close task itself was cancelled, the
-                            # database did not close.  Restore state so a
-                            # later close() can retry, then propagate the
-                            # original cancellation.
-                            self._db = db
-                            self._closed = False
-                            raise orig_cancelled from None
-                        except BaseException as close_exc:
-                            # If the close task raises a non-cancellation
-                            # exception, we must restore _db so a later
-                            # close() can retry, and then re-raise the
-                            # close failure. The caller's cancellation
-                            # request is superseded by the actual close
-                            # failure, which is more informative and
-                            # prevents silent resource leaks.
-                            self._db = db
-                            self._closed = False
-                            raise close_exc from orig_cancelled
-                        raise orig_cancelled
-                    except BaseException:
-                        # On any non-cancellation failure, ensure the close
-                        # task is awaited so we don't leak it.  Widen the
-                        # inner ``except`` to ``BaseException`` so
-                        # ``KeyboardInterrupt`` / ``SystemExit`` cannot
-                        # replace the triggering exception with a new
-                        # one.
-                        if not close_task.done():
-                            try:
-                                await close_task
-                            except BaseException:
-                                pass
-                        # Restore ``_db`` so a later ``close()`` can
-                        # retry.  The close task is either already done
-                        # (its exception was raised through the shield)
-                        # or is awaited above and any further exception
-                        # suppressed because we are about to re-raise
-                        # the original.
+                        await close_future
+                    except BaseException as close_exc:
                         self._db = db
                         self._closed = False
-                        raise
-                else:
-                    try:
-                        with self._lock:
-                            db.close()
-                    except BaseException:
-                        # Restore _db and _closed so a later close()
-                        # can retry.
-                        self._db = db
-                        self._closed = False
-                        raise
+                        raise close_exc from original_cancel
+                    raise original_cancel
+                except BaseException:
+                    self._db = db
+                    self._closed = False
+                    raise
         finally:
-            # Always shut down and clear the executor, even if DB close
-            # raised an exception.
-            executor = self._executor
             if executor is not None:
                 self._executor = None
                 await asyncio.to_thread(executor.shutdown, wait=True)
@@ -525,19 +398,7 @@ class _SQLiteStorageBase:
         """Execute a single write statement and commit."""
         db = self._require_db()
         try:
-            if self._use_aiosqlite:
-                async with self._async_write_lock:
-                    try:
-                        await db.execute(sql, params)
-                        await db.commit()
-                    except BaseException:
-                        try:
-                            await db.rollback()
-                        except Exception:
-                            pass
-                        raise
-            else:
-                await self._run_in_thread(sync_write, db, self._lock, sql, params)
+            await self._run_in_thread(sync_write, db, self._lock, sql, params)
         except sqlite3.Error as exc:
             raise StorageError(f"Database write failed: {exc}") from exc
 
@@ -547,19 +408,6 @@ class _SQLiteStorageBase:
         """Execute one write and return its affected-row count."""
         db = self._require_db()
         try:
-            if self._use_aiosqlite:
-                async with self._async_write_lock:
-                    try:
-                        async with db.execute(sql, params) as cursor:
-                            changed = int(cursor.rowcount)
-                        await db.commit()
-                        return changed
-                    except BaseException:
-                        try:
-                            await db.rollback()
-                        except Exception:
-                            pass
-                        raise
             return await self._run_in_thread(
                 sync_write_rowcount, db, self._lock, sql, params
             )
@@ -567,37 +415,12 @@ class _SQLiteStorageBase:
             raise StorageError(f"Database write failed: {exc}") from exc
 
     async def _write_batch(self, ops: list[tuple[str, tuple[Any, ...]]]) -> None:
-        """Execute multiple write statements in one transaction and commit.
-
-        Atomicity is explicit on both code paths: the aiosqlite branch
-        issues ``BEGIN IMMEDIATE`` before the loop (so atomicity no
-        longer depends on the connection's legacy implicit-transaction
-        behaviour under ``isolation_level=""``) and the sync branch
-        delegates to :func:`connection.sync_write_batch` which wraps
-        the loop in ``BEGIN IMMEDIATE`` inside the write lock.
-        """
+        """Execute multiple writes in one explicit transaction and commit."""
         db = self._require_db()
         try:
-            if self._use_aiosqlite:
-                async with self._async_write_lock:
-                    try:
-                        await db.execute("BEGIN IMMEDIATE")  # type: ignore[union-attr]
-                        for sql, params in ops:
-                            await db.execute(sql, params)  # type: ignore[union-attr]
-                        await db.commit()
-                    except BaseException:
-                        try:
-                            await db.rollback()  # type: ignore[union-attr]
-                        except Exception:
-                            pass
-                        raise
-            else:
-                await self._run_in_thread(sync_write_batch, db, self._lock, ops)
+            await self._run_in_thread(sync_write_batch, db, self._lock, ops)
         except sqlite3.IntegrityError as exc:
             msg = str(exc)
-            # Only raise DuplicateEventError for canonical_events PK/UNIQUE
-            # violations.  Other IntegrityErrors (FK violations, etc.) are
-            # raised as generic StorageError.
             if "canonical_events" in msg and (
                 "UNIQUE constraint failed" in msg or "PRIMARY KEY" in msg.upper()
             ):
@@ -612,14 +435,9 @@ class _SQLiteStorageBase:
         """Execute a read and return the first row as a dict, or ``None``."""
         db = self._require_db()
         try:
-            if self._use_aiosqlite:
-                async with db.execute(sql, params) as cur:
-                    row = await cur.fetchone()
-                return dict(row) if row else None
-            else:
-                return await self._run_in_thread(
-                    sync_read_one, db, self._lock, sql, params
-                )
+            return await self._run_in_thread(
+                sync_read_one, db, self._lock, sql, params
+            )
         except sqlite3.Error as exc:
             raise StorageError(f"Database read failed: {exc}") from exc
 
@@ -629,14 +447,9 @@ class _SQLiteStorageBase:
         """Execute a read and return all rows as dicts."""
         db = self._require_db()
         try:
-            if self._use_aiosqlite:
-                async with db.execute(sql, params) as cur:
-                    rows = await cur.fetchall()
-                return [dict(r) for r in rows]
-            else:
-                return await self._run_in_thread(
-                    sync_read_all, db, self._lock, sql, params
-                )
+            return await self._run_in_thread(
+                sync_read_all, db, self._lock, sql, params
+            )
         except sqlite3.Error as exc:
             raise StorageError(f"Database read failed: {exc}") from exc
 
@@ -670,9 +483,8 @@ class SQLiteStorage(
 
     Notes
     -----
-    * Prefers *aiosqlite* for native async database access.  When *aiosqlite*
-      is not installed the implementation falls back to synchronous
-      ``sqlite3`` dispatched through a private ``ThreadPoolExecutor``.
+    * Uses ``sqlite3`` through a private single-worker ``ThreadPoolExecutor``.
+      The async API never changes implementation based on ambient packages.
     * The database is opened in WAL mode for safe concurrent reads.
     * All public methods are async and require ``initialize()`` to have been
       called first.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import msgspec
 import pytest
 
 from medre.core.events import DeliveryReceipt, NativeMessageRef
@@ -87,6 +88,53 @@ def _sent_evidence(
         created_at=now,
     )
     return native_ref, sent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (
+        "native_updates",
+        "receipt_updates",
+        "outbox_id",
+        "attempt_number",
+        "message",
+    ),
+    [
+        ({"direction": "inbound"}, {}, OUTBOX_ID, 1, "outbound native ref"),
+        ({}, {"status": "failed"}, OUTBOX_ID, 1, "sent receipt"),
+        ({"event_id": "evt-other"}, {}, OUTBOX_ID, 1, "event_id must match"),
+        ({"adapter": "other"}, {}, OUTBOX_ID, 1, "adapter must match"),
+        (
+            {"native_message_id": "pkt-other"},
+            {},
+            OUTBOX_ID,
+            1,
+            "native_message_id must match",
+        ),
+        ({}, {"outbox_id": "obox-other"}, OUTBOX_ID, 1, "outbox_id must match"),
+        ({}, {"attempt_number": 2}, OUTBOX_ID, 1, "attempt_number must match"),
+        ({}, {"attempt_number": 0}, OUTBOX_ID, 0, "attempt_number must be >= 1"),
+    ],
+)
+async def test_finalize_queued_delivery_rejects_invalid_evidence(
+    temp_storage: SQLiteStorage,
+    native_updates: dict[str, object],
+    receipt_updates: dict[str, object],
+    outbox_id: str,
+    attempt_number: int,
+    message: str,
+) -> None:
+    native_ref, sent = _sent_evidence()
+    candidate_ref = msgspec.structs.replace(native_ref, **native_updates)
+    candidate_receipt = msgspec.structs.replace(sent, **receipt_updates)
+
+    with pytest.raises(ValueError, match=message):
+        await temp_storage.finalize_queued_delivery(
+            candidate_ref,
+            candidate_receipt,
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+        )
 
 
 @pytest.mark.asyncio

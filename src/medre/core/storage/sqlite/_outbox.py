@@ -53,8 +53,8 @@ class _OutboxMixin:
     """Delivery outbox methods for SQLiteStorage.
 
     Accesses ``self._read_one``, ``self._read_all``, ``self._write``,
-    ``self._run_in_thread``, ``self._require_db``, ``self._async_write_lock``,
-    and ``self._lock`` from the base class via MRO.
+    ``self._run_in_thread``, ``self._require_db``, and ``self._lock`` from the
+    base class via MRO.
     """
 
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
@@ -153,114 +153,31 @@ class _OutboxMixin:
             meta_json,
         )
 
-        if self._use_aiosqlite:
-            async with self._async_write_lock:
-                db = self._require_db()
-                try:
-                    await db.execute("BEGIN IMMEDIATE")  # type: ignore[union-attr]
-                    # SELECT existing
-                    async with db.execute(select_sql, select_params) as cur:  # type: ignore[union-attr]
-                        row = await cur.fetchone()
-                    if row is not None:
-                        existing = dict(row)
-                        if existing["status"] in _reclaimable:
-                            # Reclaim is safe under the new policy: effective_status is pending or in_progress.
-                            # Re-claim: update status, worker, and lease
-                            # so the pipeline always gets an in_progress
-                            # row with a valid lease for finalization.
-                            # Clear next_attempt_at since the item is no
-                            # longer waiting for a scheduled retry.
-                            await db.execute(  # type: ignore[union-attr]
-                                """UPDATE delivery_outbox
-                                   SET status = ?, worker_id = ?,
-                                       locked_at = ?, lease_until = ?,
-                                       updated_at = ?,
-                                       next_attempt_at = NULL
-                                   WHERE outbox_id = ?""",
-                                (
-                                    effective_status,
-                                    item.worker_id,
-                                    _ensure_iso(item.locked_at),
-                                    _ensure_iso(item.lease_until),
-                                    now,
-                                    existing["outbox_id"],
-                                ),
-                            )
-                            await db.execute("COMMIT")  # type: ignore[union-attr]
-                            return (
-                                await self.get_outbox_item(existing["outbox_id"])
-                                or item
-                            )
-                        # Terminal or active (in_progress or queued) —
-                        # return unchanged.  Terminal rows are immutable
-                        # for lifecycle purposes; a new delivery after
-                        # terminal state must use a new attempt identity.
-                        # Active rows must not be stolen.
-                        await db.execute("COMMIT")  # type: ignore[union-attr]
-                        return await self.get_outbox_item(existing["outbox_id"]) or item
-                    await db.execute(insert_sql, insert_params)  # type: ignore[union-attr]
-                    await db.execute("COMMIT")  # type: ignore[union-attr]
-                except sqlite3.IntegrityError as exc:
-                    msg = str(exc)
-                    if "FOREIGN KEY" in msg:
-                        # FK violation (e.g. unknown event_id).  Roll back
-                        # the open transaction and surface as StorageError so
-                        # callers see the storage-domain error class.
-                        try:
-                            await db.execute("ROLLBACK")  # type: ignore[union-attr]
-                        except Exception:
-                            pass
-                        raise StorageError(
-                            f"Outbox create failed: {exc}"
-                        ) from exc
-                    # UNIQUE race: another writer inserted between our SELECT
-                    # and INSERT.  Rollback if the transaction is still active,
-                    # then re-read the winning row.
-                    try:
-                        await db.execute("ROLLBACK")  # type: ignore[union-attr]
-                    except Exception:
-                        pass
-                    existing = await self._read_one(select_sql, select_params)
-                    if existing is not None:
-                        return await self.get_outbox_item(existing["outbox_id"]) or item
-                    raise
-                except BaseException:
-                    # Ensure the transaction is rolled back on any other failure
-                    # (e.g. operational error between BEGIN and COMMIT) so the
-                    # connection is not left with an open transaction.
-                    try:
-                        await db.execute("ROLLBACK")  # type: ignore[union-attr]
-                    except Exception:
-                        pass
-                    raise
-        else:
-            try:
-                existing_id = await self._run_in_thread(
-                    self._sync_atomic_create_outbox,
-                    self._require_db(),
-                    select_sql,
-                    select_params,
-                    insert_sql,
-                    insert_params,
-                    _reclaimable,
-                    reclaim_status=effective_status,
-                    reclaim_worker_id=item.worker_id,
-                    reclaim_locked_at=_ensure_iso(item.locked_at),
-                    reclaim_lease_until=_ensure_iso(item.lease_until),
-                    reclaim_now=now,
-                )
-                if existing_id is not None:
-                    return await self.get_outbox_item(existing_id) or item
-            except sqlite3.IntegrityError as exc:
-                msg = str(exc)
-                if "FOREIGN KEY" in msg:
-                    raise StorageError(
-                        f"Outbox create failed: {exc}"
-                    ) from exc
-                existing = await self._read_one(select_sql, select_params)
-                if existing is not None:
-                    return await self.get_outbox_item(existing["outbox_id"]) or item
-                raise
+        try:
+            existing_id = await self._run_in_thread(
+                self._sync_atomic_create_outbox,
+                self._require_db(),
+                select_sql,
+                select_params,
+                insert_sql,
+                insert_params,
+                _reclaimable,
+                reclaim_status=effective_status,
+                reclaim_worker_id=item.worker_id,
+                reclaim_locked_at=_ensure_iso(item.locked_at),
+                reclaim_lease_until=_ensure_iso(item.lease_until),
+                reclaim_now=now,
+            )
+            if existing_id is not None:
+                return await self.get_outbox_item(existing_id) or item
+        except sqlite3.IntegrityError as exc:
+            msg = str(exc)
+            if "FOREIGN KEY" in msg:
+                raise StorageError(f"Outbox create failed: {exc}") from exc
+            existing = await self._read_one(select_sql, select_params)
+            if existing is not None:
+                return await self.get_outbox_item(existing["outbox_id"]) or item
+            raise
 
         return await self.get_outbox_item(item.outbox_id) or item
 

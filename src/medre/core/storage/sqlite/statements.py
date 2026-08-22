@@ -1,8 +1,8 @@
 """Prepared SQL statement strings for the SQLite storage backend.
 
 Every statement is a module-level constant.  Parameter placeholders use
-``?`` (qmark style) for use with the Python ``sqlite3`` / ``aiosqlite``
-parameterised execution APIs.
+``?`` (qmark style) for use with the Python ``sqlite3`` parameterised
+execution APIs.
 """
 
 from __future__ import annotations

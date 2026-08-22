@@ -1,15 +1,9 @@
-"""Tests covering uncovered branches in storage/sqlite/_outbox.py.
-
-Lines 72-73: ValueError on disallowed initial status.
-Lines 135-137: aiosqlite branch - existing reclaimable row found.
-Lines 170-174: aiosqlite branch - non-reclaimable row returned + IntegrityError.
-"""
+"""Focused branch coverage for storage/sqlite/_outbox.py."""
 
 from __future__ import annotations
 
 import sqlite3
 import uuid
-from typing import NoReturn
 
 import pytest
 
@@ -39,21 +33,17 @@ class TestCreateOutboxRejectsDisallowedStatus:
 
 
 # ===================================================================
-# Lines 135-137: aiosqlite existing reclaimable row
+# Existing reclaimable rows
 # ===================================================================
 
 
-class TestAiosqliteExistingReclaimableRow:
-    """In the aiosqlite branch, finding an existing reclaimable row (pending
-    or retry_wait) triggers reclaim rather than returning unchanged."""
+class TestExistingReclaimableRow:
+    """Existing pending/retry_wait rows are reclaimed in place."""
 
     async def test_existing_pending_row_reclaimed(
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Second create with status=in_progress reclaims a pending row."""
-        if not temp_storage._use_aiosqlite:
-            pytest.skip("aiosqlite not available")
-
         item1 = _make_outbox_item(
             delivery_plan_id="plan-cov-135",
             target_channel="ch-cov-135",
@@ -83,9 +73,6 @@ class TestAiosqliteExistingReclaimableRow:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Second create reclaims a retry_wait row (claimable status)."""
-        if not temp_storage._use_aiosqlite:
-            pytest.skip("aiosqlite not available")
-
         item1 = _make_outbox_item(
             delivery_plan_id="plan-cov-135rw",
             target_channel="ch-cov-135rw",
@@ -126,21 +113,17 @@ class TestAiosqliteExistingReclaimableRow:
 
 
 # ===================================================================
-# Lines 170-171: aiosqlite non-reclaimable row returned unchanged
+# Existing active/terminal rows
 # ===================================================================
 
 
-class TestAiosqliteExistingNonReclaimableRow:
-    """In the aiosqlite branch, an existing non-reclaimable row (terminal or
-    active) is returned unchanged via the COMMIT + return path."""
+class TestExistingNonReclaimableRow:
+    """Existing active or terminal rows are returned unchanged."""
 
     async def test_terminal_row_returned_unchanged(
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Sent (terminal) row is returned unchanged on re-create."""
-        if not temp_storage._use_aiosqlite:
-            pytest.skip("aiosqlite not available")
-
         item1 = _make_outbox_item(
             delivery_plan_id="plan-cov-170",
             target_channel="ch-cov-170",
@@ -168,9 +151,6 @@ class TestAiosqliteExistingNonReclaimableRow:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """Active in_progress row is not stolen on re-create."""
-        if not temp_storage._use_aiosqlite:
-            pytest.skip("aiosqlite not available")
-
         item1 = _make_outbox_item(
             delivery_plan_id="plan-cov-170ip",
             target_channel="ch-cov-170ip",
@@ -201,84 +181,35 @@ class TestAiosqliteExistingNonReclaimableRow:
 
 
 # ===================================================================
-# Lines 172-174: aiosqlite INSERT + IntegrityError handler
+# UNIQUE race fallback
 # ===================================================================
 
 
-class TestAiosqliteIntegrityErrorHandler:
-    """Exercise the aiosqlite IntegrityError handler (UNIQUE race)."""
+class TestIntegrityErrorHandler:
+    """A UNIQUE race re-reads and returns the winning row."""
 
     async def test_integrity_error_returns_existing_row(
-        self, temp_storage: SQLiteStorage
+        self, temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """When INSERT fails with IntegrityError, the winning row is returned."""
-        if not temp_storage._use_aiosqlite:
-            pytest.skip("aiosqlite not available")
-
-        # Create the winning row.
         item = _make_outbox_item(
             delivery_plan_id="plan-cov-ie",
             target_channel="ch-cov-ie",
         )
         created = await temp_storage.create_outbox_item(item)
-
-        # Build a second item with same key but different outbox_id.
         item2 = DeliveryOutboxItem(
             outbox_id=f"obox-{uuid.uuid4()}",
             event_id=item.event_id,
             route_id=item.route_id,
-            delivery_plan_id="plan-cov-ie",
-            target_adapter="fake_presentation",
-            target_channel="ch-cov-ie",
+            delivery_plan_id=item.delivery_plan_id,
+            target_adapter=item.target_adapter,
+            target_channel=item.target_channel,
             attempt_number=1,
         )
 
-        db = temp_storage._require_db()
-        real_execute = db.execute
-        _insert_attempted = [False]
+        def _raise_unique(*_args: object, **_kwargs: object) -> None:
+            raise sqlite3.IntegrityError("UNIQUE constraint failed")
 
-        class _NoRowCursor:
-            """Mock aiosqlite cursor: fetchone returns None, supports async with."""
+        monkeypatch.setattr(temp_storage, "_sync_atomic_create_outbox", _raise_unique)
+        result = await temp_storage.create_outbox_item(item2)
 
-            async def fetchone(self) -> None:
-                return None
-
-            async def __aenter__(self) -> _NoRowCursor:
-                return self
-
-            async def __aexit__(self, *a: object) -> None:
-                pass
-
-            def __await__(self):  # type: ignore[override]
-                return self.__aenter__().__await__()
-
-        class _InsertErrorCursor:
-            """Mock aiosqlite cursor that raises IntegrityError when awaited."""
-
-            def __await__(self):  # type: ignore[override]
-                return self._raise().__await__()
-
-            async def _raise(self) -> NoReturn:
-                raise sqlite3.IntegrityError("UNIQUE constraint violation")
-
-        def _patched_execute(sql, params=None):
-            # aiosqlite db.execute() returns a cursor synchronously.
-            # INSERT → raise IntegrityError to simulate UNIQUE race.
-            if sql.strip().startswith("INSERT INTO delivery_outbox"):
-                _insert_attempted[0] = True
-                return _InsertErrorCursor()
-            # In-transaction SELECT → pretend no row exists so we reach INSERT.
-            if "SELECT outbox_id, status FROM delivery_outbox" in sql:
-                if not _insert_attempted[0]:
-                    return _NoRowCursor()
-            # Everything else (BEGIN, COMMIT, ROLLBACK, re-read SELECT) → real.
-            return real_execute(sql, params)
-
-        db.execute = _patched_execute
-        try:
-            result = await temp_storage.create_outbox_item(item2)
-        finally:
-            db.execute = real_execute
-
-        assert _insert_attempted[0], "INSERT was never attempted"
         assert result.outbox_id == created.outbox_id

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Generator
 from datetime import UTC, datetime
 
 import msgspec
@@ -11,66 +9,9 @@ import pytest
 
 from medre.core.events import CanonicalEvent, EventRelation, NativeMessageRef, NativeRef
 from medre.core.storage.backend import DuplicateEventError, StorageError
-from medre.core.storage.sqlite.schema import _SCHEMA
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
-
-class _AsyncCursor:
-    def __init__(self, cursor: sqlite3.Cursor) -> None:
-        self._cursor = cursor
-
-    def __await__(self) -> Generator[None, None, _AsyncCursor]:
-        async def _ready() -> _AsyncCursor:
-            return self
-
-        return _ready().__await__()
-
-    async def __aenter__(self) -> _AsyncCursor:
-        return self
-
-    async def __aexit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
-        self._cursor.close()
-
-    @property
-    def rowcount(self) -> int:
-        return self._cursor.rowcount
-
-    async def fetchone(self) -> sqlite3.Row | None:
-        return self._cursor.fetchone()
-
-    async def fetchall(self) -> list[sqlite3.Row]:
-        return self._cursor.fetchall()
-
-
-class _AsyncConnection:
-    def __init__(self, db: sqlite3.Connection, *, fail_rollback: bool = False) -> None:
-        self._db = db
-        self._fail_rollback = fail_rollback
-
-    def execute(self, sql: str, params: tuple[object, ...] = ()) -> _AsyncCursor:
-        return _AsyncCursor(self._db.execute(sql, params))
-
-    async def commit(self) -> None:
-        self._db.commit()
-
-    async def rollback(self) -> None:
-        if self._fail_rollback:
-            raise sqlite3.OperationalError("rollback failed")
-        self._db.rollback()
-
-    async def close(self) -> None:
-        self._db.close()
-
-
-def _async_storage(*, fail_rollback: bool = False) -> SQLiteStorage:
-    db = sqlite3.connect(":memory:")
-    db.row_factory = sqlite3.Row
-    db.executescript(_SCHEMA)
-    storage = SQLiteStorage(":memory:")
-    storage._use_aiosqlite = True
-    storage._db = _AsyncConnection(db, fail_rollback=fail_rollback)
-    return storage
 
 
 def _event(event_id: str, native_id: str) -> CanonicalEvent:
@@ -485,16 +426,19 @@ async def test_missing_checkpoint_and_missing_existing_work_return_expected_resu
         await storage.close()
 
 
-async def test_aiosqlite_path_admits_deduplicates_claims_and_checkpoints() -> None:
-    storage = _async_storage()
+async def test_single_driver_admits_deduplicates_claims_and_checkpoints(
+    tmp_path,
+) -> None:
+    storage = SQLiteStorage(str(tmp_path / "medre.db"))
+    await storage.initialize()
     try:
-        first = _event("evt-async", "$async")
+        first = _event("evt-driver", "$driver")
         created = await storage.admit_ingress(
-            first, _ref(first.event_id, "$async"), "live"
+            first, _ref(first.event_id, "$driver"), "live"
         )
-        replay = _event("evt-async-redecoded", "$async")
+        replay = _event("evt-driver-redecoded", "$driver")
         duplicate = await storage.admit_ingress(
-            replay, _ref(replay.event_id, "$async"), "recovered"
+            replay, _ref(replay.event_id, "$driver"), "recovered"
         )
 
         assert created.created is True
@@ -508,32 +452,35 @@ async def test_aiosqlite_path_admits_deduplicates_claims_and_checkpoints() -> No
         assert checkpoint is not None and checkpoint.cursor == "s1"
 
         [item] = await storage.claim_ingress_work(
-            worker_id="async-worker", limit=1, lease_seconds=30
+            worker_id="driver-worker", limit=1, lease_seconds=30
         )
         assert item.event_id == first.event_id
         assert await storage.renew_ingress_work_lease(
-            first.event_id, worker_id="async-worker", lease_seconds=60
+            first.event_id, worker_id="driver-worker", lease_seconds=60
         )
         assert await storage.release_ingress_work(
-            first.event_id, worker_id="async-worker", error="retry"
+            first.event_id, worker_id="driver-worker", error="retry"
         )
         [retried] = await storage.claim_ingress_work(
-            worker_id="async-worker-2", limit=1, lease_seconds=30
+            worker_id="driver-worker-2", limit=1, lease_seconds=30
         )
         assert retried.attempts == 2
         assert await storage.complete_ingress_work(
-            first.event_id, worker_id="async-worker-2"
+            first.event_id, worker_id="driver-worker-2"
         )
         assert await storage.count_ingress_work_by_status() == {"completed": 1}
     finally:
         await storage.close()
 
 
-async def test_aiosqlite_path_deduplicates_canonical_id_and_repairs_work() -> None:
-    storage = _async_storage()
+async def test_single_driver_deduplicates_canonical_id_and_repairs_work(
+    tmp_path,
+) -> None:
+    storage = SQLiteStorage(str(tmp_path / "medre.db"))
+    await storage.initialize()
     try:
         event = make_storage_event(
-            event_id="evt-async-canonical", source_adapter="matrix"
+            event_id="evt-driver-canonical", source_adapter="matrix"
         )
         first = await storage.admit_ingress(event, None, "live")
         assert first.created is True
@@ -551,12 +498,15 @@ async def test_aiosqlite_path_deduplicates_canonical_id_and_repairs_work() -> No
         await storage.close()
 
 
-async def test_aiosqlite_path_rolls_back_admission_and_rowcount_errors() -> None:
-    storage = _async_storage()
+async def test_single_driver_rolls_back_admission_and_wraps_rowcount_errors(
+    tmp_path,
+) -> None:
+    storage = SQLiteStorage(str(tmp_path / "medre.db"))
+    await storage.initialize()
     try:
-        first = _event("evt-async-first", "$first")
+        first = _event("evt-driver-first", "$first")
         await storage.admit_ingress(first, _ref(first.event_id, "$first"), "live")
-        second = _event("evt-async-second", "$second")
+        second = _event("evt-driver-second", "$second")
         colliding_ref = NativeMessageRef(
             id=f"nref-{first.event_id}",
             event_id=second.event_id,
@@ -579,8 +529,9 @@ async def test_aiosqlite_path_rolls_back_admission_and_rowcount_errors() -> None
         await storage.close()
 
 
-async def test_aiosqlite_path_wraps_checkpoint_and_claim_driver_errors() -> None:
-    checkpoint_storage = _async_storage()
+async def test_single_driver_wraps_checkpoint_and_claim_errors(tmp_path) -> None:
+    checkpoint_storage = SQLiteStorage(str(tmp_path / "checkpoint.db"))
+    await checkpoint_storage.initialize()
     try:
         await checkpoint_storage._write("DROP TABLE adapter_checkpoints")
         with pytest.raises(StorageError, match="Checkpoint write failed"):
@@ -590,36 +541,11 @@ async def test_aiosqlite_path_wraps_checkpoint_and_claim_driver_errors() -> None
     finally:
         await checkpoint_storage.close()
 
-    claim_storage = _async_storage()
+    claim_storage = SQLiteStorage(str(tmp_path / "claim.db"))
+    await claim_storage.initialize()
     try:
         await claim_storage._write("DROP TABLE durable_ingress_work")
         with pytest.raises(StorageError, match="Ingress work claim failed"):
             await claim_storage.claim_ingress_work(worker_id="worker", limit=1)
     finally:
         await claim_storage.close()
-
-
-async def test_aiosqlite_admission_preserves_driver_error_when_rollback_fails() -> None:
-    storage = _async_storage(fail_rollback=True)
-    try:
-        await storage._write("DROP TABLE canonical_events")
-        event = _event("evt-async-driver-error", "$driver-error")
-
-        with pytest.raises(StorageError, match="Durable ingress admission failed"):
-            await storage.admit_ingress(
-                event, _ref(event.event_id, "$driver-error"), "live"
-            )
-        with pytest.raises(StorageError, match="Database write failed"):
-            await storage._write_rowcount("UPDATE missing_table SET value=1")
-    finally:
-        await storage.close()
-
-
-async def test_aiosqlite_claim_preserves_driver_error_when_rollback_fails() -> None:
-    storage = _async_storage(fail_rollback=True)
-    try:
-        await storage._write("DROP TABLE durable_ingress_work")
-        with pytest.raises(StorageError, match="Ingress work claim failed"):
-            await storage.claim_ingress_work(worker_id="worker", limit=1)
-    finally:
-        await storage.close()

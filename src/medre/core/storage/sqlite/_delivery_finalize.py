@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 import threading
 from typing import TYPE_CHECKING, Any
@@ -15,12 +14,6 @@ from medre.core.storage.sqlite._native_ref import (
 )
 from medre.core.storage.sqlite._receipt import _receipt_insert_params
 from medre.core.storage.sqlite.connection import sync_finalize_queued_delivery
-from medre.core.storage.sqlite.statements import (
-    _FINALIZE_QUEUED_OUTBOX_SENT,
-    _INSERT_NATIVE_REF_STRICT,
-    _INSERT_RECEIPT,
-    _RESOLVE_NATIVE_REF,
-)
 
 
 class _DeliveryFinalizationMixin:
@@ -28,8 +21,6 @@ class _DeliveryFinalizationMixin:
 
     if TYPE_CHECKING:
         _lock: threading.Lock
-        _async_write_lock: asyncio.Lock
-        _use_aiosqlite: bool
 
         def _require_db(self) -> Any: ...
 
@@ -96,45 +87,6 @@ class _DeliveryFinalizationMixin:
 
         db = self._require_db()
         try:
-            if self._use_aiosqlite:
-                async with self._async_write_lock:
-                    try:
-                        await db.execute("BEGIN IMMEDIATE")
-                        async with db.execute(
-                            _RESOLVE_NATIVE_REF, native_identity
-                        ) as cursor:
-                            row = await cursor.fetchone()
-                        existing_event_id = str(row[0]) if row is not None else None
-                        if (
-                            existing_event_id is not None
-                            and existing_event_id != native_ref.event_id
-                        ):
-                            await db.rollback()
-                            raise StorageError(
-                                "Native identity already maps to a different canonical "
-                                f"event: {existing_event_id}"
-                            )
-
-                        async with db.execute(
-                            _FINALIZE_QUEUED_OUTBOX_SENT, outbox_params
-                        ) as cursor:
-                            changed = int(cursor.rowcount)
-                        if changed != 1:
-                            await db.rollback()
-                            return False
-
-                        if existing_event_id is None:
-                            await db.execute(_INSERT_NATIVE_REF_STRICT, native_params)
-                        await db.execute(_INSERT_RECEIPT, receipt_params)
-                        await db.commit()
-                        return True
-                    except BaseException:
-                        try:
-                            await db.rollback()
-                        except Exception:
-                            pass
-                        raise
-
             committed, conflict_event_id = await self._run_in_thread(
                 sync_finalize_queued_delivery,
                 db,
@@ -151,6 +103,7 @@ class _DeliveryFinalizationMixin:
                     f"{conflict_event_id}"
                 )
             return committed
+
         except StorageError:
             raise
         except sqlite3.Error as exc:

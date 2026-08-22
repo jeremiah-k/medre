@@ -25,9 +25,8 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 class _FailingRowFactoryConnection:
     """Mock ``sqlite3.Connection`` whose ``row_factory`` setter raises.
 
-    Used to verify that :meth:`SQLiteStorage._sync_open_readonly` and the
-    equivalent aiosqlite path call ``.close()`` even when the assignment
-    ``db.row_factory = sqlite3.Row`` fails.
+    Used to verify that the synchronous read-only opener calls ``.close()``
+    even when the assignment ``db.row_factory = sqlite3.Row`` fails.
     """
 
     def __init__(self) -> None:
@@ -57,23 +56,12 @@ def _temp_db_path(tmp_path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Force sync-fallback path so these tests always exercise the sync code
-# regardless of whether aiosqlite is installed in the environment.
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _force_sync_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("medre.core.storage.sqlite.storage._HAS_AIOSQLITE", False)
-
-
-# ---------------------------------------------------------------------------
 # Tests: normal (success) path — connections must close cleanly
 # ---------------------------------------------------------------------------
 
 
-class TestSyncFallbackNormalClose:
-    """Sync fallback (no aiosqlite) — normal init/close must not leak."""
+class TestSQLiteNormalClose:
+    """Normal initialize/open-readonly close paths must not leak."""
 
     async def test_initialize_and_close_no_resource_warning(
         self, tmp_path: Path
@@ -81,9 +69,8 @@ class TestSyncFallbackNormalClose:
         db_path = _temp_db_path(tmp_path)
         storage = SQLiteStorage(db_path=db_path)
 
-        # Drain unreachable objects (including zombie aiosqlite
-        # connections left over from earlier tests) BEFORE opening the
-        # recording context.  Otherwise their ``__del__`` finalizers
+        # Drain unreachable objects before opening the recording context.
+        # Otherwise unrelated ``__del__`` finalizers
         # would fire under the ``simplefilter("always", ResourceWarning)``
         # filter and pollute the captured warnings.
         gc.collect()
@@ -141,14 +128,14 @@ class TestSyncFallbackNormalClose:
 # ---------------------------------------------------------------------------
 
 
-class TestSyncFallbackFailureClose:
-    """Sync fallback — failure during open must not leak connections."""
+class TestSQLiteFailureClose:
+    """Failure during open must not leak connections."""
 
-    async def test_sync_open_failure_closes_connection(self, tmp_path: Path) -> None:
-        """If executescript fails inside _sync_open, the raw connection is closed.
+    async def testsync_open_failure_closes_connection(self, tmp_path: Path) -> None:
+        """If executescript fails inside sync_open, the raw connection is closed.
 
         We patch the _SCHEMA constant to invalid SQL so that db.executescript()
-        inside _sync_open raises. The fix's try/except must close the connection
+        inside sync_open raises. The fix's try/except must close the connection
         before re-raising.
         """
         db_path = _temp_db_path(tmp_path)
@@ -173,7 +160,7 @@ class TestSyncFallbackFailureClose:
         ]
         assert (
             resource_warnings == []
-        ), f"ResourceWarning(s) raised on _sync_open failure path: {resource_warnings}"
+        ), f"ResourceWarning(s) raised on sync_open failure path: {resource_warnings}"
 
     async def test_initialize_schema_version_mismatch_closes_connection(
         self, tmp_path: Path
@@ -212,10 +199,10 @@ class TestSyncFallbackFailureClose:
             resource_warnings == []
         ), f"ResourceWarning(s) raised on schema mismatch path: {resource_warnings}"
 
-    async def test_sync_open_readonly_failure_closes_connection(
+    async def testsync_open_readonly_failure_closes_connection(
         self, tmp_path: Path
     ) -> None:
-        """If _sync_open_readonly encounters an error, the connection is closed."""
+        """If sync_open_readonly encounters an error, the connection is closed."""
         db_path = _temp_db_path(tmp_path)
 
         # Attempt to open a non-existent file read-only (will fail at
@@ -239,17 +226,17 @@ class TestSyncFallbackFailureClose:
 
 
 # ---------------------------------------------------------------------------
-# Tests: _sync_open_readonly row_factory assignment failure (lines 933-935)
+# Tests: sync_open_readonly row_factory assignment failure (lines 933-935)
 # ---------------------------------------------------------------------------
 
 
-class TestSyncOpenReadonlyRowFactoryFailure:
-    """_sync_open_readonly must close the connection if row_factory fails."""
+class TestOpenReadonlyRowFactoryFailure:
+    """sync_open_readonly must close the connection if row_factory fails."""
 
-    async def test_sync_open_readonly_row_factory_failure_closes_connection(
+    async def testsync_open_readonly_row_factory_failure_closes_connection(
         self, tmp_path: Path
     ) -> None:
-        """When db.row_factory = sqlite3.Row raises inside _sync_open_readonly,
+        """When db.row_factory = sqlite3.Row raises inside sync_open_readonly,
         the raw connection is closed before the exception propagates."""
         db_path = _temp_db_path(tmp_path)
 
@@ -272,7 +259,7 @@ class TestSyncOpenReadonlyRowFactoryFailure:
             await SQLiteStorage.open_readonly(db_path)
 
         assert mock_conn.closed, (
-            "_sync_open_readonly() must close the connection when "
+            "sync_open_readonly() must close the connection when "
             "row_factory assignment fails"
         )
 
@@ -280,15 +267,15 @@ class TestSyncOpenReadonlyRowFactoryFailure:
 
 
 # ---------------------------------------------------------------------------
-# Tests: close() executor cleanup on sync-fallback path
+# Tests: close() executor cleanup
 # ---------------------------------------------------------------------------
 
 
-class TestSyncFallbackExecutorCleanup:
-    """Sync fallback — executor is always cleaned up by close()."""
+class TestSQLiteExecutorCleanup:
+    """The private executor is always cleaned up by close()."""
 
     async def test_close_clears_executor_sync_path(self, tmp_path: Path) -> None:
-        """close() sets _executor to None and _db to None on the sync fallback path."""
+        """close() sets _executor and _db to ``None``."""
         db_path = _temp_db_path(tmp_path)
         storage = SQLiteStorage(db_path=db_path)
         await storage.initialize()

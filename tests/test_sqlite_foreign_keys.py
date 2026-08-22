@@ -1,7 +1,7 @@
 """Foreign-key enforcement tests for the SQLite storage layer.
 
 Covers:
-- ``PRAGMA foreign_keys=ON`` is set on write connections (sync and aiosqlite).
+- ``PRAGMA foreign_keys=ON`` is set on writable SQLite connections.
 - Readonly connections wait on busy writers (``busy_timeout``) without
   enabling write-side FK enforcement.
 - The ``delivery_outbox.event_id`` foreign key to ``canonical_events(event_id)``

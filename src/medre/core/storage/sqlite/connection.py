@@ -6,7 +6,7 @@ These functions are dispatched through
 pure with respect to the connection — no instance state is accessed.
 
 Internal authority:
-  - sync_open / sync_open_readonly: infrastructure (connection lifecycle).
+  - sync_open / sync_open_readonly / sync_close: connection lifecycle.
   - sync_create_indexes: infrastructure (DDL).
   - sync_write / sync_write_batch: **internal write primitives** — all
     domain authority is enforced by the calling mixin methods, not here.
@@ -46,6 +46,12 @@ def sync_open(db_path: str) -> sqlite3.Connection:
         db.close()
         raise
     return db
+
+
+def sync_close(db: sqlite3.Connection, lock: threading.Lock) -> None:
+    """Close one SQLite connection under the storage lock."""
+    with lock:
+        db.close()
 
 
 def sync_open_readonly(db_path: str) -> sqlite3.Connection:

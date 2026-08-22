@@ -68,53 +68,37 @@ always runs.
 
 ### SQLiteStorage
 
-**Creation.** Two paths, chosen at import time by the `aiosqlite` availability
-check:
+**Creation.** `SQLiteStorage` has one deterministic implementation. It opens a
+standard-library `sqlite3.Connection` through a private
+`ThreadPoolExecutor(max_workers=1)`. All public storage methods remain async,
+but SQLite work is serialized on that worker rather than running on the event
+loop. Ambient packages cannot change the selected storage driver.
 
-- aiosqlite path: `await aiosqlite.connect(path)` in `initialize()`.
-- Sync fallback path: `sqlite3.connect(path)` dispatched through a
-  `ThreadPoolExecutor(max_workers=1)`, created lazily on first call to
-  `_run_in_thread()`.
+Writable connections enable WAL mode, a 5-second busy timeout, and foreign-key
+enforcement. Read-only connections use SQLite URI `mode=ro` and the same busy
+timeout.
 
 **Teardown.** `close()` is idempotent. An early-return guard
-(`if self._closed: return`) prevents concurrent callers from racing.
-On first call:
+(`if self._closed: return`) prevents concurrent callers from racing. On first
+call:
 
-1. Sets `_closed = True` as an early gate for race safety; restored to
-   `False` if the close I/O fails so a later `close()` can retry.
-2. Saves `_db` to a local, then sets `self._db = None` **before** awaiting
-   `db.close()`. This prevents concurrent callers from racing to close the
-   same connection.
-3. For the aiosqlite path: the close coroutine is wrapped in an explicit
-   `asyncio.create_task(...)` and then awaited under
-   `asyncio.shield(...)`. A strong reference to the close task is held
-   by a local binding for the duration of the await. If a stray
-   `CancelledError` arrives (e.g. from caller cancellation or an external
-   `CancelledError`), the shielded close continues running to completion
-   so aiosqlite can join its internal worker thread, and the cancellation
-   is re-raised afterwards. Without the shield+task pattern the
-   `CancelledError` would interrupt the close before aiosqlite's
-   internal thread was joined, leaving the connection half-closed and
-   triggering `ResourceWarning: <aiosqlite.core.Connection ...> was
-deleted before being closed` in `__del__`. On any non-cancellation
-   failure during the shielded close, `self._db = db` and `_closed` are
-   restored before the exception is re-raised so a later `close()` call
-   can retry. The inner `await close_task` uses `except BaseException`
-   (not `except Exception`) so that `KeyboardInterrupt` / `SystemExit`
-   cannot replace the triggering exception with a new one.
-4. In the `finally` block: saves `_executor` to a local, sets
-   `self._executor = None`, and calls
-   `asyncio.to_thread(executor.shutdown, wait=True)`. The `wait=True`
-   fully joins worker threads; the `to_thread` offload ensures the join
+1. Sets `_closed = True` before I/O so no new work can be dispatched.
+2. Saves `_db` locally and clears `self._db` before closing so concurrent
+   callers cannot race on the same connection.
+3. Closes the connection on the private executor under the storage lock. If
+   close fails, `_db` and `_closed` are restored so a later `close()` can retry.
+4. Clears `_executor` and joins it with
+   `asyncio.to_thread(executor.shutdown, wait=True)` so worker-thread teardown
    does not block the event loop.
 
 **Logging.** The `close()` method itself emits no logs. Debug-level logging
 appears only in the error-recovery path if `close()` itself fails during a
 failed `initialize()`.
 
-**Test boundaries.** Idempotent close, concurrent close, and the
-`_db = None` before await pattern are exercised in unit tests with fake
-adapters and in-memory storage. No live/hardware validation claims apply.
+**Test boundaries.** Initialization, read-only open, transaction rollback,
+concurrent async callers, close idempotency, close failure, and executor cleanup
+are exercised against the single production SQLite implementation. No
+live/hardware validation claims apply.
 
 ### RetryWorker
 
