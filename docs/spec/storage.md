@@ -1205,7 +1205,12 @@ This section states which code owns each table's rows, who may create/mutate/del
 
 4. **`delivery_outbox` is mutable operational work state until terminal, then immutable operational history.** Non-terminal statuses (`pending`, `in_progress`, `queued`, `retry_wait`) may be updated by delivery workers. Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`) are immutable. No code path deletes outbox rows.
 
-   A delayed queue callback that proves send acceptance MUST finalize its outbound native ref, supplemental `sent` receipt, and exact outbox-attempt transition in one storage transaction. Storage MUST re-check `outbox_id`, `attempt_number`, and finalizable status inside that transaction. A failed guard or failed insert MUST leave all three categories unchanged.
+   A delayed queue callback that proves send acceptance MUST finalize its
+   outbound native ref, supplemental `sent` receipt, and exact
+   outbox-attempt transition in one storage transaction. Storage MUST
+   re-check `outbox_id`, `attempt_number`, and finalizable status inside
+   that transaction. A failed guard or failed insert MUST leave all three
+   categories unchanged.
 
 5. **Recovery and orphan detection are bookkeeping, not lifecycle success.** The orphan query (Section 13.5) identifies events without receipts, but producing a receipt requires an actual delivery attempt. Recovery never fabricates a `sent` receipt or transitions an outbox row to terminal without a real delivery outcome.
 

@@ -708,7 +708,10 @@ Queue callbacks MUST carry both `outbox_id` and `attempt_number`. Callbacks miss
 
 `delivery_plan_id` is a validation field, not the correlation selector. When the callback carries `delivery_plan_id`, the lifecycle service validates it against the outbox item's `delivery_plan_id` to detect mismatched or corrupted callbacks. It does NOT use `delivery_plan_id` for receipt selection.
 
-When `outbox_id` is present on the outbound ref, `finalize_queued_delivery()` performs an exact match against the corresponding outbox item's `queued` receipt. This is deterministic regardless of how many overlapping deliveries share the same adapter and channel.
+When `outbox_id` is present on the outbound ref,
+`finalize_queued_delivery()` performs an exact match against the corresponding
+outbox item's `queued` receipt. This is deterministic regardless of how many
+overlapping deliveries share the same adapter and channel.
 
 ### 15.3 Evidence Signals
 

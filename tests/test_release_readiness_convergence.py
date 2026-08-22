@@ -112,10 +112,34 @@ def test_local_integration_execution_evidence_is_recorded() -> None:
     """MeshCore/LXMF local integration is no longer marked unexecuted."""
     text = _read(_READINESS)
 
-    assert "local-integration-validated" in text
-    assert "transport-local-integration (meshcore)" in text
-    assert "transport-local-integration (lxmf)" in text
-    assert "Record current-tree execution of local-integration harness" in text
+    # Capability-matrix row: BOTH meshcore and lxmf columns carry the
+    # executed label — asserted inside the matrix section only, so stray
+    # prose mentions cannot satisfy it.
+    matrix = text.split("## 2. Status Definitions", 1)[0]
+    matrix_rows = [
+        ln for ln in matrix.splitlines()
+        if ln.startswith("| Deterministic local integration")
+    ]
+    assert len(matrix_rows) == 1, "capability matrix must have exactly one row"
+    assert matrix_rows[0].count("local-integration-validated") == 2
+
+    # Section 7.1 must record the two executed gates explicitly.
+    executed = (
+        text.split("### 7.1 Executed gates (evidence exists)", 1)[1]
+        .split("### 7.2", 1)[0]
+    )
+    assert "| MeshCore deterministic real-SDK TCP local integration" in executed
+    assert "| LXMF process-isolated real RNS/LXMRouter local integration" in executed
+
+    # Evidence metadata block: execution date, exact tree hash, workflow
+    # run id, PR head, and the identical-tree statement tying it to the
+    # landed main commit.
+    assert "Current-tree local-integration evidence was recorded on" in executed
+    assert "`ba2bceffad6810855e1858d202aee6039ac49824` was exercised" in executed
+    assert "workflow run `32529498484`" in executed
+    assert "`409762d0cbba1d46aab1fafb60449eca0370ae00`" in executed
+    assert "has the identical Git tree." in executed
+    assert "`5c8a67e922612f18ab01deefaeeb39c429b4df02`" in executed
 
     not_executed = text.split("### 7.2", 1)[1].split("### 7.3", 1)[0]
     assert "MeshCore deterministic local integration" not in not_executed
