@@ -207,8 +207,12 @@ class ConversationMembership:
                 raise ValueError("root membership must self-root")
             if self.resolved_target_event_id is not None:
                 raise ValueError("root membership cannot have a resolved target")
+            if self.relation_type is not None:
+                raise ValueError("root membership cannot have a relation type")
             if self.depth != 0:
                 raise ValueError("root membership depth must be zero")
+        if self.resolution_state == "unresolved" and self.relation_type is None:
+            raise ValueError("unresolved membership requires a relation type")
         if self.resolution_state in {"resolved", "cycle"}:
             if self.resolved_target_event_id is None:
                 raise ValueError(

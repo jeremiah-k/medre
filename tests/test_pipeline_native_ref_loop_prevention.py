@@ -265,6 +265,53 @@ class TestDuplicateNativeMessageDetection:
         finally:
             await runner.stop()
 
+    async def test_duplicate_suppression_survives_projection_repair_failure(
+        self,
+        temp_storage: SQLiteStorage,
+    ) -> None:
+        """Derived repair failure cannot turn a known duplicate into ingress error."""
+        spy = _SpyAdapter("dedup-repair-target")
+        accounting = RuntimeAccounting()
+        route = Route(
+            id="dedup-repair-route",
+            source=RouteSource(
+                adapter="src", event_kinds=("message.created",), channel=None
+            ),
+            targets=[RouteTarget(adapter="dedup-repair-target")],
+        )
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={"dedup-repair-target": spy},
+        )
+        config.runtime_accounting = accounting
+        runner = PipelineRunner(config)
+        await runner.start()
+
+        first = _make_event_with_native_ref(
+            event_id="dedup-repair-001",
+            nref_message_id="$dedup-repair",
+        )
+        duplicate = _make_event_with_native_ref(
+            event_id="dedup-repair-002",
+            nref_message_id="$dedup-repair",
+        )
+
+        try:
+            assert await runner.handle_ingress(first)
+
+            async def _fail_repair(event_id: str, **_: object) -> object:
+                raise RuntimeError(f"projection unavailable for {event_id}")
+
+            runner._conversation_projection.repair_after_event_available = _fail_repair  # type: ignore[method-assign]
+
+            assert await runner.handle_ingress(duplicate) == []
+            assert await temp_storage.get(duplicate.event_id) is None
+            assert len(spy.deliver_calls) == 1
+            assert accounting.snapshot()["loop_prevented"] == 1
+        finally:
+            await runner.stop()
+
     async def test_different_native_refs_both_accepted(
         self,
         temp_storage: SQLiteStorage,

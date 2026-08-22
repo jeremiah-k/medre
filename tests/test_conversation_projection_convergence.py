@@ -10,7 +10,10 @@ import pytest
 
 from medre.core.events import CanonicalEvent, EventRelation, NativeMessageRef, NativeRef
 from medre.core.events.metadata import EventMetadata
-from medre.core.planning.conversation_graph import ConversationProjectionService
+from medre.core.planning.conversation_graph import (
+    _REBUILD_PAGE_SIZE,
+    ConversationProjectionService,
+)
 from medre.core.storage.backend import (
     ConversationMembership,
     ConversationProjectionState,
@@ -123,11 +126,13 @@ class _MemoryProjectionStorage:
     def __init__(self, events: list[CanonicalEvent]) -> None:
         self.events = {event.event_id: event for event in events}
         self.memberships: dict[str, ConversationMembership] = {}
+        self.get_call_ids: list[str] = []
         self.event_id_pages: list[tuple[str | None, int]] = []
         self.projection_state: ConversationProjectionState | None = None
         self.projection_state_history: list[ConversationProjectionState] = []
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
+        self.get_call_ids.append(event_id)
         return self.events.get(event_id)
 
     async def list_event_ids_page(
@@ -591,15 +596,83 @@ async def test_rebuild_reads_event_ids_in_bounded_pages() -> None:
 
     summary = await ConversationProjectionService(storage).rebuild_all()
 
+    expected_pages = (len(events) + _REBUILD_PAGE_SIZE - 1) // _REBUILD_PAGE_SIZE
+    expected_progress = [
+        events[min(end, len(events)) - 1].event_id
+        for end in range(
+            _REBUILD_PAGE_SIZE,
+            len(events) + _REBUILD_PAGE_SIZE,
+            _REBUILD_PAGE_SIZE,
+        )
+    ]
+
     assert summary.scanned_events == len(events)
-    assert len(storage.event_id_pages) >= 3
-    assert all(limit <= 256 for _, limit in storage.event_id_pages)
+    # One final empty-page read terminates the cursor scan.
+    assert len(storage.event_id_pages) == expected_pages + 1
+    assert all(limit == _REBUILD_PAGE_SIZE for _, limit in storage.event_id_pages)
     progress = [
         state.last_event_id
         for state in storage.projection_state_history
         if state.status == "rebuilding" and state.last_event_id is not None
     ]
-    assert progress == ["event-0255", "event-0511", "event-0599"]
+    assert progress == expected_progress
+
+
+async def test_interrupted_rebuild_resumes_after_persisted_cursor() -> None:
+    event_count = _REBUILD_PAGE_SIZE + 37
+    events = [_event(f"event-{index:04d}") for index in range(event_count)]
+    storage = _MemoryProjectionStorage(events)
+    completed = events[:_REBUILD_PAGE_SIZE]
+    for event in completed:
+        storage.memberships[event.event_id] = ConversationMembership(
+            event_id=event.event_id,
+            root_event_id=event.event_id,
+            conversation_id=event.event_id,
+            resolved_target_event_id=None,
+            relation_type=None,
+            depth=0,
+            resolution_state="root",
+        )
+    resume_cursor = completed[-1].event_id
+    storage.projection_state = ConversationProjectionState(
+        projection_revision=1,
+        status="rebuilding",
+        last_event_id=resume_cursor,
+    )
+
+    summary = await ConversationProjectionService(storage).rebuild_all()
+
+    assert summary.scanned_events == event_count - _REBUILD_PAGE_SIZE
+    assert storage.event_id_pages[0] == (resume_cursor, _REBUILD_PAGE_SIZE)
+    assert set(storage.memberships) == {event.event_id for event in events}
+    assert storage.projection_state == ConversationProjectionState(
+        projection_revision=1,
+        status="dirty",
+    )
+
+
+async def test_dependent_repair_reuses_one_ancestry_cache_per_run() -> None:
+    chain_length = 128
+    events = [_event("node-0000")]
+    events.extend(
+        _event(
+            f"node-{index:04d}",
+            relations=(_reply_to_event(f"node-{index - 1:04d}"),),
+        )
+        for index in range(1, chain_length)
+    )
+    storage = _MemoryProjectionStorage(events)
+
+    result = await ConversationProjectionService(storage).repair_after_event_available(
+        "node-0000"
+    )
+
+    assert len(storage.get_call_ids) == chain_length
+    assert set(storage.get_call_ids) == {event.event_id for event in events}
+    assert len(result.changed_event_ids) == chain_length
+    deepest = storage.memberships[f"node-{chain_length - 1:04d}"]
+    assert deepest.root_event_id == "node-0000"
+    assert deepest.depth == chain_length - 1
 
 
 async def test_restart_after_partial_repair_converges(tmp_path: Path) -> None:
@@ -690,4 +763,32 @@ def test_resolved_membership_requires_positive_depth() -> None:
             relation_type="reply",
             depth=0,
             resolution_state="resolved",
+        )
+
+
+def test_root_membership_rejects_relation_type() -> None:
+    with pytest.raises(ValueError, match="root membership cannot have a relation type"):
+        ConversationMembership(
+            event_id="root",
+            root_event_id="root",
+            conversation_id="root",
+            resolved_target_event_id=None,
+            relation_type="reply",
+            depth=0,
+            resolution_state="root",
+        )
+
+
+def test_unresolved_membership_requires_relation_type() -> None:
+    with pytest.raises(
+        ValueError, match="unresolved membership requires a relation type"
+    ):
+        ConversationMembership(
+            event_id="child",
+            root_event_id="child",
+            conversation_id="child",
+            resolved_target_event_id=None,
+            relation_type=None,
+            depth=0,
+            resolution_state="unresolved",
         )

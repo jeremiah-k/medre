@@ -301,6 +301,7 @@ async def test_conversation_membership_missing_checks_is_rejected(
         "('root', 'resolved', 'unresolved', 'cycle'))\n",
         "    updated_at TEXT NOT NULL\n",
     )
+    assert ddl != _SCHEMA
 
     raw = sqlite3.connect(db_path)
     try:
@@ -324,17 +325,63 @@ async def test_conversation_membership_missing_checks_is_rejected(
         await storage.close()
 
 
+async def test_conversation_projection_state_missing_checks_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """Projection progress tables must retain singleton/state invariants."""
+    db_path = tmp_path / "missing-projection-state-checks.db"
+    constrained = (
+        "    updated_at TEXT NOT NULL,\n"
+        "    CHECK (singleton_id = 1),\n"
+        "    CHECK (projection_revision >= 1),\n"
+        "    CHECK (status IN ('clean', 'dirty', 'rebuilding')),\n"
+        "    CHECK (status = 'rebuilding' OR last_event_id IS NULL)\n"
+    )
+    ddl = _SCHEMA.replace(constrained, "    updated_at TEXT NOT NULL\n", 1)
+    assert ddl != _SCHEMA
+
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.executescript(ddl)
+        raw.execute(
+            "INSERT INTO _medre_schema_meta (key, value) VALUES (?, ?)",
+            ("schema_version", "1"),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    storage = SQLiteStorage(str(db_path))
+    try:
+        with pytest.raises(
+            PreReleaseSchemaConstraintMismatchError,
+            match="conversation_projection_state",
+        ):
+            await storage.initialize()
+    finally:
+        await storage.close()
+
+
 async def test_schema_check_validator_rejects_unconstrained_table_definition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """sqlite_master DDL, not column presence, proves required checks exist."""
     storage = SQLiteStorage("unused.db")
 
+    def _current_table_definition(table: str) -> str:
+        prefix = f"CREATE TABLE IF NOT EXISTS {table} ("
+        start = _SCHEMA.index(prefix)
+        end = _SCHEMA.index("\n);", start) + len("\n);")
+        return _SCHEMA[start:end]
+
     async def _unconstrained_definition(
         sql: str, params: tuple[object, ...] = ()
     ) -> dict[str, str]:
         assert "sqlite_master" in sql
-        assert params == ("conversation_membership",)
+        assert len(params) == 1
+        table = str(params[0])
+        if table != "conversation_membership":
+            return {"sql": _current_table_definition(table)}
         return {
             "sql": """
                 CREATE TABLE conversation_membership (

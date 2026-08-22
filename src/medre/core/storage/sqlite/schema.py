@@ -457,6 +457,27 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
 # existing pre-release table created without these invariants because
 # ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
 _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "conversation_projection_state": (
+        ("CHECK (singleton_id = 1)", r"CHECK\s*\(\s*singleton_id\s*=\s*1\s*\)"),
+        (
+            "CHECK (projection_revision >= 1)",
+            r"CHECK\s*\(\s*projection_revision\s*>=\s*1\s*\)",
+        ),
+        (
+            "CHECK (status IN ('clean', 'dirty', 'rebuilding'))",
+            (
+                r"CHECK\s*\(\s*status\s+IN\s*\(\s*'clean'\s*,\s*'dirty'\s*,\s*"
+                r"'rebuilding'\s*\)\s*\)"
+            ),
+        ),
+        (
+            "CHECK (status = 'rebuilding' OR last_event_id IS NULL)",
+            (
+                r"CHECK\s*\(\s*status\s*=\s*'rebuilding'\s+OR\s+"
+                r"last_event_id\s+IS\s+NULL\s*\)"
+            ),
+        ),
+    ),
     "conversation_membership": (
         ("CHECK (depth >= 0)", r"CHECK\s*\(\s*depth\s*>=\s*0\s*\)"),
         (
@@ -465,8 +486,10 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
         ),
         (
             "CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))",
-            r"CHECK\s*\(\s*resolution_state\s+IN\s*\(\s*'root'\s*,\s*"
-            r"'resolved'\s*,\s*'unresolved'\s*,\s*'cycle'\s*\)\s*\)",
+            (
+                r"CHECK\s*\(\s*resolution_state\s+IN\s*\(\s*'root'\s*,\s*"
+                r"'resolved'\s*,\s*'unresolved'\s*,\s*'cycle'\s*\)\s*\)"
+            ),
         ),
     ),
 }

@@ -427,10 +427,11 @@ CREATE TABLE event_relations (
 
 **Indexes:**
 
-| Index                           | Columns             | Purpose                                                        |
-| ------------------------------- | ------------------- | -------------------------------------------------------------- |
-| `idx_relations_event_id`        | `(event_id, id)`    | `list_relations(event_id)` with deterministic row ordering     |
-| `idx_relations_target_event_id` | `(target_event_id)` | Reverse lookup for `list_relation_sources(target_event_id)`    |
+| Index | Columns | Purpose |
+| ----- | ------- | ------- |
+| `idx_relations_event_id` | `(event_id, id)` | `list_relations(event_id)` with deterministic row ordering |
+| `idx_relations_target_event_id` | `(target_event_id)` | Reverse lookup for `list_relation_sources(target_event_id)` |
+| `idx_relations_target_native_ref` | `(target_native_adapter, target_native_channel_id, target_native_message_id)` | Reverse repair when a native target mapping arrives |
 
 The `target_native_*` split columns store the `NativeRef` fields when the canonical event ID for the relation target is not yet known. When a relation is unresolved, `target_event_id` is `NULL` and the four `target_native_*` columns carry the native reference. The relation resolution stage resolves these by calling `resolve_native_ref`.
 
@@ -476,12 +477,6 @@ The four resolution states are:
 For non-cycle descendants, `depth` is the number of selected parent edges to the
 projected root/cycle boundary. `conversation_id` currently **MUST** equal
 `root_event_id`.
-
-**Indexes:**
-
-| Index | Columns | Purpose |
-| ----- | ------- | ------- |
-| `idx_relations_target_native_ref` | `(target_native_adapter, target_native_channel_id, target_native_message_id)` | Reverse repair when a native target mapping arrives |
 
 During current pre-release development this table is part of schema version `1`. An
 older version-1 database that lacks this table is an incompatible development shape and

@@ -664,9 +664,16 @@ class PipelineRunner:
                 # facts but crashed during derived conversation repair.  Re-run
                 # the idempotent projection repair before suppressing this
                 # duplicate so replay can self-heal without a restart.
-                await self._conversation_projection.repair_after_event_available(
-                    existing_event_id
-                )
+                try:
+                    await self._conversation_projection.repair_after_event_available(
+                        existing_event_id
+                    )
+                except Exception:
+                    self._log.exception(
+                        "Failed to repair conversation projection for duplicate "
+                        "native ref: event_id=%s",
+                        existing_event_id,
+                    )
                 self._log.info(
                     "Duplicate native ref suppressed: event_id=%s "
                     "native_ref=(%s,%s,%s) already mapped to %s",
@@ -724,14 +731,19 @@ class PipelineRunner:
         # a late native target converge both grouping and reply/reaction
         # rendering while preserving immutable ingress evidence.
         event = await self._resolve_relations(event)
-        projection_event = event
+        # Refresh the current-event entry after relation re-resolution.  Positive
+        # ancestor hits are safe to reuse because canonical events are immutable,
+        # but a cached miss may have become stale if another ingress stored that
+        # parent concurrently between Stage 2.5 and this post-store repair.
+        _event_cache[event.event_id] = event
 
         async def _projection_get(candidate_id: str) -> CanonicalEvent | None:
-            # Projection repair must observe current storage.  Reuse only the
-            # event just written, never negative lookups cached before Stage 3.
-            if candidate_id == projection_event.event_id:
-                return projection_event
-            return await self._config.storage.get(candidate_id)
+            cached = _event_cache.get(candidate_id)
+            if cached is not None:
+                return cached
+            result = await self._config.storage.get(candidate_id)
+            _event_cache[candidate_id] = result
+            return result
 
         await self._conversation_projection.repair_after_event_available(
             event.event_id, get_fn=_projection_get

@@ -346,14 +346,21 @@ class ConversationProjectionService:
                     skipped_current=True,
                 )
 
+            cursor = (
+                prior.last_event_id
+                if prior is not None
+                and prior.projection_revision == _CONVERSATION_PROJECTION_REVISION
+                and prior.status == "rebuilding"
+                else None
+            )
             await self._storage.put_conversation_projection_state(
                 ConversationProjectionState(
                     projection_revision=_CONVERSATION_PROJECTION_REVISION,
                     status="rebuilding",
+                    last_event_id=cursor,
                 )
             )
 
-            cursor: str | None = None
             scanned = 0
             changed = 0
             membership_cache: dict[str, ConversationMembership] = {}
@@ -424,16 +431,22 @@ class ConversationProjectionService:
             return await self._reconcile_event_unlocked(event_id, get_fn=get_fn)
 
     async def _reconcile_event_unlocked(
-        self, event_id: str, *, get_fn: _EventGetFn | None = None
+        self,
+        event_id: str,
+        *,
+        get_fn: _EventGetFn | None = None,
+        membership_cache: dict[str, ConversationMembership] | None = None,
+        event_cache: dict[str, CanonicalEvent | None] | None = None,
     ) -> ConversationRepairResult:
         """Reconcile one event while the caller owns ``_repair_lock``."""
-        cache: dict[str, ConversationMembership] = {}
-        event_cache: dict[str, CanonicalEvent | None] = {}
+        cache = membership_cache if membership_cache is not None else {}
+        events = event_cache if event_cache is not None else {}
+        previously_cached = set(cache)
         membership = await self._resolve_membership(
-            event_id, cache=cache, event_cache=event_cache, get_fn=get_fn
+            event_id, cache=cache, event_cache=events, get_fn=get_fn
         )
         changed: list[str] = []
-        for resolved_id in sorted(cache):
+        for resolved_id in sorted(cache.keys() - previously_cached):
             if await self._storage.put_conversation_membership(cache[resolved_id]):
                 changed.append(resolved_id)
         return ConversationRepairResult(
@@ -459,11 +472,18 @@ class ConversationProjectionService:
             processed: set[str] = set()
             changed: set[str] = set()
             requested_membership: ConversationMembership | None = None
+            membership_cache: dict[str, ConversationMembership] = {}
+            event_cache: dict[str, CanonicalEvent | None] = {}
 
             while pending:
                 current = pending.popleft()
                 processed.add(current)
-                result = await self._reconcile_event_unlocked(current, get_fn=get_fn)
+                result = await self._reconcile_event_unlocked(
+                    current,
+                    get_fn=get_fn,
+                    membership_cache=membership_cache,
+                    event_cache=event_cache,
+                )
                 if current == event_id:
                     requested_membership = result.membership
                 changed.update(result.changed_event_ids)
@@ -511,11 +531,17 @@ class ConversationProjectionService:
         queued: set[str] = set(initial_event_ids)
         processed: set[str] = set()
         changed: set[str] = set()
+        membership_cache: dict[str, ConversationMembership] = {}
+        event_cache: dict[str, CanonicalEvent | None] = {}
 
         while pending:
             current = pending.popleft()
             processed.add(current)
-            result = await self._reconcile_event_unlocked(current)
+            result = await self._reconcile_event_unlocked(
+                current,
+                membership_cache=membership_cache,
+                event_cache=event_cache,
+            )
             changed.update(result.changed_event_ids)
 
             anchors = set(result.changed_event_ids)

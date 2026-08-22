@@ -76,7 +76,7 @@ class _FakeStorage:
         self._events: dict[str, CanonicalEvent] = {}
         self._native_refs: dict[str, NativeMessageRef] = {}
         self._receipts: list[DeliveryReceipt] = []
-        self._native_ref_index: dict[tuple[str, str, str], str] = {}
+        self._native_ref_index: dict[tuple[str, str | None, str], str] = {}
         self._outbox: dict[str, DeliveryOutboxItem] = {}
         self._conversation_memberships: dict[str, ConversationMembership] = {}
 
@@ -89,13 +89,13 @@ class _FakeStorage:
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
         self._native_refs[ref.id] = ref
         if ref.native_message_id:
-            key = (ref.adapter, ref.native_channel_id or "", ref.native_message_id)
+            key = (ref.adapter, ref.native_channel_id, ref.native_message_id)
             self._native_ref_index[key] = ref.event_id
 
     async def resolve_native_ref(
         self, adapter: str, native_channel_id: str | None, native_message_id: str
     ) -> str | None:
-        key = (adapter, native_channel_id or "", native_message_id)
+        key = (adapter, native_channel_id, native_message_id)
         return self._native_ref_index.get(key)
 
     async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
@@ -271,7 +271,7 @@ class _FakeStorage:
 
         identity = (
             native_ref.adapter,
-            native_ref.native_channel_id or "",
+            native_ref.native_channel_id,
             native_ref.native_message_id,
         )
         existing_event = self._native_ref_index.get(identity)
@@ -293,7 +293,38 @@ def test_fake_storage_satisfies_delivery_lifecycle_storage_contract() -> None:
     assert isinstance(_FakeStorage(), DeliveryLifecycleStorage)
 
 
-async def test_fake_storage_finalization_normalizes_missing_native_channel() -> None:
+async def test_fake_storage_preserves_none_and_empty_native_channels() -> None:
+    storage = _FakeStorage()
+    await storage.store_native_ref(
+        NativeMessageRef(
+            id="nref-none",
+            event_id="evt-none",
+            adapter="mesh",
+            native_channel_id=None,
+            native_message_id="pkt-shared",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+        )
+    )
+    await storage.store_native_ref(
+        NativeMessageRef(
+            id="nref-empty",
+            event_id="evt-empty",
+            adapter="mesh",
+            native_channel_id="",
+            native_message_id="pkt-shared",
+            native_thread_id=None,
+            native_relation_id=None,
+            direction="outbound",
+        )
+    )
+
+    assert await storage.resolve_native_ref("mesh", None, "pkt-shared") == "evt-none"
+    assert await storage.resolve_native_ref("mesh", "", "pkt-shared") == "evt-empty"
+
+
+async def test_fake_storage_finalization_preserves_missing_native_channel_identity() -> None:
     storage = _FakeStorage()
     await storage.store_native_ref(
         NativeMessageRef(

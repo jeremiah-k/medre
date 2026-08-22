@@ -28,8 +28,14 @@
 - Keep the pre-release SQLite schema version at `1`; databases that lack the
   new current shape are rejected rather than migrated or read through a
   compatibility path.
-- Validate required `conversation_membership` SQL checks in addition to columns
-  and foreign keys, and reject zero-depth resolved membership values.
+- Validate required `conversation_membership` and `conversation_projection_state`
+  SQL checks in addition to columns and foreign keys; reject semantically invalid
+  membership state/relation combinations.
+- Resume interrupted current-revision rebuilds from their persisted event cursor,
+  share ancestry/event caches across one dependent-repair run, and preserve
+  duplicate suppression when best-effort derived repair fails.
+- Record a clean projection marker only when storage was initialized and shutdown
+  abandoned no in-flight delivery/replay work; otherwise the next startup rebuilds.
 
 ## Correctness evidence
 

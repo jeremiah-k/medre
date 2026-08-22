@@ -310,6 +310,7 @@ class MedreApp:
     _live_health_poll_count: int = field(default=0, init=False)
     _outbox_state: dict[str, int] = field(default_factory=dict, init=False)
     _outbox_storage_authoritative: bool = field(default=False, init=False)
+    _storage_initialized: bool = field(default=False, init=False)
 
     # -- Post-init --------------------------------------------------------------
 
@@ -712,6 +713,7 @@ class MedreApp:
         if self.storage is not None:
             try:
                 await self.storage.initialize()
+                self._storage_initialized = True
                 _logger.info("Storage initialised")
             except Exception as exc:
                 self._set_state(RuntimeState.FAILED)
@@ -1288,6 +1290,7 @@ class MedreApp:
         _logger.info("Runtime stopping — accepting no new work")
 
         # Drain remaining in-flight work within the shared shutdown deadline.
+        capacity_drain_abandoned = False
         if self._capacity_controller is not None:
             drain_snap: dict | None = None
             while _time.monotonic() < drain_deadline:
@@ -1309,6 +1312,9 @@ class MedreApp:
             else:
                 if drain_snap is None:
                     drain_snap = self._capacity_controller.snapshot()
+                capacity_drain_abandoned = bool(
+                    drain_snap["delivery_current"] or drain_snap["replay_current"]
+                )
                 _logger.warning(
                     "Drain timed out — %d delivery, %d replay in-flight abandoned",
                     drain_snap["delivery_current"],
@@ -1468,9 +1474,11 @@ class MedreApp:
         )
         if (
             self.storage is not None
+            and self._storage_initialized
             and not errors
             and _cancelled is None
             and not retry_abandoned
+            and not capacity_drain_abandoned
         ):
             try:
                 await self.pipeline_runner.mark_conversation_projection_clean()
@@ -1489,6 +1497,7 @@ class MedreApp:
         if self.storage is not None:
             try:
                 await self.storage.close()
+                self._storage_initialized = False
                 _logger.info("Storage closed")
             except asyncio.CancelledError as c_exc:
                 _deferred_cancel_count += _drain_pending_cancellations()
@@ -2095,6 +2104,8 @@ class MedreApp:
                 _logger.info("Storage closed during startup cleanup")
             except Exception as exc:
                 _logger.error("Error closing storage during startup cleanup: %s", exc)
+            finally:
+                self._storage_initialized = False
 
     def _ensure_dirs(self) -> None:
         """Create required runtime directories.
