@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from tests.helpers.storage_outbox import create_outbox_item_with_parent
@@ -193,3 +195,47 @@ async def test_finalize_retry_success_marks_sent_result_terminal(
     assert updated is not None
     assert updated.status == "sent"
     assert updated.receipt_id == receipt.receipt_id
+
+
+async def test_finalize_retry_success_suppressed_result_is_non_success(
+    temp_storage: StorageBackend,
+) -> None:
+    lifecycle = _make_lifecycle()
+    item = _retry_item(outbox_id="obox-suppressed", event_id="evt-suppressed")
+    await create_outbox_item_with_parent(temp_storage, item)
+    receipt = _make_receipt(
+        receipt_id="rcpt-suppressed",
+        status="suppressed",
+        attempt_number=1,
+        event_id=item.event_id,
+        plan_id=item.delivery_plan_id,
+        error="capability_suppressed",
+    )
+
+    succeeded = await lifecycle.finalize_retry_success(temp_storage, item, receipt)
+
+    assert succeeded is False
+    updated = await temp_storage.get_outbox_item(item.outbox_id)
+    assert updated is not None
+    assert updated.status == "abandoned"
+    assert updated.error_summary == "capability_suppressed"
+
+
+@pytest.mark.parametrize("status", ["failed", "dead_lettered"])
+async def test_finalize_retry_success_rejects_failure_receipts(
+    temp_storage: StorageBackend,
+    status: str,
+) -> None:
+    lifecycle = _make_lifecycle()
+    item = _retry_item(outbox_id=f"obox-{status}", event_id=f"evt-{status}")
+    await create_outbox_item_with_parent(temp_storage, item)
+    receipt = _make_receipt(
+        receipt_id=f"rcpt-{status}",
+        status=status,
+        attempt_number=1,
+        event_id=item.event_id,
+        plan_id=item.delivery_plan_id,
+    )
+
+    with pytest.raises(ValueError, match="Retry success finalization"):
+        await lifecycle.finalize_retry_success(temp_storage, item, receipt)

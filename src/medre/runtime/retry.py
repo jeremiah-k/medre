@@ -896,24 +896,25 @@ class RetryWorker:
             )
         else:
             self.state.processed += 1
-            self.state.succeeded += 1
             try:
-                await self._lifecycle.finalize_retry_success(
+                retry_succeeded = await self._lifecycle.finalize_retry_success(
                     self._storage,
                     item,
                     result_receipt,
                 )
-                self._emit(
-                    "retry_succeeded",
-                    {
-                        "receipt_id": result_receipt.receipt_id,
-                        "parent_receipt_id": item.receipt_id or item.outbox_id,
-                        "retry_receipt_id": result_receipt.receipt_id,
-                        "event_id": item.event_id,
-                        "target_adapter": item.target_adapter,
-                        "attempt_number": result_receipt.attempt_number,
-                    },
-                )
+                if retry_succeeded:
+                    self.state.succeeded += 1
+                    self._emit(
+                        "retry_succeeded",
+                        {
+                            "receipt_id": result_receipt.receipt_id,
+                            "parent_receipt_id": item.receipt_id or item.outbox_id,
+                            "retry_receipt_id": result_receipt.receipt_id,
+                            "event_id": item.event_id,
+                            "target_adapter": item.target_adapter,
+                            "attempt_number": result_receipt.attempt_number,
+                        },
+                    )
             except Exception:
                 _logger.exception(
                     "RetryWorker: failed to update outbox %s after successful delivery",

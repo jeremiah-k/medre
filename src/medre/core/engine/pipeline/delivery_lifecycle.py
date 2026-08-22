@@ -1020,19 +1020,31 @@ class DeliveryLifecycleService:
         storage: DeliveryLifecycleStorage,
         item: DeliveryOutboxItem,
         receipt: DeliveryReceipt,
-    ) -> None:
-        """Persist the outbox transition for a successful retry result."""
+    ) -> bool:
+        """Persist a retry result and report whether it represents success."""
         if receipt.status == "queued":
             await storage.mark_outbox_queued(
                 item.outbox_id,
                 receipt_id=receipt.receipt_id,
                 attempt_number=receipt.attempt_number,
             )
-            return
-        await storage.mark_outbox_sent(
-            item.outbox_id,
-            receipt_id=receipt.receipt_id,
-            attempt_number=receipt.attempt_number,
+            return True
+        if receipt.status == "sent":
+            await storage.mark_outbox_sent(
+                item.outbox_id,
+                receipt_id=receipt.receipt_id,
+                attempt_number=receipt.attempt_number,
+            )
+            return True
+        if receipt.status == "suppressed":
+            await storage.mark_outbox_abandoned(
+                item.outbox_id,
+                error_summary=receipt.error,
+            )
+            return False
+        raise ValueError(
+            "Retry success finalization requires a queued, sent, or suppressed "
+            f"receipt; got {receipt.status!r}"
         )
 
     # -- Outbox finalization ------------------------------------------------
