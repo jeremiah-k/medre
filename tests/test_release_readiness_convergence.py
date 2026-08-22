@@ -112,16 +112,26 @@ def test_local_integration_execution_evidence_is_recorded() -> None:
     """MeshCore/LXMF local integration is no longer marked unexecuted."""
     text = _read(_READINESS)
 
-    # Capability-matrix row: BOTH meshcore and lxmf columns carry the
-    # executed label — asserted inside the matrix section only, so stray
-    # prose mentions cannot satisfy it.
-    matrix = text.split("## 2. Status Definitions", 1)[0]
+    # Capability-matrix row: BOTH MeshCore and LXMF columns carry the
+    # executed label. Require both section markers and parse the row cells so
+    # stray prose or misplaced rows cannot satisfy the gate.
+    matrix_marker = "## 1. Capability Matrix"
+    definitions_marker = "## 2. Status Definitions"
+    assert matrix_marker in text, "release-readiness must define capability matrix"
+    assert definitions_marker in text, (
+        "release-readiness must define status definitions"
+    )
+    matrix = text.split(matrix_marker, 1)[1].split(definitions_marker, 1)[0]
     matrix_rows = [
         ln for ln in matrix.splitlines()
         if ln.startswith("| Deterministic local integration")
     ]
     assert len(matrix_rows) == 1, "capability matrix must have exactly one row"
-    assert matrix_rows[0].count("local-integration-validated") == 2
+    cells = [cell.strip() for cell in matrix_rows[0].strip("|").split("|")]
+    assert len(cells) == 5, "capability matrix row must have five columns"
+    assert cells[0] == "Deterministic local integration"
+    assert cells[3] == "local-integration-validated"
+    assert cells[4] == "local-integration-validated"
 
     # Section 7.1 must record the two executed gates explicitly.
     executed = (

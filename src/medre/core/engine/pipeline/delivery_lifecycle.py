@@ -805,15 +805,12 @@ class DeliveryLifecycleService:
             # malformed queued receipts can share an outbox_id across
             # attempts, and source-preference must never finalize another
             # attempt's receipt for this callback.
-            import sys as _sys
-            print("DBG existing:", [(x.receipt_id, x.status, x.target_adapter, x.outbox_id, x.attempt_number) for x in existing], file=_sys.stderr)
             outbox_matches = [
                 r
                 for r in candidates
                 if r.outbox_id == record.outbox_id
                 and r.attempt_number == record.attempt_number
             ]
-            print("DBG matches:", [(x.receipt_id) for x in outbox_matches], file=_sys.stderr)
 
             if not outbox_matches:
                 self._log.debug(
