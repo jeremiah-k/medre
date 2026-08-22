@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import re
+from collections import Counter
 from pathlib import Path
 
 
@@ -21,14 +23,45 @@ def test_runtime_rebuilds_projection_before_pipeline_and_adapters_start() -> Non
     assert initialize < rebuild < pipeline_start < adapter_start
 
 
+def test_runtime_marks_projection_clean_after_pipeline_stop_before_storage_close() -> None:
+    tree = ast.parse(_APP.read_text(encoding="utf-8"))
+    stop = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        for node in node.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "stop"
+    )
+
+    def _call_line(owner: str, method: str) -> int:
+        return next(
+            node.lineno
+            for node in ast.walk(stop)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == method
+            and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == owner
+        )
+
+    pipeline_stop = _call_line("pipeline_runner", "stop")
+    projection_clean = _call_line(
+        "pipeline_runner", "mark_conversation_projection_clean"
+    )
+    storage_close = _call_line("storage", "close")
+
+    assert pipeline_stop < projection_clean < storage_close
+
+
 def test_projection_code_does_not_update_canonical_event_evidence() -> None:
     """Derived repair may mutate its table, never canonical_events/event_relations."""
     conversation_source = (_STORAGE / "_conversation.py").read_text(encoding="utf-8")
-    lowered = conversation_source.lower()
-    assert "update canonical_events" not in lowered
-    assert "update event_relations" not in lowered
-    assert "delete from canonical_events" not in lowered
-    assert "delete from event_relations" not in lowered
+    forbidden = re.compile(
+        r"\b(update|delete\s+from|insert\s+into)\s+"
+        r"(canonical_events|event_relations)\b",
+        re.IGNORECASE,
+    )
+    assert forbidden.search(conversation_source) is None
 
 
 def test_pipeline_repairs_projection_after_event_and_native_identity_arrival() -> None:
@@ -36,15 +69,41 @@ def test_pipeline_repairs_projection_after_event_and_native_identity_arrival() -
         encoding="utf-8"
     )
     tree = ast.parse(runner)
-    calls: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-            continue
-        if node.func.attr in {
-            "repair_after_event_available",
-            "repair_after_native_ref_available",
-        }:
-            calls.append(node.func.attr)
+    calls: Counter[tuple[str, str]] = Counter()
 
-    assert calls.count("repair_after_event_available") == 4
-    assert calls.count("repair_after_native_ref_available") == 1
+    class _RepairCallVisitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.function_name: str | None = None
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            previous = self.function_name
+            self.function_name = node.name
+            self.generic_visit(node)
+            self.function_name = previous
+
+        def visit_Call(self, node: ast.Call) -> None:
+            if (
+                self.function_name is not None
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr
+                in {
+                    "repair_after_event_available",
+                    "repair_after_native_ref_available",
+                }
+            ):
+                calls[(self.function_name, node.func.attr)] += 1
+            self.generic_visit(node)
+
+    _RepairCallVisitor().visit(tree)
+
+    assert calls == Counter(
+        {
+            ("handle_ingress", "repair_after_event_available"): 2,
+            ("admit_ingress", "repair_after_event_available"): 1,
+            ("process_admitted_event", "repair_after_event_available"): 1,
+            (
+                "_repair_conversation_after_native_ref",
+                "repair_after_native_ref_available",
+            ): 1,
+        }
+    )

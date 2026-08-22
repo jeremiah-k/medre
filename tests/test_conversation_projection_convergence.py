@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -11,11 +11,14 @@ import pytest
 from medre.core.events import CanonicalEvent, EventRelation, NativeMessageRef, NativeRef
 from medre.core.events.metadata import EventMetadata
 from medre.core.planning.conversation_graph import ConversationProjectionService
-from medre.core.storage.backend import ConversationMembership
+from medre.core.storage.backend import (
+    ConversationMembership,
+    ConversationProjectionState,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 
-_TS = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
+_TS = datetime(2026, 8, 22, 12, 0, tzinfo=UTC)
 
 
 def _event(
@@ -120,12 +123,21 @@ class _MemoryProjectionStorage:
     def __init__(self, events: list[CanonicalEvent]) -> None:
         self.events = {event.event_id: event for event in events}
         self.memberships: dict[str, ConversationMembership] = {}
+        self.event_id_pages: list[tuple[str | None, int]] = []
+        self.projection_state: ConversationProjectionState | None = None
+        self.projection_state_history: list[ConversationProjectionState] = []
 
     async def get(self, event_id: str) -> CanonicalEvent | None:
         return self.events.get(event_id)
 
-    async def list_event_ids(self) -> list[str]:
-        return list(self.events)
+    async def list_event_ids_page(
+        self, *, after_event_id: str | None, limit: int
+    ) -> list[str]:
+        self.event_id_pages.append((after_event_id, limit))
+        event_ids = sorted(self.events)
+        if after_event_id is not None:
+            event_ids = [event_id for event_id in event_ids if event_id > after_event_id]
+        return event_ids[:limit]
 
     async def resolve_native_ref(
         self,
@@ -172,6 +184,17 @@ class _MemoryProjectionStorage:
         self, event_id: str
     ) -> ConversationMembership | None:
         return self.memberships.get(event_id)
+
+    async def get_conversation_projection_state(
+        self,
+    ) -> ConversationProjectionState | None:
+        return self.projection_state
+
+    async def put_conversation_projection_state(
+        self, state: ConversationProjectionState
+    ) -> None:
+        self.projection_state = state
+        self.projection_state_history.append(state)
 
 
 async def test_child_before_parent_and_parent_before_child_converge() -> None:
@@ -281,7 +304,8 @@ async def test_new_native_ref_repairs_only_waiting_dependents() -> None:
 
         before_parent = await storage.get_conversation_membership("parent")
         before_child = await storage.get_conversation_membership("child")
-        assert before_parent is not None and before_child is not None
+        assert before_parent is not None
+        assert before_child is not None
         assert before_child.resolution_state == "unresolved"
 
         await storage.store_native_ref(_native_mapping("parent", "$parent"))
@@ -418,7 +442,8 @@ async def test_cycle_projection_has_deterministic_root() -> None:
 
         a = await storage.get_conversation_membership("a")
         b = await storage.get_conversation_membership("b")
-        assert a is not None and b is not None
+        assert a is not None
+        assert b is not None
         assert a.root_event_id == b.root_event_id == "a"
         assert a.conversation_id == b.conversation_id == "a"
         assert a.resolution_state == b.resolution_state == "cycle"
@@ -447,6 +472,43 @@ async def test_rebuild_is_idempotent() -> None:
         await storage.close()
 
 
+async def test_clean_projection_skips_the_next_startup_rebuild() -> None:
+    storage = _MemoryProjectionStorage([_event("a")])
+    first_service = ConversationProjectionService(storage)
+
+    first = await first_service.rebuild_all()
+    await first_service.mark_clean()
+    pages_before_restart = len(storage.event_id_pages)
+    second = await ConversationProjectionService(storage).rebuild_all()
+
+    assert first.skipped_current is False
+    assert second.skipped_current is True
+    assert second.scanned_events == 0
+    assert second.changed_events == 0
+    assert len(storage.event_id_pages) == pages_before_restart
+    assert storage.projection_state == ConversationProjectionState(
+        projection_revision=1,
+        status="dirty",
+    )
+
+
+async def test_projection_revision_mismatch_forces_rebuild() -> None:
+    storage = _MemoryProjectionStorage([_event("a")])
+    storage.projection_state = ConversationProjectionState(
+        projection_revision=2,
+        status="clean",
+    )
+
+    summary = await ConversationProjectionService(storage).rebuild_all()
+
+    assert summary.skipped_current is False
+    assert summary.scanned_events == 1
+    assert storage.projection_state == ConversationProjectionState(
+        projection_revision=1,
+        status="dirty",
+    )
+
+
 async def test_concurrent_repairs_cannot_leave_older_projection_last() -> None:
     """A stale repair cannot overwrite a newer fact's completed repair."""
     child = _event("child", relations=(_reply_to_event("parent"),))
@@ -455,6 +517,7 @@ async def test_concurrent_repairs_cannot_leave_older_projection_last() -> None:
     release_unresolved_write = asyncio.Event()
     real_put = storage.put_conversation_membership
     gated = False
+    write_order: list[tuple[str, str, str | None]] = []
 
     async def _gated_put(membership: ConversationMembership) -> bool:
         nonlocal gated
@@ -466,7 +529,15 @@ async def test_concurrent_repairs_cannot_leave_older_projection_last() -> None:
             gated = True
             unresolved_write_entered.set()
             await release_unresolved_write.wait()
-        return await real_put(membership)
+        changed = await real_put(membership)
+        write_order.append(
+            (
+                membership.event_id,
+                membership.resolution_state,
+                membership.resolved_target_event_id,
+            )
+        )
+        return changed
 
     storage.put_conversation_membership = _gated_put  # type: ignore[method-assign]
     service = ConversationProjectionService(storage)
@@ -475,19 +546,15 @@ async def test_concurrent_repairs_cannot_leave_older_projection_last() -> None:
 
     # The canonical parent fact arrives while the older child repair is paused.
     storage.events["parent"] = _event("parent")
-    parent_repair_requested = asyncio.Event()
-
-    async def _repair_parent() -> None:
-        parent_repair_requested.set()
-        await service.repair_after_event_available("parent")
-
-    parent_repair = asyncio.create_task(_repair_parent())
-    await parent_repair_requested.wait()
-    assert not parent_repair.done()
+    parent_repair = asyncio.create_task(
+        service.repair_after_event_available("parent")
+    )
 
     release_unresolved_write.set()
     await asyncio.gather(child_repair, parent_repair)
 
+    child_writes = [write for write in write_order if write[0] == "child"]
+    assert child_writes[-1] == ("child", "resolved", "parent")
     final = storage.memberships["child"]
     assert final.root_event_id == "parent"
     assert final.resolved_target_event_id == "parent"
@@ -498,13 +565,13 @@ async def test_rebuild_handles_chain_beyond_python_recursion_limit() -> None:
     """Projection ancestry is iterative even for very deep conversations."""
     chain_length = 1_500
     events = [_event("node-0000")]
-    for index in range(1, chain_length):
-        events.append(
-            _event(
-                f"node-{index:04d}",
-                relations=(_reply_to_event(f"node-{index - 1:04d}"),),
-            )
+    events.extend(
+        _event(
+            f"node-{index:04d}",
+            relations=(_reply_to_event(f"node-{index - 1:04d}"),),
         )
+        for index in range(1, chain_length)
+    )
     storage = _MemoryProjectionStorage(events)
     service = ConversationProjectionService(storage)
 
@@ -518,33 +585,52 @@ async def test_rebuild_handles_chain_beyond_python_recursion_limit() -> None:
     assert deepest.resolution_state == "resolved"
 
 
+async def test_rebuild_reads_event_ids_in_bounded_pages() -> None:
+    events = [_event(f"event-{index:04d}") for index in range(600)]
+    storage = _MemoryProjectionStorage(events)
+
+    summary = await ConversationProjectionService(storage).rebuild_all()
+
+    assert summary.scanned_events == len(events)
+    assert len(storage.event_id_pages) >= 3
+    assert all(limit <= 256 for _, limit in storage.event_id_pages)
+    progress = [
+        state.last_event_id
+        for state in storage.projection_state_history
+        if state.status == "rebuilding" and state.last_event_id is not None
+    ]
+    assert progress == ["event-0255", "event-0511", "event-0599"]
+
+
 async def test_restart_after_partial_repair_converges(tmp_path: Path) -> None:
     """A crash between projection writes is repaired by the startup rebuild."""
     db_path = tmp_path / "conversation-repair.sqlite3"
     storage = SQLiteStorage(str(db_path))
     await storage.initialize()
-    service = ConversationProjectionService(storage)
+    try:
+        service = ConversationProjectionService(storage)
 
-    await storage.append(_event("c", relations=(_reply_to_event("b"),)))
-    await service.repair_after_event_available("c")
-    await storage.append(_event("b", relations=(_reply_to_event("a"),)))
-    await service.repair_after_event_available("b")
-    await storage.append(_event("a"))
+        await storage.append(_event("c", relations=(_reply_to_event("b"),)))
+        await service.repair_after_event_available("c")
+        await storage.append(_event("b", relations=(_reply_to_event("a"),)))
+        await service.repair_after_event_available("b")
+        await storage.append(_event("a"))
 
-    real_put = storage.put_conversation_membership
-    writes = 0
+        real_put = storage.put_conversation_membership
+        writes = 0
 
-    async def _fail_second_write(membership: ConversationMembership) -> bool:
-        nonlocal writes
-        writes += 1
-        if writes == 2:
-            raise RuntimeError("injected projection write failure")
-        return await real_put(membership)
+        async def _fail_second_write(membership: ConversationMembership) -> bool:
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise RuntimeError("injected projection write failure")
+            return await real_put(membership)
 
-    storage.put_conversation_membership = _fail_second_write  # type: ignore[method-assign]
-    with pytest.raises(RuntimeError, match="injected projection write failure"):
-        await service.repair_after_event_available("a")
-    await storage.close()
+        storage.put_conversation_membership = _fail_second_write  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError, match="injected projection write failure"):
+            await service.repair_after_event_available("a")
+    finally:
+        await storage.close()
 
     reopened = SQLiteStorage(str(db_path))
     await reopened.initialize()
@@ -555,7 +641,9 @@ async def test_restart_after_partial_repair_converges(tmp_path: Path) -> None:
         a = await reopened.get_conversation_membership("a")
         b = await reopened.get_conversation_membership("b")
         c = await reopened.get_conversation_membership("c")
-        assert a is not None and b is not None and c is not None
+        assert a is not None
+        assert b is not None
+        assert c is not None
         assert (a.root_event_id, a.depth, a.resolution_state) == ("a", 0, "root")
         assert (b.root_event_id, b.depth, b.resolution_state) == (
             "a",
@@ -590,3 +678,16 @@ async def test_native_reverse_lookup_is_unique_and_deterministic(
     )
 
     assert sources == ["child-a", "child-b"]
+
+
+def test_resolved_membership_requires_positive_depth() -> None:
+    with pytest.raises(ValueError, match="depth must be positive"):
+        ConversationMembership(
+            event_id="child",
+            root_event_id="parent",
+            conversation_id="parent",
+            resolved_target_event_id="parent",
+            relation_type="reply",
+            depth=0,
+            resolution_state="resolved",
+        )

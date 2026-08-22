@@ -412,6 +412,10 @@ class PipelineRunner:
         """
         return await self._conversation_projection.rebuild_all()
 
+    async def mark_conversation_projection_clean(self) -> None:
+        """Persist the clean marker after an orderly runtime shutdown."""
+        await self._conversation_projection.mark_clean()
+
     # -- Lifecycle ----------------------------------------------------------
 
     def phase_snapshot(self) -> PhaseSnapshot:
@@ -705,9 +709,8 @@ class PipelineRunner:
         # Stage 3 – store
         await self.store_event(event)
         # Seed the call-local event cache with the exact immutable event shape
-        # written above.  Incremental projection repair can then reuse parent
-        # lookups already performed during Stage 2.5 without adding duplicate
-        # storage reads to this ingress pass.
+        # written above for later pipeline stages.  Projection repair below
+        # deliberately bypasses pre-store lookups for every other event ID.
         _event_cache[event.event_id] = event
 
         # Stage 4 – persist inbound native ref
@@ -721,8 +724,17 @@ class PipelineRunner:
         # a late native target converge both grouping and reply/reaction
         # rendering while preserving immutable ingress evidence.
         event = await self._resolve_relations(event)
+        projection_event = event
+
+        async def _projection_get(candidate_id: str) -> CanonicalEvent | None:
+            # Projection repair must observe current storage.  Reuse only the
+            # event just written, never negative lookups cached before Stage 3.
+            if candidate_id == projection_event.event_id:
+                return projection_event
+            return await self._config.storage.get(candidate_id)
+
         await self._conversation_projection.repair_after_event_available(
-            event.event_id, get_fn=_cached_get
+            event.event_id, get_fn=_projection_get
         )
         event = await self._conversation_projection.project_event(event)
 

@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from medre.core.storage.backend import ConversationMembership
+from medre.core.storage.backend import (
+    ConversationMembership,
+    ConversationProjectionState,
+)
 from medre.core.storage.sqlite.serde import _now_iso
 
 
@@ -71,6 +74,49 @@ class _ConversationMixin:
             (event_id,),
         )
         return self._row_to_conversation_membership(row) if row else None
+
+    async def get_conversation_projection_state(
+        self,
+    ) -> ConversationProjectionState | None:
+        """Return the singleton projection startup/rebuild state."""
+        row = await self._read_one(
+            """
+            SELECT projection_revision, status, last_event_id
+            FROM conversation_projection_state
+            WHERE singleton_id = 1
+            """
+        )
+        if row is None:
+            return None
+        return ConversationProjectionState(
+            projection_revision=int(row["projection_revision"]),
+            status=str(row["status"]),
+            last_event_id=row.get("last_event_id"),
+        )
+
+    async def put_conversation_projection_state(
+        self, state: ConversationProjectionState
+    ) -> None:
+        """Persist the singleton projection startup/rebuild state."""
+        await self._write(
+            """
+            INSERT INTO conversation_projection_state
+                (singleton_id, projection_revision, status,
+                 last_event_id, updated_at)
+            VALUES (1, ?, ?, ?, ?)
+            ON CONFLICT(singleton_id) DO UPDATE SET
+                projection_revision=excluded.projection_revision,
+                status=excluded.status,
+                last_event_id=excluded.last_event_id,
+                updated_at=excluded.updated_at
+            """,
+            (
+                state.projection_revision,
+                state.status,
+                state.last_event_id,
+                _now_iso(),
+            ),
+        )
 
     @staticmethod
     def _row_to_conversation_membership(row: dict[str, Any]) -> ConversationMembership:

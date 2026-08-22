@@ -733,11 +733,20 @@ class MedreApp:
         if self.storage is not None:
             try:
                 summary = await self.pipeline_runner.rebuild_conversation_projection()
-                _logger.info(
-                    "Conversation projection rebuilt: scanned=%d changed=%d",
-                    summary.scanned_events,
-                    summary.changed_events,
-                )
+                if summary.skipped_current:
+                    _logger.info("Conversation projection is already current")
+                else:
+                    _logger.info(
+                        "Conversation projection rebuilt: scanned=%d changed=%d",
+                        summary.scanned_events,
+                        summary.changed_events,
+                    )
+            except asyncio.CancelledError:
+                try:
+                    await self._cleanup_storage_safely()
+                finally:
+                    self._set_state(RuntimeState.FAILED)
+                raise
             except Exception as exc:
                 await self._cleanup_storage_safely()
                 self._set_state(RuntimeState.FAILED)
@@ -1449,6 +1458,32 @@ class MedreApp:
         except Exception as exc:
             _logger.error("Error stopping pipeline runner: %s", exc)
             errors.append(("pipeline", exc))
+
+        # 2.5. Mark the projection current only after all writers and the
+        # pipeline have stopped cleanly.  Cancellation, abandoned retry work,
+        # or any shutdown error leaves the startup marker dirty so the next
+        # run performs a full repair.
+        retry_abandoned = (
+            self._retry_worker is not None and self._retry_worker.state.abandoned
+        )
+        if (
+            self.storage is not None
+            and not errors
+            and _cancelled is None
+            and not retry_abandoned
+        ):
+            try:
+                await self.pipeline_runner.mark_conversation_projection_clean()
+            except asyncio.CancelledError as c_exc:
+                _deferred_cancel_count += _drain_pending_cancellations()
+                if _cancelled is None:
+                    _cancelled = c_exc
+                _logger.debug(
+                    "Cancelled while marking conversation projection clean (deferred)"
+                )
+            except Exception as exc:
+                _logger.error("Error marking conversation projection clean: %s", exc)
+                errors.append(("conversation_projection", exc))
 
         # 3. Close storage.
         if self.storage is not None:

@@ -83,11 +83,24 @@ class _EventMixin:
         rel_rows = await self._read_all(_SELECT_RELATIONS, (event_id,))
         return _row_to_event(row, [_row_to_relation(r) for r in rel_rows])
 
-    async def list_event_ids(self) -> list[str]:
-        """Return all canonical event IDs in deterministic event order."""
-        rows = await self._read_all(
-            "SELECT event_id FROM canonical_events ORDER BY timestamp ASC, event_id ASC"
-        )
+    async def list_event_ids_page(
+        self, *, after_event_id: str | None, limit: int
+    ) -> list[str]:
+        """Return one bounded lexicographic page of canonical event IDs."""
+        if limit < 1:
+            raise ValueError("event ID page limit must be positive")
+        if after_event_id is None:
+            rows = await self._read_all(
+                "SELECT event_id FROM canonical_events "
+                "ORDER BY event_id ASC LIMIT ?",
+                (limit,),
+            )
+        else:
+            rows = await self._read_all(
+                "SELECT event_id FROM canonical_events "
+                "WHERE event_id > ? ORDER BY event_id ASC LIMIT ?",
+                (after_event_id, limit),
+            )
         return [str(row["event_id"]) for row in rows]
 
     async def query(

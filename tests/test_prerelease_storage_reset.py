@@ -23,10 +23,11 @@ from pathlib import Path
 import pytest
 
 from medre.core.storage.backend import (
+    PreReleaseSchemaConstraintMismatchError,
     PreReleaseSchemaMismatchError,
     StorageInitializationError,
 )
-from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION
+from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION, _SCHEMA
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
@@ -285,6 +286,80 @@ async def test_fresh_db_no_schema_mismatch() -> None:
         await storage.close()
     finally:
         os.unlink(db_path)
+
+
+async def test_conversation_membership_missing_checks_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """Current columns and foreign keys do not compensate for missing checks."""
+    db_path = tmp_path / "missing-conversation-checks.db"
+    ddl = _SCHEMA.replace(
+        "    updated_at TEXT NOT NULL,\n"
+        "    CHECK (depth >= 0),\n"
+        "    CHECK (conversation_id = root_event_id),\n"
+        "    CHECK (resolution_state IN "
+        "('root', 'resolved', 'unresolved', 'cycle'))\n",
+        "    updated_at TEXT NOT NULL\n",
+    )
+
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.executescript(ddl)
+        raw.execute(
+            "INSERT INTO _medre_schema_meta (key, value) VALUES (?, ?)",
+            ("schema_version", "1"),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    storage = SQLiteStorage(str(db_path))
+    try:
+        with pytest.raises(
+            PreReleaseSchemaConstraintMismatchError,
+            match="conversation_membership",
+        ):
+            await storage.initialize()
+    finally:
+        await storage.close()
+
+
+async def test_schema_check_validator_rejects_unconstrained_table_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """sqlite_master DDL, not column presence, proves required checks exist."""
+    storage = SQLiteStorage("unused.db")
+
+    async def _unconstrained_definition(
+        sql: str, params: tuple[object, ...] = ()
+    ) -> dict[str, str]:
+        assert "sqlite_master" in sql
+        assert params == ("conversation_membership",)
+        return {
+            "sql": """
+                CREATE TABLE conversation_membership (
+                    event_id TEXT PRIMARY KEY,
+                    depth INTEGER NOT NULL,
+                    conversation_id TEXT NOT NULL,
+                    root_event_id TEXT NOT NULL,
+                    resolution_state TEXT NOT NULL
+                )
+            """
+        }
+
+    monkeypatch.setattr(storage, "_read_one", _unconstrained_definition)
+
+    with pytest.raises(
+        PreReleaseSchemaConstraintMismatchError,
+        match="conversation_membership",
+    ) as exc_info:
+        await storage._validate_schema_checks()
+
+    assert set(exc_info.value.missing_constraints) == {
+        "CHECK (depth >= 0)",
+        "CHECK (conversation_id = root_event_id)",
+        "CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))",
+    }
 
 
 async def test_corrupt_existing_db_raises_stable_initialization_error(

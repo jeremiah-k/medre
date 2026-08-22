@@ -264,7 +264,9 @@ async def test_native_ref_callback_runs_after_persistence() -> None:
     assert observed == [("evt-001", 1)]
 
 
-async def test_native_ref_callback_failure_does_not_reclassify_accepted_send() -> None:
+async def test_native_ref_callback_failure_does_not_reclassify_accepted_send(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Projection repair failure cannot turn an accepted transport send into retry."""
     adapter = _FakeAdapter(
         result=AdapterDeliveryResult(
@@ -282,14 +284,23 @@ async def test_native_ref_callback_failure_does_not_reclassify_accepted_send() -
         native_ref_persisted_fn=_fail_repair,
     )
 
-    receipt = await svc.deliver_to_target(
-        _make_event(), *_make_route_and_plan()
-    )
+    with caplog.at_level(logging.ERROR, logger="test.target_delivery"):
+        receipt = await svc.deliver_to_target(
+            _make_event(), *_make_route_and_plan()
+        )
 
     assert receipt.status == "sent"
     assert len(storage.native_refs) == 1
     assert len(storage.receipts) == 1
     assert storage.receipts[0].status == "sent"
+    repair_errors = [
+        record
+        for record in caplog.records
+        if "Conversation projection repair failed after outbound native-ref persistence"
+        in record.getMessage()
+    ]
+    assert len(repair_errors) == 1
+    assert repair_errors[0].exc_info is not None
 
 
 # ===================================================================

@@ -12,7 +12,8 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 
 This document specifies the MEDRE storage layer. The current SQLite backend persists
 `canonical_events`, `event_relations`, the rebuildable `conversation_membership`
-projection, `native_message_refs`, `delivery_receipts`, `delivery_outbox`,
+projection and its `conversation_projection_state`, `native_message_refs`,
+`delivery_receipts`, `delivery_outbox`,
 `durable_ingress_work`, `adapter_checkpoints`, a schema-reserved `plugin_state` table,
 and schema metadata.
 
@@ -119,8 +120,10 @@ class StorageBackend(Protocol):
         """
         ...
 
-    async def list_event_ids(self) -> list[str]:
-        """Return every canonical event ID in deterministic event order."""
+    async def list_event_ids_page(
+        self, *, after_event_id: str | None, limit: int,
+    ) -> list[str]:
+        """Return a bounded lexicographic page of canonical event IDs."""
         ...
 
     async def query(self, filter: EventFilter) -> AsyncIterator[CanonicalEvent]:
@@ -483,6 +486,31 @@ projected root/cycle boundary. `conversation_id` currently **MUST** equal
 During current pre-release development this table is part of schema version `1`. An
 older version-1 database that lacks this table is an incompatible development shape and
 **MUST** be rejected; MEDRE does not migrate or synthesize compatibility rows.
+
+### 4.2.2 conversation_projection_state
+
+```sql
+CREATE TABLE conversation_projection_state (
+    singleton_id INTEGER PRIMARY KEY,
+    projection_revision INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    last_event_id TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK (singleton_id = 1),
+    CHECK (projection_revision >= 1),
+    CHECK (status IN ('clean', 'dirty', 'rebuilding')),
+    CHECK (status = 'rebuilding' OR last_event_id IS NULL)
+);
+```
+
+This singleton row is mutable operational state, not event evidence. `clean` means an
+orderly shutdown completed with the current projection revision; the next startup MAY
+skip the full rebuild after changing the marker to `dirty`. `dirty` means a runtime
+session was active or did not shut down cleanly, so the next startup MUST rebuild.
+`rebuilding` records the last completed event-ID page for operational visibility; an
+interrupted rebuild restarts from immutable evidence rather than trusting partial state.
+A projection-revision change also forces a full rebuild. The database schema version
+remains `1` during pre-release development.
 
 ### 4.3 native_message_refs
 
@@ -963,13 +991,18 @@ SQLite transactions are atomic. An event write either completes fully or not at 
   returns `True` only when semantic projection content changed. Unchanged rows **MUST
   NOT** receive a new `updated_at`.
 - `get_conversation_membership(event_id)` returns current derived membership or `None`.
-- `list_event_ids()` returns the unbounded deterministic scan used by the correctness-
-  first startup rebuild. It is an internal rebuild primitive, not a paginated operator
-  query.
+- `list_event_ids_page(after_event_id, limit)` returns a bounded lexicographic page for
+  startup rebuilds. Rebuild code MUST release canonical-event chain caches between
+  events and bound any reusable membership cache.
+- `get_conversation_projection_state()` and
+  `put_conversation_projection_state(state)` read and update the singleton operational
+  marker. A clean marker is written only after runtime writers and the pipeline stop
+  cleanly.
 
 Projection writes **MUST NOT** update or delete `canonical_events`, `event_relations`,
-or `native_message_refs`. A crash during incremental repair is recovered by recomputing
-the projection from immutable facts at the next runtime startup.
+or `native_message_refs`. A dirty marker, interrupted rebuild, or projection-revision
+change is recovered by recomputing the projection from immutable facts at the next
+runtime startup. A clean current marker skips that redundant full scan.
 
 ### 8.9 append_receipt(receipt)
 
@@ -1065,7 +1098,7 @@ The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaim
 MEDRE has not yet made its first release. The schema version is frozen at `1` and will not be bumped until storage compatibility becomes release-tracked. However, the column shape (which tables exist, which columns each table has) may still change between prerelease builds.
 
 There is no automatic prerelease schema transformation. No code path rewrites
-old data into a new schema shape. The `initialize()` method **MUST** perform two
+old data into a new schema shape. The `initialize()` method **MUST** perform three
 validation checks that reject stale prerelease databases:
 
 ### 10.1 Schema Version Check
@@ -1091,10 +1124,19 @@ This validation catches old prerelease databases whose `schema_version` still re
 This change adds the required `delivery_receipts.confirmation_level` column while
 the prerelease schema version remains `1`. A database created by an earlier
 prerelease build therefore fails required-column validation by design. Operators
-MUST back up/reset that prerelease database using §10.3; MEDRE does not
+MUST back up/reset that prerelease database using §10.4; MEDRE does not
 transform that database in place.
 
-### 10.3 Pre-Release Stale Database Reset
+### 10.3 Structural-Constraint Validation
+
+After opening, `initialize()` and `open_readonly()` **MUST** inspect foreign-key
+mappings and the `sqlite_master` table definitions for required constraints. In
+particular, `conversation_membership` MUST retain the checks for nonnegative `depth`,
+`conversation_id = root_event_id`, and the allowed `resolution_state` values. Missing
+constraints raise `PreReleaseSchemaConstraintMismatchError`; current columns alone do
+not make an older unconstrained table compatible.
+
+### 10.4 Pre-Release Stale Database Reset
 
 When `initialize()` rejects a stale prerelease database, the operator **MUST** reset the database manually. No automatic deletion or recreation is performed. The required workflow is:
 
@@ -1274,7 +1316,7 @@ class StorageConfig:
 | Evidence immutability  | Conversation repair **MUST NOT** rewrite `canonical_events`, `event_relations`, or `native_message_refs`.                            |
 | Concurrent reads       | WAL mode **MUST** be enabled for concurrent reads during writes.                                                               |
 | Replay support         | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria.                      |
-| Schema validation      | `initialize()` **MUST** validate schema version and column shape.                                                              |
+| Schema validation      | `initialize()` **MUST** validate schema version, column shape, foreign keys, and required SQL checks.                           |
 | Durable admission      | Canonical event, inbound native ref, and ingress work **MUST** commit in one transaction.                                      |
 | Checkpoint safety      | Application-owned cursors **MUST NOT** advance past relevant events that failed durable admission.                             |
 | Single database        | There **MUST NOT** be per-adapter databases.                                                                                   |
@@ -1290,6 +1332,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 | `canonical_events`     | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                           | None                                          | Forever                          |
 | `event_relations`      | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                           | None                                          | Forever                          |
 | `conversation_membership` | `ConversationProjectionService` from immutable event/relation/native-ref facts | `ConversationProjectionService` (derived idempotent repair) | None; rebuilt in place                        | Rebuildable current projection   |
+| `conversation_projection_state` | `ConversationProjectionService` during startup | `ConversationProjectionService` during rebuild and clean shutdown | None | Singleton operational marker |
 | `native_message_refs`  | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                     | None                                          | Forever                          |
 | `delivery_receipts`    | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                           | None                                          | Forever                          |
 | `delivery_outbox`      | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only)      | None (terminal rows become immutable history) | Forever                          |
@@ -1302,7 +1345,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 
 1. **`canonical_events` are canonical ingress facts.** Each row records a normalized event after codec processing and ingress-time conversation assignment by `ConversationGraphAuthority`. Rows are never updated or deleted. The stored `root_event_id` / `conversation_id` are historical admission snapshots, not mutable current grouping.
 
-2. **`conversation_membership` is current derived ancestry.** `ConversationProjectionService` recomputes it from immutable events, relation rows, and native refs. Late parents/native mappings may update projection rows, but MUST NOT rewrite the evidence tables. Runtime startup performs a deterministic full rebuild before pipeline workers or adapters start so partial prior repairs self-heal.
+2. **`conversation_membership` is current derived ancestry.** `ConversationProjectionService` recomputes it from immutable events, relation rows, and native refs. Late parents/native mappings may update projection rows, but MUST NOT rewrite the evidence tables. Runtime startup performs a bounded deterministic rebuild before pipeline workers or adapters start after an unclean shutdown, interrupted rebuild, or projection-revision change. A clean current marker skips redundant rebuild work.
 
 3. **`native_message_refs` are native transport correlation facts.** Adapters report them as observations of native-to-canonical mappings. Inserts are idempotent. No code path updates or deletes a native ref.
 

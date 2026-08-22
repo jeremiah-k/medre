@@ -165,6 +165,9 @@ class DuplicateEventError(StorageError):
 CONVERSATION_MEMBERSHIP_STATES: frozenset[str] = frozenset(
     {"root", "resolved", "unresolved", "cycle"}
 )
+CONVERSATION_PROJECTION_STATUSES: frozenset[str] = frozenset(
+    {"clean", "dirty", "rebuilding"}
+)
 
 
 @dataclass(frozen=True)
@@ -215,8 +218,29 @@ class ConversationMembership:
                 raise ValueError(
                     f"{self.resolution_state} membership requires a relation type"
                 )
+        if self.resolution_state == "resolved" and self.depth == 0:
+            raise ValueError("resolved membership depth must be positive")
         if self.resolution_state == "cycle" and self.depth != 0:
             raise ValueError("cycle membership depth must be zero")
+
+
+@dataclass(frozen=True)
+class ConversationProjectionState:
+    """Persisted startup-rebuild state for the derived projection."""
+
+    projection_revision: int
+    status: str
+    last_event_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.projection_revision < 1:
+            raise ValueError("conversation projection revision must be positive")
+        if self.status not in CONVERSATION_PROJECTION_STATUSES:
+            raise ValueError(f"invalid conversation projection status: {self.status!r}")
+        if self.status != "rebuilding" and self.last_event_id is not None:
+            raise ValueError(
+                "only rebuilding conversation projection state may carry progress"
+            )
 
 
 @dataclass
@@ -452,12 +476,10 @@ class StorageBackend(Protocol):
         """
         ...
 
-    async def list_event_ids(self) -> list[str]:
-        """Return all canonical event IDs in deterministic event order.
-
-        Authority: **list/get** (read-only).  This unbounded internal scan is
-        used by correctness-first rebuilds of derived projections.
-        """
+    async def list_event_ids_page(
+        self, *, after_event_id: str | None, limit: int
+    ) -> list[str]:
+        """Return a bounded lexicographic page of canonical event IDs."""
         ...
 
     def query(self, event_filter: EventFilter) -> AsyncGenerator[CanonicalEvent, None]:
@@ -696,6 +718,18 @@ class StorageBackend(Protocol):
         self, event_id: str
     ) -> ConversationMembership | None:
         """Return current derived conversation membership for *event_id*."""
+        ...
+
+    async def get_conversation_projection_state(
+        self,
+    ) -> ConversationProjectionState | None:
+        """Return the persisted projection startup/rebuild state."""
+        ...
+
+    async def put_conversation_projection_state(
+        self, state: ConversationProjectionState
+    ) -> None:
+        """Persist the singleton projection startup/rebuild state."""
         ...
 
     # -- Receipts -----------------------------------------------------------

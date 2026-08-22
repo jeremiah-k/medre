@@ -66,6 +66,18 @@ CREATE TABLE IF NOT EXISTS conversation_membership (
     CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))
 );
 
+CREATE TABLE IF NOT EXISTS conversation_projection_state (
+    singleton_id INTEGER PRIMARY KEY,
+    projection_revision INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    last_event_id TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK (singleton_id = 1),
+    CHECK (projection_revision >= 1),
+    CHECK (status IN ('clean', 'dirty', 'rebuilding')),
+    CHECK (status = 'rebuilding' OR last_event_id IS NULL)
+);
+
 CREATE TABLE IF NOT EXISTS native_message_refs (
     id TEXT PRIMARY KEY,
     event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
@@ -314,6 +326,15 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "updated_at",
         }
     ),
+    "conversation_projection_state": frozenset(
+        {
+            "singleton_id",
+            "projection_revision",
+            "status",
+            "last_event_id",
+            "updated_at",
+        }
+    ),
     "native_message_refs": frozenset(
         {
             "id",
@@ -429,5 +450,23 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
     ),
     "delivery_outbox": frozenset(
         {("event_id", "canonical_events", "event_id")}
+    ),
+}
+
+# Required table-level CHECK clauses.  Column/FK validation cannot detect an
+# existing pre-release table created without these invariants because
+# ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
+_REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "conversation_membership": (
+        ("CHECK (depth >= 0)", r"CHECK\s*\(\s*depth\s*>=\s*0\s*\)"),
+        (
+            "CHECK (conversation_id = root_event_id)",
+            r"CHECK\s*\(\s*conversation_id\s*=\s*root_event_id\s*\)",
+        ),
+        (
+            "CHECK (resolution_state IN ('root', 'resolved', 'unresolved', 'cycle'))",
+            r"CHECK\s*\(\s*resolution_state\s+IN\s*\(\s*'root'\s*,\s*"
+            r"'resolved'\s*,\s*'unresolved'\s*,\s*'cycle'\s*\)\s*\)",
+        ),
     ),
 }

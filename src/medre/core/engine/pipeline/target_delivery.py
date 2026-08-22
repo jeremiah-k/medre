@@ -285,8 +285,8 @@ class TargetDeliveryService:
         Optional callback invoked after a successful outbound native-reference
         write.  The pipeline uses it to repair derived conversation membership
         for children that were waiting on that native identity.  Callback
-        failure is observational only after transport acceptance and MUST NOT
-        reclassify the delivery as failed.
+        failure is observational only after transport acceptance and never
+        reclassifies the delivery as failed.
     """
 
     def __init__(

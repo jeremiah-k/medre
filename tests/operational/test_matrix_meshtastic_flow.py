@@ -54,7 +54,11 @@ from medre.core.rendering.renderer import (
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
-from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from medre.core.storage.backend import (
+    ConversationMembership,
+    DeliveryOutboxItem,
+    StorageError,
+)
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 
 # ---------------------------------------------------------------------------
@@ -74,6 +78,7 @@ class _FakeStorage:
         self._receipts: list[DeliveryReceipt] = []
         self._native_ref_index: dict[tuple[str, str, str], str] = {}
         self._outbox: dict[str, DeliveryOutboxItem] = {}
+        self._conversation_memberships: dict[str, ConversationMembership] = {}
 
     async def append(self, event: CanonicalEvent) -> None:
         self._events[event.event_id] = event
@@ -95,6 +100,46 @@ class _FakeStorage:
 
     async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
         return [r for r in self._native_refs.values() if r.event_id == event_id]
+
+    async def list_relation_sources(self, target_event_id: str) -> list[str]:
+        return [
+            event.event_id
+            for event in self._events.values()
+            if any(
+                relation.target_event_id == target_event_id
+                for relation in event.relations
+            )
+        ]
+
+    async def list_relation_sources_for_native_ref(
+        self,
+        adapter: str,
+        native_channel_id: str | None,
+        native_message_id: str,
+    ) -> list[str]:
+        return [
+            event.event_id
+            for event in self._events.values()
+            if any(
+                relation.target_native_ref is not None
+                and relation.target_native_ref.adapter == adapter
+                and relation.target_native_ref.native_channel_id == native_channel_id
+                and relation.target_native_ref.native_message_id == native_message_id
+                for relation in event.relations
+            )
+        ]
+
+    async def put_conversation_membership(
+        self, membership: ConversationMembership
+    ) -> bool:
+        previous = self._conversation_memberships.get(membership.event_id)
+        self._conversation_memberships[membership.event_id] = membership
+        return previous != membership
+
+    async def get_conversation_membership(
+        self, event_id: str
+    ) -> ConversationMembership | None:
+        return self._conversation_memberships.get(event_id)
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         self._receipts.append(receipt)
@@ -548,6 +593,49 @@ def _build_pipeline_runner(
     )
     runner = PipelineRunner(config)
     return runner, store, router
+
+
+async def test_projection_rechecks_parent_stored_after_identity_lookup() -> None:
+    """Projection repair must not reuse a pre-store negative parent lookup."""
+    parent = _matrix_inbound_event(body="Parent", event_id="$parent")
+
+    class _ParentAppearsOnChildAppend(_FakeStorage):
+        async def append(self, event: CanonicalEvent) -> None:
+            await super().append(event)
+            self._events[parent.event_id] = parent
+
+    storage = _ParentAppearsOnChildAppend()
+    runner, _, _ = _build_pipeline_runner(
+        source_adapter="test_matrix",
+        target_adapter_id="test_mesh",
+        target_channel="0",
+        storage=storage,
+    )
+    child = _matrix_inbound_event(
+        body="Child",
+        event_id="$child",
+        relations=(
+            EventRelation(
+                relation_type="reply",
+                target_event_id=parent.event_id,
+                target_native_ref=None,
+                key=None,
+                fallback_text=None,
+            ),
+        ),
+    )
+
+    await runner.start()
+    try:
+        await runner.handle_ingress(child)
+    finally:
+        await runner.stop()
+
+    membership = await storage.get_conversation_membership(child.event_id)
+    assert membership is not None
+    assert membership.resolution_state == "resolved"
+    assert membership.resolved_target_event_id == parent.event_id
+    assert membership.root_event_id == parent.event_id
 
 
 # ===========================================================================

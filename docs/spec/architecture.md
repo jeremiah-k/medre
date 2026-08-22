@@ -63,9 +63,10 @@ When a canonical event or native-message mapping becomes available, the projecti
 reverse relation traversal to recompute dependent children and descendants. Incremental
 repair/rebuild operations are serialized by the projection authority so an older
 calculation cannot overwrite the result of a newer completed repair. Runtime startup
-performs a deterministic full rebuild **after storage initialization and before pipeline
-workers or adapters start**. This makes interrupted incremental repair self-healing
-without a migration log or mutation of evidence.
+checks persisted projection revision/cleanliness **after storage initialization and
+before pipeline workers or adapters start**. Dirty, interrupted, or older-revision state
+triggers a deterministic paged rebuild; a clean current marker skips the full scan. This
+makes interrupted incremental repair self-healing without mutation of evidence.
 
 The projection is required to be idempotent and arrival-order convergent. The same final
 set of immutable events, relation rows, and native refs must yield the same semantic

@@ -614,8 +614,9 @@ relation's native reference when that canonical target is missing.
 
 Arrival order does not define final grouping: child-before-parent and parent-before-child
 inputs with the same final immutable facts MUST converge to the same semantic membership.
-Restart during an incremental repair MUST converge after the startup full rebuild. Cycles
-use the lexicographically smallest event ID in the selected cycle as their deterministic
+Restart during an incremental repair MUST converge after the next dirty-state startup
+rebuild. A clean current projection marker MAY skip the redundant full scan. Cycles use
+the lexicographically smallest event ID in the selected cycle as their deterministic
 projection root.
 
 ### 9.3 native_message_refs

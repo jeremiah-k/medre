@@ -28,12 +28,18 @@ from typing import Protocol
 import msgspec
 
 from medre.core.events.canonical import CanonicalEvent, NativeMessageRef, NativeRef
-from medre.core.storage.backend import ConversationMembership
+from medre.core.storage.backend import (
+    ConversationMembership,
+    ConversationProjectionState,
+)
 
 _logger = logging.getLogger(__name__)
 
 # Maximum depth for ancestor walk to prevent runaway recursion.
 _MAX_WALK_DEPTH = 64
+_CONVERSATION_PROJECTION_REVISION = 1
+_REBUILD_PAGE_SIZE = 256
+_REBUILD_MEMBERSHIP_CACHE_SIZE = 256
 
 _EventGetFn = Callable[[str], Awaitable[CanonicalEvent | None]]
 
@@ -233,6 +239,7 @@ class ConversationRebuildSummary:
 
     scanned_events: int
     changed_events: int
+    skipped_current: bool
 
 
 class ConversationProjectionStorage(Protocol):
@@ -240,7 +247,9 @@ class ConversationProjectionStorage(Protocol):
 
     async def get(self, event_id: str) -> CanonicalEvent | None: ...
 
-    async def list_event_ids(self) -> list[str]: ...
+    async def list_event_ids_page(
+        self, *, after_event_id: str | None, limit: int
+    ) -> list[str]: ...
 
     async def resolve_native_ref(
         self,
@@ -269,6 +278,14 @@ class ConversationProjectionStorage(Protocol):
     async def get_conversation_membership(
         self, event_id: str
     ) -> ConversationMembership | None: ...
+
+    async def get_conversation_projection_state(
+        self,
+    ) -> ConversationProjectionState | None: ...
+
+    async def put_conversation_projection_state(
+        self, state: ConversationProjectionState
+    ) -> None: ...
 
 
 class ConversationProjectionService:
@@ -304,32 +321,99 @@ class ConversationProjectionService:
     async def rebuild_all(self) -> ConversationRebuildSummary:
         """Recompute the complete projection from immutable stored evidence.
 
-        This correctness-first startup rebuild is intentionally unbounded in
-        the current pre-release design.  It makes restart during a prior repair
-        self-healing: every row is derived again from canonical events,
-        relations, and native refs, and unchanged rows are not rewritten.
+        A clean marker for the current projection revision skips redundant
+        startup work.  Dirty, interrupted, or older-revision state triggers a
+        complete rebuild.  Event IDs are paged, canonical-event caches are
+        released after each ancestry chain, and the small membership cache is
+        pruned so the working set does not grow with the full store.
         """
         async with self._repair_lock:
-            event_ids = await self._storage.list_event_ids()
-            cache: dict[str, ConversationMembership] = {}
-            event_cache: dict[str, CanonicalEvent | None] = {}
-            for event_id in event_ids:
-                await self._resolve_membership(
-                    event_id, cache=cache, event_cache=event_cache
+            prior = await self._storage.get_conversation_projection_state()
+            if (
+                prior is not None
+                and prior.projection_revision == _CONVERSATION_PROJECTION_REVISION
+                and prior.status == "clean"
+            ):
+                await self._storage.put_conversation_projection_state(
+                    ConversationProjectionState(
+                        projection_revision=_CONVERSATION_PROJECTION_REVISION,
+                        status="dirty",
+                    )
+                )
+                return ConversationRebuildSummary(
+                    scanned_events=0,
+                    changed_events=0,
+                    skipped_current=True,
                 )
 
+            await self._storage.put_conversation_projection_state(
+                ConversationProjectionState(
+                    projection_revision=_CONVERSATION_PROJECTION_REVISION,
+                    status="rebuilding",
+                )
+            )
+
+            cursor: str | None = None
+            scanned = 0
             changed = 0
-            for event_id in event_ids:
-                membership = cache.get(event_id)
-                if membership is None:
-                    raise RuntimeError(
-                        f"conversation rebuild produced no membership for {event_id!r}"
+            membership_cache: dict[str, ConversationMembership] = {}
+            while True:
+                event_ids = await self._storage.list_event_ids_page(
+                    after_event_id=cursor,
+                    limit=_REBUILD_PAGE_SIZE,
+                )
+                if not event_ids:
+                    break
+
+                for event_id in event_ids:
+                    cache = dict(membership_cache)
+                    previously_cached = set(cache)
+                    event_cache: dict[str, CanonicalEvent | None] = {}
+                    await self._resolve_membership(
+                        event_id,
+                        cache=cache,
+                        event_cache=event_cache,
                     )
-                if await self._storage.put_conversation_membership(membership):
-                    changed += 1
+                    for resolved_id in sorted(cache.keys() - previously_cached):
+                        membership = cache[resolved_id]
+                        if await self._storage.put_conversation_membership(membership):
+                            changed += 1
+                        membership_cache[resolved_id] = membership
+
+                    while len(membership_cache) > _REBUILD_MEMBERSHIP_CACHE_SIZE:
+                        oldest = next(iter(membership_cache))
+                        membership_cache.pop(oldest)
+                    scanned += 1
+
+                cursor = event_ids[-1]
+                await self._storage.put_conversation_projection_state(
+                    ConversationProjectionState(
+                        projection_revision=_CONVERSATION_PROJECTION_REVISION,
+                        status="rebuilding",
+                        last_event_id=cursor,
+                    )
+                )
+
+            await self._storage.put_conversation_projection_state(
+                ConversationProjectionState(
+                    projection_revision=_CONVERSATION_PROJECTION_REVISION,
+                    status="dirty",
+                )
+            )
             return ConversationRebuildSummary(
-                scanned_events=len(event_ids),
+                scanned_events=scanned,
                 changed_events=changed,
+                skipped_current=False,
+            )
+
+    async def mark_clean(self) -> None:
+        """Record that an orderly shutdown left the projection current."""
+        async with self._repair_lock:
+            await self._storage.put_conversation_projection_state(
+                ConversationProjectionState(
+                    projection_revision=_CONVERSATION_PROJECTION_REVISION,
+                    status="clean",
+                )
             )
 
     async def reconcile_event(
@@ -660,17 +744,8 @@ class ConversationProjectionService:
                 ordered.append(source_id)
                 seen.add(source_id)
 
-        for ref in await self._storage.list_native_refs_for_event(event_id):
-            adapter = getattr(ref, "adapter")
-            native_channel_id = getattr(ref, "native_channel_id")
-            native_message_id = getattr(ref, "native_message_id")
-            sources = await self._storage.list_relation_sources_for_native_ref(
-                adapter,
-                native_channel_id,
-                native_message_id,
-            )
-            for source_id in sources:
-                if source_id not in seen:
-                    ordered.append(source_id)
-                    seen.add(source_id)
+        for source_id in await self._native_dependent_sources(event_id):
+            if source_id not in seen:
+                ordered.append(source_id)
+                seen.add(source_id)
         return ordered
