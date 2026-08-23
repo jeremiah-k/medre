@@ -721,6 +721,7 @@ class DeliveryCoordinator:
                 cached_list_fn=ctx.cached_list_fn,
                 outbox_id=outbox_ctx.outbox_id,
             )
+            receipt = await self._persisted_receipt(receipt)
             if self._route_stats is not None:
                 self._route_stats.record_delivered(ctx.route.id)
             if self._runtime_accounting is not None:
@@ -753,14 +754,15 @@ class DeliveryCoordinator:
                 if failure_kind.is_retryable
                 else "permanent_failure"
             )
+            receipt = await self._persisted_receipt(exc.receipt)
             outcome = self._build_outcome(
                 ctx,
                 status=status,
                 failure_kind=failure_kind,
-                receipt=exc.receipt,
+                receipt=receipt,
                 error=exc.error,
             )
-            return _ExecutionResult(outcome, exc.receipt, failure_kind, exc.error)
+            return _ExecutionResult(outcome, receipt, failure_kind, exc.error)
         except _RendererDeliveryError as exc:
             failure_kind = (
                 exc.failure_kind
@@ -768,14 +770,15 @@ class DeliveryCoordinator:
                 else DeliveryFailureKind.RENDERER_FAILURE
             )
             self._record_failed(ctx.route.id, exc.error)
+            receipt = await self._persisted_receipt(exc.receipt)
             outcome = self._build_outcome(
                 ctx,
                 status="permanent_failure",
                 failure_kind=failure_kind,
-                receipt=exc.receipt,
+                receipt=receipt,
                 error=exc.error,
             )
-            return _ExecutionResult(outcome, exc.receipt, failure_kind, exc.error)
+            return _ExecutionResult(outcome, receipt, failure_kind, exc.error)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -828,7 +831,7 @@ class DeliveryCoordinator:
         failure_kind: DeliveryFailureKind,
         error: str,
     ) -> DeliveryReceipt:
-        return await self._persist_suppression_receipt(
+        receipt = await self._persist_suppression_receipt(
             event_id=ctx.event.event_id,
             delivery_plan_id=ctx.plan.plan_id,
             target_adapter=ctx.adapter_id,
@@ -839,6 +842,42 @@ class DeliveryCoordinator:
             source=ctx.source,
             replay_run_id=ctx.replay_run_id,
         )
+        persisted = await self._persisted_receipt(receipt)
+        if persisted is None:
+            raise RuntimeError("suppression receipt unexpectedly missing")
+        return persisted
+
+    async def _persisted_receipt(
+        self, receipt: DeliveryReceipt | None
+    ) -> DeliveryReceipt | None:
+        """Return storage's exact row for a receipt produced by target delivery.
+
+        SQLite assigns ``sequence`` during insertion, while the immutable
+        receipt passed to ``append_receipt`` still carries the construction
+        sentinel ``0``.  Read back by unique receipt ID so outcomes and outbox
+        finalization expose the same evidence row callers will query later.
+        A read-back fault remains observational after receipt persistence and
+        falls back to the already-complete semantic receipt.
+        """
+        if receipt is None or receipt.sequence > 0:
+            return receipt
+        try:
+            receipts = await self._storage.list_receipts_for_event(receipt.event_id)
+        except Exception:
+            self._log.debug(
+                "Failed to reload persisted delivery receipt: receipt_id=%s",
+                receipt.receipt_id,
+                exc_info=True,
+            )
+            return receipt
+        for persisted in reversed(receipts):
+            if persisted.receipt_id == receipt.receipt_id:
+                return persisted
+        self._log.debug(
+            "Persisted delivery receipt not visible during read-back: receipt_id=%s",
+            receipt.receipt_id,
+        )
+        return receipt
 
     def _build_outcome(
         self,
