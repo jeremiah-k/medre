@@ -875,6 +875,8 @@ class DeliveryOutcome:
 `failure_kind_detail` is an optional stable refinement used when control flow must
 distinguish causes within one broad failure kind. Human-readable `error` text is
 diagnostic only and MUST NOT be parsed for control-flow decisions.
+When a receipt was persisted, `receipt` MUST reflect that exact stored row, including
+the storage-assigned `sequence`, rather than the pre-insert construction value.
 
 ### 11.1 Per-Destination Independence
 

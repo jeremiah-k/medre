@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import cast
 
+import msgspec
 import pytest
 
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
-from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
+from medre.core.engine.pipeline.target_delivery import _AdapterDeliveryError
+from medre.core.events import DeliveryReceipt
+from medre.core.planning.delivery_plan import (
+    DeliveryFailureKind,
+    DeliveryPlan,
+    DeliveryStrategy,
+)
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 from medre.core.supervision.capacity import CapacityController
@@ -61,6 +69,54 @@ def _runner(storage: StorageBackend) -> PipelineRunner:
         adapters={"target": _Adapter()},
     )
     return PipelineRunner(config)
+
+
+class _ReceiptStorage:
+    def __init__(self, receipt: DeliveryReceipt) -> None:
+        self.receipt = receipt
+
+    async def list_receipts_for_event(
+        self, event_id: str
+    ) -> list[DeliveryReceipt]:
+        assert event_id == self.receipt.event_id
+        return [self.receipt]
+
+
+def _runner_with_receipt_result(
+    candidate: DeliveryReceipt,
+    persisted: DeliveryReceipt,
+    *,
+    failure_kind: DeliveryFailureKind | None,
+) -> tuple[PipelineRunner, list[DeliveryReceipt | None]]:
+    runner = _runner(cast(StorageBackend, _ReceiptStorage(persisted)))
+    finalized_receipts: list[DeliveryReceipt | None] = []
+
+    async def _create_outbox(*args: object, **kwargs: object) -> OutboxContext:
+        return OutboxContext(
+            outbox_id="obox-sequence",
+            created=True,
+            pipeline_worker="pipeline:test",
+            skip_reason=None,
+        )
+
+    async def _deliver(*args: object, **kwargs: object) -> DeliveryReceipt:
+        if failure_kind is not None:
+            raise _AdapterDeliveryError(
+                "target",
+                "simulated send failure",
+                failure_kind=failure_kind,
+                receipt=candidate,
+            )
+        return candidate
+
+    async def _finalize(*args: object, **kwargs: object) -> None:
+        finalized_receipts.append(cast(DeliveryReceipt | None, args[1]))
+
+    runner._outbox_manager.create_for_delivery = _create_outbox  # type: ignore[assignment]
+    runner._outbox_manager.start_lease_renewal = lambda _ctx: None  # type: ignore[assignment]
+    runner._outbox_manager.finalize_outcome = _finalize  # type: ignore[assignment]
+    runner.deliver_to_target = _deliver  # type: ignore[assignment]
+    return runner, finalized_receipts
 
 
 async def test_capacity_released_when_outbox_creation_is_cancelled(
@@ -183,3 +239,57 @@ async def test_delivery_without_capacity_controller_is_not_tracked_as_inflight(
 
     assert outcomes[0].status == "success"
     assert runner._inflight_deliveries == {}
+
+
+async def test_failed_outcome_uses_storage_assigned_receipt_sequence() -> None:
+    """Failed outcomes expose the persisted receipt, not its pre-insert value."""
+    candidate = build_delivery_receipt(
+        event_id="coordinator-event",
+        delivery_plan_id="coordinator-plan",
+        target_adapter="target",
+        target_channel=None,
+        route_id="coordinator-route",
+        status="failed",
+        failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+        sequence=0,
+    )
+    persisted = msgspec.structs.replace(candidate, sequence=1)
+
+    runner, finalized_receipts = _runner_with_receipt_result(
+        candidate,
+        persisted,
+        failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT,
+    )
+
+    event = make_event(event_id="coordinator-event", source_adapter="source")
+    outcomes = await runner.deliver_to_targets(event, [(_route(), _plan())])
+
+    assert outcomes[0].receipt == persisted
+    assert finalized_receipts == [persisted]
+
+
+async def test_success_outcome_uses_storage_assigned_receipt_sequence() -> None:
+    """Successful outcomes expose the same exact row as durable evidence."""
+    candidate = build_delivery_receipt(
+        event_id="coordinator-event",
+        delivery_plan_id="coordinator-plan",
+        target_adapter="target",
+        target_channel=None,
+        route_id="coordinator-route",
+        status="sent",
+        sequence=0,
+    )
+    persisted = msgspec.structs.replace(candidate, sequence=1)
+
+    runner, finalized_receipts = _runner_with_receipt_result(
+        candidate,
+        persisted,
+        failure_kind=None,
+    )
+
+    event = make_event(event_id="coordinator-event", source_adapter="source")
+    outcomes = await runner.deliver_to_targets(event, [(_route(), _plan())])
+
+    assert outcomes[0].status == "success"
+    assert outcomes[0].receipt == persisted
+    assert finalized_receipts == [persisted]
