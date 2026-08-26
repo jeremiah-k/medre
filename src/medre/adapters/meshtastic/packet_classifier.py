@@ -67,7 +67,10 @@ ClassificationCategory = Literal[
 
 # Protocol-correct numeric PortNum fallback derived from the Meshtastic
 # protobuf PortNum enum.  Used when the optional SDK is not available.
-# Values verified against portnums_pb2 in meshtastic/mtjk.
+# Values verified against portnums_pb2 in meshtastic/mtjk (protobufs pin
+# 1b4cb00, firmware 2.8): covers every PortNum value except the 511 MAX
+# sentinel.  Names follow normalize_portnum's SDK-path convention:
+# lowercased enum name with a trailing "_app" suffix removed.
 _NUMERIC_PORTNUM_FALLBACK: dict[int, str] = {
     0: "unknown",
     1: "text_message",
@@ -86,9 +89,28 @@ _NUMERIC_PORTNUM_FALLBACK: dict[int, str] = {
     32: "reply",
     33: "ip_tunnel",
     34: "paxcounter",
+    35: "store_forward_plusplus",
+    36: "node_status",
+    37: "mesh_beacon",
+    64: "serial",
+    65: "store_forward",
+    66: "range_test",
     67: "telemetry",
+    68: "zps",
+    69: "simulator",
+    70: "traceroute",
     71: "neighborinfo",
     72: "atak_plugin",
+    73: "map_report",
+    74: "powerstress",
+    75: "lorawan_bridge",
+    76: "reticulum_tunnel",
+    77: "cayenne",
+    78: "atak_plugin_v2",
+    79: "lora_ota",
+    112: "groupalarm",
+    256: "private",
+    257: "atak_forwarder",
 }
 
 # Lazily-loaded SDK portnum table.  ``_SDK_PORTNUM_FETCHED`` distinguishes

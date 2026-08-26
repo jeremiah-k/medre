@@ -486,6 +486,12 @@ class TestPortnumNormalization:
             ("text_message", "text_message"),
             ("telemetry", "telemetry"),
             (1, "text_message"),
+            (36, "node_status"),
+            (37, "mesh_beacon"),
+            (79, "lora_ota"),
+            (112, "groupalarm"),
+            (35, "store_forward_plusplus"),
+            (70, "traceroute"),
             (None, None),
             ("UNKNOWN_FUTURE_APP", "unknown_future_app"),
         ],
@@ -512,6 +518,62 @@ class TestPortnumNormalization:
         }
         result = cls.classify(packet)
         assert result.category == category
+
+
+class TestPortnumFallbackParity:
+    """SDK-less numeric fallback parity with the protobuf PortNum enum."""
+
+    FIRMWARE_2_8_PORTNUMS: dict[int, str] = {
+        35: "store_forward_plusplus",
+        36: "node_status",
+        37: "mesh_beacon",
+        79: "lora_ota",
+        112: "groupalarm",
+    }
+
+    def test_fallback_resolves_firmware_2_8_portnums(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With the SDK table unavailable, 2.8 portnums still resolve by name
+        instead of degrading to their numeric string representation."""
+        monkeypatch.setattr(
+            "medre.adapters.meshtastic.packet_classifier._get_sdk_portnum_table",
+            lambda: None,
+        )
+        for numeric, expected in self.FIRMWARE_2_8_PORTNUMS.items():
+            assert normalize_portnum(numeric) == expected
+
+    def test_fallback_names_match_sdk_convention(self) -> None:
+        """Fallback names are lowercased enum names with a trailing ``_app``
+        suffix removed, matching normalize_portnum's SDK-path convention."""
+        from medre.adapters.meshtastic.packet_classifier import (
+            _NUMERIC_PORTNUM_FALLBACK,
+        )
+
+        for name in _NUMERIC_PORTNUM_FALLBACK.values():
+            assert name == name.lower()
+            assert not name.endswith("_app")
+
+    def test_fallback_matches_installed_sdk_enum(self) -> None:
+        """When the mtjk SDK is installed, the fallback table resolves every
+        protobuf PortNum value to the same name the SDK path produces."""
+        from medre.adapters.meshtastic.compat import HAS_MESHTASTIC, get_portnum_table
+        from medre.adapters.meshtastic.packet_classifier import (
+            _NUMERIC_PORTNUM_FALLBACK,
+        )
+
+        if not HAS_MESHTASTIC:
+            pytest.skip("meshtastic SDK not installed")
+        sdk_table = get_portnum_table()
+        assert sdk_table is not None
+        for numeric, sdk_name in sdk_table.items():
+            if numeric == 511:  # MAX sentinel, not a real portnum
+                continue
+            expected = sdk_name.removesuffix("_app")
+            # SDK path (SDK table takes precedence when installed)
+            assert normalize_portnum(numeric) == expected
+            # fallback agrees, so SDK-less runs resolve identically
+            assert _NUMERIC_PORTNUM_FALLBACK[numeric] == expected
 
 
 class TestClassifierReplyIdZero:
