@@ -32,11 +32,12 @@ PipelineRunner.handle_ingress()          ← entry point
   │   └─ FallbackResolver + CapabilityDecisionResolver
   └─ DELIVER: per-target execution (see sub-phases below)
       │
-      ├─ PipelineRunner._deliver_single_target()   ← orchestrates checks + outbox
-      │   ├─ loop / policy / capability / skip checks
-      │   ├─ capacity acquisition
-      │   ├─ outbox creation + lease renewal
-      │   └─ inflight tracking
+      ├─ DeliveryCoordinator.deliver_many()       ← bounded target fan-out
+      │   └─ DeliveryCoordinator._deliver_one()     ← per-target sequencing
+      │       ├─ loop / policy / capability / skip checks
+      │       ├─ capacity acquisition + outer cleanup
+      │       ├─ OutboxManager create / lease / finalize
+      │       └─ in-flight tracking
       │
       ├─ PipelineRunner.deliver_to_target()  ← enriches relations
       │   └─ RelationEnricher adds target-adapter native refs
@@ -124,9 +125,9 @@ Defined in `src/medre/core/engine/phases.py`:
 
 These phases are diagnostic instrumentation only — they do not drive pipeline behavior. `phase_snapshot()` returns the current phase and per-phase invocation counts for observability.
 
-### DELIVER sub-phases inside `_deliver_single_target`
+### DELIVER sub-phases inside `DeliveryCoordinator`
 
-The `DELIVER` phase contains the richest internal structure. The parent method `_deliver_to_targets_fan_out` (runner.py ~1145–1776) fans out to individual targets via the nested `_deliver_single_target` closure, which executes the following sub-phases sequentially per target:
+The `DELIVER` phase contains the richest internal structure. `PipelineRunner._deliver_to_targets_fan_out()` delegates bounded target fan-out to `DeliveryCoordinator.deliver_many()`. The coordinator executes the following sub-phases sequentially per target:
 
 | Sub-phase                                       | Lines      | State mutation? | Description                                                                                                                                                                                                                                                                                                          |
 | ----------------------------------------------- | ---------- | :-------------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -166,9 +167,9 @@ The `DELIVER` phase contains the richest internal structure. The parent method `
 
 | Responsibility                                          |        NOT owned (owner in parentheses)         |
 | ------------------------------------------------------- | :---------------------------------------------: |
-| Outbox creation                                         | PipelineRunner (`_create_outbox_for_delivery`)  |
-| Capacity acquisition / release                          |    PipelineRunner (`_deliver_single_target`)    |
-| Lease renewal                                           | PipelineRunner (`_start_outbox_lease_renewal`)  |
+| Outbox creation                                         |              `OutboxManager`                |
+| Capacity acquisition / release                          |             `DeliveryCoordinator`            |
+| Lease renewal                                           |              `OutboxManager`                |
 | Retry scheduling                                        |            DeliveryLifecycleService             |
 | Route planning                                          |        PipelineRunner + FallbackResolver        |
 | Relation enrichment                                     | PipelineRunner (`_enrich_relations_for_target`) |
@@ -178,7 +179,7 @@ The `DELIVER` phase contains the richest internal structure. The parent method `
 ### Collaboration pattern
 
 ```text
-PipelineRunner._deliver_single_target()
+DeliveryCoordinator._deliver_one()
   → PipelineRunner.deliver_to_target()          # enriches relations
     → TargetDeliveryService.deliver_to_target()  # renders + delivers
       → RenderingPipeline.render()               # produces RenderingResult
@@ -337,7 +338,7 @@ The `reconstruct_retry_delivery_plan` helper in `retry_plan.py` preserves recons
 
 | #   | File                                                                 | Approx. lines          | Owner                    | Why complex                                                                                                                                     | Candidate simplification                                                                                    | Risk                                                                      |
 | --- | -------------------------------------------------------------------- | ---------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| 1   | `runner.py` `_deliver_to_targets_fan_out` / `_deliver_single_target` | ~1145–1776 (630 lines) | PipelineRunner           | 8 sequential sub-phases with early returns, nested try/except/finally, capacity acquire/release in finally block, asyncio.gather fan-out        | Extract each sub-phase check into named methods; extract outbox lifecycle into `OutboxManager` helper class | High: deep nesting and finally-block invariants require careful testing   |
+| 1   | `delivery_coordinator.py` `DeliveryCoordinator`                      | ~880 lines             | DeliveryCoordinator      | Per-target orchestration remains inherently multi-phase, but preflight, capacity, outbox ownership, execution, and outcome normalization are now named operations with one capacity cleanup boundary. | Keep semantic decisions in existing authorities; keep coordinator orchestration-only. | Reduced: resource ownership is explicit and architecture-guarded. |
 | 2   | `retry.py` `_retry_outbox_item`                                      | ~583–961 (380 lines)   | RetryWorker              | Long method with capacity handling, plan reconstruction, success/failure/exhaustion branching, dead-letter detection, backoff computation       | Extract capacity handling and dead-letter detection into helper methods                                     | Medium: well-tested but branching density makes bugs hard to spot         |
 | 3   | `target_delivery.py` `deliver_to_target`                             | ~299–859 (560 lines)   | TargetDeliveryService    | ~8 distinct error paths each constructing a receipt with 15+ keyword arguments; rendering + adapter + receipt + native-ref in one method        | Extract receipt construction into a `ReceiptBuilder`; separate error-path methods from success path         | Medium: each error path is individually simple but the aggregate is dense |
 | 4   | `delivery_lifecycle.py` `append_queued_to_sent_receipt`              | ~554–807 (250 lines)   | DeliveryLifecycleService | Complex correlation strategy (outbox_id + attempt_number exact match, delivery_plan_id validation); handles ambiguous multi-candidate scenarios | Simplify further by removing earlier fallback paths now that outbox_id is required                          | Low: correlation logic is defensive but well-structured                   |
@@ -365,10 +366,10 @@ The `reconstruct_retry_delivery_plan` helper in `retry_plan.py` preserves recons
 | --- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | Document retry plan reconstruction parity gap (Section 7 above)                                                       | Documentation-only (completed)             | Documented in this audit and centralised in `retry_plan.py` with full docstring coverage of omitted fields.                                                                                                                                                                                                                   |
 | 2   | Document `sequence` field on `DeliveryReceipt` as unused diagnostic (always 0)                                        | Documentation-only                         | Field exists but is never incremented. Document to prevent confusion.                                                                                                                                                                                                                                                         |
-| 3   | Document why `_deliver_single_target` check ordering matters (loop → policy → capability → skip → capacity → outbox)  | Documentation-only                         | Ordering is a critical invariant. Already documented in code comments; surface in audit.                                                                                                                                                                                                                                      |
+| 3   | Document why per-target coordinator check ordering matters (loop → policy → capability → skip → capacity → outbox) | Documentation-only                         | Ordering is a critical invariant. It is explicit in `DeliveryCoordinator._preflight_outcome()` and architecture-guarded.                                                                                                                                                                                                                                      |
 | 4   | Rename `_deliver_to_targets_inner` to `_deliver_to_targets_fan_out` or similar to distinguish from the public wrapper | Naming cleanup (completed)                 | **Completed.** Renamed in implementation pass. Renamed to `_deliver_to_targets_fan_out` in `runner.py`.                                                                                                                                                                                                                       |
-| 5   | Rename `_deliver_one` to `_deliver_single_target` for self-documenting name                                           | Naming cleanup (completed)                 | **Completed.** Renamed in implementation pass. Renamed to `_deliver_single_target` in `runner.py`.                                                                                                                                                                                                                            |
-| 6   | Extract outbox lifecycle into `OutboxManager` helper class (create + ownership + lease + finalize)                    | Behavior-preserving extraction (deferred)  | ~350 lines of outbox logic in runner.py could be isolated. Reduces `_deliver_single_target` scope. **Risk:** the extracted helper must preserve four finally-block invariants — lease renewal task cancellation, outbox finalization, capacity release, and inflight untracking — in the correct order across all exit paths. |
+| 5   | Clarify the private single-target delivery boundary                                                                  | Naming cleanup (superseded)                | The intermediate `_deliver_single_target` runner name was superseded by the `DeliveryCoordinator._deliver_one()` extraction.                                                                                                                                                                                                                            |
+| 6   | Extract per-target delivery coordination around `OutboxManager` and existing lifecycle authorities                   | Behavior-preserving extraction (completed) | **Completed.** `DeliveryCoordinator` now owns per-target sequencing while `OutboxManager`, `TargetDeliveryService`, and `DeliveryLifecycleService` retain their existing authorities. Capacity release/in-flight cleanup is one outer boundary, including cancellation during outbox creation and outbox-finalization failure. |
 | 7   | Extract receipt construction into `build_delivery_receipt` helper                                                     | Behavior-preserving extraction (completed) | **Completed.** `build_delivery_receipt` in `receipt_factory.py` is a pure construction helper. All 8 sites in `TargetDeliveryService` and 2 in `DeliveryLifecycleService` migrated. `RetryExecutor` receipts remain separate.                                                                                                 |
 | 8   | Extract per-ingress cache setup into `IngressCache` context object                                                    | Behavior-preserving extraction             | 4 cache dicts + 2 inflight dicts created per `handle_ingress` call. A context object would clarify ownership and lifecycle.                                                                                                                                                                                                   |
 | 9   | Extract `_retry_outbox_item` capacity handling into separate method                                                   | Behavior-preserving extraction             | ~100 lines of capacity acquire/release/backoff could be isolated from the main retry flow.                                                                                                                                                                                                                                    |
@@ -385,15 +386,30 @@ This implementation pass made the branch more than an audit by completing these 
 - Migrated `DeliveryLifecycleService` suppression and queued→sent supplemental receipts to use the helper.
 - Added `reconstruct_retry_delivery_plan()` helper in `retry_plan.py`.
 - Updated `RetryWorker` to use the retry reconstruction helper.
-- Clarified private `PipelineRunner` method names (`_deliver_to_targets_fan_out`, `_deliver_single_target`).
+- Clarified the fan-out boundary as `PipelineRunner._deliver_to_targets_fan_out()`;
+  per-target sequencing now lives in `DeliveryCoordinator._deliver_one()`.
 - Updated this audit to distinguish completed work from deferred larger refactors.
+- Added `DeliveryCoordinator` as an orchestration-only per-target boundary.
+  `PipelineRunner._deliver_to_targets_fan_out()` now delegates bounded target
+  work instead of embedding the full delivery state machine.
+- Preserved preflight ordering: replay duplicate → route loop → self-loop →
+  policy → capability → plan skip → capacity → outbox → adapter execution.
+- Closed two resource gaps exposed by the extraction: cancellation during
+  outbox creation and outbox-finalization failure now both release acquired
+  delivery capacity; the latter also clears in-flight runtime identity before
+  the error propagates.
 
-The following items were completed in earlier passes:- Receipt construction helper (`build_delivery_receipt`) added to `receipt_factory.py`.
+The following items were completed in earlier passes:
+
+- Receipt construction helper (`build_delivery_receipt`) added to
+  `receipt_factory.py`.
 
 - `TargetDeliveryService` and `DeliveryLifecycleService` receipt construction sites migrated to use the helper (10 of 13 sites).
 - Retry plan reconstruction helper (`reconstruct_retry_delivery_plan`) added to `retry_plan.py`.
 - `RetryWorker` updated to use the reconstruction helper.
-- Private runner method names clarified: `_deliver_to_targets_fan_out` and `_deliver_single_target`.
+- The runner fan-out name was clarified as `_deliver_to_targets_fan_out`;
+  subsequent extraction moved single-target sequencing into
+  `DeliveryCoordinator._deliver_one()`.
 - This audit document updated with implementation-pass details.
 
 ### Receipt construction helper (`receipt_factory.py`)
@@ -420,20 +436,20 @@ The following items were completed in earlier passes:- Receipt construction help
 
 ### Private naming cleanup
 
-Two method renames were applied in `runner.py`:
+The runner fan-out rename remains current:
 
-| Old name                    | New name                      | Rationale                                                    |
-| --------------------------- | ----------------------------- | ------------------------------------------------------------ |
-| `_deliver_to_targets_inner` | `_deliver_to_targets_fan_out` | The method performs the actual fan-out, not an inner helper  |
-| `_deliver_one`              | `_deliver_single_target`      | Self-documenting name for the codebase's most complex method |
+| Old name                    | Current boundary                 | Rationale                                                   |
+| --------------------------- | -------------------------------- | ----------------------------------------------------------- |
+| `_deliver_to_targets_inner` | `_deliver_to_targets_fan_out`    | The runner delegates bounded fan-out to `DeliveryCoordinator`. |
+| `_deliver_one`              | `DeliveryCoordinator._deliver_one` | Single-target sequencing now has its own orchestration boundary. |
 
-All internal call sites and doc references were updated to match.
+The intermediate runner-local `_deliver_single_target` name was superseded by
+the coordinator extraction.
 
 ### Deferred items
 
 The following recommendations from Section 9 remain deferred:
 
-- **6** (OutboxManager extraction): high-risk extraction from `_deliver_single_target` with four finally-block invariants.
 - **8** (IngressCache context object): behavior-preserving extraction, not yet prioritized.
 - **9** (Retry capacity extraction): behavior-preserving extraction, not yet prioritized.
 - **10–12** (Schema changes, typed plans): deferred due to schema impact and test coverage requirements.

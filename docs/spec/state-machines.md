@@ -316,6 +316,14 @@ delivery. On completion, it:
 1. Appends a `DeliveryReceipt` to storage.
 2. Updates the outbox item status based on the delivery outcome.
 
+Runtime delivery capacity is operational ownership around these machines, not a
+third durable state machine. Once a capacity slot is acquired for a target, the
+pipeline MUST release it on every exit path. Lease-renewal cancellation and the
+outbox-finalization attempt occur before capacity release; an outbox-finalization
+error is still propagated after the slot and in-flight runtime identity are
+released. Cancellation during outbox creation likewise releases the acquired
+slot.
+
 A receipt is the immutable evidence record. An outbox item is the mutable
 operational tracker.
 

@@ -368,7 +368,7 @@ async def test_partial_deferral_does_not_redeliver_successful_target(
         acquire_delivery=AsyncMock(side_effect=[True, False, True, True]),
         release_delivery=AsyncMock(),
     )
-    runner._capacity_controller = capacity
+    runner.set_capacity_controller(capacity)
     monkeypatch.setattr(
         runner, "_is_reaction_to_reaction", AsyncMock(return_value=False)
     )
