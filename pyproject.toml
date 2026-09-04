@@ -42,7 +42,7 @@ meshcore = ["meshcore==2.3.8"]
 # lxmf v1.1.1.
 # Reticulum is pinned explicitly so pip-based SDK contract CI cannot drift
 # away from the lockfile-compatible RNS surface.
-lxmf = ["lxmf==1.1.1", "rns==1.4.2"]
+lxmf = ["lxmf==1.1.1", "rns==1.5.2"]
 
 [project.scripts]
 medre = "medre.cli:main"
