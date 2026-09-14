@@ -30,8 +30,8 @@ dev = [
   "jsonschema==4.26.0",
 ]
 # mindroom-nio v0.40.0 — fork of matrix-nio with MindRoom patches.
-matrix = ["mindroom-nio==0.40.0"]
-matrix-e2e = ["mindroom-nio[e2e]==0.40.0"]
+matrix = ["mindroom-nio==1.0.8"]
+matrix-e2e = ["mindroom-nio[e2e]==1.0.8"]
 # mtjk (Meshtastic fork) — ships as distribution "mtjk", imported as "meshtastic".
 # PyPubSub is required by mtjk for callback-based packet reception but is not
 # declared as a dependency by the mtjk distribution. Included here explicitly.
