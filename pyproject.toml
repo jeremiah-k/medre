@@ -35,7 +35,7 @@ matrix-e2e = ["mindroom-nio[e2e]==0.40.0"]
 # mtjk (Meshtastic fork) — ships as distribution "mtjk", imported as "meshtastic".
 # PyPubSub is required by mtjk for callback-based packet reception but is not
 # declared as a dependency by the mtjk distribution. Included here explicitly.
-meshtastic = ["mtjk==2.7.11.post5", "PyPubSub==4.0.7"]
+meshtastic = ["mtjk==2.7.11.post6", "PyPubSub==4.0.7"]
 # meshcore v2.3.8.
 # Transitive deps: bleak, pyserial-asyncio-fast, pycayennelpp, pycryptodome.
 meshcore = ["meshcore==2.3.8"]
