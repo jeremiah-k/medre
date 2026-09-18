@@ -9,7 +9,9 @@
 - Failed adapter and renderer outcomes now retain the persisted
   `DeliveryReceipt` already produced by `TargetDeliveryService`, preserving
   outcome-to-evidence correlation. Coordinator outcomes and outbox finalization
-  use the exact stored row, including its storage-assigned receipt sequence.
+  use the exact stored row, including its storage-assigned receipt sequence, when
+  post-persistence read-back is available; a read-back fault does not reclassify
+  an otherwise accepted delivery.
 - The runner no longer mirrors delivery capacity state; the coordinator is the
   single owner of delivery-capacity wiring.
 - Run-session capacity-rejection setup now fails cleanly before mutating runtime
