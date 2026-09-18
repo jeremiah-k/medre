@@ -955,7 +955,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = "==7.1.0" },
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = "==2.4.0" },
     { name = "pyyaml", specifier = "==6.0.3" },
-    { name = "rns", marker = "extra == 'lxmf'", specifier = "==1.4.2" },
+    { name = "rns", marker = "extra == 'lxmf'", specifier = "==1.5.4" },
     { name = "setuptools", marker = "extra == 'dev'", specifier = "==84.0.0" },
 ]
 provides-extras = ["dev", "matrix", "matrix-e2e", "meshtastic", "meshcore", "lxmf"]
@@ -1660,15 +1660,15 @@ wheels = [
 
 [[package]]
 name = "rns"
-version = "1.4.2"
+version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "pyserial" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/22/9ef43c07dbe2e7b7d30c3e4b3f1a767b147ba82284ec85c643cb9f15a922/rns-1.4.2.tar.gz", hash = "sha256:275e4369819c99fbbdb8b70a0d4eb3fc9767716fca639fe7206856839fb3867a", size = 522268, upload-time = "2026-07-26T16:00:59.718Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/15/517d2e63e876a677088673853f9c947340cd2056716328f3ba4e888ae47c/rns-1.5.4.tar.gz", hash = "sha256:578508ef08dedf7c109f73a445065ca89c50a63c6a69ced7b147ed20391ceb15", size = 549347, upload-time = "2026-09-11T15:02:28.119Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4b/da/a34b68d8f4d878c6f4bc63e257405fcff2a081cf24c59a571f2651d15e4e/rns-1.4.2-py3-none-any.whl", hash = "sha256:a3e9be1c178878103284a111be89761f146c44c33a150a7745c15f02b115aa37", size = 608521, upload-time = "2026-07-26T16:00:54.391Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/30/ed9aa31b3f03a2dd5ff376c3fcb734f8a15c59956825bf373ab73d9fc8c2/rns-1.5.4-py3-none-any.whl", hash = "sha256:862615b12d449750c0b3c451dfc2cb189fd6da1c573c477a29f36f97d2a66a19", size = 636698, upload-time = "2026-09-11T15:02:24.329Z" },
 ]
 
 [[package]]
