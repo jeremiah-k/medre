@@ -72,6 +72,7 @@ async def test_send_appstart_executes_once_on_initial_and_sdk_reconnect_paths() 
     """Execute initial and SDK-owned reconnect handshakes exactly once each."""
     root, events, _, _ = _load_sdk()
     timeline: list[str] = []
+    appstart_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
     async def _dispatcher_start() -> None:
         timeline.append("dispatcher.start")
@@ -80,10 +81,13 @@ async def test_send_appstart_executes_once_on_initial_and_sdk_reconnect_paths() 
         timeline.append("connection.connect")
         return object()
 
-    async def _send_appstart(*_args: object, **_kwargs: object) -> object:
+    async def _send_appstart(*args: object, **kwargs: object) -> object:
         # MeshCore may add handshake tuning kwargs (for example ``timeout``)
         # without changing the contract MEDRE depends on: one APP_START for
-        # initial connect and one for an SDK-owned reconnect.
+        # initial connect and one for an SDK-owned reconnect.  Record the exact
+        # call shape so it can be checked against the real command method
+        # below; a permissive double alone could hide a handshake TypeError.
+        appstart_calls.append((args, kwargs))
         timeline.append("send_appstart")
         return SimpleNamespace(type=events.EventType.SELF_INFO)
 
@@ -110,6 +114,15 @@ async def test_send_appstart_executes_once_on_initial_and_sdk_reconnect_paths() 
     ]
     assert client.connection_manager.connect.await_count == 1
     assert client.commands.send_appstart.await_count == 2
+
+    # The SDK's own connect/reconnect code must call ``send_appstart`` with a
+    # shape the real command method accepts; otherwise production would raise
+    # ``TypeError`` during the APP_START handshake.
+    commands = import_module("meshcore.commands")
+    real_send_appstart = inspect.signature(commands.CommandHandler.send_appstart)
+    assert appstart_calls, "expected the SDK to perform APP_START handshakes"
+    for args, kwargs in appstart_calls:
+        real_send_appstart.bind(object(), *args, **kwargs)
 
 
 @pytest.mark.parametrize(

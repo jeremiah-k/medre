@@ -44,12 +44,19 @@ def test_private_send_surfaces_and_sync_semantics_are_frozen() -> None:
         assert not inspect.iscoroutinefunction(method)
 
     # Bind the exact call shapes MEDRE uses instead of freezing unrelated
-    # parameter ordering/defaults in this private SDK method.
-    inspect.signature(interface_type.sendText).bind_partial(
-        object(), "text", channelIndex=0
+    # parameter ordering/defaults in this private SDK method.  A full ``bind``
+    # (not ``bind_partial``) also proves the MEDRE call supplies every required
+    # parameter, so a future SDK that adds a required argument fails this
+    # contract instead of production with a ``TypeError``.
+    inspect.signature(interface_type.sendText).bind(
+        object(),
+        "text",
+        channelIndex=0,
     )
-    inspect.signature(interface_type._sendPacket).bind_partial(
-        object(), object(), wantAck=False
+    inspect.signature(interface_type._sendPacket).bind(
+        object(),
+        object(),
+        wantAck=False,
     )
 
 

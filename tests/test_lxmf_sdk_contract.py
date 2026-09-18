@@ -70,10 +70,11 @@ def test_router_identity_and_lookup_surfaces_match_session_usage() -> None:
     """Freeze every LXMF/RNS entry point used by the production session."""
     lxmf, rns = _load_sdks()
 
+    # Full ``bind`` (not ``bind_partial``): the MEDRE call shape must also
+    # supply every required parameter, so an SDK that adds a required argument
+    # fails this contract instead of production with a ``TypeError``.
     router_signature = inspect.signature(lxmf.LXMRouter)
-    router_signature.bind_partial(
-        identity=object(), storagepath="/tmp/medre-sdk-contract"
-    )
+    router_signature.bind(identity=object(), storagepath="/tmp/medre-sdk-contract")
 
     for name in (
         "register_delivery_identity",
@@ -89,7 +90,7 @@ def test_router_identity_and_lookup_surfaces_match_session_usage() -> None:
     registration_signature = inspect.signature(
         lxmf.LXMRouter.register_delivery_identity
     )
-    registration_signature.bind_partial(
+    registration_signature.bind(
         object(), object(), display_name="MEDRE", stamp_cost=None
     )
 
