@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import inspect
-from importlib import import_module, metadata
+from importlib import import_module
 
 import pytest
 
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from tests.helpers.sdk_contract import assert_installed_extra_matches_declared_pins
 
 pytestmark = pytest.mark.meshtastic_sdk
 
@@ -27,10 +28,9 @@ def _load_sdk() -> tuple[object, object, object, object, object]:
     return mesh_interface, mesh_pb2, portnums_pb2, receive_pipeline, pub
 
 
-def test_pinned_mtjk_version_is_exact() -> None:
-    """The contract tier must execute against MEDRE's exact mtjk pin."""
-    assert metadata.version("mtjk") == "2.7.11.post5"
-    assert metadata.version("PyPubSub") == "4.0.7"
+def test_installed_meshtastic_dependencies_match_declared_extra() -> None:
+    """The contract tier executes against MEDRE's current declared SDK pins."""
+    assert_installed_extra_matches_declared_pins("meshtastic", ("mtjk", "PyPubSub"))
 
 
 def test_private_send_surfaces_and_sync_semantics_are_frozen() -> None:
@@ -43,14 +43,21 @@ def test_private_send_surfaces_and_sync_semantics_are_frozen() -> None:
         assert callable(method), f"MeshInterface.{name} is required by MEDRE"
         assert not inspect.iscoroutinefunction(method)
 
-    send_packet = inspect.signature(interface_type._sendPacket).parameters
-    assert tuple(send_packet)[:4] == (
-        "self",
-        "meshPacket",
-        "destinationId",
-        "wantAck",
+    # Bind the exact call shapes MEDRE uses instead of freezing unrelated
+    # parameter ordering/defaults in this private SDK method.  A full ``bind``
+    # (not ``bind_partial``) also proves the MEDRE call supplies every required
+    # parameter, so a future SDK that adds a required argument fails this
+    # contract instead of production with a ``TypeError``.
+    inspect.signature(interface_type.sendText).bind(
+        object(),
+        "text",
+        channelIndex=0,
     )
-    assert send_packet["wantAck"].default is False
+    inspect.signature(interface_type._sendPacket).bind(
+        object(),
+        object(),
+        wantAck=False,
+    )
 
 
 def test_generated_packet_ids_are_real_uint32_ids() -> None:
@@ -82,10 +89,9 @@ def test_text_byte_budget_stays_below_sdk_payload_limit() -> None:
     """MEDRE's final UTF-8 budget must fit the SDK's decoded-data payload cap."""
     _, mesh_pb2, _, _, _ = _load_sdk()
     sdk_payload_limit = int(mesh_pb2.Constants.DATA_PAYLOAD_LEN)
-    assert sdk_payload_limit == 233
     config = MeshtasticConfig(adapter_id="sdk-contract")
     assert config.max_text_bytes == 227
-    assert config.max_text_bytes <= sdk_payload_limit
+    assert sdk_payload_limit >= config.max_text_bytes
 
 
 def test_pubsub_topics_and_close_contract_remain_visible_in_sdk_source() -> None:

@@ -8,9 +8,11 @@ real SDK classes so permissive fakes cannot hide constructor or state drift.
 from __future__ import annotations
 
 import inspect
-from importlib import import_module, metadata
+from importlib import import_module
 
 import pytest
+
+from tests.helpers.sdk_contract import assert_installed_extra_matches_declared_pins
 
 pytestmark = pytest.mark.lxmf_sdk
 
@@ -31,10 +33,9 @@ def _destination_stub(rns: object, value: int) -> object:
     return destination
 
 
-def test_pinned_lxmf_and_rns_versions_are_exact() -> None:
-    """The executable contract tier must test the versions MEDRE pins."""
-    assert metadata.version("lxmf") == "1.1.1"
-    assert metadata.version("rns") == "1.4.2"
+def test_installed_lxmf_and_rns_match_declared_extra() -> None:
+    """The contract tier executes against MEDRE's current declared SDK pins."""
+    assert_installed_extra_matches_declared_pins("lxmf", ("lxmf", "rns"))
 
 
 def test_lxmessage_requires_rns_destination_source() -> None:
@@ -51,17 +52,17 @@ def test_lxmessage_requires_rns_destination_source() -> None:
         lxmf.LXMessage(destination, object(), "invalid-source")
 
 
-def test_lxmessage_constructor_shape_is_frozen() -> None:
-    """Pin the positional/keyword surface MEDRE uses for outbound messages."""
+def test_lxmessage_constructor_accepts_medre_call_shape() -> None:
+    """The constructor accepts the positional/keyword shape MEDRE actually uses."""
     lxmf, _ = _load_sdks()
-    parameters = inspect.signature(lxmf.LXMessage).parameters
-    assert tuple(parameters)[:6] == (
-        "destination",
-        "source",
+    signature = inspect.signature(lxmf.LXMessage)
+    signature.bind(
+        object(),
+        object(),
         "content",
-        "title",
-        "fields",
-        "desired_method",
+        title="title",
+        fields={},
+        desired_method=object(),
     )
 
 
@@ -69,9 +70,11 @@ def test_router_identity_and_lookup_surfaces_match_session_usage() -> None:
     """Freeze every LXMF/RNS entry point used by the production session."""
     lxmf, rns = _load_sdks()
 
-    router_params = inspect.signature(lxmf.LXMRouter).parameters
-    assert "identity" in router_params
-    assert "storagepath" in router_params
+    # Full ``bind`` (not ``bind_partial``): the MEDRE call shape must also
+    # supply every required parameter, so an SDK that adds a required argument
+    # fails this contract instead of production with a ``TypeError``.
+    router_signature = inspect.signature(lxmf.LXMRouter)
+    router_signature.bind(identity=object(), storagepath="/tmp/medre-sdk-contract")
 
     for name in (
         "register_delivery_identity",
@@ -84,53 +87,44 @@ def test_router_identity_and_lookup_surfaces_match_session_usage() -> None:
     ):
         assert callable(getattr(lxmf.LXMRouter, name, None)), name
 
-    registration_params = inspect.signature(
+    registration_signature = inspect.signature(
         lxmf.LXMRouter.register_delivery_identity
-    ).parameters
-    assert tuple(registration_params)[:4] == (
-        "self",
-        "identity",
-        "display_name",
-        "stamp_cost",
+    )
+    registration_signature.bind(
+        object(), object(), display_name="MEDRE", stamp_cost=None
     )
 
     for name in ("from_file", "recall", "recall_app_data"):
         assert callable(getattr(rns.Identity, name, None)), name
 
-    destination_params = inspect.signature(rns.Destination).parameters
-    assert tuple(destination_params)[:4] == (
-        "identity",
-        "direction",
-        "type",
-        "app_name",
-    )
     assert isinstance(rns.Destination.OUT, int)
     assert isinstance(rns.Destination.SINGLE, int)
+    inspect.signature(rns.Destination).bind(
+        object(),
+        rns.Destination.OUT,
+        rns.Destination.SINGLE,
+        "lxmf",
+        "delivery",
+    )
     assert callable(getattr(lxmf, "display_name_from_app_data", None))
 
 
-def test_lxmessage_delivery_states_match_medre_mapping() -> None:
-    """Freeze the eight delivery states consumed by MEDRE diagnostics."""
+def test_lxmessage_delivery_states_support_medre_mapping() -> None:
+    """The named integer states MEDRE maps dynamically remain distinct."""
     lxmf, _ = _load_sdks()
-    assert {
-        "GENERATING": lxmf.LXMessage.GENERATING,
-        "OUTBOUND": lxmf.LXMessage.OUTBOUND,
-        "SENDING": lxmf.LXMessage.SENDING,
-        "SENT": lxmf.LXMessage.SENT,
-        "DELIVERED": lxmf.LXMessage.DELIVERED,
-        "REJECTED": lxmf.LXMessage.REJECTED,
-        "CANCELLED": lxmf.LXMessage.CANCELLED,
-        "FAILED": lxmf.LXMessage.FAILED,
-    } == {
-        "GENERATING": 0x00,
-        "OUTBOUND": 0x01,
-        "SENDING": 0x02,
-        "SENT": 0x04,
-        "DELIVERED": 0x08,
-        "REJECTED": 0xFD,
-        "CANCELLED": 0xFE,
-        "FAILED": 0xFF,
-    }
+    names = (
+        "GENERATING",
+        "OUTBOUND",
+        "SENDING",
+        "SENT",
+        "DELIVERED",
+        "REJECTED",
+        "CANCELLED",
+        "FAILED",
+    )
+    values = [getattr(lxmf.LXMessage, name) for name in names]
+    assert all(isinstance(value, int) for value in values)
+    assert len(set(values)) == len(values)
 
 
 def test_router_and_reticulum_lifecycle_surfaces_exist() -> None:
@@ -144,29 +138,17 @@ def test_router_and_reticulum_lifecycle_surfaces_exist() -> None:
     assert callable(getattr(router, "get_outbound_propagation_node", None))
     assert callable(getattr(router, "exit_handler", None))
 
-    registration_source = inspect.getsource(router.register_delivery_identity)
-    assert "RNS.Destination" in registration_source
-    assert "return delivery_destination" in registration_source
-    announce_source = inspect.getsource(router.announce)
-    assert "delivery_destinations" in announce_source
-    init_source = inspect.getsource(router.__init__)
-    assert "atexit.register(self.exit_handler)" in init_source
-    assert "target=self.jobloop" in init_source
-    exit_source = inspect.getsource(router.exit_handler)
-    assert "exit_handler_running = True" in exit_source
-
     transport = rns.Transport
     assert callable(getattr(transport, "deregister_destination", None))
     assert callable(getattr(transport, "deregister_announce_handler", None))
     assert isinstance(getattr(transport, "announce_handlers", None), list)
 
     handlers = import_module("LXMF.Handlers")
-    delivery_handler_source = inspect.getsource(handlers.LXMFDeliveryAnnounceHandler)
-    propagation_handler_source = inspect.getsource(
-        handlers.LXMFPropagationAnnounceHandler
-    )
-    assert "self.lxmrouter" in delivery_handler_source
-    assert "self.lxmrouter" in propagation_handler_source
+    router_owner = object()
+    delivery_handler = handlers.LXMFDeliveryAnnounceHandler(router_owner)
+    propagation_handler = handlers.LXMFPropagationAnnounceHandler(router_owner)
+    assert delivery_handler.lxmrouter is router_owner
+    assert propagation_handler.lxmrouter is router_owner
 
     reticulum = rns.Reticulum
     assert callable(getattr(reticulum, "get_instance", None))

@@ -71,7 +71,7 @@ limitation instead of relabeling synthetic evidence as integration/live proof.
 ### MeshCore
 
 - Synthetic/wrapper: extensive.
-- Installed SDK: pinned `meshcore==2.3.8` contract matrix.
+- Installed SDK: exact `meshcore` pin from project metadata, exercised by the contract matrix.
 - Local integration: deterministic TCP companion-protocol endpoint drives the
   real SDK through MEDRE lifecycle, inbound, malformed-frame recovery, outbound
   disconnect/retry, reconnect, cancellation, and serialization paths.
@@ -83,7 +83,7 @@ limitation instead of relabeling synthetic evidence as integration/live proof.
 ### LXMF
 
 - Synthetic/wrapper: extensive.
-- Installed SDK: pinned `LXMF==1.1.1` / `RNS==1.4.2` contract matrix.
+- Installed SDK: exact LXMF/RNS pins from project metadata, exercised by the contract matrix.
 - Local integration: process-isolated real Reticulum/LXMRouter lifecycle proves
   repeated startup/shutdown, identity persistence, malformed/late callback
   containment, and partial-start cleanup.

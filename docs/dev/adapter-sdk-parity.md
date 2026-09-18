@@ -222,6 +222,16 @@ disabled.
 
 ## CI ownership
 
+### Contract-version authority
+
+`pyproject.toml` is the version authority for installed adapter SDKs. Contract
+tests read the exact pins from the selected optional-dependency group and verify
+the installed distributions match them; they do not duplicate version literals.
+This keeps Renovate pin bumps meaningful: CI fails for a consumed API/behavior
+change or a dependency-resolution mismatch, not merely because the expected
+version string changed. Historical pin tables in this audit remain point-in-time
+evidence for the original parity review.
+
 The `adapter-sdk-contract` job installs one optional adapter extra at a time and
 runs only its contract marker across Python 3.11, 3.12, 3.13, and 3.14:
 

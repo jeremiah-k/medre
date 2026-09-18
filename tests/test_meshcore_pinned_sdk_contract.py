@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import inspect
-from importlib import import_module, metadata
+from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from tests.helpers.sdk_contract import assert_installed_extra_matches_declared_pins
 
 pytestmark = pytest.mark.meshcore_sdk
 
@@ -24,22 +26,21 @@ def _load_sdk() -> tuple[object, object, object, object]:
     return root, events, packets, reader
 
 
-def test_pinned_meshcore_version_is_exact() -> None:
-    """The contract tier must execute against MEDRE's exact meshcore pin."""
-    assert metadata.version("meshcore") == "2.3.8"
+def test_installed_meshcore_matches_declared_extra() -> None:
+    """The contract tier executes against MEDRE's current declared SDK pin."""
+    assert_installed_extra_matches_declared_pins("meshcore", ("meshcore",))
 
 
-def test_connection_factory_shapes_keep_sdk_reconnect_disabled_by_default() -> None:
-    """MEDRE owns reconnect; every SDK connection factory must default it off."""
+def test_connection_factory_shapes_accept_medre_reconnect_control() -> None:
+    """Every SDK connection factory accepts MEDRE's explicit reconnect control."""
     root, _, _, _ = _load_sdk()
     for name in ("create_tcp", "create_serial", "create_ble"):
         factory = getattr(root.MeshCore, name)
         assert inspect.iscoroutinefunction(factory)
-        parameters = inspect.signature(factory).parameters
-        assert "auto_reconnect" in parameters
-        assert parameters["auto_reconnect"].default is False
-        assert "max_reconnect_attempts" in parameters
-        assert parameters["max_reconnect_attempts"].default == 3
+        signature = inspect.signature(factory)
+        auto_reconnect = signature.parameters.get("auto_reconnect")
+        assert auto_reconnect is not None
+        assert auto_reconnect.kind is not inspect.Parameter.POSITIONAL_ONLY
 
 
 def test_subscription_and_disconnect_lifecycle_shapes_are_frozen() -> None:
@@ -71,6 +72,7 @@ async def test_send_appstart_executes_once_on_initial_and_sdk_reconnect_paths() 
     """Execute initial and SDK-owned reconnect handshakes exactly once each."""
     root, events, _, _ = _load_sdk()
     timeline: list[str] = []
+    appstart_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
     async def _dispatcher_start() -> None:
         timeline.append("dispatcher.start")
@@ -79,7 +81,13 @@ async def test_send_appstart_executes_once_on_initial_and_sdk_reconnect_paths() 
         timeline.append("connection.connect")
         return object()
 
-    async def _send_appstart() -> object:
+    async def _send_appstart(*args: object, **kwargs: object) -> object:
+        # MeshCore may add handshake tuning kwargs (for example ``timeout``)
+        # without changing the contract MEDRE depends on: one APP_START for
+        # initial connect and one for an SDK-owned reconnect.  Record the exact
+        # call shape so it can be checked against the real command method
+        # below; a permissive double alone could hide a handshake TypeError.
+        appstart_calls.append((args, kwargs))
         timeline.append("send_appstart")
         return SimpleNamespace(type=events.EventType.SELF_INFO)
 
@@ -107,13 +115,32 @@ async def test_send_appstart_executes_once_on_initial_and_sdk_reconnect_paths() 
     assert client.connection_manager.connect.await_count == 1
     assert client.commands.send_appstart.await_count == 2
 
+    # The SDK's own connect/reconnect code must call ``send_appstart`` with a
+    # shape the real command method accepts; otherwise production would raise
+    # ``TypeError`` during the APP_START handshake.
+    commands = import_module("meshcore.commands")
+    real_send_appstart = inspect.signature(commands.CommandHandler.send_appstart)
+    assert appstart_calls, "expected the SDK to perform APP_START handshakes"
+    for args, kwargs in appstart_calls:
+        real_send_appstart.bind(object(), *args, **kwargs)
+
 
 @pytest.mark.parametrize(
     ("factory_name", "connection_name", "args", "kwargs"),
     [
-        ("create_tcp", "TCPConnection", ("127.0.0.1", 4000), {}),
-        ("create_serial", "SerialConnection", ("/dev/ttyUSB0",), {}),
-        ("create_ble", "BLEConnection", (), {"address": "00:11:22:33:44:55"}),
+        ("create_tcp", "TCPConnection", ("127.0.0.1", 4000), {"auto_reconnect": False}),
+        (
+            "create_serial",
+            "SerialConnection",
+            ("/dev/ttyUSB0",),
+            {"auto_reconnect": False},
+        ),
+        (
+            "create_ble",
+            "BLEConnection",
+            (),
+            {"address": "00:11:22:33:44:55", "auto_reconnect": False},
+        ),
     ],
 )
 async def test_connection_factories_await_connect_once(
