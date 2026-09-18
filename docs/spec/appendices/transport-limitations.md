@@ -72,9 +72,9 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 
 - Inbound processing is text messages only. Telemetry, position, and nodeinfo
   portnum types are not processed inbound.
-- `mtjk` is the pinned Meshtastic fork at version 2.7.11.post5; a dedicated
-  installed-SDK contract tier freezes the private send/protobuf/pubsub surfaces
-  MEDRE uses.
+- `mtjk` is exact-pinned by the Meshtastic optional-dependency group; a
+  dedicated installed-SDK contract tier freezes the private send/protobuf/pubsub
+  surfaces MEDRE uses without duplicating the current version literal.
 - `sendText` and `sendData` are synchronous in mtjk; MEDRE wraps them in
   `asyncio.to_thread()`.
 - Pubsub callbacks fire on a background thread, not the asyncio event loop.

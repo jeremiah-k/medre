@@ -60,8 +60,9 @@ bluetoothctl scan on
 
 ### Firmware Compatibility
 
-`mtjk` v2.7.11.post5 is the pinned and verified dependency. If you encounter
-protocol errors, update both the node firmware and the `mtjk` package.
+`mtjk` is exact-pinned by the `meshtastic` optional dependency group in
+`pyproject.toml`. If you encounter protocol errors, update the project pin and
+node firmware together, then rerun the installed-SDK and local validation tiers.
 
 ## Connection Modes
 

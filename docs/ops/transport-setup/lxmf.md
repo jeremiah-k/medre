@@ -10,7 +10,7 @@ Setting up and running the MEDRE LXMF adapter against a real Reticulum network. 
 | LXMF router storage | A writable directory for `LXMRouter` persistent state                                                                        |
 | Reticulum identity  | A 64-byte private key file. Created on first run if none exists.                                                             |
 | Python              | 3.12 or later                                                                                                                |
-| Package install     | Core: `pip install -e .` (fake mode). Real connectivity: `pip install -e ".[lxmf]"` (`lxmf==1.1.1` + explicit `rns==1.4.2`). |
+| Package install     | Core: `pip install -e .` (fake mode). Real connectivity: `pip install -e ".[lxmf]"` (exact LXMF/RNS pins from project metadata). |
 | Network access      | At least one Reticulum transport interface configured                                                                        |
 
 Fake mode is the default and recommended path for all development and testing. Real Reticulum connectivity is opt-in for live validation.
