@@ -46,7 +46,6 @@ DEV_DIR = _ROOT / "docs" / "dev"
 ADAPTERS_DIR = _ROOT / "src" / "medre" / "adapters"
 
 DELIVERY_LIFECYCLE_MD = SPEC_DIR / "delivery-lifecycle.md"
-LIFECYCLE_AUDIT_MD = DEV_DIR / "lifecycle-authority-audit.md"
 STATE_MACHINES_MD = SPEC_DIR / "state-machines.md"
 
 
@@ -216,12 +215,6 @@ class TestDocumentExistence:
             DELIVERY_LIFECYCLE_MD.is_file()
         ), f"Missing: {DELIVERY_LIFECYCLE_MD.relative_to(_ROOT)}"
 
-    def test_lifecycle_authority_audit_md_exists(self) -> None:
-        """docs/dev/lifecycle-authority-audit.md must exist."""
-        assert (
-            LIFECYCLE_AUDIT_MD.is_file()
-        ), f"Missing: {LIFECYCLE_AUDIT_MD.relative_to(_ROOT)}"
-
 
 # ===========================================================================
 # 2. Spec ↔ code vocabulary alignment
@@ -263,22 +256,6 @@ class TestOutcomeStatusAlignment:
             assert f"`{status}`" in content, (
                 f"Outcome status '{status}' from OUTCOME_STATUSES "
                 f"not found in spec documents"
-            )
-
-
-class TestAdapterDeliveryStatusAlignment:
-    """Adapter delivery statuses in spec docs must align with
-    ``ADAPTER_DELIVERY_STATUSES``."""
-
-    def test_all_adapter_delivery_statuses_in_audit_doc(self) -> None:
-        """Every status in ADAPTER_DELIVERY_STATUSES must appear in the
-        lifecycle-authority-audit.md vocabulary table."""
-        content = _read(LIFECYCLE_AUDIT_MD)
-        for status in ADAPTER_DELIVERY_STATUSES:
-            assert f"`{status}`" in content, (
-                f"Adapter delivery status '{status}' from "
-                f"ADAPTER_DELIVERY_STATUSES not found in "
-                f"lifecycle-authority-audit.md"
             )
 
 
@@ -618,22 +595,6 @@ class TestClassificationSubsetAlignment:
                 f"`{status}`" in content
             ), f"delivery-lifecycle.md missing accepted outcome status '{status}'"
 
-    # -- lifecycle-authority-audit.md classification table -------------------
-
-    def test_audit_doc_mentions_non_terminal_receipt(self) -> None:
-        content = _read(LIFECYCLE_AUDIT_MD)
-        for status in NON_TERMINAL_RECEIPT_STATUSES:
-            assert (
-                f"`{status}`" in content
-            ), f"lifecycle-authority-audit.md missing non-terminal receipt status '{status}'"
-
-    def test_audit_doc_mentions_non_terminal_outbox(self) -> None:
-        content = _read(LIFECYCLE_AUDIT_MD)
-        for status in NON_TERMINAL_OUTBOX_STATUSES:
-            assert (
-                f"`{status}`" in content
-            ), f"lifecycle-authority-audit.md missing non-terminal outbox status '{status}'"
-
     # -- partition invariants documented -------------------------------------
 
     def test_state_machines_mentions_non_terminal_constant_name(self) -> None:
@@ -866,24 +827,15 @@ class TestDeadLetterAttemptConvention:
             "attempt_number + 1 chain-closing"
         )
 
-    def test_audit_doc_documents_dead_letter_convention(self) -> None:
-        """lifecycle-authority-audit.md must document the convention."""
-        content = _read(LIFECYCLE_AUDIT_MD)
-        assert "attempt_number = N + 1" in content, (
-            "lifecycle-authority-audit.md missing dead-letter attempt "
-            "convention note"
-        )
-
 
 # ===========================================================================
-# 10. Adapter-reality-audit contract: delivery_status wording
+# 10. delivery-result schema contract: delivery_status wording
 # ===========================================================================
 
 
 class TestDeliveryStatusWording:
     """delivery-result.schema.json must describe delivery_status as adapter
-    delivery fact, not lifecycle state.  lifecycle-authority-audit.md must
-    use 'adapter delivery fact' wording."""
+    delivery fact, not lifecycle state."""
 
     def test_schema_delivery_status_says_adapter_delivery_fact(self) -> None:
         """delivery-result.schema.json delivery_status description must
@@ -918,17 +870,9 @@ class TestDeliveryStatusWording:
             "'adapter-level lifecycle state'"
         )
 
-    def test_audit_doc_uses_adapter_delivery_fact(self) -> None:
-        """lifecycle-authority-audit.md must use 'adapter delivery fact'."""
-        content = _read(LIFECYCLE_AUDIT_MD)
-        assert "adapter delivery fact" in content.lower(), (
-            "lifecycle-authority-audit.md must use 'adapter delivery fact' "
-            "when describing AdapterDeliveryResult.delivery_status"
-        )
-
 
 # ===========================================================================
-# 11. Adapter-reality-audit contract: metadata namespacing in schema + example
+# 11. Metadata namespacing in schema + example
 # ===========================================================================
 
 

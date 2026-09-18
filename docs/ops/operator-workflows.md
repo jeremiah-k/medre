@@ -35,7 +35,8 @@ Understanding what is permanent, what is mutable, and what is derived helps you 
 
 All stored rows are either immutable facts (events, receipts, native refs, terminal outbox) or active work state (non-terminal outbox). There is no operator command to delete rows from the database because every row is evidence or active operational state. If the database grows too large, the supported path is to stop the runtime, back up the database, start a fresh database, and optionally replay critical events from the backup.
 
-For the detailed per-table ownership audit, see [persistence-authority-audit.md](../dev/persistence-authority-audit.md).
+For the normative per-table ownership rules, see
+[spec/storage.md §16](../spec/storage.md).
 
 ## Pre-Release Storage Reset
 
@@ -773,10 +774,12 @@ sqlite3 {state}/medre.sqlite "SELECT status, COUNT(*) FROM delivery_outbox GROUP
 
 ### Crash Recovery
 
-- Deliveries that never created an outbox row are lost on crash (no durable state).
-- Deliveries with a persisted outbox row survive the crash.
-- Expired `in_progress` rows become reclaimable by the RetryWorker after restart.
-- `queued` outbox rows after a crash are ambiguous — the adapter may have sent the message before crashing or not. Freshly queued rows (within the 300-second grace window) are not reclaimed. Stale queued rows past the grace threshold are automatically reclaimed.
+Deliveries without a persisted outbox row are lost on crash; deliveries with
+an outbox row survive and expired `in_progress` rows are reclaimed by the
+RetryWorker after restart. `queued` rows are ambiguous — freshly queued rows
+within the 300-second grace window are not reclaimed; stale ones are. The
+canonical crash-recovery procedure lives in
+[recovery-and-replay.md](recovery-and-replay.md).
 
 ## Matrix tx_id Deduplication
 

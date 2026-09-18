@@ -1,8 +1,11 @@
 # Unreleased Changes
 
 Pre-release MEDRE. All changes below are unreleased and subject to change
-without notice. This file is the legacy aggregate changelog. Record new changes
-as numbered fragments under `docs/changes/unreleased/`; do not append them here.
+without notice. This file is the aggregate prerelease history: thematically
+grouped entries below cover the early prerelease work, and the final section
+consolidates the numbered-fragment era (150–185). Record new in-flight changes
+as numbered fragments under `docs/changes/unreleased/`; consolidate them into
+this file once they land.
 
 ---
 
@@ -312,3 +315,181 @@ matrix auth login --adapter-id <id>` prepares the selected adapter's exact
   and verifies the persisted server-visible chain without a password. The
   evidence remains Docker-local and does not claim federation or peer-device
   trust validation.
+
+## Consolidated Fragment Era (150–185)
+
+User-visible history of the numbered change fragments 150–185, consolidated
+from the individual fragment files.
+
+- **150 — Durable ingress storage foundation.** `LIVE`/`RECOVERED`/`HISTORY`
+  provenance semantics for inbound events; atomic
+  canonical-event/native-ref/work admission; corrupt provenance/work rejected
+  at duplicate admission.
+- **151 — Recoverable durable ingress worker.** Lease-based crash reclaim for
+  pending ingress work; pipeline path for already-admitted events;
+  protocol-provenance admission wired into adapter runtime context; per-item
+  immediate claim before sequential processing.
+- **152 — Matrix Classic Sync checkpoint ownership.** Runtime-managed Matrix
+  adapters move to mindroom-nio Classic `sync_forever()` with bounded SDK
+  retries and MEDRE-owned outer supervision; limited-timeline recovery with
+  application-owned checkpoints and `LIVE`/`RECOVERED`/`HISTORY` admission;
+  MEDRE storage persists the Matrix cursor and recovery-abandonment evidence
+  before nio ack; failed durable admissions rejected at nio's boundary;
+  durable callback trio enabled only when runtime storage is available.
+- **153 — Matrix recovery failure evidence.** Durable-ingress worker counters
+  exposed in runtime diagnostics; recovery-abandonment causes preserved with
+  committed Matrix checkpoint; Matrix room IDs hidden from operator
+  diagnostics while retained in internal checkpoint metadata; worker startup
+  deferred until adapter startup completes.
+- **154 — Adapter SDK parity.** LXMF outbound retains the
+  `RNS.Destination` from `LXMRouter.register_delivery_identity()` as
+  `LXMessage.source`; real-session startup fails explicitly when the local
+  delivery identity cannot register; Reticulum pinned explicitly in the LXMF
+  extra; LXMF stamp cost routed through `register_delivery_identity()` and
+  validated to `0..254`; MeshCore reconnect uses `auto_reconnect=False` with
+  no duplicate `send_appstart()` after factory connect and diagnostics read
+  SDK `self_info`; propagated LXMF delivery requires an explicit
+  outbound propagation-node destination hash; the owned `LXMRouter` is
+  quiesced on stop/reconnect with its `atexit` callback unregistered and
+  prior signal handlers preserved.
+- **155 — MMRelay behavior reference.** MMRelay formalized as a non-runtime
+  behavioral reference with executable MEDRE requirements (authenticated
+  device discovery, E2EE peer-device rotation, bounded missing-room-key
+  recovery, stale radio callbacks, SDK connection health, shutdown ordering,
+  native reply construction); Matrix Megolm recovery retries detached from
+  nio sync callbacks and cancelled at shutdown; permanent Matrix errcodes
+  classified without retry; Meshtastic client replacement serialized with
+  reader-thread callback validation and connection-generation revalidation.
+- **156 — Transport realism.** Explicit transport test layers for exact-SDK
+  local integration and soak endurance; LXMF real-session stop/restart
+  releases router-owned Reticulum destinations and announce handlers;
+  deterministic MeshCore TCP and process-isolated RNS/LXMRouter local
+  integration; opt-in Meshtastic hardware lifecycle soak; CI gates for
+  LXMF/MeshCore deterministic local integration plus manual soak jobs.
+- **157 — Core reliability.** Canonical events durably admitted before
+  routing/delivery; admitted work deferred (not failed) when capacity or
+  shutdown prevents outbox transfer, so operational deferrals stay pending
+  without consuming the poison-work retry budget; bounded ingress/fan-out
+  concurrency and bounded shutdown grace for the active durable-ingress row;
+  task-local structured correlation across
+  ingress/plans/targets/attempts/receipts/replay; replay rendering
+  reconstructed from persisted historical rendering context; same-run
+  duplicate suppression evidence for non-empty replay run IDs;
+  `confirmation_level` separates receipt lifecycle status from transport
+  proof strength (`local_queue`, `local_transport`, `remote_service`);
+  built-in adapters advertise deterministic thread-capability fallback;
+  Prometheus text export for bounded aggregate numeric/boolean diagnostics.
+  Storage compatibility: the `delivery_receipts.confirmation_level` column
+  was added without a schema-version bump — existing prerelease databases
+  intentionally fail required-column validation; there is no in-place
+  migration (see the prerelease reset workflow).
+- **158 — Matrix event normalization.** Versioned `native.matrix` namespace
+  for sender/room/event/timestamp/relation/relay/media/encryption provenance;
+  Matrix edits/redactions/threads/media normalized to transport-neutral
+  kinds; Matrix media and redaction classes registered at the session
+  boundary with safe-only decryption provenance (no key/session material);
+  MMRelay compatibility fields isolated under `native.interop.mmrelay`;
+  standalone JSON Schema published for Matrix-native metadata; Matrix
+  reply/edit/thread/redaction takes precedence over MMRelay emote-reaction
+  markers when both are present.
+- **159 — Prerelease contract consolidation.** Canonical native metadata
+  standardized per transport under `native.matrix`/`native.meshtastic`/
+  `native.meshcore`/`native.lxmf`, with MMRelay kept under
+  `native.interop.mmrelay`; `channel_room_map` is structured-only with a
+  required `!` Matrix room ID and optional per-entry origin labels (bare IDs
+  and `#` aliases rejected); the canonical event envelope is closed and
+  versioned (extensions via `payload`, `metadata.custom`, and versioned
+  namespaces); removed the canonical-event shape-conversion registry, the
+  alternate replay render hook, the inline live-ingress fallback, the flat
+  smoke-report reader, and the mixed real-adapter example config; runtime
+  live adapter ingress now requires durable storage; positive-integer
+  schema-version identifiers enforced; embedded Matrix/LXMF MEDRE relay
+  envelopes remain current-version-only.
+- **160 — Adapter lifecycle doc reconciliation.** `docs/spec/adapter-runtime.md`
+  realigned to the 8-state `AdapterState` enum (`INITIALIZING`, `READY`,
+  `DEGRADED`, `BACKPRESSURED`, `DISCONNECTED`, `STOPPING`, `FAILED`,
+  `STOPPED`) with `VALID_TRANSITIONS` transcribed; stale `RUNNING`/
+  `DRAINING` references updated across ops/dev docs. Documentation only.
+- **164 — Atomic queued delivery finalization.** Delayed queue-backed sends
+  finalized in one storage transaction coupling the outbound native-message
+  reference, the immutable `sent` receipt, and the outbox attempt → `sent`
+  transition; outbox ID/attempt/non-terminal state revalidated inside the
+  transaction; conflicting native identities mapping to a different
+  canonical event rejected.
+- **165 — Local-integration evidence.** MeshCore real-SDK TCP and LXMF
+  process-isolated local-integration gates recorded as executed; capability
+  status vocabulary distinguishes deterministic real-SDK local integration
+  from Docker and from external live/hardware validation.
+- **166 — Deterministic SQLite execution path.** `SQLiteStorage` no longer
+  switches to `aiosqlite` at import time; all installs use stdlib `sqlite3`
+  behind MEDRE's single-worker executor; durable ingress, outbox, generic
+  read/write, read-only open, and queued-delivery finalization collapsed onto
+  the existing synchronous transaction authorities; the public storage API
+  stays async with WAL/busy-timeout/foreign-key enforcement retained.
+- **167 — Retry outbox lifecycle authority.** Retry-worker abandonment,
+  backoff, exhaustion, dead-letter, and success transitions routed through
+  `DeliveryLifecycleService`; live and retry delivery share one
+  state-transition authority; polling, claim orchestration, capacity,
+  counters, and operational events stay in `RetryWorker`.
+- **168 — Reverse relation traversal.** Storage read API for listing unique
+  source event IDs whose relations target a canonical event, ordered by
+  first relation insertion; the existing `target_event_id` SQLite index
+  documented as the authority; reverse-traversal primitive for later
+  conversation-graph repair.
+- **169 — Retry lifecycle authority finish.** Retry-attempt receipt
+  correlation, failure classification, retry scheduling, and dead-letter
+  decisions moved behind `DeliveryLifecycleService`; `RetryWorker` direct
+  storage narrowed to claim/read; retry evidence correlated by exact
+  `outbox_id`/target/attempt/receipt lineage; missing or malformed retry
+  evidence treated as invariant violations, with malformed failed-receipt
+  taxonomy repaired as terminal `adapter_permanent`; persisted retry
+  timestamps reused and duplicate resend prevented when queued/sent evidence
+  exists; non-retryable retry failures dead-letter immediately with
+  `outbox_id` on the dead-letter receipt; next-attempt evidence reconciled
+  after lease reclaim; lifecycle outcomes (`reconciled`, `suppressed`,
+  `retry_wait`, `accepted`, `dead_lettered`) reported via runtime
+  counters/events; the durable outbox clarified as an operational work queue
+  with receipts as immutable evidence.
+- **170 — Retry startup recovery visibility.** Retry snapshots expose
+  `abandoned` and `previous_run_in_progress`; `retry_unfinished_work_detected`
+  event emitted at startup (diagnostic only); startup outbox-count read is
+  non-fatal and bounded by a 5-second preflight; `RetryWorker.start()`/
+  `stop()` serialized by one lifecycle lock; boolean row counts rejected.
+- **171 — Conversation projection convergence.** New mutable rebuildable
+  `conversation_membership` current-state view (canonical events, relation
+  rows, and native-message refs remain immutable evidence); deterministic
+  reverse lookup for native relation targets; transitive recompute with
+  serialized projection repairs and bounded idempotent rebuild at startup
+  when dirty, interrupted, or at an older revision; clean shutdown records a
+  marker to skip the redundant rebuild; routing/rendering consume an
+  in-memory copy overlaid with the current projection; cycle behavior uses
+  the lexicographically-smallest cycle event ID as the projection root;
+  prerelease SQLite schema stays at `1` — databases lacking the new shape
+  are rejected with no compatibility path; required SQL CHECKs validated
+  from parsed clauses; interrupted rebuilds resume from the persisted
+  cursor.
+- **172 — Delivery coordinator decomposition.** Per-target delivery
+  orchestration extracted from `PipelineRunner` into an orchestration-only
+  `DeliveryCoordinator`; preflight order and bounded ordered fan-out
+  preserved; the delivery-capacity slot is released on every exit path
+  (cancellation during outbox creation no longer leaks capacity;
+  outbox-finalization failure no longer strands capacity or a stale shutdown
+  identity); architecture guards prove no direct storage mutations.
+- **173 — Delivery coordinator review fixes.** Capacity-controller
+  replacement routed through `PipelineRunner.set_capacity_controller()`;
+  failed adapter/renderer outcomes retain the persisted `DeliveryReceipt`
+  from `TargetDeliveryService`; coordinator/outbox finalization use the
+  exact stored row including the storage-assigned receipt sequence when
+  read-back is available; the runner no longer mirrors delivery capacity
+  state; run-session capacity-rejection setup fails cleanly without a
+  pipeline runner and guidance describes the durable suppression receipt.
+- **185 — Adapter SDK contract pin authority.** Installed-SDK contract tests
+  derive expected package versions from the exact `pyproject.toml` pins
+  instead of duplicating literals; contract probes bind only MEDRE-consumed
+  call shapes (no freezing of unrelated defaults, enums, or limits);
+  MeshCore APP_START coverage accepts additive SDK handshake arguments while
+  requiring exactly one handshake on initial connection and one on
+  SDK-owned reconnect; LXMF lifecycle coverage checks callable/observable
+  ownership surfaces rather than source-code substrings; a structural guard
+  keeps the LXMF/Meshtastic/MeshCore SDK extras exact-pinned without
+  freezing their version numbers in a second authority.

@@ -1,23 +1,22 @@
 # Developer Documentation
 
 This directory contains documentation for contributors, adapter authors, and
-anyone extending the MEDRE runtime.
+anyone extending the MEDRE runtime. Historical audit snapshots are not kept
+here; Git history is the archive, and findings that remain current live in
+the relevant spec/ops/dev page.
 
 ## Documents
 
-| Document                                        | Purpose                                         |
-| ----------------------------------------------- | ----------------------------------------------- |
-| `testing.md`                                    | Test suite structure, patterns, and conventions |
-| `adapter-authoring.md`                          | How to write a new transport adapter            |
-| `resource-lifecycle.md`                         | Runtime resource ownership, creation, teardown  |
-| `source-audits.md`                              | Audit evidence and review notes                 |
-| `relay-prefix-attribution-audit.md`             | Relay prefix and sender-provenance audit        |
-| `transport-native-identity-enrichment-audit.md` | Per-transport sender-identity projection audit  |
-| `operator-support-bundle-audit.md`              | Operator support bundle design audit            |
-| `reference-repos.md`                            | External reference implementations              |
-| `documentation-style.md`                        | Conventions for writing MEDRE documentation     |
-| `change-process.md`                             | How to propose and track documentation changes  |
-| `lifecycle-authority-audit.md`                  | Lifecycle status vocabulary audit guide         |
+| Document                        | Purpose                                                  |
+| ------------------------------- | -------------------------------------------------------- |
+| `testing.md`                    | Test suite structure, patterns, tiers, live-test harness |
+| `adapter-authoring.md`          | How to write a new transport adapter                     |
+| `adapter-sdk-parity.md`         | Installed-SDK contract tiers and open SDK parity gaps    |
+| `resource-lifecycle.md`         | Runtime resource ownership, creation, teardown           |
+| `reference-repos.md`            | External reference implementations and copy boundaries   |
+| `mmrelay-behavior-reference.md` | Live mmrelay interop behavior reference                  |
+| `documentation-style.md`        | Conventions for writing MEDRE documentation              |
+| `change-process.md`             | How to propose and track documentation changes           |
 
 ## How to Add Documentation
 

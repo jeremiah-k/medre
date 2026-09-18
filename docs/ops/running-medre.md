@@ -139,7 +139,7 @@ Shutdown complete — 2 adapter(s) stopped in 70ms, 0 error(s)
 | Adapter receive loops                                                  | Cancelled immediately on adapter `stop()`                                           |
 | Replay events                                                          | Cancelled; completed receipts preserved                                             |
 | Route statistics, diagnostic counters                                  | Lost — in-memory only                                                               |
-| Pending `retry_wait` outbox items                                     | Preserved — remain resumable work, claimed on next startup when due                 |
+| Pending `retry_wait` outbox items                                      | Preserved — remain resumable work, claimed on next startup when due                 |
 | Retry receipt evidence                                                 | Preserved — remains immutable evidence; does not schedule work                      |
 | Other pending outbox items                                             | Preserved — remain in storage, reclaimable on next startup                          |
 | Non-terminal outbox (`pending`, `retry_wait`, `in_progress`, `queued`) | Preserved as resumable work. `ShutdownEvidence.resume_expected=True` when present.  |
@@ -494,49 +494,20 @@ What loop prevention does not cover:
 
 ## Persistence and Crash Semantics
 
-### What Persists Across Restarts
+Canonical events, delivery receipts, native refs, and the delivery outbox
+persist in local SQLite (`{state}/medre.sqlite`); Matrix E2EE keys and LXMF
+identities persist under `{state}/adapters/`. In-flight deliveries without an
+outbox row are lost on termination; rows with a persisted outbox item survive
+and are reclaimed after restart. Runtime counters, RouteStats, gauges, and
+the runtime event buffer reset on startup (capture the buffer with
+`--snapshot-on-shutdown PATH`).
 
-| State                         | Location                              |
-| ----------------------------- | ------------------------------------- |
-| Canonical events              | SQLite (`{state}/medre.sqlite`)       |
-| Delivery receipts             | SQLite                                |
-| Route attribution on receipts | SQLite                                |
-| Matrix E2EE crypto keys       | `{state}/adapters/{id}/matrix/store/` |
-| LXMF identities               | `{state}/adapters/{id}/lxmf/`         |
-| Log history                   | `{state}/logs/medre.log`              |
-
-### What Is Lost on Process Termination
-
-| State                                                      | Nature                                                 |
-| ---------------------------------------------------------- | ------------------------------------------------------ |
-| In-flight deliveries (no outbox row)                       | Fully lost — no receipt                                |
-| In-flight deliveries (with expired in_progress outbox row) | Reclaimable by `claim_due_outbox_items()`              |
-| Active replay runs                                         | Must re-initiate manually                              |
-| Runtime counters                                           | Reset to zero on startup                               |
-| RouteStats per-route counters                              | Reset to zero                                          |
-| CapacityController gauges                                  | Reset to zero                                          |
-| Runtime events buffer                                      | Lost unless captured via `--snapshot-on-shutdown PATH` |
-
-### Crash Recovery Procedure
-
-1. Restart with the same config: `medre run --config config.yaml`
-2. Adapters reconnect autonomously. No cleanup needed.
-3. Check logs: `grep ERROR {log_dir}/medre.log`
-4. Find orphaned events (stored but never delivered):
-
-```sql
-SELECT e.event_id, e.source_adapter, e.created_at
-FROM canonical_events e
-LEFT JOIN delivery_receipts r ON e.event_id = r.event_id
-WHERE r.event_id IS NULL
-ORDER BY e.created_at DESC;
-```
-
-5. Decide whether to replay orphaned events. Use `dry_run` first.
-
-### Persistence Is Single-Machine
-
-MEDRE persists to local SQLite and local filesystem. No replication, no remote backup, no distributed coordination. Operators are responsible for database backup, log rotation, and disk space monitoring.
+The canonical crash-recovery procedure, the survives/lost breakdown, and the
+orphaned-event query live in
+[recovery-and-replay.md](recovery-and-replay.md). MEDRE persists to local
+SQLite and the local filesystem only — no replication, remote backup, or
+distributed coordination; operators own backup, log rotation, and disk
+monitoring.
 
 ## Docker / Podman Deployment
 

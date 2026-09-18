@@ -108,54 +108,6 @@ def test_evidence_levels_defines_shared_status_labels() -> None:
         )
 
 
-def test_local_integration_execution_evidence_is_recorded() -> None:
-    """MeshCore/LXMF local integration is no longer marked unexecuted."""
-    text = _read(_READINESS)
-
-    # Capability-matrix row: BOTH MeshCore and LXMF columns carry the
-    # executed label. Require both section markers and parse the row cells so
-    # stray prose or misplaced rows cannot satisfy the gate.
-    matrix_marker = "## 1. Capability Matrix"
-    definitions_marker = "## 2. Status Definitions"
-    assert matrix_marker in text, "release-readiness must define capability matrix"
-    assert definitions_marker in text, (
-        "release-readiness must define status definitions"
-    )
-    matrix = text.split(matrix_marker, 1)[1].split(definitions_marker, 1)[0]
-    matrix_rows = [
-        ln for ln in matrix.splitlines()
-        if ln.startswith("| Deterministic local integration")
-    ]
-    assert len(matrix_rows) == 1, "capability matrix must have exactly one row"
-    cells = [cell.strip() for cell in matrix_rows[0].strip("|").split("|")]
-    assert len(cells) == 5, "capability matrix row must have five columns"
-    assert cells[0] == "Deterministic local integration"
-    assert cells[3] == "local-integration-validated"
-    assert cells[4] == "local-integration-validated"
-
-    # Section 7.1 must record the two executed gates explicitly.
-    executed = (
-        text.split("### 7.1 Executed gates (evidence exists)", 1)[1]
-        .split("### 7.2", 1)[0]
-    )
-    assert "| MeshCore deterministic real-SDK TCP local integration" in executed
-    assert "| LXMF process-isolated real RNS/LXMRouter local integration" in executed
-
-    # Evidence metadata block: execution date, exact tree hash, workflow
-    # run id, PR head, and the identical-tree statement tying it to the
-    # landed main commit.
-    assert "Current-tree local-integration evidence was recorded on" in executed
-    assert "`ba2bceffad6810855e1858d202aee6039ac49824` was exercised" in executed
-    assert "workflow run `32529498484`" in executed
-    assert "`409762d0cbba1d46aab1fafb60449eca0370ae00`" in executed
-    assert "has the identical Git tree." in executed
-    assert "`5c8a67e922612f18ab01deefaeeb39c429b4df02`" in executed
-
-    not_executed = text.split("### 7.2", 1)[1].split("### 7.3", 1)[0]
-    assert "MeshCore deterministic local integration" not in not_executed
-    assert "LXMF process-isolated local integration" not in not_executed
-
-
 # ===========================================================================
 # 3. No alpha/beta test filenames
 # ===========================================================================
@@ -175,61 +127,6 @@ def test_no_beta_test_files() -> None:
     assert not matches, "Found leftover beta test files: " + ", ".join(
         m.name for m in matches
     )
-
-
-# ===========================================================================
-# 4. Authority map — all referenced docs exist
-# ===========================================================================
-
-#: Entries from release-readiness.md §6 Authority Domains table.
-_AUTHORITY_MAP_ENTRIES: list[tuple[str, str]] = [
-    # (spec_page_relative, audit_doc_relative)
-    ("docs/spec/delivery-lifecycle.md", "docs/dev/lifecycle-authority-audit.md"),
-    ("docs/spec/adapter-runtime.md", "docs/dev/adapter-reality-audit.md"),
-    ("docs/spec/event-model.md", "docs/dev/conversation-graph-audit.md"),
-    ("docs/spec/routing-delivery.md", "docs/dev/planning-authority-audit.md"),
-    ("docs/spec/diagnostics-evidence.md", "docs/dev/operator-surface-audit.md"),
-    ("docs/spec/storage.md", "docs/dev/persistence-authority-audit.md"),
-    # Runtime execution has no spec page; audit is interim
-    ("", "docs/dev/runtime-execution-authority-audit.md"),
-    (
-        "docs/spec/diagnostics-evidence.md",
-        "docs/dev/runtime-evidence-completeness-audit.md",
-    ),
-]
-
-
-@pytest.mark.parametrize(
-    ("spec_page", "audit_doc"),
-    _AUTHORITY_MAP_ENTRIES,
-    ids=lambda v: v if isinstance(v, str) and v else "(none)",
-)
-def test_authority_map_doc_exists(spec_page: str, audit_doc: str) -> None:
-    """Each authority-map entry references a file that exists on disk."""
-    if spec_page:
-        assert (
-            _ROOT / spec_page
-        ).is_file(), f"Authority map spec page missing: {spec_page}"
-    assert (
-        _ROOT / audit_doc
-    ).is_file(), f"Authority map audit doc missing: {audit_doc}"
-
-
-def test_authority_domains_in_release_readiness() -> None:
-    """release-readiness.md §6 lists authority domains with spec+audit refs."""
-    text = _read(_READINESS)
-    # Check the authority domains section exists
-    assert (
-        "Authority Domains" in text
-    ), "release-readiness.md must have an Authority Domains section"
-    # Check at least a few known audit docs are referenced
-    expected_refs = [
-        "lifecycle-authority-audit.md",
-        "adapter-reality-audit.md",
-        "persistence-authority-audit.md",
-    ]
-    for ref in expected_refs:
-        assert ref in text, f"release-readiness.md authority table must reference {ref}"
 
 
 # ===========================================================================

@@ -165,3 +165,80 @@ src/medre/
 | Encryption      | TLS / Megolm         | Optional per-packet | Always-on E2EE   | Reticulum link-layer |
 | ACK model       | Sync `/sync` confirm | Async LoRa ACK      | Async ACK + CRC  | Link-level ACK       |
 | Send returns    | Event ID string      | MeshPacket protobuf | Event + ACK info | Delivery status      |
+
+## 7. Runtime Orchestration
+
+`MedreApp` (`src/medre/runtime/app.py`) owns process-level startup, shutdown,
+and supervision order. `RuntimeBuilder` (`src/medre/runtime/builder.py`) is
+the single assembly point that constructs the runtime and wires the capacity
+controller. The sequences below are normative ownership invariants; state
+vocabulary for individual transitions is owned by
+[state-machines.md](state-machines.md) and shutdown handoff semantics by
+[durable-ingress.md](durable-ingress.md).
+
+### 7.1 Startup Order
+
+`MedreApp.start()` MUST bring up subsystems in this order:
+
+1. Storage initialization (a prerelease schema mismatch fails startup).
+2. Conversation-projection rebuild/check — after storage facts exist and
+   before any worker or adapter can consume stale pre-crash projection state.
+3. Pipeline runner (which fans target work out to `DeliveryCoordinator`).
+4. Durable-ingress worker construction, with processing deferred until
+   adapter startup completes so cursor-owned adapters can admit work while
+   delivery targets are still coming up.
+5. Retry worker — only when retry is enabled and storage is present.
+6. Adapters, in sorted `adapter_id` order. Adapter start failures are
+   logged and attributed; they do not abort sibling adapters.
+
+Startup outcomes: zero adapters started (including build failures) raises
+`RuntimeStartupError` after core cleanup; partial adapter startup enters
+`RUNNING` with degraded health; full startup enters `RUNNING` healthy.
+
+### 7.2 Shutdown Order
+
+`MedreApp.stop()` MUST tear down in reverse dependency order:
+
+1. Replay engine cancelled.
+2. Durable-ingress worker told to stop claiming rows; the active ingress row
+   and the subsequent delivery/replay drain share one
+   `limits.shutdown_drain_timeout_seconds` deadline (see
+   [durable-ingress.md](durable-ingress.md)).
+3. Capacity controller `stop_accepting()` — no new delivery work is admitted.
+4. Retry worker stop. A cancellation-resistant retry worker may be abandoned;
+   abandonment is logged for visibility and is not itself a shutdown failure.
+5. In-flight delivery/replay work drained within the deadline remainder.
+   Deliveries not completed by the deadline are abandoned with persisted
+   `shutdown_rejection` evidence (see [state-machines.md](state-machines.md)
+   §2.5).
+6. Pipeline runner stop.
+7. Adapters stopped in reverse start order, each under a two-stage deadline:
+   a cooperative completion stage, then forced cancellation with bounded
+   grace, then abandonment. Abandoned adapter-stop tasks are retained rather
+   than discarded.
+8. Storage closed.
+
+External cancellation arriving during shutdown is deferred, not dropped:
+pending cancellations are drained, core cleanup runs, and the cancellation is
+re-raised afterwards so pipeline and storage cleanup always execute.
+
+### 7.3 Authority Boundaries
+
+- The retry worker owns polling, claiming, capacity admission, and retry
+  events only. Durable outbox/retry state transitions are owned by the
+  delivery lifecycle authority (see [delivery-lifecycle.md](delivery-lifecycle.md)).
+  Durable double-process protection is the outbox claim (`worker_id` +
+  `lease_until`), not process-local state.
+- The pipeline runner delegates per-target orchestration to
+  `DeliveryCoordinator`; the coordinator sequences preflight, capacity,
+  outbox, enrichment, target delivery, and finalization, and does not
+  re-decide routing, rendering, retry policy, or lifecycle transitions.
+- Terminal runtime states: success ends `STOPPED`; a separate error,
+  cancellation, or unfinished ingress (e.g. durable ingress worker still
+  active after cancellation) ends `FAILED`. A successful stop that abandons
+  capacity drain after the deadline still ends `STOPPED` — the abandoned
+  work is persisted as `shutdown_rejection` receipts with
+  `error="shutdown_drain_timeout"` and the projection-clean marker is
+  skipped, but no error is raised. `shutdown_status="drain_timeout"` is a
+  diagnostic classification emitted by `core/evidence/shutdown.py` and is
+  orthogonal to the runtime terminal state.

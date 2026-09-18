@@ -75,9 +75,10 @@ instead:
 
 ## Source Audits
 
-Source audit notes are evidence of review, not normative authority. They belong
-in `docs/dev/source-audits.md` or an appendix — never as standalone documents
-in the spec tree.
+Point-in-time audit notes are review evidence, not normative authority, and
+are not kept as standalone documents: Git history is the archive. Findings
+that remain current belong in the relevant spec/ops/dev page or a spec
+appendix; anything else should not be written down as if it were durable.
 
 ## Adding New Documentation
 

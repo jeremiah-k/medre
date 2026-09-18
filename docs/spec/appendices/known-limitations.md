@@ -101,6 +101,37 @@ upstream mmrelay in four known ways:
   compatibility block must be reviewed alongside the live mmrelay
   reference at `docs/dev/mmrelay-behavior-reference.md`.
 
+## 5. Diagnostics Granularity Gaps
+
+### 5.1 LXMF health is start-state only
+
+`LxmfAdapter.health_check()` reports `health="healthy"` whenever the adapter
+is started, regardless of Reticulum router state. Router liveness is only
+visible in the session diagnostics (`session.router_running`,
+`session.known_path_count`). Operators MUST NOT read `healthy` as
+peer-reachability.
+
+- **Source:** `src/medre/adapters/lxmf/adapter.py::health_check`.
+
+### 5.2 MeshCore and Matrix expose no outbound queue evidence
+
+The outbound-queue diagnostic keys (`queue_pending`, `queue_total_sent`,
+`queue_total_failed`) exist only on the Meshtastic adapter. MeshCore and
+Matrix diagnostics have no equivalent queue-depth surface.
+
+- **Source:** `src/medre/adapters/meshtastic/adapter.py` (keys present);
+  Matrix/MeshCore adapter diagnostics (keys absent).
+
+## 6. LXMF Envelope Relation Fidelity
+
+Inbound LXMF relations are reconstructed at decode time from the `0xFD`
+management-envelope fields via `_reconstruct_relations`. Cross-instance and
+inbound-only round-trip fidelity of that reconstruction has not been
+independently verified against a second MEDRE instance; treat relation
+fidelity on LXMF as implemented but not interop-proven.
+
+- **Source:** `src/medre/adapters/lxmf/codec.py`.
+
 ## See also
 
 - [`transport-limitations.md`](transport-limitations.md) — transport-specific

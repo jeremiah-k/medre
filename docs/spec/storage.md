@@ -20,14 +20,14 @@ and schema metadata.
 The following tables are **planned — not implemented; tracked for
 post-prerelease**:
 
-| Planned Table          | One-line Purpose                                                                                                |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Planned Table          | One-line Purpose                                                                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `actors`               | Persist canonical actor identity (cross-transport reconciliation target) — see [identity-addressing.md](identity-addressing.md). |
-| `native_identities`    | Persist adapter-local identity records (MXID, node number, pubkey, destination hash).                            |
-| `actor_identity_links` | Persist links between canonical actors and their native identities.                                              |
-| `actor_permissions`    | Persist per-actor capability grants for downstream authorization checks.                                        |
-| `native_archive`       | Optional per-adapter raw-data archive (compressed BLOB) for post-hoc inspection — never embedded in events.    |
-| `plugin_state`         | Schema-reserved key-value store for the future plugin subsystem.                                                |
+| `native_identities`    | Persist adapter-local identity records (MXID, node number, pubkey, destination hash).                                            |
+| `actor_identity_links` | Persist links between canonical actors and their native identities.                                                              |
+| `actor_permissions`    | Persist per-actor capability grants for downstream authorization checks.                                                         |
+| `native_archive`       | Optional per-adapter raw-data archive (compressed BLOB) for post-hoc inspection — never embedded in events.                      |
+| `plugin_state`         | Schema-reserved key-value store for the future plugin subsystem.                                                                 |
 
 Do not assume any of these tables exist at runtime. Their DDL shapes are
 documented for planning only.
@@ -427,11 +427,11 @@ CREATE TABLE event_relations (
 
 **Indexes:**
 
-| Index | Columns | Purpose |
-| ----- | ------- | ------- |
-| `idx_relations_event_id` | `(event_id, id)` | `list_relations(event_id)` with deterministic row ordering |
-| `idx_relations_target_event_id` | `(target_event_id)` | Reverse lookup for `list_relation_sources(target_event_id)` |
-| `idx_relations_target_native_ref` | `(target_native_adapter, target_native_channel_id, target_native_message_id)` | Reverse repair when a native target mapping arrives |
+| Index                             | Columns                                                                       | Purpose                                                     |
+| --------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `idx_relations_event_id`          | `(event_id, id)`                                                              | `list_relations(event_id)` with deterministic row ordering  |
+| `idx_relations_target_event_id`   | `(target_event_id)`                                                           | Reverse lookup for `list_relation_sources(target_event_id)` |
+| `idx_relations_target_native_ref` | `(target_native_adapter, target_native_channel_id, target_native_message_id)` | Reverse repair when a native target mapping arrives         |
 
 The `target_native_*` split columns store the `NativeRef` fields when the canonical event ID for the relation target is not yet known. When a relation is unresolved, `target_event_id` is `NULL` and the four `target_native_*` columns carry the native reference. The relation resolution stage resolves these by calling `resolve_native_ref`.
 
@@ -1302,40 +1302,40 @@ class StorageConfig:
 
 ## 15. Required Guarantees Summary
 
-| Guarantee              | Requirement                                                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Atomic writes          | Multi-row lifecycle operations **MUST** commit atomically. Durable ingress couples event/native-ref/work creation; queued-send finalization couples outbound native ref/sent receipt/outbox transition. Partial writes **MUST NOT** leave contradictory evidence. |
-| Idempotent correlation | Duplicate `(adapter, native_channel_id, native_message_id)` tuples **MUST NOT** create duplicate rows.                         |
-| Ordered append         | `canonical_events` ordered by `timestamp ASC`. `delivery_receipts` ordered by `sequence` (monotonic).                          |
-| Receipt immutability   | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts`. Capacity rejection creates a new receipt row.    |
-| Conversation convergence | `conversation_membership` is rebuildable derived state. Equivalent relation/native-ref facts **MUST** converge to the same semantic projection independent of event arrival order or interrupted repair. |
-| Evidence immutability  | Conversation repair **MUST NOT** rewrite `canonical_events`, `event_relations`, or `native_message_refs`.                            |
-| Concurrent reads       | WAL mode **MUST** be enabled for concurrent reads during writes.                                                               |
-| Replay support         | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria.                      |
-| Schema validation      | `initialize()` **MUST** validate schema version, column shape, foreign keys, and required SQL checks.                           |
-| Durable admission      | Canonical event, inbound native ref, and ingress work **MUST** commit in one transaction.                                      |
-| Checkpoint safety      | Application-owned cursors **MUST NOT** advance past relevant events that failed durable admission.                             |
-| Single database        | There **MUST NOT** be per-adapter databases.                                                                                   |
+| Guarantee                | Requirement                                                                                                                                                                                                                                                       |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Atomic writes            | Multi-row lifecycle operations **MUST** commit atomically. Durable ingress couples event/native-ref/work creation; queued-send finalization couples outbound native ref/sent receipt/outbox transition. Partial writes **MUST NOT** leave contradictory evidence. |
+| Idempotent correlation   | Duplicate `(adapter, native_channel_id, native_message_id)` tuples **MUST NOT** create duplicate rows.                                                                                                                                                            |
+| Ordered append           | `canonical_events` ordered by `timestamp ASC`. `delivery_receipts` ordered by `sequence` (monotonic).                                                                                                                                                             |
+| Receipt immutability     | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts`. Capacity rejection creates a new receipt row.                                                                                                                                       |
+| Conversation convergence | `conversation_membership` is rebuildable derived state. Equivalent relation/native-ref facts **MUST** converge to the same semantic projection independent of event arrival order or interrupted repair.                                                          |
+| Evidence immutability    | Conversation repair **MUST NOT** rewrite `canonical_events`, `event_relations`, or `native_message_refs`.                                                                                                                                                         |
+| Concurrent reads         | WAL mode **MUST** be enabled for concurrent reads during writes.                                                                                                                                                                                                  |
+| Replay support           | Event log **MUST** support querying by time range, event kind, source adapter, and other filter criteria.                                                                                                                                                         |
+| Schema validation        | `initialize()` **MUST** validate schema version, column shape, foreign keys, and required SQL checks.                                                                                                                                                             |
+| Durable admission        | Canonical event, inbound native ref, and ingress work **MUST** commit in one transaction.                                                                                                                                                                         |
+| Checkpoint safety        | Application-owned cursors **MUST NOT** advance past relevant events that failed durable admission.                                                                                                                                                                |
+| Single database          | There **MUST NOT** be per-adapter databases.                                                                                                                                                                                                                      |
 
 ## 16. Storage Ownership Semantics
 
-This section states which code owns each table's rows, who may create/mutate/delete them, and what retention guarantees apply. The detailed per-table audit lives in [persistence-authority-audit.md](../dev/persistence-authority-audit.md).
+This section states which code owns each table's rows, who may create/mutate/delete them, and what retention guarantees apply.
 
 ### 16.1 Ownership Summary
 
-| Table / category       | Creator                                                                            | Mutator                                                      | Deleter                                       | Retention                        |
-| ---------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------- | -------------------------------- |
-| `canonical_events`     | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment) | None (append-only)                                           | None                                          | Forever                          |
-| `event_relations`      | `append()` (inline), `store_relation()` (post-hoc)                                 | None (append-only)                                           | None                                          | Forever                          |
-| `conversation_membership` | `ConversationProjectionService` from immutable event/relation/native-ref facts | `ConversationProjectionService` (derived idempotent repair) | None; rebuilt in place                        | Rebuildable current projection   |
-| `conversation_projection_state` | `ConversationProjectionService` during startup | `ConversationProjectionService` during rebuild and clean shutdown | None | Singleton operational marker |
-| `native_message_refs`  | Core pipeline/runtime from adapter-reported native facts                           | None (idempotent insert)                                     | None                                          | Forever                          |
-| `delivery_receipts`    | Pipeline delivery stage, RetryWorker, replay engine                                | None (append-only)                                           | None                                          | Forever                          |
-| `delivery_outbox`      | Pipeline planner (create), delivery workers (claim/transition)                     | Delivery workers (non-terminal status transitions only)      | None (terminal rows become immutable history) | Forever                          |
-| `durable_ingress_work` | Durable admission (create), ingress worker (claim/transition)                      | Ingress worker (`pending`/`processing`/`completed`/`failed`) | None                                          | Forever                          |
-| `adapter_checkpoints`  | Cursor-owning adapters through runtime-bound storage callbacks                     | Cursor-owning adapters                                       | None                                          | Forever                          |
-| `plugin_state`         | Schema-reserved (no current API exposed; planned — not implemented; tracked for post-prerelease) | Not exposed                                                  | None                                          | Reserved / future plugin-defined |
-| `_medre_schema_meta`   | `initialize()` (on fresh DB)                                                       | `initialize()` (version row)                                 | None                                          | Forever                          |
+| Table / category                | Creator                                                                                          | Mutator                                                           | Deleter                                       | Retention                        |
+| ------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- | --------------------------------------------- | -------------------------------- |
+| `canonical_events`              | Pipeline ingress (after normalization and `ConversationGraphAuthority` assignment)               | None (append-only)                                                | None                                          | Forever                          |
+| `event_relations`               | `append()` (inline), `store_relation()` (post-hoc)                                               | None (append-only)                                                | None                                          | Forever                          |
+| `conversation_membership`       | `ConversationProjectionService` from immutable event/relation/native-ref facts                   | `ConversationProjectionService` (derived idempotent repair)       | None; rebuilt in place                        | Rebuildable current projection   |
+| `conversation_projection_state` | `ConversationProjectionService` during startup                                                   | `ConversationProjectionService` during rebuild and clean shutdown | None                                          | Singleton operational marker     |
+| `native_message_refs`           | Core pipeline/runtime from adapter-reported native facts                                         | None (idempotent insert)                                          | None                                          | Forever                          |
+| `delivery_receipts`             | Pipeline delivery stage, RetryWorker, replay engine                                              | None (append-only)                                                | None                                          | Forever                          |
+| `delivery_outbox`               | Pipeline planner (create), delivery workers (claim/transition)                                   | Delivery workers (non-terminal status transitions only)           | None (terminal rows become immutable history) | Forever                          |
+| `durable_ingress_work`          | Durable admission (create), ingress worker (claim/transition)                                    | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                          |
+| `adapter_checkpoints`           | Cursor-owning adapters through runtime-bound storage callbacks                                   | Cursor-owning adapters                                            | None                                          | Forever                          |
+| `plugin_state`                  | Schema-reserved (no current API exposed; planned — not implemented; tracked for post-prerelease) | Not exposed                                                       | None                                          | Reserved / future plugin-defined |
+| `_medre_schema_meta`            | `initialize()` (on fresh DB)                                                                     | `initialize()` (version row)                                      | None                                          | Forever                          |
 
 ### 16.2 Ownership Rules
 
@@ -1370,11 +1370,11 @@ This section states which code owns each table's rows, who may create/mutate/del
    persisted with the cursor.
 
 10. **Schema metadata identifies the current prerelease shape.**
-   `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen
-   until MEDRE reaches a release-tracked milestone. Column-shape validation
-   (Section 10.2) catches prerelease drift without a version bump. No schema
-   transformation or
-   version-bump work is required now.
+    `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen
+    until MEDRE reaches a release-tracked milestone. Column-shape validation
+    (Section 10.2) catches prerelease drift without a version bump. No schema
+    transformation or
+    version-bump work is required now.
 
 11. **Adapters report facts; core records persistence.** Adapters surface canonical
     events, adapter delivery facts, and native transport facts to the runtime. Core

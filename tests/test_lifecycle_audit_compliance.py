@@ -1,22 +1,19 @@
-"""Lifecycle audit compliance tests for MEDRE adapters.
+"""Lifecycle authority compliance tests for MEDRE adapters.
 
-Proves documented lifecycle authority and selected high-value findings
-from ``docs/dev/adapter-lifecycle-audit.md`` without requiring live
+Proves the documented lifecycle authority without requiring live
 network or hardware.
 
 Evidence level: ``fake_pipeline`` (tier 1).  Uses stub/fake adapters and
 in-memory storage only.
 
 Covers:
-- AdapterState terminal semantics match audit documentation.
+- AdapterState terminal semantics match the spec transition graph.
 - Runtime owns durable adapter state; adapters report facts only.
 - All four real adapters expose the lifecycle methods required by
   AdapterContract.
 - Adapters use ``health_check()`` to report health strings rather than
   importing or mutating ``AdapterState`` directly.
 - ``health_to_adapter_state()`` mapping is correct.
-- Documented follow-up identifiers (LXMF-1, LXMF-2, MESHTASTIC-1,
-  CROSS-1, CROSS-2) are present in the audit document.
 """
 
 from __future__ import annotations
@@ -200,7 +197,7 @@ def _fake_matrix_config(adapter_id: str = "fake_matrix") -> MatrixRuntimeConfig:
 def _config_with_one_fake_adapter(adapter_id: str = "fake_matrix") -> RuntimeConfig:
     """RuntimeConfig with one fake matrix adapter."""
     return RuntimeConfig(
-        runtime=RuntimeOptions(name="test-lifecycle-audit"),
+        runtime=RuntimeOptions(name="test-lifecycle-compliance"),
         logging=LoggingConfig(level="DEBUG"),
         storage=StorageConfig(backend="memory"),
         adapters=AdapterConfigSet(
@@ -215,19 +212,19 @@ def _build_app(config: RuntimeConfig, paths: MedrePaths) -> MedreApp:
 
 
 # ===================================================================
-# 1. Terminal semantics match audit documentation
+# 1. Terminal semantics match the spec transition graph
 # ===================================================================
 
 
 class TestTerminalSemanticsMatchAudit:
-    """AdapterState terminal semantics match the audit document's table."""
+    """AdapterState terminal semantics match the spec transition table."""
 
     def test_eight_states_exist(self) -> None:
         """Audit documents exactly eight AdapterState members."""
         assert len(AdapterState) == 8
 
     def test_documented_states_present(self) -> None:
-        """All states named in the audit table exist."""
+        """All states named in the spec table exist."""
         expected = {
             "INITIALIZING",
             "READY",
@@ -242,11 +239,11 @@ class TestTerminalSemanticsMatchAudit:
         assert actual == expected
 
     def test_failed_is_terminal(self) -> None:
-        """FAILED has no outgoing transitions (audit: 'Terminal: Yes')."""
+        """FAILED has no outgoing transitions (terminal states)."""
         assert VALID_TRANSITIONS[AdapterState.FAILED] == frozenset()
 
     def test_stopped_is_terminal(self) -> None:
-        """STOPPED has no outgoing transitions (audit: 'Terminal: Yes')."""
+        """STOPPED has no outgoing transitions (terminal states)."""
         assert VALID_TRANSITIONS[AdapterState.STOPPED] == frozenset()
 
     def test_non_terminal_states_have_transitions(self) -> None:
@@ -260,27 +257,27 @@ class TestTerminalSemanticsMatchAudit:
             ), f"{state.name} should have outgoing transitions"
 
     def test_initializing_to_ready_valid(self) -> None:
-        """INITIALIZING → READY is valid (audit: startup success)."""
+        """INITIALIZING → READY is valid (startup success)."""
         assert is_valid_transition(AdapterState.INITIALIZING, AdapterState.READY)
 
     def test_initializing_to_failed_valid(self) -> None:
-        """INITIALIZING → FAILED is valid (audit: startup failure)."""
+        """INITIALIZING → FAILED is valid (startup failure)."""
         assert is_valid_transition(AdapterState.INITIALIZING, AdapterState.FAILED)
 
     def test_ready_to_stopping_valid(self) -> None:
-        """READY → STOPPING is valid (audit: graceful shutdown)."""
+        """READY → STOPPING is valid (graceful shutdown)."""
         assert is_valid_transition(AdapterState.READY, AdapterState.STOPPING)
 
     def test_ready_to_failed_valid(self) -> None:
-        """READY → FAILED is valid (audit: runtime failure)."""
+        """READY → FAILED is valid (runtime failure)."""
         assert is_valid_transition(AdapterState.READY, AdapterState.FAILED)
 
     def test_stopping_to_stopped_valid(self) -> None:
-        """STOPPING → STOPPED is valid (audit: clean shutdown)."""
+        """STOPPING → STOPPED is valid (clean shutdown)."""
         assert is_valid_transition(AdapterState.STOPPING, AdapterState.STOPPED)
 
     def test_stopping_to_failed_valid(self) -> None:
-        """STOPPING → FAILED is valid (audit: error during shutdown)."""
+        """STOPPING → FAILED is valid (error during shutdown)."""
         assert is_valid_transition(AdapterState.STOPPING, AdapterState.FAILED)
 
 
@@ -468,7 +465,7 @@ class TestAllAdaptersImplementContract:
         ), f"{adapter_cls.__name__} must declare adapter_id"
 
     def test_four_adapters_covered(self) -> None:
-        """Exactly four real adapters are tested (audit covers four)."""
+        """Exactly four real adapters are tested (four built-in transports)."""
         adapters = [MatrixAdapter, MeshtasticAdapter, MeshCoreAdapter, LxmfAdapter]
         assert len(adapters) == 4
 
@@ -602,7 +599,7 @@ class TestHealthToAdapterStateMapping:
 
 
 class TestTransitionGraphProperties:
-    """The VALID_TRANSITIONS graph has properties documented in the audit."""
+    """The VALID_TRANSITIONS graph has properties documented in the spec."""
 
     def test_every_state_has_entry(self) -> None:
         """Every AdapterState member has an entry in VALID_TRANSITIONS."""
@@ -683,60 +680,7 @@ class TestTransitionGraphProperties:
 
 
 # ===================================================================
-# 7. Audit follow-up identifiers are present
-# ===================================================================
-
-
-class TestAuditFollowUpIdentifiers:
-    """The audit document contains all follow-up identifiers referenced
-    in the task specification."""
-
-    @pytest.fixture
-    def audit_content(self) -> str:
-        audit_path = REPO_ROOT / "docs" / "dev" / "adapter-lifecycle-audit.md"
-        assert (
-            audit_path.exists()
-        ), f"adapter-lifecycle-audit.md not found at {audit_path}"
-        return audit_path.read_text()
-
-    def test_lxmf_1_present(self, audit_content: str) -> None:
-        """LXMF-1 (Verify Reconnect Triggering) is documented."""
-        assert "LXMF-1" in audit_content
-        assert "Reconnect Triggering" in audit_content
-
-    def test_lxmf_2_present(self, audit_content: str) -> None:
-        """LXMF-2 (Granular Health Detection) is documented."""
-        assert "LXMF-2" in audit_content
-        assert "Granular Health Detection" in audit_content
-
-    def test_meshtastic_1_present(self, audit_content: str) -> None:
-        """MESHTASTIC-1 (Inbound-Future Drain Completeness) is documented."""
-        assert "MESHTASTIC-1" in audit_content
-        assert "Inbound-Future Drain" in audit_content
-
-    def test_cross_1_present(self, audit_content: str) -> None:
-        """CROSS-1 (Stale-Event Filter Parity Test) is documented."""
-        assert "CROSS-1" in audit_content
-        assert "Stale-Event Filter Parity" in audit_content
-
-    def test_cross_2_present(self, audit_content: str) -> None:
-        """CROSS-2 (Reconnect Parity Integration Test) is documented."""
-        assert "CROSS-2" in audit_content
-        assert "Reconnect Parity Integration" in audit_content
-
-    def test_all_five_follow_ups_present(self, audit_content: str) -> None:
-        """All five follow-up identifiers are present."""
-        expected_ids = {"LXMF-1", "LXMF-2", "MESHTASTIC-1", "CROSS-1", "CROSS-2"}
-        for fid in expected_ids:
-            assert fid in audit_content, f"Follow-up {fid} missing from audit doc"
-
-    def test_follow_up_section_exists(self, audit_content: str) -> None:
-        """The Identified Follow-Up Items section exists."""
-        assert "## Identified Follow-Up Items" in audit_content
-
-
-# ===================================================================
-# 8. Lifecycle transition enforcement at runtime
+# 7. Lifecycle transition enforcement at runtime
 # ===================================================================
 
 
@@ -798,7 +742,7 @@ class TestRuntimeTransitionEnforcement:
             await app.stop()
 
     async def test_ready_to_backpressured_is_valid(self, tmp_paths: MedrePaths) -> None:
-        """READY → BACKPRESSURED is valid per the audit transition graph."""
+        """READY → BACKPRESSURED is valid per the spec transition graph."""
         config = _config_with_one_fake_adapter()
         app = _build_app(config, tmp_paths)
 

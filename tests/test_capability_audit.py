@@ -1,10 +1,12 @@
 """Capability truth audit tests: durable proof that capability declarations are
 authoritative runtime truth and do not overclaim.
 
-Turns the capability audit (``docs/dev/capability-truth-audit.md``)
-into machine-checked conformance proof.  The audit found 88 declarations
-(4 adapters × 22 fields) that all pass, with 0 overclaims and 0 actionable
-underclaims.  These tests lock that finding in place.
+Machine-checked capability conformance proof across all four adapters
+and their JSON capability declarations: fake capabilities, JSON capability
+files, and source-declared capability surfaces must agree, with no
+overclaims.  Historical note: a point-in-time audit found 88 declarations
+(4 adapters × 22 fields) all passing with 0 overclaims; these tests keep
+that finding locked in place.
 
 Evidence tiers: ``fake_pipeline`` (tier 1) and ``fake_adapter_callback`` (tier 2).
 No network, no hardware, no optional SDK dependencies for fake-adapter checks.
@@ -482,7 +484,7 @@ def test_lxmf_delivery_receipts_false_despite_sdk_delivery_state() -> None:
     but the adapter does not wire these states back through the MEDRE delivery
     receipt system.  delivery_state appears in metadata["lxmf"] only, not as
     MEDRE-level delivery receipts.  This test documents that the flag is
-    deliberately False.  See capability-truth-audit.md §5.3."""
+    deliberately False.  Deliberate underclaim."""
     fake_caps = _get_fake_caps("lxmf")
     assert fake_caps.delivery_receipts is False
     json_caps = _load_json_caps("lxmf")
@@ -494,7 +496,7 @@ def test_matrix_delivery_receipts_true_means_server_ack_not_e2e() -> None:
     success (server-acknowledged delivery fact).  This is NOT end-to-end
     read receipt tracking.  Matrix m.receipt is not tracked by MEDRE.
     The flag is honest: the adapter does confirm delivery (to the homeserver)
-    back to the framework.  See capability-truth-audit.md §5.1."""
+    back to the framework.  Honest server-ACK-only claim."""
     fake_caps = _get_fake_caps("matrix")
     assert fake_caps.delivery_receipts is True
     json_caps = _load_json_caps("matrix")
@@ -506,7 +508,7 @@ def test_meshcore_identity_encryption_false_despite_always_on_e2ee() -> None:
     identity-based encryption in the AdapterCapabilities sense (which models
     the LXMF/Reticulum identity hash model).  The flag correctly reflects
     that MeshCore does not expose identity-level encryption semantics to
-    MEDRE.  See capability-truth-audit.md §5.4."""
+    MEDRE.  Honest underclaim."""
     fake_caps = _get_fake_caps("meshcore")
     assert fake_caps.identity_encryption is False
     json_caps = _load_json_caps("meshcore")
@@ -516,7 +518,7 @@ def test_meshcore_identity_encryption_false_despite_always_on_e2ee() -> None:
 def test_meshtastic_store_and_forward_false_despite_firmware_support() -> None:
     """Meshtastic firmware has store-and-forward but MEDRE does not exercise
     it.  The flag is correctly False.  This is an honest underclaim, not an
-    overclaim.  See capability-truth-audit.md §9."""
+    overclaim.  Honest underclaim."""
     fake_caps = _get_fake_caps("meshtastic")
     assert fake_caps.store_and_forward is False
     json_caps = _load_json_caps("meshtastic")
@@ -525,7 +527,7 @@ def test_meshtastic_store_and_forward_false_despite_firmware_support() -> None:
 
 def test_meshcore_direct_messages_false_despite_inbound_relay() -> None:
     """MeshCore relays inbound PRIV packets but does not initiate outbound DMs.
-    relay ≠ DM initiation.  The flag is correctly False.  See capability-truth-audit.md §4.3.
+    relay ≠ DM initiation.  The flag is correctly False.  Honest underclaim.
     """
     fake_caps = _get_fake_caps("meshcore")
     assert fake_caps.direct_messages is False
@@ -535,7 +537,7 @@ def test_meshcore_direct_messages_false_despite_inbound_relay() -> None:
 
 def test_matrix_edits_unsupported_despite_matrix_spec_support() -> None:
     """Matrix spec supports edits/redactions but MEDRE has no implementation.
-    Correct to not declare until implemented.  See capability-truth-audit.md §9."""
+    Correct to not declare until implemented.  Honest underclaim."""
     fake_caps = _get_fake_caps("matrix")
     assert fake_caps.edits == "unsupported"
     assert fake_caps.deletes == "unsupported"

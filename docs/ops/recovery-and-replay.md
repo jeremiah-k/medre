@@ -703,11 +703,11 @@ Operators can inspect these fields to understand what work will resume after res
 
 ### Retry States
 
-| State            | Outbox `status`  | Outbox `next_attempt_at` | Receipt evidence                    | Meaning                                                  |
-| ---------------- | ---------------- | ------------------------ | ----------------------------------- | -------------------------------------------------------- |
-| Pending retry    | `retry_wait`     | Set (future time)        | `failed` / `adapter_transient`      | RetryWorker will re-attempt                              |
-| Exhausted        | `dead_lettered`  | `NULL`                   | `dead_lettered`                     | Max retries exceeded; manual intervention needed         |
-| Successful retry | `sent`           | `NULL`                   | `sent`                              | Retry succeeded; check `parent_receipt_id` to trace back |
+| State            | Outbox `status` | Outbox `next_attempt_at` | Receipt evidence               | Meaning                                                  |
+| ---------------- | --------------- | ------------------------ | ------------------------------ | -------------------------------------------------------- |
+| Pending retry    | `retry_wait`    | Set (future time)        | `failed` / `adapter_transient` | RetryWorker will re-attempt                              |
+| Exhausted        | `dead_lettered` | `NULL`                   | `dead_lettered`                | Max retries exceeded; manual intervention needed         |
+| Successful retry | `sent`          | `NULL`                   | `sent`                         | Retry succeeded; check `parent_receipt_id` to trace back |
 
 ### When to Use Which
 
@@ -820,40 +820,32 @@ Operators seeing these messages should check whether the adapter callback is exp
 
 Replay execution (`medre replay`) produces its own receipts and outbox transitions, all tagged `source="replay"`. Replay does not modify existing live receipts, live outbox items, or live retry state. If a replay run creates retryable outbox work (transient failure during `best_effort` mode), those outbox rows sit in storage unprocessed until the runtime starts normally with retry enabled; the corresponding receipts remain evidence only.
 
-## Convergence Diagnostics for Recovery
+## Convergence Triage After Recovery
 
-After a crash or unexpected shutdown, convergence diagnostics help assess the state of delivery targets. The evidence bundle for each event includes a `convergence_summary` that classifies every delivery target as `safe`, `degraded`, or `inconsistent`.
-
-### Interpreting Convergence Severity
-
-| Severity       | Meaning                                                 | Operator action                                                                         |
-| -------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `safe`         | Outbox and receipts agree. No action needed.            | None.                                                                                   |
-| `degraded`     | Work stalled or mid-flight. Normal for recent events.   | Monitor. If degraded persists after startup recovery, investigate the specific target.  |
-| `inconsistent` | State mismatch that cannot be explained by normal flow. | Investigate manually. Check outbox and receipt chain for the affected delivery_plan_id. |
-
-### Checking Convergence After Crash
+After a crash or unexpected shutdown, use convergence diagnostics to assess
+delivery-target state before replaying anything:
 
 ```bash
-# Collect evidence for a specific event
+# Event-scoped convergence evidence
 medre inspect event <event_id> --evidence --storage-path /path/to/medre.sqlite
-
-# The evidence output includes convergence_summary with per-target severity
-# Look for "inconsistent" targets in the output
+# Or collect a storage-path evidence bundle
+medre evidence --storage-path /path/to/medre.sqlite
 ```
 
-Convergence diagnostics are read-only. They do not repair state or block startup.
+Read `convergence_summary.worst_severity` first: `safe` needs no action;
+`degraded` is normal for recent events during startup recovery and only
+needs investigation if it persists; `inconsistent` means an outbox/receipt
+state mismatch that requires manual investigation of the affected
+`delivery_plan_id`. The `lifecycle_convergence_report` adds finer-grained
+finding kinds (status mismatches, retry-metadata anomalies, stalled plans,
+sequence gaps); after a crash, terminal/non-terminal mismatches and
+`stalled_delivery_plan` are the ones that usually matter.
 
-### Lifecycle Convergence After Recovery
-
-The evidence bundle also includes a `lifecycle_convergence_report` with finer-grained findings about specific contradictions between outbox and receipt state. After recovery, check this report for:
-
-- `terminal_receipt_nonterminal_outbox` or `terminal_outbox_nonterminal_receipt`: Status mismatches between the two state machines. These may be timing artifacts or need manual investigation.
-- `retry_wait_missing_next_retry`: Outbox items stuck in `retry_wait` without valid retry timestamps.
-- `stalled_delivery_plan`: Non-terminal outbox items that have not been updated within the stall threshold (default 1 hour).
-- `attempt_count_regression` or `receipt_sequence_gap`: Receipt chain integrity issues.
-
-All lifecycle convergence findings are detection-only. No automatic repair occurs. Operators use these findings to identify and manually address state discrepancies after recovery.
+Normative severity, finding-kind, and recovery-ownership definitions live in
+[spec/diagnostics-evidence.md](../spec/diagnostics-evidence.md) §21–23; the
+field-by-field reading guide and drill-down SQL live in
+[diagnostics-and-evidence.md](diagnostics-and-evidence.md). Convergence
+diagnostics are read-only — they never repair state or block startup.
 
 ## See Also
 

@@ -47,14 +47,14 @@ permitted when they simplify the model. When making a breaking change:
 
 ## Changelog
 
-New unreleased changes are tracked as numbered Markdown fragments under
-[`docs/changes/unreleased/`](../changes/unreleased/).
-
-Use `NNN-brief-description.md`, where `NNN` is the next available sequence.
-The legacy [`docs/changes/unreleased.md`](../changes/unreleased.md) remains as
-historical pre-release material and must not receive new entries.
+New in-flight changes are tracked as numbered Markdown fragments under
+`docs/changes/unreleased/`. Use `NNN-brief-description.md`, where `NNN` is
+the next available sequence. When a fragment's change lands, fold its
+concise user-visible summary into
+[`docs/changes/unreleased.md`](../changes/unreleased.md) (the aggregate
+prerelease history) and delete the fragment.
 
 Keep each entry to a single concise bullet or short paragraph focused on
 operator or developer impact. Omit file-by-file change lists, test names,
 audit-process narrative, and validation-command output — those belong in
-the linked spec, audit, or PR description, not in release notes.
+the linked spec page or PR description, not in release notes.
