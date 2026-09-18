@@ -12,7 +12,7 @@
 
 A new contributor should be able to explain the full path from an inbound event to persisted evidence after reading this section alone.
 
-The pipeline has six logical stages: **event** (adapter publishes a `CanonicalEvent`), **planning** (route matching produces one `DeliveryPlan` per target), **execution** (`PipelineRunner` orchestrates checks, capacity, and outbox lifecycle), **adapter** (`TargetDeliveryService` renders content and calls the transport adapter), **receipt** (a `DeliveryReceipt` is constructed and persisted for every attempt), and **evidence** (rendering diagnostics, `native_message_refs` and `delivery_outbox` state are persisted for audit and retry recovery).
+The pipeline has six logical stages: **event** (adapter publishes a `CanonicalEvent`), **planning** (route matching produces one `DeliveryPlan` per target), **execution** (`PipelineRunner` delegates per-target sequencing while `DeliveryCoordinator` owns preflight, capacity acquisition, and outbox lifecycle orchestration), **adapter** (`TargetDeliveryService` renders content and calls the transport adapter), **receipt** (a `DeliveryReceipt` is constructed and persisted for every attempt), and **evidence** (rendering diagnostics, `native_message_refs` and `delivery_outbox` state are persisted for audit and retry recovery).
 
 ### The path in one page
 
