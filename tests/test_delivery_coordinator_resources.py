@@ -291,3 +291,49 @@ async def test_success_outcome_uses_storage_assigned_receipt_sequence() -> None:
     assert outcomes[0].status == "success"
     assert outcomes[0].receipt == persisted
     assert finalized_receipts == [persisted]
+
+
+async def test_capacity_release_targets_the_acquiring_controller_after_rewiring(
+    temp_storage: StorageBackend,
+) -> None:
+    """A mid-delivery controller swap cannot strand the acquiring slot."""
+    runner = _runner(temp_storage)
+    acquirer = CapacityController(_Limits())
+    replacement = CapacityController(_Limits())
+    runner.set_capacity_controller(acquirer)
+
+    async def _create_outbox(*args: object, **kwargs: object) -> OutboxContext:
+        return OutboxContext(
+            outbox_id="obox-swap",
+            created=True,
+            pipeline_worker="pipeline:test",
+            skip_reason=None,
+        )
+
+    entered_delivery = asyncio.Event()
+    finish_delivery = asyncio.Event()
+
+    async def _deliver(*args: object, **kwargs: object) -> object:
+        entered_delivery.set()
+        await finish_delivery.wait()
+        raise RuntimeError("failure after controller rewiring")
+
+    async def _finalize(*args: object, **kwargs: object) -> None:
+        return None
+
+    runner._outbox_manager.create_for_delivery = _create_outbox  # type: ignore[assignment]
+    runner._outbox_manager.start_lease_renewal = lambda _ctx: None  # type: ignore[assignment]
+    runner._outbox_manager.finalize_outcome = _finalize  # type: ignore[assignment]
+    runner.deliver_to_target = _deliver  # type: ignore[assignment]
+
+    event = make_event(event_id="coordinator-swap", source_adapter="source")
+    task = asyncio.create_task(runner.deliver_to_targets(event, [(_route(), _plan())]))
+    await asyncio.wait_for(entered_delivery.wait(), timeout=5)
+    runner.set_capacity_controller(replacement)
+    finish_delivery.set()
+    outcomes = await task
+
+    assert outcomes[0].status == "permanent_failure"
+    assert acquirer.delivery_current == 0
+    assert replacement.delivery_current == 0
+    assert runner._inflight_deliveries == {}
