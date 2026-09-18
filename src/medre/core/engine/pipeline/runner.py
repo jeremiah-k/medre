@@ -402,9 +402,7 @@ class PipelineRunner:
         middleware_registered = False
         try:
             self._middleware = _PipelineLoggingMiddleware()
-            await self._config.event_bus.add_middleware(
-                self._middleware, priority=100
-            )
+            await self._config.event_bus.add_middleware(self._middleware, priority=100)
             middleware_registered = True
             self._populate_renderer_platforms()
         except BaseException:
@@ -1172,7 +1170,9 @@ class PipelineRunner:
         path.
         """
         try:
-            await self._conversation_projection.repair_after_native_ref_available(event_id)
+            await self._conversation_projection.repair_after_native_ref_available(
+                event_id
+            )
         except Exception:
             self._record_conversation_projection_repair_failure()
             self._log.exception(

@@ -75,9 +75,7 @@ class _ReceiptStorage:
     def __init__(self, receipt: DeliveryReceipt) -> None:
         self.receipt = receipt
 
-    async def list_receipts_for_event(
-        self, event_id: str
-    ) -> list[DeliveryReceipt]:
+    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
         assert event_id == self.receipt.event_id
         return [self.receipt]
 

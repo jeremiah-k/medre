@@ -5,12 +5,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _RUNNER = _REPO_ROOT / "src/medre/core/engine/pipeline/runner.py"
-_COORDINATOR = (
-    _REPO_ROOT / "src/medre/core/engine/pipeline/delivery_coordinator.py"
-)
+_COORDINATOR = _REPO_ROOT / "src/medre/core/engine/pipeline/delivery_coordinator.py"
 
 
 def _function(tree: ast.AST, name: str) -> ast.AsyncFunctionDef:
@@ -120,9 +117,7 @@ def test_preflight_order_is_explicit_and_stable() -> None:
     loop = next(node for node in ast.walk(preflight) if isinstance(node, ast.For))
     assert isinstance(loop.iter, ast.Tuple)
     checks = [
-        element.attr
-        for element in loop.iter.elts
-        if isinstance(element, ast.Attribute)
+        element.attr for element in loop.iter.elts if isinstance(element, ast.Attribute)
     ]
     assert checks == [
         "_replay_duplicate_outcome",
@@ -132,6 +127,7 @@ def test_preflight_order_is_explicit_and_stable() -> None:
         "_capability_outcome",
         "_plan_skip_outcome",
     ]
+
 
 def test_outbox_cleanup_is_inside_capacity_owned_boundary() -> None:
     """Outbox cleanup runs before the outer capacity-release finally."""
@@ -144,7 +140,15 @@ def test_outbox_cleanup_is_inside_capacity_owned_boundary() -> None:
 
     scoped = _function(tree, "_deliver_one_scoped")
     owned = next(node for node in scoped.body if isinstance(node, ast.Try))
-    body_names = {name for _, name in _attribute_calls(ast.Module(body=owned.body, type_ignores=[]))}
-    final_names = {name for _, name in _attribute_calls(ast.Module(body=owned.finalbody, type_ignores=[]))}
+    body_names = {
+        name
+        for _, name in _attribute_calls(ast.Module(body=owned.body, type_ignores=[]))
+    }
+    final_names = {
+        name
+        for _, name in _attribute_calls(
+            ast.Module(body=owned.finalbody, type_ignores=[])
+        )
+    }
     assert "_execute_owned_delivery" in body_names
     assert "release_delivery" in final_names

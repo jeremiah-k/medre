@@ -31,7 +31,11 @@ from medre.core.engine.pipeline.target_delivery import (
     _AdapterDeliveryError,
     _RendererDeliveryError,
 )
-from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt, NativeMessageRef
+from medre.core.events.canonical import (
+    CanonicalEvent,
+    DeliveryReceipt,
+    NativeMessageRef,
+)
 from medre.core.observability.correlation import correlation_scope
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
@@ -318,8 +322,8 @@ class DeliveryCoordinator:
         if preflight is not None:
             return preflight
 
-        owned_controller, capacity_rejection = (
-            await self._acquire_capacity_or_reject(ctx)
+        owned_controller, capacity_rejection = await self._acquire_capacity_or_reject(
+            ctx
         )
         if capacity_rejection is not None:
             return capacity_rejection
@@ -445,7 +449,9 @@ class DeliveryCoordinator:
         routing_meta = ctx.event.metadata.routing
         if routing_meta is None:
             return None
-        trace_count = sum(1 for route_id in routing_meta.route_trace if route_id == ctx.route.id)
+        trace_count = sum(
+            1 for route_id in routing_meta.route_trace if route_id == ctx.route.id
+        )
         if trace_count <= 1:
             return None
         self._log.warning(
@@ -702,9 +708,7 @@ class DeliveryCoordinator:
         replay_receipts: list[DeliveryReceipt],
         outbox_ctx: OutboxContext,
     ) -> _ExecutionResult:
-        status: Literal[
-            "success", "queued", "transient_failure", "permanent_failure"
-        ]
+        status: Literal["success", "queued", "transient_failure", "permanent_failure"]
         try:
             if self._runtime_accounting is not None:
                 self._runtime_accounting.record_outbound_attempt()
