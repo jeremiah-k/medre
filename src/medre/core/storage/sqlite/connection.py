@@ -220,6 +220,44 @@ def sync_finalize_queued_delivery(
             raise
 
 
+def sync_finalize_outbox_terminal(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    *,
+    receipt_insert_params: tuple[object, ...],
+    outbox_update_params: tuple[object, ...],
+) -> bool:
+    """Atomically commit one terminal queue outcome.
+
+    Returns ``True`` only when the guarded outbox attempt still allowed the
+    terminal transition and the receipt committed in the same transaction.
+    ``False`` means the guarded ``UPDATE`` matched no row (stale callback,
+    duplicate notification, or a competing attempt/state change won) and
+    nothing was written.
+    """
+    from medre.core.storage.sqlite.statements import (
+        _FINALIZE_OUTBOX_TERMINAL,
+        _INSERT_RECEIPT,
+    )
+
+    with lock:
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(_FINALIZE_OUTBOX_TERMINAL, outbox_update_params)
+            if int(cursor.rowcount) != 1:
+                db.rollback()
+                return False
+            db.execute(_INSERT_RECEIPT, receipt_insert_params)
+            db.commit()
+            return True
+        except BaseException:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise
+
+
 def sync_read_one(
     db: sqlite3.Connection,
     lock: threading.Lock,

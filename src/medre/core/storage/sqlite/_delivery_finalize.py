@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from typing import TYPE_CHECKING, Any
 
+from medre.core.engine.pipeline.delivery_state import TERMINAL_OUTBOX_STATUSES
 from medre.core.events import DeliveryReceipt, NativeMessageRef
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite._native_ref import (
@@ -13,7 +14,14 @@ from medre.core.storage.sqlite._native_ref import (
     _native_ref_insert_params,
 )
 from medre.core.storage.sqlite._receipt import _receipt_insert_params
-from medre.core.storage.sqlite.connection import sync_finalize_queued_delivery
+from medre.core.storage.sqlite.connection import (
+    sync_finalize_outbox_terminal,
+    sync_finalize_queued_delivery,
+)
+
+# Error terminals only — "sent" is terminal but happy-path and queue
+# terminal outcomes never map to it.
+_ERROR_TERMINAL_OUTBOX_STATUSES: frozenset[str] = TERMINAL_OUTBOX_STATUSES - {"sent"}
 
 
 class _DeliveryFinalizationMixin:
@@ -108,3 +116,97 @@ class _DeliveryFinalizationMixin:
             raise
         except sqlite3.Error as exc:
             raise StorageError(f"Queued delivery finalization failed: {exc}") from exc
+
+    @staticmethod
+    def _validate_outbox_terminal_finalization(
+        receipt: DeliveryReceipt,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+        terminal_status: str,
+        event_id: str,
+        target_adapter: str,
+    ) -> None:
+        if terminal_status not in _ERROR_TERMINAL_OUTBOX_STATUSES:
+            raise ValueError(
+                "terminal outbox finalization requires an error-terminal "
+                f"status (dead_lettered/cancelled/abandoned), got {terminal_status!r}"
+            )
+        if receipt.status != "failed":
+            raise ValueError("terminal outbox finalization requires a failed receipt")
+        if receipt.outbox_id != outbox_id:
+            raise ValueError("receipt.outbox_id must match outbox_id")
+        if receipt.event_id != event_id:
+            raise ValueError("receipt.event_id must match event_id")
+        if receipt.target_adapter != target_adapter:
+            raise ValueError("receipt.target_adapter must match target_adapter")
+        if receipt.attempt_number != attempt_number:
+            raise ValueError("receipt.attempt_number must match attempt_number")
+        if attempt_number < 1:
+            raise ValueError("attempt_number must be >= 1")
+
+    async def finalize_outbox_terminal(
+        self,
+        receipt: DeliveryReceipt,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+        terminal_status: str,
+        event_id: str,
+        target_adapter: str,
+        failure_kind: str | None = None,
+        error_summary: str | None = None,
+    ) -> bool:
+        """Atomically persist one terminal queue outcome.
+
+        The transaction re-checks the exact outbox attempt at write time —
+        row identity (``outbox_id`` / ``event_id`` / ``target_adapter``),
+        ``attempt_number``, and eligibility (status still ``queued`` or
+        ``in_progress``) — then inserts the immutable failed receipt and
+        transitions the row to *terminal_status* together.  It returns
+        ``False`` when the guarded attempt no longer qualifies (stale
+        callback, duplicate notification, or a competing attempt/state
+        change won); in that case neither write commits.  Any error rolls
+        the whole operation back.
+
+        The outbox row is linked back to its evidence receipt via
+        ``receipt_id``; stale retry metadata (``failure_kind``,
+        ``failure_kind_detail``, ``next_attempt_at``, lease columns) is
+        cleared in the same transition.
+        """
+        self._validate_outbox_terminal_finalization(
+            receipt,
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+            terminal_status=terminal_status,
+            event_id=event_id,
+            target_adapter=target_adapter,
+        )
+        receipt_params = _receipt_insert_params(receipt)
+        transition_time = receipt.created_at.isoformat()
+        outbox_params: tuple[object, ...] = (
+            terminal_status,
+            failure_kind,
+            transition_time,
+            receipt.receipt_id,
+            error_summary,
+            outbox_id,
+            event_id,
+            target_adapter,
+            attempt_number,
+        )
+
+        db = self._require_db()
+        try:
+            return await self._run_in_thread(
+                sync_finalize_outbox_terminal,
+                db,
+                self._lock,
+                receipt_insert_params=receipt_params,
+                outbox_update_params=outbox_params,
+            )
+
+        except StorageError:
+            raise
+        except sqlite3.Error as exc:
+            raise StorageError(f"Terminal outbox finalization failed: {exc}") from exc
