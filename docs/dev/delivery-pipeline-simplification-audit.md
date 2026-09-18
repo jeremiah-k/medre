@@ -51,7 +51,7 @@ PipelineRunner.handle_ingress()          ← entry point
       │   ├─ NativeMessageRef (outbound) persist on success
       │   └─ dead-letter receipt if retries exhausted
       │
-      └─ PipelineRunner._finalize_outbox_outcome()
+      └─ OutboxManager.finalize_outcome()
           └─ DeliveryLifecycleService updates outbox status
 ```
 
@@ -62,7 +62,7 @@ PipelineRunner.handle_ingress()          ← entry point
 | `event_id`          | Adapter at ingress                                                                                                                           | `CanonicalEvent`, all downstream structures                                        | `canonical_events` table               |
 | `delivery_plan_id`  | `stable_delivery_plan_id()` (defined in `src/medre/core/planning/delivery_plan.py`, called by `FallbackResolver`)                            | `DeliveryPlan`, `DeliveryReceipt`, `DeliveryOutboxItem`, `OutboundNativeRefRecord` | `delivery_receipts`, `delivery_outbox` |
 | `receipt_id`        | Created at receipt construction site by `TargetDeliveryService`, `DeliveryLifecycleService`, or `RetryExecutor` via `f"rcpt-{uuid.uuid4()}"` | `DeliveryReceipt`, `DeliveryOutcome`                                               | `delivery_receipts`                    |
-| `outbox_id`         | `_create_outbox_for_delivery` (UUID)                                                                                                         | `DeliveryOutboxItem`                                                               | `delivery_outbox`                      |
+| `outbox_id`         | `OutboxManager.create_for_delivery()` (UUID)                                                                                                         | `DeliveryOutboxItem`                                                               | `delivery_outbox`                      |
 | `native_message_id` | External platform (returned by adapter)                                                                                                      | `AdapterDeliveryResult`, `DeliveryReceipt`, `NativeMessageRef`                     | `native_message_refs`                  |
 
 **Three delivery sources:** `"live"` (normal ingress), `"retry"` (RetryWorker reclaiming due `delivery_outbox` items), `"replay"` (replay engine re-delivering historical events). Each source stamps its `delivery_receipts` and `delivery_outbox` rows for downstream correlation.

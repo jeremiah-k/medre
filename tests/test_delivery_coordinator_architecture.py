@@ -28,6 +28,20 @@ def _attribute_calls(node: ast.AST) -> list[tuple[int, str]]:
     return calls
 
 
+def _direct_awaited_attribute_calls(statements: list[ast.stmt]) -> list[str]:
+    """Return awaited attribute calls that are direct sibling statements."""
+    calls: list[str] = []
+    for statement in statements:
+        if not isinstance(statement, ast.Expr) or not isinstance(
+            statement.value, ast.Await
+        ):
+            continue
+        awaited = statement.value.value
+        if isinstance(awaited, ast.Call) and isinstance(awaited.func, ast.Attribute):
+            calls.append(awaited.func.attr)
+    return calls
+
+
 def test_runner_fanout_is_only_a_delivery_coordinator_boundary() -> None:
     """PipelineRunner keeps routing/ingress ownership, not per-target phases."""
     tree = ast.parse(_RUNNER.read_text(encoding="utf-8"))
@@ -97,7 +111,7 @@ def test_delivery_coordinator_does_not_write_storage_state_directly() -> None:
 
 
 def test_capacity_release_is_outermost_owned_delivery_cleanup() -> None:
-    """Capacity release stays outside outbox creation/finalization failures."""
+    """Capacity release stays unconditional inside the ownership guard."""
     tree = ast.parse(_COORDINATOR.read_text(encoding="utf-8"))
     scoped = _function(tree, "_deliver_one_scoped")
     try_nodes = [node for node in scoped.body if isinstance(node, ast.Try)]
@@ -105,9 +119,15 @@ def test_capacity_release_is_outermost_owned_delivery_cleanup() -> None:
     owned = try_nodes[0]
 
     body_calls = _attribute_calls(ast.Module(body=owned.body, type_ignores=[]))
-    final_calls = _attribute_calls(ast.Module(body=owned.finalbody, type_ignores=[]))
     assert "create_for_delivery" in {name for _, name in body_calls}
-    assert "release_delivery" in {name for _, name in final_calls}
+
+    assert len(owned.finalbody) == 1
+    ownership_guard = owned.finalbody[0]
+    assert isinstance(ownership_guard, ast.If)
+    assert ownership_guard.orelse == []
+    assert _direct_awaited_attribute_calls(ownership_guard.body) == [
+        "release_delivery"
+    ]
 
 
 def test_preflight_order_is_explicit_and_stable() -> None:
@@ -130,13 +150,16 @@ def test_preflight_order_is_explicit_and_stable() -> None:
 
 
 def test_outbox_cleanup_is_inside_capacity_owned_boundary() -> None:
-    """Outbox cleanup runs before the outer capacity-release finally."""
+    """Lease cancellation and outbox finalization are unconditional siblings."""
     tree = ast.parse(_COORDINATOR.read_text(encoding="utf-8"))
     execute = _function(tree, "_execute_owned_delivery")
-    calls = _attribute_calls(execute)
-    cancel_line = next(line for line, name in calls if name == "cancel_renewal")
-    finalize_line = next(line for line, name in calls if name == "finalize_outcome")
-    assert cancel_line < finalize_line
+    execute_tries = [node for node in execute.body if isinstance(node, ast.Try)]
+    assert len(execute_tries) == 1
+    cleanup = execute_tries[0]
+    assert _direct_awaited_attribute_calls(cleanup.finalbody) == [
+        "cancel_renewal",
+        "finalize_outcome",
+    ]
 
     scoped = _function(tree, "_deliver_one_scoped")
     owned = next(node for node in scoped.body if isinstance(node, ast.Try))
@@ -144,11 +167,11 @@ def test_outbox_cleanup_is_inside_capacity_owned_boundary() -> None:
         name
         for _, name in _attribute_calls(ast.Module(body=owned.body, type_ignores=[]))
     }
-    final_names = {
-        name
-        for _, name in _attribute_calls(
-            ast.Module(body=owned.finalbody, type_ignores=[])
-        )
-    }
     assert "_execute_owned_delivery" in body_names
-    assert "release_delivery" in final_names
+
+    assert len(owned.finalbody) == 1
+    ownership_guard = owned.finalbody[0]
+    assert isinstance(ownership_guard, ast.If)
+    assert _direct_awaited_attribute_calls(ownership_guard.body) == [
+        "release_delivery"
+    ]
