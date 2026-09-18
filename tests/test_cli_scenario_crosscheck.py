@@ -34,6 +34,40 @@ _DELIVERY_FAILURE_SCENARIOS = (
 )
 
 
+@pytest.mark.asyncio
+async def test_capacity_rejection_missing_pipeline_preserves_capacity_state() -> None:
+    """Failed scenario setup must not partially replace capacity ownership."""
+    from types import SimpleNamespace
+
+    from medre.runtime.run_session.scenario import _inject_scenario
+
+    original_capacity = object()
+    app = SimpleNamespace(
+        _capacity_controller=original_capacity,
+        pipeline_runner=None,
+        adapters={},
+    )
+
+    error = await _inject_scenario(  # type: ignore[arg-type]
+        app,
+        "capacity_rejection",
+        "source",
+    )
+
+    assert error == "No pipeline runner to wire capacity controller"
+    assert app._capacity_controller is original_capacity
+
+
+def test_capacity_rejection_interpretation_matches_durable_evidence() -> None:
+    """Operator guidance must describe the persisted suppression receipt."""
+    from medre.runtime.run_session.scenario import _operator_interpretation
+
+    interpretation = _operator_interpretation("capacity_rejection")
+
+    assert "suppressed capacity_rejection receipt" in interpretation
+    assert "No receipt should be persisted" not in interpretation
+
+
 class TestScenarioCrossCheck:
     """Every run-session scenario produces correct report fields."""
 

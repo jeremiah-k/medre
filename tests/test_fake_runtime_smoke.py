@@ -716,11 +716,10 @@ class TestFailureKindIntegration:
             assert outcome.failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT
             assert outcome.status == "transient_failure"
             assert outcome.target_adapter == "mesh_dst"
-            # Receipt is persisted in storage even though outcome.receipt is None
-            # (pipeline design: _deliver_single_target does not propagate receipt on error).
             receipts = await app.storage.list_receipts_for_event(event.event_id)
             assert len(receipts) == 1
             assert receipts[0].status == "failed"
+            assert outcome.receipt == receipts[0]
         finally:
             await clean_stop(app)
 
@@ -752,10 +751,10 @@ class TestFailureKindIntegration:
             assert outcomes[0].failure_kind == DeliveryFailureKind.ADAPTER_PERMANENT
             assert outcomes[0].status == "permanent_failure"
             assert outcomes[0].target_adapter == "mx_beta"
-            # Receipt is persisted in storage even though outcome.receipt is None.
             receipts = await app.storage.list_receipts_for_event(event.event_id)
             assert len(receipts) == 1
             assert receipts[0].status == "failed"
+            assert outcomes[0].receipt == receipts[0]
         finally:
             beta.deliver = original_deliver  # type: ignore[assignment]
             await clean_stop(app)

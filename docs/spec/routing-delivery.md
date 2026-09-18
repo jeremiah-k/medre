@@ -592,20 +592,20 @@ Retry uses the `target_adapter`, `target_channel`, destination, and route-decisi
 
 ### 7.7 Retry Properties Summary
 
-| Property | Detail |
-| --- | --- |
-| Operational authority | Durable outbox rows are the retry work queue; receipts are immutable attempt evidence |
-| Single-process | Retry execution is single-process/in-process and bounded by `RetryPolicy` |
-| Survives restart | `retry_wait` and expired `in_progress` outbox rows remain claimable; preflight reconciliation repairs persisted attempt evidence before resend |
-| Worker storage boundary | `RetryWorker` directly claims/reads only; `DeliveryLifecycleService` owns retry-state writes and failure-evidence interpretation |
-| Evidence correlation | Current-attempt evidence is correlated by outbox ID, target channel, attempt, and receipt lineage |
-| Capacity rejection | No receipt mutation; lifecycle reschedules the outbox without advancing the delivery attempt |
-| Non-retryable failure | Dead-lettered immediately, independent of remaining retry budget |
-| Retry exhaustion | `attempt_number >= max_attempts` is terminal |
-| Post-acceptance error | Durable `queued`/`sent` evidence prevents duplicate resend after a later exception |
-| Persistence failure | No durable outcome is claimed unless the lifecycle transition commits; reclaimed rows reconcile persisted attempt evidence before transport |
-| Opt-in | Requires explicit retry policy/global worker enablement; no automatic retry without it |
-| Frozen context | Retry reconstructs target, policy, and planning metadata from durable prior evidence |
+| Property                | Detail                                                                                                                                         |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Operational authority   | Durable outbox rows are the retry work queue; receipts are immutable attempt evidence                                                          |
+| Single-process          | Retry execution is single-process/in-process and bounded by `RetryPolicy`                                                                      |
+| Survives restart        | `retry_wait` and expired `in_progress` outbox rows remain claimable; preflight reconciliation repairs persisted attempt evidence before resend |
+| Worker storage boundary | `RetryWorker` directly claims/reads only; `DeliveryLifecycleService` owns retry-state writes and failure-evidence interpretation               |
+| Evidence correlation    | Current-attempt evidence is correlated by outbox ID, target channel, attempt, and receipt lineage                                              |
+| Capacity rejection      | No receipt mutation; lifecycle reschedules the outbox without advancing the delivery attempt                                                   |
+| Non-retryable failure   | Dead-lettered immediately, independent of remaining retry budget                                                                               |
+| Retry exhaustion        | `attempt_number >= max_attempts` is terminal                                                                                                   |
+| Post-acceptance error   | Durable `queued`/`sent` evidence prevents duplicate resend after a later exception                                                             |
+| Persistence failure     | No durable outcome is claimed unless the lifecycle transition commits; reclaimed rows reconcile persisted attempt evidence before transport    |
+| Opt-in                  | Requires explicit retry policy/global worker enablement; no automatic retry without it                                                         |
+| Frozen context          | Retry reconstructs target, policy, and planning metadata from durable prior evidence                                                           |
 
 ### 7.8 Backoff Formula
 
@@ -875,6 +875,12 @@ class DeliveryOutcome:
 `failure_kind_detail` is an optional stable refinement used when control flow must
 distinguish causes within one broad failure kind. Human-readable `error` text is
 diagnostic only and MUST NOT be parsed for control-flow decisions.
+When receipt read-back succeeds, `receipt` MUST reflect the exact stored row,
+including the storage-assigned `sequence`, rather than the pre-insert construction
+value. A read-back failure after successful persistence is observational: it MUST NOT
+reclassify an accepted transport attempt. In that fault case, the outcome may retain
+the already-persisted semantic receipt with its pre-insert `sequence`; durable storage
+remains authoritative.
 
 ### 11.1 Per-Destination Independence
 

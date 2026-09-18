@@ -1,9 +1,9 @@
-"""Tests for PipelineRunner._deliver_single_target exception handlers.
+"""Tests for the delivery-coordinator boundary exception handlers.
 
 Exercises the ``_AdapterDeliveryError``, ``_RendererDeliveryError``,
-``CancelledError``, and generic ``Exception`` paths in the inner
-``_deliver_single_target`` closure, verifying that each produces a correct
-:class:`DeliveryOutcome` with the expected failure kind and status.
+``CancelledError``, and generic ``Exception`` paths at the delivery-coordinator
+boundary, verifying that each produces a correct :class:`DeliveryOutcome` with
+the expected failure kind and status.
 """
 
 from __future__ import annotations
@@ -62,8 +62,8 @@ def _make_runner(
 class _BrokenAdapter:
     """A minimal adapter stub that always raises on every call.
 
-    Used to satisfy the adapter-registry check in ``_deliver_single_target``
-    Phase 2.5 so the delivery attempt reaches Phase 4.
+    Used to satisfy the adapter-registry check at the delivery-coordinator
+    boundary so the delivery attempt reaches adapter execution.
     """
 
     async def deliver(self, *args: object, **kwargs: object) -> object:
@@ -80,7 +80,7 @@ class _BrokenAdapter:
 
 
 class TestDeliverOneAdapterDeliveryError:
-    """_deliver_single_target handles _AdapterDeliveryError with correct failure_kind."""
+    """DeliveryCoordinator preserves adapter failure classification/evidence."""
 
     async def test_failure_kind_from_exception(
         self,
@@ -109,6 +109,7 @@ class TestDeliverOneAdapterDeliveryError:
         assert outcomes[0].failure_kind == DeliveryFailureKind.ADAPTER_MISSING
         assert outcomes[0].status == "permanent_failure"
         assert outcomes[0].error == "adapter missing"
+        assert outcomes[0].receipt is receipt
 
     async def test_failure_kind_from_original(
         self,
@@ -142,6 +143,7 @@ class TestDeliverOneAdapterDeliveryError:
         assert outcomes[0].failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT
         assert outcomes[0].status == "transient_failure"
         assert "send failed" in (outcomes[0].error or "")
+        assert outcomes[0].receipt is receipt
 
     async def test_failure_kind_fallback_transient(
         self,
@@ -169,6 +171,7 @@ class TestDeliverOneAdapterDeliveryError:
         assert len(outcomes) == 1
         assert outcomes[0].failure_kind == DeliveryFailureKind.ADAPTER_TRANSIENT
         assert outcomes[0].status == "transient_failure"
+        assert outcomes[0].receipt is receipt
 
 
 # ===================================================================
@@ -177,7 +180,7 @@ class TestDeliverOneAdapterDeliveryError:
 
 
 class TestDeliverOneRendererDeliveryError:
-    """_deliver_single_target handles _RendererDeliveryError → permanent_failure."""
+    """DeliveryCoordinator preserves renderer failure classification/evidence."""
 
     async def test_renderer_delivery_error_handler(
         self,
@@ -205,7 +208,7 @@ class TestDeliverOneRendererDeliveryError:
         assert len(outcomes) == 1
         assert outcomes[0].failure_kind == DeliveryFailureKind.RENDERER_FAILURE
         assert outcomes[0].status == "permanent_failure"
-        assert outcomes[0].receipt is None
+        assert outcomes[0].receipt is receipt
 
     async def test_renderer_delivery_error_default_kind(
         self,
@@ -232,6 +235,7 @@ class TestDeliverOneRendererDeliveryError:
         assert len(outcomes) == 1
         assert outcomes[0].failure_kind == DeliveryFailureKind.RENDERER_FAILURE
         assert outcomes[0].status == "permanent_failure"
+        assert outcomes[0].receipt is receipt
 
 
 # ===================================================================
@@ -240,7 +244,7 @@ class TestDeliverOneRendererDeliveryError:
 
 
 class TestDeliverOneCancelledError:
-    """CancelledError propagates through _deliver_single_target."""
+    """CancelledError propagates through the delivery-coordinator boundary."""
 
     async def test_cancelled_error_propagates(
         self,
