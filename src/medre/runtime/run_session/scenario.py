@@ -96,9 +96,9 @@ def _operator_interpretation(scenario: str) -> str:
         ),
         "capacity_rejection": (
             "Delivery should be rejected with capacity_rejection "
-            "classification. No receipt should be persisted for the "
-            "rejected delivery. Capacity_rejections accounting should "
-            "increment."
+            "classification. A suppressed capacity_rejection receipt should "
+            "be persisted as durable evidence. Capacity_rejections accounting "
+            "should increment."
         ),
         "degraded_live_health": (
             "Runtime should observe degraded adapter health without "
@@ -182,6 +182,9 @@ async def _inject_scenario(
         cc = app._capacity_controller
         if cc is None:
             return "No capacity controller wired"
+        pipeline = app.pipeline_runner
+        if pipeline is None:
+            return "No pipeline runner to wire capacity controller"
         # Exhaust the delivery semaphore.
         from medre.config.model import RuntimeLimits
         from medre.core.supervision.capacity import CapacityController
@@ -196,7 +199,7 @@ async def _inject_scenario(
         await small_cc._delivery_sem.acquire()
         small_cc._delivery_current = 1
         app._capacity_controller = small_cc
-        app.pipeline_runner.set_capacity_controller(small_cc)
+        pipeline.set_capacity_controller(small_cc)
 
     elif scenario == "degraded_live_health":
         target_aid = None
