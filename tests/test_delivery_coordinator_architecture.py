@@ -125,9 +125,7 @@ def test_capacity_release_is_outermost_owned_delivery_cleanup() -> None:
     ownership_guard = owned.finalbody[0]
     assert isinstance(ownership_guard, ast.If)
     assert ownership_guard.orelse == []
-    assert _direct_awaited_attribute_calls(ownership_guard.body) == [
-        "release_delivery"
-    ]
+    assert _direct_awaited_attribute_calls(ownership_guard.body) == ["release_delivery"]
 
 
 def test_preflight_order_is_explicit_and_stable() -> None:
@@ -172,6 +170,4 @@ def test_outbox_cleanup_is_inside_capacity_owned_boundary() -> None:
     assert len(owned.finalbody) == 1
     ownership_guard = owned.finalbody[0]
     assert isinstance(ownership_guard, ast.If)
-    assert _direct_awaited_attribute_calls(ownership_guard.body) == [
-        "release_delivery"
-    ]
+    assert _direct_awaited_attribute_calls(ownership_guard.body) == ["release_delivery"]
