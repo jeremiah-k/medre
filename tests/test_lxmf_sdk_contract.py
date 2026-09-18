@@ -71,7 +71,9 @@ def test_router_identity_and_lookup_surfaces_match_session_usage() -> None:
     lxmf, rns = _load_sdks()
 
     router_signature = inspect.signature(lxmf.LXMRouter)
-    router_signature.bind_partial(identity=object(), storagepath="/tmp/medre-sdk-contract")
+    router_signature.bind_partial(
+        identity=object(), storagepath="/tmp/medre-sdk-contract"
+    )
 
     for name in (
         "register_delivery_identity",

@@ -30,9 +30,7 @@ def _load_sdk() -> tuple[object, object, object, object, object]:
 
 def test_installed_meshtastic_dependencies_match_declared_extra() -> None:
     """The contract tier executes against MEDRE's current declared SDK pins."""
-    assert_installed_extra_matches_declared_pins(
-        "meshtastic", ("mtjk", "PyPubSub")
-    )
+    assert_installed_extra_matches_declared_pins("meshtastic", ("mtjk", "PyPubSub"))
 
 
 def test_private_send_surfaces_and_sync_semantics_are_frozen() -> None:

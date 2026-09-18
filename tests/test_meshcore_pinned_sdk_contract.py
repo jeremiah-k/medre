@@ -116,7 +116,12 @@ async def test_send_appstart_executes_once_on_initial_and_sdk_reconnect_paths() 
     ("factory_name", "connection_name", "args", "kwargs"),
     [
         ("create_tcp", "TCPConnection", ("127.0.0.1", 4000), {"auto_reconnect": False}),
-        ("create_serial", "SerialConnection", ("/dev/ttyUSB0",), {"auto_reconnect": False}),
+        (
+            "create_serial",
+            "SerialConnection",
+            ("/dev/ttyUSB0",),
+            {"auto_reconnect": False},
+        ),
         (
             "create_ble",
             "BLEConnection",
