@@ -320,13 +320,19 @@ While the test waits (30 s window), send a message from the second account. If n
 
 ### Diagnostics Counters
 
-| Counter                        | Description                                                  |
-| ------------------------------ | ------------------------------------------------------------ |
-| `inbound_published`            | Newly admitted/published canonical events                    |
-| `inbound_duplicate_admissions` | Durable replays mapped to an existing canonical event        |
-| `inbound_suppressed_self`      | Events dropped because sender == bot user_id                 |
-| `inbound_suppressed_envelope`  | Events dropped because MEDRE envelope source_adapter matched |
-| `inbound_filtered_allowlist`   | Events dropped because room was not in the allowlist         |
+Counter definitions are authoritative in the
+[Matrix transport profile](../../spec/transport-profiles/matrix.md) Diagnostics
+Keys table. The inbound counters (`inbound_published`,
+`inbound_duplicate_admissions`, `inbound_suppressed_self`,
+`inbound_suppressed_envelope`, `inbound_filtered_allowlist`,
+`inbound_filtered_encryption_policy`, `inbound_suppressed_startup`) all reset
+when the adapter starts.
+
+`inbound_filtered_encryption_policy` grows when `require_encrypted_rooms`
+drops an event because the room is not established as encrypted. Dropped events
+never reach decode or durable admission, but the sync checkpoint still advances,
+so a counter that keeps growing while `inbound_published` stays flat means the
+adapter treats the room as unencrypted (fail-closed).
 
 ## Known Limitations
 

@@ -355,7 +355,11 @@ Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `inbound_suppressed_self`                  | `int`           | Self-message suppressions                            |
 | `inbound_suppressed_envelope`              | `int`           | MEDRE-origin loop hint suppressions                  |
 | `inbound_filtered_allowlist`               | `int`           | Room allowlist rejections                            |
+| `inbound_filtered_encryption_policy`       | `int`           | Events dropped by `require_encrypted_rooms` policy   |
 | `inbound_suppressed_startup`               | `int`           | Backlog events before first live sync                |
+
+The delivery-failure and inbound counters reset to zero each time the adapter
+starts.
 
 ---
 

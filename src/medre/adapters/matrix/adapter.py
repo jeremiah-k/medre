@@ -249,6 +249,7 @@ class MatrixAdapter(AdapterContract):
         "_inbound_suppressed_self",
         "_inbound_suppressed_envelope",
         "_inbound_filtered_allowlist",
+        "_inbound_filtered_encryption_policy",
         "_inbound_suppressed_startup",
     )
 
@@ -283,6 +284,7 @@ class MatrixAdapter(AdapterContract):
         self._inbound_suppressed_self: int = 0
         self._inbound_suppressed_envelope: int = 0
         self._inbound_filtered_allowlist: int = 0
+        self._inbound_filtered_encryption_policy: int = 0
         self._inbound_suppressed_startup: int = 0
 
     @property
@@ -329,6 +331,7 @@ class MatrixAdapter(AdapterContract):
         self._inbound_suppressed_self = 0
         self._inbound_suppressed_envelope = 0
         self._inbound_filtered_allowlist = 0
+        self._inbound_filtered_encryption_policy = 0
         self._inbound_suppressed_startup = 0
         self.ctx = ctx
 
@@ -512,12 +515,22 @@ class MatrixAdapter(AdapterContract):
     # -- Outbound delivery --------------------------------------------------
 
     def _check_encrypted_room_safety(self, room_id: str) -> None:
-        """Raise if the room is encrypted but crypto is not active.
+        """Enforce the configured room-encryption send policy for *room_id*.
 
-        Delegates room encryption detection to the session's
-        :meth:`~MatrixSession.is_room_encrypted` method, which checks
-        the session's room-state cache first and falls back to the
-        underlying client's room data for rooms not yet tracked.
+        Two layers, both delegating room-encryption detection to the
+        session's :meth:`~MatrixSession.is_room_encrypted` authority
+        (session room-state cache first, then the client's normalized
+        room state):
+
+        * ``require_encrypted_rooms=True`` — fail closed.  The send is
+          refused unless crypto is active *and* the room is affirmatively
+          established as encrypted.  Plaintext and unknown-encryption
+          rooms are rejected, so a crypto-unavailable session
+          (``e2ee_optional`` fallback) never sends at all rather than
+          silently downgrading to plaintext.
+        * ``require_encrypted_rooms=False`` — the inverse safeguard
+          only: an encrypted room must not be sent to with inactive
+          crypto.  Plaintext/unknown rooms send as before.
 
         Parameters
         ----------
@@ -527,11 +540,28 @@ class MatrixAdapter(AdapterContract):
         Raises
         ------
         MatrixSendError
-            If the room is encrypted but ``crypto_enabled`` is ``False``.
-            The error message is operator-readable and ``transient=False``.
+            If policy refuses the send.  The error message is
+            operator-readable and ``transient=False``.
         """
         if self._session is None:
             return
+
+        if self._config.require_encrypted_rooms:
+            if not self._session.crypto_enabled:
+                raise MatrixSendError(
+                    "require_encrypted_rooms=True but E2EE crypto is not "
+                    "active; refusing to send",
+                    transient=False,
+                )
+            if not self._session.is_room_encrypted(room_id):
+                raise MatrixSendError(
+                    f"Matrix room {room_id} is not established as encrypted; "
+                    "require_encrypted_rooms=True refuses plaintext and "
+                    "unverified rooms",
+                    transient=False,
+                )
+            return
+
         if self._session.crypto_enabled:
             return
 
@@ -783,6 +813,27 @@ class MatrixAdapter(AdapterContract):
                 self._inbound_filtered_allowlist += 1
                 return
 
+        # Encrypted-room-only policy: when require_encrypted_rooms is set,
+        # events from rooms not established as encrypted are dropped before
+        # decode or durable admission.  Room authority is the normalized
+        # event's ``room_encrypted`` flag (nio room state at dispatch time)
+        # or the session's encryption-state tracking — never a guess.
+        # This is a plain return, never a raise, so the SDK consumes the
+        # event and the durable sync checkpoint keeps advancing.
+        if self._config.require_encrypted_rooms:
+            room_encrypted = event.get("room_encrypted")
+            established = room_encrypted is True or (
+                self._session is not None and self._session.is_room_encrypted(room_id)
+            )
+            if not established:
+                self._inbound_filtered_encryption_policy += 1
+                self.ctx.logger.debug(
+                    "MatrixAdapter %s: dropping event from room not "
+                    "established as encrypted (require_encrypted_rooms=True)",
+                    self.adapter_id,
+                )
+                return
+
         # Startup history suppression: before the first successful sync,
         # inbound timeline events are considered backlog / history and are
         # dropped.  This check must happen before self-message suppression
@@ -952,6 +1003,9 @@ class MatrixAdapter(AdapterContract):
                 "inbound_suppressed_self": self._inbound_suppressed_self,
                 "inbound_suppressed_envelope": self._inbound_suppressed_envelope,
                 "inbound_filtered_allowlist": self._inbound_filtered_allowlist,
+                "inbound_filtered_encryption_policy": (
+                    self._inbound_filtered_encryption_policy
+                ),
                 "inbound_suppressed_startup": self._inbound_suppressed_startup,
             }
         return {
@@ -1019,5 +1073,8 @@ class MatrixAdapter(AdapterContract):
             "inbound_suppressed_self": self._inbound_suppressed_self,
             "inbound_suppressed_envelope": self._inbound_suppressed_envelope,
             "inbound_filtered_allowlist": self._inbound_filtered_allowlist,
+            "inbound_filtered_encryption_policy": (
+                self._inbound_filtered_encryption_policy
+            ),
             "inbound_suppressed_startup": self._inbound_suppressed_startup,
         }

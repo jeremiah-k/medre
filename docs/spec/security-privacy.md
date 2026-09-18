@@ -152,23 +152,44 @@ event bus directly.
 
 ## 5. Plugin Security Boundaries
 
-Plugins operate within capability-scoped boundaries:
+The plugin surface is deliberately minimal scaffolding
+(`src/medre/plugins/__init__.py`): a `Plugin` protocol, a
+`PluginCapability` declaration vocabulary, a `PluginBoundaryError`, and the
+`validate_plugin_payload` validator that rejects any plugin output which is
+not a `CanonicalEvent`. Plugins observe and emit canonical events only; they
+do not emit transport-native payloads.
 
-1. **Capability declaration**: Plugins declare required capabilities at load
-   time. The runtime grants only what is declared.
-2. **Route permissions**: Plugins that emit events can only send to routes the
-   operator has explicitly allowed.
-3. **Rate limits**: Each plugin has configurable rate limits for event emission,
-   storage queries, and API calls.
-4. **Audit logging**: All plugin actions are logged with plugin identity and
-   capability used.
+The following boundary machinery does **not** exist yet and MUST NOT be
+assumed by plugin authors or operators:
+
+- No plugin loader or discovery mechanism.
+- No runtime capability-grant enforcement beyond the declaration vocabulary.
+- No route-permission enforcement for plugin-emitted events.
+- No per-plugin rate limits.
+- No plugin-specific audit logging.
+
+Until that machinery exists, plugin integration is a protocol contract for
+future components, not an executed security boundary.
 
 ## 6. Encryption Model
 
 ### 6.1 Matrix E2EE
 
 Matrix encryption is controlled by `encryption_mode: "plaintext" |
-"e2ee_required" | "e2ee_optional"` (default `"plaintext"`).
+"e2ee_required" | "e2ee_optional"` (default `"plaintext"`), optionally
+narrowed by `require_encrypted_rooms` (default `false`). The two settings are
+independent admission/delivery gates:
+
+- `encryption_mode` selects the crypto posture of the session.
+- `require_encrypted_rooms: true` additionally admits and delivers only in
+  rooms established as encrypted. Outbound sends targeted at rooms that are
+  unknown or known-plaintext are rejected before any SDK send call is made,
+  so no plaintext payload leaves MEDRE through this adapter. When room
+  encryption state cannot be established, the send is rejected rather than
+  silently weakening the policy. `require_encrypted_rooms: true` combined
+  with `encryption_mode: "plaintext"` is rejected at config validation.
+- With `require_encrypted_rooms: false` (default), behavior follows
+  `encryption_mode` alone; no room-encryption gate is applied.
 
 When set to a non-plaintext mode, MEDRE uses `mindroom-nio`'s persisted
 cross-signing identity to authenticate MEDRE's own current device. Authenticated
