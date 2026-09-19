@@ -44,7 +44,9 @@ def _parse(relative: str) -> ast.Module:
 
 def _class(tree: ast.Module, name: str) -> ast.ClassDef:
     matches = [
-        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == name
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == name
     ]
     assert len(matches) == 1, f"expected exactly one class {name}, found {len(matches)}"
     return matches[0]
@@ -54,11 +56,12 @@ def _method(cls: ast.ClassDef, name: str) -> ast.FunctionDef | ast.AsyncFunction
     matches = [
         node
         for node in cls.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == name
     ]
-    assert len(matches) == 1, (
-        f"expected exactly one method {cls.name}.{name}, found {len(matches)}"
-    )
+    assert (
+        len(matches) == 1
+    ), f"expected exactly one method {cls.name}.{name}, found {len(matches)}"
     return matches[0]
 
 
@@ -110,7 +113,9 @@ def test_abandoned_development_shape_entry_points_do_not_return() -> None:
     assert "render_event" not in explicit_methods
     assert "render_replay_event" in explicit_methods
 
-    runner = _class(_parse("src/medre/core/engine/pipeline/runner.py"), "PipelineRunner")
+    runner = _class(
+        _parse("src/medre/core/engine/pipeline/runner.py"), "PipelineRunner"
+    )
     runner_methods = {
         node.name
         for node in runner.body
@@ -133,9 +138,9 @@ def test_abandoned_development_shape_entry_points_do_not_return() -> None:
         and isinstance(call.args[1], ast.Name)
         and call.args[1].id == "commands"
     ]
-    assert not abandoned_fallbacks, (
-        "smoke command rendering must not accept the abandoned commands mapping shape"
-    )
+    assert (
+        not abandoned_fallbacks
+    ), "smoke command rendering must not accept the abandoned commands mapping shape"
 
     renderer = _class(_parse("src/medre/adapters/lxmf/renderer.py"), "LxmfRenderer")
     init = _method(renderer, "__init__")
@@ -143,9 +148,9 @@ def test_abandoned_development_shape_entry_points_do_not_return() -> None:
         arg.arg
         for arg in (*init.args.posonlyargs, *init.args.args, *init.args.kwonlyargs)
     }
-    assert "relay_prefix" not in arg_names, (
-        "LXMF relay prefixes are resolved from target adapter config at render time"
-    )
+    assert (
+        "relay_prefix" not in arg_names
+    ), "LXMF relay prefixes are resolved from target adapter config at render time"
 
 
 @pytest.mark.parametrize(
@@ -162,7 +167,9 @@ def test_transport_attribution_reads_versioned_namespaces_only(
     """Attribution readers use strict version-aware namespace accessors."""
     tree = _parse(f"src/medre/adapters/{transport}/attribution.py")
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
-    assert any(isinstance(call.func, ast.Name) and call.func.id == accessor for call in calls)
+    assert any(
+        isinstance(call.func, ast.Name) and call.func.id == accessor for call in calls
+    )
     assert not any(
         isinstance(call.func, ast.Attribute)
         and isinstance(call.func.value, ast.Name)
@@ -173,12 +180,16 @@ def test_transport_attribution_reads_versioned_namespaces_only(
 
 
 @pytest.mark.parametrize("transport", sorted(_NATIVE_METADATA_VERSION_SOURCES))
-def test_native_metadata_source_schema_and_example_versions_match(transport: str) -> None:
+def test_native_metadata_source_schema_and_example_versions_match(
+    transport: str,
+) -> None:
     """Source, JSON Schema, and example share one native-metadata version."""
     source_rel, constant = _NATIVE_METADATA_VERSION_SOURCES[transport]
     source_version = _integer_constant(source_rel, constant)
 
-    schema_path = _ROOT / "docs" / "schemas" / f"{transport}-native-metadata.schema.json"
+    schema_path = (
+        _ROOT / "docs" / "schemas" / f"{transport}-native-metadata.schema.json"
+    )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     versioned_defs = [
         value
@@ -187,9 +198,9 @@ def test_native_metadata_source_schema_and_example_versions_match(transport: str
         and isinstance(value.get("properties"), dict)
         and "schema_version" in value["properties"]
     ]
-    assert len(versioned_defs) == 1, (
-        f"{schema_path.name}: expected exactly one versioned definition"
-    )
+    assert (
+        len(versioned_defs) == 1
+    ), f"{schema_path.name}: expected exactly one versioned definition"
     version_property = versioned_defs[0]["properties"]["schema_version"]
     schema_version = version_property.get("const")
     assert isinstance(schema_version, int) and not isinstance(schema_version, bool)
@@ -203,7 +214,9 @@ def test_native_metadata_source_schema_and_example_versions_match(transport: str
     )
     example = json.loads(example_path.read_text(encoding="utf-8"))
     native = example.get(transport)
-    assert isinstance(native, dict), f"{example_path.name}: missing {transport!r} namespace"
+    assert isinstance(
+        native, dict
+    ), f"{example_path.name}: missing {transport!r} namespace"
     example_version = native.get("schema_version")
     assert isinstance(example_version, int) and not isinstance(example_version, bool)
 

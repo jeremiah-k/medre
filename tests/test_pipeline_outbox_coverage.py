@@ -7,8 +7,6 @@ and cancelled/abandoned outbox transitions.
 
 from __future__ import annotations
 
-import pytest
-
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event
 from tests.helpers.storage_outbox import (
@@ -175,6 +173,8 @@ class TestStartLeaseRenewal:
         """When outbox was created, start_lease_renewal returns an asyncio.Task."""
         import asyncio
 
+        import pytest
+
         from medre.core.engine.pipeline import outbox_manager as outbox_mod
         from medre.core.engine.pipeline.delivery_lifecycle import (
             DeliveryLifecycleService,
@@ -196,7 +196,6 @@ class TestStartLeaseRenewal:
 
         # Shorten renewal interval so the test runs fast, but we'll
         # cancel immediately anyway.
-        import pytest
 
         original_interval = outbox_mod._OUTBOX_RENEWAL_INTERVAL_SECONDS
         outbox_mod._OUTBOX_RENEWAL_INTERVAL_SECONDS = 600  # long; task won't cycle

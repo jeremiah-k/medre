@@ -6,33 +6,33 @@ contract schemas mirror their projection helpers and normative specifications.
 
 ## Schema Files
 
-| Schema                                   | Source Type                                                    | Description                                    |
-| ---------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
-| `canonical-event.schema.json`            | `CanonicalEvent` (`src/medre/core/events/canonical.py`)        | Core event record flowing through the pipeline |
-| `canonical-event.schema.yaml`            | YAML mirror of `canonical-event.schema.json`                   | YAML representation of the canonical event schema; not an instance document |
-| `delivery-receipt.schema.json`           | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)      | Append-only delivery status record             |
-| `delivery-result.schema.json`            | `AdapterDeliveryResult` (`src/medre/core/contracts/adapter.py`)| Per-adapter delivery outcome                   |
-| `runtime-snapshot.schema.json`           | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`)| Point-in-time runtime state snapshot           |
-| `diagnostics.schema.json`                | Dict shape (`capture_runtime_snapshot().to_dict()`)            | Diagnostics collector output                   |
-| `evidence-bundle.schema.json`            | Dict shape                                                     | `medre evidence` bundle structure              |
-| `adapter-config.schema.json`             | Per-transport configs                                          | Adapter configuration shapes                   |
-| `routing-config.schema.json`             | `RouteConfig`, `BridgePolicy`                                  | Route matching configuration shapes            |
-| `matrix-native-metadata.schema.json`     | Matrix native metadata                                         | Versioned Matrix native namespace              |
-| `meshtastic-native-metadata.schema.json` | Meshtastic native metadata                                     | Versioned Meshtastic native namespace          |
-| `meshcore-native-metadata.schema.json`   | MeshCore native metadata                                       | Versioned MeshCore native namespace            |
-| `lxmf-native-metadata.schema.json`       | LXMF native metadata                                           | Versioned LXMF native namespace                |
+| Schema                                   | Source Type                                                     | Description                                                                 |
+| ---------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `canonical-event.schema.json`            | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                              |
+| `canonical-event.schema.yaml`            | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document |
+| `delivery-receipt.schema.json`           | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
+| `delivery-result.schema.json`            | `AdapterDeliveryResult` (`src/medre/core/contracts/adapter.py`) | Per-adapter delivery outcome                                                |
+| `runtime-snapshot.schema.json`           | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                        |
+| `diagnostics.schema.json`                | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                |
+| `evidence-bundle.schema.json`            | Dict shape                                                      | `medre evidence` bundle structure                                           |
+| `adapter-config.schema.json`             | Per-transport configs                                           | Adapter configuration shapes                                                |
+| `routing-config.schema.json`             | `RouteConfig`, `BridgePolicy`                                   | Route matching configuration shapes                                         |
+| `matrix-native-metadata.schema.json`     | Matrix native metadata                                          | Versioned Matrix native namespace                                           |
+| `meshtastic-native-metadata.schema.json` | Meshtastic native metadata                                      | Versioned Meshtastic native namespace                                       |
+| `meshcore-native-metadata.schema.json`   | MeshCore native metadata                                        | Versioned MeshCore native namespace                                         |
+| `lxmf-native-metadata.schema.json`       | LXMF native metadata                                            | Versioned LXMF native namespace                                             |
 
 ## Examples
 
 The `examples/` directory contains representative JSON payloads validated
 against these schemas.
 
-| Example                                             | Description                        |
-| --------------------------------------------------- | ---------------------------------- |
-| `examples/matrix-native-metadata-example.json`      | Matrix native metadata payload     |
-| `examples/meshtastic-native-metadata-example.json`  | Meshtastic native metadata payload |
-| `examples/meshcore-native-metadata-example.json`    | MeshCore native metadata payload   |
-| `examples/lxmf-native-metadata-example.json`        | LXMF native metadata payload       |
+| Example                                            | Description                        |
+| -------------------------------------------------- | ---------------------------------- |
+| `examples/matrix-native-metadata-example.json`     | Matrix native metadata payload     |
+| `examples/meshtastic-native-metadata-example.json` | Meshtastic native metadata payload |
+| `examples/meshcore-native-metadata-example.json`   | MeshCore native metadata payload   |
+| `examples/lxmf-native-metadata-example.json`       | LXMF native metadata payload       |
 
 ## Generation
 

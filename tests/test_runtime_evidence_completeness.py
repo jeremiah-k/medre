@@ -24,8 +24,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from tests.helpers.forbidden_terms import PLANNING_CYCLE_TERMS
 
 # ---------------------------------------------------------------------------
