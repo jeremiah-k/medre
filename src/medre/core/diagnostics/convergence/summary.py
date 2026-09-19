@@ -213,8 +213,9 @@ def build_convergence_summary(
     * Targets are grouped by ``(delivery_plan_id, target_adapter,
       target_channel)`` with fallbacks for missing plan/channel.
     * The latest receipt is selected deterministically by
-      ``(attempt_number DESC, sequence DESC, created_at DESC,
-      receipt_id DESC)`` without relying on object identity.
+      ``(sequence DESC, created_at DESC, receipt_id DESC)`` without relying
+      on object identity. Durable append sequence is the current-outcome
+      authority; attempt number describes lineage only.
     * ``orphan_count`` is ``None`` until linked to an orphan report;
       ``evidence_bundle_ref`` is ``None`` until attached to an
       evidence bundle.

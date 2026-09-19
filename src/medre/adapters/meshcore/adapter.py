@@ -56,6 +56,7 @@ from medre.adapters.meshcore.errors import (
     MeshCoreSendError,
 )
 from medre.adapters.meshcore.event_shape import MESHCORE_NATIVE_SCHEMA_VERSION
+from medre.adapters.meshcore.identity import derive_message_identity
 from medre.adapters.meshcore.packet_classifier import (
     REASON_ACK,
     REASON_EMPTY_TEXT,
@@ -226,15 +227,15 @@ class MeshCoreAdapter(AdapterContract):
         self._classifier_packets_malformed: int = 0
         self._inbound_published: int = 0
 
-        # Inbound dedup: keyed by (classification.sender_id, classification.packet_id,
-        # classification.channel_index, text). Prevents duplicate events from SDK
-        # redelivery (e.g., reconnect replay). Including text ensures distinct payloads
-        # sharing the same packet_id are both processed, while exact replays of the same
-        # packet are suppressed. Bounded OrderedDict — least-recently-seen entries
-        # evicted when full. Cleared on stop/start boundaries.
-        self._inbound_dedup: OrderedDict[tuple[str, int, int | None, str], None] = (
-            OrderedDict()
-        )
+        # Inbound dedup: keyed by the MEDRE-derived MeshCore message
+        # identity (see identity.py) — the same digest that becomes the
+        # durable native-ref idempotency key at admission, so the
+        # adapter LRU and storage agree on what a duplicate is.
+        # Prevents duplicate events from SDK redelivery (e.g., reconnect
+        # replay) while distinct same-second payloads pass through.
+        # Bounded OrderedDict — least-recently-seen entries evicted when
+        # full. Cleared on stop/start boundaries.
+        self._inbound_dedup: OrderedDict[str, None] = OrderedDict()
 
         # Session boundary — owns SDK lifecycle.
         self._session: MeshCoreSession | None = None
@@ -552,23 +553,24 @@ class MeshCoreAdapter(AdapterContract):
             if classification.action != "relay":
                 return
 
-            # Dedup: suppress exact duplicate packets by identity + content.
-            # Text is included so distinct payloads with reused packet_id
-            # are both processed while exact replays are suppressed.
-            # OrderedDict bounded to _DEDUP_MAX_SIZE (LRU eviction).
-            # When packet_id is None there is no reliable native identity,
-            # so adapter-level dedup is skipped entirely.
-            dedup_key: tuple[str, int, int | None, str] | None = None
-            if classification.packet_id is not None:
-                dedup_key = (
-                    classification.sender_id or "",
-                    classification.packet_id,
-                    classification.channel_index,
-                    str(packet.get("text", "")),
-                )
-                if dedup_key in self._inbound_dedup:
-                    self._inbound_dedup.move_to_end(dedup_key)
-                    return
+            # Dedup: suppress redeliveries of an already-published
+            # message identity.  The key is the MEDRE-derived identity
+            # digest (identity.py): identical retransmissions share it,
+            # distinct same-second messages do not.  OrderedDict bounded
+            # to _DEDUP_MAX_SIZE (LRU eviction).  Without
+            # sender_timestamp there is no stable identity, so
+            # adapter-level dedup is skipped entirely.
+            dedup_key: str | None = derive_message_identity(
+                sender_id=classification.sender_id,
+                channel_index=classification.channel_index,
+                sender_timestamp=classification.packet_id,
+                txt_type=packet.get("txt_type"),
+                text=packet.get("text"),
+                is_direct_message=classification.is_direct_message,
+            )
+            if dedup_key is not None and dedup_key in self._inbound_dedup:
+                self._inbound_dedup.move_to_end(dedup_key)
+                return
 
             # Decode before committing dedup key so that decode failures
             # do not suppress redelivery of the same packet.
@@ -599,7 +601,7 @@ class MeshCoreAdapter(AdapterContract):
     async def _on_message_async(
         self,
         canonical: CanonicalEvent,
-        dedup_key: tuple[str, int, int | None, str] | None = None,
+        dedup_key: str | None = None,
     ) -> None:
         """Async handler for messages received via :meth:`_on_message`.
 
@@ -668,20 +670,20 @@ class MeshCoreAdapter(AdapterContract):
         if classification.action != "relay":
             return
 
-        # Dedup: suppress exact duplicate packets by identity + content.
-        # When packet_id is None there is no reliable native identity,
-        # so adapter-level dedup is skipped entirely.
-        dedup_key: tuple[str, int, int | None, str] | None = None
-        if classification.packet_id is not None:
-            dedup_key = (
-                classification.sender_id or "",
-                classification.packet_id,
-                classification.channel_index,
-                str(packet.get("text", "")),
-            )
-            if dedup_key in self._inbound_dedup:
-                self._inbound_dedup.move_to_end(dedup_key)
-                return
+        # Dedup: suppress redeliveries of an already-published message
+        # identity (identity.py).  Without sender_timestamp there is no
+        # stable identity, so adapter-level dedup is skipped entirely.
+        dedup_key: str | None = derive_message_identity(
+            sender_id=classification.sender_id,
+            channel_index=classification.channel_index,
+            sender_timestamp=classification.packet_id,
+            txt_type=packet.get("txt_type"),
+            text=packet.get("text"),
+            is_direct_message=classification.is_direct_message,
+        )
+        if dedup_key is not None and dedup_key in self._inbound_dedup:
+            self._inbound_dedup.move_to_end(dedup_key)
+            return
 
         # Decode and publish before committing dedup key so that
         # failures do not suppress redelivery.

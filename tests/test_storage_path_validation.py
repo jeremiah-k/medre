@@ -125,6 +125,16 @@ def _make_mixed_config() -> RuntimeConfig:
 # ===================================================================
 
 
+@pytest.mark.parametrize("transport", ["", "mat/rix", "..", "custom"])
+def test_adapter_transport_state_dir_rejects_unsupported_transport(
+    tmp_paths: MedrePaths,
+    transport: str,
+) -> None:
+    """Only supported transport path components are accepted."""
+    with pytest.raises(MedrePathsError, match="unsupported transport"):
+        tmp_paths.adapter_transport_state_dir("main", transport)
+
+
 class TestMultipleMatrixStoresIsolated:
     """Two Matrix adapters → two separate store directories."""
 
@@ -251,7 +261,7 @@ class TestAdapterStateRootsCorrect:
         tmp_paths: MedrePaths,
     ) -> None:
         """Empty adapter_id raises MedrePathsError."""
-        with pytest.raises(MedrePathsError, match="non-empty"):
+        with pytest.raises(MedrePathsError, match="empty"):
             tmp_paths.adapter_state_dir("")
 
     def test_adapter_state_dir_rejects_separators(
@@ -259,24 +269,8 @@ class TestAdapterStateRootsCorrect:
         tmp_paths: MedrePaths,
     ) -> None:
         """adapter_id with path separators raises MedrePathsError."""
-        with pytest.raises(MedrePathsError, match="path separators"):
+        with pytest.raises(MedrePathsError, match="Adapter IDs must start"):
             tmp_paths.adapter_state_dir("foo/bar")
-
-    def test_adapter_transport_state_dir_rejects_empty_transport(
-        self,
-        tmp_paths: MedrePaths,
-    ) -> None:
-        """Empty transport raises MedrePathsError."""
-        with pytest.raises(MedrePathsError, match="non-empty"):
-            tmp_paths.adapter_transport_state_dir("main", "")
-
-    def test_adapter_transport_state_dir_rejects_separator_in_transport(
-        self,
-        tmp_paths: MedrePaths,
-    ) -> None:
-        """Transport with path separators raises MedrePathsError."""
-        with pytest.raises(MedrePathsError, match="path separators"):
-            tmp_paths.adapter_transport_state_dir("main", "mat/rix")
 
     def test_medre_home_mode_paths(
         self,

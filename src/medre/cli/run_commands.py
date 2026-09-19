@@ -92,13 +92,16 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
 
     try:
         config, source, paths = load_config(config_path)
+        # Env overrides participate in the same config-error boundary:
+        # identifier-contract violations raised here must surface as an
+        # actionable config error, not a traceback.
+        config = apply_env_overrides(config, paths)
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
-    config = apply_env_overrides(config, paths)
 
     # Check for enabled adapters *before* building runtime.
     enabled_adapters = config.adapters.all_enabled()

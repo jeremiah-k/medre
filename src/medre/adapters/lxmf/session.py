@@ -400,6 +400,9 @@ class LxmfSession:
         Identifier of the owning adapter (for logging).
     platform:
         Platform string (``"lxmf"``).
+    reticulum_config_dir:
+        Optional explicit Reticulum configuration directory. ``None`` keeps
+        the SDK's normal discovery behavior.
     logger:
         Optional logger; defaults to ``logging.getLogger(...)``.
     """
@@ -409,6 +412,7 @@ class LxmfSession:
         "_config",
         "_adapter_id",
         "_platform",
+        "_reticulum_config_dir",
         "_logger",
         # SDK objects
         "_reticulum",
@@ -449,11 +453,13 @@ class LxmfSession:
         adapter_id: str,
         platform: str = "lxmf",
         *,
+        reticulum_config_dir: str | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._config = config
         self._adapter_id = adapter_id
         self._platform = platform
+        self._reticulum_config_dir = reticulum_config_dir
         self._logger: logging.Logger = logger or logging.getLogger(
             f"medre.adapters.lxmf.session.{adapter_id}"
         )
@@ -922,9 +928,16 @@ class LxmfSession:
             #    Use get_instance() to reuse an existing instance.
             existing = RNS.Reticulum.get_instance()
             if existing is not None:
+                if self._reticulum_config_dir is not None:
+                    active_config_dir = getattr(RNS.Reticulum, "configdir", None)
+                    if active_config_dir != self._reticulum_config_dir:
+                        raise LxmfConnectionError(
+                            "Existing Reticulum instance uses a different "
+                            "configuration directory"
+                        )
                 self._reticulum = existing
             else:
-                self._reticulum = RNS.Reticulum(None)
+                self._reticulum = RNS.Reticulum(self._reticulum_config_dir)
 
             # 2. Load or create identity.
             if self._config.identity_path:

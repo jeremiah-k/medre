@@ -25,7 +25,7 @@ environment variables.
 
    .. code-block:: bash
 
-       pip install meshcore
+       pip install -e ".[meshcore]"
        pytest tests/test_meshcore_live.py -m live -v
 
    Default ``pytest`` run (no live tests):
@@ -168,7 +168,7 @@ require_live = pytest.mark.skipif(
     reason=(
         _LIVE_SKIP_REASON
         if not _LIVE_ENV_SET
-        else "meshcore SDK not installed; pip install meshcore"
+        else "meshcore SDK not installed; pip install -e '.[meshcore]'"
     ),
 )
 

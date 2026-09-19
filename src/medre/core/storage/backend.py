@@ -277,6 +277,213 @@ class EventFilter:
 
 
 # ---------------------------------------------------------------------------
+# Recovery paging surface (unresolved current delivery outcomes)
+# ---------------------------------------------------------------------------
+
+#: Default page size for :meth:`StorageBackend.query_unresolved_deliveries`.
+DEFAULT_RECOVERY_PAGE_LIMIT: int = 50
+
+#: Maximum accepted page size for unresolved-delivery recovery scans.
+#: Limits above this are rejected rather than silently clamped so callers
+#: notice when their paging assumption is wrong.
+MAX_RECOVERY_PAGE_LIMIT: int = 500
+
+#: Opaque page-cursor format version.  Bumping it invalidates old cursors.
+_PAGE_CURSOR_VERSION: int = 1
+
+#: Receipt statuses that represent an unresolved *failure* outcome for a
+#: delivery lineage when they are the lineage's latest receipt.  ``queued``
+#: means a new attempt is in flight (not a current failure); ``sent`` and
+#: ``suppressed`` are resolved outcomes.
+UNRESOLVED_RECEIPT_STATUSES: frozenset[str] = frozenset({"failed", "dead_lettered"})
+
+
+@dataclass(frozen=True)
+class UnresolvedDelivery:
+    """One currently-unresolved delivery outcome.
+
+    A row is produced only for the **latest receipt of a logical
+    delivery** — one ``(event_id, delivery_plan_id, target_adapter,
+    target_channel)`` identity — whose status is ``failed`` or
+    ``dead_lettered``.  Retry and executed-replay receipts continue the
+    same delivery (the replay lifecycle appends attempts to it), so a
+    later success from any of those sources supersedes the delivery's
+    earlier failure, while successes of a different channel, plan,
+    event, or target never hide it.  ``replay_run_id`` partitions
+    nothing; it is per-receipt provenance.
+
+    Timestamps are ISO-8601 strings exactly as stored (UTC, ``+00:00``
+    suffix); they are evidence fields, not parsed datetimes.
+    """
+
+    event_id: str
+    event_kind: str
+    source_adapter: str
+    event_timestamp: str
+    delivery_plan_id: str
+    target_adapter: str
+    target_channel: str | None
+    route_id: str
+    #: Source of the current receipt: ``"live"``, ``"retry"``, or
+    #: ``"replay:<replay_run_id>"`` (provenance of the latest attempt,
+    #: not a partition — executed replays continue the same delivery).
+    attempt_source: str
+    replay_run_id: str | None
+    receipt_id: str
+    receipt_sequence: int
+    status: str
+    failure_kind: str | None
+    error: str | None
+    attempt_number: int
+    next_retry_at: str | None
+    receipt_created_at: str
+    outbox_id: str | None
+    #: Outbox enrichment only — never acceptance evidence.
+    outbox_status: str | None = None
+    outbox_next_attempt_at: str | None = None
+
+
+@dataclass(frozen=True)
+class UnresolvedDeliveriesPage:
+    """One bounded page of unresolved deliveries plus continuation state."""
+
+    items: list[UnresolvedDelivery]
+    limit: int
+    has_more: bool
+    #: Continuation token for the next page, or ``None`` when this page is
+    #: the last.  Pass to :meth:`StorageBackend.query_unresolved_deliveries`
+    #: as the ``cursor`` argument.
+    next_cursor: str | None
+    order: str = "receipt_sequence_asc"
+    #: Pages are a live view of append-only evidence, not a snapshot:
+    #: receipts appended between pages can change lineage outcomes.
+    live_view: bool = True
+
+
+def encode_page_cursor(after_sequence: int) -> str:
+    """Encode a keyset position as an opaque continuation token."""
+    import base64
+    import json as _json
+
+    payload = _json.dumps(
+        {"v": _PAGE_CURSOR_VERSION, "after_sequence": int(after_sequence)},
+        sort_keys=True,
+    )
+    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+
+
+def decode_page_cursor(cursor: str) -> int:
+    """Decode a continuation token produced by :func:`encode_page_cursor`.
+
+    Returns
+    -------
+    int
+        The ``after_sequence`` keyset position.
+
+    Raises
+    ------
+    ValueError
+        With an actionable message when the token is malformed, from an
+        incompatible cursor version, or not a valid position.
+    """
+    import base64
+    import json as _json
+
+    try:
+        payload = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+        decoded = _json.loads(payload)
+    except (ValueError, UnicodeError):
+        raise ValueError(
+            f"Malformed page cursor: {cursor!r}. Re-run the scan without "
+            "--cursor and take the cursor printed with the previous page."
+        ) from None
+    if not isinstance(decoded, dict) or "v" not in decoded:
+        raise ValueError(
+            f"Malformed page cursor: {cursor!r}. Re-run the scan without "
+            "--cursor and take the cursor printed with the previous page."
+        )
+    if decoded["v"] != _PAGE_CURSOR_VERSION:
+        raise ValueError(
+            f"Incompatible page cursor (version {decoded['v']!r}, expected "
+            f"{_PAGE_CURSOR_VERSION}): {cursor!r}. Re-run the scan without "
+            "--cursor to start from the first page."
+        )
+    after = decoded.get("after_sequence")
+    if not isinstance(after, int) or isinstance(after, bool) or after < 0:
+        raise ValueError(
+            f"Malformed page cursor position: {after!r}. Re-run the scan "
+            "without --cursor and take the cursor printed with the previous "
+            "page."
+        )
+    return after
+
+
+def delivery_lineage_key(receipt: DeliveryReceipt) -> tuple[str, str, str]:
+    """Return the logical delivery-identity key of *receipt*.
+
+    ``(delivery_plan_id, target_adapter, normalized target_channel)``.
+    ``event_id`` is intentionally not part of the key — callers already
+    scope by event — but plan IDs are not guaranteed unique across
+    events, so SQL-side grouping includes ``event_id`` (see
+    :meth:`StorageBackend.query_unresolved_deliveries`).  ``None`` and
+    empty-string channels normalize to ``""`` so they never split one
+    logical delivery into two lineages.
+
+    Retry **and executed-replay** receipts share the key with the live
+    delivery they re-attempt: the replay lifecycle continues the same
+    delivery (``attempt_number = max(existing) + 1``) and the storage
+    ``delivery_status`` authority picks the latest receipt without
+    filtering on ``source``.  A successful executed replay therefore
+    resolves the original delivery's earlier failure; successes of a
+    *different* delivery (other target/channel/plan/event) never do.
+    ``replay_run_id`` is reported per receipt as provenance, never used
+    to partition one delivery.
+    """
+    return (
+        getattr(receipt, "delivery_plan_id", "") or "",
+        getattr(receipt, "target_adapter", "") or "",
+        getattr(receipt, "target_channel", None) or "",
+    )
+
+
+def attempt_source_label(source: str | None, replay_run_id: str | None) -> str:
+    """Return a receipt's source with its replay run when applicable.
+
+    ``"live"`` / ``"retry"`` / ``"replay"`` stay verbatim; a replay
+    receipt carries its run id as provenance: ``"replay:<run_id>"``.
+    """
+    src = source or "live"
+    if src == "replay" and replay_run_id:
+        return f"replay:{replay_run_id}"
+    return src
+
+
+def resolve_delivery_outcomes(
+    receipts: list[DeliveryReceipt],
+) -> list[tuple[tuple[str, str, str], list[DeliveryReceipt]]]:
+    """Group *receipts* into logical deliveries in durable append order.
+    This is the pure, storage-independent half of the current-outcome rule;
+    the SQL in ``SQLiteStorage.query_unresolved_deliveries`` implements the
+    same grouping.  Each returned entry is ``(delivery_key, receipts)`` with
+    receipts ordered by append ``sequence``; the **last** receipt of a
+    delivery — whatever its ``source`` or attempt number — is its current
+    outcome.
+    """
+    grouped: dict[tuple[str, str, str], list[DeliveryReceipt]] = {}
+    for receipt in receipts:
+        grouped.setdefault(delivery_lineage_key(receipt), []).append(receipt)
+    return [
+        (key, sorted(group, key=_receipt_append_order))
+        for key, group in grouped.items()
+    ]
+
+
+def _receipt_append_order(receipt: DeliveryReceipt) -> int:
+    """Sort key placing a delivery's receipts in durable append order."""
+    return int(getattr(receipt, "sequence", 0) or 0)
+
+
+# ---------------------------------------------------------------------------
 # DeliveryOutboxItem
 # ---------------------------------------------------------------------------
 
@@ -863,6 +1070,60 @@ class StorageBackend(Protocol):
         Authority: **list/get** (read-only).  Receipts are ordered by
         ``sequence`` ascending, which reflects the chronological append
         order across all delivery plans and adapters for this event.
+        """
+        ...
+
+    async def query_unresolved_deliveries(
+        self,
+        *,
+        cursor: str | None = None,
+        since_event_time: str | None = None,
+        limit: int = DEFAULT_RECOVERY_PAGE_LIMIT,
+    ) -> UnresolvedDeliveriesPage:
+        """Return one bounded page of currently-unresolved deliveries.
+
+        Authority: **list/get** (read-only).  A delivery is included when
+        the **latest receipt of its logical delivery** has status
+        ``failed`` or ``dead_lettered``.  A logical delivery is one
+        ``(event_id, delivery_plan_id, target_adapter, target_channel)``
+        identity (NULL and ``''`` channels grouped together); retry and
+        executed-replay receipts continue that same delivery, matching
+        the ``delivery_status`` authority (latest receipt, no source
+        filter), so:
+
+        * a later ``sent``/``queued`` receipt from live, retry, or an
+          executed replay **supersedes** the delivery's earlier failure,
+        * successes of a different target, channel, plan, or event never
+          hide a failure; ``replay_run_id`` is provenance, not a
+          partition,
+        * a historical failed receipt is never by itself a current
+          failure, and dry-run replays (which append no receipts) can
+          fabricate neither success nor failure.
+
+        Ordering is by the lineage's latest-receipt ``sequence`` ascending
+        (oldest unresolved evidence first), keyset-paginated via *cursor*.
+        No OFFSET scan and no unconditional global COUNT are performed;
+        ``has_more``/``next_cursor`` come from a ``limit + 1`` probe.
+        Pages are a live view of append-only evidence, not a snapshot.
+
+        Parameters
+        ----------
+        cursor:
+            Opaque continuation token from a previous page's
+            ``next_cursor`` (see :func:`decode_page_cursor`).
+        since_event_time:
+            Inclusive lower bound on the **canonical event timestamp**
+            (``canonical_events.timestamp``, UTC ISO-8601 with ``+00:00``
+            offset) — distinct from receipt creation time.
+        limit:
+            Page size; must satisfy
+            ``1 <= limit <= MAX_RECOVERY_PAGE_LIMIT``.
+
+        Raises
+        ------
+        ValueError
+            If *limit* is out of range or *cursor* is malformed or
+            incompatible.
         """
         ...
 

@@ -404,7 +404,7 @@ class TestSourceSeparation:
 
     The convergence model groups by (delivery_plan_id, target_adapter,
     target_channel) regardless of source.  The latest receipt by
-    (attempt_number, sequence, created_at, receipt_id) is chosen — source
+    (sequence, created_at, receipt_id) is chosen — source
     is not used as a tiebreaker.  Tests document this behaviour.
     """
 
@@ -622,14 +622,29 @@ class TestEmptyInput:
 
 
 class TestReceiptLatestSelection:
-    """Latest receipt is chosen by (attempt_number, sequence, created_at, receipt_id)."""
+    """Latest receipt is chosen by (sequence, created_at, receipt_id)."""
 
-    def test_highest_attempt_wins(self) -> None:
+    def test_highest_sequence_wins(self) -> None:
         summary = build_convergence_summary(
             receipts=[
-                _receipt(receipt_id="r-1", attempt_number=1, status="failed"),
-                _receipt(receipt_id="r-2", attempt_number=3, status="sent"),
-                _receipt(receipt_id="r-3", attempt_number=2, status="failed"),
+                _receipt(
+                    receipt_id="r-1",
+                    attempt_number=1,
+                    sequence=1,
+                    status="failed",
+                ),
+                _receipt(
+                    receipt_id="r-2",
+                    attempt_number=3,
+                    sequence=3,
+                    status="sent",
+                ),
+                _receipt(
+                    receipt_id="r-3",
+                    attempt_number=2,
+                    sequence=2,
+                    status="failed",
+                ),
             ],
         )
         target = summary.targets[0]
@@ -695,6 +710,27 @@ class TestReceiptLatestSelection:
         target = summary.targets[0]
         # Lexicographically latest receipt_id wins
         assert target.latest_receipt_id == "rcpt-zzz"
+
+
+def test_later_sequence_overrides_higher_attempt_number() -> None:
+    """Durable append order wins even when the later attempt number is lower."""
+    summary = build_convergence_summary(
+        receipts=[
+            _receipt(
+                receipt_id="r-old-failure",
+                attempt_number=4,
+                sequence=10,
+                status="failed",
+            ),
+            _receipt(
+                receipt_id="r-later-suppression",
+                attempt_number=1,
+                sequence=11,
+                status="suppressed",
+            ),
+        ],
+    )
+    assert summary.targets[0].latest_receipt_id == "r-later-suppression"
 
 
 # ===================================================================

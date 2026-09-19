@@ -53,17 +53,24 @@ def _paths() -> None:
 
 
 def _config_check(config_path: str | None) -> None:
-    """Load and validate the config, printing a rich summary."""
+    """Load and validate the config, printing a rich summary.
+
+    Environment overrides are applied exactly as ``medre run`` applies
+    them, so env-first adapter creation and env-var values are validated
+    by the same gate that guards startup — nothing passes ``config
+    check`` only to fail (or crash) during runtime construction.
+    """
+    from medre.config.env import apply_env_overrides
     from medre.config.errors import ConfigValidationError
     from medre.config.loader import load_config
 
     try:
         config, source, paths = load_config(config_path)
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
 
-    # --- Config file info ---
     print(f"Config file: {paths.config_file}")
     print(f"Source:      {source.value}")
 

@@ -12,7 +12,7 @@ Design constraints
 * **No storage imports.**  Accepts plain objects or dict-like records via
   duck-typed field access.
 * **Deterministic ordering.**  Targets are sorted by group key; receipts
-  are ranked by ``(attempt_number, sequence, created_at, receipt_id)``.
+  are ranked by ``(sequence, created_at, receipt_id)``; durable append sequence is the current-outcome authority.
 
 Status vocabularies (source: ``medre.core.engine.pipeline.delivery_state``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

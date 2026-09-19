@@ -325,24 +325,61 @@ State transitions are tracked via `_on_delivery_state_update` callbacks from `LX
 
 ---
 
+## Health Contract
+
+`health_check()` reports **local** liveness only — the MEDRE-owned
+session and its `LXMRouter` lifecycle flags:
+
+| State     | Condition                                                                 |
+| --------- | ------------------------------------------------------------------------- |
+| `healthy` | Adapter started and the session reports `router_running` and `connected`. |
+| `failed`  | Adapter started but the local session/router is missing or torn down.     |
+| `unknown` | Adapter not started; no claim is made.                                    |
+
+A started MEDRE flag alone is never presented as transport health: if
+the owned session is stopped underneath a started adapter (observable
+through the public session lifecycle), health reports `failed`.
+
+Peer reachability is **not** part of the health string. The declared pinned
+LXMF/RNS SDKs expose no supported
+peer-liveness API — `LXMRouter.compile_stats()` returns `None` unless
+propagation-node mode is enabled, and per-peer link state
+(`delivery_link_available`) is per-destination link bookkeeping, not a
+transport-health signal. MEDRE never sends probes merely to answer
+health, so `diagnostics()` carries an explicit, always-`"unknown"`
+`peer_reachability` marker alongside
+`health_scope="local_session_and_router"`. A missing or broken local
+router reports `failed`; the absence of a public peer-liveness API is
+reported as `unknown`, not manufactured into a failure or a success.
+
+Reticulum exposes no transport-down event (see
+[`transport-limitations.md`](../appendices/transport-limitations.md)),
+so a silently lost transport is first noticed when an outbound send
+fails; recovery relies on that send's bounded local retry. This is a
+documented observability boundary, not an invented health state.
+
+---
+
 ## Diagnostics Keys
 
 `adapter.diagnostics()` returns (no secrets, no identity material, no raw RNS/LXMF objects):
 
-| Key                                   | Type          | Description                       |
-| ------------------------------------- | ------------- | --------------------------------- |
-| `adapter_id`                          | `str`         | Adapter identifier                |
-| `platform`                            | `str`         | `"lxmf"`                          |
-| `started`                             | `bool`        | Adapter started flag              |
-| `mode`                                | `str`         | Config connection type            |
-| `session.connected`                   | `bool`        | Session connected                 |
-| `session.router_running`              | `bool`        | LXMRouter operational             |
-| `session.reconnecting`                | `bool`        | Reconnect in progress             |
-| `session.reconnect_attempts`          | `int`         | Consecutive reconnect attempts    |
-| `session.transient_delivery_failures` | `int`         | Transient send errors             |
-| `session.permanent_delivery_failures` | `int`         | Permanent send errors             |
-| `session.last_error`                  | `str \| None` | Last error description            |
-| `session.mode`                        | `str`         | Config connection type (mirrored) |
+| Key                                   | Type          | Description                                                                                     |
+| ------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------- |
+| `adapter_id`                          | `str`         | Adapter identifier                                                                              |
+| `platform`                            | `str`         | `"lxmf"`                                                                                        |
+| `started`                             | `bool`        | Adapter started flag                                                                            |
+| `mode`                                | `str`         | Config connection type                                                                          |
+| `health_scope`                        | `str`         | Always `"local_session_and_router"` — the health string describes local lifecycle only          |
+| `peer_reachability`                   | `str`         | Always `"unknown"` — no supported peer-liveness API; MEDRE never probes merely to answer health |
+| `session.connected`                   | `bool`        | Session connected                                                                               |
+| `session.router_running`              | `bool`        | LXMRouter operational                                                                           |
+| `session.reconnecting`                | `bool`        | Reconnect in progress                                                                           |
+| `session.reconnect_attempts`          | `int`         | Consecutive reconnect attempts                                                                  |
+| `session.transient_delivery_failures` | `int`         | Transient send errors                                                                           |
+| `session.permanent_delivery_failures` | `int`         | Permanent send errors                                                                           |
+| `session.last_error`                  | `str \| None` | Last error description                                                                          |
+| `session.mode`                        | `str`         | Config connection type (mirrored)                                                               |
 
 Session also exposes `diagnostics()` and `delivery_state_counts()` with additional fields: `last_message_time`, `known_path_count`, `propagation_enabled`, `pending_delivery_count`.
 
@@ -409,6 +446,41 @@ deterministically degraded to inline fallback text.
 
 ---
 
+## Local Two-Instance Relation Roundtrip
+
+Cross-instance relation preservation is exercised by a reproducible,
+fully local regression harness (no external network, hardware, or
+retained state):
+
+```bash
+uv sync --extra lxmf
+uv run pytest "tests/integration/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances" -m "local_integration or lxmf_sdk"
+```
+
+The harness runs two distinct OS processes: instance A renders a
+relation-bearing canonical event via `LxmfRenderer` (MEDRE envelope
+under `FIELD_CUSTOM_META`/`0xFD`) and delivers through its real
+`LxmfAdapter`; instance B decodes through the real inbound
+adapter/codec path. The instances are joined only by a loopback
+Reticulum `UDPInterface` pair (127.0.0.1, per-run ephemeral ports,
+per-process temp `HOME` and router storage, ephemeral identities).
+Assertions cover decoded semantic equality (relation kind, referenced
+canonical event id, referenced native identity, body/title) separately
+from receipt, plus cross-instance identity: B's decoded
+`source_transport_id` equals A's registered delivery destination hash,
+and A's returned LXMF message hash equals B's decoded message id. The
+runtime-resolved SDK versions are recorded in the result and asserted
+against the pins.
+
+**Evidence status: passed on the declared pinned SDKs** (see Validation
+Status below). Relation fidelity remains "implemented but not interop-proven"
+for anything beyond this local loopback tier — see
+[`known-limitations.md`](../appendices/known-limitations.md). This is local-SDK
+evidence only; it is not live-network, hardware, or external interoperability
+proof.
+
+---
+
 ## Validation Status
 
 - Config validation enforces: non-empty `adapter_id`, valid `connection_type`
@@ -422,6 +494,16 @@ deterministically degraded to inline fallback text.
 - Renderer tests cover text/title rendering, metadata embedding toggle, envelope structure.
 - Fields helper tests cover embed/extract round-trip, corrupt/missing envelope handling, attachment detection, envelope relations check.
 - Session tests cover lifecycle (start/stop idempotency), fake mode, real mode (mocked SDK), reconnect backoff, outbound send with retry, delivery state tracking, thread bridging, and `resolve_display_name` announce-cache lookup.
+- Health lifecycle tests cover the local-scope contract: `healthy` only while the owned session reports its router running and connected, `failed` when the session is torn down under a started adapter, `unknown` when not started, and `peer_reachability`/`health_scope` diagnostics at every phase.
+- The two-instance relation roundtrip
+  (`tests/integration/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`)
+  passed on the declared pinned SDKs in a locked disposable venv at the
+  2026-09-18 gate: 3/3 local-integration tests were green and the standalone
+  probe `PYTHONPATH=src python -m tests.helpers.lxmf_local_probe relation
+<tmpdir>` exited 0 with every verdict true (relation kind/target/native-ref,
+  title and body equality, envelope event-id equality, B source identity, and
+  A-native-id↔B-message-id correlation). This is local loopback evidence only —
+  no external mesh, hardware, or live-network claim.
 
 ---
 
@@ -431,3 +513,9 @@ deterministically degraded to inline fallback text.
 | ------- | ------------------------------------------------------------------ | --------------------------- |
 | `lxmf`  | LXMF Python package (`LXMRouter`, `LXMessage`, delivery constants) | Yes (`medre[lxmf]`)         |
 | `RNS`   | Reticulum network stack (`Reticulum`, `Identity`, `Destination`)   | Yes (via `lxmf` dependency) |
+
+**Dependency-version authority:** `pyproject.toml` declares the exact LXMF/RNS
+pins; `uv.lock` records the resolved artifact graph. The local integration tier
+records runtime-resolved versions in its result payload and checks them against
+the declarations, so environment drift surfaces as a named failure instead of
+silent evidence skew.

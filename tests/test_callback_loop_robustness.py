@@ -1138,7 +1138,22 @@ class TestNativeIdIsolation:
             assert len(collector.events) == 1
             event = collector.events[0]
             if event.source_native_ref is not None:
-                assert event.source_native_ref.native_message_id == "7777"
+                # MeshCore carries no protocol message id: the native id is
+                # the derived identity digest of the packet's
+                # identity-bearing fields.  The successful event must
+                # reference exactly its own packet's identity — never a
+                # leftover from the failed callback.
+                from medre.adapters.meshcore.identity import derive_message_identity
+
+                expected = derive_message_identity(
+                    sender_id="cln",
+                    channel_index=0,
+                    sender_timestamp=7777,
+                    txt_type=0,
+                    text="mc clean",
+                    is_direct_message=False,
+                )
+                assert event.source_native_ref.native_message_id == expected
         finally:
             await adapter.stop()
 

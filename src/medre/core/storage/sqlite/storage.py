@@ -52,18 +52,19 @@ from medre.core.storage.sqlite._ingress import _IngressMixin
 from medre.core.storage.sqlite._native_ref import _NativeRefMixin
 from medre.core.storage.sqlite._outbox import _OutboxMixin
 from medre.core.storage.sqlite._receipt import _ReceiptMixin
+from medre.core.storage.sqlite._recovery_query import _RecoveryQueryMixin
 from medre.core.storage.sqlite._relation import _RelationMixin
 from medre.core.storage.sqlite.connection import (
     sync_close,
     sync_create_indexes,
+    sync_find_schema_shape_mismatch,
     sync_open,
     sync_open_readonly,
-    sync_find_schema_shape_mismatch,
     sync_read_all,
     sync_read_one,
     sync_write,
-    sync_write_rowcount,
     sync_write_batch,
+    sync_write_rowcount,
 )
 from medre.core.storage.sqlite.schema import (
     _EXPECTED_SCHEMA_VERSION,
@@ -331,8 +332,7 @@ class _SQLiteStorageBase:
         for table, required in _REQUIRED_FOREIGN_KEYS.items():
             rows = await self._read_all(f"PRAGMA foreign_key_list({table})")
             existing = {
-                (str(row["from"]), str(row["table"]), str(row["to"]))
-                for row in rows
+                (str(row["from"]), str(row["table"]), str(row["to"])) for row in rows
             }
             missing = required - existing
             if missing:
@@ -563,9 +563,7 @@ class _SQLiteStorageBase:
         except sqlite3.Error as exc:
             raise StorageError(f"Database write failed: {exc}") from exc
 
-    async def _write_rowcount(
-        self, sql: str, params: tuple[Any, ...] = ()
-    ) -> int:
+    async def _write_rowcount(self, sql: str, params: tuple[Any, ...] = ()) -> int:
         """Execute one write and return its affected-row count."""
         db = self._require_db()
         try:
@@ -596,9 +594,7 @@ class _SQLiteStorageBase:
         """Execute a read and return the first row as a dict, or ``None``."""
         db = self._require_db()
         try:
-            return await self._run_in_thread(
-                sync_read_one, db, self._lock, sql, params
-            )
+            return await self._run_in_thread(sync_read_one, db, self._lock, sql, params)
         except sqlite3.Error as exc:
             raise StorageError(f"Database read failed: {exc}") from exc
 
@@ -608,9 +604,7 @@ class _SQLiteStorageBase:
         """Execute a read and return all rows as dicts."""
         db = self._require_db()
         try:
-            return await self._run_in_thread(
-                sync_read_all, db, self._lock, sql, params
-            )
+            return await self._run_in_thread(sync_read_all, db, self._lock, sql, params)
         except sqlite3.Error as exc:
             raise StorageError(f"Database read failed: {exc}") from exc
 
@@ -629,6 +623,7 @@ class SQLiteStorage(
     _ReceiptMixin,
     _OutboxMixin,
     _DeliveryFinalizationMixin,
+    _RecoveryQueryMixin,
     _CountMixin,
     _SQLiteStorageBase,
 ):

@@ -415,86 +415,47 @@ class TestConfigSampleToSmoke:
             "Config valid" in output
         ), f"config check did not produce 'Config valid': {output[:300]!r}"
 
-    def test_sample_config_smoke_passes(self, tmp_path: Path) -> None:
-        """``smoke --config <sample>`` passes or fails gracefully.
+    def test_sample_config_smoke_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``smoke --config <sample>`` passes: the sample config is the
+        documented installed-package smoke input (docs/ops/install.md).
 
-        The generated sample config may have route policies that filter by
-        ``allowed_event_types`` (e.g. ``["message.created"]``) which don't
-        match the smoke event kind ``message.text``, or the default storage
-        path may resolve to a stale database. Both are expected — the sample
-        config is for operator reference, not guaranteed to pass smoke.
-
-        The important invariant is: the command does not crash, returns
-        valid JSON with a ``status`` field, and does not import optional
-        SDKs.  ``event_id`` is only guaranteed when the runtime starts
-        successfully (status ``"passed"``).
+        Its active route must accept the smoke event (``message.text``)
+        and deliver it with persistent evidence, so the generated sample
+        works end-to-end for wheel users with no example configs.
         """
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
         sample = stdout_buf.getvalue()
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "proof-home"))
         cfg_path = tmp_path / "sample.yaml"
         cfg_path.write_text(sample)
 
         stdout_buf2 = io.StringIO()
-        with redirect_stdout(stdout_buf2), redirect_stderr(io.StringIO()):
-            with pytest.raises(SystemExit):
+        stderr_buf2 = io.StringIO()
+        with redirect_stdout(stdout_buf2), redirect_stderr(stderr_buf2):
+            with pytest.raises(SystemExit) as exc_info:
                 main(["smoke", "--config", str(cfg_path), "--json"])
-        # Exit code may be 0 or 1 depending on route policies or storage state.
-        # The key invariant: valid JSON output, no crash.
+        assert exc_info.value.code == 0, stderr_buf2.getvalue()
         report = json.loads(stdout_buf2.getvalue())
-        assert "status" in report
-        assert report["status"] in ("passed", "failed")
-        # event_id is only present when the runtime started successfully.
-        # Early failures (storage init, build errors) produce no event.
-        if report["status"] == "passed":
-            assert "event_id" in report
+        assert report["status"] == "passed", report.get("fail_reasons")
+        assert report["event_id"], "passing smoke must report an event_id"
+        assert any(r["status"] == "sent" for r in report["delivery_receipts"]), report[
+            "delivery_receipts"
+        ]
+        assert report["accounting"]["outbound_delivered"] >= 1
+        assert report["shutdown_status"] == "stopped"
 
-    def test_sample_config_smoke_with_storage(self, tmp_path: Path) -> None:
-        """``smoke --config <sample-sqlite>`` produces valid JSON report.
-
-        The generated sample config may not pass smoke due to route policy
-        filtering (``allowed_event_types``), but the command should not crash
-        and should produce valid JSON output with storage metadata.
-        """
-        stdout_buf = io.StringIO()
-        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main(["config", "sample"])
-        sample = stdout_buf.getvalue()
-        # Derive a SQLite variant of the sample config with a concrete DB path.
-        db_path = str(tmp_path / "sample-smoke.db")
-        path_target = "path: '{state}/medre.sqlite'"
-        assert (
-            sample.count(path_target) >= 1
-        ), f"Expected at least one '{path_target}' in sample config"
-        sqlite_sample = sample.replace(
-            path_target,
-            f"path: '{db_path}'",
-            1,
-        )
-        cfg_path = tmp_path / "sample_sqlite.yaml"
-        cfg_path.write_text(sqlite_sample)
-
-        stdout_buf2 = io.StringIO()
-        with redirect_stdout(stdout_buf2), redirect_stderr(io.StringIO()):
-            with pytest.raises(SystemExit):
-                main(
-                    [
-                        "smoke",
-                        "--config",
-                        str(cfg_path),
-                        "--json",
-                    ]
-                )
-        report = json.loads(stdout_buf2.getvalue())
-        assert "status" in report
-        assert report["storage_backend"] == "sqlite"
-
-    def test_sample_config_no_sdk_imports(self, tmp_path: Path) -> None:
+    def test_sample_config_no_sdk_imports(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """``config check`` + ``smoke`` with sample config do not import SDKs."""
         stdout_buf = io.StringIO()
         with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
             main(["config", "sample"])
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "proof-home"))
         cfg_path = tmp_path / "sample.yaml"
         cfg_path.write_text(stdout_buf.getvalue())
 
@@ -504,7 +465,7 @@ class TestConfigSampleToSmoke:
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             main(["config", "check", "--config", str(cfg_path)])
 
-        # smoke (may exit 0 or 1 — that's fine, we check SDK imports)
+        # smoke (exit 0 expected; SDK imports are the invariant under test)
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             try:
                 main(["smoke", "--config", str(cfg_path), "--json"])
@@ -516,6 +477,53 @@ class TestConfigSampleToSmoke:
         assert (
             not leaked
         ), f"config check + smoke leaked optional SDKs: {sorted(leaked)}"
+
+
+def test_sample_config_smoke_with_storage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``smoke --config <sample-sqlite>`` passes against a concrete DB path.
+
+    The sample config's storage path placeholder is replaced with a
+    temp SQLite file; the same delivered-evidence contract applies and
+    the report points at the operator-chosen database.
+    """
+    stdout_buf = io.StringIO()
+    with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+        main(["config", "sample"])
+    sample = stdout_buf.getvalue()
+    # Derive a SQLite variant of the sample config with a concrete DB path.
+    db_path = str(tmp_path / "sample-smoke.db")
+    path_target = "path: '{state}/medre.sqlite'"
+    assert (
+        sample.count(path_target) >= 1
+    ), f"Expected at least one '{path_target}' in sample config"
+    sqlite_sample = sample.replace(
+        path_target,
+        f"path: '{db_path}'",
+        1,
+    )
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "proof-home"))
+    cfg_path = tmp_path / "sample_sqlite.yaml"
+    cfg_path.write_text(sqlite_sample)
+
+    stdout_buf2 = io.StringIO()
+    stderr_buf2 = io.StringIO()
+    with redirect_stdout(stdout_buf2), redirect_stderr(stderr_buf2):
+        with pytest.raises(SystemExit) as exc_info:
+            main(
+                [
+                    "smoke",
+                    "--config",
+                    str(cfg_path),
+                    "--json",
+                ]
+            )
+    assert exc_info.value.code == 0, stderr_buf2.getvalue()
+    report = json.loads(stdout_buf2.getvalue())
+    assert report["status"] == "passed", report.get("fail_reasons")
+    assert report["storage_backend"] == "sqlite"
+    assert str(report["storage_path"]) == db_path
 
 
 # ===================================================================

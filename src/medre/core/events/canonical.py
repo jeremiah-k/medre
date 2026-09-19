@@ -186,7 +186,10 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     Attributes
     ----------
     sequence:
-        Monotonically increasing sequence number within the delivery plan.
+        Storage-assigned monotonically increasing append sequence.  Current
+        delivery outcome is selected by the greatest sequence within one
+        logical delivery lineage; attempt numbers describe lineage, not
+        append recency.
     receipt_id:
         Unique identifier for this receipt record.
     event_id:

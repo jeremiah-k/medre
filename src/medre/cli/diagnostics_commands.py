@@ -59,11 +59,11 @@ def _diagnostics(config_path: str | None, *, output_format: str = "json") -> Non
 
     try:
         config, source, paths = load_config(config_path)
+        # Env overrides share the config-error boundary (see run command).
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
-
-    config = apply_env_overrides(config, paths)
 
     # Check for enabled adapters *before* building runtime.
     enabled_adapters = config.adapters.all_enabled()
@@ -196,11 +196,11 @@ async def _diagnostics_refresh(
     """
     try:
         config, source, paths = load_config(config_path)
+        # Env overrides share the config-error boundary (see run command).
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
-
-    config = apply_env_overrides(config, paths)
 
     # Check for enabled adapters *before* building runtime.
     enabled_adapters = config.adapters.all_enabled()

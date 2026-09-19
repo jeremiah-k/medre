@@ -21,6 +21,7 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.errors import ConfigValidationError
+from medre.config.identifiers import adapter_id_problem
 from medre.config.routes import RouteConfigSet
 
 _logger = logging.getLogger(__name__)
@@ -527,18 +528,38 @@ class AdapterConfigSet:
 
         Checks performed:
 
+        * **Adapter identifier contract** — every ``adapter_id`` (and thus
+          every instance-name default) must satisfy
+          :func:`medre.config.identifiers.adapter_id_problem` returning
+          ``None``: non-empty, no separators/whitespace/NUL, no dot-only
+          segments, portable length, and at least one alphanumeric
+          character so the derived environment token is never empty.
+          This is what keeps the identifier usable as the per-adapter
+          state-directory component.
         * **Duplicate adapter IDs** — no two adapters (even across
           different transports) may share the same ``adapter_id``.
           The ``adapter_id`` determines per-adapter state directories
           and runtime identity, so duplicates would cause path conflicts.
+        * **Environment-token collisions** — no two adapters (even across
+          different transports) may normalize to the same
+          ``MEDRE_ADAPTER__<TOKEN>`` token, because instance-scoped
+          environment overrides could not address them unambiguously.
 
         Raises
         ------
         ConfigValidationError
             If a validation rule is violated.
         """
-        # -- Duplicate adapter IDs across all transports ----------------------
+        # Local import: medre.config.env imports this module at top level,
+        # so the token derivation must be pulled in lazily.  This keeps a
+        # single token convention instead of a second normalizer here.
+        from medre.config.env import normalize_adapter_id
+
+        # -- Identifier contract (every adapter, before cross-checks) --------
         seen: dict[str, tuple[str, str]] = {}  # adapter_id → (transport, instance_name)
+        tokens: dict[str, tuple[str, str]] = (
+            {}
+        )  # env token → (transport, instance_name)
         for transport, group in (
             ("matrix", self.matrix),
             ("meshtastic", self.meshtastic),
@@ -547,18 +568,51 @@ class AdapterConfigSet:
         ):
             for instance_name, rtc in group.items():
                 aid = rtc.adapter_id
+                section = f"adapters.{transport}.{instance_name}"
+                instance_problem = adapter_id_problem(instance_name)
+                if instance_problem is not None:
+                    raise ConfigValidationError(
+                        f"{section}: invalid adapter instance name: "
+                        f"{instance_problem}.",
+                        transport=transport,
+                        adapter_id=instance_name,
+                        section_path=section,
+                    )
+                problem = adapter_id_problem(aid)
+                if problem is not None:
+                    raise ConfigValidationError(
+                        f"{section}: {problem}.",
+                        transport=transport,
+                        adapter_id=aid,
+                        section_path=section,
+                    )
+                # -- Duplicate adapter IDs across all transports --------------
                 if aid in seen:
                     prev_transport, prev_name = seen[aid]
-                    section = f"adapters.{transport}.{instance_name}"
                     raise ConfigValidationError(
                         f"Duplicate adapter: {transport}.{aid} "
-                        f"(also defined as {prev_transport}.{aid}). "
+                        f"(also defined as {prev_transport}.{prev_name}). "
                         f"Adapter IDs must be unique across all transports.",
                         transport=transport,
                         adapter_id=aid,
                         section_path=section,
                     )
                 seen[aid] = (transport, instance_name)
+                # -- Environment-token collisions across all transports -------
+                token = normalize_adapter_id(aid)
+                if token in tokens:
+                    prev_transport, prev_name = tokens[token]
+                    raise ConfigValidationError(
+                        f"Adapter env token collision for {token}: "
+                        f"{transport}.{instance_name} (adapter_id={aid!r}) "
+                        f"and {prev_transport}.{prev_name} both normalize "
+                        f"to the same MEDRE_ADAPTER__{token} token. "
+                        f"Rename one adapter_id.",
+                        transport=transport,
+                        adapter_id=aid,
+                        section_path=section,
+                    )
+                tokens[token] = (transport, instance_name)
 
 
 # ---------------------------------------------------------------------------

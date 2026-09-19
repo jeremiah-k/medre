@@ -101,9 +101,17 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 - No startup backlog suppression (intentionally absent: MeshCore has no
   store-and-forward).
 - Sender identity is a 6-byte pubkey prefix (not globally unique).
-- The inbound `native_message_id` is derived from the packet's
-  `sender_timestamp` (second resolution), not from a protocol-guaranteed
-  unique ID; high-volume channels can collide within the same second.
+- Received MeshCore payloads carry no native message identifier — only a
+  sender-assigned `sender_timestamp` with one-second resolution (the firmware
+  itself relies on timestamp + text + sender to make the radio packet hash
+  unique). MEDRE therefore derives the inbound `native_message_id` as a
+  deterministic SHA-256 digest over the identity-bearing fields (direct flag,
+  sender, channel, timestamp, sub-type, text); the digest — not the timestamp —
+  is the durable dedup identity, so distinct same-second messages survive
+  admission. Remaining ambiguity: two distinct messages identical in all of
+  those fields are indistinguishable on the wire and are treated as one
+  retransmission; MEDRE does not claim exactly-once separation for them.
+  Packets without `sender_timestamp` claim no native identity at all.
 
 ### 2.4 LXMF
 
@@ -123,6 +131,21 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 - Reticulum exposes no transport-down event, so there is no proactive
   reconnect: a lost transport is first noticed when an outbound send fails,
   and recovery relies on that send's bounded local retry.
+- Adapter health is local-scope only: `health_check()` reflects the
+  MEDRE-owned session/router lifecycle (`healthy` only while the local
+  router is connected and running, `failed` when it is missing or torn
+  down, `unknown` when not started). The pinned SDKs expose no supported
+  peer-liveness API and MEDRE never probes merely to answer health, so
+  `diagnostics()` reports `peer_reachability="unknown"` explicitly and
+  separately; `healthy` is never a reachability claim.
+- Cross-instance relation preservation over the `0xFD`
+  (`FIELD_CUSTOM_META`) MEDRE envelope has a reproducible local
+  two-process regression harness
+  (`tests/integration/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`,
+  loopback Reticulum `UDPInterface` pair only). Its result on the
+  current tree is pending the integrated gate run, and it does not
+  constitute external multi-hop, live-hardware, or third-party
+  interoperability evidence.
 
 ## 3. Fire-and-Forget Model
 

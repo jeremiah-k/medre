@@ -62,6 +62,7 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.errors import ConfigValidationError
+from medre.config.identifiers import adapter_id_problem
 from medre.config.model import (
     LxmfRuntimeConfig,
     MatrixRuntimeConfig,
@@ -70,12 +71,12 @@ from medre.config.model import (
     RetryConfig,
     RuntimeConfig,
 )
+from medre.config.routes import RouteConfig, RouteConfigSet
+from medre.core.observability.log_levels import VALID_LEVEL_NAMES
 from medre.core.observability.sanitization import (
     REDACTED_TOKEN,
     SECRET_FIELD_TOKENS,
 )
-from medre.core.observability.log_levels import VALID_LEVEL_NAMES
-from medre.config.routes import RouteConfig, RouteConfigSet
 
 __all__ = [
     "RETRY_ENV_PREFIX",
@@ -364,7 +365,12 @@ def normalize_adapter_id(adapter_id: str) -> str:
         matrix-primary → MATRIX_PRIMARY
         matrix_primary → MATRIX_PRIMARY
         radio.a        → RADIO_A
-        meshcore/tbeam → MESHCORE_TBEAM
+        radio-a        → RADIO_A (token collision with radio.a — rejected
+                        at validation time, not silently merged)
+
+    Note that valid configured adapter IDs are already restricted by
+    :mod:`medre.config.identifiers`; this function only derives the token,
+    it does not validate the identifier.
     """
     token = re.sub(r"[^a-zA-Z0-9]", "_", adapter_id)
     token = re.sub(r"_+", "_", token)
@@ -1074,11 +1080,18 @@ def apply_instance_env_overrides(
         config_cls, runtime_cls = _TRANSPORT_REGISTRY[transport]
         valid_fields = _valid_fields_for_transport(transport)
 
-        # Determine adapter_id (explicit or default).
+        # Determine adapter_id (explicit or default).  The explicit value is
+        # used verbatim — never silently stripped or renamed — and both
+        # sources must satisfy the configured-identifier contract so the
+        # derived state directory is safe on every host.
+        id_env_name = f"MEDRE_ADAPTER__{token}__ADAPTER_ID"
         if "adapter_id" in field_map:
-            adapter_id = field_map["adapter_id"].raw_value.strip()
+            adapter_id = field_map["adapter_id"].raw_value
         else:
             adapter_id = token.lower().replace("_", "-")
+        id_problem = adapter_id_problem(adapter_id)
+        if id_problem is not None:
+            raise ConfigValidationError(f"{id_env_name}: {id_problem}.")
 
         # Determine enabled (defaults to True).
         enabled = True
@@ -1179,6 +1192,11 @@ def apply_instance_env_overrides(
         meshcore=new_meshcore,
         lxmf=new_lxmf,
     )
+
+    # Re-run the full configured-identifier validation on the merged set so
+    # the post-override configuration obeys exactly the same contract as a
+    # YAML-only load (invalid identifiers, duplicates, token collisions).
+    new_adapters.validate()
 
     return dataclasses.replace(config, adapters=new_adapters)
 
@@ -1482,9 +1500,7 @@ def apply_env_overrides(
                 f"{', '.join(sorted(VALID_LEVEL_NAMES))}, "
                 f"got {env.log_level!r}"
             )
-        new_logging = dataclasses.replace(
-            config.logging, level=normalized_level
-        )
+        new_logging = dataclasses.replace(config.logging, level=normalized_level)
 
     new_storage = config.storage
     if env.db_path is not None:

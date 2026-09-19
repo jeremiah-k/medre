@@ -2,10 +2,10 @@
 
 Validates the three implemented hardening checks (G1–G3):
 
-* **G1** — MeshCore: inbound dedup by native identity + content (bounded
-  LRU ``OrderedDict``).  Exact replays suppressed; distinct payloads with
-  reused identity are processed.  Dedup is skipped when the classifier
-  reports ``packet_id is None`` (missing ``sender_timestamp``).
+* **G1** — MeshCore: inbound dedup by the MEDRE-derived message identity
+  (bounded LRU ``OrderedDict``).  Exact replays suppressed; distinct
+  payloads with a reused sender timestamp are processed.  Dedup is skipped when the
+  classifier reports ``packet_id is None`` (missing ``sender_timestamp``).
 * **G2** — LXMF: inbound dedup by ``message_id`` + content (bounded LRU
   ``OrderedDict``).  Same LRU hit-refresh semantics as MeshCore.
 * **G3** — MeshCore / LXMF: ``_on_message`` / ``_on_packet`` cannot create
@@ -182,9 +182,10 @@ async def test_meshcore_on_message_drops_after_started_false():
 async def test_meshcore_simulate_inbound_deduplicates_identical_packets():
     """G1: Sending the same MeshCore packet twice must publish only once.
 
-    The dedup key is ``(sender_id, packet_id, channel_index, text)``.
-    Exact native replays are suppressed; distinct payloads with a reused
-    packet_id are both processed.
+    The dedup key is the MEDRE-derived message identity covering
+    sender, channel, sender_timestamp, txt_type, and text.  Exact
+    native replays are suppressed; distinct payloads reusing the same
+    sender_timestamp are both processed.
     """
     config = MeshCoreConfig(adapter_id=_unique_id("mc"), connection_type="fake")
     adapter = MeshCoreAdapter(config)

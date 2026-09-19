@@ -388,9 +388,7 @@ class TestCoreOverrides:
         result = apply_env_overrides(base)
         assert result.logging.level == "DEBUG"
 
-    def test_log_level_invalid_raises(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_log_level_invalid_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Garbage log level raises ConfigValidationError naming logging.level."""
         monkeypatch.setenv("MEDRE_LOG_LEVEL", "garbage")
         base = _make_base_config()
@@ -429,7 +427,7 @@ class TestNormalizeAdapterId:
             ("matrix-primary", "MATRIX_PRIMARY"),
             ("matrix_primary", "MATRIX_PRIMARY"),
             ("radio.a", "RADIO_A"),
-            ("meshcore/tbeam", "MESHCORE_TBEAM"),
+            ("meshcore-tbeam", "MESHCORE_TBEAM"),
             ("lxmf_receiver", "LXMF_RECEIVER"),
             ("simple", "SIMPLE"),
             ("already_upper", "ALREADY_UPPER"),
@@ -808,9 +806,7 @@ class TestProvenanceAndRedaction:
             "AUTH",
             "CREDENTIAL",
         ):
-            assert (
-                redacted[f"MEDRE_ADAPTER__FROM_TOML__{field_name}"] == "[REDACTED]"
-            )
+            assert redacted[f"MEDRE_ADAPTER__FROM_TOML__{field_name}"] == "[REDACTED]"
 
     def test_homeserver_not_redacted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Non-secret fields remain visible."""
@@ -891,9 +887,7 @@ class TestProvenanceAndRedaction:
         )
         env = MedreEnvConfig.from_environ()
         redacted = dict(env.provenance.redacted_items())
-        assert (
-            redacted["MEDRE_ADAPTER__LXMF_RECEIVER__identity_path"] == "[REDACTED]"
-        )
+        assert redacted["MEDRE_ADAPTER__LXMF_RECEIVER__identity_path"] == "[REDACTED]"
 
     def test_homeserver_host_port_not_redacted(
         self, monkeypatch: pytest.MonkeyPatch
@@ -937,9 +931,7 @@ class TestProvenanceAndRedaction:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Field-name tokenization matches secret *words*, not substrings."""
-        monkeypatch.setenv(
-            f"MEDRE_ADAPTER__FROM_TOML__{field_name}", "value-to-redact"
-        )
+        monkeypatch.setenv(f"MEDRE_ADAPTER__FROM_TOML__{field_name}", "value-to-redact")
         env = MedreEnvConfig.from_environ()
         redacted = dict(env.provenance.redacted_items())
         actual = redacted[f"MEDRE_ADAPTER__FROM_TOML__{field_name}"]

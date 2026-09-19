@@ -12,15 +12,12 @@ See also: [architecture.md](architecture.md), [adapter-runtime.md](adapter-runti
 
 The configuration system lives under `medre.config`:
 
-| Module      | Purpose                                                                                                            |
-| ----------- | ------------------------------------------------------------------------------------------------------------------ |
-| `paths.py`  | XDG-compatible path resolution with `MEDRE_HOME` single-directory override                                         |
-| `model.py`  | Typed frozen-dataclass configuration models                                                                        |
-| `errors.py` | Configuration error hierarchy (`ConfigError` -> `ConfigNotFoundError`, `ConfigValidationError`, `ConfigFileError`) |
-| `loader.py` | YAML file loader with priority search order                                                                        |
-| `env.py`    | `MEDRE_*` environment variable override layer                                                                      |
-| `sample.py` | Sample config generator (`medre config sample`)                                                                    |
-| `routes.py` | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)                |
+| Module           | Purpose                                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `paths.py`       | XDG-compatible path resolution with `MEDRE_HOME` single-directory override                           |
+| `identifiers.py` | Authoritative configured adapter identifier contract (shared by loader, env layer, and path defense) |
+| `model.py`       | Typed frozen-dataclass configuration models                                                          |
+| `routes.py`      | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)  |
 
 Per-transport config dataclasses live in `medre.config.adapters.*`:
 `MatrixConfig`, `MeshtasticConfig`, `MeshCoreConfig`, `LxmfConfig`.
@@ -186,6 +183,56 @@ Notes on fields whose YAML surface is non-obvious:
   human-readable attribution only — see §3.4 and
   [routing-delivery.md §17.5.2](routing-delivery.md#1752-origin_label) for
   the precedence chain and the full list of properties.
+
+#### 3.3.1 Adapter Identifier Contract
+
+The _configured adapter identifier_ is the identity shared by four
+configuration seams: the `adapters.<transport>.<instance_name>` mapping
+key, the explicit `adapter_id` value that overrides it, the `ADAPTER_ID`
+value accepted by env-first adapter creation, and the per-adapter state
+directory component derived from it (`{state}/adapters/<adapter_id>/`).
+One contract governs all four: `medre.config.identifiers`.
+
+- The identifier MUST start with a letter or digit; the remaining
+  characters MUST be letters, digits, dots (`.`), hyphens (`-`), or
+  underscores (`_`), and it MUST be at most 255 characters.
+- Consequently the loader rejects empty or whitespace-only identifiers,
+  path separators (`/` and `\`) on **every** host (not only where
+  `os.sep` matches), NUL, dot-only segments (`.`/`..`/`...`),
+  drive-letter-like components (`C:`), trailing periods, Windows DOS device
+  basenames (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`,
+  including extensions), and identifiers whose environment token would be
+  empty — every accepted identifier contains
+  at least one alphanumeric character, so
+  `normalize_adapter_id()` can never produce an empty token.
+- Identifiers are never silently stripped, renamed, or folded together.
+- Two adapters MUST NOT share an `adapter_id`, and — because
+  instance-scoped env overrides address adapters by normalized token —
+  two adapters (in any transports) MUST NOT normalize to the same
+  `MEDRE_ADAPTER__<TOKEN>` token (e.g. `radio.a` and `radio_a`, or
+  `Main` and `main`). Both rules are enforced by
+  `AdapterConfigSet.validate()` at load time, before any state directory
+  is created; the env layer re-validates the merged set after overrides.
+- `MedrePaths.adapter_state_dir()` re-applies the same contract as
+  defense in depth for direct callers, raising `MedrePathsError` before
+  any filesystem mutation.
+
+The contract is deliberately narrow. It applies **only** to configured
+adapter identifiers:
+
+- Route IDs keep their own established contract (alphanumerics,
+  underscores, hyphens; see §3.4 and `routing-config.schema.json`).
+- Transport names are supported-kind values, not identifiers.
+- `origin_label` and other display fields remain free prose.
+- Native transport identities — Matrix MXIDs (`@user:server`) and room
+  IDs (`!room:server`), MeshCore node numbers and public-key prefixes,
+  hashes — never pass through this restriction.
+
+The JSON schemas restrict the same serialized locations (instance-name
+mapping keys via `propertyNames`, `adapter_id` via `pattern` +
+`maxLength`), but cannot express cross-field rules; cross-transport
+uniqueness and env-token collisions are enforced by the loader and env
+layer, not by the schemas.
 
 ### 3.4 Routes and Channel Mapping
 
@@ -389,15 +436,23 @@ frozen instance via `dataclasses.replace()`.
 | `MEDRE_DB_PATH`   | `config.storage.path`  |
 | `MEDRE_LOG_LEVEL` | `config.logging.level` |
 
-### 5.2 Adapter Overrides
+### 5.2 Adapter Overrides and Env-First Creation
 
 Adapter overrides target configured adapter instances by normalized adapter
 token using the pattern `MEDRE_ADAPTER__<TOKEN>__<FIELD>`. The token is derived
 from the `adapter_id` by uppercasing and replacing non-alphanumeric
-characters with underscores.
+characters with underscores. Adapter IDs that normalize to the same token
+are rejected (§3.3.1), so a token always addresses exactly one adapter.
 
-Env overrides do not create virtual adapter instances; the target adapter MUST
-already exist in the YAML config.
+A token with no matching YAML adapter is an error unless it carries a
+`TRANSPORT` field, in which case the adapter is created from environment
+variables alone (env-first creation). The optional `ADAPTER_ID` value of a
+created adapter must satisfy the adapter identifier contract (§3.3.1) and is
+used verbatim — it is never silently stripped or renamed; by default the
+identifier is derived from the token (`RADIO_A` → `radio-a`). The merged
+configuration is re-validated after overrides, so `medre config check`
+(which applies env overrides exactly like `medre run`) gates the same
+configuration the runtime will build.
 
 Examples:
 
