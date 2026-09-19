@@ -521,41 +521,32 @@ class OutboxManager:
             _queued_source: str = "live"
             _queued_replay_run_id: str | None = None
             _queued_parent_receipt_id: str | None = None
-            if record.outbox_id is not None:
-                try:
-                    _all_receipts = await self._storage.list_receipts_for_event(
-                        record.event_id,
-                    )
-                    for _r in _all_receipts:
-                        if (
-                            _r.outbox_id == record.outbox_id
-                            and _r.attempt_number == _attempt_number
-                            and _r.status == "queued"
-                        ):
-                            _queued_source = _r.source
-                            _queued_replay_run_id = _r.replay_run_id
-                            _queued_parent_receipt_id = _r.parent_receipt_id
-                            break
-                except Exception:
-                    self._log.debug(
-                        "Could not recover queued-receipt lineage for "
-                        "outbox_id=%s; defaulting to source=live",
-                        record.outbox_id,
-                    )
+            try:
+                _all_receipts = await self._storage.list_receipts_for_event(
+                    record.event_id,
+                )
+                for _r in _all_receipts:
+                    if (
+                        _r.outbox_id == record.outbox_id
+                        and _r.attempt_number == _attempt_number
+                        and _r.status == "queued"
+                    ):
+                        _queued_source = _r.source
+                        _queued_replay_run_id = _r.replay_run_id
+                        _queued_parent_receipt_id = _r.parent_receipt_id
+                        break
+            except Exception:
+                self._log.debug(
+                    "Could not recover queued-receipt lineage for "
+                    "outbox_id=%s; defaulting to source=live",
+                    record.outbox_id,
+                )
 
             # Enrich receipt fields from the validated outbox item when
             # available — the outbox row is the authoritative source for
             # delivery_plan_id, target_channel, and route_id.
-            _enriched_plan_id = (
-                existing_item.delivery_plan_id
-                if existing_item is not None
-                else (record.delivery_plan_id or "")
-            )
-            _enriched_channel = (
-                existing_item.target_channel
-                if existing_item is not None
-                else record.native_channel_id
-            )
+            _enriched_plan_id = existing_item.delivery_plan_id
+            _enriched_channel = existing_item.target_channel
 
             # Create the terminal receipt.
             receipt = build_delivery_receipt(
@@ -563,7 +554,7 @@ class OutboxManager:
                 delivery_plan_id=_enriched_plan_id,
                 target_adapter=record.adapter,
                 target_channel=_enriched_channel,
-                route_id=(existing_item.route_id if existing_item is not None else ""),
+                route_id=existing_item.route_id,
                 status=receipt_status,
                 error=error_msg,
                 failure_kind=failure_kind,

@@ -201,8 +201,8 @@ class TestSchemaVersionDocConsistency:
     def test_storage_md_mentions_version_1(self) -> None:
         """storage.md references schema version 1."""
         content = _STORAGE_SPEC.read_text()
-        # Look for schema version reference
-        assert "schema_version" in content or "schema version" in content.lower()
+        assert re.search(r"schema version is frozen at `1`", content, re.IGNORECASE)
+        assert "schema_version = 1" in content
 
 
 # ===================================================================

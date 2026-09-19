@@ -737,10 +737,14 @@ Convergence Findings. Normative definitions live in
 
 Symptom-driven shortcuts for the common post-crash cases:
 
-- **Terminal/non-terminal mismatch** (`terminal_receipt_nonterminal_outbox`,
-  `terminal_outbox_nonterminal_receipt`): determine which record is stale;
-  timing artifacts converge on their own via reclaim, persistent rows need
-  operator attention.
+- **`terminal_receipt_nonterminal_outbox`**: the receipt is terminal while the
+  outbox is still non-terminal. If that outbox row remains eligible for reclaim,
+  restart/worker recovery may converge it; if the finding persists, inspect the
+  outbox lease/status and the worker that should advance it.
+- **`terminal_outbox_nonterminal_receipt`**: the outbox is already terminal and
+  will not be reclaimed. Inspect the complete receipt chain and terminal callback
+  evidence directly; treat a persistent mismatch as missing or contradictory
+  receipt evidence rather than waiting for reclaim.
 - **`retry_wait_missing_next_retry`**: the scheduler cannot retry; replay the
   event or correct the metadata.
 - **`stalled_delivery_plan`**: check whether the claiming worker is alive;

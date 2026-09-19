@@ -497,9 +497,11 @@ What loop prevention does not cover:
 Canonical events, delivery receipts, native refs, and the delivery outbox
 persist in local SQLite (`{state}/medre.sqlite`); Matrix E2EE keys and LXMF
 identities persist under `{state}/adapters/`. In-flight deliveries without an
-outbox row are lost on termination; rows with a persisted outbox item survive
-and are reclaimed after restart. Runtime counters, RouteStats, gauges, and
-the runtime event buffer reset on startup (capture the buffer with
+outbox row are lost on termination. Non-terminal outbox rows survive restart;
+`pending`/`retry_wait` work is claimable when due, expired `in_progress` work and
+stale `queued` work are reclaimed under their lease/grace rules. Terminal outbox
+rows persist as history and are never reclaimed. Runtime counters, RouteStats,
+gauges, and the runtime event buffer reset on startup (capture the buffer with
 `--snapshot-on-shutdown PATH`).
 
 The canonical crash-recovery procedure, the survives/lost breakdown, and the

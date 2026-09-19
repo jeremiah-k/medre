@@ -216,11 +216,11 @@ def _build_app(config: RuntimeConfig, paths: MedrePaths) -> MedreApp:
 # ===================================================================
 
 
-class TestTerminalSemanticsMatchAudit:
+class TestTerminalSemanticsMatchSpec:
     """AdapterState terminal semantics match the spec transition table."""
 
     def test_eight_states_exist(self) -> None:
-        """Audit documents exactly eight AdapterState members."""
+        """Spec documents exactly eight AdapterState members."""
         assert len(AdapterState) == 8
 
     def test_documented_states_present(self) -> None:

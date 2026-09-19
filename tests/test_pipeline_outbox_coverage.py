@@ -1,7 +1,7 @@
 """Targeted uncovered-line coverage tests for OutboxManager.
 
 Covers destination metadata, storage exception handling, lease renewal,
-cancel renewal, unknown terminal outcomes, attempt-number fallback,
+cancel renewal, unknown terminal outcomes, attempt-number authority,
 and cancelled/abandoned outbox transitions.
 """
 
@@ -342,7 +342,7 @@ class TestUnknownTerminalOutcome:
         assert item.status == "in_progress"
 
 
-class TestAttemptNumberFallback:
+class TestAttemptNumberAuthority:
     """The terminal receipt carries the validated outbox row's
     attempt_number (the row is authoritative), not the callback's own
     numbering.

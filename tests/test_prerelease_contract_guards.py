@@ -177,6 +177,12 @@ def test_transport_attribution_reads_versioned_namespaces_only(
         and call.func.attr == "get"
         for call in calls
     ), f"{transport} attribution must not bypass {accessor} with native_data.get(...)"
+    assert not any(
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "native_data"
+        for node in ast.walk(tree)
+    ), f"{transport} attribution must not bypass {accessor} with native_data[...]"
 
 
 @pytest.mark.parametrize("transport", sorted(_NATIVE_METADATA_VERSION_SOURCES))

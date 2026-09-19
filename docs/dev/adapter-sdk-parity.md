@@ -1,16 +1,16 @@
 # Adapter SDK Parity
 
 This reference documents how MEDRE stays honest against the exact adapter
-dependency pins. The dependency declarations in `pyproject.toml` and the
-lockfile are the version authority; this document deliberately does not
-repeat version tables or locked hashes. Dedicated SDK-contract test tiers
+dependency pins. `pyproject.toml` is the version authority; the lockfile records
+the resolved artifacts. This document deliberately does not repeat current
+version tables or locked hashes. Dedicated SDK-contract test tiers
 import the real pinned packages so fake adapters cannot mask incompatible
 constructor signatures, enum values, protobuf fields, or lifecycle behavior.
 
 Each transport has an exact-pin optional-dependency group (`matrix`, `lxmf`,
 `meshtastic`, `meshcore`). The `lxmf` extra pins Reticulum explicitly in
 addition to `lxmf` itself, keeping installed-SDK contract CI aligned with the
-lock instead of resolving a newer transitive Reticulum release.
+declared dependency set instead of resolving a newer transitive Reticulum release.
 
 ## Matrix
 
@@ -56,11 +56,6 @@ MEDRE instead passes `stamp_cost` directly to
 newly created local destination. Zero remains the unset `None` value, and
 MEDRE now rejects configured costs above `254` instead of allowing the SDK to
 ignore them.
-
-The `lxmf_sdk` tier executes the real pinned LXMF constructor with real
-`RNS.Destination` instances and verifies that an arbitrary object is rejected.
-This is deliberately an installed-SDK contract rather than another permissive
-fake.
 
 ### Identity and destination behavior
 
@@ -214,8 +209,8 @@ tests read the exact pins from the selected optional-dependency group and verify
 the installed distributions match them; they do not duplicate version literals.
 This keeps Renovate pin bumps meaningful: CI fails for a consumed API/behavior
 change or a dependency-resolution mismatch, not merely because the expected
-version string changed. Historical pin tables in this audit remain point-in-time
-evidence for the original parity review.
+version string changed. Historical source-version references in this document
+remain point-in-time evidence for the original parity review.
 
 The `adapter-sdk-contract` job installs one optional adapter extra at a time and
 runs only its contract marker across Python 3.11, 3.12, 3.13, and 3.14:
