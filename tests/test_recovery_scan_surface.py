@@ -222,13 +222,14 @@ def test_recovery_outputs_sanitize_persisted_receipt_errors(tmp_path: Path) -> N
     )
     _seed(db_path, [event], [receipt])
 
-    scan = _run_cli_json("recover", "--storage-path", str(db_path))
+    scan = _run_cli_json("recover", "--storage-path", str(db_path), "--json")
     event_runbook = _run_cli_json(
         "recover",
         "--event",
         event.event_id,
         "--storage-path",
         str(db_path),
+        "--json",
     )
     scan_text = json.dumps(scan, sort_keys=True)
     event_text = json.dumps(event_runbook, sort_keys=True)
