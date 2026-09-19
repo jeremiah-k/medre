@@ -108,6 +108,47 @@ def test_evidence_levels_defines_shared_status_labels() -> None:
         )
 
 
+def test_local_integration_historical_evidence_is_preserved() -> None:
+    """Recorded MeshCore/LXMF local-integration evidence keeps its provenance."""
+    text = _read(_READINESS)
+
+    matrix_marker = "## 1. Capability Matrix"
+    definitions_marker = "## 2. Status Definitions"
+    assert matrix_marker in text
+    assert definitions_marker in text
+    matrix = text.split(matrix_marker, 1)[1].split(definitions_marker, 1)[0]
+    rows = [
+        line
+        for line in matrix.splitlines()
+        if line.startswith("| Deterministic local integration")
+    ]
+    assert len(rows) == 1, "capability matrix must have exactly one integration row"
+    cells = [cell.strip() for cell in rows[0].strip("|").split("|")]
+    assert len(cells) == 5
+    assert cells[0] == "Deterministic local integration"
+    assert cells[3] == "local-integration-validated"
+    assert cells[4] == "local-integration-validated"
+
+    historical_marker = "### 6.1 Recorded historical evidence (pre-consolidation tree)"
+    not_executed_marker = "### 6.2 Not-executed gates (no evidence at any tier)"
+    future_marker = "### 6.3 Future release gates (not required for prerelease)"
+    assert historical_marker in text
+    assert not_executed_marker in text
+    assert future_marker in text
+    historical = text.split(historical_marker, 1)[1].split(not_executed_marker, 1)[0]
+    not_executed = text.split(not_executed_marker, 1)[1].split(future_marker, 1)[0]
+
+    assert "| MeshCore deterministic real-SDK TCP local integration" in historical
+    assert "| LXMF process-isolated real RNS/LXMRouter local integration" in historical
+    assert "Recorded date: 2026-08-21" in historical
+    assert "`ba2bceffad6810855e1858d202aee6039ac49824`" in historical
+    assert "Workflow run: `32529498484`" in historical
+    assert "`409762d0cbba1d46aab1fafb60449eca0370ae00`" in historical
+    assert "`5c8a67e922612f18ab01deefaeeb39c429b4df02`" in historical
+    assert "MeshCore deterministic local integration" not in not_executed
+    assert "LXMF process-isolated local integration" not in not_executed
+
+
 # ===========================================================================
 # 3. No alpha/beta test filenames
 # ===========================================================================
