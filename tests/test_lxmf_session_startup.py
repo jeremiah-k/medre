@@ -76,6 +76,29 @@ def _mock_rns_lxmf() -> tuple[MagicMock, MagicMock]:
     return mock_rns, mock_lxmf
 
 
+async def test_explicit_reticulum_config_dir_is_passed_to_sdk() -> None:
+    """An explicit per-instance config directory bypasses SDK discovery."""
+    mock_rns, mock_lxmf = _mock_rns_lxmf()
+    config = _make_config(connection_type="reticulum")
+    session = LxmfSession(
+        config=config,
+        adapter_id=config.adapter_id,
+        reticulum_config_dir="/tmp/medre-reticulum-instance",
+    )
+
+    with (
+        patch("medre.adapters.lxmf.session.HAS_LXMF", True),
+        patch(
+            "medre.adapters.lxmf.session._require_lxmf",
+            return_value=(mock_rns, mock_lxmf),
+        ),
+    ):
+        await session.start()
+
+    mock_rns.Reticulum.assert_called_once_with("/tmp/medre-reticulum-instance")
+    await session.stop()
+
+
 # ===================================================================
 # Identity load / create
 # ===================================================================

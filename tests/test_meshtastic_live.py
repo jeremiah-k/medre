@@ -36,7 +36,7 @@ via environment variables. Documentation invariants remain in the default suite.
 
    .. code-block:: bash
 
-       pip install mtjk
+       pip install -e ".[meshtastic]"
        pytest tests/test_meshtastic_live.py -m live -v
 
    Default ``pytest`` run (no live tests):
@@ -96,7 +96,7 @@ descriptive reason.
 
 **Dependency notes:**
 
-- Requires the ``mtjk`` package installed: ``pip install mtjk``
+- Requires the pinned ``mtjk`` package: ``pip install -e ".[meshtastic]"``
 - Import namespace is ``meshtastic`` (not ``mtjk``)
 - ``mtjk`` is a fork of the Meshtastic Python library maintained at
   ``github.com/jeremiah-k/mtjk``

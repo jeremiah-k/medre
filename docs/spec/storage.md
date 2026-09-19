@@ -1012,7 +1012,7 @@ runtime startup. A clean current marker skips that redundant full scan.
 
 ### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel)
 
-- Returns the latest receipt for the given triple.
+- Returns the latest receipt for the given triple by greatest durable append `sequence`; `attempt_number` does not override a later append.
 - `target_channel` is **REQUIRED** for precise lookup. When `None`, only NULL-channel receipts are considered.
 - Returns `None` when no receipt exists.
 
@@ -1054,6 +1054,43 @@ runtime startup. A clean current marker skips that redundant full scan.
 - `mark_outbox_dead_lettered`: Terminal transition to `dead_lettered`.
 - `release_outbox_claim`: Releases a claimed item back to `pending`.
 - `count_outbox_by_status`: Returns counts grouped by status.
+
+### 8.17 query_unresolved_deliveries(cursor, since_event_time, limit)
+
+Read-only, keyset-paginated scan over **currently-unresolved delivery
+outcomes**. A logical delivery is one
+`(event_id, delivery_plan_id, target_adapter, target_channel)` tuple with
+`NULL`/`''` channels grouped together (`COALESCE`). `event_id` is part of the
+key because plan IDs are not unique across events. A delivery is included when
+its current receipt by durable append `sequence` has status `failed` or
+`dead_lettered`.
+
+- Retry and executed-replay receipts continue the same delivery. A later
+  `sent`/`queued` receipt from live, retry, or executed replay supersedes an
+  earlier failure; a latest `queued` receipt is a new attempt in flight, not a
+  current failure.
+- Successes of a different channel, plan, event, or target never hide a
+  failure. `replay_run_id` is per-receipt provenance, not a lineage partition.
+- A historical failed receipt alone is never a current failure, and dry-run
+  replays append no receipt and therefore fabricate neither success nor failure.
+
+The SQLite query starts from unresolved receipt candidates and keeps only a
+candidate for which no later `sequence` exists in the same lineage. This avoids
+re-aggregating every receipt lineage for every page while preserving the same
+current-outcome semantics as the pure-Python resolver. Ordering is
+`receipt_sequence ASC` (oldest unresolved evidence first), with strict keyset
+continuation: `limit + 1` probing yields `has_more`/`next_cursor`; there is no
+`OFFSET` scan or unconditional global `COUNT`.
+
+Pages are a live view of append-only evidence, not a snapshot.
+`since_event_time` is an inclusive bound on the **canonical event timestamp**
+(`canonical_events.timestamp`), distinct from receipt creation time. Outbox
+rows joined by `outbox_id` may only enrich disposition/retryability fields; they
+are never acceptance evidence. `idx_receipts_lineage` is an optimization for
+the full lineage predicate when present. Read-only recovery remains correct on
+a database that has not yet been reopened read-write to create that index,
+using the existing event/sequence index for the correlated later-receipt check.
+`replay_run_id` remains receipt provenance and is not part of the lineage key.
 
 ## 9. Delivery Outbox Semantics
 

@@ -566,7 +566,8 @@ class TestMeshCoreNativeRefPersistence:
         assert event.source_native_ref is not None
         assert event.source_native_ref.adapter == "meshcore-native"
         assert event.source_native_ref.native_channel_id == "3"
-        assert event.source_native_ref.native_message_id == "99999"
+        assert event.source_native_ref.native_message_id != "99999"
+        assert event.source_native_ref.native_message_id.startswith("mc1-")
 
 
 # ===================================================================

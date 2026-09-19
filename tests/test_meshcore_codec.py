@@ -190,7 +190,12 @@ class TestMeshCoreCodecDecode:
 
 
 class TestMeshCoreCodecSourceNativeRef:
-    """source_native_ref population from sender_timestamp."""
+    """source_native_ref carries the MEDRE-derived message identity.
+
+    MeshCore provides no native message ID; the codec derives a
+    deterministic identity digest over the identity-bearing fields
+    (sender, channel, sender_timestamp, txt_type, text, direct flag).
+    """
 
     def test_decode_populates_source_native_ref(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())
@@ -199,7 +204,12 @@ class TestMeshCoreCodecSourceNativeRef:
         assert event.source_native_ref is not None
         assert event.source_native_ref.adapter == "meshcore-1"
         assert event.source_native_ref.native_channel_id == "0"
-        assert event.source_native_ref.native_message_id == "12345"
+        # The durable id is the derived identity, never the bare
+        # sender_timestamp (two same-second messages would collide).
+        mid = event.source_native_ref.native_message_id
+        assert mid != "12345"
+        assert mid.startswith("mc1-")
+        assert len(mid) == len("mc1-") + 64
 
     def test_decode_contact_dm_native_ref_no_channel(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())
@@ -208,7 +218,7 @@ class TestMeshCoreCodecSourceNativeRef:
         assert event.source_native_ref is not None
         assert event.source_native_ref.adapter == "meshcore-1"
         assert event.source_native_ref.native_channel_id is None
-        assert event.source_native_ref.native_message_id == "9999"
+        assert event.source_native_ref.native_message_id.startswith("mc1-")
 
     def test_decode_empty_packet_id_no_ref(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())
@@ -224,3 +234,30 @@ class TestMeshCoreCodecSourceNativeRef:
         assert event.source_channel_id == "5"
         assert event.source_native_ref is not None
         assert event.source_native_ref.native_channel_id == "5"
+
+
+def test_same_timestamp_distinct_text_distinct_ids() -> None:
+    codec = MeshCoreCodec("meshcore-1", _make_config())
+    first = codec.decode(_make_channel_packet(text="a", timestamp=700))
+    second = codec.decode(_make_channel_packet(text="b", timestamp=700))
+    assert first.source_native_ref is not None
+    assert second.source_native_ref is not None
+    assert (
+        first.source_native_ref.native_message_id
+        != second.source_native_ref.native_message_id
+    )
+
+
+def test_identity_deterministic_across_codec_instances() -> None:
+    first = MeshCoreCodec("meshcore-1", _make_config()).decode(
+        _make_channel_packet(timestamp=700)
+    )
+    second = MeshCoreCodec("meshcore-1", _make_config()).decode(
+        _make_channel_packet(timestamp=700)
+    )
+    assert first.source_native_ref is not None
+    assert second.source_native_ref is not None
+    assert (
+        first.source_native_ref.native_message_id
+        == second.source_native_ref.native_message_id
+    )

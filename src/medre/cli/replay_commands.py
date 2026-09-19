@@ -19,7 +19,7 @@ _BEST_EFFORT_WARNING = (
     "all adapter transports.  Replay receipts are distinguishable from "
     "live records by source='replay' and replay_run_id; however, "
     "traceability is NOT dedupe — duplicate-send risk remains.  "
-    "Use --dry-run first to preview."
+    "Use --mode dry_run first to preview."
 )
 
 
@@ -54,11 +54,11 @@ async def _replay(
     # Load config and build runtime (but do NOT start it).
     try:
         config, _source, paths = load_config(config_path)
+        # Env overrides share the config-error boundary (see run command).
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
-
-    config = apply_env_overrides(config, paths)
 
     builder = RuntimeBuilder(config, paths)
     try:

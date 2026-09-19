@@ -32,7 +32,24 @@ Storage-only evidence (receipts and outbox rows in SQLite) records what the runt
 | MeshCore   |  proven   |   proven    |     proven      | no setup |       not claimed        | not claimed |
 | LXMF       |  proven   |   proven    |     proven      | no setup |       not claimed        | not claimed |
 
-The table above is the authoritative per-transport, per-tier evidence matrix. "not claimed" means no evidence at that tier has been recorded. Docker validation demonstrates SDK/container integration. Docker validation is not live_service evidence. Docker validation is not hardware evidence. Conformance tests validate pipeline behavioral contracts using deterministic fixtures and real codec implementations. Conformance evidence applies to all transports equally.
+The table above is the authoritative per-transport, per-tier evidence matrix for
+the current tree. "not claimed" means no evidence at that tier has been recorded
+for the current tree. Docker validation demonstrates SDK/container integration.
+Docker validation is not live_service evidence. Docker validation is not hardware
+evidence. Conformance tests validate pipeline behavioral contracts using
+deterministic fixtures and real codec implementations. Conformance evidence
+applies to all transports equally.
+
+Two refinements keep this matrix honest. First, MeshCore and LXMF also run
+a deterministic local-integration tier — the pinned real SDK against a
+local loopback endpoint, exercised in CI
+([live-validation/meshcore.md](live-validation/meshcore.md),
+[live-validation/lxmf.md](live-validation/lxmf.md)). It proves SDK framing
+and adapter behavior, not RF propagation or external-peer reachability.
+Second, the matrix records current-tree claims only: dated historical
+records — the MeshCore BLE 3-way bridge (June 2026) and the Meshtastic
+serial CLI capture (May 2026) — are preserved on those transports'
+live-validation pages as history and are not re-claimed here.
 
 ## Quick Bundle Collection
 
@@ -667,25 +684,31 @@ MEDRE distinguishes three levels of real-endpoint validation. Each level validat
 | Live service | Network connectivity, protocol compliance, auth  | Hardware, RF behavior, physical device interaction          |
 | Hardware     | Physical radio operation, firmware, send/receive | Network federation, server-side behavior, multi-device mesh |
 
-Docker evidence is not hardware evidence. A Docker container running Synapse proves the Matrix SDK works; it does not prove the adapter can talk to a real homeserver over the internet. A physical Meshtastic radio connected via serial proves hardware interaction; it does not prove the Matrix integration.
+Docker evidence is not hardware evidence. A Docker container running Synapse
+proves the Matrix SDK works; it does not prove the adapter can talk to a real
+homeserver over the internet. A physical Meshtastic radio connected via serial
+proves hardware interaction; it does not prove the Matrix integration.
 
-No Matrix transport beyond Docker localhost has been validated. No Meshtastic, MeshCore, or LXMF hardware validation has been recorded. See "What Remains Unproven" below for the complete list.
+No Matrix transport beyond Docker localhost has been validated. No Meshtastic,
+MeshCore, or LXMF hardware validation is claimed for the current tree — the dated
+historical records on the live-validation pages are history, not current proof.
+See "What Remains Unproven" below for the complete list.
 
 ## What Remains Unproven
 
-| Capability                                     | Status     | Notes                                                         |
-| ---------------------------------------------- | ---------- | ------------------------------------------------------------- |
-| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only                        |
-| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No live hardware smoke test recorded                          |
-| Final delivery ACK / remote receipt            | Not proven | Radio is fire-and-forget; Matrix is server-level only         |
-| Replay deduplication                           | Not proven | Replay produces duplicates by design                          |
-| Active restart / supervision                   | Not proven | No per-adapter restart, no auto-remediation                   |
-| Background health polling                      | Not proven | Manual `--refresh-health` only                                |
-| Sustained throughput                           | Not proven | All tests are smoke tests, not load tests                     |
-| Network resilience / reconnection              | Not proven | No live failure/reconnect test                                |
-| Cross-instance loop prevention                 | Not proven | Loop prevention is local-process only                         |
-| Third-party Matrix inbound                     | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client |
-| Full cross-transport relay                     | Not proven | Bridge smoke routes real Matrix to fake outbound              |
+| Capability                                     | Status     | Notes                                                                                                                                                                                       |
+| ---------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live external Matrix (beyond Docker localhost) | Not proven | Docker tests use loopback Synapse only                                                                                                                                                      |
+| Real radio hardware (Meshtastic/MeshCore/LXMF) | Not proven | No current-tree hardware validation; dated history only (MeshCore BLE bridge June 2026, Meshtastic serial CLI capture May 2026). Meshtastic inbound live bridge test remains hardware-gated |
+| Final delivery ACK / remote receipt            | Not proven | Radio is fire-and-forget; Matrix is server-level only                                                                                                                                       |
+| Replay deduplication                           | Not proven | Replay produces duplicates by design                                                                                                                                                        |
+| Active restart / supervision                   | Not proven | No per-adapter restart, no auto-remediation                                                                                                                                                 |
+| Background health polling                      | Not proven | Manual `--refresh-health` only                                                                                                                                                              |
+| Sustained throughput                           | Not proven | All tests are smoke tests, not load tests                                                                                                                                                   |
+| Network resilience / reconnection              | Not proven | No live failure/reconnect test                                                                                                                                                              |
+| Cross-instance loop prevention                 | Not proven | Loop prevention is local-process only                                                                                                                                                       |
+| Third-party Matrix inbound                     | Not proven | Bridge smoke uses HTTP API sender, not a second Matrix client                                                                                                                               |
+| Full cross-transport relay                     | Not proven | Bridge smoke routes real Matrix to fake outbound                                                                                                                                            |
 
 ## Convergence Diagnostics
 

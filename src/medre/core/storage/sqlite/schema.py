@@ -230,6 +230,14 @@ CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
     ON delivery_receipts(replay_run_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_source
     ON delivery_receipts(source, replay_run_id);
+-- Lineage index for unresolved-delivery recovery scans: matches the
+-- correlated current-outcome predicate for (event, plan, adapter, channel),
+-- including the COALESCE normalization of NULL/'' channel values.
+-- replay_run_id is receipt provenance and is intentionally not part of the
+-- lineage key.
+CREATE INDEX IF NOT EXISTS idx_receipts_lineage
+    ON delivery_receipts(event_id, delivery_plan_id, target_adapter,
+                         COALESCE(target_channel, ''), sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_retry_due
     ON delivery_receipts(status, failure_kind, next_retry_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_parent_retry
@@ -448,9 +456,7 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
             ("resolved_target_event_id", "canonical_events", "event_id"),
         }
     ),
-    "delivery_outbox": frozenset(
-        {("event_id", "canonical_events", "event_id")}
-    ),
+    "delivery_outbox": frozenset({("event_id", "canonical_events", "event_id")}),
 }
 
 # Required table-level CHECK clauses.  Column/FK validation cannot detect an

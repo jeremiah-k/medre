@@ -44,22 +44,24 @@ passes its validators, and every route adapter reference resolves.
   `adapters`, `routes`, and `runtime.limits` must each be a mapping;
   transport groups and adapter instances must be mappings. Unknown transport
   groups (e.g. `adapters.matrixx`) are rejected.
+- **Adapter identifiers** — instance names and `adapter_id` values must
+  start with a letter or digit and contain only letters, digits, dots,
+  hyphens, and underscores (max 255 characters); duplicates across
+  transports and environment-token collisions (two IDs normalizing to the
+  same `MEDRE_ADAPTER__<TOKEN>`) are rejected here, before any state
+  directory is created. Environment overrides are applied exactly as
+  `medre run` applies them, so env-first adapters and env-var values are
+  checked by the same gate.
 - **Adapter shapes** — every adapter config runs its transport-specific
   `validate()` (e.g. `MatrixConfig.validate()` rejects a `homeserver` that
   does not start with `http://` or `https://`).
-- **Route adapter references** — every `source_adapters` / `dest_adapters`
-  entry must resolve to a configured adapter ID. Dangling references surface
-  here as validation errors, rather than passing and failing later at
-  `medre run` startup.
-- **Runtime limits** — `runtime.limits` range checks run via
-  `RuntimeLimits.validate()`.
 
 ### Exit codes
 
-| Code | Meaning                                                                                                       |
-| ---- | ------------------------------------------------------------------------------------------------------------- |
-| `0`  | Valid — loaded, parsed, and all validators passed.                                                            |
-| `2`  | Config error — YAML parse, unknown key, type/shape, adapter `validate()`, route ref, or limits-range failure. |
+| Code | Meaning                                                                                                                           |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | Valid — loaded, parsed, and all validators passed.                                                                                |
+| `2`  | Config error — YAML parse, unknown key, type/shape, adapter identifier, adapter `validate()`, route ref, or limits-range failure. |
 
 On error, MEDRE prints `Config error: <message>` to stderr — a single line,
 no traceback. Raw secrets are not echoed; diagnostics may include safe IDs, key names, type names, and `section_path` locations.
@@ -212,6 +214,33 @@ storage:
 | `path`    | string | `None`     | Database file path. Supports [path placeholders](#path-placeholders). Defaults to `{state}/medre.sqlite`. |
 
 MEDRE uses a single configured storage backend holding canonical events, delivery receipts, native references, replay state, and cross-adapter relationships. There is no per-adapter database. Transport-owned local files (Matrix crypto stores, LXMF identities) live under adapter state roots.
+
+### Adapter Identifiers
+
+Every adapter instance has an identifier: the mapping key under
+`adapters.<transport>` (e.g. `main`), overridable with an explicit
+`adapter_id` field or an env `ADAPTER_ID` value. The identifier names the
+adapter's state directory (`{state}/adapters/<adapter_id>/`) and its
+environment-override token, so MEDRE enforces one naming rule at every
+configuration seam:
+
+- Start with a letter or digit; then letters, digits, dots (`.`), hyphens
+  (`-`), and underscores (`_`) only; at most 255 characters.
+- Rejected: empty or whitespace-only values, `/` and `\` (on every host,
+  including Windows-style separators on Linux), NUL, `.`/`..`/`...`,
+  drive-like values such as `C:`, trailing periods, Windows DOS device names
+  (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, including
+  extensions), and values that would produce an empty environment token.
+- IDs are used verbatim — never silently stripped or renamed — and two IDs
+  that normalize to the same environment token (e.g. `radio.a` and
+  `radio_a`, or `Main` and `main`) are rejected as ambiguous.
+
+Good examples: `main`, `radio`, `radio-a`, `radio.a`, `mc_node`,
+`meshcore_lab`, `matrix-primary`.
+
+This rule applies only to adapter identifiers. Route IDs keep their own
+contract, `origin_label` stays free prose, and native identities (Matrix
+user/room IDs, MeshCore node numbers and key prefixes) are unaffected.
 
 ### `adapters.matrix.<instance_name>`
 
@@ -827,6 +856,12 @@ underscores are replaced with hyphens for the default `adapter_id` (for example,
 
 `ADAPTER_KIND` accepts `"real"` (default) or `"fake"` for env-created adapters.
 
+An explicit `ADAPTER_ID` value must satisfy the [adapter identifier
+rule](#adapter-identifiers) and is used verbatim — surrounding whitespace is
+an error, not something MEDRE trims. `medre config check` applies
+environment overrides, so a bad `ADAPTER_ID` (or any invalid env value)
+fails the pre-flight gate with the same error the runtime would raise.
+
 ### Env-Driven Route Creation
 
 Routes can also be created from env vars:
@@ -1089,9 +1124,14 @@ medre replay --mode MODE --config PATH [--event ID] [--json]
     Modes: strict, re_render, re_route, dry_run, best_effort.
     Requires --config. Duplicate-risky for best_effort.
 
-medre recover --storage-path PATH [--event ID] [--failed-only] [--dry-run] [--json]
-    Specialized recovery classification. Prefer
-    inspect event --recovery for per-event runbook.
+medre recover --storage-path PATH [--event ID] [--since TS] [--limit N] [--cursor TOKEN] [--json]
+    Specialized recovery classification. Without --event, scans for
+    currently-unresolved deliveries (latest receipt of each delivery
+    lineage is failed/dead_lettered) in bounded, keyset-paginated pages.
+    --since bounds the canonical event timestamp (inclusive; ISO-8601
+    with an explicit UTC offset). Read-only; replay previewing belongs to
+    `medre replay --mode dry_run`. Prefer inspect event --recovery for
+    per-event runbook.
 
 medre storage status [--storage-path PATH]
     Storage management (read-only). Reports schema health.

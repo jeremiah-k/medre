@@ -344,6 +344,9 @@ async def run_fake_bridge_smoke(
     # -- Step 1: Load config ------------------------------------------------
     try:
         config, source, paths = load_config(resolved_config_path)
+        # Env overrides share the config-error boundary: a rejected
+        # identifier must become a sanitized failed report, not a crash.
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         return {
             "status": "failed",
@@ -355,9 +358,7 @@ async def run_fake_bridge_smoke(
             "sanitized": True,
             **_empty_runtime_evidence(),
         }
-
     config_source_value = source.value
-    config = apply_env_overrides(config, paths)
 
     # -- Override storage if --storage-path provided -------------------------
     if storage_path is not None:

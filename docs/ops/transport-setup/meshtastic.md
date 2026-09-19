@@ -32,7 +32,7 @@ nc -zv meshtastic.local 4403
 4. Optionally verify with the Meshtastic CLI:
 
 ```bash
-pip install mtjk
+pip install -e ".[meshtastic]"   # pinned mtjk fork; also provides the meshtastic CLI
 meshtastic --host meshtastic.local --info
 ```
 

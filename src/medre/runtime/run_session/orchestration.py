@@ -102,6 +102,20 @@ class _ResolvedPaths:
     storage_ephemeral: bool
 
 
+def _discard_unused_ephemeral_storage(resolved: _ResolvedPaths) -> None:
+    """Remove a temporary storage file when runtime startup never began."""
+    if not resolved.storage_ephemeral:
+        return
+    try:
+        Path(resolved.storage_path).unlink(missing_ok=True)
+    except OSError:
+        _logger.debug(
+            "Failed to remove unused ephemeral run-session storage: %s",
+            resolved.storage_path,
+            exc_info=True,
+        )
+
+
 def _resolve_paths(
     config_path: str | None,
     storage_path: str | None,
@@ -235,7 +249,11 @@ async def run_bridge_session(
     # -- Step 1: Load config ------------------------------------------------
     try:
         config, source, paths = load_config(resolved_config_path)
+        # Env overrides share the config-error boundary: a rejected
+        # identifier must become a sanitized failed report, not a crash.
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
+        _discard_unused_ephemeral_storage(paths_resolved)
         return {
             "status": "failed",
             "command": "run_session",
@@ -251,7 +269,6 @@ async def run_bridge_session(
         }
 
     config_source_value = source.value
-    config = apply_env_overrides(config, paths)
 
     # Override storage to SQLite.
     config = dataclasses.replace(
@@ -268,6 +285,7 @@ async def run_bridge_session(
         builder = RuntimeBuilder(config, paths)
         app = builder.build()
     except Exception as exc:
+        _discard_unused_ephemeral_storage(paths_resolved)
         return {
             "status": "failed",
             "command": "run_session",
@@ -285,6 +303,7 @@ async def run_bridge_session(
 
     # Validate ingress_mode before starting the runtime.
     if ingress_mode not in _SUPPORTED_INGRESS_MODES:
+        _discard_unused_ephemeral_storage(paths_resolved)
         return {
             "status": "failed",
             "command": "run_session",

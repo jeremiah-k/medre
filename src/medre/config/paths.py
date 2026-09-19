@@ -32,6 +32,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from medre.config.identifiers import adapter_id_problem
+
 __all__ = ["MedrePaths", "MedrePathsError", "resolve"]
 
 # ---------------------------------------------------------------------------
@@ -42,6 +44,10 @@ _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
 _VALID_PLACEHOLDERS: frozenset[str] = frozenset(
     {"config", "state", "data", "cache", "logs"}
+)
+
+_SUPPORTED_TRANSPORT_PATH_COMPONENTS: frozenset[str] = frozenset(
+    {"matrix", "meshtastic", "meshcore", "lxmf"}
 )
 
 
@@ -97,6 +103,15 @@ class MedrePaths:
     def adapter_state_dir(self, adapter_id: str) -> Path:
         """Return the state directory for *adapter_id*.
 
+        Defense in depth: *adapter_id* must satisfy the authoritative
+        configured-identifier contract
+        (:func:`medre.config.identifiers.adapter_id_problem`), so
+        separators, dot segments, whitespace, NUL, and path-ambiguous
+        components are rejected on **every** host — not only where
+        ``os.sep`` happens to match.  Configuration loading and env-first
+        adapter creation already enforce the same contract before any
+        directory is derived; this check keeps direct callers safe too.
+
         Parameters
         ----------
         adapter_id:
@@ -110,14 +125,11 @@ class MedrePaths:
         Raises
         ------
         MedrePathsError
-            If *adapter_id* is empty or contains path separators.
+            If *adapter_id* violates the configured-identifier contract.
         """
-        if not adapter_id:
-            raise MedrePathsError("adapter_id must be non-empty")
-        if os.sep in adapter_id or (os.altsep and os.altsep in adapter_id):
-            raise MedrePathsError(
-                f"adapter_id must not contain path separators: {adapter_id!r}"
-            )
+        problem = adapter_id_problem(adapter_id)
+        if problem is not None:
+            raise MedrePathsError(problem)
         return self.state_dir / "adapters" / adapter_id
 
     def adapter_transport_state_dir(self, adapter_id: str, transport: str) -> Path:
@@ -126,9 +138,13 @@ class MedrePaths:
         Parameters
         ----------
         adapter_id:
-            Adapter identifier used as a subdirectory name.
+            Adapter identifier used as a subdirectory name; validated by
+            :meth:`adapter_state_dir` against the configured-identifier
+            contract.
         transport:
-            Transport name (e.g. ``"matrix"``, ``"lxmf"``).
+            Supported transport name (``"matrix"``, ``"meshtastic"``,
+            ``"meshcore"``, or ``"lxmf"``).  The fixed vocabulary keeps
+            this derived state path to one path-safe component.
 
         Returns
         -------
@@ -138,14 +154,13 @@ class MedrePaths:
         Raises
         ------
         MedrePathsError
-            If *adapter_id* or *transport* is empty or contains path
-            separators.
+            If *adapter_id* violates the configured-identifier contract
+            or *transport* is not a supported transport component.
         """
-        if not transport:
-            raise MedrePathsError("transport must be non-empty")
-        if os.sep in transport or (os.altsep and os.altsep in transport):
+        if transport not in _SUPPORTED_TRANSPORT_PATH_COMPONENTS:
             raise MedrePathsError(
-                f"transport must not contain path separators: {transport!r}"
+                f"unsupported transport path component: {transport!r}; expected one "
+                f"of {sorted(_SUPPORTED_TRANSPORT_PATH_COMPONENTS)!r}"
             )
         return self.adapter_state_dir(adapter_id) / transport
 

@@ -25,7 +25,7 @@ environment variables.
 
    .. code-block:: bash
 
-       pip install lxmf
+       pip install -e ".[lxmf]"
        pytest tests/test_lxmf_live.py -m live -v
 
    Default ``pytest`` run (no live tests):

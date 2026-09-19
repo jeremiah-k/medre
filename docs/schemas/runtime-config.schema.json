@@ -126,22 +126,38 @@
       "properties": {
         "matrix": {
           "type": "object",
-          "description": "Matrix adapter instances: mapping of instance name to MatrixConfig table.",
+          "description": "Matrix adapter instances: mapping of instance name to MatrixConfig table. Instance names are configured adapter identifiers: they must start with a letter or digit and contain only letters, digits, dots, hyphens, and underscores (max 255 chars); Windows-reserved device names and trailing periods are rejected. Cross-transport uniqueness and environment-token collisions are enforced by the loader/runtime, not by this schema.",
+          "propertyNames": {
+            "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 255
+          },
           "additionalProperties": { "type": "object" }
         },
         "meshtastic": {
           "type": "object",
-          "description": "Meshtastic adapter instances: mapping of instance name to MeshtasticConfig table.",
+          "description": "Meshtastic adapter instances: mapping of instance name to MeshtasticConfig table. Instance names follow the configured adapter identifier contract (see the matrix group).",
+          "propertyNames": {
+            "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 255
+          },
           "additionalProperties": { "type": "object" }
         },
         "meshcore": {
           "type": "object",
-          "description": "MeshCore adapter instances: mapping of instance name to MeshCoreConfig table.",
+          "description": "MeshCore adapter instances: mapping of instance name to MeshCoreConfig table. Instance names follow the configured adapter identifier contract (see the matrix group).",
+          "propertyNames": {
+            "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 255
+          },
           "additionalProperties": { "type": "object" }
         },
         "lxmf": {
           "type": "object",
-          "description": "LXMF adapter instances: mapping of instance name to LxmfConfig table.",
+          "description": "LXMF adapter instances: mapping of instance name to LxmfConfig table. Instance names follow the configured adapter identifier contract (see the matrix group).",
+          "propertyNames": {
+            "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "maxLength": 255
+          },
           "additionalProperties": { "type": "object" }
         }
       }

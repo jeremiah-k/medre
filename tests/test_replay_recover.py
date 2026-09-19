@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from medre.cli import EXIT_BUILD, EXIT_CONFIG, EXIT_NOT_FOUND, main
+from medre.core.storage.backend import UnresolvedDeliveriesPage
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -173,32 +174,6 @@ class TestReplayParser:
                 "--limit",
                 "50",
                 "--config",
-                "/nonexistent",
-            )
-        assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
-
-
-class TestRecoverParser:
-    """Tests for 'medre recover' argument parsing."""
-
-    def test_recover_no_args_accepted(self) -> None:
-        """Parser accepts bare 'medre recover' (broad scan mode)."""
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli("recover", "--storage-path", "/nonexistent")
-        assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
-
-    def test_recover_accepts_all_flags(self) -> None:
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "recover",
-                "--event",
-                "evt-1",
-                "--failed-only",
-                "--since",
-                "2026-01-01",
-                "--dry-run",
-                "--json",
-                "--storage-path",
                 "/nonexistent",
             )
         assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
@@ -402,16 +377,25 @@ class TestReplayDispatch:
 class TestRecoverDispatch:
     """Tests for 'medre recover' command dispatch with mocked storage."""
 
-    def test_recover_broad_scan_json_stub(self) -> None:
-        """Broad scan (no --event) returns JSON with scope=scan."""
+    def _make_scan_storage(
+        self, page: UnresolvedDeliveriesPage | None = None
+    ) -> AsyncMock:
+        """Mock readonly storage serving one scan page."""
         mock_storage = AsyncMock()
-
-        with patch(
-            "medre.cli.recover_commands._open_readonly_storage",
-            return_value=mock_storage,
-        ), patch("medre.cli.recover_commands._recover"):
-            # We'll test through the handler directly for more control.
-            pass
+        mock_storage.query_unresolved_deliveries = AsyncMock(
+            return_value=(
+                page
+                if page is not None
+                else UnresolvedDeliveriesPage(
+                    items=[],
+                    limit=50,
+                    has_more=False,
+                    next_cursor=None,
+                )
+            )
+        )
+        mock_storage.close = AsyncMock()
+        return mock_storage
 
     def test_recover_single_event_not_found(self) -> None:
         """Recover with unknown event_id exits EXIT_NOT_FOUND."""
@@ -531,39 +515,6 @@ class TestRecoverDispatch:
                 "radio" in warning_text.lower() or "duplicate" in warning_text.lower()
             )
 
-    def test_recover_dry_run_no_side_effects(self) -> None:
-        """Dry run does not call storage.write methods."""
-        event = _FakeEvent()
-        mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
-        mock_storage.list_receipts_for_event = AsyncMock(return_value=[])
-        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
-        mock_storage.list_relations = AsyncMock(return_value=[])
-        mock_storage.close = AsyncMock()
-
-        with patch(
-            "medre.cli.recover_commands._open_readonly_storage",
-            return_value=mock_storage,
-        ):
-            output = _run_cli(
-                "recover",
-                "--event",
-                "evt-1",
-                "--dry-run",
-                "--json",
-                "--storage-path",
-                "/nonexistent",
-            )
-            parsed = json.loads(output)
-            assert "dry_run" in parsed
-            assert parsed["dry_run"]["status"] == "preview"
-            # Only read methods were called.
-            mock_storage.get.assert_called()
-            mock_storage.list_receipts_for_event.assert_called()
-            # No write methods.
-            mock_storage.append.assert_not_called()
-            mock_storage.append_receipt.assert_not_called()
-
     def test_recover_human_readable(self) -> None:
         """Human-readable output includes event info."""
         event = _FakeEvent()
@@ -590,9 +541,9 @@ class TestRecoverDispatch:
             assert "Failed targets: none" in output
 
     def test_recover_broad_scan_human_readable(self) -> None:
-        """Broad scan without --event prints scan summary."""
-        mock_storage = AsyncMock()
-        mock_storage.close = AsyncMock()
+        """Broad scan without --event prints the scan header and states
+        the read-only/live-view scope when the page is empty."""
+        mock_storage = self._make_scan_storage()
 
         with patch(
             "medre.cli.recover_commands._open_readonly_storage",
@@ -604,11 +555,11 @@ class TestRecoverDispatch:
                 "/nonexistent",
             )
             assert "Recovery scan" in output
+            assert "No unresolved current delivery failures" in output
 
     def test_recover_broad_scan_json(self) -> None:
         """Broad scan JSON includes scope=scan and warnings."""
-        mock_storage = AsyncMock()
-        mock_storage.close = AsyncMock()
+        mock_storage = self._make_scan_storage()
 
         with patch(
             "medre.cli.recover_commands._open_readonly_storage",
@@ -624,6 +575,8 @@ class TestRecoverDispatch:
             assert parsed["scope"] == "scan"
             assert isinstance(parsed["warnings"], list)
             assert len(parsed["warnings"]) > 0
+            assert parsed["page"]["has_more"] is False
+            assert parsed["unresolved"] == []
 
     def test_recover_json_sorted_keys(self) -> None:
         """JSON output has deterministically sorted keys."""

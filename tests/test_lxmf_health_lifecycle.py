@@ -3,18 +3,25 @@
 Verifies the phase rule: health is None before first health_check of a
 lifecycle; health clears on start, stop, and restart boundaries.
 
+The health string describes LOCAL session/router liveness only.  It
+must track the owned session's observable lifecycle: a started adapter
+whose local session has been torn down reports "failed", never
+"healthy".  Peer reachability is unobservable without sending traffic
+and is reported separately in diagnostics as an explicit "unknown".
+
 Tests cover:
 - diagnostics()["health"] is None before first health_check
 - health_check populates _last_health
 - stop() clears health to None
 - start() clears health to None (restart boundary)
 - Health after stop is "unknown" (not cached from prior session)
+- Started adapter with a stopped local session reports "failed"
+- diagnostics expose health_scope and peer_reachability truthfully
 """
 
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
 
 from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.config.adapters.lxmf import LxmfConfig
@@ -201,17 +208,77 @@ async def test_health_check_after_stop_returns_unknown(
 
 
 # ===================================================================
-# Failed state: session connected but adapter not started
+# Failed state: local session torn down under a started adapter
 # ===================================================================
 
 
-async def test_health_check_failed_when_session_connected_but_not_started() -> None:
-    """health_check returns 'failed' when the session reports connected
-    but the adapter was never started — indicating a startup failure."""
+async def test_health_failed_when_session_stopped_under_started_adapter(
+    make_adapter_context: Any,
+) -> None:
+    """A started adapter whose local session was stopped reports "failed".
+
+    Guards the honest health contract: the started flag alone must
+    never be presented as local router health.  Stopping the owned
+    session through its public API is the observable lifecycle failure.
+    """
     config = _make_config(connection_type="fake")
     adapter = LxmfAdapter(config)
-    adapter._session = MagicMock()
-    adapter._session.connected = True
-    # adapter._started is False by default (never called start())
+    ctx = make_adapter_context("lxmf-health-test")
+    await adapter.start(ctx)
+
+    info = await adapter.health_check()
+    assert info.health == "healthy"
+
+    await adapter.session.stop()
+    assert adapter.session.connected is False
+    assert adapter.session.router_running is False
+
     info = await adapter.health_check()
     assert info.health == "failed"
+    assert adapter.diagnostics()["health"] == "failed"
+
+    await adapter.stop()
+
+
+# ===================================================================
+# Diagnostics scope: local-only health, explicit unknown reachability
+# ===================================================================
+
+
+async def test_diagnostics_scope_and_peer_reachability_across_lifecycle(
+    make_adapter_context: Any,
+) -> None:
+    """health_scope and peer_reachability are truthful at every phase.
+
+    Even while the local session is healthy, peer reachability must
+    stay "unknown": the pinned SDK exposes no supported peer-liveness
+    API and MEDRE never probes merely to answer health.
+    """
+    config = _make_config(connection_type="fake")
+    adapter = LxmfAdapter(config)
+
+    diag = adapter.diagnostics()
+    assert diag["health_scope"] == "local_session_and_router"
+    assert diag["peer_reachability"] == "unknown"
+
+    ctx = make_adapter_context("lxmf-health-test")
+    await adapter.start(ctx)
+    info = await adapter.health_check()
+    assert info.health == "healthy"
+
+    diag = adapter.diagnostics()
+    assert diag["health_scope"] == "local_session_and_router"
+    assert diag["peer_reachability"] == "unknown"
+    assert diag["session"]["connected"] is True
+    assert diag["session"]["router_running"] is True
+
+    await adapter.session.stop()
+    info = await adapter.health_check()
+    assert info.health == "failed"
+    diag = adapter.diagnostics()
+    assert diag["health"] == "failed"
+    assert diag["health_scope"] == "local_session_and_router"
+    assert diag["peer_reachability"] == "unknown"
+    assert diag["session"]["connected"] is False
+
+    await adapter.stop()

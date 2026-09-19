@@ -35,6 +35,56 @@ medre replay --mode dry_run --config my-bridge.yaml
 medre replay --mode best_effort --config my-bridge.yaml
 ```
 
+### Find Current Unresolved Deliveries
+
+```bash
+# Bounded scan of currently-unresolved deliveries (read-only)
+medre recover --storage-path /tmp/medre-incident.db
+
+# Restrict to events from a point in time (inclusive, explicit UTC offset)
+medre recover --storage-path /tmp/medre-incident.db --since 2026-09-18T00:00:00+00:00
+
+# Continue to the next page with the printed continuation token
+medre recover --storage-path /tmp/medre-incident.db --cursor <TOKEN>
+```
+
+A delivery is listed when the **latest receipt of that logical delivery**
+— one `(event, delivery plan, target adapter, target channel)` identity —
+has status `failed` or `dead_lettered`. Retries and executed replays
+append attempts to the same delivery, so:
+
+- a successful retry **or executed replay** supersedes that delivery's
+  earlier failure (it moves to `historical_failures` in the per-event
+  runbook, never a false alarm); a replayed failure simply becomes the
+  delivery's current failed attempt;
+- a success on another target/channel/plan/event never hides the failure
+  (`replay_run_id` is provenance, not a partition);
+- `queued` as the latest receipt means a new attempt is in flight, not a
+  failure;
+- dry-run replays record no receipts and change nothing.
+
+`--event` selects single-event analysis. It is mutually exclusive with the
+scan-only `--since`, `--cursor`, and `--limit` options; MEDRE rejects those
+combinations instead of silently ignoring scan scope.
+
+`--since` bounds the **canonical event timestamp** (not receipt time), is
+inclusive, and requires an explicit UTC offset (`+00:00` or `Z`) — naive
+timestamps are rejected as ambiguous. Pages are ordered oldest-first by
+receipt sequence, bounded by `--limit` (default 50, max 500), and are a
+**live view**, not a snapshot: receipts appended between pages can change a
+lineage's outcome. Continuation is keyset-based (`--cursor` from the previous
+page's `next_cursor`); failures far beyond the first thousand rows stay
+discoverable page by page. To re-deliver, preview with
+`medre replay --mode dry_run --config <config.yaml>` — replay has no
+`--storage-path` and needs configuration context.
+
+Read-only scans never write the evidence database (byte-identical before
+and after). Operator-facing recovery output sanitizes persisted receipt error
+strings before JSON or text emission; the durable receipt evidence itself stays
+unchanged. SQLite may materialize `-wal`/`-shm` shared-memory sidecars next to
+the database even for read-only WAL connections — harmless read-view artifacts,
+not database writes.
+
 ## Recovery Decision Tree
 
 ```text
@@ -750,22 +800,25 @@ receipt rows:
 
 ## Recovery Commands Quick Reference
 
-| Scenario                  | Command                                                                                                                           |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Verify database integrity | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"`                                                                          |
-| Restart runtime           | `medre run --config config.yaml`                                                                                                  |
-| Check adapter health      | `medre diagnostics --refresh-health --config config.yaml`                                                                         |
-| Inspect an event          | `medre inspect event <event_id> --storage-path <db>`                                                                              |
-| Inspect with timeline     | `medre inspect event <event_id> --timeline --storage-path <db>`                                                                   |
-| Inspect with evidence     | `medre inspect event <event_id> --evidence --storage-path <db>`                                                                   |
-| Inspect with recovery     | `medre inspect event <event_id> --recovery --storage-path <db>`                                                                   |
-| Inspect delivery receipts | `medre inspect receipts --event <event_id> --storage-path <db>`                                                                   |
-| Inspect replay receipts   | `medre inspect receipts --replay-run <run_id> --storage-path <db>`                                                                |
-| Count orphaned events     | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` |
-| Preview replay            | `medre replay --mode dry_run --config my-bridge.yaml`                                                                             |
-| Execute replay            | `medre replay --mode best_effort --config my-bridge.yaml`                                                                         |
-| Check recent errors       | `grep ERROR {state}/logs/medre.log \| tail -20`                                                                                   |
-| Verify startup            | `grep "Assembly complete" {state}/logs/medre.log \| tail -1`                                                                      |
+| Scenario                   | Command                                                                                                                           |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Verify database integrity  | `sqlite3 {state}/medre.sqlite "PRAGMA integrity_check;"`                                                                          |
+| Restart runtime            | `medre run --config config.yaml`                                                                                                  |
+| Check adapter health       | `medre diagnostics --refresh-health --config config.yaml`                                                                         |
+| Inspect an event           | `medre inspect event <event_id> --storage-path <db>`                                                                              |
+| Inspect with timeline      | `medre inspect event <event_id> --timeline --storage-path <db>`                                                                   |
+| Inspect with evidence      | `medre inspect event <event_id> --evidence --storage-path <db>`                                                                   |
+| Inspect with recovery      | `medre inspect event <event_id> --recovery --storage-path <db>`                                                                   |
+| Scan unresolved deliveries | `medre recover --storage-path <db>`                                                                                               |
+| Continue scan              | `medre recover --storage-path <db> --cursor <TOKEN>`                                                                              |
+| Scan since an event time   | `medre recover --storage-path <db> --since 2026-09-18T00:00:00+00:00`                                                             |
+| Inspect delivery receipts  | `medre inspect receipts --event <event_id> --storage-path <db>`                                                                   |
+| Inspect replay receipts    | `medre inspect receipts --replay-run <run_id> --storage-path <db>`                                                                |
+| Count orphaned events      | SQL: `SELECT COUNT(*) FROM canonical_events e LEFT JOIN delivery_receipts r ON e.event_id = r.event_id WHERE r.event_id IS NULL;` |
+| Preview replay             | `medre replay --mode dry_run --config my-bridge.yaml`                                                                             |
+| Execute replay             | `medre replay --mode best_effort --config my-bridge.yaml`                                                                         |
+| Check recent errors        | `grep ERROR {state}/logs/medre.log \| tail -20`                                                                                   |
+| Verify startup             | `grep "Assembly complete" {state}/logs/medre.log \| tail -1`                                                                      |
 
 ## Caveats
 
@@ -776,6 +829,7 @@ receipt rows:
 5. **Counters reset on restart.** Process-local counters reset on every startup. Verify via SQLite queries, not counters.
 6. **Single-machine only.** Replay operates on the local SQLite database. No distributed replay.
 7. **No delivery order guarantee.** Replay processes events in storage order but delivery concurrency means outbound messages may arrive out of order.
+
 8. **Radio transports are fire-and-forget.** A `sent` receipt means the local radio accepted the packet, not that the remote node received it.
 9. **Shutdown during replay.** Completed events produce receipts; remaining events are lost. No automatic resume.
 10. **No per-adapter restart.** Only full runtime stop/start is supported.

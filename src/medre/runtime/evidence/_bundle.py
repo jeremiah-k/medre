@@ -105,6 +105,9 @@ async def collect_evidence_bundle(
     # -- Step 1: Load config ------------------------------------------------
     try:
         config, source, paths = load_config(config_path)
+        # Env overrides share the config-error boundary so identifier
+        # rejections surface as an error bundle, not a crash.
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         return {
             "adapter_status": None,
@@ -127,8 +130,6 @@ async def collect_evidence_bundle(
             "shutdown_evidence": None,
             "status": "error",
         }
-
-    config = apply_env_overrides(config, paths)
 
     sections: dict[str, Any] = {}
     errors: list[str] = []

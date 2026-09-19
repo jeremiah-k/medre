@@ -11,7 +11,9 @@
       "properties": {
         "adapter_id": {
           "type": "string",
-          "description": "Unique identifier for this adapter instance."
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
         },
         "homeserver": {
           "type": "string",
@@ -91,7 +93,9 @@
       "properties": {
         "adapter_id": {
           "type": "string",
-          "description": "Unique identifier for this adapter instance."
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
         },
         "connection_type": {
           "type": "string",
@@ -217,7 +221,9 @@
       "properties": {
         "adapter_id": {
           "type": "string",
-          "description": "Unique identifier for this adapter instance."
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
         },
         "connection_type": {
           "type": "string",
@@ -311,7 +317,9 @@
       "properties": {
         "adapter_id": {
           "type": "string",
-          "description": "Unique identifier for this adapter instance."
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255,
+          "description": "Unique configured adapter identifier: starts with a letter or digit; letters, digits, dots, hyphens, and underscores only; max 255 characters; Windows-reserved device names and trailing periods are rejected. Uniqueness across transports and environment-token collisions are enforced by the loader/runtime, not by this schema."
         },
         "connection_type": {
           "type": "string",

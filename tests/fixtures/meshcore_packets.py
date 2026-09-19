@@ -42,7 +42,10 @@ MeshCore event payload fields observed from SDK audit:
 * ``sender`` — sender public key as hex string
 * ``body`` — text content of the message
 * ``channel`` — channel index (int)
-* ``packet_id`` — unique packet identifier
+* ``packet_id`` — the sender-assigned ``sender_timestamp`` (one-second
+  resolution; MeshCore payloads carry no unique per-message identifier —
+  MEDRE derives identity from the identity-bearing fields, see
+  ``medre.adapters.meshcore.identity``)
 * ``timestamp`` — Unix timestamp (int)
 * ``txt_type`` — MeshCore text type indicator
 
