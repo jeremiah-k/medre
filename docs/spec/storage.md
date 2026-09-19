@@ -1012,7 +1012,7 @@ runtime startup. A clean current marker skips that redundant full scan.
 
 ### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel)
 
-- Returns the latest receipt for the given triple.
+- Returns the latest receipt for the given triple by greatest durable append `sequence`; `attempt_number` does not override a later append.
 - `target_channel` is **REQUIRED** for precise lookup. When `None`, only NULL-channel receipts are considered.
 - Returns `None` when no receipt exists.
 

@@ -664,7 +664,7 @@ Resolution order:
 
 ### 14.8.2 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source, replay_run_id)` and selects the receipt with the highest `attempt_number` per group. The grouping key includes `source` and `replay_run_id` so that live and replay entries for the same target remain distinct. Each target entry now includes the capability-evidence fields from § 14.8.1, plus `source`, `replay_run_id`, `suppression_reason`, and `error`. This gives operators a per-target view of capability suppression without joining back to individual receipts.
+The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and selects the latest receipt by durable append `sequence`. `source` and `replay_run_id` are provenance on that latest receipt, not grouping dimensions, so an executed replay or retry can supersede the same live delivery lineage. Each target entry includes the capability-evidence fields from § 14.8.1, plus `source`, `replay_run_id`, `suppression_reason`, and `error`. This gives operators a per-target view of current capability suppression without joining back to individual receipts.
 
 | Field                | Present? | Source                          |
 | -------------------- | -------- | ------------------------------- |
@@ -860,7 +860,7 @@ A single evidence bundle for a fully-processed event contains data from all five
 
 ### 17.3 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source, replay_run_id)` and selects the receipt with the highest `attempt_number` per group. Including `source` and `replay_run_id` in the key keeps live and replay entries distinct. Each target entry includes:
+The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and selects the latest receipt by durable append `sequence`. `source` and `replay_run_id` describe the selected receipt; they do not partition the delivery lineage. Each target entry includes:
 
 | Field                 | Source                                |
 | --------------------- | ------------------------------------- |
@@ -1094,7 +1094,7 @@ Severity ordering: `safe` < `degraded` < `inconsistent`. The `worst_severity` fi
 
 ### 21.4 Classification Rules
 
-Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)`. Within each group, the latest receipt is selected deterministically by `(attempt_number DESC, sequence DESC, created_at DESC, receipt_id DESC)`.
+Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)`. Within each group, the latest receipt is selected deterministically by `(sequence DESC, created_at DESC, receipt_id DESC)`. Durable append `sequence` is authoritative; `attempt_number` records lineage and does not override a later append.
 
 **`safe`** classification:
 

@@ -149,8 +149,7 @@ def _receipt_sort_key(rec: Any) -> tuple:
     Used with ``min()``.  All components are arranged so that the
     "latest" / most authoritative receipt has the *smallest* key:
 
-    * ``attempt_number`` — negated so higher attempts sort first.
-    * ``sequence`` — negated so higher sequences sort first.
+    * ``sequence`` — negated so later durable appends sort first.
     * ``created_at`` — wrapped in :class:`_ReverseStr` so later
       timestamps sort first.
     * ``receipt_id`` — wrapped in :class:`_ReverseStr` so
@@ -158,12 +157,10 @@ def _receipt_sort_key(rec: Any) -> tuple:
 
     Does not rely on object identity.
     """
-    attempt = _get(rec, "attempt_number") or 0
     sequence = _get(rec, "sequence") or 0
     created_at = _to_iso(_get(rec, "created_at")) or ""
     receipt_id = _get(rec, "receipt_id") or ""
     return (
-        -attempt,
         -sequence,
         _ReverseStr(created_at),
         _ReverseStr(receipt_id),
@@ -174,10 +171,10 @@ def _pick_latest_receipt(receipts: list[Any]) -> Any | None:
     """Select the latest receipt from a list by deterministic ranking.
 
     Ranking priority (highest wins):
-    1. ``attempt_number`` (highest)
-    2. ``sequence`` (highest)
-    3. ``created_at`` ISO string (lexicographically latest)
-    4. ``receipt_id`` (lexicographically latest)
+    1. ``sequence`` (highest durable append position)
+    2. ``created_at`` ISO string (lexicographically latest; deterministic
+       fallback for synthetic/unpersisted inputs with equal sequence)
+    3. ``receipt_id`` (lexicographically latest fallback)
 
     Does not rely on object identity.
     """

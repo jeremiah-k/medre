@@ -37,7 +37,11 @@ import pytest
 
 from medre.cli import EXIT_BUILD, EXIT_CONFIG, main
 from medre.core.events import CanonicalEvent, DeliveryReceipt, EventMetadata
-from medre.core.storage.backend import DeliveryOutboxItem, encode_page_cursor
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    encode_page_cursor,
+    resolve_delivery_outcomes,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 _T0 = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -95,6 +99,7 @@ def _receipt(
     adapter: str = "meshtastic.radio",
     channel: str | None = None,
     attempt: int = 1,
+    sequence: int = 0,
     error: str | None = "TimeoutError: connection timed out",
     failure_kind: str | None = "adapter_transient",
     source: str = "live",
@@ -104,6 +109,7 @@ def _receipt(
     at: datetime | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
+        sequence=sequence,
         receipt_id=receipt_id,
         event_id=event_id,
         delivery_plan_id=plan,
@@ -256,6 +262,39 @@ def test_unrelated_success_does_not_hide_failure(tmp_path: Path) -> None:
     assert len(rows) == 1
     assert rows[0]["target_channel"] == "ch-bad"
     assert rows[0]["receipt_id"] == "r-bad"
+
+
+def test_later_append_supersedes_higher_attempt_number_in_current_outcome() -> None:
+    receipts = [
+        _receipt(
+            "evt-order",
+            receipt_id="old-high-attempt",
+            plan="plan-order",
+            adapter="matrix",
+            channel=None,
+            status="failed",
+            attempt=4,
+            sequence=10,
+        ),
+        _receipt(
+            "evt-order",
+            receipt_id="later-suppression",
+            plan="plan-order",
+            adapter="matrix",
+            channel=None,
+            status="suppressed",
+            attempt=1,
+            sequence=11,
+        ),
+    ]
+
+    resolved = resolve_delivery_outcomes(receipts)
+
+    assert len(resolved) == 1
+    assert [receipt.receipt_id for receipt in resolved[0][1]] == [
+        "old-high-attempt",
+        "later-suppression",
+    ]
 
 
 def test_retry_chain_latest_attempt_is_the_current_outcome(tmp_path: Path) -> None:

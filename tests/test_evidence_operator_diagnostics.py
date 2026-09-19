@@ -575,7 +575,7 @@ class TestEvidenceShowsDeliveryStatus:
     async def test_retried_status(self, tmp_path: Any) -> None:
         """Retried delivery: failed at attempt 1, then sent at attempt 2.
 
-        The dsbt entry reflects the highest attempt_number (latest state).
+        The dsbt entry reflects the latest durable receipt sequence.
         """
         event_id = "ev-opdiag-status-retry-001"
         db_path = str(tmp_path / "status-retry.db")
@@ -600,7 +600,7 @@ class TestEvidenceShowsDeliveryStatus:
             ],
         )
         entry = await _get_dsbt_entry(db_path, event_id)
-        # Latest attempt (highest attempt_number) wins.
+        # Later append sequence wins; this retry also has attempt 2.
         assert entry["attempt_number"] == 2
         assert entry["status"] == "sent"
 

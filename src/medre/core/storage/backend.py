@@ -461,25 +461,23 @@ def attempt_source_label(source: str | None, replay_run_id: str | None) -> str:
 def resolve_delivery_outcomes(
     receipts: list[DeliveryReceipt],
 ) -> list[tuple[tuple[str, str, str], list[DeliveryReceipt]]]:
-    """Group *receipts* into logical deliveries in attempt order.
+    """Group *receipts* into logical deliveries in durable append order.
     This is the pure, storage-independent half of the current-outcome rule;
     the SQL in ``SQLiteStorage.query_unresolved_deliveries`` implements the
     same grouping.  Each returned entry is ``(delivery_key, receipts)`` with
-    receipts ordered by ``(attempt_number, sequence)``; the **last** receipt
-    of a delivery — whatever its ``source`` — is its current outcome.
+    receipts ordered by append ``sequence``; the **last** receipt of a
+    delivery — whatever its ``source`` or attempt number — is its current
+    outcome.
     """
     grouped: dict[tuple[str, str, str], list[DeliveryReceipt]] = {}
     for receipt in receipts:
         grouped.setdefault(delivery_lineage_key(receipt), []).append(receipt)
-    return [(key, sorted(group, key=_attempt_order)) for key, group in grouped.items()]
+    return [(key, sorted(group, key=_receipt_append_order)) for key, group in grouped.items()]
 
 
-def _attempt_order(receipt: DeliveryReceipt) -> tuple[int, int]:
-    """Sort key placing a delivery's receipts in attempt order."""
-    return (
-        int(getattr(receipt, "attempt_number", 1) or 1),
-        int(getattr(receipt, "sequence", 0) or 0),
-    )
+def _receipt_append_order(receipt: DeliveryReceipt) -> int:
+    """Sort key placing a delivery's receipts in durable append order."""
+    return int(getattr(receipt, "sequence", 0) or 0)
 
 
 # ---------------------------------------------------------------------------

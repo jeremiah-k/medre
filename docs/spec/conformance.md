@@ -456,7 +456,7 @@ A conforming implementation satisfies:
 
 3. **Deterministic target grouping**: Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)` with deterministic tie-breaking.
 
-4. **Deterministic receipt selection**: The latest receipt is selected by `(attempt_number DESC, sequence DESC, created_at DESC, receipt_id DESC)` without relying on object identity.
+4. **Deterministic receipt selection**: The latest receipt is selected by `(sequence DESC, created_at DESC, receipt_id DESC)` without relying on object identity. Durable append `sequence` is authoritative; `attempt_number` records lineage only.
 
 5. **Detection-only policy**: The diagnostics system does not repair state, block startup, or perform automatic remediation.
 

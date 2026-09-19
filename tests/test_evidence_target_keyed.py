@@ -434,12 +434,12 @@ class TestSameAdapterSameChannelDifferentRoutes:
 
 
 # ===================================================================
-# 4. Retry / multi-attempt → highest attempt per target key
+# 4. Retry / multi-attempt → latest append per target key
 # ===================================================================
 
 
 class TestRetryMultiAttempt:
-    """Multi-attempt receipts select highest attempt_number per target key."""
+    """Multi-attempt receipts select the latest append per target key."""
 
     @pytest.mark.asyncio
     async def test_highest_attempt_selected(self, tmp_path: Any) -> None:
@@ -1176,15 +1176,12 @@ class TestNullTargetChannel:
 
 
 # ===================================================================
-# 10. Same attempt, later sequence wins (receipt selection order)
+# 10. Later sequence wins (receipt selection order)
 # ===================================================================
 
 
 class TestReceiptSelectionOrder:
-    """When multiple receipts share the same attempt_number under the same
-    composite key, the one with the latest receipt sequence (append order)
-    wins.  This verifies the selection rule: highest attempt_number, then
-    latest receipt sequence within that attempt."""
+    """The latest durable receipt sequence wins within one target key."""
 
     @pytest.mark.asyncio
     async def test_same_attempt_later_sequence_wins(self, tmp_path: Any) -> None:

@@ -133,7 +133,7 @@ _DELIVERY_RECEIPT_LATEST_BY_CHANNEL = """
 SELECT * FROM delivery_receipts
 WHERE delivery_plan_id = ? AND target_adapter = ?
   AND target_channel IS ?
-ORDER BY attempt_number DESC, sequence DESC
+ORDER BY sequence DESC
 LIMIT 1
 """
 
