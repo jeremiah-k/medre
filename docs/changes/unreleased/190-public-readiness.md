@@ -57,6 +57,9 @@ User-visible changes in this buildout, ahead of a first release:
 - **Recovery output safety**: sanitize persisted receipt error text at the
   `medre recover` operator-output boundary while preserving raw durable evidence.
 
+- **Local LXMF isolation**: pin loopback probes to explicit per-instance
+  Reticulum configuration directories before adapter startup.
+
 Compatibility: storage schema versions are unchanged; no migration is
 provided or implied. Historical evidence records keep their original dates
 and scope.

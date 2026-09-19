@@ -109,13 +109,21 @@ class LxmfAdapter(AdapterContract):
     ----------
     config:
         Validated :class:`~medre.config.adapters.lxmf.LxmfConfig`.
+    reticulum_config_dir:
+        Optional explicit Reticulum configuration directory for embedded/local
+        isolation. ``None`` preserves the SDK's normal discovery behavior.
     """
 
     adapter_id: str
     platform: str = "lxmf"
     role: AdapterRole = AdapterRole.TRANSPORT
 
-    def __init__(self, config: LxmfConfig) -> None:
+    def __init__(
+        self,
+        config: LxmfConfig,
+        *,
+        reticulum_config_dir: str | None = None,
+    ) -> None:
         super().__init__()
         config.validate()
         self._config = config
@@ -125,6 +133,7 @@ class LxmfAdapter(AdapterContract):
             config=config,
             adapter_id=config.adapter_id,
             platform=self.platform,
+            reticulum_config_dir=reticulum_config_dir,
         )
         self._codec = LxmfCodec(config.adapter_id, config)
         self._classifier = LxmfPacketClassifier(config)

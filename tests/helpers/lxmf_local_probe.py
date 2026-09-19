@@ -423,7 +423,10 @@ async def _run_relation_receiver(base: Path) -> int:
     config = _relation_config(base, "b", "medre-relation-b", announce_interval=0.5)
     from medre.adapters.lxmf.adapter import LxmfAdapter
 
-    adapter = LxmfAdapter(config)
+    adapter = LxmfAdapter(
+        config,
+        reticulum_config_dir=str(home / ".reticulum"),
+    )
     await adapter.start(_relation_context("lxmf-relation-b", collect))
     _assert_loopback_config_active(home)
 
@@ -480,8 +483,8 @@ async def _run_relation(base: Path) -> RelationResult:
     _write_reticulum_config(home_a, "Medre Relation A", port_a, port_b)
     _write_reticulum_config(home_b, "Medre Relation B", port_b, port_a)
 
-    # Reticulum resolves its configdir from HOME at import time; claim
-    # instance A's HOME before any RNS import happens in this process.
+    # Preserve HOME isolation for SDK-adjacent helpers; the adapter also
+    # receives the explicit per-instance Reticulum config directory below.
     os.environ["HOME"] = str(home_a)
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -524,7 +527,8 @@ async def _run_relation(base: Path) -> RelationResult:
         from medre.core.rendering.renderer import RenderingContext
 
         adapter = LxmfAdapter(
-            _relation_config(base, "a", "medre-relation-a", announce_interval=0)
+            _relation_config(base, "a", "medre-relation-a", announce_interval=0),
+            reticulum_config_dir=str(home_a / ".reticulum"),
         )
         await adapter.start(_relation_context("lxmf-relation-a", _collect_noop()))
         _assert_loopback_config_active(home_a)
