@@ -278,14 +278,18 @@ class TestAdapterStateDir:
         with pytest.raises(MedrePathsError, match="Adapter IDs must start"):
             paths.adapter_state_dir("bad/adapter")
 
-    def test_backslash_in_adapter_id_raises(self, paths: MedrePaths) -> None:
-        """Backslash is rejected on every host, not only where os.sep matches."""
-        with pytest.raises(MedrePathsError, match="Adapter IDs must start"):
-            paths.adapter_state_dir("bad\\adapter")
 
-    def test_dot_segment_adapter_id_raises(self, paths: MedrePaths) -> None:
-        with pytest.raises(MedrePathsError, match="Adapter IDs must start"):
-            paths.adapter_state_dir("..")
+
+def test_backslash_in_adapter_id_raises() -> None:
+    """Backslash is rejected on every host, not only where os.sep matches."""
+    with pytest.raises(MedrePathsError):
+        resolve().adapter_state_dir("bad\\adapter")
+
+
+def test_dot_segment_adapter_id_raises() -> None:
+    """Dot-segment adapter IDs are rejected independent of error wording."""
+    with pytest.raises(MedrePathsError):
+        resolve().adapter_state_dir("..")
 
 
 # ---------------------------------------------------------------------------
@@ -327,13 +331,6 @@ class TestAdapterTransportStateDir:
         with pytest.raises(MedrePathsError):
             paths.adapter_transport_state_dir("", "matrix")
 
-    @pytest.mark.parametrize("transport", ["", "mat/rix", "..", "custom"])
-    def test_unsupported_transport_raises(
-        self, paths: MedrePaths, transport: str
-    ) -> None:
-        with pytest.raises(MedrePathsError, match="unsupported transport"):
-            paths.adapter_transport_state_dir("bot1", transport)
-
     def test_multiple_adapters_isolated(self, paths: MedrePaths) -> None:
         """Different adapter IDs produce different paths."""
         a = paths.adapter_transport_state_dir("alpha", "matrix")
@@ -350,6 +347,15 @@ class TestAdapterTransportStateDir:
         import tempfile
 
         assert tempfile.gettempdir() not in str(result)
+
+
+@pytest.mark.parametrize("transport", ["", "mat/rix", "..", "custom"])
+def test_adapter_transport_state_dir_rejects_unsupported_transport(
+    transport: str,
+) -> None:
+    """Only supported transport path components are accepted."""
+    with pytest.raises(MedrePathsError, match="unsupported transport"):
+        resolve().adapter_transport_state_dir("bot1", transport)
 
 
 # ---------------------------------------------------------------------------

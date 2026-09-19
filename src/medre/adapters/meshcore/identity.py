@@ -5,7 +5,7 @@ received text payloads. ``CONTACT_MSG_RECV`` / ``CHANNEL_MSG_RECV`` payloads
 carry only:
 
 * ``type`` — ``"PRIV"`` (direct) or ``"CHAN"`` (channel)
-* ``pubkey_prefix`` — 6-byte hex sender key prefix (direct messages)
+* ``pubkey_prefix`` — 6-byte hex sender key prefix when supplied
 * ``channel_idx`` — channel index (channel messages)
 * ``txt_type`` — message sub-type code
 * ``sender_timestamp`` — sender-assigned ``uint32`` Unix timestamp,
@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
+from typing import Any, Final
 
 __all__ = [
     "MESHCORE_IDENTITY_PREFIX",
@@ -53,7 +53,7 @@ __all__ = [
 # meaning; bump the version only if the identity field set changes.
 _IDENTITY_DOMAIN = "medre-meshcore-message-identity-v1"
 
-MESHCORE_IDENTITY_PREFIX = "mc1-"
+MESHCORE_IDENTITY_PREFIX: Final[str] = "mc1-"
 """Prefix marking a MEDRE-derived MeshCore message identity."""
 
 
@@ -72,8 +72,9 @@ def derive_message_identity(
     ----------
     sender_id:
         Sender ``pubkey_prefix``, or ``None`` / ``""`` when the payload
-        carries no sender scope (channel broadcasts).  Both absent forms
-        normalise to the same null scope component.
+        carries no sender scope. Channel broadcasts retain this value when the
+        SDK supplies it. Both absent forms normalise to the same null scope
+        component.
     channel_index:
         Effective channel index, or ``None`` for direct messages.
     sender_timestamp:

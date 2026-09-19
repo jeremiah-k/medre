@@ -448,52 +448,6 @@ class TestConfigSampleToSmoke:
         assert report["accounting"]["outbound_delivered"] >= 1
         assert report["shutdown_status"] == "stopped"
 
-    def test_sample_config_smoke_with_storage(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """``smoke --config <sample-sqlite>`` passes against a concrete DB path.
-
-        The sample config's storage path placeholder is replaced with a
-        temp SQLite file; the same delivered-evidence contract applies and
-        the report points at the operator-chosen database.
-        """
-        stdout_buf = io.StringIO()
-        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
-            main(["config", "sample"])
-        sample = stdout_buf.getvalue()
-        # Derive a SQLite variant of the sample config with a concrete DB path.
-        db_path = str(tmp_path / "sample-smoke.db")
-        path_target = "path: '{state}/medre.sqlite'"
-        assert (
-            sample.count(path_target) >= 1
-        ), f"Expected at least one '{path_target}' in sample config"
-        sqlite_sample = sample.replace(
-            path_target,
-            f"path: '{db_path}'",
-            1,
-        )
-        monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "proof-home"))
-        cfg_path = tmp_path / "sample_sqlite.yaml"
-        cfg_path.write_text(sqlite_sample)
-
-        stdout_buf2 = io.StringIO()
-        stderr_buf2 = io.StringIO()
-        with redirect_stdout(stdout_buf2), redirect_stderr(stderr_buf2):
-            with pytest.raises(SystemExit) as exc_info:
-                main(
-                    [
-                        "smoke",
-                        "--config",
-                        str(cfg_path),
-                        "--json",
-                    ]
-                )
-        assert exc_info.value.code == 0, stderr_buf2.getvalue()
-        report = json.loads(stdout_buf2.getvalue())
-        assert report["status"] == "passed", report.get("fail_reasons")
-        assert report["storage_backend"] == "sqlite"
-        assert str(report["storage_path"]) == db_path
-
     def test_sample_config_no_sdk_imports(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -523,6 +477,54 @@ class TestConfigSampleToSmoke:
         assert (
             not leaked
         ), f"config check + smoke leaked optional SDKs: {sorted(leaked)}"
+
+
+def test_sample_config_smoke_with_storage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``smoke --config <sample-sqlite>`` passes against a concrete DB path.
+
+    The sample config's storage path placeholder is replaced with a
+    temp SQLite file; the same delivered-evidence contract applies and
+    the report points at the operator-chosen database.
+    """
+    stdout_buf = io.StringIO()
+    with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+        main(["config", "sample"])
+    sample = stdout_buf.getvalue()
+    # Derive a SQLite variant of the sample config with a concrete DB path.
+    db_path = str(tmp_path / "sample-smoke.db")
+    path_target = "path: '{state}/medre.sqlite'"
+    assert (
+        sample.count(path_target) >= 1
+    ), f"Expected at least one '{path_target}' in sample config"
+    sqlite_sample = sample.replace(
+        path_target,
+        f"path: '{db_path}'",
+        1,
+    )
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "proof-home"))
+    cfg_path = tmp_path / "sample_sqlite.yaml"
+    cfg_path.write_text(sqlite_sample)
+
+    stdout_buf2 = io.StringIO()
+    stderr_buf2 = io.StringIO()
+    with redirect_stdout(stdout_buf2), redirect_stderr(stderr_buf2):
+        with pytest.raises(SystemExit) as exc_info:
+            main(
+                [
+                    "smoke",
+                    "--config",
+                    str(cfg_path),
+                    "--json",
+                ]
+            )
+    assert exc_info.value.code == 0, stderr_buf2.getvalue()
+    report = json.loads(stdout_buf2.getvalue())
+    assert report["status"] == "passed", report.get("fail_reasons")
+    assert report["storage_backend"] == "sqlite"
+    assert str(report["storage_path"]) == db_path
+
 
 
 # ===================================================================

@@ -237,8 +237,9 @@ native_message_id=<derived identity>)`
   - The raw `sender_timestamp` remains recorded in native metadata as
     `packet_id` (the `source_native_message_id` attribution field projects that
     native fact, not the derived digest).
-  - `sender_id` is the `pubkey_prefix` (6-byte hex prefix of sender's public
-    key; absent on channel broadcasts).
+  - `sender_id` is the `pubkey_prefix` (6-byte hex prefix of the sender's
+    public key) when the SDK supplies it, including for channel broadcasts; it
+    is absent only when the packet does not expose a `pubkey_prefix`.
 - **Outbound native ref:** `native_message_id` is extracted from the SDK send
   result when available; `delivery_status="sent"` (default), with
   `metadata["meshcore"]["local_acceptance"]=True`.

@@ -125,6 +125,16 @@ def _make_mixed_config() -> RuntimeConfig:
 # ===================================================================
 
 
+@pytest.mark.parametrize("transport", ["", "mat/rix", "..", "custom"])
+def test_adapter_transport_state_dir_rejects_unsupported_transport(
+    tmp_paths: MedrePaths,
+    transport: str,
+) -> None:
+    """Only supported transport path components are accepted."""
+    with pytest.raises(MedrePathsError, match="unsupported transport"):
+        tmp_paths.adapter_transport_state_dir("main", transport)
+
+
 class TestMultipleMatrixStoresIsolated:
     """Two Matrix adapters → two separate store directories."""
 
@@ -261,16 +271,6 @@ class TestAdapterStateRootsCorrect:
         """adapter_id with path separators raises MedrePathsError."""
         with pytest.raises(MedrePathsError, match="Adapter IDs must start"):
             tmp_paths.adapter_state_dir("foo/bar")
-
-    @pytest.mark.parametrize("transport", ["", "mat/rix", "..", "custom"])
-    def test_adapter_transport_state_dir_rejects_unsupported_transport(
-        self,
-        tmp_paths: MedrePaths,
-        transport: str,
-    ) -> None:
-        """Only supported transport path components are accepted."""
-        with pytest.raises(MedrePathsError, match="unsupported transport"):
-            tmp_paths.adapter_transport_state_dir("main", transport)
 
     def test_medre_home_mode_paths(
         self,
