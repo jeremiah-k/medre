@@ -270,9 +270,7 @@ def _declared_distributions(
         _fail("metadata", "pyproject.toml [project] must be a table")
 
     core = {_normalize(str(project.get("name", "")))}
-    core.update(
-        _names(project.get("dependencies", []), field="project.dependencies")
-    )
+    core.update(_names(project.get("dependencies", []), field="project.dependencies"))
 
     optional: set[str] = set()
     extras = project.get("optional-dependencies", {})
