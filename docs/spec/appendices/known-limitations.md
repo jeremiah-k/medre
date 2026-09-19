@@ -103,15 +103,22 @@ upstream mmrelay in four known ways:
 
 ## 5. Diagnostics Granularity Gaps
 
-### 5.1 LXMF health is start-state only
+### 5.1 LXMF health is local-scope only
 
-`LxmfAdapter.health_check()` reports `health="healthy"` whenever the adapter
-is started, regardless of Reticulum router state. Router liveness is only
-visible in the session diagnostics (`session.router_running`,
-`session.known_path_count`). Operators MUST NOT read `healthy` as
-peer-reachability.
+`LxmfAdapter.health_check()` reports local session/router liveness —
+`healthy` only while the adapter is started and the owned session
+reports its router running and connected, `failed` when that local
+session is missing or torn down, `unknown` when not started. It is not
+a peer-reachability claim: the pinned LXMF/RNS SDKs expose no supported
+peer-liveness API, and MEDRE never probes merely to answer health, so
+`diagnostics()` reports `peer_reachability="unknown"` explicitly and
+separately (`health_scope="local_session_and_router"`). Reticulum also
+exposes no transport-down event, so a silently lost transport is first
+noticed on the next outbound send. Operators MUST NOT read `healthy`
+as peer reachability.
 
-- **Source:** `src/medre/adapters/lxmf/adapter.py::health_check`.
+- **Source:** `src/medre/adapters/lxmf/adapter.py::health_check`;
+  `tests/test_lxmf_health_lifecycle.py`.
 
 ### 5.2 MeshCore and Matrix expose no outbound queue evidence
 
@@ -125,12 +132,26 @@ Matrix diagnostics have no equivalent queue-depth surface.
 ## 6. LXMF Envelope Relation Fidelity
 
 Inbound LXMF relations are reconstructed at decode time from the `0xFD`
-management-envelope fields via `_reconstruct_relations`. Cross-instance and
-inbound-only round-trip fidelity of that reconstruction has not been
-independently verified against a second MEDRE instance; treat relation
-fidelity on LXMF as implemented but not interop-proven.
+(`FIELD_CUSTOM_META`) management-envelope fields via
+`_reconstruct_relations`. A reproducible, fully local two-instance
+regression harness now covers relation preservation across a real
+pinned-SDK hop: instance A renders a relation-bearing event through
+`LxmfRenderer` and its real `LxmfAdapter`, and distinct process B
+decodes through the real inbound adapter/codec path over a loopback
+Reticulum `UDPInterface` pair
+(`tests/integration/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`).
+That harness passed on the declared pinned SDKs in a locked disposable venv
+at the 2026-09-18 gate: 3/3 local-integration tests were green, and
+`PYTHONPATH=src python -m tests.helpers.lxmf_local_probe relation <tmpdir>`
+exited 0 with every verdict true and the runtime-resolved SDK versions recorded
+in the result payload. The passing run is still
+local-SDK loopback evidence only: external interoperability (real
+multi-hop meshes, other MEDRE deployments, live hardware) remains
+unproven, and no live-network or hardware bridge proof is claimed from
+a local SDK relation test.
 
-- **Source:** `src/medre/adapters/lxmf/codec.py`.
+- **Source:** `src/medre/adapters/lxmf/codec.py`;
+  `tests/integration/test_lxmf_local_integration.py`.
 
 ## See also
 

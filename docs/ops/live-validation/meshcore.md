@@ -5,7 +5,7 @@ Live smoke test procedures for the MeshCore adapter against a real radio node.
 ## Quick Validation
 
 ```bash
-pip install meshcore
+pip install -e ".[meshcore]"
 
 export MESHCORE_CONNECTION_TYPE="tcp"
 export MESHCORE_HOST="192.168.1.100"
@@ -77,12 +77,13 @@ pytest tests/test_meshcore_live.py -m live -v
 
 ## Evidence Tiers Achieved
 
-| Tier      | Sub-class           | Date       | Result                                                                                                                              |
-| --------- | ------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| synthetic | Fake callback       | —          | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                         |
-| synthetic | Wrapper callback    | —          | Proven: \_on_message → MeshCoreCodec.decode → pipeline routing → fake outbound                                                      |
-| —         | Docker SDK-boundary | —          | Not proven (no containerized MeshCore node)                                                                                         |
-| L         | Live network/radio  | 2026-06-11 | First live 3-way bridge (Matrix + Meshtastic + MeshCore BLE). Bidirectional routing observed with connection/reconnect bugs present |
+| Tier      | Sub-class           | Date       | Result                                                                                                                                                           |
+| --------- | ------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| synthetic | Fake callback       | —          | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                                                      |
+| synthetic | Wrapper callback    | —          | Proven: \_on_message → MeshCoreCodec.decode → pipeline routing → fake outbound                                                                                   |
+| local-int | Pinned loopback     | current    | Proven in CI: real pinned SDK against the local companion endpoint — framing/APPSTART, inbound dispatch, outbound MSG_SENT, reconnect, cancellation. No RF claim |
+| —         | Docker SDK-boundary | —          | Not proven (no containerized MeshCore node)                                                                                                                      |
+| historical | Live network/radio  | 2026-06-11 | Historical record only, not a current-tree validation claim: first live 3-way bridge (Matrix + Meshtastic + MeshCore BLE); bidirectional routing observed with connection/reconnect bugs present |
 
 ## Known Gaps
 

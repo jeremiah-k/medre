@@ -2,12 +2,12 @@
 
 ## Prerequisites
 
-| Requirement | Details                                                                                  |
-| ----------- | ---------------------------------------------------------------------------------------- |
-| Python      | 3.11 or later (3.12 tested)                                                              |
-| pip         | `>= 21.3` for extras support                                                             |
-| git         | For source checkout only                                                                 |
-| Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd |
+| Requirement | Details                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------ |
+| Python      | 3.11 or later. CI runs the suite on CPython 3.11–3.14 on Ubuntu Linux (x86_64); other hosts unverified |
+| pip         | `>= 21.3` for extras support                                                                           |
+| git         | For source checkout only                                                                               |
+| Docker      | Optional — for integration test configs referencing containerized Synapse or meshtasticd               |
 
 ## Project Metadata
 
@@ -44,6 +44,26 @@ pip install medre-0.1.0.tar.gz
 This gives you the `medre` console script. You can also invoke via `python -m medre` or `python -m medre.cli` — all three are equivalent.
 
 Installed packages do not include the `examples/` directory. Use `medre config sample` to generate an equivalent config.
+
+### Verify a Built Artifact (source checkout)
+
+From a source checkout, one command builds a wheel (via the pinned
+`build` tooling), installs it into a clean proof environment together with
+its core dependencies, and runs the installed-package proof. It fails
+loudly on any mismatch — no skips, no fallbacks:
+
+```bash
+python scripts/check_installed_package.py
+
+# To re-verify a wheel you already built instead of building a new one:
+python scripts/check_installed_package.py --wheel dist/medre-0.1.0-py3-none-any.whl
+```
+
+The script lives in the source repository — it is not part of the installed
+wheel — and is wired into the existing CI test job, so every push checks the
+installed-package path, not just the source tree. The proof environment
+installs the core dependencies (msgspec, PyYAML) from PyPI, so it needs
+network access.
 
 ## Transport Extras
 
@@ -107,7 +127,12 @@ pip install -e ".[meshcore]"
 - Async-native SDK — clean fit for MEDRE's async architecture.
 - Serial permissions same as Meshtastic (`dialout` group).
 - Default TCP port is 4000.
-- No live evidence recorded — unit tests only.
+- Current evidence: synthetic/conformance tiers plus a deterministic
+  local-integration tier (pinned real SDK against a local companion
+  endpoint, run in CI). A live BLE bridge against real hardware was
+  recorded in June 2026 — preserved as dated history in
+  [live-validation/meshcore.md](live-validation/meshcore.md), not as proof
+  for the current tree.
 
 #### LXMF / Reticulum
 
@@ -118,13 +143,19 @@ pip install -e ".[lxmf]"
 - Reticulum config at `~/.reticulum/config` may need adjustment for transport interfaces.
 - Identity file is a 64-byte private key — protect with `chmod 600`.
 - `RNS.Identity.from_file()` returns `None` on failure (not an exception) — callers check for `None`.
-- Pure-Python alternative if `pyca/cryptography` compilation is problematic:
-  ```bash
-  pip install rnspure lxmf
-  ```
+- SDK provenance: the `lxmf` extra declares exact LXMF/RNS pins in
+  `pyproject.toml`; `uv.lock` records the resolved artifact graph. Install the
+  SDKs only through the extra; an unpinned `pip install lxmf` or `rnspure`
+  alongside MEDRE is not a supported install path and can drift from the
+  tested SDK surface.
 - Reticulum is designed for long-running daemons; short-lived processes may not establish stable connectivity.
 - Non-standard license (not OSI-approved).
-- No live evidence recorded — unit tests only.
+- Current evidence: synthetic/conformance tiers plus a deterministic
+  local-integration tier — a two-process loopback probe at the pinned
+  SDK versions proving real-router lifecycle, cross-process relations,
+  and local health (see [live-validation/lxmf.md](live-validation/lxmf.md)).
+  Adapter health covers the local session/router; peer reachability is
+  unknown and no external mesh claim is made.
 
 ## Verify the Install
 

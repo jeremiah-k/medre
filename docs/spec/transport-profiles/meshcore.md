@@ -207,10 +207,41 @@ implementation authority.
 
 ## Native Reference Format
 
-- **Inbound native ref:** `NativeRef(adapter=<id>, native_channel_id=<str(channel_idx)>, native_message_id=<str(sender_timestamp)>)`
-  - `packet_id` is the `sender_timestamp` (4-byte LE Unix timestamp).
-  - `sender_id` is the `pubkey_prefix` (6-byte hex prefix of sender's public key).
-- **Outbound native ref:** `native_message_id` extracted from SDK send result when available; `delivery_status="sent"` (default), with `metadata["meshcore"]["local_acceptance"]=True`.
+- **Inbound native ref:**
+  `NativeRef(adapter=<id>, native_channel_id=<str(channel_idx)>,
+  native_message_id=<derived identity>)`
+  - MeshCore received payloads carry **no native message identifier**. The
+    declared pinned SDK exposes only a sender-assigned `sender_timestamp`
+    (4-byte LE Unix seconds); the firmware relies on timestamp, text, and
+    sender together to make the radio packet hash unique. The timestamp alone
+    is not an ID.
+  - `native_message_id` is a **MEDRE-derived identity**
+    (`medre.adapters.meshcore.identity`): a full SHA-256 hexdigest prefixed
+    `mc1-` over the identity-bearing fields — direct/channel flag,
+    `pubkey_prefix`, `channel_idx`, `sender_timestamp`, `txt_type`, and `text`.
+    Reception-volatile fields (`RSSI`, `SNR`, `recv_time`, `attempt`, `path`)
+    are excluded so a genuine retransmission keeps one identity across repeated
+    callbacks and process restarts.
+  - The digest, scoped by adapter and channel, is the durable ingress
+    idempotency key. Distinct same-second messages from one sender are admitted,
+    persisted, and delivered independently; adapter-level inbound dedup uses
+    the same identity, so both dedup authorities agree.
+  - When `sender_timestamp` is absent, MEDRE claims no native identity: no
+    native ref is recorded and no dedup key is derived. Such packets are
+    admitted on canonical event identity and never collapse into a shared
+    placeholder reference.
+  - Residual ambiguity (protocol-inherent): two genuinely distinct messages
+    with identical sender, channel, timestamp, sub-type, and text are
+    indistinguishable on the wire; MEDRE treats the second as a retransmission
+    of the first. This is not an exactly-once guarantee.
+  - The raw `sender_timestamp` remains recorded in native metadata as
+    `packet_id` (the `source_native_message_id` attribution field projects that
+    native fact, not the derived digest).
+  - `sender_id` is the `pubkey_prefix` (6-byte hex prefix of sender's public
+    key; absent on channel broadcasts).
+- **Outbound native ref:** `native_message_id` is extracted from the SDK send
+  result when available; `delivery_status="sent"` (default), with
+  `metadata["meshcore"]["local_acceptance"]=True`.
 
 ---
 
