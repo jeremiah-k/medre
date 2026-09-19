@@ -55,10 +55,11 @@ For stable source models (`CanonicalEvent`, `DeliveryReceipt`,
 against source dataclass fields. If a source model adds or renames a field
 without updating the schema, the test fails.
 
-For built-in transport-native metadata, the current-state inventory check
-compares the source schema-version constant with the corresponding JSON Schema
-`const` and example payload. Each transport therefore has one version authority
-across source, machine schema, and example data.
+For built-in transport-native metadata,
+`tests/test_prerelease_contract_guards.py` compares the source schema-version
+constant with the corresponding JSON Schema `const` and example payload. Each
+transport therefore has one version authority across source, machine schema,
+and example data.
 
 `AdapterCapabilities` are checked separately by
 `tests/test_capability_conformance.py` against

@@ -16,7 +16,6 @@ Asserts that:
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -1448,94 +1447,3 @@ def test_builtin_native_metadata_contracts_have_schema_example_pairs() -> None:
         if schema.stem.removesuffix(".schema") in expected
     }
     assert actual == expected
-
-
-# ===========================================================================
-# 9. Native metadata schema-version parity (source ↔ schema ↔ example)
-# ===========================================================================
-
-_NATIVE_METADATA_VERSION_SOURCES: dict[str, tuple[str, str]] = {
-    "matrix": (
-        "src/medre/adapters/matrix/event_shape.py",
-        "MATRIX_NATIVE_SCHEMA_VERSION",
-    ),
-    "meshtastic": (
-        "src/medre/adapters/meshtastic/event_shape.py",
-        "MESHTASTIC_NATIVE_SCHEMA_VERSION",
-    ),
-    "meshcore": (
-        "src/medre/adapters/meshcore/event_shape.py",
-        "MESHCORE_NATIVE_SCHEMA_VERSION",
-    ),
-    "lxmf": (
-        "src/medre/adapters/lxmf/event_shape.py",
-        "LXMF_NATIVE_SCHEMA_VERSION",
-    ),
-}
-
-
-class TestNativeMetadataSchemaVersionParity:
-    """Source constants, JSON Schemas, and examples agree on native
-    metadata schema versions.
-
-    The source constant is the authority; the machine schema pins the same
-    version via a ``const`` in its single versioned definition, and the
-    example carries the same version inside its transport namespace.
-    """
-
-    @pytest.mark.parametrize("transport", sorted(_NATIVE_METADATA_VERSION_SOURCES))
-    def test_source_schema_and_example_versions_match(self, transport: str) -> None:
-        source_rel, constant = _NATIVE_METADATA_VERSION_SOURCES[transport]
-        source = (_ROOT / source_rel).read_text(encoding="utf-8")
-        match = re.search(rf"^{constant}\s*(?::\s*int)?\s*=\s*(\d+)\s*$", source, re.M)
-        assert match is not None, f"{source_rel}: missing integer constant {constant}"
-        source_version = int(match.group(1))
-
-        schema = json.loads(
-            (_SCHEMAS_DIR / f"{transport}-native-metadata.schema.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        versioned_defs = [
-            value
-            for value in schema.get("$defs", {}).values()
-            if isinstance(value, dict)
-            and isinstance(value.get("properties"), dict)
-            and "schema_version" in value["properties"]
-        ]
-        assert len(versioned_defs) == 1, (
-            f"{transport}-native-metadata.schema.json: expected exactly one "
-            f"versioned definition"
-        )
-        version_property = versioned_defs[0]["properties"]["schema_version"]
-        schema_version = version_property.get("const")
-        assert isinstance(schema_version, int) and not isinstance(
-            schema_version, bool
-        ), (
-            f"{transport}-native-metadata.schema.json: schema_version must be "
-            f"an integer const"
-        )
-
-        example = json.loads(
-            (
-                _SCHEMAS_DIR / "examples" / f"{transport}-native-metadata-example.json"
-            ).read_text(encoding="utf-8")
-        )
-        native = example.get(transport)
-        assert isinstance(native, dict), (
-            f"{transport}-native-metadata-example.json: missing "
-            f"{transport!r} namespace"
-        )
-        example_version = native.get("schema_version")
-        assert isinstance(example_version, int) and not isinstance(
-            example_version, bool
-        ), (
-            f"{transport}-native-metadata-example.json: schema_version must be "
-            f"an integer"
-        )
-
-        assert source_version == schema_version == example_version, (
-            f"{transport}: native-metadata schema-version drift "
-            f"source={source_version} schema={schema_version} "
-            f"example={example_version}"
-        )
