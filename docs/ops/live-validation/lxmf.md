@@ -5,7 +5,7 @@ Live smoke test procedures for the LXMF adapter against a real Reticulum network
 ## Quick Validation
 
 ```bash
-pip install lxmf
+pip install -e ".[lxmf]"
 
 # Configure a Reticulum transport (AutoInterface for LAN is default)
 # Set the adapter connection type to reticulum
@@ -112,19 +112,21 @@ config = LxmfConfig(
 
 ## Evidence Tiers Achieved
 
-| Tier      | Sub-class           | Date | Result                                                                    |
-| --------- | ------------------- | ---- | ------------------------------------------------------------------------- |
-| synthetic | Fake callback       | —    | Proven: simulate_inbound → codec → pipeline → fake outbound               |
-| synthetic | Wrapper callback    | —    | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound |
-| —         | Docker SDK-boundary | —    | Not proven (no containerized Reticulum/LXMF router)                       |
-| —         | Live network        | —    | Not proven                                                                |
+| Tier      | Sub-class           | Date    | Result                                                                                                                                                                                     |
+| --------- | ------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| synthetic | Fake callback       | —       | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                                                                                |
+| synthetic | Wrapper callback    | —       | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound                                                                                                                  |
+| local-int | Pinned loopback     | 2026-09 | Proven: two distinct processes over loopback at the declared pinned SDK versions — real-router lifecycle, cross-process relation linking, local session/router health (all verdicts true) |
+| —         | Docker SDK-boundary | —       | Not proven (no containerized Reticulum/LXMF router)                                                                                                                                        |
+| —         | Live network        | —       | Not proven (no external peer reachability claimed)                                                                                                                                         |
 
 ## Known Gaps
 
 - No Docker setup for Reticulum/LXMF. No containerized router for Docker SDK-boundary tests.
 - Propagation node config not in LxmfConfig yet.
-- No live hardware smoke test recorded.
-- `RNS.Reticulum` and `LXMF` packages available locally at `/home/jeremiah/dev` but live path setup pending.
+- No live hardware smoke test recorded; external peer reachability unproven.
+- Adapter health covers the local session/router only — it cannot observe
+  whether any peer is reachable.
 - No native reply mechanism — replies rendered as plain text.
 
 ## Deterministic Local Integration

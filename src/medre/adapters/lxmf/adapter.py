@@ -360,7 +360,28 @@ class LxmfAdapter(AdapterContract):
             self.ctx.logger.info("LxmfAdapter %s stopped", self.adapter_id)
 
     async def health_check(self) -> AdapterInfo:
-        """Return a snapshot of the adapter's current health.
+        """Return a snapshot of the adapter's current local health.
+
+        The health string reflects **local** liveness only — the
+        MEDRE-owned session and its LXMRouter lifecycle flags:
+
+        - ``"healthy"`` — the adapter is started and the session
+          reports its local router as connected and running.
+        - ``"failed"`` — the adapter is started but the local
+          session/router is missing or torn down (for example the
+          session was stopped underneath a still-started adapter).
+        - ``"unknown"`` — the adapter is not started; no claim is
+          made.
+
+        This is deliberately NOT a remote-transport health claim.
+        The pinned LXMF/RNS SDKs expose no supported peer-liveness
+        API, and MEDRE never sends probes merely to answer health,
+        so peer reachability is unobservable here and is reported
+        separately as ``"unknown"`` in :meth:`diagnostics`
+        (``peer_reachability``).  Reticulum also exposes no
+        transport-down event, so a silently lost transport is first
+        noticed on the next outbound send — a documented limitation,
+        not an invented failure.
 
         Returns
         -------
@@ -368,14 +389,16 @@ class LxmfAdapter(AdapterContract):
             Metadata describing the adapter's state with a health
             string of ``"healthy"``, ``"unknown"``, or ``"failed"``.
         """
-        if self._started:
-            health = "healthy"
-        elif (
-            self._session is not None and self._session.connected and not self._started
-        ):
-            health = "failed"
-        else:
+        if not self._started:
             health = "unknown"
+        elif (
+            self._session is not None
+            and self._session.router_running
+            and self._session.connected
+        ):
+            health = "healthy"
+        else:
+            health = "failed"
         self._last_health = health
         return AdapterInfo(
             adapter_id=self.adapter_id,
@@ -403,6 +426,15 @@ class LxmfAdapter(AdapterContract):
             "started": self._started,
             "mode": self._config.connection_type,
             "health": self._last_health,
+            # Truthful health scope: the health string describes the
+            # MEDRE-owned local session/router lifecycle only.  Peer
+            # reachability is not observable without sending traffic
+            # (the pinned SDK has no supported peer-liveness API and
+            # MEDRE never probes merely to answer health), so it is
+            # reported as an explicit ``"unknown"`` rather than folded
+            # into the health string or fabricated as a success value.
+            "health_scope": "local_session_and_router",
+            "peer_reachability": "unknown",
             "classifier_messages_seen": self._classifier_messages_seen,
             "classifier_messages_relayed": self._classifier_messages_relayed,
             "classifier_messages_ignored": self._classifier_messages_ignored,
