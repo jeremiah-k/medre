@@ -85,6 +85,15 @@ pytest tests/test_meshcore_live.py -m live -v
 | —          | Docker SDK-boundary | —          | Not proven (no containerized MeshCore node)                                                                                                                                                      |
 | historical | Live network/radio  | 2026-06-11 | Historical record only, not a current-tree validation claim: first live 3-way bridge (Matrix + Meshtastic + MeshCore BLE); bidirectional routing observed with connection/reconnect bugs present |
 
+## Hardware Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
+
+- Pinned SDK `meshcore==2.3.11` defaults `dtr=True` on `create_serial`; boards
+  with a USB-UART auto-download circuit on IO0 (observed: LilyGO T-LoRa
+  V2.1-1.6) must use `dtr=False, rts=False` (fixed in `MeshCoreSession`).
+- Official companion v1.17.1 ships USB-serial builds for `lilygo_tlora_v2_1`
+  but not for the SX1276 T-Beam; the T-Beam companion is BLE-only.
+- US preset per docs.meshcore.io FAQ 2.3: 910.525 MHz, SF7, BW 62.5, CR5.
+
 ## Known Gaps
 
 - No Docker setup for MeshCore. No containerized node for Docker SDK-boundary tests.

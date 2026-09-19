@@ -86,7 +86,13 @@ def _patch_ble_helpers():
 
 
 async def test_serial_constructor_args() -> None:
-    """MeshCore.create_serial is called with (port, baudrate) positional args."""
+    """MeshCore.create_serial is called with (port, baudrate) positional args.
+
+    DTR/RTS must be explicitly deasserted: the pinned SDK (meshcore 2.3.11)
+    defaults dtr=True, which holds IO0 low on boards with a USB-UART
+    auto-download circuit (observed on LilyGO T-LoRa V2.1) and knocks the
+    companion into the ROM bootloader or MeshCore CLI-rescue mode.
+    """
     mock_mc, mock_inst = build_mock_meshcore_module()
 
     config = _make_config(
@@ -102,9 +108,10 @@ async def test_serial_constructor_args() -> None:
     ):
         await session.start(lambda _pkt: None)
 
-    # create_serial should have been called with (port, baudrate).
+    # create_serial should have been called with (port, baudrate) and the
+    # safe deasserted line state.
     mock_mc.MeshCore.create_serial.assert_awaited_once_with(
-        "/dev/ttyACM0", 57600, auto_reconnect=False
+        "/dev/ttyACM0", 57600, auto_reconnect=False, dtr=False, rts=False
     )
     assert session.connected is True
 
@@ -129,10 +136,9 @@ async def test_serial_default_baudrate() -> None:
         await session.start(lambda _pkt: None)
 
     mock_mc.MeshCore.create_serial.assert_awaited_once_with(
-        "/dev/ttyUSB0", 115200, auto_reconnect=False
+        "/dev/ttyUSB0", 115200, auto_reconnect=False, dtr=False, rts=False
     )
 
-    await session.stop()
 
 
 # ===================================================================

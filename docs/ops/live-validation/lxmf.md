@@ -120,6 +120,18 @@ config = LxmfConfig(
 | —         | Docker SDK-boundary | —       | Not proven (no containerized Reticulum/LXMF router)                                                                                                                                       |
 | —         | Live network        | —       | Not proven (no external peer reachability claimed)                                                                                                                                        |
 
+## RNode Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
+
+- Two LilyGO T-LoRa V2.1-1.6 (SX1276) boards commissioned as RNode Firmware
+  1.86 (`lora32v21`, model B9 850-950 MHz) via `rnodeconf` 2.5.0 (`rns==1.5.4`);
+  both validate signature/EEPROM. Post-install the boards needed one physical
+  power cycle before the console answered.
+- RNS 1.5.4 requires an explicit `enabled = yes` on each interface section —
+  interfaces without it are silently skipped ("Skipping disabled interface").
+- RNode RF path proof over Reticulum was NOT completed this campaign; the
+  isolated config (RNodeInterface only, no AutoInterface/UDP/TCP) and probe
+  script live in the private lab directory.
+
 ## Known Gaps
 
 - No Docker setup for Reticulum/LXMF. No containerized router for Docker SDK-boundary tests.
