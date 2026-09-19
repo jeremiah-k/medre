@@ -664,7 +664,15 @@ Resolution order:
 
 ### 14.8.2 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and selects the latest receipt by durable append `sequence`. `source` and `replay_run_id` are provenance on that latest receipt, not grouping dimensions, so an executed replay or retry can supersede the same live delivery lineage. Each target entry includes the capability-evidence fields from § 14.8.1, plus `source`, `replay_run_id`, `suppression_reason`, and `error`. This gives operators a per-target view of current capability suppression without joining back to individual receipts.
+The incident summary's `delivery_state_by_target` dict groups receipts by
+composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and
+selects the latest receipt by durable append `sequence`. `source` and
+`replay_run_id` are provenance on that latest receipt, not grouping dimensions,
+so an executed replay or retry can supersede the same live delivery lineage.
+Each target entry includes the capability-evidence fields from § 14.8.1, plus
+`source`, `replay_run_id`, `suppression_reason`, and `error`. This gives
+operators a per-target view of current capability suppression without joining
+back to individual receipts.
 
 | Field                | Present? | Source                          |
 | -------------------- | -------- | ------------------------------- |
@@ -847,7 +855,9 @@ A single evidence bundle for a fully-processed event contains data from all five
 
 ### 17.2 Report Dict Enrichment
 
-:func:`delivery_receipt_to_report_dict` enriches every receipt report dict with the following derived fields. No storage schema changes are required; enrichment is derived at report time from existing receipt fields:
+:func:`delivery_receipt_to_report_dict` enriches every receipt report dict with
+the following derived fields. No storage schema changes are required; enrichment
+is derived at report time from existing receipt fields:
 
 | Field                 | Source                                                                                                                 |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -860,7 +870,11 @@ A single evidence bundle for a fully-processed event contains data from all five
 
 ### 17.3 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and selects the latest receipt by durable append `sequence`. `source` and `replay_run_id` describe the selected receipt; they do not partition the delivery lineage. Each target entry includes:
+The incident summary's `delivery_state_by_target` dict groups receipts by
+composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and
+selects the latest receipt by durable append `sequence`. `source` and
+`replay_run_id` describe the selected receipt; they do not partition the
+delivery lineage. Each target entry includes:
 
 | Field                 | Source                                |
 | --------------------- | ------------------------------------- |
@@ -875,9 +889,12 @@ The incident summary's `delivery_state_by_target` dict groups receipts by compos
 | `failure_kind_detail` | Derived per § 17.2                    |
 | `retryable`           | Derived per § 17.2                    |
 | `next_retry_at`       | Receipt `next_retry_at` field         |
-| `attempt_number`      | Highest `attempt_number` in the group |
+| `attempt_number`      | Selected receipt `attempt_number`     |
 
-When both live and replay receipts exist for the same event, the bundle contains separate `delivery_state_by_target` entries with distinct `source` values (`"live"` and `"replay"`), allowing the operator to distinguish live from replay delivery for the same target.
+When live, retry, and replay receipts exist for the same target, they share one
+`delivery_state_by_target` entry. The entry reports the latest receipt by durable
+append `sequence`; its `source` and `replay_run_id` describe the provenance of
+that selected receipt.
 
 ## 18. Adapter Status Lifecycle
 
@@ -1094,7 +1111,11 @@ Severity ordering: `safe` < `degraded` < `inconsistent`. The `worst_severity` fi
 
 ### 21.4 Classification Rules
 
-Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)`. Within each group, the latest receipt is selected deterministically by `(sequence DESC, created_at DESC, receipt_id DESC)`. Durable append `sequence` is authoritative; `attempt_number` records lineage and does not override a later append.
+Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)`.
+Within each group, the latest receipt is selected deterministically by
+`(sequence DESC, created_at DESC, receipt_id DESC)`. Durable append `sequence`
+is authoritative; `attempt_number` records lineage and does not override a
+later append.
 
 **`safe`** classification:
 

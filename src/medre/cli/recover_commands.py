@@ -481,7 +481,7 @@ def _print_scan(
 async def _recover(
     event_id: str | None,
     since: str | None,
-    limit: int,
+    limit: int | None,
     cursor: str | None,
     json_output: bool,
     *,
@@ -544,7 +544,7 @@ async def _recover(
             limit=page_limit,
         )
 
-        runbook: dict[str, Any] = {
+        scan_report: dict[str, Any] = {
             "scope": "scan",
             "definition": _OUTCOME_DEFINITION,
             "filters": {
@@ -569,7 +569,7 @@ async def _recover(
             ],
         }
         if json_output:
-            print(to_json(runbook))
+            print(to_json(scan_report))
         else:
             _print_scan(
                 page,
@@ -577,9 +577,9 @@ async def _recover(
                 limit=page_limit,
                 storage_path=storage_path,
             )
-            if runbook["warnings"]:
+            if scan_report["warnings"]:
                 print()
-                for w in runbook["warnings"]:
+                for w in scan_report["warnings"]:
                     print(f"  \u26a0 {w}")
     finally:
         await storage.close()

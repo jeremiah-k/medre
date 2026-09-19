@@ -1057,23 +1057,40 @@ runtime startup. A clean current marker skips that redundant full scan.
 
 ### 8.17 query_unresolved_deliveries(cursor, since_event_time, limit)
 
-Read-only, keyset-paginated scan over **currently-unresolved delivery outcomes**. A logical delivery is one `(event_id, delivery_plan_id, target_adapter, target_channel)` tuple with `NULL`/`''` channels grouped together (`COALESCE`), and `event_id` in the key because plan IDs are not unique across events. A delivery is included when its **latest receipt** (max `sequence`) has status `failed` or `dead_lettered`:
+Read-only, keyset-paginated scan over **currently-unresolved delivery
+outcomes**. A logical delivery is one
+`(event_id, delivery_plan_id, target_adapter, target_channel)` tuple with
+`NULL`/`''` channels grouped together (`COALESCE`). `event_id` is part of the
+key because plan IDs are not unique across events. A delivery is included when
+its current receipt by durable append `sequence` has status `failed` or
+`dead_lettered`.
 
-- Retry and executed-replay receipts continue the same delivery (the replay lifecycle appends attempts with `attempt_number = max(existing) + 1`), matching the `delivery_status` authority (latest receipt, no source filter). A later `sent`/`queued` receipt from live, retry, or an executed replay supersedes the earlier failure (a queued latest receipt is a new attempt in flight, not a current failure).
-- Successes of a different channel, plan, event, or target never hide a failure; `replay_run_id` is per-receipt provenance, not a partition.
-- A historical failed receipt alone is never a current failure, and dry-run replays (which append no receipts) can fabricate neither success nor failure.
+- Retry and executed-replay receipts continue the same delivery. A later
+  `sent`/`queued` receipt from live, retry, or executed replay supersedes an
+  earlier failure; a latest `queued` receipt is a new attempt in flight, not a
+  current failure.
+- Successes of a different channel, plan, event, or target never hide a
+  failure. `replay_run_id` is per-receipt provenance, not a lineage partition.
+- A historical failed receipt alone is never a current failure, and dry-run
+  replays append no receipt and therefore fabricate neither success nor failure.
 
-Ordering is `receipt_sequence ASC` (oldest unresolved evidence first) with strict
-keyset continuation: `limit + 1` probing yields `has_more`/`next_cursor`; no
-`OFFSET` scan and no unconditional global `COUNT` run. Pages are a live view of
-append-only evidence, not a snapshot. `since_event_time` is an inclusive bound on
-the **canonical event timestamp** (`canonical_events.timestamp`), distinct from
-receipt creation time; the event-time scope is applied before receipt-lineage
-aggregation because `event_id` is part of the grouping key. Outbox rows joined by
-`outbox_id` may only enrich disposition/retryability fields — they are never
-acceptance evidence. The `idx_receipts_lineage` expression index matches the
-`(event, plan, adapter, normalized channel)` grouping; `replay_run_id` remains
-per-receipt provenance and is not part of the index lineage key.
+The SQLite query starts from unresolved receipt candidates and keeps only a
+candidate for which no later `sequence` exists in the same lineage. This avoids
+re-aggregating every receipt lineage for every page while preserving the same
+current-outcome semantics as the pure-Python resolver. Ordering is
+`receipt_sequence ASC` (oldest unresolved evidence first), with strict keyset
+continuation: `limit + 1` probing yields `has_more`/`next_cursor`; there is no
+`OFFSET` scan or unconditional global `COUNT`.
+
+Pages are a live view of append-only evidence, not a snapshot.
+`since_event_time` is an inclusive bound on the **canonical event timestamp**
+(`canonical_events.timestamp`), distinct from receipt creation time. Outbox
+rows joined by `outbox_id` may only enrich disposition/retryability fields; they
+are never acceptance evidence. `idx_receipts_lineage` is an optimization for
+the full lineage predicate when present. Read-only recovery remains correct on
+a database that has not yet been reopened read-write to create that index,
+using the existing event/sequence index for the correlated later-receipt check.
+`replay_run_id` remains receipt provenance and is not part of the lineage key.
 
 ## 9. Delivery Outbox Semantics
 

@@ -176,6 +176,98 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Recovery parser surface
+# ---------------------------------------------------------------------------
+
+
+def test_recover_no_args_reaches_storage_boundary() -> None:
+    """Bare ``medre recover`` is valid broad-scan syntax."""
+    _stdout, _stderr, code = _run_cli_raw(
+        "recover",
+        "--storage-path",
+        "/nonexistent",
+    )
+    assert code in (EXIT_CONFIG, EXIT_BUILD)
+
+
+def test_recover_event_rejects_scan_only_flags() -> None:
+    """Single-event recovery rejects controls that only scope a scan."""
+    _stdout, stderr, code = _run_cli_raw(
+        "recover",
+        "--event",
+        "evt-1",
+        "--since",
+        "2026-01-01T00:00:00+00:00",
+        "--limit",
+        "20",
+        "--cursor",
+        encode_page_cursor(0),
+        "--storage-path",
+        "/nonexistent",
+    )
+    assert code == EXIT_CONFIG
+    assert "scan-only option" in stderr
+
+
+def test_recover_rejects_removed_dry_run_flag() -> None:
+    """Recovery previewing belongs to ``replay --mode dry_run``."""
+    _stdout, _stderr, code = _run_cli_raw(
+        "recover",
+        "--event",
+        "evt-1",
+        "--dry-run",
+        "--storage-path",
+        "/nonexistent",
+    )
+    assert code == 2
+
+
+def test_recover_rejects_removed_failed_only_flag() -> None:
+    """The scan is inherently unresolved-failures-only."""
+    _stdout, _stderr, code = _run_cli_raw(
+        "recover",
+        "--failed-only",
+        "--storage-path",
+        "/nonexistent",
+    )
+    assert code == 2
+
+
+def test_recover_rejects_naive_since() -> None:
+    """A timestamp without an explicit offset is ambiguous and rejected."""
+    _stdout, _stderr, code = _run_cli_raw(
+        "recover",
+        "--since",
+        "2026-01-01T00:00:00",
+        "--storage-path",
+        "/nonexistent",
+    )
+    assert code == 2
+
+
+def test_recover_rejects_malformed_since() -> None:
+    _stdout, _stderr, code = _run_cli_raw(
+        "recover",
+        "--since",
+        "not-a-timestamp",
+        "--storage-path",
+        "/nonexistent",
+    )
+    assert code == 2
+
+
+def test_recover_rejects_out_of_range_limit() -> None:
+    _stdout, _stderr, code = _run_cli_raw(
+        "recover",
+        "--limit",
+        "0",
+        "--storage-path",
+        "/nonexistent",
+    )
+    assert code == 2
+
+
+# ---------------------------------------------------------------------------
 # Current-outcome semantics
 # ---------------------------------------------------------------------------
 

@@ -12,10 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from medre.cli import EXIT_BUILD, EXIT_CONFIG, EXIT_NOT_FOUND, main
-from medre.core.storage.backend import (
-    UnresolvedDeliveriesPage,
-    encode_page_cursor,
-)
+from medre.core.storage.backend import UnresolvedDeliveriesPage
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -182,92 +179,6 @@ class TestReplayParser:
         assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
 
 
-class TestRecoverParser:
-    """Tests for 'medre recover' argument parsing."""
-
-    def test_recover_no_args_accepted(self) -> None:
-        """Parser accepts bare 'medre recover' (broad scan mode)."""
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli("recover", "--storage-path", "/nonexistent")
-        assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
-
-    def test_recover_accepts_all_flags(self) -> None:
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "recover",
-                "--event",
-                "evt-1",
-                "--since",
-                "2026-01-01T00:00:00+00:00",
-                "--limit",
-                "20",
-                "--cursor",
-                encode_page_cursor(0),
-                "--json",
-                "--storage-path",
-                "/nonexistent",
-            )
-        assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
-
-    def test_recover_rejects_removed_dry_run_flag(self) -> None:
-        """recover --dry-run was removed: replay previewing belongs to
-        'medre replay --mode dry_run'.  The stale flag must not parse."""
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "recover",
-                "--event",
-                "evt-1",
-                "--dry-run",
-                "--storage-path",
-                "/nonexistent",
-            )
-        assert exc_info.value.code == 2
-
-    def test_recover_rejects_removed_failed_only_flag(self) -> None:
-        """The scan is inherently unresolved-failures-only; --failed-only
-        was a no-op and is removed."""
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "recover",
-                "--failed-only",
-                "--storage-path",
-                "/nonexistent",
-            )
-        assert exc_info.value.code == 2
-
-    def test_recover_rejects_naive_since(self) -> None:
-        """--without an explicit UTC offset is ambiguous and rejected."""
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "recover",
-                "--since",
-                "2026-01-01T00:00:00",
-                "--storage-path",
-                "/nonexistent",
-            )
-        assert exc_info.value.code == 2
-
-    def test_recover_rejects_malformed_since(self) -> None:
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "recover",
-                "--since",
-                "not-a-timestamp",
-                "--storage-path",
-                "/nonexistent",
-            )
-        assert exc_info.value.code == 2
-
-    def test_recover_rejects_out_of_range_limit(self) -> None:
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "recover",
-                "--limit",
-                "0",
-                "--storage-path",
-                "/nonexistent",
-            )
-        assert exc_info.value.code == 2
 
 
 # ---------------------------------------------------------------------------

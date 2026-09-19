@@ -300,10 +300,10 @@ def delivery_receipt_to_report_dict(
 ) -> dict[str, object]:
     """Build a canonical report dict from a :class:`DeliveryReceipt`.
 
-    Canonical keys: ``receipt_id``, ``event_id``, ``delivery_plan_id``,
-    ``target_adapter``, ``target_channel``, ``native_channel_id``,
-    ``native_message_id``, ``status``, ``failure_kind``, ``error``,
-    ``attempt_number``, ``route_id``, ``source``.
+    Canonical keys: ``sequence``, ``receipt_id``, ``event_id``,
+    ``delivery_plan_id``, ``target_adapter``, ``target_channel``,
+    ``native_channel_id``, ``native_message_id``, ``status``,
+    ``failure_kind``, ``error``, ``attempt_number``, ``route_id``, ``source``.
 
     Enrichment keys (additive):
 
@@ -349,7 +349,8 @@ def delivery_receipt_to_report_dict(
         receipt.status,
     )
     return {
-        # Original keys (unchanged).
+        # Canonical persisted identity/order fields.
+        "sequence": receipt.sequence,
         "receipt_id": receipt.receipt_id,
         "event_id": receipt.event_id,
         "delivery_plan_id": receipt.delivery_plan_id,

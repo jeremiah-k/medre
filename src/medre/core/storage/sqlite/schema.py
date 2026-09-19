@@ -231,10 +231,10 @@ CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
 CREATE INDEX IF NOT EXISTS idx_receipts_source
     ON delivery_receipts(source, replay_run_id);
 -- Lineage index for unresolved-delivery recovery scans: matches the
--- GROUP BY of query_unresolved_deliveries (latest receipt per
--- (event, plan, adapter, channel)) including the COALESCE normalization
--- of NULL/'' channel values. replay_run_id is receipt provenance and is
--- intentionally not part of the lineage key.
+-- correlated current-outcome predicate for (event, plan, adapter, channel),
+-- including the COALESCE normalization of NULL/'' channel values.
+-- replay_run_id is receipt provenance and is intentionally not part of the
+-- lineage key.
 CREATE INDEX IF NOT EXISTS idx_receipts_lineage
     ON delivery_receipts(event_id, delivery_plan_id, target_adapter,
                          COALESCE(target_channel, ''), sequence);
