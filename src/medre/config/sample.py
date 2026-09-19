@@ -75,7 +75,10 @@ adapters:
       # device_id and store_path are derived internally (whoami + state dir).
       # They should NOT be set by operators. Reserved for test harnesses.
       # device_id: MEDREBOT                                      # internal/test only
-      # store_path: '{state}/adapters/{adapter_id}/matrix/store'  # internal/test only
+      # store_path is not configurable: the runtime derives it under
+      # {state}/adapters/<adapter_id>/matrix/store for this instance. Test
+      # harnesses that must override it pass an absolute path — there is no
+      # {adapter_id} path placeholder.
       encryption_mode: plaintext
       # When using E2EE:
       # encryption_mode: e2ee_required
@@ -180,18 +183,21 @@ adapters:
 
 routes:
   # --- Active route: Matrix -> Meshtastic bridge ---
-  # Sends messages from the Matrix room to Meshtastic radio channel 1.
-  # For bidirectional (two-way) bridging, change directionality to "bidirectional".
+  # Sends plain message events from the Matrix side to Meshtastic radio
+  # channel 1. For bidirectional (two-way) bridging, change directionality
+  # to "bidirectional". Pin a source room with source_room once you use a
+  # real homeserver (see the commented targeting example below).
   matrix_radio_bridge:
     source_adapters: [main]
     dest_adapters: [radio]
     directionality: source_to_dest
     enabled: true
-    source_room: '!room:example.com'
     dest_channel: '1'
-    # Only bridge "message.created" events (not reactions, edits, etc.)
+    # Only bridge plain message events (not reactions, edits, etc.).
+    # Both message.created and message.text are allowed so this sample
+    # works as-is as `medre smoke --config <this-file>` input.
     policy:
-      allowed_event_types: [message.created]
+      allowed_event_types: [message.created, message.text]
 
   # --- Disabled route example ---
   # This route is defined but will not be activated at startup.

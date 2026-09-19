@@ -73,6 +73,11 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           report_type: test_results
+
+      - name: Verify installed wheel artifact
+        if: matrix.python-version == '3.13'
+        run: |
+          python scripts/check_installed_package.py
   matrix-sdk-contract:
     runs-on: ubuntu-latest
     steps:
