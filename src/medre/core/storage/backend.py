@@ -772,6 +772,30 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def finalize_outbox_terminal(
+        self,
+        receipt: DeliveryReceipt,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+        terminal_status: str,
+        event_id: str,
+        target_adapter: str,
+        failure_kind: str | None = None,
+        error_summary: str | None = None,
+    ) -> bool:
+        """Atomically finalize one terminal queue outcome.
+
+        Implementations MUST commit the immutable failed receipt and the
+        guarded outbox ``queued|in_progress -> terminal_status`` transition
+        in one transaction, re-checking the exact attempt at write time
+        (row identity, ``attempt_number``, eligible status).  Return
+        ``False`` when the guarded attempt no longer qualifies — stale
+        callback, duplicate notification, or a competing attempt/state
+        change won — in which case neither write may commit.
+        """
+        ...
+
     async def delivery_status(
         self,
         delivery_plan_id: str,

@@ -1,13 +1,11 @@
 """Targeted uncovered-line coverage tests for OutboxManager.
 
 Covers destination metadata, storage exception handling, lease renewal,
-cancel renewal, unknown terminal outcomes, attempt-number fallback,
+cancel renewal, unknown terminal outcomes, attempt-number authority,
 and cancelled/abandoned outbox transitions.
 """
 
 from __future__ import annotations
-
-import pytest
 
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event
@@ -175,6 +173,8 @@ class TestStartLeaseRenewal:
         """When outbox was created, start_lease_renewal returns an asyncio.Task."""
         import asyncio
 
+        import pytest
+
         from medre.core.engine.pipeline import outbox_manager as outbox_mod
         from medre.core.engine.pipeline.delivery_lifecycle import (
             DeliveryLifecycleService,
@@ -196,7 +196,6 @@ class TestStartLeaseRenewal:
 
         # Shorten renewal interval so the test runs fast, but we'll
         # cancel immediately anyway.
-        import pytest
 
         original_interval = outbox_mod._OUTBOX_RENEWAL_INTERVAL_SECONDS
         outbox_mod._OUTBOX_RENEWAL_INTERVAL_SECONDS = 600  # long; task won't cycle
@@ -343,14 +342,10 @@ class TestUnknownTerminalOutcome:
         assert item.status == "in_progress"
 
 
-class TestAttemptNumberFallback:
-    """Cover lines 511-514: attempt_number derivation when existing_item is None.
-
-    The `elif record.attempt_number is not None` branch is reachable only when
-    the validated outbox item exists (existing_item is not None), so in
-    practice the `elif` is a defensive fallback.  We exercise the normal path
-    (existing_item is not None → use its attempt_number) which is the only
-    live path that sets _attempt_number from the outbox item.
+class TestAttemptNumberAuthority:
+    """The terminal receipt carries the validated outbox row's
+    attempt_number (the row is authoritative), not the callback's own
+    numbering.
     """
 
     async def test_attempt_number_from_existing_item(
@@ -401,8 +396,8 @@ class TestAttemptNumberFallback:
 
 
 class TestCancelledAndAbandonedTransitions:
-    """Cover lines 547-586: cancelled and abandoned outbox transition paths
-    and the exception handler at line 566."""
+    """Cancelled and abandoned terminal outcomes transition the outbox row
+    and commit their failed receipt."""
 
     async def test_cancelled_outcome_marks_cancelled(
         self,
@@ -501,62 +496,3 @@ class TestCancelledAndAbandonedTransitions:
         outbox = await temp_storage.get_outbox_item("obox-abandoned-001")
         assert outbox is not None
         assert outbox.status == "abandoned"
-
-    async def test_mark_outbox_transition_exception_logged(
-        self,
-        temp_storage: SQLiteStorage,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """When the outbox transition raises, the error is logged (not propagated)
-        and the receipt still exists."""
-
-        from medre.core.contracts.adapter import QueueTerminalRecord
-        from medre.core.engine.pipeline.delivery_lifecycle import (
-            DeliveryLifecycleService,
-        )
-        from medre.core.engine.pipeline.outbox_manager import OutboxManager
-        from medre.core.storage.backend import DeliveryOutboxItem
-
-        lifecycle = DeliveryLifecycleService()
-        manager = OutboxManager(temp_storage, lifecycle)
-
-        outbox_item = DeliveryOutboxItem(
-            outbox_id="obox-trans-exn-001",
-            event_id="evt-trans-exn-001",
-            route_id="route-1",
-            delivery_plan_id="plan-1",
-            target_adapter="mesh-1",
-            target_channel="ch-1",
-            status="in_progress",
-            attempt_number=1,
-        )
-        await create_outbox_item_with_parent(temp_storage, outbox_item)
-
-        # Make mark_outbox_cancelled raise.
-        original_cancelled = temp_storage.mark_outbox_cancelled
-
-        async def _raising_cancelled(*args, **kwargs):
-            raise RuntimeError("simulated transition failure")
-
-        temp_storage.mark_outbox_cancelled = _raising_cancelled  # type: ignore[assignment]
-
-        record = QueueTerminalRecord(
-            event_id="evt-trans-exn-001",
-            adapter="mesh-1",
-            outcome="cancelled",
-            outbox_id="obox-trans-exn-001",
-            delivery_plan_id="plan-1",
-            attempt_number=1,
-            native_channel_id="ch-1",
-        )
-
-        # Should NOT raise.
-        await manager.record_terminal(record)
-
-        # Receipt should still have been created (before the transition error).
-        receipts = await temp_storage.list_receipts_for_event("evt-trans-exn-001")
-        assert len(receipts) == 1
-        assert receipts[0].status == "failed"
-
-        # Restore.
-        temp_storage.mark_outbox_cancelled = original_cancelled  # type: ignore[assignment]

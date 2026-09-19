@@ -150,8 +150,9 @@ class TestParserCommandsDocumented:
         parser_commands = _parser_top_level_commands()
         assert parser_commands, "Parser unexpectedly exposed no top-level commands"
 
-        # Every parser command is operator-facing (see operator-surface-audit);
-        # there is no separate hidden/internal command set.
+        # Every parser command is operator-facing; the operator-facing
+        # CLI inventory in ``docs/ops/configuration.md`` is the canonical
+        # surface list — there is no separate hidden/internal command set.
         undocumented = sorted(
             cmd
             for cmd in parser_commands

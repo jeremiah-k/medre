@@ -327,8 +327,11 @@ class OutboxManager:
 
         Creates a durable receipt recording the terminal outcome and
         transitions the matching outbox item to the appropriate terminal
-        status.  Adapters report facts; this method (core/pipeline)
-        decides the lifecycle authority mapping.
+        status atomically: the receipt and the outbox transition commit
+        together in one storage transaction or not at all.  Stale or
+        duplicate callbacks that lose to a competing attempt or state
+        change commit neither.  Adapters report facts; this method
+        (core/pipeline) decides the lifecycle authority mapping.
 
         Parameters
         ----------
@@ -506,13 +509,10 @@ class OutboxManager:
                 )
                 return
 
-            # Derive attempt_number: prefer the validated outbox item's value
-            # (authoritative), then the record's, then default to 1.
-            _attempt_number: int = 1
-            if existing_item is not None:
-                _attempt_number = existing_item.attempt_number
-            elif record.attempt_number is not None:
-                _attempt_number = record.attempt_number
+            # The validated outbox row is authoritative for the attempt
+            # number; validation above guarantees the row exists and that
+            # the record's attempt_number matches it.
+            _attempt_number: int = existing_item.attempt_number
 
             # Recover queued-receipt lineage: look up the queued receipt
             # for the same (outbox_id, attempt_number) to inherit its
@@ -521,41 +521,32 @@ class OutboxManager:
             _queued_source: str = "live"
             _queued_replay_run_id: str | None = None
             _queued_parent_receipt_id: str | None = None
-            if record.outbox_id is not None:
-                try:
-                    _all_receipts = await self._storage.list_receipts_for_event(
-                        record.event_id,
-                    )
-                    for _r in _all_receipts:
-                        if (
-                            _r.outbox_id == record.outbox_id
-                            and _r.attempt_number == _attempt_number
-                            and _r.status == "queued"
-                        ):
-                            _queued_source = _r.source
-                            _queued_replay_run_id = _r.replay_run_id
-                            _queued_parent_receipt_id = _r.parent_receipt_id
-                            break
-                except Exception:
-                    self._log.debug(
-                        "Could not recover queued-receipt lineage for "
-                        "outbox_id=%s; defaulting to source=live",
-                        record.outbox_id,
-                    )
+            try:
+                _all_receipts = await self._storage.list_receipts_for_event(
+                    record.event_id,
+                )
+                for _r in _all_receipts:
+                    if (
+                        _r.outbox_id == record.outbox_id
+                        and _r.attempt_number == _attempt_number
+                        and _r.status == "queued"
+                    ):
+                        _queued_source = _r.source
+                        _queued_replay_run_id = _r.replay_run_id
+                        _queued_parent_receipt_id = _r.parent_receipt_id
+                        break
+            except Exception:
+                self._log.debug(
+                    "Could not recover queued-receipt lineage for "
+                    "outbox_id=%s; defaulting to source=live",
+                    record.outbox_id,
+                )
 
             # Enrich receipt fields from the validated outbox item when
             # available — the outbox row is the authoritative source for
             # delivery_plan_id, target_channel, and route_id.
-            _enriched_plan_id = (
-                existing_item.delivery_plan_id
-                if existing_item is not None
-                else (record.delivery_plan_id or "")
-            )
-            _enriched_channel = (
-                existing_item.target_channel
-                if existing_item is not None
-                else record.native_channel_id
-            )
+            _enriched_plan_id = existing_item.delivery_plan_id
+            _enriched_channel = existing_item.target_channel
 
             # Create the terminal receipt.
             receipt = build_delivery_receipt(
@@ -563,7 +554,7 @@ class OutboxManager:
                 delivery_plan_id=_enriched_plan_id,
                 target_adapter=record.adapter,
                 target_channel=_enriched_channel,
-                route_id=(existing_item.route_id if existing_item is not None else ""),
+                route_id=existing_item.route_id,
                 status=receipt_status,
                 error=error_msg,
                 failure_kind=failure_kind,
@@ -573,54 +564,35 @@ class OutboxManager:
                 outbox_id=record.outbox_id,
                 attempt_number=_attempt_number,
             )
-            # Guard against duplicate terminal receipts: re-check outbox
-            # state before appending.  If a concurrent operation
-            # transitioned the outbox to terminal during validation,
-            # skip appending to prevent duplicates.
-            if record.outbox_id is not None:
-                re_check = await self._storage.get_outbox_item(record.outbox_id)
-                if re_check is not None and re_check.status not in (
-                    "queued",
-                    "in_progress",
-                ):
-                    self._log.warning(
-                        "Terminal receipt skipped: outbox_id=%s transitioned "
-                        "to %s during processing; duplicate prevented",
-                        record.outbox_id,
-                        re_check.status,
-                    )
-                    return
-            await self._storage.append_receipt(receipt)
-
-            # Transition the outbox item to terminal status.
-            if record.outbox_id is not None:
-                try:
-                    if outbox_terminal == "dead_lettered":
-                        await self._storage.mark_outbox_dead_lettered(
-                            record.outbox_id,
-                            receipt_id=receipt.receipt_id,
-                            failure_kind=failure_kind,
-                            error_summary=error_msg[:200] if error_msg else None,
-                        )
-                    elif outbox_terminal == "cancelled":
-                        await self._storage.mark_outbox_cancelled(
-                            record.outbox_id,
-                            error_summary=error_msg[:200] if error_msg else None,
-                        )
-                    elif outbox_terminal == "abandoned":
-                        await self._storage.mark_outbox_abandoned(
-                            record.outbox_id,
-                            error_summary=error_msg[:200] if error_msg else None,
-                        )
-                except Exception:
-                    self._log.exception(
-                        "Failed to transition outbox to %s: outbox_id=%s "
-                        "event_id=%s adapter=%s",
-                        outbox_terminal,
-                        record.outbox_id,
-                        record.event_id,
-                        record.adapter,
-                    )
+            # Commit the terminal receipt and the outbox transition in a
+            # single storage transaction.  The guarded attempt re-check
+            # inside that transaction is the authority: a stale or
+            # duplicate callback that loses to a competing attempt or
+            # state change commits neither the receipt nor the transition,
+            # and any write failure rolls the whole operation back.
+            committed = await self._storage.finalize_outbox_terminal(
+                receipt,
+                outbox_id=record.outbox_id,
+                attempt_number=_attempt_number,
+                terminal_status=outbox_terminal,
+                event_id=record.event_id,
+                target_adapter=record.adapter,
+                failure_kind=(
+                    failure_kind if outbox_terminal == "dead_lettered" else None
+                ),
+                error_summary=error_msg[:200] if error_msg else None,
+            )
+            if not committed:
+                self._log.warning(
+                    "Terminal outcome rejected: outbox_id=%s was finalized "
+                    "by a competing attempt or state change before commit; "
+                    "event_id=%s adapter=%s outcome=%s; duplicate prevented",
+                    record.outbox_id,
+                    record.event_id,
+                    record.adapter,
+                    record.outcome,
+                )
+                return
 
             self._log.info(
                 "Terminal queue outcome: event_id=%s adapter=%s "

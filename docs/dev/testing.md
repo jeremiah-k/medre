@@ -32,18 +32,8 @@ There is **no oversized-test allowlist**. Every `test_*.py` file stays at
 or below **1,500 lines** (`MAX_LINES`). The target remains below 1,200 lines.
 If a file approaches the hard cap, split it by behavioral domain following
 the procedure in the [Splitting procedure](#splitting-procedure) section.
-Completed splits are listed in the [Completed Splits](#completed-splits)
-table as historical record, not as active allowlist entries.
-
-#### Next-PR candidates near the cap
-
-These files are approaching the 1,500-line hard cap and should be split
-opportunistically by behavioral domain:
-
-- `test_runtime_snapshot.py` (1,301 lines)
-- `test_trace.py` (1,425 lines)
-- `test_replay_recover.py` (1,454 lines)
-- Any other 1,000+ line file should be split when convenient
+Past splits are recoverable from Git history; deleted monoliths are tracked
+by `DELETED_MONOLITHS` in `tests/test_test_suite_structure.py`.
 
 ### Splitting procedure
 
@@ -371,15 +361,160 @@ Test and production code paths are identical.
 Treat warnings as bugs where practical. `ResourceWarning` and
 `RuntimeWarning` about unawaited coroutines indicate real issues (leaked
 coroutines, unclosed resources) that will cause problems in production.
-
-For CI hardening, use:
+Every test must pass under strict `ResourceWarning` promotion:
 
 ```bash
 PYTHONPATH=src pytest -W error::ResourceWarning -q
 ```
 
 This is not enforced by default (some third-party libraries produce noisy
-warnings), but failures from this flag should be fixed, not suppressed.
+warnings), but failures from this flag must be fixed, never silenced with
+`filterwarnings` suppressions. A test that passes but emits `ResourceWarning`
+is a broken test; the leaked resource can cascade into later failures
+(descriptor exhaustion, sqlite lock contention, event-loop pollution).
+
+### sqlite3 connection hygiene
+
+Python 3.13 emits `ResourceWarning` for `sqlite3.Connection` objects garbage
+collected without an explicit `.close()`. Two rules keep this green:
+
+1. **Raw `sqlite3.connect()`**: guarantee `.close()` on every exit path.
+   `sqlite3.connect` is not a context manager for connection lifetime — the
+   `with` statement only manages transactions. Wrap with
+   `contextlib.closing()` or use `try/finally`.
+2. **`SQLiteStorage`**: the caller that successfully calls `initialize()`
+   (or `open_readonly()`) owns the obligation to call `close()`. `close()` is
+   idempotent and guards a `None` connection, so calling it unconditionally
+   in `finally` is always correct. Prefer a yield fixture so teardown is
+   centralized:
+
+```python
+@pytest.fixture
+async def storage(tmp_path):
+    store = SQLiteStorage(db_path=tmp_path / "test.db")
+    await store.initialize()
+    yield store
+    await store.close()
+```
+
+Fixture teardown runs in reverse dependency order, so storage tears down
+after adapters that may need it during their own stop.
+
+### CLI SystemExit and storage cleanup
+
+CLI code must not `sys.exit()` while storage cleanup is pending: return a
+status instead and let `main()` exit, so cleanup stays in `finally`. When a
+library raises `SystemExit` unavoidably, catch it in the test and close
+storage in `finally`.
+
+### App lifecycle cleanup
+
+Tests that build a `MedreApp` clean up according to what was built:
+
+- **Built but not started**: stop each adapter, then
+  `pipeline_runner.stop()` (safe if never started), then `storage.close()`.
+- **Started**: use `app.stop()`. It is a no-op for `INITIALIZED` and already
+  clean for `STOPPED`.
+
+The full shutdown sequence is owned by
+[resource-lifecycle.md](resource-lifecycle.md).
+
+### Coroutine leak prevention
+
+Using the wrong mock type is the most common source of unawaited-coroutine
+warnings (see [Async Mocking Rules](#async-mocking-rules) for the decision
+table). Additional rules:
+
+- Close coroutines passed to scheduler fakes before returning (see the
+  `_submit_done` example above).
+- When mocking `asyncio.wait_for` to raise `TimeoutError`, close the
+  awaitable first.
+- `patch("module.async_fn")` defaults to `AsyncMock`, which creates coroutine
+  objects on call; if the code under test passes that coroutine to a mocked
+  scheduler that raises early, the coroutine leaks. Use an explicit sync
+  `Mock(...)` when no await is needed.
+- Do not call `asyncio.run()` inside a test running under pytest-asyncio's
+  loop management; write `async def` tests and await directly
+  (`asyncio_mode` is `auto`).
+
+## Live Test Harness
+
+Live tests exercise real adapters against real endpoints (Matrix
+homeservers, Meshtastic radios). They are opt-in, never run in CI without
+explicit credentials, and follow the evidence-tier rules in
+[Adapter/Bridge Test Tiers](#adapterbridge-test-tiers).
+
+### Gating
+
+Every live test carries `@pytest.mark.live`; tests needing physical hardware
+additionally carry `@pytest.mark.hardware` (a strict subset — every file
+using `hardware` must also use `live`, enforced by boundary tests). On top of
+the marker, each module guards itself with a `pytest.importorskip`/`skipif`
+check for its required environment variables via
+`tests.helpers.live_harness` (`LiveRequirement`, `live_env_status`), so a
+machine with the `live` marker enabled but no credentials still skips
+cleanly.
+
+When hardware or an endpoint is unavailable, produce a `not_executed`
+artifact via `not_executed_result()` rather than skipping silently or
+fabricating a pass.
+
+### Environment variables
+
+Adapter overrides in live tests use the runtime instance-scoped form
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` (see
+[ops/configuration](../ops/configuration.md)). Unprefixed convenience
+variables such as `MATRIX_HOMESERVER` are test-only fixture inputs, never
+read by the runtime config loader. A second Matrix identity for simulating
+non-bot inbound users is available through `MATRIX_SECOND_USER_ID` /
+`MATRIX_SECOND_ACCESS_TOKEN` (check with
+`matrix_second_user_env_set()` from `tests.helpers.live_config`; the helper
+never prints token values).
+
+Artifacts (results, logs, evidence) persist under
+`MEDRE_LIVE_ARTIFACT_DIR` (default
+`.ci-artifacts/live-evidence/<timestamp>`), created automatically.
+
+### Bounded async operations
+
+Every async operation in a live test is bounded — no unbounded awaits. Wrap
+start/stop/deliver calls with `bounded()` from `tests.helpers.live_harness`
+and module-level named timeout constants (`_ADAPTER_START_TIMEOUT`,
+`_DELIVER_TIMEOUT`, …); never inline magic numbers into `wait_for`. If a
+test times out consistently, treat the timeout as a symptom of a bug before
+raising the constant.
+
+### Cleanup and secrets
+
+- Use `try/finally` so every started adapter is stopped; with multiple
+  resources, nest so the outermost resource tears down last. Live adapters
+  are expensive to start, so module-scoped fixtures are acceptable for
+  related tests; if you use fixtures, teardown must be robust.
+- Never print secrets (tokens, passwords, API keys, token-bearing URLs) or
+  put them in assertion messages. Use the redaction helpers in
+  `tests/helpers/`; after capturing serialisable output, run
+  `assert_no_secret_leak()` with the raw secret values. Output must stay
+  safe to paste into issues without manual redaction.
+- Radio / network transmissions require an explicit per-transport opt-in
+  so development runs cannot transmit accidentally:
+
+  - `MESHTASTIC_LIVE_SEND=1` — Meshtastic RF transmission (see
+    `tests/test_meshtastic_live.py`).
+  - `MESHCORE_LIVE_SEND=1` — MeshCore node send (see
+    `tests/test_meshcore_live.py`).
+  - `LXMF_LIVE_SEND=1` — LXMF / Reticulum outbound send (see
+    `tests/test_lxmf_live.py`).
+
+  Without the corresponding flag, live-send tests in that module are
+  skipped. Other live and hardware opt-ins (e.g. the `docker` marker,
+  `MEDRE_LIVE_HARDWARE_*`) are unchanged.
+
+- Keep `tests/helpers/live_harness.py` SDK-free; transport-specific SDK
+  imports belong in the per-transport test module. Import directly from
+  `tests.helpers.live_harness` — no package-root facades.
+
+For operator-side live validation procedures, see
+[ops/live-validation](../ops/live-validation/).
 
 ## Docker Tests
 
@@ -410,17 +545,17 @@ addopts = "-m 'not live and not docker and not hardware and not local_integratio
 
 The excluded markers gate the following tiers (see `pyproject.toml` `markers`):
 
-| Marker              | What it gates                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| `live`              | Tests connecting to a real service or hardware (skipped by default).               |
-| `docker`            | Tests requiring Docker services such as Synapse or meshtasticd.                     |
-| `hardware`          | Tests requiring physical hardware (serial/BLE Meshtastic radios, etc.).             |
-| `local_integration` | Real pinned SDK plus deterministic local endpoint (no external service).            |
-| `soak`              | Extended-duration or repeated-cycle transport endurance tests.                      |
-| `matrix_sdk`        | Tests requiring the pinned `mindroom-nio` Matrix SDK.                               |
-| `lxmf_sdk`          | Tests requiring the pinned LXMF/RNS SDKs.                                           |
-| `meshtastic_sdk`    | Tests requiring the pinned `mtjk` Meshtastic SDK.                                   |
-| `meshcore_sdk`      | Tests requiring the pinned `meshcore` SDK.                                          |
+| Marker              | What it gates                                                            |
+| ------------------- | ------------------------------------------------------------------------ |
+| `live`              | Tests connecting to a real service or hardware (skipped by default).     |
+| `docker`            | Tests requiring Docker services such as Synapse or meshtasticd.          |
+| `hardware`          | Tests requiring physical hardware (serial/BLE Meshtastic radios, etc.).  |
+| `local_integration` | Real pinned SDK plus deterministic local endpoint (no external service). |
+| `soak`              | Extended-duration or repeated-cycle transport endurance tests.           |
+| `matrix_sdk`        | Tests requiring the pinned `mindroom-nio` Matrix SDK.                    |
+| `lxmf_sdk`          | Tests requiring the pinned LXMF/RNS SDKs.                                |
+| `meshtastic_sdk`    | Tests requiring the pinned `mtjk` Meshtastic SDK.                        |
+| `meshcore_sdk`      | Tests requiring the pinned `meshcore` SDK.                               |
 
 ### Running Docker tests
 
@@ -772,38 +907,9 @@ Do not mask these with longer timeouts, `filterwarnings` suppressions, or
 | Compile check produces output                       | Syntax error or import issue          | Fix the reported file                                                         |
 | `ResourceWarning` in test output                    | Unclosed resource or leaked coroutine | Fix the mock or add cleanup (see [Async Mocking Rules](#async-mocking-rules)) |
 
-## Completed Splits
-
-These files have been split by behavioral domain following the procedure above.
-
-| Original file                                  | Result  | Domain files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ---------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Former `tests/test_adapter_callback_bridge.py` | Split   | 6 domain files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Former `tests/test_longrun_callback_bridge.py` | Split   | 4 domain files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Former `tests/test_operator_workflows.py`      | Split   | 7 domain files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Former `tests/test_pipeline.py`                | Split   | 5 domain files (delivery, failure taxonomy, fanout, native refs, capacity)                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Former `tests/test_replay.py`                  | Split   | 5 domain files (engine, policy, accounting, capacity, traceability)                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Former `tests/test_cli.py`                     | Split   | 9 domain files: `test_cli_command_help_hints`, `test_cli_config_workflows`, `test_cli_diagnostics_workflows`, `test_cli_install_metadata`, `test_cli_replay_surface`, `test_cli_route_workflows`, `test_cli_run_workflows`, `test_cli_scenario_crosscheck`, `test_cli_smoke_run_session`. Helper: `helpers/cli.py`.                                                                                                                                                                                                     |
-| Former CLI walkthrough monolith                | Split   | 4 domain files: `test_cli_config_and_smoke`, `test_cli_inspect_flow`, `test_cli_replay_flow`, `test_cli_error_paths`. Helper: `helpers/walkthrough.py`.                                                                                                                                                                                                                                                                                                                                                                 |
-| Former `tests/test_docker_bridge_artifacts.py` | Split   | 4 domain files: `test_docker_artifact_core`, `test_docker_artifact_plan`, `test_docker_artifact_metadata`, `test_docker_artifact_honesty`. Helper: `helpers/docker_artifacts.py`.                                                                                                                                                                                                                                                                                                                                       |
-| `tests/test_matrix_session.py`                 | Split   | 3 domain files: `test_matrix_session_config` (encryption config), `test_matrix_session_e2ee` (Megolm, encrypted rooms, E2EE diagnostics), `test_matrix_session_recovery` (sync failure, reconnect, crypto store continuity, sync state resilience). Original retained at 460 lines (lifecycle, diagnostics, start behavior).                                                                                                                                                                                            |
-| `tests/test_storage.py`                        | Split   | 7 domain files: `test_storage_durability`, `test_storage_integrity`, `test_storage_invariants`, `test_storage_native_refs`, `test_storage_path_cli`, `test_storage_path_validation`, `test_storage_receipts`. Original retained at 231 lines.                                                                                                                                                                                                                                                                           |
-| `tests/test_replay_routing.py`                 | Split   | 3 domain files: `test_replay_routing_controls`, `test_replay_routing_durability`, `test_replay_routing_isolation`. Original retained at 422 lines.                                                                                                                                                                                                                                                                                                                                                                      |
-| `tests/test_runtime_builder.py`                | Split   | 3 domain files: `test_runtime_builder_ordering` (build ordering, adapter ID propagation), `test_runtime_builder_paths` (Matrix store path derivation, ensure-dirs), `test_runtime_builder_routes` (degraded route validation). Original retained at 520 lines (construction, config, fakes).                                                                                                                                                                                                                            |
-| `tests/test_meshtastic_adapter.py`             | Split   | 1 domain file: `test_meshtastic_adapter_delivery` (send semantics, session boundary, session unit). Original retained at 755 lines (connection modes, queue ownership, lifecycle).                                                                                                                                                                                                                                                                                                                                      |
-| `tests/test_meshtastic_fake_bridge.py`         | Split   | 2 domain files: `test_meshtastic_fake_bridge_errors`, `test_meshtastic_fake_bridge_session`. Original retained at 938 lines.                                                                                                                                                                                                                                                                                                                                                                                            |
-| `tests/test_storage_outbox.py`                 | Deleted | 5 domain files: `test_storage_outbox_crud` (create, get, idempotent create, list, count, persistence), `test_storage_outbox_claim` (claim due, release claim, claim clears next_attempt_at), `test_storage_outbox_status` (status transitions, transition guards, queued lease semantics), `test_storage_outbox_atomic_create` (atomic create, no-steal guarantees), `test_storage_outbox_concurrency` (write lock serialisation, transaction rollback, stale queued reclaim, is_claimable property). Original deleted. |
-| `tests/test_fake_runtime_smoke.py`             | Split   | 2 domain files: `test_fake_runtime_soak` (diagnostics snapshots, replay delivery, happy path), `test_fake_runtime_startup_snapshot` (startup/shutdown integration, snapshot integration). Original retained at 931 lines.                                                                                                                                                                                                                                                                                               |
-| `tests/test_operator_recovery.py`              | Split   | 3 domain files: `test_config_repair` (malformed config, storage path, config repair workflows), `test_startup_recovery` (startup failure, degraded runtime, adapter disable/enable), `test_deterministic_messaging` (no-traceback assertions, deterministic boot/supervision shape). Helper: `helpers/operator_recovery.py`. Original retained at 295 lines (route validation recovery, replay after restart).                                                                                                          |
-
-## CLI split -- completed
-
-Former `test_cli.py` has been split into domain files (all under 1,500 lines). The
-monolith has been deleted. `test_cli` is listed in `DELETED_MONOLITHS` in
-`test_test_suite_structure.py`.
-
 ## See also
 
 - [Adapter authoring guide](adapter-authoring.md) -- writing a new transport adapter and its fake
-- [Source audits](source-audits.md) -- audit evidence for transport SDK assumptions
+- [Adapter SDK parity](adapter-sdk-parity.md) -- installed-SDK contract tiers and open parity gaps
+- [Resource lifecycle](resource-lifecycle.md) -- runtime resource ownership and shutdown sequence
 - [Operator workflows](../ops/operator-workflows.md) -- operator commands for bridge testing

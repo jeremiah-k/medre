@@ -1,4 +1,4 @@
-"""LXMF SDK parity regression tests against LXMF 1.1.1 / RNS 1.4.2."""
+"""LXMF SDK parity regressions against MEDRE's declared LXMF/RNS pins."""
 
 from __future__ import annotations
 

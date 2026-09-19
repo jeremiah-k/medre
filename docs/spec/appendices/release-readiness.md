@@ -14,44 +14,44 @@ commitment.
 
 ## 1. Capability Matrix
 
-| Capability                          | Matrix             | Meshtastic              | MeshCore                 | LXMF                     |
-| ----------------------------------- | ------------------ | ----------------------- | ------------------------ | ------------------------ |
-| Config load                         | live-validated     | synthetic-tested        | synthetic-tested         | synthetic-tested         |
-| Instance-scoped env overrides       | live-validated     | synthetic-tested        | synthetic-tested         | synthetic-tested         |
-| Env-first adapter creation          | synthetic-tested   | synthetic-tested        | synthetic-tested         | synthetic-tested         |
-| Env-driven route creation           | synthetic-tested   | synthetic-tested        | synthetic-tested         | synthetic-tested         |
-| Route policy enforcement            | synthetic-tested   | synthetic-tested        | synthetic-tested         | synthetic-tested         |
-| Fake lifecycle                      | live-validated     | synthetic-tested        | synthetic-tested         | synthetic-tested         |
-| Real adapter import safe            | live-validated     | opt-in live exists      | designed                 | designed                 |
-| Live start/health                   | live-validated     | opt-in live exists      | not started              | not started              |
-| Outbound delivery                   | live-validated     | opt-in live exists      | not started              | not started              |
-| Inbound decode                      | live-validated     | opt-in live exists      | not started              | not started              |
-| Storage native refs                 | live-validated     | synthetic-tested        | synthetic-tested         | synthetic-tested         |
-| Evidence bundle                     | live-validated     | synthetic-tested        | synthetic-tested         | synthetic-tested         |
-| Delivery reliability                | synthetic-tested   | synthetic-tested        | designed                 | designed                 |
-| Delivery evidence (unified inspect) | synthetic-tested   | synthetic-tested        | not started              | not started              |
-| Run-session path                    | live-validated     | not started             | not started              | not started              |
-| Operator runbook                    | live-validated     | opt-in live exists      | designed                 | designed                 |
-| Live validation recorded            | live-validated     | not started             | not started              | not started              |
-| Local delivery outbox               | synthetic-tested   | synthetic-tested        | synthetic-tested         | synthetic-tested         |
-| Matrix live adapter (local Synapse) | docker-validated   |                         |                          |                          |
-| Installed-SDK contract              | conformance-tested | conformance-tested      | conformance-tested       | conformance-tested       |
+| Capability                          | Matrix             | Meshtastic              | MeshCore                    | LXMF                        |
+| ----------------------------------- | ------------------ | ----------------------- | --------------------------- | --------------------------- |
+| Config load                         | live-validated     | synthetic-tested        | synthetic-tested            | synthetic-tested            |
+| Instance-scoped env overrides       | live-validated     | synthetic-tested        | synthetic-tested            | synthetic-tested            |
+| Env-first adapter creation          | synthetic-tested   | synthetic-tested        | synthetic-tested            | synthetic-tested            |
+| Env-driven route creation           | synthetic-tested   | synthetic-tested        | synthetic-tested            | synthetic-tested            |
+| Route policy enforcement            | synthetic-tested   | synthetic-tested        | synthetic-tested            | synthetic-tested            |
+| Fake lifecycle                      | live-validated     | synthetic-tested        | synthetic-tested            | synthetic-tested            |
+| Real adapter import safe            | live-validated     | opt-in live exists      | designed                    | designed                    |
+| Live start/health                   | live-validated     | opt-in live exists      | not started                 | not started                 |
+| Outbound delivery                   | live-validated     | opt-in live exists      | not started                 | not started                 |
+| Inbound decode                      | live-validated     | opt-in live exists      | not started                 | not started                 |
+| Storage native refs                 | live-validated     | synthetic-tested        | synthetic-tested            | synthetic-tested            |
+| Evidence bundle                     | live-validated     | synthetic-tested        | synthetic-tested            | synthetic-tested            |
+| Delivery reliability                | synthetic-tested   | synthetic-tested        | designed                    | designed                    |
+| Delivery evidence (unified inspect) | synthetic-tested   | synthetic-tested        | not started                 | not started                 |
+| Run-session path                    | live-validated     | not started             | not started                 | not started                 |
+| Operator runbook                    | live-validated     | opt-in live exists      | designed                    | designed                    |
+| Live validation recorded            | live-validated     | not started             | not started                 | not started                 |
+| Local delivery outbox               | synthetic-tested   | synthetic-tested        | synthetic-tested            | synthetic-tested            |
+| Matrix live adapter (local Synapse) | docker-validated   |                         |                             |                             |
+| Installed-SDK contract              | conformance-tested | conformance-tested      | conformance-tested          | conformance-tested          |
 | Deterministic local integration     | docker-validated   | docker-validated        | local-integration-validated | local-integration-validated |
-| Transport soak harness              | synthetic-tested   | opt-in live test exists | implemented-not-executed | implemented-not-executed |
+| Transport soak harness              | synthetic-tested   | opt-in live test exists | implemented-not-executed    | implemented-not-executed    |
 
 ## 2. Status Definitions
 
-| Status                     | Meaning                                                                                                               |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `not started`              | No implementation exists.                                                                                             |
-| `designed`                 | Spec/contract exists. No working code.                                                                                |
-| `implemented-not-executed` | Working harness exists, but no current-tree execution evidence is recorded.                                          |
-| `synthetic-tested`         | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
-| `conformance-tested`       | Tested against the current codebase with deterministic fixtures. Reproducible for the same Git tree.                     |
-| `docker-validated`         | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
-| `local-integration-validated` | Tested against a deterministic local endpoint/process with the pinned real SDK. Not external network or hardware. |
-| `opt-in live test exists`  | Test harness exists, gated by env vars. Not yet run against a real transport with recorded results.                   |
-| `live-validated`           | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
+| Status                        | Meaning                                                                                                               |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `not started`                 | No implementation exists.                                                                                             |
+| `designed`                    | Spec/contract exists. No working code.                                                                                |
+| `implemented-not-executed`    | Working harness exists, but no current-tree execution evidence is recorded.                                           |
+| `synthetic-tested`            | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
+| `conformance-tested`          | Tested against the current codebase with deterministic fixtures. Reproducible for the same Git tree.                  |
+| `docker-validated`            | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
+| `local-integration-validated` | Tested against a deterministic local endpoint/process with the pinned real SDK. Not external network or hardware.     |
+| `opt-in live test exists`     | Test harness exists, gated by env vars. Not yet run against a real transport with recorded results.                   |
+| `live-validated`              | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
 
 Docker SDK-boundary evidence validates SDK integration and adapter wiring but
 not external network behavior, federation, or real-world rate limits.
@@ -116,77 +116,82 @@ not external network behavior, federation, or real-world rate limits.
 - [ ] Multi-hop delivery testing
 - [ ] Delivery state progression observation
 
-## 4. Known Blockers
+## 5. Authority Domains
 
-No capabilities are currently `blocked`. The primary remaining gaps are
-physical Meshtastic and MeshCore devices, external Matrix validation, and an
-external LXMF peer/network for remote delivery and multi-hop observation.
+Each authority domain has one owning spec page (see
+[glossary.md](glossary.md) for the full authority map, including key source
+modules and explicit non-responsibilities). Authority domain pages define
+ownership boundaries; they do not imply release readiness. Runtime execution
+ownership is defined in [architecture.md](../architecture.md) §7.
 
-## 5. Pre-Release Status
+| Domain             | Owning spec page                             |
+| ------------------ | -------------------------------------------- |
+| Lifecycle          | `delivery-lifecycle.md`, `state-machines.md` |
+| Adapter boundary   | `adapter-runtime.md`                         |
+| Conversation graph | `event-model.md`                             |
+| Planning           | `routing-delivery.md`                        |
+| Operator surface   | `diagnostics-evidence.md`                    |
+| Persistence        | `storage.md`                                 |
+| Runtime execution  | `architecture.md` §7                         |
+| Runtime evidence   | `diagnostics-evidence.md`                    |
 
-MEDRE is pre-first-release. No public API is frozen. Breaking changes to the
-specification are permitted when they simplify the model.
+## 6. Readiness Gates
 
-## 6. Authority Domains
+Gates that must pass before any release. The rows below are **recorded
+historical evidence**: they describe what was executed against an earlier
+Git tree, not against the current tree. Every new Git tree requires fresh
+CI evidence of its own — historical rows MUST NOT be cited as proof for a
+tree they were not executed against. Live and hardware gates that have not
+been executed in this cycle remain `NOT EXECUTED` and are not promoted by
+any historical pass.
 
-The following authority domains have established spec pages and developer audit
-docs. Authority domain docs define ownership boundaries; they do not imply
-release readiness.
+### 6.1 Recorded historical evidence (pre-consolidation tree)
 
-| Domain             | Spec page                        | Audit doc                                         |
-| ------------------ | -------------------------------- | ------------------------------------------------- |
-| Lifecycle          | `delivery-lifecycle.md`          | `docs/dev/lifecycle-authority-audit.md`           |
-| Adapter boundary   | `adapter-runtime.md`             | `docs/dev/adapter-reality-audit.md`               |
-| Conversation graph | `event-model.md`                 | `docs/dev/conversation-graph-audit.md`            |
-| Planning           | `routing-delivery.md`            | `docs/dev/planning-authority-audit.md`            |
-| Operator surface   | `diagnostics-evidence.md`        | `docs/dev/operator-surface-audit.md`              |
-| Persistence        | `storage.md`                     | `docs/dev/persistence-authority-audit.md`         |
-| Runtime execution  | (no spec page; audit is interim) | `docs/dev/runtime-execution-authority-audit.md`   |
-| Runtime evidence   | `diagnostics-evidence.md`        | `docs/dev/runtime-evidence-completeness-audit.md` |
+| Gate                                                             | Evidence class | Status (historical) |
+| ---------------------------------------------------------------- | -------------- | ------------------- |
+| Compile / import                                                 | conformance    | Pass                |
+| Fake-adapter pipeline tests                                      | synthetic      | Pass                |
+| Schema / example validation                                      | conformance    | Pass                |
+| CLI smoke (`medre smoke --json`)                                 | conformance    | Pass                |
+| Run-session (`medre smoke --run-session`)                        | synthetic      | Pass                |
+| Operator read-only workflows (inspect, trace, evidence, recover) | conformance    | Pass                |
+| Adapter boundary tests (parity, lifecycle authority)             | conformance    | Pass                |
+| Doc structure tests (single authority, status vocabulary)        | conformance    | Pass                |
+| Matrix Docker SDK-boundary validation                            | docker         | Pass                |
+| Meshtastic Docker local integration                              | docker         | Pass                |
+| MeshCore deterministic real-SDK TCP local integration            | conformance    | Pass                |
+| LXMF process-isolated real RNS/LXMRouter local integration       | conformance    | Pass                |
 
-## 7. Readiness Gates
+Recorded historical evidence for the pre-consolidation tree:
 
-Gates that must pass before any release. Each gate records whether it has been
-executed for the current Git tree.
+- Recorded date: 2026-08-21 (historical — **not** evidence for the current tree).
+- Tree exercised: `ba2bceffad6810855e1858d202aee6039ac49824`.
+- Workflow run: `32529498484` at PR head
+  `409762d0cbba1d46aab1fafb60449eca0370ae00`; both
+  `transport-local-integration (meshcore)` and
+  `transport-local-integration (lxmf)` completed successfully.
+- Landed `main` commit `5c8a67e922612f18ab01deefaeeb39c429b4df02` carried
+  that identical tree at the time of the run.
 
-### 7.1 Executed gates (evidence exists)
+> **Note for current tree:** Each row above is a recorded historical pass
+> only. A new Git tree must record its own CI execution (conformance,
+> synthetic, docker, and any executed local-integration jobs) before the
+> same rows can be cited as current-tree evidence. Live and hardware
+> validation (Matrix, Meshtastic RF, MeshCore node, LXMF Reticulum) remain
+> `NOT EXECUTED` until a fresh run records them.
 
-| Gate                                                             | Evidence class | Status |
-| ---------------------------------------------------------------- | -------------- | ------ |
-| Compile / import                                                 | conformance    | Pass   |
-| Fake-adapter pipeline tests                                      | synthetic      | Pass   |
-| Schema / example validation                                      | conformance    | Pass   |
-| CLI smoke (`medre smoke --json`)                                 | conformance    | Pass   |
-| Run-session (`medre smoke --run-session`)                        | synthetic      | Pass   |
-| Operator read-only workflows (inspect, trace, evidence, recover) | conformance    | Pass   |
-| Adapter boundary tests (parity, lifecycle authority)             | conformance    | Pass   |
-| Doc structure tests (single authority, status vocabulary)        | conformance    | Pass   |
-| Matrix Docker SDK-boundary validation                            | docker         | Pass   |
-| Meshtastic Docker local integration                              | docker         | Pass   |
-| MeshCore deterministic real-SDK TCP local integration            | conformance    | Pass   |
-| LXMF process-isolated real RNS/LXMRouter local integration       | conformance    | Pass   |
+### 6.2 Not-executed gates (no evidence at any tier)
 
-Current-tree local-integration evidence was recorded on 2026-08-21. Git tree
-`ba2bceffad6810855e1858d202aee6039ac49824` was exercised by Tests and
-Coverage workflow run `32529498484` at PR head
-`409762d0cbba1d46aab1fafb60449eca0370ae00`; both
-`transport-local-integration (meshcore)` and
-`transport-local-integration (lxmf)` completed successfully. Landed `main`
-commit `5c8a67e922612f18ab01deefaeeb39c429b4df02` has the identical Git tree.
+| Gate                                 | Required for          | Status       |
+| ------------------------------------ | --------------------- | ------------ |
+| External live Matrix validation      | Non-Docker production | NOT EXECUTED |
+| Multi-room concurrent inbound (live) | Production throughput | NOT EXECUTED |
+| E2EE reactions, edits, media (live)  | Production feature    | NOT EXECUTED |
+| Meshtastic live validation (radio)   | Meshtastic release    | NOT EXECUTED |
+| MeshCore live validation (node)      | MeshCore release      | NOT EXECUTED |
+| LXMF live validation (Reticulum)     | LXMF release          | NOT EXECUTED |
 
-### 7.2 Not-executed gates (no evidence at any tier)
-
-| Gate                                     | Required for           | Status       |
-| ---------------------------------------- | ---------------------- | ------------ |
-| External live Matrix validation          | Non-Docker production  | NOT EXECUTED |
-| Multi-room concurrent inbound (live)     | Production throughput  | NOT EXECUTED |
-| E2EE reactions, edits, media (live)      | Production feature     | NOT EXECUTED |
-| Meshtastic live validation (radio)       | Meshtastic release     | NOT EXECUTED |
-| MeshCore live validation (node)          | MeshCore release       | NOT EXECUTED |
-| LXMF live validation (Reticulum)         | LXMF release           | NOT EXECUTED |
-| Hardware byte-budget measurement         | Constrained transports | NOT EXECUTED |
-
-### 7.3 Future release gates (not required for prerelease)
+### 6.3 Future release gates (not required for prerelease)
 
 These gates apply to a future stable release and are not blocking the current
 prerelease cycle:

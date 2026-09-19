@@ -10,6 +10,8 @@ from tests.helpers.sdk_contract import declared_extra_pins
 @pytest.mark.parametrize(
     ("extra", "expected_distributions"),
     [
+        ("matrix", {"mindroom-nio"}),
+        ("matrix-e2e", {"mindroom-nio"}),
         ("lxmf", {"lxmf", "rns"}),
         ("meshtastic", {"mtjk", "pypubsub"}),
         ("meshcore", {"meshcore"}),

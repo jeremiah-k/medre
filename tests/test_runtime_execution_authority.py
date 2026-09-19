@@ -1,14 +1,14 @@
 """Structural invariants for runtime execution authority.
 
 These tests verify that the execution-authority boundaries documented in
-``docs/dev/runtime-execution-authority-audit.md`` hold at the structural
-level: the right methods exist on the right classes, drain/restore helpers
+``docs/spec/architecture.md`` §7 (Runtime Orchestration) hold at the
+structural level: the right methods exist on the right classes, drain/restore helpers
 are module-level functions, and evidence/recovery modules have the expected
 read-only properties.  They do **not** test runtime behaviour — they guard
 against accidental refactorings that would violate the authority model.
 
-See ``docs/dev/runtime-execution-authority-audit.md`` for the developer
-authority reference.
+See ``docs/spec/architecture.md`` §7 for the normative orchestration
+sequence and authority boundaries.
 """
 
 from __future__ import annotations

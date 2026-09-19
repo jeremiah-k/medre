@@ -86,6 +86,12 @@ PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --json > bundle-f
 PYTHONPATH=src medre evidence --storage-path /path/to/medre.db --event <event_id> --json > bundle-event.json
 ```
 
+The CLI exposes only the storage-path read-only mode. Config-path bundle
+collection (`collect_evidence_bundle(config_path)`) is a library entry point
+consumed by `medre support bundle`, not by `medre evidence`. Bundle redaction
+runs a dedicated secret-key walker; error strings are additionally sanitized
+through `sanitize_error()` before entering logs or reports.
+
 ## Post-Run Inspection
 
 For day-to-day investigation, start with `medre inspect` (the preferred operator path).
@@ -502,10 +508,10 @@ In addition to unidirectional criteria for each direction:
 
 ### Pre-Runtime Drills
 
-| Drill name                 | What it proves                                                             |
-| -------------------------- | -------------------------------------------------------------------------- |
-| `bad_route_config`         | Unknown adapter ref in route causes `RouteValidationError`                 |
-| `all_adapters_build_fail`  | Total build failure causes all adapters to fail construction               |
+| Drill name                 | What it proves                                                           |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `bad_route_config`         | Unknown adapter ref in route causes `RouteValidationError`               |
+| `all_adapters_build_fail`  | Total build failure causes all adapters to fail construction             |
 | `partial_degraded_startup` | Partial adapter start allows runtime to enter READY with degraded health |
 | `all_adapters_start_fail`  | Total startup failure prevents READY state                               |
 
@@ -640,7 +646,7 @@ When the runtime shuts down, the delivery evidence system records what happened 
 | In-flight delivery completes during drain period   | Normal receipt with final status (`sent` or `failed`)                                         |
 | In-flight delivery abandoned after drain timeout   | Suppressed receipt with failure_kind `shutdown_rejection`, error `shutdown_drain_timeout`     |
 | New delivery rejected because shutdown is underway | Suppressed receipt with failure_kind `shutdown_rejection`, error `delivery_rejected_shutdown` |
-| Retry receipt evidence at shutdown                 | No change; receipt remains immutable evidence                                                  |
+| Retry receipt evidence at shutdown                 | No change; receipt remains immutable evidence                                                 |
 | Pending outbox item at shutdown                    | No change; outbox row remains resumable work for next startup                                 |
 
 Non-terminal outbox items are not cancelled during shutdown. They survive in SQLite and are processed on next startup through `claim_due_outbox_items()` by the RetryWorker or the normal dispatch/reclaim paths. Receipts remain immutable evidence and are not scheduling work. This is an intentional design choice: non-terminal outbox work is preserved as resumable work, not implicitly transitioned to a cancelled state. The `ShutdownEvidence` record (in the evidence bundle) reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals the resumable policy is active. Operators can inspect `pending_outbox_counts` in the shutdown evidence to see exactly which statuses and counts were preserved.
@@ -785,114 +791,37 @@ The lifecycle convergence report has three fields to check first:
 
 ### Finding Kinds and Operator Actions
 
-#### `terminal_receipt_nonterminal_outbox` (degraded)
+All findings are detection-only; the closed `kind` enum is normative in
+[spec/diagnostics-evidence.md](../spec/diagnostics-evidence.md) §23.
 
-The latest receipt says the delivery finished (sent, suppressed, or dead_lettered) but the outbox item is still non-terminal (pending, retry_wait, in_progress, queued).
+| Kind                                  | Severity     | Meaning and action                                                                                           |
+| ------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------ |
+| `terminal_receipt_nonterminal_outbox` | degraded     | Receipt finished, outbox still non-terminal. Usually a timing artifact; persistent cases = stale outbox row. |
+| `terminal_outbox_nonterminal_receipt` | inconsistent | Outbox terminal but latest receipt non-terminal. Delivery likely completed; receipt chain may be incomplete. |
+| `retry_wait_missing_next_retry`       | inconsistent | `retry_wait` without valid `next_attempt_at`. Scheduler cannot retry; replay or correct the value.           |
+| `receipt_outbox_mismatch`             | degraded     | Statuses contradict normal flow beyond a terminal/non-terminal mismatch. Check for in-progress transition.   |
+| `next_retry_in_past`                  | degraded     | `next_attempt_at` overdue. RetryWorker behind or bad timestamp; check the worker is processing.              |
+| `retryable_without_retry_metadata`    | degraded     | Retryable receipt missing scheduling fields. If retry is enabled it may never be picked up; replay.          |
+| `stalled_delivery_plan`               | degraded     | Non-terminal outbox untouched past the stall threshold (default 1 h). Check claiming worker health.          |
+| `attempt_count_regression`            | inconsistent | Later receipt has a lower attempt number. Audit the receipt chain for the delivery target.                   |
+| `receipt_sequence_gap`                | degraded     | Receipt sequence numbers skip. Possible lost receipts or concurrent attempts.                                |
 
-This is typically a timing artifact — the outbox may not have caught up with the receipt yet. If the condition persists, it may indicate a stale outbox entry.
-
-```sql
-SELECT outbox_id, status, updated_at FROM delivery_outbox
-WHERE delivery_plan_id = '<plan_id>';
-SELECT receipt_id, status, attempt_number FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>' ORDER BY attempt_number;
-```
-
-Determine which record is stale. If the receipt is correct (delivery did complete), the outbox is stale. If the outbox is correct, the receipt may be from a stale correlation.
-
-#### `terminal_outbox_nonterminal_receipt` (inconsistent)
-
-The outbox has reached a terminal status but the latest receipt is still non-terminal (queued or failed).
-
-This is also a data-integrity contradiction. The receipt should reflect the terminal outcome.
+Shared drill-down for any finding on a specific target:
 
 ```sql
-SELECT outbox_id, status FROM delivery_outbox
-WHERE delivery_plan_id = '<plan_id>';
-SELECT receipt_id, status FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>' ORDER BY attempt_number DESC LIMIT 1;
+SELECT outbox_id, status, attempt_number, next_attempt_at, updated_at
+FROM delivery_outbox WHERE delivery_plan_id = '<plan_id>';
+SELECT receipt_id, status, attempt_number, sequence, failure_kind, created_at
+FROM delivery_receipts WHERE delivery_plan_id = '<plan_id>'
+ORDER BY attempt_number;
 ```
 
-The delivery likely completed but the receipt chain may be incomplete. Check if the adapter callback was received and if a supplemental receipt was created.
-
-#### `retry_wait_missing_next_retry` (inconsistent)
-
-An outbox item is in `retry_wait` state but has no valid `next_attempt_at` timestamp. The retry scheduler cannot determine when to retry.
-
-```sql
-SELECT outbox_id, status, next_attempt_at FROM delivery_outbox
-WHERE outbox_id = '<outbox_id>';
-```
-
-The retry metadata is corrupted or was never set. Consider replaying the event or manually correcting the `next_attempt_at` value.
-
-#### `receipt_outbox_mismatch` (degraded)
-
-Both receipt and outbox exist for a target but their statuses contradict normal flow in a way that does not indicate a terminal/non-terminal mismatch. For example, both are terminal but with different statuses, or both are non-terminal in an abnormal combination.
-
-```sql
-SELECT o.outbox_id, o.status AS outbox_status, r.receipt_id, r.status AS receipt_status
-FROM delivery_outbox o JOIN delivery_receipts r
-ON o.delivery_plan_id = r.delivery_plan_id
-WHERE o.delivery_plan_id = '<plan_id>';
-```
-
-Check whether the statuses reflect a recent transition in progress or a persistent inconsistency.
-
-#### `next_retry_in_past` (degraded)
-
-An outbox item is in `retry_wait` but `next_attempt_at` is in the past. The retry should have already been attempted.
-
-```sql
-SELECT outbox_id, status, next_attempt_at, updated_at FROM delivery_outbox
-WHERE outbox_id = '<outbox_id>';
-```
-
-The RetryWorker may be behind, or the retry scheduling logic produced an incorrect timestamp. Check that the RetryWorker is running and processing due items.
-
-#### `retryable_without_retry_metadata` (degraded)
-
-A failed receipt appears retryable (transient failure or matching non-terminal outbox) but is missing retry scheduling fields.
-
-```sql
-SELECT receipt_id, status, failure_kind, next_retry_at FROM delivery_receipts
-WHERE receipt_id = '<receipt_id>';
-```
-
-The retry metadata was not populated when the receipt was created. If retry is enabled, the receipt may not be picked up by the RetryWorker. Consider replaying the event.
-
-#### `stalled_delivery_plan` (degraded)
-
-A non-terminal outbox item has not been updated for longer than the stall threshold (default 1 hour). The delivery appears stuck.
-
-```sql
-SELECT outbox_id, status, updated_at FROM delivery_outbox
-WHERE outbox_id = '<outbox_id>';
-```
-
-Check whether the worker that claimed this item is still alive. Expired leases should be reclaimed by `claim_due_outbox_items()`. If the item remains stalled, the worker may have crashed without releasing the claim.
-
-#### `attempt_count_regression` (inconsistent)
-
-Within the same delivery target, a later receipt has a lower attempt number than an earlier receipt. Attempt numbers should monotonically increase within a retry chain.
-
-```sql
-SELECT receipt_id, attempt_number, created_at FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>' ORDER BY created_at;
-```
-
-This suggests a data integrity issue in the retry chain. The receipt chain should be audited for correctness.
-
-#### `receipt_sequence_gap` (degraded)
-
-Receipts for the same target have sequence numbers that skip by more than 1. Some intermediate receipts may be missing.
-
-```sql
-SELECT receipt_id, sequence, status, created_at FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>' ORDER BY sequence;
-```
-
-Gaps may indicate lost receipts or concurrent delivery attempts. Check whether receipts were created but not persisted.
+Determine which record is stale: the outbox is the operational authority for
+current state; receipts are the immutable evidence trail. If the outbox is
+stale (terminal receipt, non-terminal outbox), the delivery completed and the
+row may need operator attention if it does not converge via reclaim. If the
+receipt is stale, the chain may be incomplete — check whether the adapter
+callback arrived and a supplemental receipt should exist.
 
 ### Important Constraints
 
@@ -944,19 +873,16 @@ Each ownership action carries a `recovery_source`:
 
 ### Snapshot vs. Real Recovery — Important Distinction
 
-Recovery evidence exists at three semantic levels that **operators should never conflate**:
-
-1. **Actual startup recovery**: Tied to a real runtime startup cycle. Uses a real `recovery_run_id` from `BootSummary`. Produced by the runtime recovery path during boot. This is the only level that reflects genuine startup reclamation.
-
-2. **Runtime evidence-bundle snapshot diagnostics**: Built from a storage snapshot at collection time. Uses a snapshot-scoped `recovery_run_id`. This is a **diagnostic reconstruction**, not proof that a startup recovery cycle occurred. The snapshot reflects outbox state as observed, not a live recovery transaction.
-
-3. **Per-event recovery diagnostics**: Built from an event-scoped outbox snapshot by the `EvidenceCollector`. Uses `recovery_run_id=None` because the per-event collector has no `BootSummary` access. This is **classification only**, not proof of startup recovery.
-
-**Operators should not interpret snapshot-derived `recovery_summary` and `recovery_ledger` values as proof that startup recovery actually ran.** They reflect stored outbox state at the time the snapshot was taken. The `recovery_source` field tells you which level produced each action:
-
-- Actions with `recovery_source="snapshot_diagnostics"` are diagnostic reconstructions.
-- Actions with `recovery_source="startup_recovery"` or `"retry_worker_recovery"` are from real runtime reclamation.
-- The per-event collector always produces `"snapshot_diagnostics"` because it has no startup context.
+Recovery evidence exists at three levels that operators must not conflate:
+real startup recovery (a genuine boot cycle with a `BootSummary`-scoped
+`recovery_run_id`), evidence-bundle snapshot diagnostics (a diagnostic
+reconstruction from stored outbox state, using a snapshot-scoped run ID), and
+per-event recovery diagnostics (classification only; the per-event collector
+has no boot context and uses `recovery_run_id=None`). Do not interpret
+snapshot-derived `recovery_summary`/`recovery_ledger` values as proof that
+startup recovery ran — check `recovery_source`:
+`snapshot_diagnostics` means reconstruction; `startup_recovery` and
+`retry_worker_recovery` mean real runtime reclamation.
 
 ### Reading Recovery Evidence
 

@@ -66,7 +66,6 @@ class TestCoreSpecFiles:
         "security-privacy.md",
         "conformance.md",
         "state-machines.md",
-        "index.md",
     ]
 
     @pytest.mark.parametrize(
@@ -198,8 +197,6 @@ class TestDevFiles:
         "adapter-authoring.md",
         "documentation-style.md",
         "change-process.md",
-        "live-test-harness.md",
-        "source-audits.md",
         "reference-repos.md",
         "README.md",
     ]

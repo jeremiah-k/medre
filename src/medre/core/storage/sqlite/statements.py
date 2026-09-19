@@ -78,6 +78,25 @@ WHERE outbox_id = ?
   AND status IN ('queued', 'in_progress')
 """
 
+_FINALIZE_OUTBOX_TERMINAL = """
+UPDATE delivery_outbox
+SET status = ?,
+    failure_kind = ?,
+    failure_kind_detail = NULL,
+    next_attempt_at = NULL,
+    updated_at = ?,
+    locked_at = NULL,
+    lease_until = NULL,
+    worker_id = NULL,
+    receipt_id = ?,
+    error_summary = ?
+WHERE outbox_id = ?
+  AND event_id = ?
+  AND target_adapter = ?
+  AND attempt_number = ?
+  AND status IN ('queued', 'in_progress')
+"""
+
 
 # ---------------------------------------------------------------------------
 # SELECT statements

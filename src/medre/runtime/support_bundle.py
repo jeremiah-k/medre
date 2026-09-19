@@ -191,7 +191,8 @@ def _redact(obj: Any) -> Any:
 # exposing env-var *values*. Discovery vars (``MEDRE_CONFIG``, ``MEDRE_HOME``)
 # are excluded: they pick a file, they do not override field values. Unknown
 # ``MEDRE_*`` vars are excluded too — only the documented override surfaces
-# count. See the operator-support-bundle-audit (F-006) for rationale.
+# count. See ``docs/ops/configuration.md`` § "Collecting a support bundle"
+# for rationale.
 _CONFIG_OVERRIDE_PREFIXES: tuple[str, ...] = (
     "MEDRE_ADAPTER__",
     "MEDRE_ROUTE__",
@@ -606,9 +607,7 @@ def _build_redacted_config_text(raw_text: str, source_label: str) -> str | None:
         data = parse_yaml_config(raw_text, source_label)
         redacted = _redact(data)
         return yaml.safe_dump(redacted, sort_keys=True, default_flow_style=False)
-    except (
-        Exception
-    ):
+    except Exception:
         # Config-check already records the load failure; no config member.
         return None
 

@@ -1,6 +1,6 @@
 """Matrix Classic Sync checkpoint-ownership tests.
 
-These tests exercise MEDRE's side of the mindroom-nio 0.40 application-owned
+These tests exercise MEDRE's side of the pinned mindroom-nio application-owned
 checkpoint contract without requiring a homeserver.
 """
 
@@ -85,6 +85,7 @@ async def test_unsupported_admission_provenance_propagates_value_error(
     propagates unchanged so nio wraps it in ``_LiveCallbackError(accepted=True)``
     instead of looping the event forever.
     """
+
     class CallbackNotAcceptedError(Exception):
         pass
 
@@ -163,6 +164,7 @@ async def test_unexpected_runtime_error_propagates_and_is_logged(
     The session also logs ``MATRIX_ADMISSION_UNEXPECTED_ERROR`` so the
     operator can correlate the failure.
     """
+
     class CallbackNotAcceptedError(Exception):
         pass
 
@@ -187,17 +189,14 @@ async def test_unexpected_runtime_error_propagates_and_is_logged(
         },
     )
 
-    caplog.set_level(
-        "ERROR", logger="medre.adapters.matrix.session"
-    )
+    caplog.set_level("ERROR", logger="medre.adapters.matrix.session")
     with pytest.raises(RuntimeError, match="sqlite write failed") as caught:
         await session._on_nio_admission(room, event, SimpleNamespace(value="recovered"))
 
     assert caught.value is original
     assert not isinstance(caught.value, CallbackNotAcceptedError)
     assert any(
-        "MATRIX_ADMISSION_UNEXPECTED_ERROR" in rec.message
-        for rec in caplog.records
+        "MATRIX_ADMISSION_UNEXPECTED_ERROR" in rec.message for rec in caplog.records
     ), [rec.message for rec in caplog.records]
     assert session._recovered_event_count == 1
 

@@ -684,20 +684,10 @@ Read-only inspection commands require `--storage-path` for direct SQLite access.
 
 **Cause:** The outbox item and latest receipt disagree on whether the delivery is terminal. For example, the outbox says `sent` but the latest receipt says `queued`.
 
-**Investigation:**
-
-```sql
--- Check the receipt chain for the affected delivery_plan_id
-SELECT receipt_id, status, attempt_number, failure_kind, created_at
-FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>'
-ORDER BY attempt_number;
-
--- Check the outbox item
-SELECT outbox_id, status, attempt_number, updated_at
-FROM delivery_outbox
-WHERE delivery_plan_id = '<plan_id>';
-```
+**Investigation:** Drill into the receipt chain and outbox row for the
+affected `delivery_plan_id` using the shared SQL in
+[diagnostics-and-evidence.md](diagnostics-and-evidence.md) (Convergence
+Diagnostics → Operator Actions by Severity).
 
 **Resolution:**
 
@@ -738,70 +728,32 @@ WHERE delivery_plan_id = '<plan_id>';
 
 ## Lifecycle Convergence Finding Troubleshooting
 
-Lifecycle convergence findings appear in the `lifecycle_convergence_report` section of the evidence bundle. They detect specific contradictions between outbox item states and delivery receipt states.
+Lifecycle convergence findings appear in the `lifecycle_convergence_report`
+section of the evidence bundle. The finding catalog (kinds, severities, and
+the drill-down SQL for each) is maintained in one place:
+[diagnostics-and-evidence.md](diagnostics-and-evidence.md) — Lifecycle
+Convergence Findings. Normative definitions live in
+[spec/diagnostics-evidence.md](../spec/diagnostics-evidence.md) §23.
 
-### "Terminal receipt but non-terminal outbox"
+Symptom-driven shortcuts for the common post-crash cases:
 
-**Symptom:** The lifecycle convergence report shows `terminal_receipt_nonterminal_outbox` findings.
+- **`terminal_receipt_nonterminal_outbox`**: the receipt is terminal while the
+  outbox is still non-terminal. If that outbox row remains eligible for reclaim,
+  restart/worker recovery may converge it; if the finding persists, inspect the
+  outbox lease/status and the worker that should advance it.
+- **`terminal_outbox_nonterminal_receipt`**: the outbox is already terminal and
+  will not be reclaimed. Inspect the complete receipt chain and terminal callback
+  evidence directly; treat a persistent mismatch as missing or contradictory
+  receipt evidence rather than waiting for reclaim.
+- **`retry_wait_missing_next_retry`**: the scheduler cannot retry; replay the
+  event or correct the metadata.
+- **`stalled_delivery_plan`**: check whether the claiming worker is alive;
+  expired leases are reclaimed by `claim_due_outbox_items()`.
+- **`attempt_count_regression` / `receipt_sequence_gap`**: audit the receipt
+  chain; replay if the stored chain is wrong.
 
-**Cause:** A delivery receipt with terminal status (sent, suppressed, dead_lettered) exists, but the corresponding outbox item is still in a non-terminal state.
-
-**Investigation:**
-
-```sql
-SELECT outbox_id, status, updated_at FROM delivery_outbox
-WHERE delivery_plan_id = '<plan_id>';
-SELECT receipt_id, status, attempt_number FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>' ORDER BY attempt_number;
-```
-
-**Resolution:** Determine which record is stale. If the receipt is correct, the outbox was not transitioned. This may resolve on its own if the outbox is reclaimed. If persistent, the outbox row may need operator attention.
-
-### "Terminal outbox but non-terminal receipt"
-
-**Symptom:** The lifecycle convergence report shows `terminal_outbox_nonterminal_receipt` findings.
-
-**Cause:** The outbox item has reached a terminal status, but the latest receipt is still non-terminal (queued or failed).
-
-**Investigation:** Same SQL as above.
-
-**Resolution:** The delivery likely completed but the receipt chain may be incomplete. Check whether the adapter callback was received and whether a supplemental sent receipt should have been created.
-
-### "Retry wait without next retry timestamp"
-
-**Symptom:** The lifecycle convergence report shows `retry_wait_missing_next_retry` findings.
-
-**Cause:** An outbox item is in `retry_wait` state but has no valid `next_attempt_at` timestamp.
-
-**Fix:** The retry scheduler cannot determine when to retry. Check whether the retry was set up correctly. Consider replaying the event or investigating why the timestamp was not populated.
-
-### "Stalled delivery plan"
-
-**Symptom:** The lifecycle convergence report shows `stalled_delivery_plan` findings.
-
-**Cause:** A non-terminal outbox item has not been updated for longer than the stall threshold (default 1 hour).
-
-**Fix:** Check whether the worker that claimed this item is still running. Expired leases should be reclaimed by `claim_due_outbox_items()`. If the item remains stalled, check the RetryWorker status and adapter health.
-
-### "Attempt count regression"
-
-**Symptom:** The lifecycle convergence report shows `attempt_count_regression` findings.
-
-**Cause:** Within the same delivery target, a later receipt has a lower attempt number than an earlier receipt.
-
-**Fix:** This is a data integrity issue. Audit the receipt chain for the affected `delivery_plan_id`. Attempt numbers should monotonically increase within a retry chain. If the data is incorrect, consider replaying the event.
-
-### "Receipt sequence gap"
-
-**Symptom:** The lifecycle convergence report shows `receipt_sequence_gap` findings.
-
-**Cause:** Receipts for the same target have sequence numbers that skip by more than 1.
-
-**Fix:** Gaps may indicate lost receipts or concurrent delivery attempts. Check whether receipts were created but not persisted, or whether multiple concurrent deliveries to the same target produced interleaved sequences.
-
-### Important
-
-Lifecycle convergence diagnostics are deterministic and read-only. They never change retry scheduling, worker behavior, or storage state. No automatic repair occurs based on these findings.
+Lifecycle convergence diagnostics are deterministic and read-only. They
+never change retry scheduling, worker behavior, or storage state.
 
 ## Explicit Non-Guarantees
 

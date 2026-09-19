@@ -32,7 +32,9 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
    `limits.shutdown_drain_timeout_seconds` deadline. Work already admitted to
    MEDRE remains persisted, but work still only inside an adapter SDK or
    adapter-local queue can be abandoned when transport-specific shutdown
-   guarantees run out.
+   guarantees run out. Adapter stop and retry-worker stop are cooperative and
+   best-effort: a task that suppresses `CancelledError` can outlive its cancel
+   grace and be abandoned rather than forcibly killed.
 
 6. **Durable ingress starts at canonical admission, not at raw transport receipt.**
    Runtime live adapter ingress requires storage. Normal live callbacks atomically
@@ -60,9 +62,9 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 - Decrypted Matrix ingress normalizes reactions, edits, redactions, and media.
   Outbound edits/deletes/attachments remain unsupported, and MEDRE does not manage
   a room-key backup/import/export workflow.
-- Own-device cross-signing is implemented against `mindroom-nio 0.40.0`. Peer-device
-  trust is still intentionally permissive for bot operation and is not
-  operator-configurable.
+- Own-device cross-signing is implemented against MEDRE's currently pinned
+  `mindroom-nio` surface. Peer-device trust is still intentionally permissive
+  for bot operation and is not operator-configurable.
 - Missing/mismatched local cross-signing identity cannot be repaired destructively at
   runtime; explicit fresh-password authentication is required for reset/rotation.
 - `restore_login()` does not validate the token against the server at startup.
@@ -77,13 +79,17 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
   surfaces MEDRE uses without duplicating the current version literal.
 - `sendText` and `sendData` are synchronous in mtjk; MEDRE wraps them in
   `asyncio.to_thread()`.
-- Pubsub callbacks fire on a background thread, not the asyncio event loop.
 - Node numbers are ephemeral; a node that leaves and rejoins may receive a
   different number.
+- The declared `max_text_bytes` budget (227 bytes) is the protocol-layer text
+  budget. Structured fields sent alongside text (for example `reply_id` and
+  `emoji`, which ride first-class protobuf fields) add framing overhead that
+  is **not** deducted from the budget; tight-budget links should validate
+  structured sends against a real node.
 
 ### 2.3 MeshCore
 
-- SDK parity is frozen against meshcore 2.3.8. BLE
+- SDK parity is checked against the exact MeshCore pin declared by MEDRE. BLE
   session-layer behavior was live-validated June 2026 against a MeshCore
   node on Linux BlueZ. TCP and serial transports are source-extracted
   only; no live hardware test has been run against them. BLE requires
@@ -95,6 +101,9 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 - No startup backlog suppression (intentionally absent: MeshCore has no
   store-and-forward).
 - Sender identity is a 6-byte pubkey prefix (not globally unique).
+- The inbound `native_message_id` is derived from the packet's
+  `sender_timestamp` (second resolution), not from a protocol-guaranteed
+  unique ID; high-volume channels can collide within the same second.
 
 ### 2.4 LXMF
 
@@ -111,6 +120,9 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
   singleton. LXMF has no public join/stop primitive for the router daemon job
   loop, so a stopped router can leave a dormant daemon thread until process
   exit.
+- Reticulum exposes no transport-down event, so there is no proactive
+  reconnect: a lost transport is first noticed when an outbound send fails,
+  and recovery relies on that send's bounded local retry.
 
 ## 3. Fire-and-Forget Model
 
@@ -182,3 +194,9 @@ mechanisms:
 
 5. **`RenderingContext.capability_policy` is reserved and unpopulated.** No
    production code path currently sets this field.
+6. **`delivery_receipts` semantics differ by transport.** Matrix declares
+   `delivery_receipts=true`, meaning homeserver ACK only. LXMF tracks
+   deliveries asynchronously through its own state model but does not wire
+   MEDRE-level delivery receipts (declared `false`). Neither implies
+   end-to-end recipient acknowledgement; evidence levels are normative in
+   [routing-delivery.md](../routing-delivery.md) §13.

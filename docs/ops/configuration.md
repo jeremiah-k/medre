@@ -882,6 +882,14 @@ export MEDRE_ROUTE__RADIO_TO_MATRIX__ENABLED=true
 - Store secret files outside the repo tree. If a secret lives as a file (e.g. LXMF identity), keep it in a path excluded by `.gitignore`.
 - Never log tokens or private keys. Diagnostic output and error messages exclude raw credentials.
 
+### Dumping environment-derived config safely
+
+`MedreEnvConfig.to_dict()` (the typed environment-override model in
+`medre.config.env`) returns **raw, unredacted values** by design — it is for
+internal construction, not for display. Anything operator-facing that prints
+environment-derived configuration must use
+`EnvProvenance.redacted_items()` instead, which redacts secret values.
+
 ### Per-Transport Guidance
 
 **Matrix:**

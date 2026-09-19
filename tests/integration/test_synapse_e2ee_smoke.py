@@ -638,7 +638,8 @@ class TestSynapseE2EESmoke:
         finally:
             # Capture the adapter's nio client before teardown: the
             # production session stop path runs nio's close(), which does
-            # not close the store's SQLite connection (nio 0.40.0). Close
+            # not close the store's SQLite connection in the pinned nio
+            # surface. Close
             # it ourselves so the connection is never left to the garbage
             # collector.
             adapter_session = getattr(matrix_adapter, "_session", None)

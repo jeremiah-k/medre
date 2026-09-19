@@ -78,7 +78,7 @@ class RuntimeConfig:
 | Field              | Default | Description                                    |
 | ------------------ | ------- | ---------------------------------------------- |
 | `enabled`          | `False` | Whether the retry worker is active             |
-| `interval_seconds` | `10.0`  | Polling interval for due outbox work        |
+| `interval_seconds` | `10.0`  | Polling interval for due outbox work           |
 | `batch_size`       | `20`    | Max due outbox items claimed per cycle         |
 | `max_attempts`     | `3`     | Max total delivery attempts before dead-letter |
 
@@ -166,6 +166,10 @@ Notes on fields whose YAML surface is non-obvious:
   on login and the crypto store path from the resolved state directory
   (`{state}/adapters/{adapter_id}/matrix/store`). Operators SHOULD NOT set
   these fields in production YAML.
+- `MatrixConfig.require_encrypted_rooms` (default `false`) narrows delivery
+  to rooms established as encrypted; combining it with
+  `encryption_mode="plaintext"` is rejected at validation. Semantics are
+  normative in [security-privacy.md](security-privacy.md) §6.1.
 - `MeshtasticConfig` carries four packet-routing fields that control
   inbound packet classification: `encrypted_action` (literal `"drop"` or
   `"deferred"`, default `"drop"`), `chat_portnums` and `disabled_portnums`

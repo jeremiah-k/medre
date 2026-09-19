@@ -13,19 +13,16 @@ This file covers:
 3. Run-session report compactness (no ``runtime_events`` list).
 4. Shutdown rejection docs semantics — spec docs describe runtime
    abandonment/suppression, not delivery success.
-5. No process labels in spec/audit docs for shutdown rejection.
+5. No process labels in spec docs for shutdown rejection.
 6. Runtime event taxonomy: ``retry_start_refused`` vs ``retry_abandoned``
    distinction.
 7. Evidence read-only path does not create new storage files.
-8. Audit doc describes runtime abandonment for shutdown rejection.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
 
 from tests.helpers.forbidden_terms import PLANNING_CYCLE_TERMS
 
@@ -34,7 +31,6 @@ from tests.helpers.forbidden_terms import PLANNING_CYCLE_TERMS
 # ---------------------------------------------------------------------------
 
 _SPEC_DIR = Path(__file__).resolve().parent.parent / "docs" / "spec"
-_AUDIT_DIR = Path(__file__).resolve().parent.parent / "docs" / "dev"
 _DOCS_ROOT = Path(__file__).resolve().parent.parent / "docs"
 
 
@@ -101,6 +97,14 @@ async def test_evidence_bundle_schema_version_is_1() -> None:
 
     bundle = await collect_evidence_bundle(config_path=_smoke_config_path())
     assert bundle["schema_version"] == 1
+
+
+async def test_evidence_bundle_command_is_evidence() -> None:
+    """Evidence bundle has command='evidence'."""
+    from medre.runtime.evidence._bundle import collect_evidence_bundle
+
+    bundle = await collect_evidence_bundle(config_path=_smoke_config_path())
+    assert bundle["command"] == "evidence"
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +204,7 @@ def test_shutdown_rejection_routing_delivery_spec() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. No process labels in spec/audit docs for shutdown rejection
+# 5. No process labels in spec docs for shutdown rejection
 # ---------------------------------------------------------------------------
 
 
@@ -219,17 +223,6 @@ def test_no_process_labels_in_shutdown_rejection_spec_docs() -> None:
                 assert (
                     "process_label" not in line
                 ), f"Spec should not use process_label: {spec_file.name}: {line}"
-
-
-def test_no_process_labels_in_audit_docs() -> None:
-    """Audit docs for shutdown_rejection do not use process label concepts."""
-    audit = _read_doc(_AUDIT_DIR / "runtime-evidence-completeness-audit.md")
-    if "shutdown_rejection" not in audit:
-        pytest.skip("shutdown_rejection not in audit doc")
-    for line in audit.splitlines():
-        if "shutdown_rejection" in line:
-            assert "process_id" not in line
-            assert "process_label" not in line
 
 
 # ---------------------------------------------------------------------------
@@ -353,51 +346,7 @@ async def test_evidence_storage_path_mode_no_new_files(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 8. Audit doc describes runtime abandonment for shutdown rejection
-# ---------------------------------------------------------------------------
-
-
-def test_audit_doc_describes_abandonment_for_shutdown_rejection() -> None:
-    """The dev audit doc mentions abandonment in the shutdown rejection story."""
-    audit = _read_doc(_AUDIT_DIR / "runtime-evidence-completeness-audit.md")
-    if "shutdown_rejection" not in audit:
-        pytest.skip("shutdown_rejection not covered in audit doc")
-
-    # The audit should describe shutdown_rejection as abandonment/suppression.
-    lower = audit.lower()
-    assert "abandon" in lower or "suppress" in lower, (
-        "Audit doc should describe shutdown_rejection in terms of "
-        "abandonment or suppression"
-    )
-
-
-def test_audit_doc_shutdown_rejection_mentions_durable_receipts() -> None:
-    """Audit doc notes that shutdown_rejection receipts are the durable record."""
-    audit = _read_doc(_AUDIT_DIR / "runtime-evidence-completeness-audit.md")
-    if "shutdown_rejection" not in audit:
-        pytest.skip("shutdown_rejection not covered in audit doc")
-
-    lower = audit.lower()
-    assert (
-        "durable" in lower or "persist" in lower
-    ), "Audit doc should note that shutdown_rejection receipts are durable"
-
-
-# ---------------------------------------------------------------------------
-# 9. Evidence bundle command field
-# ---------------------------------------------------------------------------
-
-
-async def test_evidence_bundle_command_is_evidence() -> None:
-    """Evidence bundle has command='evidence'."""
-    from medre.runtime.evidence._bundle import collect_evidence_bundle
-
-    bundle = await collect_evidence_bundle(config_path=_smoke_config_path())
-    assert bundle["command"] == "evidence"
-
-
-# ---------------------------------------------------------------------------
-# 10. EventBuffer snapshot shape completeness
+# 8. EventBuffer snapshot shape completeness
 # ---------------------------------------------------------------------------
 
 
@@ -436,7 +385,7 @@ def test_event_buffer_snapshot_events_json_safe() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 11. Spec docs placement boundary: no implementation-gap content in specs
+# 9. Spec docs placement boundary: no implementation-gap content in specs
 # ---------------------------------------------------------------------------
 
 
@@ -473,25 +422,16 @@ def test_spec_docs_no_temporary_language_near_shutdown_rejection() -> None:
         near_lower = near.lower()
         # Check that the windowed region doesn't use the forbidden
         # planning-cycle vocabulary or other temporary language.
-        # These terms belong in dev audit docs only.
+        # These planning terms do not belong in durable spec docs.
         for term in ("temporary", "tentative"):
             assert term not in near_lower, (
                 f"Spec doc {spec_file.name} should not contain "
                 f"'{term}' language within ±{window} lines of "
-                f"shutdown_rejection — belongs in dev audit docs"
+                f"shutdown_rejection — planning language in spec docs"
             )
         for pattern in PLANNING_CYCLE_TERMS:
             assert not pattern.search(near), (
                 f"Spec doc {spec_file.name} should not contain "
                 f"forbidden planning-cycle language within ±{window} "
-                f"lines of shutdown_rejection — belongs in dev audit docs"
+                f"lines of shutdown_rejection — planning language in spec docs"
             )
-
-
-def test_audit_doc_exists_and_has_content() -> None:
-    """The runtime evidence completeness audit doc exists and is non-trivial."""
-    audit_path = _AUDIT_DIR / "runtime-evidence-completeness-audit.md"
-    assert audit_path.exists(), "Audit doc should exist"
-    content = audit_path.read_text(encoding="utf-8")
-    assert len(content) > 100, "Audit doc should have substantial content"
-    assert "runtime" in content.lower()

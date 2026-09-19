@@ -1,6 +1,6 @@
 """Evidence parity audit tests — operational diagnostics key presence and type consistency.
 
-Proves the highest-value findings from ``docs/dev/evidence-parity-audit.md``:
+Proves the highest-value evidence parity findings:
 - All four adapters include the 8 common diagnostic keys in diagnostics().
 - Common key types match the spec (``diagnostics-evidence.md`` §2).
 - No-session fallback produces safe defaults instead of missing keys.

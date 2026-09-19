@@ -56,7 +56,9 @@ cutoff comparison to the transport-neutral helper
 
 **Packet classification.** MMRelay classifies packets into RELAY / PLUGIN_ONLY
 / DROP. MEDRE uses a 4-action model (relay / ignore / drop / deferred).
-See the [source audits](./source-audits.md#meshtastic) for details.
+See the Meshtastic transport profile
+([spec/transport-profiles/meshtastic.md](../spec/transport-profiles/meshtastic.md))
+for the normative classification contract.
 
 **Matrix stable transaction-id retry.** MMRelay uses `txn_id` on Matrix
 `room_send` calls for homeserver deduplication. MEDRE's Matrix adapter uses

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import inspect
 
 import pytest
+
+from tests.helpers.sdk_contract import assert_installed_extra_matches_declared_pins
 
 
 @pytest.mark.matrix_sdk
@@ -14,7 +15,7 @@ def test_mindroom_nio_exposes_application_owned_classic_sync_contract() -> None:
     from nio import event_provenance as provenance
 
     # Import name alone cannot distinguish mindroom-nio from upstream matrix-nio.
-    assert importlib.metadata.version("mindroom-nio")
+    assert_installed_extra_matches_declared_pins("matrix", ("mindroom-nio",))
 
     config_params = inspect.signature(nio.AsyncClientConfig).parameters
     for name in (

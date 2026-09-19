@@ -1,7 +1,7 @@
 """SDK parity runtime backlog characterization tests.
 
-Tests that document and guard the current state of the SDK parity backlog
-items (P-01 through P-12 from ``docs/dev/sdk-parity-backlog.md``).  These tests
+Tests that document and guard the current state of the SDK parity gaps
+(open items recorded in ``docs/dev/adapter-sdk-parity.md``).  These tests
 characterize **current behavior** -- they verify what the adapters do today so
 that future parity work can detect regressions and confirm improvements.
 
@@ -16,8 +16,7 @@ Gap classification:
   behavior.
 
 References:
-- ``docs/dev/sdk-parity-backlog.md`` - full backlog with rationale
-- ``docs/dev/adapter-reality-audit.md`` - prior correctness audit (R1-R10)
+- ``docs/dev/adapter-sdk-parity.md`` - open parity gaps with rationale
 - ``docs/dev/reference-repos.md`` - boundary rules on external references
 """
 
@@ -840,7 +839,7 @@ class TestP09MeshtasticQueueWatermarkMonitoring:
 
 
 class TestP10MeshCoreAppstartValidation:
-    """Confirm P-10 ownership against the pinned meshcore 2.3.8 factories.
+    """Confirm P-10 ownership against the currently pinned MeshCore factories.
 
     ``MeshCore.create_*()`` performs ``connect()``, and the SDK's ``connect()``
     performs ``send_appstart()``. MEDRE must therefore recreate the SDK client
@@ -994,7 +993,7 @@ class TestP12MatrixKeyRequestRateLimiting:
 
 
 # ===================================================================
-# Backlog summary: data-driven assertions against sdk-parity-backlog.md
+# Backlog summary: data-driven assertions against adapter-sdk-parity.md
 # ===================================================================
 
 # Each entry maps backlog ID to its documented attributes.
@@ -1085,7 +1084,7 @@ class TestBacklogSummary:
     """
 
     def test_all_twelve_backlog_items_defined(self) -> None:
-        """All 12 backlog items from sdk-parity-backlog.md are represented."""
+        """All 12 backlog items are represented."""
         expected_ids = {f"P-{i:02d}" for i in range(1, 13)}
         assert set(_BACKLOG_ITEMS.keys()) == expected_ids
 
@@ -1109,7 +1108,7 @@ class TestBacklogSummary:
     def test_gap_type_matches_documentation(
         self, item_id: str, expected_type: str
     ) -> None:
-        """Each item's gap type matches sdk-parity-backlog.md."""
+        """Each item's gap type matches the documented backlog."""
         assert _BACKLOG_ITEMS[item_id]["type"] == expected_type
 
     @pytest.mark.parametrize(

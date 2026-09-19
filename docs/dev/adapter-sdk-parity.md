@@ -1,48 +1,31 @@
-# Adapter SDK Parity Audit
+# Adapter SDK Parity
 
-This audit verifies MEDRE against the exact adapter dependency pins. It supplements the historical snapshots in `source-audits.md` and
-`adapter-reality-audit.md`; it does not rewrite those older observations.
+This reference documents how MEDRE stays honest against the exact adapter
+dependency pins. `pyproject.toml` is the version authority; the lockfile records
+the resolved artifacts. This document deliberately does not repeat current
+version tables or locked hashes. Dedicated SDK-contract test tiers
+import the real pinned packages so fake adapters cannot mask incompatible
+constructor signatures, enum values, protobuf fields, or lifecycle behavior.
 
-The dependency declarations and lockfile are the version authority. Dedicated
-SDK-contract test tiers import the real pinned packages so fake adapters cannot
-mask incompatible constructor signatures, enum values, protobuf fields, or
-lifecycle behavior.
+Each transport has an exact-pin optional-dependency group (`matrix`, `lxmf`,
+`meshtastic`, `meshcore`). The `lxmf` extra pins Reticulum explicitly in
+addition to `lxmf` itself, keeping installed-SDK contract CI aligned with the
+declared dependency set instead of resolving a newer transitive Reticulum release.
 
-## Audited pins
+## Matrix
 
-| Adapter    | Distribution pin               | Source/runtime basis                                                                                                                                                                  |
-| ---------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Matrix     | `mindroom-nio==0.40.0`         | existing exact installed `matrix_sdk` CI contract from the earlier parity round; no runtime delta in this audit                                                                       |
-| LXMF       | `lxmf==1.1.1`                  | lockfile artifact + exact installed distribution in `lxmf_sdk` CI; upstream 1.1.0 mirror and 0.9.6 tag corroborate the consumed API where the public Git mirror does not expose 1.1.1 |
-| Reticulum  | `rns==1.4.2` in the LXMF extra | exact upstream `1.4.2` source and exact installed distribution in `lxmf_sdk` CI                                                                                                       |
-| Meshtastic | `mtjk==2.7.11.post5`           | exact upstream fork tag plus exact installed distribution in `meshtastic_sdk` CI                                                                                                      |
-| MeshCore   | `meshcore==2.3.8`              | exact upstream `v2.3.8` source plus exact installed distribution in `meshcore_sdk` CI                                                                                                 |
+Matrix has a dedicated `matrix_sdk` contract tier that freezes the Classic
+Sync recovery surfaces MEDRE owns. The ordinary fake-heavy test suite runs
+without these optional SDKs; the SDK-contract jobs are separate opt-in tiers
+and fail when their exact pinned package is missing or changes an interface
+MEDRE consumes.
 
-The lockfile records the exact source artifacts used when the pins were resolved:
+## LXMF / RNS
 
-| Distribution         | Locked sdist SHA-256                                               |
-| -------------------- | ------------------------------------------------------------------ |
-| `lxmf==1.1.1`        | `f2f7ea17d793fcc32cab826e81e8e9824404d025d1fc71b143be3242d45e6a5e` |
-| `rns==1.4.2`         | `275e4369819c99fbbdb8b70a0d4eb3fc9767716fca639fe7206856839fb3867a` |
-| `mtjk==2.7.11.post5` | `3bd50eb5bd4db2daf8a2cbc0aa4e57322a809ac8a48ad5cab47c50b57fb7e27e` |
-| `meshcore==2.3.8`    | `22d57dbb59186af6ed2303fd149635022989a4f8dc867c729a6f0abc34ad3aab` |
-
-The LXMF extra pins `rns==1.4.2` explicitly in addition to `lxmf==1.1.1`;
-this keeps installed-SDK contract CI aligned with the lock instead of resolving
-a newer transitive Reticulum release.
-
-## Matrix 0.40.0 status
-
-Matrix has a dedicated `matrix_sdk` contract tier that freezes the Classic Sync
-recovery surfaces MEDRE owns. This audit rechecks the exact pin but makes no
-Matrix runtime change; the adapter changes here concern LXMF, Meshtastic, and
-MeshCore.
-
-The ordinary fake-heavy test suite still runs without these optional SDKs. The
-SDK-contract jobs are separate opt-in tiers and fail when their exact pinned
-package is missing or changes an interface MEDRE consumes.
-
-## LXMF 1.1.1 / RNS 1.4.2
+The `lxmf_sdk` tier executes the real pinned constructor with real
+`RNS.Destination` instances and verifies that an arbitrary object is rejected.
+This is deliberately an installed-SDK contract rather than another permissive
+fake.
 
 ### Constructor and local source identity
 
@@ -74,15 +57,11 @@ newly created local destination. Zero remains the unset `None` value, and
 MEDRE now rejects configured costs above `254` instead of allowing the SDK to
 ignore them.
 
-The `lxmf_sdk` tier executes the real 1.1.1 constructor with real
-`RNS.Destination` instances and verifies that an arbitrary object is rejected.
-This is deliberately an installed-SDK contract rather than another permissive
-fake.
-
 ### Identity and destination behavior
 
-RNS 1.4.2 retains the expected `RNS.Destination(identity, direction, type,
-app_name, *aspects)` contract. Outbound `SINGLE` destinations require an
+The currently pinned RNS release retains the expected
+`RNS.Destination(identity, direction, type, app_name, *aspects)` contract.
+Outbound `SINGLE` destinations require an
 identity; the LXMF delivery destination returned by the router is an inbound
 `SINGLE` destination for `lxmf.delivery`.
 
@@ -131,7 +110,8 @@ not a new MEDRE routing primitive.
 
 ### Shutdown ownership
 
-RNS 1.4.2 remains a process singleton. Its `Reticulum.exit_handler()` is a
+The currently pinned RNS release remains a process singleton. Its
+`Reticulum.exit_handler()` is a
 global shutdown operation that detaches interfaces and shuts down shared
 transport/identity state. There is no per-instance Reticulum `stop()` method,
 so MEDRE must not invoke that global exit handler for one adapter session.
@@ -152,7 +132,7 @@ a public LXMF API; repeated router recreation can therefore leave dormant
 daemon threads until process exit. This residual SDK lifecycle limitation is
 explicitly deferred rather than worked around with private thread mutation.
 
-## Meshtastic / mtjk 2.7.11.post5
+## Meshtastic / mtjk
 
 The exact fork tag confirms that the private `_sendPacket` method remains a
 stable alias for `_send_packet`, is synchronous, and accepts the `MeshPacket`,
@@ -160,16 +140,16 @@ stable alias for `_send_packet`, is synchronous, and accepts the `MeshPacket`,
 also synchronous, so MEDRE correctly executes blocking sends via
 `asyncio.to_thread()` and calls close synchronously during shutdown.
 
-MMRelay independently exercises the same `mtjk==2.7.11.post5` pin and remains
-a useful behavior reference for callback/send semantics. The contract tier still freezes
-the SDK contract directly in MEDRE so MMRelay behavior is corroborating
-evidence rather than a transitive dependency.
+MMRelay independently exercises the same mtjk callback/send API family and
+remains a useful behavior reference. The contract tier still freezes the SDK
+contract directly in MEDRE so MMRelay behavior is corroborating evidence rather
+than a transitive dependency.
 
 The executable `meshtastic_sdk` tier freezes:
 
-- exact distribution version `2.7.11.post5`;
+- installed mtjk/PyPubSub distributions match MEDRE's current declared `meshtastic` extra;
 - synchronous `sendText`, `_sendPacket`, `_generatePacketId`, and `close`;
-- `_sendPacket` argument shape and `wantAck=False` default;
+- the `_sendPacket` call shape MEDRE uses, including explicit `wantAck=False`;
 - real uint32 packet-ID generation;
 - protobuf `Data.portnum`, `Data.payload`, `Data.reply_id`, and `Data.emoji`;
 - `TEXT_MESSAGE_APP` availability;
@@ -188,9 +168,9 @@ Shutdown ownership is unchanged: MEDRE unsubscribes both pubsub callbacks before
 closing the client, preventing callback retention across reconnect/session
 lifetimes.
 
-## MeshCore 2.3.8
+## MeshCore
 
-The 2.3.8 source audit found one redundant lifecycle action rather than a
+The original MeshCore source audit found one redundant lifecycle action rather than a
 wire-format mismatch: all three SDK factories call `connect()`, and `connect()`
 already sends the required `APP_START`. MEDRE had been sending a second
 `APP_START` immediately after factory return. The fix removes that duplicate
@@ -198,9 +178,9 @@ and opportunistically reads the SDK's public `self_info` snapshot for safe
 diagnostics. The executable `meshcore_sdk` tier freezes the surfaces MEDRE
 relies on:
 
-- exact distribution version `2.3.8`;
-- `create_tcp`, `create_serial`, and `create_ble` all expose
-  `auto_reconnect=False` by default and `max_reconnect_attempts=3`;
+- the installed MeshCore distribution matches MEDRE's current declared `meshcore` extra;
+- `create_tcp`, `create_serial`, and `create_ble` accept MEDRE's explicit
+  `auto_reconnect=False` control without pinning unrelated SDK defaults;
 - MEDRE remains the reconnect owner and now passes `auto_reconnect=False`
   explicitly instead of depending only on the SDK default;
 - `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, `MSG_SENT`, `ACK`, `CONTACTS`,
@@ -229,8 +209,8 @@ tests read the exact pins from the selected optional-dependency group and verify
 the installed distributions match them; they do not duplicate version literals.
 This keeps Renovate pin bumps meaningful: CI fails for a consumed API/behavior
 change or a dependency-resolution mismatch, not merely because the expected
-version string changed. Historical pin tables in this audit remain point-in-time
-evidence for the original parity review.
+version string changed. Historical source-version references in this document
+remain point-in-time evidence for the original parity review.
 
 The `adapter-sdk-contract` job installs one optional adapter extra at a time and
 runs only its contract marker across Python 3.11, 3.12, 3.13, and 3.14:
@@ -244,14 +224,49 @@ The default suite explicitly excludes all three markers, just as it excludes
 boundaries honest while making dependency upgrades executable rather than
 comment-only audits.
 
+## Open parity gaps
+
+Reliability gaps between MEDRE and the reference implementations that are
+still open. Each is characterized behaviorally by
+`tests/test_sdk_parity_runtime_backlog.py` so improvements and regressions
+are detectable; none is a normative spec obligation.
+
+- **Meshtastic connection liveness.** No periodic TCP health verification
+  exists; a silently dropped half-open TCP connection leaves the bridge deaf
+  until an outbound send fails. Candidate: a configurable health-check
+  interval issuing a bounded SDK call.
+- **Meshtastic reconnect budget.** Reconnect backoff is capped at 30 seconds
+  with a maximum of 10 attempts, after which the session gives up. A bridge
+  that outlives radio downtime may want a longer cap and no attempt ceiling.
+- **Meshtastic queue water-marks.** The outbound queue has no warning
+  thresholds before capacity rejection; fill is only visible after
+  `MeshtasticSendError`.
+- **Matrix sync-token durability.** Runtime-managed Matrix adapters persist
+  MEDRE-owned Classic Sync checkpoints (see
+  [spec/durable-ingress.md](../spec/durable-ingress.md)); nio-internal
+  `store_sync_tokens` remains disabled by design. Sessions constructed
+  without checkpoint callbacks (test-only paths) still perform a full
+  initial sync.
+- **Matrix stale-sync watchdog.** Stale-sync detection exists in
+  `health_check()` with a threshold; there is no proactive watchdog beyond
+  it.
+- **Matrix key-request rate limiting.** Undecryptable-event key requests are
+  not rate-limited; the 60-second logging dedup does not gate the to-device
+  send.
+- **LXMF outbound-tracking eviction detail.** The bounded outbound tracking
+  set logs only a count on eviction, not the state/age of the evicted
+  entries.
+
 ## Remaining evidence gaps
 
-This audit covers SDK parity, not hardware validation. Remaining gaps are
-therefore intentionally unchanged:
+This reference covers SDK parity, not hardware validation. Remaining gaps are
+intentionally unchanged:
 
 - LXMF multi-hop/propagation-node live behavior and real delivery-state timing;
 - Meshtastic TCP/serial/BLE hardware callback timing and RF ACK behavior;
 - MeshCore TCP/serial hardware validation and long-running ACK/reconnect behavior.
 
-Those belong to the transport-realism work. The contract is that MEDRE's code and tests agree with the exact pinned SDK
+Those belong to the transport-realism work (see
+[spec/appendices/transport-realism.md](../spec/appendices/transport-realism.md)).
+The contract is that MEDRE's code and tests agree with the exact pinned SDK
 interfaces before hardware validation is introduced.

@@ -11,9 +11,16 @@ import inspect
 
 import pytest
 
+from tests.helpers.sdk_contract import assert_installed_extra_matches_declared_pins
+
 
 def test_mindroom_nio_exposes_cross_signing_contract() -> None:
     nio = pytest.importorskip("nio")
+    # Import-name availability cannot distinguish the declared mindroom-nio
+    # fork from another package exposing ``nio``. Verify the installed
+    # distribution before feature-based skip paths can hide a pin mismatch.
+    assert_installed_extra_matches_declared_pins("matrix-e2e", ("mindroom-nio",))
+
     crypto = pytest.importorskip("nio.crypto")
     if not bool(getattr(crypto, "ENCRYPTION_ENABLED", False)):
         pytest.skip("nio E2EE support is not enabled")

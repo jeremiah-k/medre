@@ -3,7 +3,7 @@ normalization, sync callback support, failed-start cleanup, and adapter
 reality audit fixes (send_appstart, expected_ack).
 
 Tests exercise the real connection wiring against a fake meshcore module
-that matches the pinned meshcore 2.3.8 API surface.
+that matches MEDRE's currently declared MeshCore SDK surface.
 """
 
 from __future__ import annotations

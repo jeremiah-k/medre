@@ -355,7 +355,11 @@ Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `inbound_suppressed_self`                  | `int`           | Self-message suppressions                            |
 | `inbound_suppressed_envelope`              | `int`           | MEDRE-origin loop hint suppressions                  |
 | `inbound_filtered_allowlist`               | `int`           | Room allowlist rejections                            |
+| `inbound_filtered_encryption_policy`       | `int`           | Events dropped by `require_encrypted_rooms` policy   |
 | `inbound_suppressed_startup`               | `int`           | Backlog events before first live sync                |
+
+The delivery-failure and inbound counters reset to zero each time the adapter
+starts.
 
 ---
 
@@ -434,9 +438,9 @@ threads to inline fallback text.
 - **Duplicate-send risk.** The deterministic `tx_id` reduces duplicates within the
   homeserver's dedup window, but duplicates are still possible across restarts, replay,
   or changed delivery identity.
-- **Peer-device trust is permissive.** Own-device cross-signing is implemented with
-  `mindroom-nio 0.40.0`, but MEDRE does not yet expose an operator-configurable policy
-  for verifying peer devices. `ignore_unverified_devices=True` remains intentional for
+- **Peer-device trust is permissive.** Own-device cross-signing is implemented
+  with the currently pinned `mindroom-nio` release, but MEDRE does not yet expose
+  an operator-configurable policy for verifying peer devices. `ignore_unverified_devices=True` remains intentional for
   E2EE sends.
 - **No room-key backup workflow.** MEDRE does not manage Matrix room-key
   backup/import/export or interactive verification ceremonies.
@@ -464,8 +468,8 @@ threads to inline fallback text.
 - Adapter unit tests cover messages, replies, reactions, edits, threads,
   redactions, media descriptors, renderer output, session lifecycle, delivery retry,
   E2EE mode guards, cross-signing policy/recovery, and auth bootstrap behavior.
-- An SDK-contract test checks the `mindroom-nio 0.40.0` cross-signing surface when the
-  E2EE dependency is installed.
+- An SDK-contract test checks the currently pinned `mindroom-nio` cross-signing
+  surface when the E2EE dependency is installed.
 
 ---
 
