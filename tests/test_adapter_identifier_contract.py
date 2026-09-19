@@ -537,8 +537,7 @@ def test_json_schema_identifier_patterns_match_runtime_authority() -> None:
         (root / "docs/schemas/adapter-config.schema.json").read_text()
     )
     assert {
-        arm["properties"]["adapter_id"]["pattern"]
-        for arm in adapter_schema["oneOf"]
+        arm["properties"]["adapter_id"]["pattern"] for arm in adapter_schema["oneOf"]
     } == {expected}
 
     runtime_schema = json.loads(

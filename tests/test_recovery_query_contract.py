@@ -24,5 +24,7 @@ def test_since_scope_is_applied_before_lineage_aggregation() -> None:
 
     assert "JOIN canonical_events ce_scope" in sql
     assert "WHERE ce_scope.timestamp >= ?" in sql
-    assert sql.index("WHERE ce_scope.timestamp >= ?") < sql.index("GROUP BY dr.event_id")
+    assert sql.index("WHERE ce_scope.timestamp >= ?") < sql.index(
+        "GROUP BY dr.event_id"
+    )
     assert "replay_run_id" not in _recovery_query._LINEAGE_GROUP_BY

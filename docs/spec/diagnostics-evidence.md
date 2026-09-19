@@ -715,8 +715,8 @@ overlapping deliveries share the same adapter and channel.
 
 ### 15.3 Evidence Signals
 
-| Signal                             | Source                          | Meaning                                                                                                                                                      |
-| ---------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Signal                             | Source                     | Meaning                                                                                                                                                      |
+| ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Supplemental `sent` receipt        | `finalize_queued_delivery` | Queued receipt was successfully correlated via `outbox_id` and finalized                                                                                     |
 | No supplemental receipt created    | `finalize_queued_delivery` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                                       |
 | Replay-only skip warning           | `finalize_queued_delivery` | Only replay-sourced queued receipts found; correlation skipped to prevent live state mutation                                                                |

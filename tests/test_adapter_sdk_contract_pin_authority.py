@@ -65,9 +65,7 @@ def test_optional_sdk_versions_are_not_duplicated_outside_project_metadata() -> 
                 continue
             hits = sorted(needle for needle in needles if needle in text)
             if hits:
-                offenders.append(
-                    f"{path.relative_to(_REPO_ROOT)}: {', '.join(hits)}"
-                )
+                offenders.append(f"{path.relative_to(_REPO_ROOT)}: {', '.join(hits)}")
 
     assert offenders == [], (
         "optional SDK versions must be declared only in pyproject.toml; "

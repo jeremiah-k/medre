@@ -112,13 +112,13 @@ config = LxmfConfig(
 
 ## Evidence Tiers Achieved
 
-| Tier      | Sub-class           | Date    | Result                                                                                                                                                                                     |
-| --------- | ------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| synthetic | Fake callback       | —       | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                                                                                |
-| synthetic | Wrapper callback    | —       | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound                                                                                                                  |
+| Tier      | Sub-class           | Date    | Result                                                                                                                                                                                    |
+| --------- | ------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| synthetic | Fake callback       | —       | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                                                                               |
+| synthetic | Wrapper callback    | —       | Proven: \_on_packet → LxmfCodec.decode → pipeline routing → fake outbound                                                                                                                 |
 | local-int | Pinned loopback     | 2026-09 | Proven: two distinct processes over loopback at the declared pinned SDK versions — real-router lifecycle, cross-process relation linking, local session/router health (all verdicts true) |
-| —         | Docker SDK-boundary | —       | Not proven (no containerized Reticulum/LXMF router)                                                                                                                                        |
-| —         | Live network        | —       | Not proven (no external peer reachability claimed)                                                                                                                                         |
+| —         | Docker SDK-boundary | —       | Not proven (no containerized Reticulum/LXMF router)                                                                                                                                       |
+| —         | Live network        | —       | Not proven (no external peer reachability claimed)                                                                                                                                        |
 
 ## Known Gaps
 

@@ -50,17 +50,13 @@ _LINEAGE_GROUP_BY = """
              COALESCE(target_channel, '')
 """
 
-_LATEST_RECEIPT_PER_DELIVERY = f"""
-    SELECT MAX(sequence) AS max_seq
-    FROM delivery_receipts
-{_LINEAGE_GROUP_BY}
-"""
+_LATEST_RECEIPT_PER_DELIVERY = f"SELECT MAX(sequence) AS max_seq FROM delivery_receipts{_LINEAGE_GROUP_BY}"  # nosec B608 - interpolates only the module-level _LINEAGE_GROUP_BY constant
 
 #: Since-filtered variant.  ``event_id`` is part of the lineage key, so
 #: restricting canonical events before aggregation cannot change which
 #: receipt is latest inside an included lineage; it only avoids scanning
 #: receipt groups that are outside the operator-requested event-time scope.
-_LATEST_RECEIPT_PER_DELIVERY_SINCE = f"""
+_LATEST_RECEIPT_PER_DELIVERY_SINCE = """
     SELECT MAX(dr.sequence) AS max_seq
     FROM delivery_receipts dr
     JOIN canonical_events ce_scope ON ce_scope.event_id = dr.event_id
@@ -74,20 +70,22 @@ _LATEST_RECEIPT_PER_DELIVERY_SINCE = f"""
 
 def _select_unresolved_deliveries(latest_receipts_sql: str) -> str:
     """Build the fixed unresolved-delivery SELECT around a lineage subquery."""
-    return f"""
-SELECT dr.sequence AS receipt_sequence,
-       dr.receipt_id, dr.event_id, dr.delivery_plan_id,
-       dr.target_adapter, dr.target_channel, dr.route_id,
-       dr.status, dr.error, dr.failure_kind,
-       dr.attempt_number, dr.next_retry_at, dr.outbox_id,
-       dr.created_at AS receipt_created_at,
-       dr.source, dr.replay_run_id,
-       ce.event_kind, ce.source_adapter, ce.timestamp AS event_timestamp
-FROM delivery_receipts dr
-JOIN ({latest_receipts_sql}) latest ON dr.sequence = latest.max_seq
-JOIN canonical_events ce ON ce.event_id = dr.event_id
-WHERE dr.status IN ({",".join("?" for _ in UNRESOLVED_RECEIPT_STATUSES)})
-"""
+    status_placeholders = ",".join("?" for _ in UNRESOLVED_RECEIPT_STATUSES)
+    lineage_join = f"JOIN ({latest_receipts_sql}) latest ON dr.sequence = latest.max_seq"  # nosec B608 - latest_receipts_sql is a module-level constant, values parameterized
+    return (
+        "SELECT dr.sequence AS receipt_sequence,"  # nosec B608 - concatenation of module-level constants and ? placeholder f-strings only; values bound separately
+        " dr.receipt_id, dr.event_id, dr.delivery_plan_id,"
+        " dr.target_adapter, dr.target_channel, dr.route_id,"
+        " dr.status, dr.error, dr.failure_kind,"
+        " dr.attempt_number, dr.next_retry_at, dr.outbox_id,"
+        " dr.created_at AS receipt_created_at,"
+        " dr.source, dr.replay_run_id,"
+        " ce.event_kind, ce.source_adapter, ce.timestamp AS event_timestamp"
+        " FROM delivery_receipts dr"
+        + lineage_join
+        + " JOIN canonical_events ce ON ce.event_id = dr.event_id"
+        + f" WHERE dr.status IN ({status_placeholders})"  # nosec B608 - status_placeholders is only ? markers, values parameterized
+    )
 
 
 _SELECT_UNRESOLVED_DELIVERIES = _select_unresolved_deliveries(

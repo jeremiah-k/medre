@@ -472,7 +472,10 @@ def resolve_delivery_outcomes(
     grouped: dict[tuple[str, str, str], list[DeliveryReceipt]] = {}
     for receipt in receipts:
         grouped.setdefault(delivery_lineage_key(receipt), []).append(receipt)
-    return [(key, sorted(group, key=_receipt_append_order)) for key, group in grouped.items()]
+    return [
+        (key, sorted(group, key=_receipt_append_order))
+        for key, group in grouped.items()
+    ]
 
 
 def _receipt_append_order(receipt: DeliveryReceipt) -> int:

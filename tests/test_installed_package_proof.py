@@ -8,12 +8,13 @@ from types import ModuleType
 
 import pytest
 
-
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_installed_package.py"
 
 
 def _load_proof_module() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("medre_installed_package_proof", _SCRIPT)
+    spec = importlib.util.spec_from_file_location(
+        "medre_installed_package_proof", _SCRIPT
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -40,7 +41,9 @@ def test_build_requirement_check_rejects_version_drift(
         proof._verify_build_requirements(["setuptools==84.0.0"])
 
     assert exc_info.value.code == 1
-    assert "--no-isolation would use the wrong backend tooling" in capsys.readouterr().err
+    assert (
+        "--no-isolation would use the wrong backend tooling" in capsys.readouterr().err
+    )
 
 
 def test_build_requirement_check_rejects_non_exact_requirement(

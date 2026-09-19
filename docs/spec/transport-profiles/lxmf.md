@@ -500,7 +500,7 @@ proof.
   passed on the declared pinned SDKs in a locked disposable venv at the
   2026-09-18 gate: 3/3 local-integration tests were green and the standalone
   probe `PYTHONPATH=src python -m tests.helpers.lxmf_local_probe relation
-  <tmpdir>` exited 0 with every verdict true (relation kind/target/native-ref,
+<tmpdir>` exited 0 with every verdict true (relation kind/target/native-ref,
   title and body equality, envelope event-id equality, B source identity, and
   A-native-id↔B-message-id correlation). This is local loopback evidence only —
   no external mesh, hardware, or live-network claim.

@@ -209,7 +209,7 @@ implementation authority.
 
 - **Inbound native ref:**
   `NativeRef(adapter=<id>, native_channel_id=<str(channel_idx)>,
-  native_message_id=<derived identity>)`
+native_message_id=<derived identity>)`
   - MeshCore received payloads carry **no native message identifier**. The
     declared pinned SDK exposes only a sender-assigned `sender_timestamp`
     (4-byte LE Unix seconds); the firmware relies on timestamp, text, and
