@@ -75,6 +75,49 @@ def test_source_build_cleanup_removes_stale_setuptools_artifacts(
     assert not egg_info.exists()
 
 
+@pytest.mark.parametrize(
+    "project",
+    [
+        {"name": "medre", "dependencies": "msgspec>=0.21"},
+        {
+            "name": "medre",
+            "dependencies": [],
+            "optional-dependencies": {"matrix": "mindroom-nio==9.9.9"},
+        },
+    ],
+)
+def test_declared_distributions_reject_non_list_dependency_collections(
+    project: dict[str, object],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    proof = _load_proof_module()
+
+    with pytest.raises(SystemExit) as exc_info:
+        proof._declared_distributions({"project": project})
+
+    assert exc_info.value.code == 1
+    assert "must be a list" in capsys.readouterr().err
+
+
+def test_declared_distributions_reject_entries_without_distribution_name(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    proof = _load_proof_module()
+    data = {
+        "project": {
+            "name": "medre",
+            "dependencies": ["   "],
+            "optional-dependencies": {},
+        }
+    }
+
+    with pytest.raises(SystemExit) as exc_info:
+        proof._declared_distributions(data)
+
+    assert exc_info.value.code == 1
+    assert "has no distribution name" in capsys.readouterr().err
+
+
 def test_declared_distributions_are_derived_from_project_metadata() -> None:
     proof = _load_proof_module()
     data = {

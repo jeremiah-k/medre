@@ -60,6 +60,10 @@ User-visible changes in this buildout, ahead of a first release:
 - **Local LXMF isolation**: pin loopback probes to explicit per-instance
   Reticulum configuration directories before adapter startup.
 
+- **Artifact metadata validation**: fail the installed-wheel proof closed when
+  dependency metadata is malformed instead of treating invalid collections as
+  empty.
+
 Compatibility: storage schema versions are unchanged; no migration is
 provided or implied. Historical evidence records keep their original dates
 and scope.

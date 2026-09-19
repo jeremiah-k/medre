@@ -245,14 +245,24 @@ def _declared_distributions(
     tooling, not a transport SDK surface.
     """
 
-    def _names(requirements: object) -> set[str]:
-        names: set[str] = set()
+    def _names(requirements: object, *, field: str) -> set[str]:
         if not isinstance(requirements, list):
-            return names
-        for requirement in requirements:
-            match = _REQUIREMENT_NAME_RE.match(str(requirement))
-            if match is not None:
-                names.add(_normalize(match.group(1)))
+            _fail("metadata", f"pyproject.toml {field} must be a list")
+
+        names: set[str] = set()
+        for index, requirement in enumerate(requirements):
+            if not isinstance(requirement, str):
+                _fail(
+                    "metadata",
+                    f"pyproject.toml {field}[{index}] must be a requirement string",
+                )
+            match = _REQUIREMENT_NAME_RE.match(requirement)
+            if match is None:
+                _fail(
+                    "metadata",
+                    f"pyproject.toml {field}[{index}] has no distribution name",
+                )
+            names.add(_normalize(match.group(1)))
         return names
 
     project = data.get("project", {})
@@ -260,7 +270,9 @@ def _declared_distributions(
         _fail("metadata", "pyproject.toml [project] must be a table")
 
     core = {_normalize(str(project.get("name", "")))}
-    core.update(_names(project.get("dependencies", [])))
+    core.update(
+        _names(project.get("dependencies", []), field="project.dependencies")
+    )
 
     optional: set[str] = set()
     extras = project.get("optional-dependencies", {})
@@ -270,9 +282,13 @@ def _declared_distributions(
             "pyproject.toml [project.optional-dependencies] must be a table",
         )
     for extra, requirements in extras.items():
+        names = _names(
+            requirements,
+            field=f"project.optional-dependencies.{extra}",
+        )
         if str(extra) == "dev":
             continue
-        optional.update(_names(requirements))
+        optional.update(names)
 
     return frozenset(core), frozenset(optional - core)
 
