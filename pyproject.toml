@@ -36,7 +36,7 @@ matrix-e2e = ["mindroom-nio[e2e]==0.40.0"]
 # PyPubSub is required by mtjk for callback-based packet reception but is not
 # declared as a dependency by the mtjk distribution. Included here explicitly.
 meshtastic = ["mtjk==2.7.11.post7", "PyPubSub==4.0.7"]
-# meshcore v2.3.8.
+# MeshCore SDK; the exact pin below is the version authority.
 # Transitive deps: bleak, pyserial-asyncio-fast, pycayennelpp, pycryptodome.
 meshcore = ["meshcore==2.3.11"]
 # lxmf v1.1.1.

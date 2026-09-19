@@ -839,7 +839,7 @@ class TestP09MeshtasticQueueWatermarkMonitoring:
 
 
 class TestP10MeshCoreAppstartValidation:
-    """Confirm P-10 ownership against the pinned meshcore 2.3.8 factories.
+    """Confirm P-10 ownership against the currently pinned MeshCore factories.
 
     ``MeshCore.create_*()`` performs ``connect()``, and the SDK's ``connect()``
     performs ``send_appstart()``. MEDRE must therefore recreate the SDK client

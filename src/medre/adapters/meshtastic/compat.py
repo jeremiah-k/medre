@@ -1,7 +1,8 @@
 """Optional dependency guard and authoritative PortNum helper.
 
-``mtjk`` (distribution name ``mtjk``, version 2.7.11.post5) is a fork of the
-upstream Meshtastic Python library maintained at ``github.com/jeremiah-k/mtjk``.
+``mtjk`` (distribution name ``mtjk``) is MEDRE's pinned fork of the upstream
+Meshtastic Python library maintained at ``github.com/jeremiah-k/mtjk``. The
+exact version authority is the ``meshtastic`` extra in ``pyproject.toml``.
 It is imported as ``meshtastic``.
 
 When available, the protobuf ``PortNum`` enum can be used for authoritative

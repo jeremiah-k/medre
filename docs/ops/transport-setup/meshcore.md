@@ -83,7 +83,7 @@ sudo usermod -aG bluetooth $USER
 # Log out and back in for group changes to take effect
 
 # Install the meshcore SDK (includes bleak)
-pip install meshcore==2.3.8
+pip install -e ".[meshcore]"
 ```
 
 #### Pair the device first
@@ -184,7 +184,7 @@ The `meshcore` package depends on `bleak`, but if you installed MEDRE without
 the SDK:
 
 ```bash
-pip install meshcore==2.3.8
+pip install -e ".[meshcore]"
 ```
 
 ##### `bluetoothctl scan on` does not show the node

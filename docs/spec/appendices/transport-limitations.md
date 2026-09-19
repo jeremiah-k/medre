@@ -89,7 +89,7 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 
 ### 2.3 MeshCore
 
-- SDK parity is frozen against meshcore 2.3.8. BLE
+- SDK parity is checked against the exact MeshCore pin declared by MEDRE. BLE
   session-layer behavior was live-validated June 2026 against a MeshCore
   node on Linux BlueZ. TCP and serial transports are source-extracted
   only; no live hardware test has been run against them. BLE requires

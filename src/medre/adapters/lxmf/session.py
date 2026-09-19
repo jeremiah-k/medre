@@ -1085,7 +1085,7 @@ class LxmfSession:
                     exc,
                 )
 
-            # RNS 1.4.2 keeps destinations and announce handlers in process-global
+            # The pinned RNS surface keeps destinations and announce handlers in process-global
             # Transport registries. LXMRouter.exit_handler() quiesces callbacks and
             # links but does not deregister those registry entries. Remove only
             # entries owned by this router so the same persistent identity can be
@@ -1147,7 +1147,7 @@ class LxmfSession:
         self._delivery_destination_hash = None
         self._router = None
         self._identity = None
-        # Reticulum itself has no per-instance stop primitive in RNS 1.4.2.
+        # Reticulum itself has no per-instance stop primitive in the pinned RNS surface.
         # Keeping the process singleton alive is intentional; the router exit
         # handler above is the adapter-owned lifecycle boundary.
         self._reticulum = None

@@ -1,7 +1,7 @@
 """Tests for MeshCoreSession: mocked SDK startup and send wiring.
 
 Tests exercise the real connection wiring against a fake meshcore module
-that matches the pinned meshcore 2.3.8 API surface. Covers:
+that matches MEDRE's currently declared MeshCore SDK surface. Covers:
 - Serial, TCP, BLE startup constructor args
 - Event subscription registration
 - Event callback payload forwarding

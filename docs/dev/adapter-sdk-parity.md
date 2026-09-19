@@ -64,8 +64,9 @@ fake.
 
 ### Identity and destination behavior
 
-RNS 1.4.2 retains the expected `RNS.Destination(identity, direction, type,
-app_name, *aspects)` contract. Outbound `SINGLE` destinations require an
+The currently pinned RNS release retains the expected
+`RNS.Destination(identity, direction, type, app_name, *aspects)` contract.
+Outbound `SINGLE` destinations require an
 identity; the LXMF delivery destination returned by the router is an inbound
 `SINGLE` destination for `lxmf.delivery`.
 
@@ -114,7 +115,8 @@ not a new MEDRE routing primitive.
 
 ### Shutdown ownership
 
-RNS 1.4.2 remains a process singleton. Its `Reticulum.exit_handler()` is a
+The currently pinned RNS release remains a process singleton. Its
+`Reticulum.exit_handler()` is a
 global shutdown operation that detaches interfaces and shuts down shared
 transport/identity state. There is no per-instance Reticulum `stop()` method,
 so MEDRE must not invoke that global exit handler for one adapter session.
@@ -143,16 +145,16 @@ stable alias for `_send_packet`, is synchronous, and accepts the `MeshPacket`,
 also synchronous, so MEDRE correctly executes blocking sends via
 `asyncio.to_thread()` and calls close synchronously during shutdown.
 
-MMRelay independently exercises the same `mtjk==2.7.11.post5` pin and remains
-a useful behavior reference for callback/send semantics. The contract tier still freezes
-the SDK contract directly in MEDRE so MMRelay behavior is corroborating
-evidence rather than a transitive dependency.
+MMRelay independently exercises the same mtjk callback/send API family and
+remains a useful behavior reference. The contract tier still freezes the SDK
+contract directly in MEDRE so MMRelay behavior is corroborating evidence rather
+than a transitive dependency.
 
 The executable `meshtastic_sdk` tier freezes:
 
-- exact distribution version `2.7.11.post5`;
+- installed mtjk/PyPubSub distributions match MEDRE's current declared `meshtastic` extra;
 - synchronous `sendText`, `_sendPacket`, `_generatePacketId`, and `close`;
-- `_sendPacket` argument shape and `wantAck=False` default;
+- the `_sendPacket` call shape MEDRE uses, including explicit `wantAck=False`;
 - real uint32 packet-ID generation;
 - protobuf `Data.portnum`, `Data.payload`, `Data.reply_id`, and `Data.emoji`;
 - `TEXT_MESSAGE_APP` availability;
@@ -181,9 +183,9 @@ and opportunistically reads the SDK's public `self_info` snapshot for safe
 diagnostics. The executable `meshcore_sdk` tier freezes the surfaces MEDRE
 relies on:
 
-- exact distribution version `2.3.8`;
-- `create_tcp`, `create_serial`, and `create_ble` all expose
-  `auto_reconnect=False` by default and `max_reconnect_attempts=3`;
+- the installed MeshCore distribution matches MEDRE's current declared `meshcore` extra;
+- `create_tcp`, `create_serial`, and `create_ble` accept MEDRE's explicit
+  `auto_reconnect=False` control without pinning unrelated SDK defaults;
 - MEDRE remains the reconnect owner and now passes `auto_reconnect=False`
   explicitly instead of depending only on the SDK default;
 - `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, `MSG_SENT`, `ACK`, `CONTACTS`,
