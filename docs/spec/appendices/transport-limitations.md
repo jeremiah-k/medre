@@ -62,9 +62,9 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 - Decrypted Matrix ingress normalizes reactions, edits, redactions, and media.
   Outbound edits/deletes/attachments remain unsupported, and MEDRE does not manage
   a room-key backup/import/export workflow.
-- Own-device cross-signing is implemented against `mindroom-nio 0.40.0`. Peer-device
-  trust is still intentionally permissive for bot operation and is not
-  operator-configurable.
+- Own-device cross-signing is implemented against MEDRE's currently pinned
+  `mindroom-nio` surface. Peer-device trust is still intentionally permissive
+  for bot operation and is not operator-configurable.
 - Missing/mismatched local cross-signing identity cannot be repaired destructively at
   runtime; explicit fresh-password authentication is required for reset/rotation.
 - `restore_login()` does not validate the token against the server at startup.

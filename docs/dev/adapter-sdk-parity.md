@@ -57,7 +57,7 @@ newly created local destination. Zero remains the unset `None` value, and
 MEDRE now rejects configured costs above `254` instead of allowing the SDK to
 ignore them.
 
-The `lxmf_sdk` tier executes the real 1.1.1 constructor with real
+The `lxmf_sdk` tier executes the real pinned LXMF constructor with real
 `RNS.Destination` instances and verifies that an arbitrary object is rejected.
 This is deliberately an installed-SDK contract rather than another permissive
 fake.
@@ -175,7 +175,7 @@ lifetimes.
 
 ## MeshCore
 
-The 2.3.8 source audit found one redundant lifecycle action rather than a
+The original MeshCore source audit found one redundant lifecycle action rather than a
 wire-format mismatch: all three SDK factories call `connect()`, and `connect()`
 already sends the required `APP_START`. MEDRE had been sending a second
 `APP_START` immediately after factory return. The fix removes that duplicate

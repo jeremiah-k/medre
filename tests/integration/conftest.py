@@ -812,7 +812,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
 def close_nio_store(client: Any) -> None:
     """Close the SQLite store database attached to an nio client.
 
-    nio 0.40.0's ``AsyncClient.close()`` drains recovery callbacks and the
+    The pinned nio ``AsyncClient.close()`` drains recovery callbacks and the
     HTTP session but never closes the peewee ``SqliteDatabase`` that
     ``MatrixStore.__post_init__`` opened. The connection is otherwise left
     to the garbage collector, which surfaces as an unraisable

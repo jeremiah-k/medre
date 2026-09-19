@@ -438,9 +438,9 @@ threads to inline fallback text.
 - **Duplicate-send risk.** The deterministic `tx_id` reduces duplicates within the
   homeserver's dedup window, but duplicates are still possible across restarts, replay,
   or changed delivery identity.
-- **Peer-device trust is permissive.** Own-device cross-signing is implemented with
-  `mindroom-nio 0.40.0`, but MEDRE does not yet expose an operator-configurable policy
-  for verifying peer devices. `ignore_unverified_devices=True` remains intentional for
+- **Peer-device trust is permissive.** Own-device cross-signing is implemented
+  with the currently pinned `mindroom-nio` release, but MEDRE does not yet expose
+  an operator-configurable policy for verifying peer devices. `ignore_unverified_devices=True` remains intentional for
   E2EE sends.
 - **No room-key backup workflow.** MEDRE does not manage Matrix room-key
   backup/import/export or interactive verification ceremonies.
@@ -468,8 +468,8 @@ threads to inline fallback text.
 - Adapter unit tests cover messages, replies, reactions, edits, threads,
   redactions, media descriptors, renderer output, session lifecycle, delivery retry,
   E2EE mode guards, cross-signing policy/recovery, and auth bootstrap behavior.
-- An SDK-contract test checks the `mindroom-nio 0.40.0` cross-signing surface when the
-  E2EE dependency is installed.
+- An SDK-contract test checks the currently pinned `mindroom-nio` cross-signing
+  surface when the E2EE dependency is installed.
 
 ---
 

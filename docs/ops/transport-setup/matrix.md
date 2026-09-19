@@ -237,8 +237,9 @@ In `plaintext` mode the adapter does not initialise the crypto subsystem. No dev
 ### E2EE Limitations
 
 - Text messages only in encrypted rooms. No reactions, edits, media, or attachments.
-- Own-device cross-signing is supported with `mindroom-nio 0.40.0`, but MEDRE does not
-  yet expose a peer-device verification policy. Encrypted sends intentionally use
+- Own-device cross-signing is supported with the currently pinned
+  `mindroom-nio` release, but MEDRE does not yet expose a peer-device
+  verification policy. Encrypted sends intentionally use
   `ignore_unverified_devices=True` for compatibility.
 - Cross-signing MEDRE's own device does **not** imply that MEDRE trusts every peer
   device in a room. Peer-device trust remains a separate future policy surface.

@@ -1,6 +1,6 @@
 """Matrix Classic Sync checkpoint-ownership tests.
 
-These tests exercise MEDRE's side of the mindroom-nio 0.40 application-owned
+These tests exercise MEDRE's side of the pinned mindroom-nio application-owned
 checkpoint contract without requiring a homeserver.
 """
 
