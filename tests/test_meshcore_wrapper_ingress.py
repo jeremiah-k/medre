@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
+from medre.adapters.meshcore.identity import derive_message_identity
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
@@ -105,11 +106,20 @@ class TestMeshCoreWrapperCallbackPath:
             # Accounting: outbound_delivered >= 1
             assert accounting.counters().outbound_delivered >= 1
 
-            # Native ref persisted (sender_timestamp maps to native_message_id)
+            # Native ref persisted under the MEDRE-derived message identity
+            # (sender, channel, sender_timestamp, txt_type, text).
+            expected_id = derive_message_identity(
+                sender_id="abc123",
+                channel_index=1,
+                sender_timestamp=1001,
+                txt_type=0,
+                text="hello meshcore bridge",
+                is_direct_message=False,
+            )
             resolved = await temp_storage.resolve_native_ref(
                 adapter="mc-cb-src",
                 native_channel_id="1",
-                native_message_id="1001",
+                native_message_id=expected_id,
             )
             assert resolved is not None
         finally:

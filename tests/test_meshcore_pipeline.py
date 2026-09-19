@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
+from medre.adapters.meshcore.identity import derive_message_identity
 from medre.adapters.meshcore.renderer import MeshCoreRenderer
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
@@ -189,7 +190,8 @@ class TestMeshCorePipelineIntegration:
         assert len(inbound_collector.events) == 1
         event = inbound_collector.events[0]
         assert event.source_native_ref is not None
-        assert event.source_native_ref.native_message_id == "77777"
+        assert event.source_native_ref.native_message_id != "77777"
+        assert event.source_native_ref.native_message_id.startswith("mc1-")
         assert event.source_native_ref.adapter == "meshcore-test"
 
     async def test_inbound_meshcore_event_kind(
@@ -299,14 +301,31 @@ class TestMeshCoreNativeRefPersistence:
         packet = _make_channel_packet(timestamp=55555, channel_idx=2)
         await adapter.simulate_inbound(packet)
 
+        # Native identity is the MEDRE-derived digest of the packet's
+        # identity-bearing fields, not the bare sender_timestamp.
+        native_id = derive_message_identity(
+            sender_id=packet["pubkey_prefix"],
+            channel_index=packet["channel_idx"],
+            sender_timestamp=packet["sender_timestamp"],
+            txt_type=packet["txt_type"],
+            text=packet["text"],
+            is_direct_message=False,
+        )
+        assert native_id is not None
+        assert native_id.startswith("mc1-")
+        assert native_id != str(packet["sender_timestamp"])
+
         # Verify native ref persisted via resolve_native_ref
         resolved = await temp_storage.resolve_native_ref(
             adapter="meshcore-inbound",
             native_channel_id="2",
-            native_message_id="55555",
+            native_message_id=native_id,
         )
         assert resolved is not None
         assert resolved == adapter.inbound_events[0].event_id
+        assert (
+            adapter.inbound_events[0].source_native_ref.native_message_id == native_id
+        )
 
     async def test_outbound_native_ref_persisted(self, temp_storage) -> None:
         """Outbound FakeMeshCoreAdapter deliver → pipeline store → NativeMessageRef(direction="outbound")."""
@@ -417,11 +436,20 @@ class TestMeshCoreNativeRefPersistence:
         )
         assert resolved is None
 
-        # Inbound ref should still exist
+        # Inbound ref should still exist, keyed by the derived identity.
+        inbound_native_id = derive_message_identity(
+            sender_id=packet["pubkey_prefix"],
+            channel_index=packet["channel_idx"],
+            sender_timestamp=packet["sender_timestamp"],
+            txt_type=packet["txt_type"],
+            text=packet["text"],
+            is_direct_message=False,
+        )
+        assert inbound_native_id is not None
         inbound_resolved = await temp_storage.resolve_native_ref(
             adapter="meshcore-fail-in",
             native_channel_id="0",
-            native_message_id="22222",
+            native_message_id=inbound_native_id,
         )
         assert inbound_resolved is not None
 
@@ -467,12 +495,15 @@ class TestMeshCoreNativeRefPersistence:
         from medre.core.events.canonical import NativeMessageRef
 
         event = adapter.inbound_events[0]
+        assert event.source_native_ref is not None
+        derived_native_id = event.source_native_ref.native_message_id
+        assert derived_native_id.startswith("mc1-")
         dup_ref = NativeMessageRef(
             id=f"nref-dup-{_uuid.uuid4()}",
             event_id=event.event_id,
             adapter="meshcore-dup",
             native_channel_id="0",
-            native_message_id="33333",
+            native_message_id=derived_native_id,
             native_thread_id=None,
             native_relation_id=None,
             direction="inbound",
@@ -485,7 +516,7 @@ class TestMeshCoreNativeRefPersistence:
         resolved = await temp_storage.resolve_native_ref(
             adapter="meshcore-dup",
             native_channel_id="0",
-            native_message_id="33333",
+            native_message_id=derived_native_id,
         )
         assert resolved is not None
         assert resolved == event.event_id

@@ -214,7 +214,8 @@ class TestMeshCoreCodecEventStorageRoundtrip:
 
         assert canonical.source_native_ref is not None
         assert canonical.source_native_ref.adapter == "meshcore-test"
-        assert canonical.source_native_ref.native_message_id == "55555"
+        assert canonical.source_native_ref.native_message_id != "55555"
+        assert canonical.source_native_ref.native_message_id.startswith("mc1-")
         assert canonical.source_native_ref.native_channel_id == "2"
 
         await temp_storage.append(canonical)
@@ -222,7 +223,10 @@ class TestMeshCoreCodecEventStorageRoundtrip:
 
         assert retrieved is not None
         assert retrieved.source_native_ref is not None
-        assert retrieved.source_native_ref.native_message_id == "55555"
+        assert (
+            retrieved.source_native_ref.native_message_id
+            == canonical.source_native_ref.native_message_id
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from medre.adapters.meshcore.errors import MeshCoreCodecError
 from medre.adapters.meshcore.event_shape import build_meshcore_native_metadata
+from medre.adapters.meshcore.identity import derive_message_identity
 from medre.adapters.meshcore.packet_classifier import MeshCorePacketClassifier
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import AdapterCodec
@@ -117,13 +118,25 @@ class MeshCoreCodec(AdapterCodec):
         # Build payload
         payload: dict[str, object] = {"body": text}
 
-        # Source native ref from sender_timestamp
+        # Source native ref: MeshCore provides no native message ID
+        # (see identity.py for the SDK/firmware evidence).  The durable
+        # idempotency key is the MEDRE-derived identity digest over the
+        # identity-bearing fields; the raw sender_timestamp stays
+        # available in native metadata as ``packet_id``.
+        message_identity = derive_message_identity(
+            sender_id=sender,
+            channel_index=pkt_channel,
+            sender_timestamp=pkt_id,
+            txt_type=native_event.get("txt_type"),
+            text=text,
+            is_direct_message=classification.is_direct_message,
+        )
         source_native_ref: NativeRef | None = None
-        if pkt_id is not None:
+        if message_identity is not None:
             source_native_ref = NativeRef(
                 adapter=self._adapter_id,
                 native_channel_id=str(pkt_channel) if pkt_channel is not None else None,
-                native_message_id=str(pkt_id),
+                native_message_id=message_identity,
             )
 
         # No reply relation support in MeshCore

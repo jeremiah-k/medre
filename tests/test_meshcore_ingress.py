@@ -137,7 +137,9 @@ class TestFakeMeshCoreAdapterMakeTextEvent:
         adapter = FakeMeshCoreAdapter()
         event = adapter.make_text_event(packet_id=999)
         assert event.source_native_ref is not None
-        assert event.source_native_ref.native_message_id == "999"
+        # Derived identity digest, not the bare sender_timestamp.
+        assert event.source_native_ref.native_message_id != "999"
+        assert event.source_native_ref.native_message_id.startswith("mc1-")
 
     def test_make_text_event_with_sender(self) -> None:
         adapter = FakeMeshCoreAdapter()
@@ -196,8 +198,7 @@ class TestMeshCoreAdapterTaskScheduling:
         # Wait for the event AND the task's done-callback removing it from
         # _background_tasks — publication and cleanup land on different turns.
         await wait_until(
-            lambda: len(inbound_collector.events) == 1
-            and not adapter._background_tasks
+            lambda: len(inbound_collector.events) == 1 and not adapter._background_tasks
         )
 
         assert len(inbound_collector.events) == 1

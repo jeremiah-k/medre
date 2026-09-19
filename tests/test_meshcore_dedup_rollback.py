@@ -1,8 +1,8 @@
 """MeshCore dedup rollback regression tests.
 
 Verifies that dedup keys are not retained after failed decode or publish
-attempts, so that redelivery of the same (sender_id, packet_id, channel_index,
-text) is not suppressed.
+attempts, so that redelivery of the same derived message identity is not
+suppressed.
 
 The two inbound paths handle key insertion differently:
 
@@ -31,6 +31,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
+from medre.adapters.meshcore.identity import derive_message_identity
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import AdapterContext
 
@@ -70,9 +71,16 @@ def _dedup_key(
     packet_id: int = 42,
     channel_index: int | None = 0,
     text: str = "hello",
-) -> tuple[str, int, int | None, str]:
-    """Build the expected dedup key tuple for a packet."""
-    return (sender_id, packet_id, channel_index, text)
+) -> str:
+    """Build the expected derived dedup identity for a txt_type=0 packet."""
+    return derive_message_identity(
+        sender_id=sender_id,
+        channel_index=channel_index,
+        sender_timestamp=packet_id,
+        txt_type=0,
+        text=text,
+        is_direct_message=False,
+    )
 
 
 # ===================================================================
@@ -121,6 +129,7 @@ async def test_simulate_inbound_decode_failure_no_dedup_key(
 
 async def test_simulate_inbound_publish_failure_no_dedup_key(
     make_adapter_context,
+    inbound_collector,
 ) -> None:
     """If publish_inbound raises in simulate_inbound, dedup key is not retained."""
     config = _make_config(connection_type="fake")
@@ -149,6 +158,14 @@ async def test_simulate_inbound_publish_failure_no_dedup_key(
 
     key = _dedup_key(sender_id="pub", packet_id=2002, text="pub-fail")
     assert key not in adapter._inbound_dedup
+
+    # Observable re-admission: redelivery of the same packet within the
+    # same session (no lifecycle boundary) must reach the pipeline once
+    # a working publish path is available again.
+    adapter.ctx = make_adapter_context("mc-dedup-test")
+    await adapter.simulate_inbound(packet)
+    assert len(inbound_collector.events) == 1
+    assert key in adapter._inbound_dedup
 
     await adapter.stop()
 
@@ -225,6 +242,7 @@ async def test_on_message_decode_failure_no_dedup_key(
 
 async def test_on_message_async_publish_failure_rolls_back_dedup(
     make_adapter_context,
+    inbound_collector,
 ) -> None:
     """If _on_message_async publish fails, dedup key is rolled back (not retained)."""
     config = _make_config(connection_type="fake")
@@ -260,6 +278,15 @@ async def test_on_message_async_publish_failure_rolls_back_dedup(
 
     key = _dedup_key(sender_id="afail", packet_id=5005, text="async-fail")
     assert key not in adapter._inbound_dedup
+
+    # Observable re-admission: after rollback the same packet must be
+    # re-admitted on redelivery within the same session (no restart).
+    adapter.ctx = make_adapter_context("mc-dedup-test")
+    adapter._on_message(packet)
+    if adapter._background_tasks:
+        await asyncio.gather(*adapter._background_tasks, return_exceptions=True)
+    assert len(inbound_collector.events) == 1
+    assert key in adapter._inbound_dedup
 
     await adapter.stop()
 
