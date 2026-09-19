@@ -688,25 +688,6 @@ class TestReceiptLatestSelection:
         target = summary.targets[0]
         assert target.latest_receipt_id == "r-late"
 
-    def test_later_sequence_overrides_higher_attempt_number(self) -> None:
-        summary = build_convergence_summary(
-            receipts=[
-                _receipt(
-                    receipt_id="r-old-failure",
-                    attempt_number=4,
-                    sequence=10,
-                    status="failed",
-                ),
-                _receipt(
-                    receipt_id="r-later-suppression",
-                    attempt_number=1,
-                    sequence=11,
-                    status="suppressed",
-                ),
-            ],
-        )
-        assert summary.targets[0].latest_receipt_id == "r-later-suppression"
-
     def test_receipt_id_final_tiebreaker(self) -> None:
         summary = build_convergence_summary(
             receipts=[
@@ -729,6 +710,27 @@ class TestReceiptLatestSelection:
         target = summary.targets[0]
         # Lexicographically latest receipt_id wins
         assert target.latest_receipt_id == "rcpt-zzz"
+
+
+def test_later_sequence_overrides_higher_attempt_number() -> None:
+    """Durable append order wins even when the later attempt number is lower."""
+    summary = build_convergence_summary(
+        receipts=[
+            _receipt(
+                receipt_id="r-old-failure",
+                attempt_number=4,
+                sequence=10,
+                status="failed",
+            ),
+            _receipt(
+                receipt_id="r-later-suppression",
+                attempt_number=1,
+                sequence=11,
+                status="suppressed",
+            ),
+        ],
+    )
+    assert summary.targets[0].latest_receipt_id == "r-later-suppression"
 
 
 # ===================================================================
