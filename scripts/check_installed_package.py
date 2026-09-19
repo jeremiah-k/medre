@@ -55,7 +55,7 @@ import tempfile
 import tomllib
 from importlib.util import find_spec
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _PYPROJECT_PATH = _REPO_ROOT / "pyproject.toml"
@@ -73,16 +73,10 @@ _OUTPUT_LIMIT = 4000
 _DROP_PREFIXES = ("MEDRE_", "PYTHON", "PIP_")
 _DROP_EXACT = frozenset({"VIRTUAL_ENV", "TMPDIR"})
 
-# Core install contents (declared runtime dependencies).
-_REQUIRED_DISTRIBUTIONS = frozenset({"medre", "msgspec", "pyyaml"})
-
-# Optional transport SDK distributions from [project.optional-dependencies].
-# None of them may be installed in the core-only proof venv. Names are
-# compared PEP 503-normalized, so "PyPubSub" (explicitly declared in the
-# meshtastic extra) is checked as "pypubsub".
-_FORBIDDEN_DISTRIBUTIONS = frozenset(
-    {"mindroom-nio", "mtjk", "pypubsub", "meshcore", "lxmf", "rns"}
-)
+# Requirement-name prefix of a PEP 508 requirement string.  The artifact proof
+# needs distribution names only; version/extras/markers remain authoritative in
+# ``pyproject.toml`` and are handled by the installer/build checks.
+_REQUIREMENT_NAME_RE = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 
 # Child-side probe: runs in the proof venv with ``python -I`` and prints
 # distribution/import facts as JSON.
@@ -222,8 +216,8 @@ def _normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def _load_project_metadata() -> tuple[str, str, list[str]]:
-    """Return (name, version, build-system requires) from pyproject.toml."""
+def _load_project_metadata() -> tuple[str, str, list[str], dict[str, Any]]:
+    """Return project identity, build requirements, and parsed metadata."""
     try:
         with _PYPROJECT_PATH.open("rb") as fh:
             data = tomllib.load(fh)
@@ -238,7 +232,49 @@ def _load_project_metadata() -> tuple[str, str, list[str]]:
             f"unexpected project metadata: name={name!r} version={version!r}",
         )
     requires = [str(r) for r in data.get("build-system", {}).get("requires", [])]
-    return name, version, requires
+    return name, version, requires, data
+
+
+def _declared_distributions(
+    data: dict[str, Any],
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Return core-required and transport-optional distribution names.
+
+    ``pyproject.toml`` is the only dependency authority.  The ``dev`` extra is
+    intentionally excluded from the core-only proof because it is build/test
+    tooling, not a transport SDK surface.
+    """
+
+    def _names(requirements: object) -> set[str]:
+        names: set[str] = set()
+        if not isinstance(requirements, list):
+            return names
+        for requirement in requirements:
+            match = _REQUIREMENT_NAME_RE.match(str(requirement))
+            if match is not None:
+                names.add(_normalize(match.group(1)))
+        return names
+
+    project = data.get("project", {})
+    if not isinstance(project, dict):
+        _fail("metadata", "pyproject.toml [project] must be a table")
+
+    core = {_normalize(str(project.get("name", "")))}
+    core.update(_names(project.get("dependencies", [])))
+
+    optional: set[str] = set()
+    extras = project.get("optional-dependencies", {})
+    if not isinstance(extras, dict):
+        _fail(
+            "metadata",
+            "pyproject.toml [project.optional-dependencies] must be a table",
+        )
+    for extra, requirements in extras.items():
+        if str(extra) == "dev":
+            continue
+        optional.update(_names(requirements))
+
+    return frozenset(core), frozenset(optional - core)
 
 
 def _verify_build_requirements(requires: list[str]) -> None:
@@ -399,7 +435,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    _name, version, build_requires = _load_project_metadata()
+    _name, version, build_requires, project_data = _load_project_metadata()
+    required_distributions, forbidden_distributions = _declared_distributions(
+        project_data
+    )
 
     sandbox = Path(tempfile.mkdtemp(prefix="medre-installed-proof-"))
     try:
@@ -535,13 +574,13 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         installed = {_normalize(name) for name in probe["distributions"]}
-        missing = sorted(_REQUIRED_DISTRIBUTIONS - installed)
+        missing = sorted(required_distributions - installed)
         _expect(
             not missing,
             "install",
             f"core distributions missing from the proof venv: {missing}",
         )
-        sdk_present = sorted(_FORBIDDEN_DISTRIBUTIONS & installed)
+        sdk_present = sorted(forbidden_distributions & installed)
         _expect(
             not sdk_present,
             "install",

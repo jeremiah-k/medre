@@ -168,3 +168,17 @@ async def test_retry_worker_summary_none_on_config_failure(tmp_path: Path) -> No
     )
     assert report["status"] == "failed"
     assert report["retry_worker_summary"] is None
+
+
+async def test_config_failure_removes_ephemeral_storage_file() -> None:
+    """Pre-start config failure does not strand an empty temporary DB."""
+    from medre.runtime.run_session.orchestration import run_bridge_session
+
+    report = await run_bridge_session(
+        config_path="/definitely/missing/medre-config.yaml",
+        storage_path=None,
+    )
+
+    assert report["status"] == "failed"
+    assert "Config load error:" in report["fail_reason"]
+    assert not Path(str(report["storage_path"])).exists()

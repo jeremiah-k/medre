@@ -73,3 +73,24 @@ def test_source_build_cleanup_removes_stale_setuptools_artifacts(
 
     assert not (tmp_path / "build").exists()
     assert not egg_info.exists()
+
+
+def test_declared_distributions_are_derived_from_project_metadata() -> None:
+    proof = _load_proof_module()
+    data = {
+        "project": {
+            "name": "medre",
+            "dependencies": ["msgspec>=0.21", "PyYAML>=6"],
+            "optional-dependencies": {
+                "matrix": ["mindroom-nio==9.9.9"],
+                "meshtastic": ["mtjk==8.8.8", "PyPubSub==7.7.7"],
+                "dev": ["pytest>=8"],
+            },
+        }
+    }
+
+    required, forbidden = proof._declared_distributions(data)
+
+    assert required == frozenset({"medre", "msgspec", "pyyaml"})
+    assert forbidden == frozenset({"mindroom-nio", "mtjk", "pypubsub"})
+    assert "pytest" not in forbidden

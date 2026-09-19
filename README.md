@@ -37,6 +37,7 @@ To verify a built artifact end to end — wheel build, clean core-only
 install, installed-package proof — run, from a source checkout:
 
 ```bash
+pip install -e ".[dev]"  # provides the pinned build frontend/backend
 python scripts/check_installed_package.py
 ```
 

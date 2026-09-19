@@ -622,16 +622,20 @@ async def _run_relation(base: Path) -> RelationResult:
             rns_version=rns_version,
         )
     finally:
-        if adapter is not None:
-            await adapter.stop()
-        if child.poll() is None:
-            child.terminate()
+        try:
+            if adapter is not None:
+                await adapter.stop()
+        finally:
             try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                child.kill()
-                child.wait(timeout=5)
-        child_log.close()
+                if child.poll() is None:
+                    child.terminate()
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        child.wait(timeout=5)
+            finally:
+                child_log.close()
 
 
 def main() -> int:
