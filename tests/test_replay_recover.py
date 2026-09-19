@@ -179,8 +179,6 @@ class TestReplayParser:
         assert exc_info.value.code in (EXIT_CONFIG, EXIT_BUILD)
 
 
-
-
 # ---------------------------------------------------------------------------
 # Replay dispatch tests (with mocked runtime)
 # ---------------------------------------------------------------------------

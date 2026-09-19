@@ -526,7 +526,6 @@ def test_sample_config_smoke_with_storage(
     assert str(report["storage_path"]) == db_path
 
 
-
 # ===================================================================
 # First-run source-checkout walkthrough
 # ===================================================================

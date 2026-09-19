@@ -79,9 +79,7 @@ def _select_unresolved_deliveries(*, since_scoped: bool) -> str:
 
 
 _SELECT_UNRESOLVED_DELIVERIES = _select_unresolved_deliveries(since_scoped=False)
-_SELECT_UNRESOLVED_DELIVERIES_SINCE = _select_unresolved_deliveries(
-    since_scoped=True
-)
+_SELECT_UNRESOLVED_DELIVERIES_SINCE = _select_unresolved_deliveries(since_scoped=True)
 
 #: Set-oriented outbox enrichment for one page of rows. Outbox state may only
 #: enrich disposition/retryability — it is never acceptance evidence.

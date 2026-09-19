@@ -876,20 +876,20 @@ selects the latest receipt by durable append `sequence`. `source` and
 `replay_run_id` describe the selected receipt; they do not partition the
 delivery lineage. Each target entry includes:
 
-| Field                 | Source                                |
-| --------------------- | ------------------------------------- |
-| `source`              | Receipt `source` field                |
-| `replay_run_id`       | Receipt `replay_run_id` field         |
-| `suppression_reason`  | Derived per § 17.2                    |
-| `capability_field`    | Derived per § 17.2                    |
-| `capability_level`    | Derived per § 17.2                    |
-| `delivery_strategy`   | Derived per § 17.2                    |
-| `error`               | Sanitised receipt `error` field       |
-| `failure_kind`        | Receipt `failure_kind` field          |
-| `failure_kind_detail` | Derived per § 17.2                    |
-| `retryable`           | Derived per § 17.2                    |
-| `next_retry_at`       | Receipt `next_retry_at` field         |
-| `attempt_number`      | Selected receipt `attempt_number`     |
+| Field                 | Source                            |
+| --------------------- | --------------------------------- |
+| `source`              | Receipt `source` field            |
+| `replay_run_id`       | Receipt `replay_run_id` field     |
+| `suppression_reason`  | Derived per § 17.2                |
+| `capability_field`    | Derived per § 17.2                |
+| `capability_level`    | Derived per § 17.2                |
+| `delivery_strategy`   | Derived per § 17.2                |
+| `error`               | Sanitised receipt `error` field   |
+| `failure_kind`        | Receipt `failure_kind` field      |
+| `failure_kind_detail` | Derived per § 17.2                |
+| `retryable`           | Derived per § 17.2                |
+| `next_retry_at`       | Receipt `next_retry_at` field     |
+| `attempt_number`      | Selected receipt `attempt_number` |
 
 When live, retry, and replay receipts exist for the same target, they share one
 `delivery_state_by_target` entry. The entry reports the latest receipt by durable

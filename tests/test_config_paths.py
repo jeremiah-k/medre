@@ -279,7 +279,6 @@ class TestAdapterStateDir:
             paths.adapter_state_dir("bad/adapter")
 
 
-
 def test_backslash_in_adapter_id_raises() -> None:
     """Backslash is rejected on every host, not only where os.sep matches."""
     with pytest.raises(MedrePathsError):

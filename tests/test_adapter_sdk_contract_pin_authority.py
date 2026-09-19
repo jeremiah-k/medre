@@ -56,8 +56,7 @@ def _is_source_file(path: Path) -> bool:
     if not path.is_file() or path.suffix not in _SCANNED_SUFFIXES:
         return False
     if any(
-        part in _IGNORED_SCAN_PARTS or part.endswith(".egg-info")
-        for part in path.parts
+        part in _IGNORED_SCAN_PARTS or part.endswith(".egg-info") for part in path.parts
     ):
         return False
     return True
@@ -92,9 +91,7 @@ def test_optional_sdk_versions_are_not_duplicated_outside_project_metadata() -> 
             except UnicodeDecodeError:
                 continue
             hits = sorted(
-                version
-                for version, pattern in patterns.items()
-                if pattern.search(text)
+                version for version, pattern in patterns.items() if pattern.search(text)
             )
             if hits:
                 offenders.append(f"{path.relative_to(_REPO_ROOT)}: {', '.join(hits)}")
