@@ -389,10 +389,13 @@ class TestCLIReplayBestEffortWarning:
             )
 
         stderr_text = stderr_buf.getvalue()
-        # The exact warning from replay_commands._BEST_EFFORT_WARNING
+        # The exact warning from replay_commands._BEST_EFFORT_WARNING.
+        # It must point at the real preview surface: replay's dry-run is
+        # the --mode dry_run choice, not a --dry-run flag.
         assert "BEST_EFFORT" in stderr_text
         assert "duplicate-send risk" in stderr_text
-        assert "--dry-run" in stderr_text
+        assert "--mode dry_run" in stderr_text
+        assert "--dry-run" not in stderr_text
 
     def test_best_effort_json_suppresses_warning(
         self,

@@ -1,18 +1,33 @@
-"""Recover CLI command: analyze failed deliveries and generate recovery runbooks.
+"""Recover CLI command: analyze unresolved deliveries and generate recovery runbooks.
 
 Read-only diagnostic / operator recovery surface.  Opens storage in
 read-only mode, inspects events/receipts/timeline, classifies failures,
 and prints structured runbooks.  Does not mutate storage, create
 receipts, or transition outbox status.
 
+Current-outcome rule (shared with the storage query surface and the
+``delivery_status`` authority): a delivery is *currently unresolved* when
+the latest receipt of that logical delivery — ``(event, delivery plan,
+target adapter, target channel)`` — has status ``failed`` or
+``dead_lettered``.  Retries and executed replays append attempts to the
+same delivery, so a later ``sent``/``queued`` receipt from any of them
+supersedes an earlier failure; successes of a different channel, plan, or
+event never hide it.  Superseded failures stay visible as *historical*
+evidence for audit drilldown.
+
 The only write-like behaviour is printing to stdout/stderr.  All storage
 access uses ``_open_readonly_storage``.
+
+Recovery planning/preview authority lives with ``medre replay`` (``--mode
+dry_run``); this command describes evidence only and accepts no replay
+options.
 """
 
 from __future__ import annotations
 
 import shlex
 import sys
+from dataclasses import asdict
 from typing import Any
 
 import medre.runtime.timeline as _timeline
@@ -25,12 +40,55 @@ from medre.core.observability.classification import (
 from medre.core.observability.classification import (
     recommended_commands as _recommended_commands,
 )
+from medre.core.storage.backend import (
+    DEFAULT_RECOVERY_PAGE_LIMIT,
+    UnresolvedDelivery,
+    attempt_source_label,
+    decode_page_cursor,
+    resolve_delivery_outcomes,
+)
 from medre.runtime.reporting import _derive_capability_evidence
 
-from .exit_codes import EXIT_NOT_FOUND
+from .exit_codes import EXIT_CONFIG, EXIT_NOT_FOUND
 from .json import to_json
 from .storage_helpers import _open_readonly_storage
 from .transport_constants import RADIO_TRANSPORTS
+
+#: Machine- and human-shared definition of what the scan/runbook reports.
+_OUTCOME_DEFINITION = (
+    "A delivery is unresolved when the latest receipt of that logical "
+    "delivery (event, delivery plan, target adapter, target channel) has "
+    "status failed or dead_lettered. Retries and executed replays append "
+    "attempts to the same delivery, so a later sent or queued receipt "
+    "from any of them supersedes the earlier failure; successes of a "
+    "different target, channel, plan, or event never hide it, and dry-run "
+    "replays (which record no receipts) change nothing."
+)
+
+_REPLAY_CONFIG_NOTE = (
+    "medre replay has no --storage-path argument; it needs configuration "
+    "context: append --config <config.yaml> (auto-discovered from XDG "
+    "defaults when omitted)."
+)
+
+
+def _disposition(item: UnresolvedDelivery) -> str:
+    """Derive an evidence-backed retry/terminal disposition for a row.
+
+    Only facts from the current receipt and (as enrichment, never as
+    acceptance evidence) the outbox row are used.
+    """
+    if item.status == "dead_lettered":
+        return "dead_lettered"
+    if item.outbox_status == "cancelled":
+        return "cancelled"
+    if item.outbox_status == "abandoned":
+        return "abandoned"
+    if item.next_retry_at or (
+        item.outbox_status == "retry_wait" and item.outbox_next_attempt_at
+    ):
+        return "retry_scheduled"
+    return "needs_operator_action"
 
 
 async def _build_event_recovery_runbook(
@@ -42,8 +100,12 @@ async def _build_event_recovery_runbook(
     """Build a recovery runbook dict for a single event.
 
     Returns ``None`` when the event does not exist in storage.
-    This is the pure-logic core shared by ``medre recover`` and
+    This is the pure-logic core shared by ``medre recover --event`` and
     ``medre inspect event --recovery`` — no CLI I/O, no sys.exit.
+
+    ``failed_targets`` lists **current** unresolved failures only; earlier
+    failures of the same lineage that a later receipt superseded are kept
+    in ``historical_failures`` so immutable history stays drillable.
     """
     tl_result = await _timeline.assemble_event_timeline(storage, event_id)
     if tl_result is None:
@@ -53,7 +115,7 @@ async def _build_event_recovery_runbook(
     receipts = tl_result["receipts"]
     native_refs = tl_result["native_refs"]
 
-    # Identify failed targets and classify by failure_kind.
+    # Identify currently-failed lineages and classify by failure_kind.
     classification: dict[str, list[dict[str, Any]]] = {
         "retryable": [],
         "permanent": [],
@@ -61,9 +123,49 @@ async def _build_event_recovery_runbook(
         "unknown": [],
     }
     failed_targets: list[dict[str, Any]] = []
-    for r in receipts:
-        if r.status not in ("failed", "dead_lettered"):
+    historical_failures: list[dict[str, Any]] = []
+
+    for lineage_receipts in (
+        group for _key, group in resolve_delivery_outcomes(receipts)
+    ):
+        current = lineage_receipts[-1]
+        is_current_failure = current.status in ("failed", "dead_lettered")
+
+        # Historical (superseded) failures of this lineage: failed or
+        # dead_lettered receipts that a later receipt in the same lineage
+        # replaced.  When the lineage is still failing, earlier attempts
+        # are part of the current failure's chain (timeline keeps them),
+        # not superseded history.
+        if not is_current_failure:
+            for r in lineage_receipts[:-1]:
+                if r.status not in ("failed", "dead_lettered"):
+                    continue
+                hist: dict[str, Any] = {
+                    "target_adapter": r.target_adapter,
+                    "status": r.status,
+                    "attempt_number": r.attempt_number,
+                    "receipt_id": r.receipt_id,
+                    "delivery_plan_id": getattr(r, "delivery_plan_id", None),
+                    "attempt_source": attempt_source_label(
+                        getattr(r, "source", "live"),
+                        getattr(r, "replay_run_id", None),
+                    ),
+                    "superseded_by": {
+                        "receipt_id": current.receipt_id,
+                        "status": current.status,
+                    },
+                }
+                if getattr(r, "target_channel", None):
+                    hist["target_channel"] = r.target_channel
+                error_msg_hist = getattr(r, "error", None)
+                if error_msg_hist:
+                    hist["error"] = error_msg_hist
+                historical_failures.append(hist)
+
+        if not is_current_failure:
             continue
+
+        r = current
         error_msg = getattr(r, "error", None)
         inferred = _infer_failure_kind(error_msg, r.status)
         cat = _failure_category(inferred)
@@ -75,6 +177,10 @@ async def _build_event_recovery_runbook(
             "failure_kind": inferred,
             "category": cat,
             "delivery_plan_id": getattr(r, "delivery_plan_id", None),
+            "attempt_source": attempt_source_label(
+                getattr(r, "source", "live"),
+                getattr(r, "replay_run_id", None),
+            ),
         }
         if getattr(r, "target_channel", None):
             entry["target_channel"] = r.target_channel
@@ -82,6 +188,8 @@ async def _build_event_recovery_runbook(
             entry["route_id"] = r.route_id
         if error_msg:
             entry["error"] = error_msg
+        if getattr(r, "next_retry_at", None) is not None:
+            entry["next_retry_at"] = r.next_retry_at
         # Derive suppression reason for operator visibility.
         cap = _derive_capability_evidence(
             error_msg,
@@ -155,8 +263,10 @@ async def _build_event_recovery_runbook(
         "event_id": event_id,
         "event_kind": event.event_kind,
         "source_adapter": event.source_adapter,
+        "definition": _OUTCOME_DEFINITION,
         "total_receipts": len(receipts),
         "failed_targets": failed_targets,
+        "historical_failures": historical_failures,
         "failure_classification": {
             cat: items for cat, items in classification.items() if items
         },
@@ -178,8 +288,9 @@ async def _build_event_recovery_runbook(
     if "retryable" in present_categories:
         runbook["warnings"].append(
             "BEST_EFFORT replay recommended for retryable failures — "
-            "this may produce duplicate sends.  Use DRY_RUN first "
-            "to preview."
+            "this may produce duplicate sends.  Preview with "
+            "'medre replay --mode dry_run --event "
+            f"{event_id} --config <config.yaml>' first."
         )
 
     # Add duplicate-send risk warnings for radio transports.
@@ -190,7 +301,7 @@ async def _build_event_recovery_runbook(
             runbook["warnings"].append(
                 f"Adapter {nref.adapter} uses a radio transport — "
                 f"recovery may produce duplicate sends. "
-                f"Use --dry-run first to preview."
+                f"Preview with 'medre replay --mode dry_run' first."
             )
             break
 
@@ -206,136 +317,269 @@ async def _build_event_recovery_runbook(
     return runbook
 
 
+def _target_label(entry: dict[str, Any]) -> str:
+    """Human label for a failed-target entry: adapter[/channel] [route=..]."""
+    label = entry["target_adapter"]
+    if entry.get("target_channel"):
+        label += f"/{entry['target_channel']}"
+    if entry.get("route_id"):
+        label += f" route={entry['route_id']}"
+    return label
+
+
+def _print_event_runbook(runbook: dict[str, Any]) -> None:
+    """Print the single-event runbook in human-readable form."""
+    event_id = runbook["event_id"]
+    print(f"Recovery runbook: {event_id}")
+    print(f"  Kind:    {runbook['event_kind']}")
+    print(f"  Source:  {runbook['source_adapter']}")
+    print(f"  Receipts: {runbook['total_receipts']}")
+    failed_targets = runbook["failed_targets"]
+    if failed_targets:
+        print(f"  Failed targets ({len(failed_targets)}):")
+        for ft in failed_targets:
+            fk = ft.get("failure_kind", "unknown")
+            line = _target_label(ft)
+            if ft.get("attempt_source") and ft["attempt_source"] != "live":
+                line += f" attempt_source={ft['attempt_source']}"
+            print(
+                f"    {line}: {ft['status']} " f"({fk}, attempt {ft['attempt_number']})"
+            )
+            if ft.get("next_retry_at"):
+                print(f"      retry scheduled at: {ft['next_retry_at']}")
+            if ft.get("suppression_reason"):
+                print(f"      suppressed: {ft['suppression_reason']}")
+        # Show classification summary.
+        fc = runbook.get("failure_classification", {})
+        if fc:
+            print()
+            print("  Failure classification:")
+            for cat in ("retryable", "permanent", "operational", "unknown"):
+                items = fc.get(cat, [])
+                if items:
+                    labels = [_target_label(i) for i in items]
+                    print(f"    {cat}: {', '.join(labels)}")
+    else:
+        print("  Failed targets: none (no unresolved current failures)")
+    historical = runbook.get("historical_failures", [])
+    if historical:
+        print(
+            f"  Historical failures superseded by a later receipt "
+            f"({len(historical)}):"
+        )
+        for hf in historical:
+            label = hf["target_adapter"]
+            if hf.get("target_channel"):
+                label += f"/{hf['target_channel']}"
+            sup = hf["superseded_by"]
+            print(
+                f"    {label}: attempt {hf['attempt_number']} "
+                f"{hf['status']} — superseded by receipt "
+                f"{sup['receipt_id']} ({sup['status']})"
+            )
+    if runbook.get("recommended_commands"):
+        print()
+        print("  Recommended next commands:")
+        for cmd in runbook["recommended_commands"]:
+            print(f"    {cmd}")
+        print(f"    ({_REPLAY_CONFIG_NOTE})")
+    if runbook.get("replay_context"):
+        print()
+        print("  Prior replay runs:")
+        for rc in runbook["replay_context"]:
+            print(f"    run_id={rc['replay_run_id']}")
+    print(f"  Timeline entries: {len(runbook['timeline'])}")
+
+
+def _scan_record(item: UnresolvedDelivery) -> dict[str, Any]:
+    """JSON record for one unresolved delivery, with disposition."""
+    record = asdict(item)
+    record["disposition"] = _disposition(item)
+    return record
+
+
+def _print_scan(
+    page: Any,
+    *,
+    since: str | None,
+    limit: int | None,
+    storage_path: str,
+) -> None:
+    """Print the broad scan in human-readable form."""
+    items = page.items
+    print("Recovery scan — unresolved current delivery failures")
+    print(f"  Storage: {storage_path} (read-only)")
+    if since is not None:
+        print("  Scope: canonical event timestamp >= " f"{since} (inclusive, UTC)")
+    else:
+        print("  Scope: all canonical event timestamps")
+    print("  Ordering: receipt sequence ascending (oldest first)")
+    print("  Pages are a live view, not a snapshot.")
+    print()
+
+    if not items:
+        print("No unresolved current delivery failures within scope.")
+        print(f"  ({_OUTCOME_DEFINITION})")
+        return
+
+    for item in items:
+        channel = f"/{item.target_channel}" if item.target_channel else ""
+        print(
+            f"  {item.event_id}  {item.event_kind}  "
+            f"from {item.source_adapter}  event@{item.event_timestamp}"
+        )
+        print(
+            f"    delivery: {item.target_adapter}{channel} "
+            f"route={item.route_id or '-'} plan={item.delivery_plan_id} "
+            f"attempt_source={item.attempt_source}"
+        )
+        current = item.status.upper()
+        if item.status == "failed":
+            current += (
+                f" attempt {item.attempt_number} " f"({item.failure_kind or 'unknown'})"
+            )
+        else:
+            current += f" (terminal, attempt {item.attempt_number})"
+        print(f"    current:  {current} — {_disposition(item)}")
+        if item.next_retry_at:
+            print(f"      next retry: {item.next_retry_at}")
+        elif item.outbox_next_attempt_at:
+            print(f"      next attempt: {item.outbox_next_attempt_at}")
+        if item.error:
+            print(f"      error: {item.error}")
+        print(
+            "      inspect:   medre inspect event "
+            f"{item.event_id} --recovery --storage-path "
+            f"{shlex.quote(storage_path)}"
+        )
+
+    shown = f"{len(items)}"
+    if page.has_more:
+        shown += " (more available)"
+    print()
+    print(f"  Page: {shown} of at most {limit}")
+    if page.has_more and page.next_cursor:
+        continuation = (
+            f"medre recover --storage-path {shlex.quote(storage_path)} "
+            f"--cursor {page.next_cursor}"
+        )
+        if since is not None:
+            continuation += f" --since {since}"
+        if limit != DEFAULT_RECOVERY_PAGE_LIMIT:
+            continuation += f" --limit {limit}"
+        print("  Continue with:")
+        print(f"    {continuation}")
+    print()
+    print("  To re-deliver, preview then execute a replay (needs config):")
+    print("    medre replay --mode dry_run --event <event_id> --config <config.yaml>")
+    print(
+        "    medre replay --mode best_effort --event <event_id> --config <config.yaml>"
+    )
+    print(f"  ({_REPLAY_CONFIG_NOTE})")
+
+
 async def _recover(
     event_id: str | None,
-    failed_only: bool,
     since: str | None,
-    dry_run: bool,
+    limit: int,
+    cursor: str | None,
     json_output: bool,
     *,
     storage_path: str,
 ) -> None:
-    """Analyze failed deliveries and generate a recovery runbook."""
+    """Analyze unresolved deliveries and generate a recovery runbook."""
+    if event_id is not None:
+        scan_only: list[str] = []
+        if since is not None:
+            scan_only.append("--since")
+        if cursor is not None:
+            scan_only.append("--cursor")
+        if limit is not None:
+            scan_only.append("--limit")
+        if scan_only:
+            joined = ", ".join(scan_only)
+            print(
+                f"Error: --event cannot be combined with scan-only option(s): {joined}",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_CONFIG)
+
+    page_limit = limit if limit is not None else DEFAULT_RECOVERY_PAGE_LIMIT
     storage = await _open_readonly_storage(storage_path)
     try:
-        # Determine scope: single event or broad scan.
-        runbook: dict[str, Any]
-        timeline: list[dict[str, Any]] = []
-        failed_targets: list[dict[str, Any]] = []
         if event_id is not None:
             # Single-event recovery.
-            result = await _build_event_recovery_runbook(
+            runbook = await _build_event_recovery_runbook(
                 storage, event_id, storage_path=storage_path
             )
-            if result is None:
+            if runbook is None:
                 print(
                     f"Error: event not found: {event_id}",
                     file=sys.stderr,
                 )
                 sys.exit(EXIT_NOT_FOUND)
 
-            runbook = result
-            timeline = runbook["timeline"]
-            failed_targets = runbook["failed_targets"]
+            if json_output:
+                print(to_json(runbook))
+            else:
+                _print_event_runbook(runbook)
+                if runbook.get("warnings"):
+                    print()
+                    for w in runbook["warnings"]:
+                        print(f"  \u26a0 {w}")
+            return
 
-        else:
-            # Broad scan: list events with failed receipts.
-            runbook = {
-                "scope": "scan",
-                "failed_only": failed_only,
+        # Broad scan: currently-unresolved deliveries across all events,
+        # bounded and keyset-paginated at the storage layer.
+        if cursor:
+            try:
+                decode_page_cursor(cursor)
+            except ValueError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(EXIT_CONFIG)
+
+        page = await storage.query_unresolved_deliveries(
+            cursor=cursor,
+            since_event_time=since,
+            limit=page_limit,
+        )
+
+        runbook: dict[str, Any] = {
+            "scope": "scan",
+            "definition": _OUTCOME_DEFINITION,
+            "filters": {
                 "since": since,
-                "warnings": [
-                    "Specify --event <event_id> for a detailed recovery runbook.",
-                    "Radio transports (Meshtastic, MeshCore, LXMF) use "
-                    "fire-and-forget delivery.  Recovery is best-effort "
-                    "and duplicates are possible.",
-                ],
-                "note": "Use --event <event_id> --dry-run to preview recovery.",
-            }
-            timeline = []
-            failed_targets = []
-
-        # If --dry-run, include a replay preview section.
-        if dry_run and event_id is not None:
-            runbook["dry_run"] = {
-                "mode": "dry_run",
-                "event_id": event_id,
-                "status": "preview",
-                "message": (
-                    "DRY_RUN replay would re-process this event through "
-                    "all pipeline stages except delivery.  Use "
-                    "'medre replay --mode dry_run --event <event_id>' "
-                    "to execute."
-                ),
-            }
-
+                "since_field": "canonical_events.timestamp",
+                "since_inclusive": True,
+                "timezone": "UTC (input must carry an explicit offset)",
+            },
+            "page": {
+                "limit": page.limit,
+                "count": len(page.items),
+                "has_more": page.has_more,
+                "next_cursor": page.next_cursor,
+                "order": page.order,
+                "live_view": page.live_view,
+            },
+            "unresolved": [_scan_record(item) for item in page.items],
+            "warnings": [
+                "Radio transports (Meshtastic, MeshCore, LXMF) use "
+                "fire-and-forget delivery.  Recovery is best-effort "
+                "and duplicates are possible.",
+            ],
+        }
         if json_output:
             print(to_json(runbook))
         else:
-            # Human-readable runbook.
-            if event_id is not None:
-                print(f"Recovery runbook: {event_id}")
-                print(f"  Kind:    {runbook['event_kind']}")
-                print(f"  Source:  {runbook['source_adapter']}")
-                print(f"  Receipts: {runbook['total_receipts']}")
-                if failed_targets:
-                    print(f"  Failed targets ({len(failed_targets)}):")
-                    for ft in failed_targets:
-                        fk = ft.get("failure_kind", "unknown")
-                        target_line = ft["target_adapter"]
-                        ch = ft.get("target_channel")
-                        if ch:
-                            target_line += f"/{ch}"
-                        route = ft.get("route_id")
-                        if route:
-                            target_line += f" route={route}"
-                        print(
-                            f"    {target_line}: {ft['status']} "
-                            f"({fk}, attempt {ft['attempt_number']})"
-                        )
-                        if ft.get("suppression_reason"):
-                            print(f"      suppressed: {ft['suppression_reason']}")
-                    # Show classification summary.
-                    fc = runbook.get("failure_classification", {})
-                    if fc:
-                        print()
-                        print("  Failure classification:")
-                        for cat in ("retryable", "permanent", "operational", "unknown"):
-                            items = fc.get(cat, [])
-                            if items:
-                                labels = []
-                                for i in items:
-                                    label = i["target_adapter"]
-                                    ch = i.get("target_channel")
-                                    if ch:
-                                        label += f"/{ch}"
-                                    labels.append(label)
-                                print(f"    {cat}: {', '.join(labels)}")
-                else:
-                    print("  Failed targets: none")
-                if runbook.get("recommended_commands"):
-                    print()
-                    print("  Recommended next commands:")
-                    for cmd in runbook["recommended_commands"]:
-                        print(f"    {cmd}")
-                if runbook.get("replay_context"):
-                    print()
-                    print("  Prior replay runs:")
-                    for rc in runbook["replay_context"]:
-                        print(f"    run_id={rc['replay_run_id']}")
-                print(f"  Timeline entries: {len(timeline)}")
-            else:
-                print("Recovery scan")
-                print(f"  Failed-only: {failed_only}")
-                print(f"  Since: {since or '(all)'}")
-
-            if runbook.get("warnings"):
+            _print_scan(
+                page,
+                since=since,
+                limit=page_limit,
+                storage_path=storage_path,
+            )
+            if runbook["warnings"]:
                 print()
                 for w in runbook["warnings"]:
                     print(f"  \u26a0 {w}")
-
-            if dry_run and event_id is not None:
-                print()
-                print("  DRY RUN: No side effects. Preview only.")
     finally:
         await storage.close()

@@ -28,7 +28,57 @@ def _version() -> None:
     print(f"Platform {platform.system()} {platform.release()} ({platform.machine()})")
 
 
+def _since_iso8601(value: str) -> str:
+    """Argparse type for ``--since``: an aware ISO-8601 UTC timestamp.
+
+    Naive timestamps are rejected as ambiguous — operators must state the
+    offset explicitly (``2026-09-18T00:00:00+00:00`` or a trailing ``Z``).
+    Returns the normalized UTC form (``+00:00`` suffix) used for the
+    storage-layer TEXT comparison.
+    """
+    from datetime import datetime, timezone
+
+    raw = value.strip()
+    if raw.endswith(("Z", "z")):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"not a valid ISO-8601 timestamp: {value!r} "
+            "(example: 2026-09-18T00:00:00+00:00)"
+        ) from None
+    if parsed.tzinfo is None:
+        raise argparse.ArgumentTypeError(
+            f"timestamp must include an explicit UTC offset, got {value!r} "
+            "(naive timestamps are ambiguous; append +00:00 or Z)"
+        )
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _recovery_page_limit(value: str) -> int:
+    """Argparse type for ``--limit``: 1..MAX_RECOVERY_PAGE_LIMIT."""
+    from medre.core.storage.backend import MAX_RECOVERY_PAGE_LIMIT
+
+    try:
+        limit = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"expected an integer, got {value!r}"
+        ) from None
+    if not 1 <= limit <= MAX_RECOVERY_PAGE_LIMIT:
+        raise argparse.ArgumentTypeError(
+            f"must be between 1 and {MAX_RECOVERY_PAGE_LIMIT}, got {limit}"
+        )
+    return limit
+
+
 def _build_parser() -> argparse.ArgumentParser:
+    from medre.core.storage.backend import (
+        DEFAULT_RECOVERY_PAGE_LIMIT,
+        MAX_RECOVERY_PAGE_LIMIT,
+    )
+
     parser = argparse.ArgumentParser(
         prog="medre",
         description="Modular Event-driven Routing Engine",
@@ -372,22 +422,35 @@ def _build_parser() -> argparse.ArgumentParser:
         "--event", default=None, metavar="EVENT_ID", help="Event ID to analyze"
     )
     recover_p.add_argument(
-        "--failed-only",
-        action="store_true",
-        default=False,
-        help="Only include events with failed deliveries",
-    )
-    recover_p.add_argument(
         "--since",
         default=None,
         metavar="TIMESTAMP",
-        help="Only consider events after this timestamp",
+        type=_since_iso8601,
+        help=(
+            "Only deliveries whose canonical event timestamp is >= TIMESTAMP "
+            "(inclusive). ISO-8601 with an explicit UTC offset, e.g. "
+            "2026-09-18T00:00:00+00:00; naive timestamps are rejected"
+        ),
     )
     recover_p.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help="Preview recovery without side effects",
+        "--limit",
+        default=None,
+        type=_recovery_page_limit,
+        metavar="N",
+        help=(
+            f"Max unresolved deliveries per scan page "
+            f"(default {DEFAULT_RECOVERY_PAGE_LIMIT}, max "
+            f"{MAX_RECOVERY_PAGE_LIMIT})"
+        ),
+    )
+    recover_p.add_argument(
+        "--cursor",
+        default=None,
+        metavar="TOKEN",
+        help=(
+            "Continuation token from a previous scan page's next_cursor "
+            "(malformed or version-mismatched tokens are rejected)"
+        ),
     )
     recover_p.add_argument(
         "--json", action="store_true", default=False, help="Output JSON runbook"
@@ -620,14 +683,14 @@ def main(argv: list[str] | None = None) -> None:
 
         asyncio.run(
             _replay(
-                args.config,
+                config_path=args.config,
                 mode=args.mode,
                 event_id=args.event,
                 json_output=args.json,
                 target_adapters=args.target_adapters,
                 route_ids=args.route_ids,
                 limit=args.limit,
-                run_id=getattr(args, "run_id", None) or "",
+                run_id=args.run_id or "",
             )
         )
     elif args.command == "recover":
@@ -636,9 +699,9 @@ def main(argv: list[str] | None = None) -> None:
         asyncio.run(
             _recover(
                 event_id=args.event,
-                failed_only=args.failed_only,
                 since=args.since,
-                dry_run=args.dry_run,
+                limit=args.limit,
+                cursor=args.cursor,
                 json_output=args.json,
                 storage_path=args.storage_path,
             )
