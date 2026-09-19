@@ -209,6 +209,45 @@ def test_recover_event_rejects_scan_only_flags() -> None:
     assert "scan-only option" in stderr
 
 
+def test_recovery_outputs_sanitize_persisted_receipt_errors(tmp_path: Path) -> None:
+    """Recovery output redacts raw receipt secrets without mutating storage."""
+    db_path = tmp_path / "recovery-redaction.db"
+    event = _event("evt-redaction", at=_T0)
+    secret = "access_token=super-secret-value"
+    receipt = _receipt(
+        event.event_id,
+        receipt_id="rcpt-redaction",
+        status="failed",
+        error=f"adapter failed: {secret}",
+    )
+    _seed(db_path, [event], [receipt])
+
+    scan = _run_cli_json("recover", "--storage-path", str(db_path))
+    event_runbook = _run_cli_json(
+        "recover",
+        "--event",
+        event.event_id,
+        "--storage-path",
+        str(db_path),
+    )
+    scan_text = json.dumps(scan, sort_keys=True)
+    event_text = json.dumps(event_runbook, sort_keys=True)
+
+    assert "super-secret-value" not in scan_text
+    assert "super-secret-value" not in event_text
+    assert "[REDACTED]" in scan["unresolved"][0]["error"]
+    assert "[REDACTED]" in event_runbook["failed_targets"][0]["error"]
+
+    stdout, _stderr, code = _run_cli_raw(
+        "recover",
+        "--storage-path",
+        str(db_path),
+    )
+    assert code in (None, 0)
+    assert "super-secret-value" not in stdout
+    assert "[REDACTED]" in stdout
+
+
 def test_recover_rejects_removed_dry_run_flag() -> None:
     """Recovery previewing belongs to ``replay --mode dry_run``."""
     _stdout, _stderr, code = _run_cli_raw(

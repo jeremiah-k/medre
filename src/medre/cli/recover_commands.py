@@ -40,6 +40,7 @@ from medre.core.observability.classification import (
 from medre.core.observability.classification import (
     recommended_commands as _recommended_commands,
 )
+from medre.core.observability.sanitization import sanitize_error
 from medre.core.storage.backend import (
     DEFAULT_RECOVERY_PAGE_LIMIT,
     UnresolvedDelivery,
@@ -159,7 +160,7 @@ async def _build_event_recovery_runbook(
                     hist["target_channel"] = r.target_channel
                 error_msg_hist = getattr(r, "error", None)
                 if error_msg_hist:
-                    hist["error"] = error_msg_hist
+                    hist["error"] = sanitize_error(error_msg_hist)
                 historical_failures.append(hist)
 
         if not is_current_failure:
@@ -187,7 +188,7 @@ async def _build_event_recovery_runbook(
         if getattr(r, "route_id", None):
             entry["route_id"] = r.route_id
         if error_msg:
-            entry["error"] = error_msg
+            entry["error"] = sanitize_error(error_msg)
         if getattr(r, "next_retry_at", None) is not None:
             entry["next_retry_at"] = r.next_retry_at
         # Derive suppression reason for operator visibility.
@@ -392,8 +393,10 @@ def _print_event_runbook(runbook: dict[str, Any]) -> None:
 
 
 def _scan_record(item: UnresolvedDelivery) -> dict[str, Any]:
-    """JSON record for one unresolved delivery, with disposition."""
+    """JSON-safe operator record for one unresolved delivery."""
     record = asdict(item)
+    if item.error:
+        record["error"] = sanitize_error(item.error)
     record["disposition"] = _disposition(item)
     return record
 
@@ -446,7 +449,7 @@ def _print_scan(
         elif item.outbox_next_attempt_at:
             print(f"      next attempt: {item.outbox_next_attempt_at}")
         if item.error:
-            print(f"      error: {item.error}")
+            print(f"      error: {sanitize_error(item.error)}")
         print(
             "      inspect:   medre inspect event "
             f"{item.event_id} --recovery --storage-path "

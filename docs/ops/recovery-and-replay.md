@@ -79,9 +79,11 @@ discoverable page by page. To re-deliver, preview with
 `--storage-path` and needs configuration context.
 
 Read-only scans never write the evidence database (byte-identical before
-and after). SQLite may materialize `-wal`/`-shm` shared-memory sidecars
-next to the database even for read-only WAL connections — harmless
-read-view artifacts, not database writes.
+and after). Operator-facing recovery output sanitizes persisted receipt error
+strings before JSON or text emission; the durable receipt evidence itself stays
+unchanged. SQLite may materialize `-wal`/`-shm` shared-memory sidecars next to
+the database even for read-only WAL connections — harmless read-view artifacts,
+not database writes.
 
 ## Recovery Decision Tree
 

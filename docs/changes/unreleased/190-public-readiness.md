@@ -54,6 +54,9 @@ User-visible changes in this buildout, ahead of a first release:
   state current evidence tiers and keep dated historical records as
   history.
 
+- **Recovery output safety**: sanitize persisted receipt error text at the
+  `medre recover` operator-output boundary while preserving raw durable evidence.
+
 Compatibility: storage schema versions are unchanged; no migration is
 provided or implied. Historical evidence records keep their original dates
 and scope.
