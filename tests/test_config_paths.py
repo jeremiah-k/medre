@@ -3,7 +3,6 @@ no directory creation, placeholder expansion, diagnostic output."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -272,17 +271,21 @@ class TestAdapterStateDir:
         assert result == paths.state_dir / "adapters" / "my-adapter"
 
     def test_empty_adapter_id_raises(self, paths: MedrePaths) -> None:
-        with pytest.raises(MedrePathsError, match="non-empty"):
+        with pytest.raises(MedrePathsError, match="empty"):
             paths.adapter_state_dir("")
 
     def test_slash_in_adapter_id_raises(self, paths: MedrePaths) -> None:
-        with pytest.raises(MedrePathsError, match="path separators"):
+        with pytest.raises(MedrePathsError, match="Adapter IDs must start"):
             paths.adapter_state_dir("bad/adapter")
 
-    @pytest.mark.skipif(os.sep != "\\", reason="Windows-specific separator test")
-    def test_backslash_in_adapter_id_raises_windows(self, paths: MedrePaths) -> None:
-        with pytest.raises(MedrePathsError, match="path separators"):
+    def test_backslash_in_adapter_id_raises(self, paths: MedrePaths) -> None:
+        """Backslash is rejected on every host, not only where os.sep matches."""
+        with pytest.raises(MedrePathsError, match="Adapter IDs must start"):
             paths.adapter_state_dir("bad\\adapter")
+
+    def test_dot_segment_adapter_id_raises(self, paths: MedrePaths) -> None:
+        with pytest.raises(MedrePathsError, match="Adapter IDs must start"):
+            paths.adapter_state_dir("..")
 
 
 # ---------------------------------------------------------------------------
@@ -320,16 +323,16 @@ class TestAdapterTransportStateDir:
         assert result == base / "matrix"
 
     def test_empty_adapter_id_raises(self, paths: MedrePaths) -> None:
-        with pytest.raises(MedrePathsError, match="non-empty"):
+        """Empty adapter_id is rejected with the path-category error."""
+        with pytest.raises(MedrePathsError):
             paths.adapter_transport_state_dir("", "matrix")
 
-    def test_empty_transport_raises(self, paths: MedrePaths) -> None:
-        with pytest.raises(MedrePathsError, match="non-empty"):
-            paths.adapter_transport_state_dir("bot1", "")
-
-    def test_slash_in_transport_raises(self, paths: MedrePaths) -> None:
-        with pytest.raises(MedrePathsError, match="path separators"):
-            paths.adapter_transport_state_dir("bot1", "mat/rix")
+    @pytest.mark.parametrize("transport", ["", "mat/rix", "..", "custom"])
+    def test_unsupported_transport_raises(
+        self, paths: MedrePaths, transport: str
+    ) -> None:
+        with pytest.raises(MedrePathsError, match="unsupported transport"):
+            paths.adapter_transport_state_dir("bot1", transport)
 
     def test_multiple_adapters_isolated(self, paths: MedrePaths) -> None:
         """Different adapter IDs produce different paths."""

@@ -215,12 +215,13 @@ async def _build_smoke_runtime(
 
     try:
         config, source, paths = load_config(resolved)
+        # Env overrides share the config-error boundary so identifier
+        # rejections surface as a drill failure report, not a crash.
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         raise RuntimeError(f"Config load error: {exc}") from exc
 
     config_source_value = source.value
-    config = apply_env_overrides(config, paths)
-
     if storage_path is not None:
         config = dataclasses.replace(
             config,

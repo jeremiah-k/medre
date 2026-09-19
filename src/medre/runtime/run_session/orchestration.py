@@ -235,6 +235,9 @@ async def run_bridge_session(
     # -- Step 1: Load config ------------------------------------------------
     try:
         config, source, paths = load_config(resolved_config_path)
+        # Env overrides share the config-error boundary: a rejected
+        # identifier must become a sanitized failed report, not a crash.
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         return {
             "status": "failed",
@@ -251,7 +254,6 @@ async def run_bridge_session(
         }
 
     config_source_value = source.value
-    config = apply_env_overrides(config, paths)
 
     # Override storage to SQLite.
     config = dataclasses.replace(
