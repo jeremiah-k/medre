@@ -1355,10 +1355,12 @@ template alias is `{origin_label}`.
 | `route_id`            | `{route_id}`      | Matched route                                                | Route identification (may be empty if no route trace available) |
 
 Operators SHOULD prefer `{origin_label}` in cross-platform prefix templates.
-`origin_label` is the single MEDRE-generic label, resolved with
-precedence: route-level `source_origin_label`/`dest_origin_label`
-(after direction expansion) > adapter config `origin_label` > empty
-string. Adapter-level `origin_label` is fallback only.
+`origin_label` is the single MEDRE-generic label. For `channel_room_map`
+legs, precedence is per-entry label > route-level
+`source_origin_label`/`dest_origin_label` (after direction expansion) >
+adapter config `origin_label` > empty string. General routes use the same
+chain without the per-entry level. Adapter-level `origin_label` is fallback
+only.
 
 ### 17.5.4 Renderer Lookup
 

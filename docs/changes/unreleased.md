@@ -69,11 +69,12 @@ this file once they land.
 
 ## Config & Schema
 
-- **Per-context origin labels for `channel_room_map`.** Each entry may
-  carry its own `source_origin_label` / `dest_origin_label` alongside
-  `room`. Precedence: per-entry → route → adapter → empty string. Explicit
-  `""` suppresses fallback for that leg; an absent label falls through.
-  Bare-string entries are unchanged.
+- **Per-context origin labels for `channel_room_map`.** Each structured
+  entry may carry its own `source_origin_label` / `dest_origin_label`
+  alongside `room`. Precedence: per-entry → route → adapter → empty string.
+  Explicit `""` suppresses fallback for that leg; an absent label falls
+  through. Bare-string room entries are rejected by the current prerelease
+  contract.
 - **Duplicate-room fan-in.** A `channel_room_map` may map multiple
   Meshtastic channels to one Matrix room for Meshtastic→Matrix fan-in.
   Duplicate Matrix rooms are rejected only when the route creates a
@@ -81,8 +82,9 @@ this file once they land.
 - **Direction-aware route origin labels.** `source_origin_label` (forward
   legs) and `dest_origin_label` (reverse legs) replace the single
   `origin_label` route field. Both default to `None` (fall back to adapter
-  `origin_label`). Per-channel origin labels are not implemented; use
-  separate routes per channel.
+  `origin_label`). Structured `channel_room_map` entries may override these
+  labels per channel; general routes that need channel-specific attribution
+  still use separate routes per channel.
 - **YAML loader hardening.** Invalid-UTF-8 config files raise
   `ConfigFileError`. Exotic mapping key types (`!!omap`, `!!set`) raise
   `StrictYAMLError` in both the loader constructor and the post-parse type
@@ -134,12 +136,10 @@ this file once they land.
     `adv_name` → label when the sender is a known contact.
   - LXMF: `source_hash` → `source_sender_id`; captured display name →
     labels.
-- **Meshtastic metadata namespacing.** Identity keys
-  (`meshtastic.from_id`, `.longname`, `.shortname`) and non-identity
-  packet metadata (`meshtastic.packet_id`, `.channel`, `.portnum`,
-  `.to_id`, `.is_direct_message`, `.reply_id`, `.emoji`, `.emoji_flag`)
-  are now namespaced. Bare forms are retained as legacy input tolerance.
-  Core relation enrichment sources sender labels exclusively from a
+- **Meshtastic metadata namespacing.** Identity keys and non-identity
+  packet metadata are stored under the versioned `native.meshtastic`
+  namespace. Bare adapter-native metadata is not a supported persisted
+  shape. Core relation enrichment sources sender labels exclusively from a
   generic `SenderProjectionFn` callback wired by the runtime builder.
 - **LXMF announce-based display-name enrichment.** Announce-cache
   resolution populates `{sender}` for LXMF-origin events when the sender
