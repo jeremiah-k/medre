@@ -154,6 +154,38 @@ must increment `recovered_event_count`; initial cold history may increment
 must increment `recovery_abandoned_room_count` and leave secret-free abandonment
 evidence in `recovery_last_abandonment`.
 
+## Live Validation
+
+### Matrix <-> radio bridge (six directed paths, opt-in)
+
+`tests/test_live_matrix_radio_bridge.py` runs ONE runtime with four real
+adapters (matrix `e2ee_required` + meshtastic serial + meshcore BLE + lxmf
+Reticulum) and three explicit bidirectional routes — matrix<->each radio,
+no radio<->radio legs. A second bot-account device with its own crypto store
+observes the encrypted room: far-side Megolm **decryption** of every leg is
+asserted (same account, so it is disclosed as NOT an independent-sender
+ingress test). Own-account echo posted by that device must stay suppressed
+(negative control). One controlled restart must preserve the device identity
+and crypto session.
+
+Opt-in env: `MEDRE_MX_BRIDGE=1`, `MATRIX_HOMESERVER`, `MATRIX_USER_ID`,
+`MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID`, `MATRIX_STORE_PATH`,
+`MATRIX_OBSERVER_TOKEN`, `MATRIX_OBSERVER_DEVICE_ID`,
+`MATRIX_OBSERVER_STORE_PATH`, plus the standard radio peer endpoints
+(`MESHTASTIC_MEDRE_SERIAL_PORT`, `MESHTASTIC_PEER_SERIAL_PORT`,
+`MESHCORE_MEDRE_BLE_ADDRESS`, `MESHCORE_PEER_BLE_ADDRESS`,
+`LXMF_MEDRE_RNS_CONFIG`, `LXMF_MEDRE_IDENTITY`, `LXMF_MEDRE_STORAGE`,
+`LXMF_PEER_RNS_CONFIG`, `LXMF_PEER_IDENTITY`). All RF stays on private
+lab channels with bounded per-leg TX budgets.
+
+```bash
+pytest tests/test_live_matrix_radio_bridge.py -m live -v
+```
+
+A genuine Matrix->radio hop with an independent sender requires the invited
+human user to post in the room (the bot's own echoes are suppressed by
+design); the interactive session is the intended path for that evidence.
+
 ## See Also
 
 - [transport-setup/matrix.md](../transport-setup/matrix.md) — adapter setup, config, and troubleshooting

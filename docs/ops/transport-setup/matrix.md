@@ -134,6 +134,27 @@ Do not commit the token. Do not log the token. Set it as an environment variable
 
 ## Room Setup
 
+For a scripted private encrypted test room, prefer the provisioning command
+(requires completed credentials from `medre adapter matrix auth login`):
+
+```bash
+medre adapter matrix provision \
+  --space-name "Lab Space" \
+  --room-name "Lab Room" \
+  --invite '@colleague:matrix.org' \
+  --admin '@colleague:matrix.org'
+```
+
+This creates one private (invite-only, still federating) space and one
+private encrypted room linked to it, writes `m.room.encryption`
+(`m.megolm.v1.aes-sha2`) in the room's creation `initial_state`, invites the
+requested users to both, and pre-assigns their admin power 100 so it is
+effective on join. The command verifies the encryption algorithm, power
+read-back, and parent/child linkage from server state, and prints room/space
+IDs plus permalinks (IDs are not credentials).
+
+Manual alternative (plaintext or hand-managed rooms):
+
 1. Open a Matrix client (Element, or any other).
 2. Create a new room. Give it any name.
 3. Invite the bot user to the room.
