@@ -64,3 +64,7 @@ class MatrixSendError(MatrixError):
 
 class MatrixCodecError(MatrixError):
     """Raised when decode operations fail."""
+
+
+class MatrixProvisionError(MatrixError):
+    """Raised when room/space provisioning or its state verification fails."""
