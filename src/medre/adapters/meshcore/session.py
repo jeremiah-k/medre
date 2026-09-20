@@ -448,6 +448,17 @@ class MeshCoreSession:
                 )
             self._meshcore = None
 
+        # BlueZ central-link teardown: the pinned SDK's disconnect() can
+        # return while BlueZ still holds the central link (observed twice
+        # live: clean runtime stop left the board ``Connected`` ~35s+
+        # until an explicit disconnect, plausibly feeding the historical
+        # intermittent "Failed to connect" on the next start).  Drop the
+        # link deterministically — bounded, best-effort, BLE only, and
+        # never allowed to fail the stop path itself.
+        if self._config.connection_type == "ble" and self._config.ble_address:
+            with contextlib.suppress(Exception):
+                await self._disconnect_stale_ble_client(self._config.ble_address)
+
         self._diag.connected = False
         self._diag.reconnecting = False
         # Reset observability counters on stop so they don't leak across

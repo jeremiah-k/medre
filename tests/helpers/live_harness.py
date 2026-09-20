@@ -13,7 +13,7 @@ import asyncio
 import json
 import os
 import time
-from collections.abc import Awaitable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TypeVar
@@ -198,10 +198,16 @@ def assert_no_secret_leak(obj: object, secret_values: Iterable[str]) -> None:
 
 
 async def bounded(coro: Awaitable[_T], timeout: float, label: str) -> _T:
-    """Await *coro* with a timeout, raising a descriptive error on expiry.
+    """Await *coro* with a hard timeout, raising a descriptive error.
 
-    Wraps :func:`asyncio.wait_for` so that timeout failures include the
-    human-readable *label* for easier debugging in live-test logs.
+    The deadline is enforced by a timer race, NOT by awaiting the inner
+    coroutine's cancellation: ``asyncio.wait_for`` waits for the inner
+    task to acknowledge cancellation, so cancellation-resistant SDK code
+    (a callback that swallows ``CancelledError`` and keeps hanging)
+    defeats it — the harness then discovers a bad fixture only at some
+    much larger outer timeout.  On expiry the inner task is cancelled
+    best-effort and control returns to the caller immediately; a rude
+    straggler stays pending for the process boundary to reap.
 
     Args:
         coro: The awaitable / coroutine to execute.
@@ -215,10 +221,43 @@ async def bounded(coro: Awaitable[_T], timeout: float, label: str) -> _T:
         RuntimeError: When the coroutine does not complete within *timeout*
             seconds.  The message includes *label* and *timeout*.
     """
+    task = asyncio.ensure_future(coro)
+    done, _pending = await asyncio.wait({task}, timeout=timeout)
+    if not done:
+        task.cancel()
+        raise RuntimeError(f"Live test timed out after {timeout}s: {label}")
+    return task.result()
+
+
+async def launch_bounded(
+    build: Callable[[], _T],
+    *,
+    start_timeout: float,
+    stop_timeout: float,
+    label: str,
+) -> _T:
+    """Build + start a runtime with bounded cleanup on start failure.
+
+    ``bounded`` cancellation of ``app.start()`` would otherwise abandon
+    already-started adapters holding exclusive radio endpoints (serial
+    flock, BLE central, RNode serial) — the next test would inherit a
+    leaked owner.  On any start failure the partially-started app is
+    stopped (within *stop_timeout*) before the error propagates; a
+    failing cleanup is reported but never masks the primary error.
+    """
+    app = build()
     try:
-        return await asyncio.wait_for(coro, timeout=timeout)
-    except asyncio.TimeoutError:
-        raise RuntimeError(f"Live test timed out after {timeout}s: {label}") from None
+        await bounded(app.start(), start_timeout, f"{label} start")
+    except BaseException:
+        try:
+            await bounded(app.stop(), stop_timeout, f"{label} start cleanup")
+        except Exception as cleanup_exc:  # pragma: no cover - live-only
+            print(
+                f"{label}: cleanup after failed start also failed: " f"{cleanup_exc!r}",
+                flush=True,
+            )
+        raise
+    return app
 
 
 # ---------------------------------------------------------------------------
