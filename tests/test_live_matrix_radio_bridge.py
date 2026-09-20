@@ -37,7 +37,6 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
-from tests.helpers.lxmf_live_peer import LxmfPeerListener as _LxListener
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _lx_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
 from tests.helpers.matrix_live_observer import (
@@ -482,14 +481,14 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
         with MatrixRoomObserver(
             _OBSERVER_WINDOW, "", str(tmp_path / "observer2.jsonl")
         ) as observer:
-            with _MtListener(_RECEIPT_TIMEOUT + 30):
-                await asyncio.to_thread(
-                    _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce2])], 60
-                )
-                ev, receipts = await _wait_for_receipt(
-                    app2, nonce2, "matrix", _RECEIPT_TIMEOUT
-                )
-                assert ev is not None and receipts, "post-restart leg never delivered"
+            sent = await asyncio.to_thread(
+                _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce2])], 60
+            )
+            assert sent and sent[-1].get("sent_id"), "post-restart MT send not accepted"
+            ev, receipts = await _wait_for_receipt(
+                app2, nonce2, "matrix", _RECEIPT_TIMEOUT
+            )
+            assert ev is not None and receipts, "post-restart leg never delivered"
             result = observer.wait(timeout=_OBSERVER_WINDOW + 30)
             assert (
                 result["undecryptable"] == 0
