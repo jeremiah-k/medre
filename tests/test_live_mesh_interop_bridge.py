@@ -283,7 +283,12 @@ class _FarListeners:
         self._lx = None
 
     def __enter__(self) -> "_FarListeners":
-        windows = {tag: _CAPTURE_WINDOWS[tag] + 30.0 for tag in self._far_tags}
+        # Listener lifetime must cover send + sequential receipt waits
+        # (worst case 2 x _RECEIPT_TIMEOUT) before capture polling begins.
+        windows = {
+            tag: _CAPTURE_WINDOWS[tag] + 2 * _RECEIPT_TIMEOUT + 30.0
+            for tag in self._far_tags
+        }
         for tag in self._far_tags:
             if tag == "mt":
                 self._mt = _MtListener(windows["mt"]).__enter__()
