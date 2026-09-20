@@ -1,0 +1,814 @@
+"""Live physical-pair tests for the MeshCore adapter (two real T-Beam nodes).
+
+Opt-in ONLY: set ``MESHCORE_PAIR=1`` plus explicit owned BLE addresses.
+The ordinary suite never opens a radio; nothing here provisions or pairs
+as a fixture side effect (host-level bluetoothctl pairing is a documented
+prerequisite, see docs/ops/live-validation/meshcore.md).
+
+Roles (default lab allocation, reversible via env):
+- MEDRE owns one board over BLE (``MESHCORE_MEDRE_BLE_ADDRESS``).
+- The other board is an independent native peer driven by the pinned
+  ``meshcore`` SDK directly — no MEDRE code in the peer path.
+
+Run (opt-in): MESHCORE_PAIR=1 ... pytest tests/test_meshcore_pair_live.py
+-m "live and hardware" -p no:unraisableexception
+(``-p no:unraisableexception`` ignores bleak's cached BlueZ system-bus
+socket being finalized after the session ends; it is an interpreter
+cleanup artifact, not a test outcome.)
+
+Fast iteration: add ``MEDRE_LIVE_QUICK=1`` to run each live test's core
+positive evidence only (single messages, no absence/dedup/boundary
+sections) — minutes become ~90 seconds. Full mode stays the proof gate.
+
+Evidence layers asserted separately:
+A. durable canonical events / native refs / delivery receipts in storage,
+B. SDK/native acceptance semantics (MeshCore channel sends are
+   local-accepted only — the firmware has no ACK protocol),
+C. the independent peer's RF observation of correlated payloads.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+import pytest
+
+from tests.helpers.live_harness import bounded
+from tests.helpers.meshtastic import make_meshtastic_text_packet
+
+# ---------------------------------------------------------------------------
+# Environment gate and lab addressing
+# ---------------------------------------------------------------------------
+_PAIR_ENABLED = os.environ.get("MESHCORE_PAIR", "") == "1"
+
+_MEDRE_BLE = os.environ.get("MESHCORE_MEDRE_BLE_ADDRESS", "")
+_PEER_BLE = os.environ.get("MESHCORE_PEER_BLE_ADDRESS", "")
+_MEDRE_NODE_NAME = os.environ.get("MESHCORE_MEDRE_NODE_NAME", "MEDRE-MC-A")
+# Fast-iteration tier: MEDRE_LIVE_QUICK=1 trims each live test to its core
+# positive evidence (single messages, no absence/dedup/boundary sections).
+# Absence windows and boundary matrices are the full-mode proof.
+_QUICK = os.environ.get("MEDRE_LIVE_QUICK", "") == "1"
+# The firmware prepends each sender's node name to group text on the wire;
+# the peer board's name is asserted in ingress body attribution and must
+# follow the lab role map (reversed roles rename both sides).
+_PEER_NODE_NAME = os.environ.get("MESHCORE_PEER_NODE_NAME", "MEDRE-MC-B")
+
+_REQUIRE_PAIR = pytest.mark.skipif(
+    not (_PAIR_ENABLED and _MEDRE_BLE and _PEER_BLE),
+    reason=(
+        "opt-in physical pair: set MESHCORE_PAIR=1, MESHCORE_MEDRE_BLE_ADDRESS, "
+        "MESHCORE_PEER_BLE_ADDRESS (owned boards; host-paired via bluetoothctl)"
+    ),
+)
+
+# Bounded waits and lab pacing.  The MeshCore firmware imposes no Meshtastic
+# style per-send floor, but the lab keeps a modest pacing to bound airtime.
+_TX_PACING_SECONDS: float = 3.0
+_RECEIPT_TIMEOUT: float = 30.0
+_PEER_STARTUP_GRACE: float = 12.0
+_PEER_READY_TIMEOUT: float = 60.0
+_MEDRE_TEXT_BUDGET: int = 160  # MEDRE max_text_bytes (== firmware-visible span)
+
+
+# ---------------------------------------------------------------------------
+# Independent native peer (pinned meshcore SDK only)
+# ---------------------------------------------------------------------------
+_PEER_SCRIPT = r'''
+import asyncio, json, subprocess, sys, time
+
+ADDRESS = sys.argv[2]
+MODE = sys.argv[1]
+
+
+async def _connect():
+    from meshcore import EventType
+    from meshcore import MeshCore
+    last = None
+    for attempt in range(3):
+        if attempt:  # remedy only after a failed attempt, not proactively
+            subprocess.run(["bluetoothctl", "disconnect", ADDRESS], capture_output=True)
+            await asyncio.sleep(1.5)
+        try:
+            mc = await asyncio.wait_for(
+                MeshCore.create_ble(address=ADDRESS, default_timeout=10),
+                timeout=25,
+            )
+            if mc is not None:
+                return mc
+            last = "None"
+        except Exception as exc:
+            last = type(exc).__name__
+        print(f"peer connect attempt {attempt}: {last}", file=sys.stderr, flush=True)
+    raise RuntimeError(f"peer connect failed: {last}")
+
+
+async def _own_pubkey_prefix(mc):
+    """First 12 hex of this board's public key via self contact export."""
+    import re as _re
+    try:
+        ec = await asyncio.wait_for(mc.commands.export_contact(), timeout=10)
+        blob = json.dumps(ec.payload, default=str) + json.dumps(
+            ec.attributes, default=str
+        )
+        m = _re.search(r"[0-9a-fA-F]{64}", blob)
+        if m:
+            return m.group(0)[:12]
+    except Exception:
+        pass
+    from meshcore import EventType
+    got = {}
+
+    def on_info(event):
+        p = event.payload or {}
+        pk = p.get("public_key") or ""
+        if pk and "prefix" not in got:
+            got["prefix"] = pk[:12]
+
+    sub = mc.subscribe(EventType.SELF_INFO, on_info)
+    try:
+        await asyncio.sleep(2.5)
+    finally:
+        try:
+            mc.unsubscribe(sub)
+        except Exception:
+            pass
+    return got.get("prefix")
+
+
+async def main():
+    from meshcore import EventType
+    out = {"mode": MODE, "sent": [], "received": [], "own_pubkey_prefix": None}
+
+    if MODE == "listen":
+        seconds = float(sys.argv[3])
+        mc = await _connect()
+        try:
+            out["own_pubkey_prefix"] = await _own_pubkey_prefix(mc)
+            # The firmware replays buffered group messages to a newly
+            # connected app; drain that queue BEFORE arming collection so
+            # a previous run's traffic cannot satisfy this window.  Bounded
+            # and non-fatal: a misbehaving queue must not hang the listener.
+            for _ in range(10):
+                try:
+                    ev = await asyncio.wait_for(
+                        mc.commands.get_msg(), timeout=4
+                    )
+                except Exception:
+                    break
+                if ev.type in (EventType.NO_MORE_MSGS, EventType.ERROR):
+                    break
+            got = []
+            raw = []
+
+            def on_any(event):
+                raw.append(f"{event.type.value}:{str(event.payload)[:60]}")
+
+            raw_sub = mc.subscribe(None, on_any)
+
+            def on_msg(event):
+                p = event.payload or {}
+                got.append({
+                    "text": p.get("text") or p.get("message", ""),
+                    "sender": (p.get("pubkey_prefix") or "")[:12],
+                    "channel": p.get("channel_idx"),
+                    "snr": p.get("SNR", p.get("snr")),
+                    "sender_timestamp": p.get("sender_timestamp"),
+                })
+                with open("/tmp/meshcore_pair_peer.json", "a") as fh:
+                    fh.write(json.dumps(got[-1]) + "\n")
+
+            sub = mc.subscribe(EventType.CHANNEL_MSG_RECV, on_msg)
+            await mc.start_auto_message_fetching()
+            # Ready handshake: collection is armed (drained, subscribed).
+            with open("/tmp/meshcore_pair_peer.ready", "w") as fh:
+                fh.write("1")
+            await asyncio.sleep(seconds)
+            mc.unsubscribe(sub)
+            try:
+                mc.unsubscribe(raw_sub)
+            except Exception:
+                pass
+            out["received"] = got
+            out["raw_events"] = raw
+        finally:
+            try:
+                await asyncio.wait_for(mc.disconnect(), timeout=8)
+            except Exception:
+                pass
+    elif MODE in ("sendn", "sendts"):
+        mc = await _connect()
+        try:
+            out["own_pubkey_prefix"] = await _own_pubkey_prefix(mc)
+            if MODE == "sendn":
+                texts = json.loads(sys.argv[3])
+                for text in texts:
+                    res = await asyncio.wait_for(
+                        mc.commands.send_chan_msg(1, text), timeout=15)
+                    out["sent"].append({
+                        "text": text,
+                        "type": res.type.value,
+                        "error": res.is_error(),
+                    })
+                    await asyncio.sleep(3.0)
+            else:
+                # Controlled sender-set wire timestamps (supported SDK arg):
+                # same text, explicit one-second-resolution timestamps.
+                text = sys.argv[3]
+                ts_a, ts_b = int(sys.argv[4]), int(sys.argv[5])
+                for ts in (ts_a, ts_b):
+                    res = await asyncio.wait_for(
+                        mc.commands.send_chan_msg(1, text, timestamp=ts), timeout=15)
+                    out["sent"].append({
+                        "text": text, "timestamp": ts,
+                        "type": res.type.value, "error": res.is_error(),
+                    })
+                    await asyncio.sleep(3.0)
+        finally:
+            try:
+                await asyncio.wait_for(mc.disconnect(), timeout=8)
+            except Exception:
+                pass
+    elif MODE == "probe":
+        # Preflight: prove the board is connectable and time-synced.
+        mc = await _connect()
+        try:
+            out["own_pubkey_prefix"] = await _own_pubkey_prefix(mc)
+            t = await asyncio.wait_for(mc.commands.get_time(), timeout=10)
+            dev = (t.payload or {}).get("unix_time") or (t.payload or {}).get("time")
+            out["drift_s"] = (dev - int(time.time())) if dev else None
+        finally:
+            try:
+                await asyncio.wait_for(mc.disconnect(), timeout=8)
+            except Exception:
+                pass
+    elif MODE == "n6probe":
+        # Wrong-channel negative control: ch2 carries a secret the MEDRE
+        # board does not share.  Restore ch2 to empty afterwards and prove
+        # a positive ch1 delivery still works.
+        import os
+        mc = await _connect()
+        try:
+            out["own_pubkey_prefix"] = await _own_pubkey_prefix(mc)
+            wrong_key = os.urandom(16)
+            r = await asyncio.wait_for(
+                mc.commands.set_channel(2, "MEDRE-WRONG", wrong_key), timeout=10)
+            out["set_wrong"] = not r.is_error()
+            res = await asyncio.wait_for(
+                mc.commands.send_chan_msg(2, sys.argv[3]), timeout=15)
+            out["sent"].append({"text": sys.argv[3], "channel": 2,
+                                "type": res.type.value, "error": res.is_error()})
+            await asyncio.sleep(2.0)
+            r = await asyncio.wait_for(
+                mc.commands.set_channel(2, "", b"\x00" * 16), timeout=10)
+            out["restore_ok"] = not r.is_error()
+            ch = await asyncio.wait_for(mc.commands.get_channel(2), timeout=10)
+            cp = ch.payload or {}
+            sec = cp.get("channel_secret", b"") or b""
+            if isinstance(sec, str):
+                try:
+                    sec = bytes.fromhex(sec)
+                except ValueError:
+                    sec = sec.encode()
+            out["ch2_after"] = {
+                "name": cp.get("channel_name"),
+                "secret_len": len(sec),
+                # The firmware keeps a fixed 16-byte secret slot: the
+                # empty-channel default reads back as 16 zero bytes.
+                "secret_zeroed": sec == b"\x00" * 16,
+                "secret_is_wrong": sec == wrong_key,
+            }
+            pos = sys.argv[4]
+            res = await asyncio.wait_for(
+                mc.commands.send_chan_msg(1, pos), timeout=15)
+            out["sent"].append({"text": pos, "channel": 1,
+                                "type": res.type.value, "error": res.is_error()})
+        finally:
+            try:
+                await asyncio.wait_for(mc.disconnect(), timeout=8)
+            except Exception:
+                pass
+
+    print(json.dumps(out))
+
+
+asyncio.run(main())
+'''
+
+
+def _peer(args: list[str], timeout: float) -> dict:
+    """Run the native peer script once and return its JSON payload."""
+    proc = subprocess.run(
+        [sys.executable, "-c", _PEER_SCRIPT, *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"native peer failed ({proc.returncode}): {proc.stderr[-800:]}"
+        )
+    lines = [ln for ln in proc.stdout.strip().splitlines() if ln.strip()]
+    if not lines:
+        raise AssertionError(f"native peer produced no JSON: {proc.stderr[-400:]}")
+    return json.loads(lines[-1])
+
+
+class _PeerListener:
+    """Background native-peer BLE listener with incremental collection.
+
+    The peer appends each received packet to a JSONL scratch file as it
+    arrives, so positive cases finish as soon as the expected evidence
+    lands (``packets_until``) while absence cases still drain a full
+    window (``packets``).  Readiness is a file handshake: arming happens
+    after the firmware buffer drain + subscribe, not after a fixed sleep.
+    """
+
+    _JSON_PATH = Path("/tmp/meshcore_pair_peer.json")
+    _READY_PATH = Path("/tmp/meshcore_pair_peer.ready")
+
+    def __init__(self, seconds: float) -> None:
+        self._seconds = seconds
+        self._proc: subprocess.Popen[str] | None = None
+
+    def __enter__(self) -> "_PeerListener":
+        self._JSON_PATH.unlink(missing_ok=True)
+        self._READY_PATH.unlink(missing_ok=True)
+        self._proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                _PEER_SCRIPT,
+                "listen",
+                _PEER_BLE,
+                str(self._seconds),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        # Ready handshake: drain + subscribe + auto-fetch armed before any
+        # MEDRE-side TX (bounded; no fixed startup sleep).
+        deadline = time.monotonic() + _PEER_READY_TIMEOUT
+        while time.monotonic() < deadline:
+            if self._READY_PATH.exists():
+                return self
+            if self._proc.poll() is not None:
+                _, err = self._proc.communicate(timeout=10)
+                raise AssertionError(f"native peer listener died: {err[-400:]}")
+            time.sleep(0.2)
+        raise AssertionError("native peer listener never signalled ready")
+
+    def _read_packets(self) -> list[dict]:
+        if not self._JSON_PATH.exists():
+            return []
+        packets: list[dict] = []
+        for line in self._JSON_PATH.read_text().splitlines():
+            line = line.strip()
+            if line:
+                packets.append(json.loads(line))
+        return packets
+
+    def packets_until(self, predicate, timeout: float) -> list[dict]:
+        """Poll collected packets until ``predicate`` holds or timeout."""
+        deadline = time.monotonic() + timeout
+        packets: list[dict] = []
+        while time.monotonic() < deadline:
+            packets = self._read_packets()
+            if predicate(packets):
+                return packets
+            time.sleep(0.5)
+        return self._read_packets()
+
+    def packets(self, timeout: float | None = None) -> list[dict]:
+        """Drain the listener's full window (absence/negative evidence)."""
+        assert self._proc is not None
+        out, err = self._proc.communicate(timeout=timeout or self._seconds + 40)
+        if self._proc.returncode != 0:
+            raise AssertionError(f"native peer listener failed: {err[-800:]}")
+        lines = [ln for ln in out.strip().splitlines() if ln.strip()]
+        return json.loads(lines[-1])["received"] if lines else []
+
+    def __exit__(self, *exc: object) -> None:
+        if self._proc and self._proc.poll() is None:
+            self._proc.kill()
+            self._proc.wait(timeout=10)
+
+
+# ---------------------------------------------------------------------------
+# In-process real runtime (built exactly like `medre run`)
+# ---------------------------------------------------------------------------
+def _build_runtime(db_path: Path, *, with_route: bool):
+    from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter  # noqa: F401
+    from medre.config.adapters.meshcore import MeshCoreConfig
+    from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.model import (
+        AdapterConfigSet,
+        LoggingConfig,
+        MeshCoreRuntimeConfig,
+        MeshtasticRuntimeConfig,
+        RuntimeConfig,
+        RuntimeOptions,
+        StorageConfig,
+    )
+    from medre.config.paths import MedrePaths
+    from medre.config.routes import RouteConfig, RouteConfigSet
+    from medre.runtime.builder import RuntimeBuilder
+
+    src = MeshtasticRuntimeConfig(
+        adapter_id="lab_src",
+        enabled=True,
+        adapter_kind="fake",
+        config=MeshtasticConfig(adapter_id="lab_src", connection_type="fake"),
+    )
+    radio = MeshCoreRuntimeConfig(
+        adapter_id="mc_radio",
+        enabled=True,
+        adapter_kind="real",
+        config=MeshCoreConfig(
+            adapter_id="mc_radio",
+            connection_type="ble",
+            ble_address=_MEDRE_BLE,
+            default_channel=1,
+            message_delay_seconds=_TX_PACING_SECONDS,
+            max_text_bytes=_MEDRE_TEXT_BUDGET,
+            identity=_MEDRE_NODE_NAME,
+        ).validate(),
+    )
+    routes = RouteConfigSet()
+    if with_route:
+        routes = RouteConfigSet(
+            routes=(
+                RouteConfig(
+                    route_id="lab_egress",
+                    source_adapters=("lab_src",),
+                    dest_adapters=("mc_radio",),
+                    source_channel="0",
+                    dest_channel="1",
+                ),
+            )
+        )
+        routes.validate()
+    config = RuntimeConfig(
+        runtime=RuntimeOptions(name="mc-pair-live"),
+        logging=LoggingConfig(level="INFO"),
+        storage=StorageConfig(backend="sqlite", path=str(db_path)),
+        adapters=AdapterConfigSet(
+            meshtastic={"lab_src": src}, meshcore={"mc_radio": radio}
+        ),
+        routes=routes,
+    )
+    home = db_path.parent
+    paths = MedrePaths(
+        config_dir=home / "config",
+        config_file=home / "config" / "config.yaml",
+        state_dir=home / "state",
+        data_dir=home / "data",
+        cache_dir=home / "cache",
+        log_dir=home / "logs",
+        database_path=db_path,
+    )
+    return RuntimeBuilder(config, paths).build()
+
+
+async def _start_app(app) -> None:  # noqa: ANN001
+    # No proactive disconnects here: boards tolerate a single clean owner
+    # handover, and gratuitous disconnect/reconnect churn is itself the
+    # flake source.  MEDRE's session performs its own best-effort stale
+    # cleanup for its address; teardown disconnects exactly once.
+    # A failed start leaves the app in state 'failed' — starting the same
+    # object again is invalid; _launch retries with a fresh runtime.
+    await bounded(app.start(), 100.0, "pair runtime app.start()")
+
+
+async def _stop_app(app) -> None:  # noqa: ANN001
+    await bounded(app.stop(), 30.0, "pair runtime app.stop()")
+
+
+async def _launch(db_path: Path, *, with_route: bool):
+    """Build and start a runtime, verifying the MC link actually came up.
+
+    The preflight probe releases each board seconds before the runtime
+    connects; in that settle window a start can either raise or silently
+    come up DEGRADED (which dead-letters deliveries with ``Session not
+    initialised``).  Both cases retry with a FRESH runtime after a
+    settle; the same app object is never started twice.
+    """
+    health = None
+    last_error: str | None = None
+    for _attempt in range(2):
+        app = _build_runtime(db_path, with_route=with_route)
+        try:
+            await bounded(app.start(), 100.0, "pair runtime app.start()")
+        except RuntimeError as exc:
+            last_error = f"start raised: {exc}"
+            try:
+                await _stop_app(app)
+            except Exception:
+                pass
+            await asyncio.sleep(6.0)
+            continue
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline:
+            info = await bounded(
+                app.adapters["mc_radio"].health_check(),
+                15.0,
+                "mc_radio health_check",
+            )
+            health = info.health
+            if health == "healthy":
+                return app
+            await asyncio.sleep(1.0)
+        last_error = f"health stayed {health!r}"
+        try:
+            await _stop_app(app)
+        except Exception:
+            pass
+        await asyncio.sleep(6.0)
+    raise RuntimeError(f"pair runtime never reached healthy ({last_error})")
+
+
+# The pinned SDK (meshcore 2.3.11) still calls the deprecated
+# asyncio.iscoroutinefunction inside its dispatcher; with the project's
+# ``filterwarnings = ["error"]`` that raises *inside the SDK task* and
+# kills event delivery.  Fix upstreamed on the meshcore_py fix branch;
+# until the pin moves, ignore exactly that warning here.
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning"
+    ),
+]
+
+
+def _nonce(prefix: str) -> str:
+    return f"MEDRE {prefix}-{uuid.uuid4().hex[:10]}"
+
+
+async def _preflight() -> None:
+    """Fail fast with the exact remediation instead of burning BLE timeouts."""
+    for addr, label in ((_MEDRE_BLE, "MEDRE"), (_PEER_BLE, "peer")):
+        try:
+            result = await asyncio.to_thread(_peer, ["probe", addr], 60)
+        except AssertionError as exc:
+            pytest.skip(
+                f"{label} board {addr} not connectable "
+                f"(single-connection slot busy or stale link): {exc}"
+            )
+        drift = result.get("drift_s")
+        if drift is None or abs(drift) > 300:
+            pytest.skip(
+                f"{label} board {addr} clock not synced (drift {drift!r}s); "
+                "run the lab clock-sync step before live MeshCore tests"
+            )
+
+
+async def _await_receipts(storage, event_id: str) -> list:  # noqa: ANN001
+    """Poll durable delivery receipts for one event, bounded."""
+
+    async def _poll() -> list:
+        deadline = time.monotonic() + _RECEIPT_TIMEOUT
+        while time.monotonic() < deadline:
+            receipts = await storage.list_receipts_for_event(event_id)
+            if receipts:
+                return receipts
+            await asyncio.sleep(0.5)
+        return []
+
+    return await _poll()
+
+
+async def _events_with_body(app, needle: str) -> list:  # noqa: ANN001
+    """Boundedly poll durable canonical events whose body contains needle."""
+    deadline = time.monotonic() + _RECEIPT_TIMEOUT
+    hits: list = []
+    while time.monotonic() < deadline:
+        ids = await app.storage.list_event_ids_page(after_event_id=None, limit=200)
+        hits = []
+        for eid in ids:
+            ev = await app.storage.get(eid)
+            body = (ev.payload or {}).get("body", "") if ev else ""
+            if needle in body:
+                hits.append(ev)
+        if hits:
+            return hits
+        await asyncio.sleep(1.0)
+    return hits
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+# Two runtime sessions total: ingress-core (no route) and egress-core (one
+# route).  MeshCore BLE session start dominates wall time, so related native
+# cases share one healthy runtime and separate concerns by unique nonces.
+
+
+async def _event_count(app) -> int:  # noqa: ANN001
+    ids = await app.storage.list_event_ids_page(after_event_id=None, limit=1000)
+    return len(list(ids))
+
+
+@pytest.mark.live
+@pytest.mark.hardware
+@_REQUIRE_PAIR
+class TestMeshCorePairIngress:
+    """Independent native peer -> RF -> MEDRE durable admission (N1/N2/N5/N6)."""
+
+    async def test_native_ingress_and_isolation_core(self, tmp_path: Path) -> None:
+        await _preflight()
+        app = await _launch(tmp_path / "lab.db", with_route=False)
+        try:
+            radio = app.adapters["mc_radio"]
+
+            # -- N1: healthy lifecycle + bounded quiet window (no admission).
+            info = await bounded(radio.health_check(), 15.0, "mc_radio health_check")
+            assert info.health == "healthy", (
+                f"mc_radio health {info.health!r}; "
+                f"diagnostics {radio.diagnostics()!r}"
+            )
+            before = await _event_count(app)
+            if not _QUICK:
+                quiet = await asyncio.to_thread(_peer, ["listen", _PEER_BLE, "10"], 60)
+                assert quiet["received"] == [], "unexpected RF traffic in quiet window"
+                assert await _event_count(app) == before, "stale admission during quiet"
+
+            # -- N2: exact content, unicode, newline; sender identity correlates.
+            base = _nonce("N2")
+            texts = [base + " plain"]
+            if not _QUICK:
+                texts = [
+                    base + " plain",
+                    base + " uni \u2713 \u4f60\u597d",
+                    base + " nl a\nb",
+                ]
+            sent = await asyncio.to_thread(
+                _peer, ["sendn", _PEER_BLE, json.dumps(texts)], 90
+            )
+            assert all(not item["error"] for item in sent["sent"]), "peer send rejected"
+            for text in texts:
+                hits = await _events_with_body(app, text)
+                assert hits, f"message not durably admitted: {text[:24]!r}"
+                ev = hits[-1]
+                # MeshCore group text carries the sender node name on the
+                # wire ("<peer-name>: <text>"); canonical body is the exact
+                # wire text, so the nonce text must be the exact tail.
+                assert ev.payload["body"].endswith(
+                    text
+                ), f"canonical body mismatch: {ev.payload['body']!r}"
+                assert ev.payload["body"].startswith(
+                    f"{_PEER_NODE_NAME}: "
+                ), "firmware sender-name attribution missing"
+                assert ev.source_adapter == "mc_radio"
+
+            if _QUICK:
+                # Quick tier: N2 core evidence only (single message).
+                return
+
+            # -- N5 controlled: sender-set wire timestamps, identical text.
+            text_ident = _nonce("N5-ident")
+            now = int(time.time())
+            await asyncio.to_thread(
+                _peer, ["sendts", _PEER_BLE, text_ident, str(now), str(now)], 90
+            )
+            hits = await _events_with_body(app, text_ident)
+            assert (
+                len(hits) == 1
+            ), f"wire-identical same-second text produced {len(hits)} events"
+            text_dist = _nonce("N5-distinct")
+            now = int(time.time())
+            await asyncio.to_thread(
+                _peer, ["sendts", _PEER_BLE, text_dist, str(now), str(now + 1)], 90
+            )
+            hits = await _events_with_body(app, text_dist)
+            assert (
+                len(hits) == 2
+            ), f"distinct same-second timestamps produced {len(hits)} events"
+
+            # -- N6: wrong-key channel probe is not admitted; restore + positive.
+            probe = _nonce("N6-wrongkey")
+            positive = _nonce("N6-positive")
+            result = await asyncio.to_thread(
+                _peer, ["n6probe", _PEER_BLE, probe, positive], 120
+            )
+            assert result.get("set_wrong"), "peer could not install wrong key"
+            assert result.get("restore_ok"), "peer could not restore ch2"
+            assert (
+                result["ch2_after"]["secret_zeroed"]
+                and not result["ch2_after"]["secret_is_wrong"]
+            ), f"ch2 not restored to empty-channel default: {result['ch2_after']}"
+            await asyncio.sleep(12.0)  # bounded absence window for the probe
+            assert (
+                await _events_with_body(app, probe) == []
+            ), "wrong-key probe leaked into canonical admission"
+            assert await _events_with_body(
+                app, positive
+            ), "positive ch1 delivery not admitted after restore"
+        finally:
+            await _stop_app(app)
+
+
+@pytest.mark.live
+@pytest.mark.hardware
+@_REQUIRE_PAIR
+class TestMeshCorePairEgress:
+    """MEDRE -> RF -> independent native peer (controlled local source)."""
+
+    async def test_native_egress_core(self, tmp_path: Path) -> None:
+        """N3 routed egress with peer receipt + N4 documented boundaries."""
+        await _preflight()
+        app = await _launch(tmp_path / "lab.db", with_route=True)
+        try:
+            fake = app.adapters["lab_src"]
+
+            # -- N3: routed event egresses; peer receives correlated nonce.
+            nonce = _nonce("N3")
+            packet = make_meshtastic_text_packet(
+                text=nonce, sender="!peer0001", channel=0
+            )
+            with _PeerListener(_RECEIPT_TIMEOUT + 20) as peer:
+                await fake.simulate_inbound(packet)
+                event = fake.inbound_events[-1]
+                receipts = await _await_receipts(app.storage, event.event_id)
+                assert receipts, "no durable delivery receipt appeared"
+                peer_out = peer.packets_until(
+                    lambda ps: any(nonce in (p.get("text") or "") for p in ps),
+                    45.0,
+                )
+                rx = [p for p in peer_out if nonce in (p.get("text") or "")]
+            assert rx, (
+                "native peer did not receive the egress over RF; "
+                f"diagnostics={app.adapters['mc_radio'].diagnostics()!r} "
+                f"receipts={[(r.status, r.adapter_message_id) for r in receipts]!r} "
+                f"peer_out={peer_out!r}"
+            )
+            pkt = rx[-1]
+            assert pkt["channel"] == 1, "egress arrived on the wrong channel"
+            # Layer B: MeshCore channel sends are local-acceptance only
+            # (documented: no ACK protocol).  RF receipt is layer C above.
+            latest = max(receipts, key=lambda r: r.sequence)
+            assert (
+                latest.status == "sent"
+            ), f"receipt status {latest.status!r}, error={latest.error!r}"
+            assert latest.target_adapter == "mc_radio"
+            assert latest.route_id == "lab_egress"
+
+            if _QUICK:
+                # Quick tier: N3 routed egress with peer receipt only.
+                return
+
+            # -- N4: unicode, newline, and the documented radio truncation.
+            unicode_msg = _nonce("N4-uni") + " hello w\u00f6rld \u2713"
+            newline_msg = _nonce("N4-nl") + " line1\nline2"
+            long_msg = _nonce("N4-long") + " " + "x" * 300  # way over budget
+            normal_msg = _nonce("N4-ok")
+            cases = [unicode_msg, newline_msg, long_msg, normal_msg]
+            events: dict[str, str] = {}
+            pid = 800_000
+            window = (
+                _PEER_STARTUP_GRACE + len(cases) * (_TX_PACING_SECONDS + 1.0) + 30.0
+            )
+            with _PeerListener(window) as peer:
+                for text in cases:
+                    pid += 1  # unique native packet id per message (dedup)
+                    packet = make_meshtastic_text_packet(
+                        text=text, sender="!peer0001", channel=0, packet_id=pid
+                    )
+                    await fake.simulate_inbound(packet)
+                    event = fake.inbound_events[-1]
+                    events[text] = event.event_id
+                    await asyncio.sleep(_TX_PACING_SECONDS + 1.0)
+                received = peer.packets_until(
+                    lambda ps: all(
+                        key in "".join(p.get("text") or "" for p in ps)
+                        for key in ("N4-uni", "N4-nl", "N4-long", "N4-ok")
+                    ),
+                    75.0,
+                )
+            by_nonce: dict[str, str] = {}
+            for p in received:
+                t = p.get("text") or ""
+                for key in ("N4-uni", "N4-nl", "N4-long", "N4-ok"):
+                    if key in t and key not in by_nonce:
+                        by_nonce[key] = t
+            assert "ö" in by_nonce.get("N4-uni", ""), "unicode payload degraded"
+            assert "\n" in by_nonce.get("N4-nl", ""), "newline payload degraded"
+            long_rx = by_nonce.get("N4-long")
+            assert long_rx, "over-budget payload not observed at peer"
+            assert (
+                len(long_rx) <= 160
+            ), f"peer saw {len(long_rx)} chars; firmware cap is 160"
+            assert long_rx.startswith(
+                f"{_MEDRE_NODE_NAME}: "
+            ), "firmware attribution prefix missing"
+            assert "N4-ok" in by_nonce, "adapter unusable after boundary cases"
+            for text, eid in events.items():
+                receipts = await app.storage.list_receipts_for_event(eid)
+                assert receipts, f"no receipt for boundary case {text[:24]!r}"
+        finally:
+            await _stop_app(app)
