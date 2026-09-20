@@ -55,7 +55,10 @@ async def launch_healthy_meshcore_runtime(
             deadline = time.monotonic() + health_timeout
             last_health: str | None = None
 
-            async def _healthy() -> bool:
+            async def _healthy(
+                deadline: float = deadline,
+                app: MeshCoreRuntime = app,
+            ) -> bool:
                 nonlocal last_health
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
