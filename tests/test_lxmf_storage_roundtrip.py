@@ -149,7 +149,7 @@ class TestLxmfCodecEventStorageRoundtrip:
         assert retrieved is not None, "Event not found in storage"
         assert retrieved.event_id == canonical.event_id
         assert retrieved.source_adapter == "lxmf-test"
-        assert retrieved.source_channel_id is None
+        assert retrieved.source_channel_id == "ef" * 16
         assert retrieved.source_transport_id == "ef" * 16
         assert retrieved.event_kind == "message.created"
 

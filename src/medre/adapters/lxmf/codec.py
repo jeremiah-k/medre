@@ -185,7 +185,7 @@ class LxmfCodec(AdapterCodec):
         if pkt_id is not None:
             source_native_ref = NativeRef(
                 adapter=self._adapter_id,
-                native_channel_id=None,
+                native_channel_id=sender,
                 native_message_id=str(pkt_id),
             )
 
@@ -239,7 +239,15 @@ class LxmfCodec(AdapterCodec):
             timestamp=self._clock(),
             source_adapter=self._adapter_id,
             source_transport_id=sender,
-            source_channel_id=None,
+            # The LXMF "channel" key is the peer's delivery-destination
+            # hash -- the same value the lxmf route config carries as
+            # ``dest_channel`` in the matrix->lxmf direction.  Leaving it
+            # None made every inbound event fail the router's channel
+            # filter, so bidirectional lxmf routes could never match in
+            # the reverse (lxmf->matrix) direction ("No routes matched";
+            # the MT adapter carries the equivalent default-channel
+            # fallback for the same reason).
+            source_channel_id=sender,
             parent_event_id=None,
             lineage=(),
             relations=tuple(relations),

@@ -281,7 +281,7 @@ class TestLxmfNativeRefPersistence:
         # Verify native ref persisted
         resolved = await temp_storage.resolve_native_ref(
             adapter="lxmf-inbound",
-            native_channel_id=None,
+            native_channel_id="ab" * 16,
             native_message_id="bb" * 32,
         )
         assert resolved is not None
@@ -389,7 +389,7 @@ class TestLxmfNativeRefPersistence:
         # Inbound ref should still exist
         inbound_resolved = await temp_storage.resolve_native_ref(
             adapter="lxmf-fail-in",
-            native_channel_id=None,
+            native_channel_id="ab" * 16,
             native_message_id="cd" * 32,
         )
         assert inbound_resolved is not None
