@@ -385,8 +385,13 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
                         )
                         assert sent and sent[-1].get("sent_id"), "MT send not accepted"
                     elif transport == "MESHCORE":
+                        # sendn takes a JSON ARRAY of texts (peer script
+                        # json.loads argv[3]); a bare nonce crashes the
+                        # peer's parser and yields a non-JSON exit.
                         sent = await asyncio.to_thread(
-                            _mc_peer, ["sendn", _MC_PEER, nonce], 90
+                            _mc_peer,
+                            ["sendn", _MC_PEER, json.dumps([nonce])],
+                            90,
                         )
                         assert sent.get("sent"), f"MC send not accepted: {sent!r}"
                     else:

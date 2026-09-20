@@ -1214,3 +1214,59 @@ class TestRouteDirectionalityProgrammaticCoercion:
                 dest_adapters=("radio",),
                 directionality=7,  # type: ignore[arg-type]
             )
+
+
+class TestRoomChannelAliasProgrammaticParity:
+    """Programmatic construction must alias rooms to channels exactly like
+    the YAML loader.
+
+    Regression: from_dict aliases source_room -> source_channel at load,
+    but the direct constructor did not. A programmatic bidirectional
+    Matrix<->radio route kept source_channel=None, so the reverse leg's
+    Matrix target carried no room and every radio->Matrix delivery failed
+    with AdapterPermanentError('no room_id in result').
+    """
+
+    def test_construction_aliases_rooms_to_channels(self) -> None:
+        rc = RouteConfig(
+            route_id="alias_dir",
+            source_adapters=("main",),
+            dest_adapters=("radio",),
+            source_room="!room:example.com",
+            dest_channel="0",
+        )
+        assert rc.source_channel == "!room:example.com"
+        assert rc.dest_channel == "0"
+
+    def test_construction_conflicting_room_and_channel_raises(self) -> None:
+        with pytest.raises(ConfigValidationError, match="source_room"):
+            RouteConfig(
+                route_id="alias_conflict",
+                source_adapters=("main",),
+                dest_adapters=("radio",),
+                source_room="!room-a:example.com",
+                source_channel="!room-b:example.com",
+            )
+
+    def test_expansion_carries_room_channel_to_reverse_target(self) -> None:
+        from medre.runtime.route_engine import build_runtime_routes
+
+        rc = RouteConfig(
+            route_id="mx_bridge",
+            source_adapters=("main",),
+            dest_adapters=("radio",),
+            source_room="!room:example.com",
+            dest_channel="0",
+            directionality="bidirectional",  # type: ignore[arg-type]
+        )
+        routes = build_runtime_routes(
+            RouteConfigSet(routes=(rc,)),
+            {"main": "matrix", "radio": "meshtastic"},
+        )
+        by_id = {r.id: r for r in routes}
+        reverse = by_id["mx_bridge__rev_0"]
+        assert reverse.source.adapter == "radio"
+        assert reverse.source.channel == "0"
+        assert {t.adapter: t.channel for t in reverse.targets} == {
+            "main": "!room:example.com"
+        }

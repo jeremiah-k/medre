@@ -990,6 +990,10 @@ class RouteConfig:
         programmatically constructed routes behave identically to YAML-loaded
         ones — the route engine compares enum identity, and an uncoerced
         string silently matches no expansion branch (yielding zero routes).
+        ``source_room``/``dest_room`` are normalized to their
+        ``*_channel`` runtime form here too (the loader used to do this
+        only on the YAML path, so programmatic routes silently kept
+        ``source_channel=None`` and reverse legs lost their Matrix room).
         """
         if not isinstance(self.directionality, RouteDirectionality):
             try:
@@ -1002,6 +1006,36 @@ class RouteConfig:
                     section_path=f"routes.{self.route_id}",
                 ) from None
             object.__setattr__(self, "directionality", coerced)
+        # Room/channel are aliases for the same runtime field; reject
+        # conflicts, then alias room -> channel when channel is absent.
+        if (
+            self.source_room is not None
+            and self.source_channel is not None
+            and self.source_room != self.source_channel
+        ):
+            raise ConfigValidationError(
+                f"Route {self.route_id!r}: 'source_room' ({self.source_room!r}) "
+                f"and 'source_channel' ({self.source_channel!r}) are both set "
+                f"but differ. Use only one — 'source_room' is an alias for "
+                f"'source_channel'.",
+                section_path=f"routes.{self.route_id}",
+            )
+        if (
+            self.dest_room is not None
+            and self.dest_channel is not None
+            and self.dest_room != self.dest_channel
+        ):
+            raise ConfigValidationError(
+                f"Route {self.route_id!r}: 'dest_room' ({self.dest_room!r}) "
+                f"and 'dest_channel' ({self.dest_channel!r}) are both set "
+                f"but differ. Use only one — 'dest_room' is an alias for "
+                f"'dest_channel'.",
+                section_path=f"routes.{self.route_id}",
+            )
+        if self.source_channel is None and self.source_room is not None:
+            object.__setattr__(self, "source_channel", self.source_room)
+        if self.dest_channel is None and self.dest_room is not None:
+            object.__setattr__(self, "dest_channel", self.dest_room)
         if self.channel_room_map is None:
             return
         section_path = f"routes.{self.route_id}"
