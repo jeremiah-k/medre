@@ -193,7 +193,25 @@ class TestLxmfRenderer:
         assert "content" in result.payload
         assert "text" not in result.payload
 
-    async def test_render_includes_destination_hash(self) -> None:
+    async def test_render_routes_destination_hash_from_target_channel(self) -> None:
+        """The route's dest_channel (RenderingContext.target_channel) is the
+        recipient LXMF destination hash per the routing-delivery spec's
+        ``"lxmf_destination"`` addressing."""
+        renderer = LxmfRenderer()
+        event = _make_event()
+        result = await renderer.render(
+            event,
+            RenderingContext(
+                target_adapter="lxmf_node",
+                delivery_strategy="direct",
+                target_channel="aa" * 16,
+            ),
+        )
+        assert result.payload["destination_hash"] == "aa" * 16
+
+    async def test_render_destination_hash_empty_without_target_channel(self) -> None:
+        """No route targeting keeps the historical empty destination value;
+        deliver() treats that as a permanent failure rather than guessing."""
         renderer = LxmfRenderer()
         event = _make_event()
         result = await renderer.render(

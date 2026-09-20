@@ -95,6 +95,13 @@ class LxmfConfig:
         Path to a Reticulum identity file.  Required for non-fake
         connection types if the identity is not auto-generated.
         Must be a non-empty string when provided.
+    reticulum_config_dir:
+        Optional explicit Reticulum configuration directory for
+        embedded/local isolation (e.g. a directory whose ``config``
+        defines exactly one RNodeInterface and ``share_instance = No``).
+        ``None`` keeps the SDK's normal discovery behavior
+        (``/etc/reticulum``, then the user's config directory).  Ignored
+        in fake mode.
     storage_path:
         Path to a directory used by ``LXMF.LXMRouter`` for persistent
         message and peer storage.  **Required** when
@@ -128,6 +135,7 @@ class LxmfConfig:
     message_delay_seconds: float = 0.5
     metadata_embedding: bool = True
     identity_path: str | None = None
+    reticulum_config_dir: str | None = None
     storage_path: str | None = None
     announce_interval_seconds: float = 600.0
     lxmf_relay_prefix: str = ""
@@ -240,6 +248,18 @@ class LxmfConfig:
             if not self.identity_path.strip():
                 raise LxmfConfigError(
                     "identity_path must be a non-empty string when provided"
+                )
+
+        # --- reticulum_config_dir ---
+        if self.reticulum_config_dir is not None:
+            if not isinstance(self.reticulum_config_dir, str):
+                raise LxmfConfigError(
+                    f"reticulum_config_dir must be a string or None, "
+                    f"got {type(self.reticulum_config_dir).__name__}"
+                )
+            if not self.reticulum_config_dir.strip():
+                raise LxmfConfigError(
+                    "reticulum_config_dir must be a non-empty string when provided"
                 )
 
         # --- storage_path ---

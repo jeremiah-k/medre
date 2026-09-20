@@ -128,15 +128,52 @@ config = LxmfConfig(
   power cycle before the console answered.
 - RNS 1.5.4 requires an explicit `enabled = yes` on each interface section —
   interfaces without it are silently skipped ("Skipping disabled interface").
-- RNode RF path proof over Reticulum was NOT completed this campaign; the
-  isolated config (RNodeInterface only, no AutoInterface/UDP/TCP) and probe
-  script live in the private lab directory.
+
+## Physical RNode Pair Validation (2026-09-19, `LXMF_PAIR=1`)
+
+**NO_PATH resolution.** The earlier "NO_PATH in 3 runs" observation was a lab
+probe defect, not an RF/RNS/MEDRE fault: `RNS.Reticulum.get_path_table()`
+returns a **list** of entry dicts in RNS 1.5.4, and the probe checked
+`isinstance(table, dict)` (always false → NO_PATH regardless of RF), plus a
+fragile first-line log parse that crashed the listener on the RNS notice
+line. With the corrected predicate and a paced, sequenced loop:
+
+- Radio layer: firmware-reported 916.0 MHz / BW 125 kHz / TX 8 dBm / SF8 /
+  CR5 on both boards; native frame reception at RSSI −55…−56 dBm,
+  SNR 12.25 dB.
+- RNS layer: validated announces recorded in the path table on
+  `RNodeInterface[Lab RNode]` (1 hop), announced identity hash matching the
+  announcer's printed identity, nonce-tagged announce app_data observed.
+- LXMF layer: DIRECT delivery confirmed from both sides — the sender's
+  LXMessage reaches `DELIVERED` and the receiver's delivery callback fires
+  with the exact message hash the sender reported (cross-verified).
+- Negative control: hub per-port VBUS cut to the peer radio (physical power
+  loss, status `0000`) → bounded announce absence with the listener armed,
+  and MEDRE never claims delivery while the RF path is physically dead;
+  restored power → fresh listener receives a fresh nonce.
+
+Opt-in physical pair suite: `tests/test_lxmf_pair_live.py` (N1 readiness,
+N2 ingress with native-hash/identity correlation, N3 routed egress with
+peer receipt, N4 unicode/newline/multi-frame boundaries, N5 identical-text
+distinct-hash, N7 relation envelope over the real inbound codec, N6 RF-off
+absence + restored positive; `MEDRE_LIVE_QUICK=1` trims to core positives).
+Env keys: `LXMF_PAIR`, `LXMF_MEDRE_RNS_CONFIG`, `LXMF_PEER_RNS_CONFIG`,
+`LXMF_MEDRE_IDENTITY`, `LXMF_PEER_IDENTITY`, and optionally
+`LXMF_PEER_HUB`/`LXMF_PEER_HUB_PORT` for the power control. Private lab
+values (config dirs, identity files, hub map) live in the restricted lab
+tree; no secrets are embedded in the module.
+
+RNS 1.5.4 on Python 3.14 raises the deprecated `threading.setDaemon`
+warning; the pinned-SDK live modules filter exactly that warning (the
+project-wide `filterwarnings = ["error"]` would otherwise kill the runtime).
 
 ## Known Gaps
 
 - No Docker setup for Reticulum/LXMF. No containerized router for Docker SDK-boundary tests.
 - Propagation node config not in LxmfConfig yet.
-- No live hardware smoke test recorded; external peer reachability unproven.
+- Physical RNode pair proven (see above); external/multi-hop peer reachability
+  beyond the two-board bench pair remains unproven. The cross-transport
+  LXMF bridge directions and fan-out live harness are the next milestone.
 - Adapter health covers the local session/router only — it cannot observe
   whether any peer is reachable.
 - No native reply mechanism — replies rendered as plain text.

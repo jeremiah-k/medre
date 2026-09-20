@@ -48,6 +48,29 @@ class TestLxmfConfigValid:
         config = LxmfConfig(adapter_id="lxmf-1", identity_path=None)
         assert config.validate().identity_path is None
 
+    def test_reticulum_config_dir_valid_string(self) -> None:
+        config = LxmfConfig(
+            adapter_id="lxmf-1",
+            reticulum_config_dir="/path/to/rns-config",
+        )
+        assert config.validate().reticulum_config_dir == "/path/to/rns-config"
+
+    def test_reticulum_config_dir_none_is_valid(self) -> None:
+        config = LxmfConfig(adapter_id="lxmf-1")
+        assert config.validate().reticulum_config_dir is None
+
+    def test_reticulum_config_dir_empty_rejected(self) -> None:
+        with pytest.raises(LxmfConfigError, match="reticulum_config_dir"):
+            LxmfConfig(adapter_id="lxmf-1", reticulum_config_dir="").validate()
+
+    def test_reticulum_config_dir_whitespace_rejected(self) -> None:
+        with pytest.raises(LxmfConfigError, match="reticulum_config_dir"):
+            LxmfConfig(adapter_id="lxmf-1", reticulum_config_dir="   ").validate()
+
+    def test_reticulum_config_dir_non_string_rejected(self) -> None:
+        with pytest.raises(LxmfConfigError, match="reticulum_config_dir"):
+            LxmfConfig(adapter_id="lxmf-1", reticulum_config_dir=7).validate()
+
     def test_stamp_cost_zero_is_valid(self) -> None:
         config = LxmfConfig(adapter_id="lxmf-1", stamp_cost=0)
         assert config.validate().stamp_cost == 0
