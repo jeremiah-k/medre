@@ -12,10 +12,12 @@ afterwards.
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import time as _time
 from typing import Any
 
+from medre.adapters.diagnostics_keys import PENDING_DELIVERY_COUNT, QUEUE_PENDING
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 from medre.core.engine.replay.summary import collect_replay_summary
@@ -26,6 +28,8 @@ from medre.runtime.builder import RuntimeBuilder
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
 from .json import to_json
+
+_logger = logging.getLogger(__name__)
 
 _BEST_EFFORT_WARNING = (
     "WARNING: BEST_EFFORT replay incurs the same duplicate-send risk as "
@@ -40,12 +44,13 @@ async def _drain_inflight_deliveries(app: Any, timeout: float) -> None:
     """Wait for adapters' in-flight outbound deliveries to go terminal.
 
     Reads each started adapter's own ``diagnostics()`` report and waits
-    while an adapter still reports unflushed outbound work:
-    ``session.pending_delivery_count`` (async-transfer adapters such as
-    LXMF) or ``queue_pending`` (queue-backed adapters such as Meshtastic).
-    Returns as soon as every exposed count is zero, or after *timeout*
-    seconds.  Purely observational: no adapter state is mutated, and the
-    lifecycle stop remains the teardown authority.
+    while an adapter still reports unflushed outbound work under the
+    shared keys from :mod:`medre.adapters.diagnostics_keys`
+    (``session.pending_delivery_count`` for async-transfer adapters such
+    as LXMF; ``queue_pending`` for queue-backed adapters such as
+    Meshtastic).  Returns as soon as every exposed count is zero, or
+    after *timeout* seconds.  Purely observational: no adapter state is
+    mutated, and the lifecycle stop remains the teardown authority.
     """
     deadline = _time.monotonic() + timeout
     while True:
@@ -58,12 +63,12 @@ async def _drain_inflight_deliveries(app: Any, timeout: float) -> None:
                 continue
             diag = diag_fn() or {}
             session = diag.get("session") or {}
-            if "pending_delivery_count" in session:
+            if PENDING_DELIVERY_COUNT in session:
                 any_exposed = True
-                if session["pending_delivery_count"] > 0:
+                if session[PENDING_DELIVERY_COUNT] > 0:
                     all_terminal = False
                     break
-            queue_pending = diag.get("queue_pending")
+            queue_pending = diag.get(QUEUE_PENDING)
             if queue_pending is not None:
                 any_exposed = True
                 if queue_pending > 0:
@@ -74,6 +79,58 @@ async def _drain_inflight_deliveries(app: Any, timeout: float) -> None:
         if _time.monotonic() >= deadline:
             return
         await asyncio.sleep(0.2)
+
+
+async def _teardown_replay_runtime(app: Any, drain_timeout: float) -> None:
+    """Teardown after a ``best_effort`` replay body (runs from ``finally``).
+
+    Preserves the replay body's own failure or cancellation as the
+    operator-facing error: a secondary teardown failure (the bounded
+    drain, ``app.stop()``) is logged and never allowed to replace the
+    in-flight exception.  When the body succeeded, teardown failures
+    still propagate so a broken shutdown is visible.  The drain and
+    ``stop()`` share one ``shutdown_drain_timeout_seconds`` deadline —
+    congestion cannot spend the documented drain budget twice
+    (durable-ingress.md "Capacity and shutdown handoff").
+    """
+    primary_error = sys.exc_info()[1]
+    drain_deadline = _time.monotonic() + drain_timeout
+    # Give adapters' in-flight outbound deliveries a bounded window to
+    # reach terminal state before teardown — an immediate stop would abort
+    # asynchronous transfers (e.g. LXMF DIRECT link delivery) right after
+    # acceptance.  Bounded by the documented shutdown drain limit; purely
+    # observational: delivery truth is recorded only by the real queue
+    # terminal callbacks through the lifecycle authority, never from
+    # aggregate drain state.
+    try:
+        await _drain_inflight_deliveries(
+            app, max(0.0, drain_deadline - _time.monotonic())
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        # Never silently swallowed: visible either way, fatal only when
+        # the replay body itself succeeded.
+        if primary_error is None:
+            _logger.error("Replay pre-stop drain failed: %s", exc)
+            raise
+        _logger.warning(
+            "Replay pre-stop drain failed (replay error preserved): %s", exc
+        )
+    # Full lifecycle teardown (stops adapters, closes storage), bounded by
+    # the SAME deadline the drain just consumed from.
+    try:
+        await app.stop(drain_deadline=drain_deadline)
+    except asyncio.CancelledError:
+        raise
+    except Exception as stop_exc:
+        if primary_error is None:
+            raise
+        _logger.error(
+            "Runtime stop after replay failure also failed "
+            "(primary replay error preserved): %s",
+            sanitize_error(str(stop_exc)),
+        )
 
 
 async def _replay(
@@ -184,21 +241,13 @@ async def _replay(
         summary_dict = summary.to_dict()
     finally:
         if needs_runtime:
-            # Give adapters' in-flight outbound deliveries a bounded window
-            # to reach terminal state before teardown — an immediate stop
-            # would abort asynchronous transfers (e.g. LXMF DIRECT link
-            # delivery) right after acceptance.  Bounded by the documented
-            # shutdown drain limit; purely observational: delivery truth is
-            # recorded only by the real queue terminal callbacks through
-            # the lifecycle authority, never from aggregate drain state.
-            try:
-                await _drain_inflight_deliveries(
-                    app, config.limits.shutdown_drain_timeout_seconds
-                )
-            except Exception:
-                pass  # best-effort: stop must proceed regardless
-            # Full lifecycle teardown (stops adapters, closes storage).
-            await app.stop()
+            # Preserve the replay body's failure/cancellation as the
+            # operator-facing error; secondary drain/stop failures are
+            # surfaced without replacing it.  Drain and stop share one
+            # documented shutdown-drain deadline.
+            await _teardown_replay_runtime(
+                app, config.limits.shutdown_drain_timeout_seconds
+            )
         else:
             await app.storage.close()
 

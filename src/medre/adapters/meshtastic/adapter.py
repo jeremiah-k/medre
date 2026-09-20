@@ -77,6 +77,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
+from medre.adapters.diagnostics_keys import QUEUE_PENDING
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
@@ -830,7 +831,7 @@ class MeshtasticAdapter(AdapterContract):
             "connection_type": self._config.connection_type,
             "mode": self._config.connection_type,
             "health": self._last_health,
-            "queue_pending": self._queue.pending_count,
+            QUEUE_PENDING: self._queue.pending_count,
             "queue_total_sent": self._queue.total_sent,
             "queue_total_failed": self._queue.total_failed,
             "queue_total_enqueued": self._queue.total_enqueued,

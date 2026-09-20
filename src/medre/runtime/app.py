@@ -1286,7 +1286,7 @@ class MedreApp:
                     },
                 )
 
-    async def stop(self) -> None:
+    async def stop(self, *, drain_deadline: float | None = None) -> None:
         """Stop all subsystems in reverse dependency order.
 
         Order: adapters → pipeline runner → storage.
@@ -1294,6 +1294,18 @@ class MedreApp:
         Adapters are stopped in reverse start order.  Individual stop
         failures are logged but do not prevent other subsystems from
         shutting down.
+
+        Parameters
+        ----------
+        drain_deadline:
+            Absolute ``time.monotonic()`` deadline for the shutdown drain.
+            ``None`` (default) derives the deadline from
+            ``limits.shutdown_drain_timeout_seconds`` at stop time.  A
+            caller that already consumed part of the documented drain
+            budget (e.g. the ``best_effort`` replay CLI's pre-stop
+            in-flight-delivery drain) passes the same absolute deadline so
+            congestion cannot spend the configured budget twice
+            (durable-ingress.md "Capacity and shutdown handoff").
 
         This method is idempotent: calling it when the runtime is in
         ``STOPPED``, ``STOPPING``, or ``INITIALIZED`` state returns
@@ -1332,9 +1344,13 @@ class MedreApp:
         # capacity. Ingress grace and the subsequent capacity drain share one
         # deadline so congestion cannot spend the configured drain timeout
         # twice. Adapters remain live while ingress drains; newly admitted
-        # events stay durably pending for the next run.
+        # events stay durably pending for the next run.  A caller-supplied
+        # deadline (already-running budget, see docstring) replaces the
+        # freshly-derived one.
         drain_deadline = (
-            _time.monotonic() + self.config.limits.shutdown_drain_timeout_seconds
+            drain_deadline
+            if drain_deadline is not None
+            else _time.monotonic() + self.config.limits.shutdown_drain_timeout_seconds
         )
         if self._replay_engine is not None:
             self._replay_engine.cancel()
