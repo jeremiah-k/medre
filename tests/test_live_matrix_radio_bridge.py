@@ -126,6 +126,16 @@ pytestmark = [
     pytest.mark.filterwarnings(
         "ignore:setDaemon\\(\\) is deprecated:DeprecationWarning"
     ),
+    # RNS 1.5.4 Destination._reload_ratchets (Destination.py:444) opens the
+    # ratchets file and never closes it; under filterwarnings=error the GC-time
+    # ResourceWarning surfaces as PytestUnraisableExceptionWarning in whatever
+    # test runs next. External pinned-SDK defect reached via
+    # LXMRouter.register_delivery_identity -> enable_ratchets; minimal
+    # reproducer: medre-lab/rns_ratchets_leak_repro.py. Scoped to ratchets
+    # files so any other unraisable resource warning still errors.
+    pytest.mark.filterwarnings(
+        "ignore:Exception ignored in.*ratchets:pytest.PytestUnraisableExceptionWarning"
+    ),
 ]
 
 

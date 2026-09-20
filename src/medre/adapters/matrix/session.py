@@ -1364,8 +1364,7 @@ class MatrixSession:
             # prevent the Matrix session from starting — but operators
             # need evidence that auto-join is disabled.
             _logger.warning(
-                "Matrix invite callback registration failed; "
-                "auto-join is disabled",
+                "Matrix invite callback registration failed; " "auto-join is disabled",
                 exc_info=True,
             )
 
@@ -1837,6 +1836,49 @@ class MatrixSession:
 
         self._reconnecting = False
 
+    @staticmethod
+    def _client_bound_tasks(client: Any) -> list[asyncio.Task[None]]:
+        """Return running tasks whose coroutine is bound to *client*.
+
+        Bound-method coroutines carry their owning instance in the frame
+        locals as ``self``, which identifies the SDK's sync-loop request
+        tasks without pinning coroutine or method names.
+        """
+        found: list[asyncio.Task[None]] = []
+        current = asyncio.current_task()
+        for task in asyncio.all_tasks():
+            if task is current or task.done():
+                continue
+            frame = getattr(task.get_coro(), "cr_frame", None)
+            if frame is not None and frame.f_locals.get("self") is client:
+                found.append(task)
+        return found
+
+    async def _drain_orphaned_client_tasks(self, timeout: float) -> None:
+        """Cancel and reap client-bound request tasks still in flight.
+
+        Runs while the client's HTTP session is open so aiohttp can release
+        each connection through the normal cancellation path instead of
+        racing the connector close.
+        """
+        assert self._client is not None
+        orphans = self._client_bound_tasks(self._client)
+        if not orphans:
+            return
+        self._logger.debug(
+            "Draining %d client-bound request task(s) before close", len(orphans)
+        )
+        for task in orphans:
+            task.cancel()
+        _done, pending = await asyncio.wait(orphans, timeout=timeout)
+        if pending:
+            self._logger.warning(
+                "Matrix session stop: %d client request task(s) still in "
+                "flight after %.1fs",
+                len(pending),
+                timeout,
+            )
+
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing, close the client.  Idempotent."""
         # Signal both MEDRE's supervisor and nio's inner sync loop.
@@ -1893,6 +1935,17 @@ class MatrixSession:
             except (asyncio.CancelledError, Exception):
                 pass
             self._sync_task = None
+
+        # mindroom-nio's sync_forever starts each iteration's request
+        # coroutines (sync long-poll, to-device send, keys upload/query/claim)
+        # with ``asyncio.ensure_future`` into a local ``asyncio.as_completed``
+        # batch.  Cancelling the outer sync loop orphans any request still in
+        # flight; closing the HTTP session underneath it makes the connector
+        # release race the close and leaks a live TLS transport that only GC
+        # would reclaim.  Drain every task still bound to the client while its
+        # HTTP session can still release connections normally, then close.
+        if self._client is not None:
+            await self._drain_orphaned_client_tasks(timeout=min(timeout, 5.0))
 
         if self._client is not None:
             try:

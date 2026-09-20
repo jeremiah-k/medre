@@ -25,7 +25,8 @@ route.
 
 The YAML config loader also applied strict _path_-placeholder validation to
 every adapter string field, so the documented Matrix `relay_prefix`
-renderer template (`[{sender}/{origin_label}]: `) failed config load while
+renderer template `[{sender}/{origin_label}]:` (the template includes a
+trailing space after the colon) failed config load while
 the identical programmatic config worked. Path expansion is now
 field-aware: `*_path`/`*_dir`/`*_file` fields keep strict
 unknown-placeholder validation; other string fields expand known path

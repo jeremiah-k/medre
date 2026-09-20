@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import types
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -417,6 +418,75 @@ class TestSyncStateResilience:
         assert session.sync_task_running is True
         assert session.reconnect_attempts == 0
         await session.stop()
+
+    async def test_stop_drains_client_bound_tasks_before_close(self, mock_nio) -> None:
+        """nio's sync loop starts each iteration's request coroutines (sync
+        long-poll, to-device send, keys upload/query/claim) with
+        ``asyncio.ensure_future`` into a local ``asyncio.as_completed`` batch.
+        Cancelling the outer sync loop orphans any request still in flight;
+        closing the HTTP client session underneath it makes the connector
+        release race the close and leaks a live TLS transport.
+
+        ``stop()`` must therefore drain every task still bound to the nio
+        client BEFORE ``client.close()`` runs.
+        """
+        client = mock_nio.AsyncClient.return_value
+
+        orphan_started = asyncio.Event()
+
+        async def _keys_query(self) -> None:
+            orphan_started.set()
+            await asyncio.sleep(3600)
+
+        # Bound like a real nio method so the coroutine carries the client
+        # in its frame locals.
+        client.keys_query = types.MethodType(_keys_query, client)
+
+        async def _sync_forever_with_orphan(*args: object, **kwargs: object) -> None:
+            # Mimic nio: ephemeral per-iteration request task the loop never
+            # awaits across cancellation, then block on the long-poll so
+            # stop() cancels the outer loop mid-iteration.
+            asyncio.create_task(client.keys_query())
+            await asyncio.Event().wait()
+
+        client.sync_forever = _sync_forever_with_orphan
+
+        def _binds(task: asyncio.Future, owner: object) -> bool:
+            frame = getattr(task.get_coro(), "cr_frame", None)
+            return frame is not None and frame.f_locals.get("self") is owner
+
+        observation: dict[str, list[asyncio.Future]] = {}
+        real_close = client.close
+
+        async def _observing_close() -> None:
+            observation["pending_at_close"] = [
+                t
+                for t in asyncio.all_tasks()
+                if t is not asyncio.current_task()
+                and not t.done()
+                and _binds(t, client)
+            ]
+            await real_close()
+
+        client.close = _observing_close
+
+        config = make_matrix_config()
+        session = MatrixSession(config)
+        await session.start()
+        for _ in range(100):
+            await asyncio.sleep(0)
+        assert orphan_started.is_set()
+
+        await session.stop()
+
+        assert observation["pending_at_close"] == [], (
+            "client.close() ran while client-bound request task(s) were "
+            f"still in flight: {observation['pending_at_close']}"
+        )
+        for _ in range(10):
+            await asyncio.sleep(0)
+        leftovers = [t for t in asyncio.all_tasks() if _binds(t, client)]
+        assert leftovers == [], f"client-bound task(s) survived stop: {leftovers}"
 
     async def test_no_unobserved_exceptions(self, mock_nio) -> None:
         """Sync failure does not produce unobserved task exceptions."""
