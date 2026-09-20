@@ -241,6 +241,11 @@ class LxmfPeerListener:
     def _read_packets(self) -> list[dict]:
         return read_jsonl(_SCRATCH_JSONL)
 
+    def packets(self, timeout: float | None = None) -> list[dict]:
+        """Public collection API, mirroring the other peer listeners."""
+        _ = timeout
+        return self._read_packets()
+
     def packets_until(
         self,
         predicate: Callable[[list[dict]], bool],
