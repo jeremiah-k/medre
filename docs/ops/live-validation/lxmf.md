@@ -207,8 +207,12 @@ boundary preserves events/receipts/outbox and restarts clean on the same
 DB; read-only `recover`/`inspect` pages leave the DB bit-identical
 (WAL/SHM sidecars excepted); `replay --mode dry_run` writes no receipts;
 an executed `--mode best_effort` replay resolves the pending delivery with
-independent RF confirmation (see changelog 193 for the startup/drain fix
-this required).
+independent RF confirmation. The replay path first needed the startup/drain
+fix (changelog 193: side-effect replay must actually start adapters), then
+a scoping correction: `best_effort` now starts the runtime in a dedicated
+replay-delivery scope (`StartupScope.REPLAY`) so the selected replay never
+dispatches unrelated due outbox work or routes live ingress received
+during the window — deferred work is processed by the next live start.
 
 ## Deterministic Local Integration
 

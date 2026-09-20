@@ -39,10 +39,13 @@ _BEST_EFFORT_WARNING = (
 async def _drain_inflight_deliveries(app: Any, timeout: float) -> None:
     """Wait for adapters' in-flight outbound deliveries to go terminal.
 
-    Reads each started adapter's own ``diagnostics()`` report —
-    ``session.pending_delivery_count`` where the adapter exposes one — and
-    returns as soon as every exposed count is zero, or after *timeout*
-    seconds.  Purely observational: no adapter state is mutated.
+    Reads each started adapter's own ``diagnostics()`` report and waits
+    while an adapter still reports unflushed outbound work:
+    ``session.pending_delivery_count`` (async-transfer adapters such as
+    LXMF) or ``queue_pending`` (queue-backed adapters such as Meshtastic).
+    Returns as soon as every exposed count is zero, or after *timeout*
+    seconds.  Purely observational: no adapter state is mutated, and the
+    lifecycle stop remains the teardown authority.
     """
     deadline = _time.monotonic() + timeout
     while True:
@@ -53,14 +56,19 @@ async def _drain_inflight_deliveries(app: Any, timeout: float) -> None:
             diag_fn = getattr(adapter, "diagnostics", None)
             if diag_fn is None:
                 continue
-            diag = diag_fn()
-            session = (diag or {}).get("session") or {}
-            if "pending_delivery_count" not in session:
-                continue
-            any_exposed = True
-            if session["pending_delivery_count"] > 0:
-                all_terminal = False
-                break
+            diag = diag_fn() or {}
+            session = diag.get("session") or {}
+            if "pending_delivery_count" in session:
+                any_exposed = True
+                if session["pending_delivery_count"] > 0:
+                    all_terminal = False
+                    break
+            queue_pending = diag.get("queue_pending")
+            if queue_pending is not None:
+                any_exposed = True
+                if queue_pending > 0:
+                    all_terminal = False
+                    break
         if not any_exposed or all_terminal:
             return
         if _time.monotonic() >= deadline:
