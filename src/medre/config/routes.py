@@ -25,7 +25,7 @@ Public symbols
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar, Self
 
@@ -635,8 +635,7 @@ def _parse_channel_room_map_entry(
         )
     room_value_raw = raw_value["room"]
     context = (
-        f"Route {route_id!r}: channel_room_map entry "
-        f"for channel {ch_normalized!r}"
+        f"Route {route_id!r}: channel_room_map entry " f"for channel {ch_normalized!r}"
     )
     entry_source_label = _normalize_optional_origin_label(
         raw_value.get("source_origin_label"),
@@ -709,6 +708,178 @@ def _validate_room_string(
 # Route config
 # ---------------------------------------------------------------------------
 
+#: Destination ``kind`` values and their addressing model (routing-delivery
+#: spec §2.3).  ``channel``/``matrix_room`` address a logical channel or room
+#: by name; ``lxmf_destination``/``meshcore_contact`` address a specific
+#: entity by hash and/or name.
+_ROUTE_DESTINATION_KINDS: frozenset[str] = frozenset(
+    {"channel", "lxmf_destination", "meshcore_contact", "matrix_room"}
+)
+
+#: LXMF destination hashes are 16-byte Reticulum hashes written as 32
+#: hexadecimal characters — the same convention as the LXMF adapter's
+#: ``propagation_node_destination`` schema field.
+_LXMF_DESTINATION_HASH_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+
+
+@dataclass(frozen=True)
+class RouteDestinationConfig:
+    """Structured destination addressing for a route's delivery targets.
+
+    Mirrors the canonical :class:`~medre.core.routing.models.RouteDestination`
+    model (routing-delivery spec §2.3): identity/hash-based addressing for
+    adapters whose delivery target is a specific entity rather than a named
+    channel.
+
+    Attributes
+    ----------
+    kind:
+        Addressing scheme: ``"channel"``, ``"lxmf_destination"``,
+        ``"meshcore_contact"``, or ``"matrix_room"``.
+    destination_hash:
+        Hash-based identifier (e.g. a 32-hex-character LXMF destination
+        hash), when applicable for *kind*.
+    destination_name:
+        Human-readable name (channel or contact name), when applicable
+        for *kind*.
+    metadata:
+        Extensible destination-specific parameters.
+    """
+
+    kind: str
+    destination_hash: str | None = None
+    destination_name: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(
+        cls,
+        route_id: str,
+        data: Any,
+        *,
+        field_name: str,
+        section_path: str,
+    ) -> "RouteDestinationConfig":
+        """Construct and validate from a ``routes.<id>.<field_name>`` table.
+
+        Raises
+        ------
+        ConfigValidationError
+            If the value is not a table, the ``kind`` is unknown, or the
+            per-kind field requirements (routing-delivery §2.3) are
+            violated.
+        """
+        if not isinstance(data, dict):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: '{field_name}' must be a table "
+                f"(dict), got {type(data).__name__}",
+                section_path=section_path,
+            )
+
+        dest_path = f"{section_path}.{field_name}"
+        raw_kind = data.get("kind")
+        if not isinstance(raw_kind, str) or not raw_kind:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: '{field_name}.kind' must be a "
+                f"non-empty string (one of {sorted(_ROUTE_DESTINATION_KINDS)})",
+                section_path=dest_path,
+            )
+        kind = raw_kind
+        if kind not in _ROUTE_DESTINATION_KINDS:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: '{field_name}.kind' {kind!r} is not a "
+                f"known destination kind (one of "
+                f"{sorted(_ROUTE_DESTINATION_KINDS)})",
+                section_path=dest_path,
+            )
+
+        raw_hash = data.get("destination_hash")
+        if raw_hash is not None and (not isinstance(raw_hash, str) or not raw_hash):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: '{field_name}.destination_hash' must "
+                f"be a non-empty string when set",
+                section_path=dest_path,
+            )
+        raw_name = data.get("destination_name")
+        if raw_name is not None and (not isinstance(raw_name, str) or not raw_name):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: '{field_name}.destination_name' must "
+                f"be a non-empty string when set",
+                section_path=dest_path,
+            )
+        raw_metadata = data.get("metadata")
+        if raw_metadata is not None and not isinstance(raw_metadata, dict):
+            raise ConfigValidationError(
+                f"Route {route_id!r}: '{field_name}.metadata' must be a "
+                f"table (dict), got {type(raw_metadata).__name__}",
+                section_path=dest_path,
+            )
+
+        unknown = set(data.keys()) - {
+            "kind",
+            "destination_hash",
+            "destination_name",
+            "metadata",
+        }
+        if unknown:
+            raise ConfigValidationError(
+                f"Route {route_id!r}: unknown key(s) {sorted(unknown)} in "
+                f"{dest_path}. Accepted keys: "
+                "['destination_hash', 'destination_name', 'kind', 'metadata']",
+                section_path=dest_path,
+            )
+
+        destination_hash = raw_hash
+        destination_name = raw_name
+        metadata: dict[str, Any] = dict(raw_metadata) if raw_metadata else {}
+
+        # Per-kind requirements (routing-delivery §2.3 kind table).
+        if kind == "lxmf_destination":
+            if destination_hash is None:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: '{field_name}.destination_hash' is "
+                    f"required for kind 'lxmf_destination' and must be a "
+                    f"32-hex-character LXMF destination hash",
+                    section_path=dest_path,
+                )
+            if not _LXMF_DESTINATION_HASH_RE.fullmatch(destination_hash):
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: '{field_name}.destination_hash' "
+                    f"must be a 32-hex-character LXMF destination hash "
+                    f"(16 bytes), got {destination_hash!r}",
+                    section_path=dest_path,
+                )
+        elif kind == "meshcore_contact":
+            if destination_hash is None and destination_name is None:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: '{field_name}' requires "
+                    f"'destination_hash' or 'destination_name' for kind "
+                    f"'meshcore_contact'",
+                    section_path=dest_path,
+                )
+        else:  # "channel" / "matrix_room" address by name, never by hash.
+            if destination_name is None:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: '{field_name}.destination_name' is "
+                    f"required for kind {kind!r}",
+                    section_path=dest_path,
+                )
+            if destination_hash is not None:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: '{field_name}.destination_hash' "
+                    f"must not be set for kind {kind!r}; name-based "
+                    f"addressing resolves the native address via the "
+                    f"adapter",
+                    section_path=dest_path,
+                )
+
+        return cls(
+            kind=kind,
+            destination_hash=destination_hash,
+            destination_name=destination_name,
+            metadata=metadata,
+        )
+
 
 # Canonical field names accepted in a ``[routes.<id>]`` section.  Every
 # field that :meth:`RouteConfig.from_dict` pops must be listed here so the
@@ -723,6 +894,7 @@ _ROUTE_KNOWN_FIELDS: frozenset[str] = frozenset(
         "dest_channel",
         "source_room",
         "dest_room",
+        "dest_destination",
         "source_origin_label",
         "dest_origin_label",
         "channel_room_map",
@@ -756,6 +928,14 @@ class RouteConfig:
         Optional source room ID for targeting.
     dest_room:
         Optional destination room ID for targeting.
+    dest_destination:
+        Optional structured destination addressing for the delivery
+        targets (routing-delivery spec §2.3/§2.4 identity/hash form).
+        Mutually exclusive with ``dest_channel`` and ``dest_room`` — a
+        route target has exactly one addressing authority — and with
+        ``channel_room_map``.  Applies to the route's configured dest
+        side only; reverse expansion legs deliver to the source side,
+        which carries no destination.
     policy:
         Optional static bridge policy.  ``None`` means "no restrictions".
     retry:
@@ -795,6 +975,7 @@ class RouteConfig:
     dest_channel: str | None = None
     source_room: str | None = None
     dest_room: str | None = None
+    dest_destination: RouteDestinationConfig | None = None
     policy: BridgePolicy | None = None
     retry: RouteRetryConfig | None = None
     channel_room_map: dict[str, ChannelRoomMapEntry] | None = None
@@ -918,6 +1099,36 @@ class RouteConfig:
         source_room: str | None = data.pop("source_room", None)
         dest_room: str | None = data.pop("dest_room", None)
 
+        # --- structured destination ---
+        raw_dest_destination = data.pop("dest_destination", None)
+        dest_destination: RouteDestinationConfig | None = None
+        if raw_dest_destination is not None:
+            dest_destination = RouteDestinationConfig.from_dict(
+                route_id,
+                raw_dest_destination,
+                field_name="dest_destination",
+                section_path=section_path,
+            )
+            # One addressing authority per route target (routing-delivery
+            # §2.4): a structured destination replaces the channel/room
+            # selector entirely.
+            _dest_conflicts = [
+                name
+                for name, value in (
+                    ("dest_channel", dest_channel),
+                    ("dest_room", dest_room),
+                )
+                if value is not None
+            ]
+            if _dest_conflicts:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: 'dest_destination' is mutually "
+                    f"exclusive with {sorted(_dest_conflicts)}. A route "
+                    f"target has exactly one addressing authority: a "
+                    f"structured destination or a channel selector.",
+                    section_path=section_path,
+                )
+
         # Room/channel are aliases for the same runtime field.
         # Reject when both are set to different values.
         if (
@@ -1002,6 +1213,7 @@ class RouteConfig:
                 "dest_channel": dest_channel,
                 "source_room": source_room,
                 "dest_room": dest_room,
+                "dest_destination": dest_destination,
             }
             conflicting = [k for k, v in _crm_exclusive.items() if v is not None]
             if conflicting:
@@ -1151,6 +1363,7 @@ class RouteConfig:
             dest_channel=dest_channel,
             source_room=source_room,
             dest_room=dest_room,
+            dest_destination=dest_destination,
             policy=policy,
             retry=retry,
             channel_room_map=channel_room_map,

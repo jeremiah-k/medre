@@ -111,38 +111,48 @@ class Route:
 
 ### 2.6 Configuration Representation
 
-Routes are configured in YAML. Example in YAML:
+Routes are configured in YAML under `routes.<route_id>`. The canonical model
+above maps onto the loader schema as follows: `RouteConfig.dest_adapters`
+becomes each target's `adapter`, `dest_channel` (or `dest_room`, its alias)
+becomes `RouteTarget.channel`, and `dest_destination` becomes
+`RouteTarget.destination`. Examples in YAML:
 
 ```yaml
 routes:
-  - id: mesh-to-matrix-general
-    from:
-      adapter: meshcore-radio-1
-      event_kinds: ["message.text"]
-      channel: general
-    to:
-      - adapter: matrix-home
-        channel: general
-    priority: 10
+  mesh-to-matrix-general:
+    source_adapters: [meshcore-radio-1]
+    dest_adapters: [matrix-home]
+    source_channel: general
+    dest_channel: general
     enabled: true
-    filters: {}
 
-  - id: matrix-to-lxmf-peer
-    from:
-      adapter: matrix-home
-      event_kinds: ["message.text"]
-      channel: general
-    to:
-      - adapter: lxmf-node-a
-        channel: null
-        destination:
-          kind: lxmf_destination
-          destination_hash: "e5f6a7b8c9d0e1f2"
-          destination_name: "mobile-peer-1"
-    priority: 15
+  matrix-to-lxmf-peer:
+    # Identity/hash addressing — the normative form for entity-targeted
+    # delivery (§2.3/§2.4 Rule 2). Resolves through RouteTarget.destination.
+    source_adapters: [matrix-home]
+    dest_adapters: [lxmf-node-a]
+    dest_destination:
+      kind: lxmf_destination
+      destination_hash: "e5f6a7b8c9d0e1f2a1b2c3d4e5f6a7b8"
+      destination_name: mobile-peer-1
     enabled: true
-    filters: {}
+
+  matrix-to-lxmf-peer-short:
+    # Equivalent simpler form: for LXMF routes dest_channel is the
+    # transport-defined address selector and carries the same 32-hex
+    # destination hash. Mutually exclusive with dest_destination — a route
+    # target has exactly one addressing authority.
+    source_adapters: [matrix-home]
+    dest_adapters: [lxmf-node-a]
+    dest_channel: "e5f6a7b8c9d0e1f2a1b2c3d4e5f6a7b8"
+    enabled: true
 ```
+
+The structured destination is durable: the outbox persists it in
+`destination_kind` / `destination_hash` / `destination_name` /
+`destination_metadata` metadata, and retry reconstructs
+`RouteTarget.destination` from that metadata, so retries address the same
+entity without consulting current route configuration.
 
 ### 2.7 Bridge Directionality
 
@@ -573,14 +583,15 @@ A non-retryable failure discovered during a retry attempt is terminal immediatel
 1. `deliver_to_target` records append-only attempt evidence. A retryable adapter failure produces a `failed` receipt with `failure_kind=ADAPTER_TRANSIENT` and `next_retry_at`; the corresponding outbox row is transitioned to `retry_wait`.
 2. `RetryWorker` claims due outbox rows through `claim_due_outbox_items()`, loads the canonical event, reads the latest delivery status, and reconstructs the original delivery context from durable outbox metadata plus prior receipt evidence. Its direct storage surface is intentionally limited to claim/read operations; it does not inspect failure/dead-letter receipt chains or write durable lifecycle state directly. Reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, `target_identity`, `capability_level`, `delivery_strategy`, `capability_field`, `capability_reason`, and `deadline`. The route-decision keys are required durable state; missing or malformed values fail reconstruction and are abandoned rather than silently re-planned or defaulted.
 3. Before capacity acquisition or transport dispatch, the worker calls `DeliveryLifecycleService.reconcile_retry_claim()`. This preflight inspects only evidence attributable to `item.attempt_number + 1`. If a previous process persisted that attempt's receipt but failed before committing the matching outbox transition, lifecycle reconciliation repairs the outbox and the worker MUST skip transport dispatch. This makes lease reclaim safe after partial persistence and prevents duplicate sends of already accepted deliveries.
-4. If no persisted next-attempt evidence exists, the worker attempts to acquire delivery capacity. If capacity is unavailable, it asks `DeliveryLifecycleService` to schedule outbox backoff. Receipts remain immutable; capacity rejection does not modify an existing receipt and does not advance `attempt_number`.
-5. If capacity is acquired, the worker re-invokes the same delivery pipeline. The retry receipt carries `source='retry'`, `target_channel`, and `route_id`. Each attempt appends new receipt evidence; earlier receipts are never overwritten.
-6. If delivery raises, `DeliveryLifecycleService` is the sole durable retry-classification authority. It resolves evidence for the current outbox attempt using `outbox_id` plus exact attempt/target/lineage correlation, then commits exactly one resulting outbox transition. Current-attempt receipt classification overrides generic exception inference when both exist.
-7. Durable `queued` or `sent` evidence wins over an exception raised later in the same delivery call and suppresses an immediate resend. `queued` evidence keeps the outbox non-terminal while it awaits confirmation or stale `queued` to `in_progress` reclaim. Only `sent` evidence finalizes the outbox as accepted. A `suppressed` receipt is finalized as terminal abandonment and is not counted as retry success.
-8. A retryable failure below the attempt limit returns to `retry_wait`. When the failed receipt already persisted `next_retry_at`, the outbox MUST reuse that exact timestamp so receipt evidence and scheduler state cannot drift. If no current-attempt failure receipt exists, lifecycle policy computes the backoff from the attempt number.
-9. A non-retryable current-attempt failure is dead-lettered immediately. A retryable failure at `attempt_number >= max_attempts` is dead-lettered as retry exhaustion. When `deliver_to_target` already appended a linked `dead_lettered` receipt, lifecycle reconciliation preserves that receipt as the terminal evidence link and retains its recorded `failure_kind`, falling back to `retry_exhausted` only when the receipt omits it. Missing or invalid taxonomy on persisted `failed` retry evidence is an invariant violation; reconciliation terminally repairs the outbox as `adapter_permanent` rather than leaving it indefinitely reclaimable.
-10. Evidence lookup and lifecycle persistence failures propagate out of `DeliveryLifecycleService`. `RetryWorker` MAY emit an operational `retry_failed` event describing `lifecycle_persistence_error`, but MUST NOT report a durable retry/dead-letter/success transition that storage did not commit. An untransitioned claimed row remains recoverable through outbox lease expiry; if attempt evidence was persisted, the next claim preflight repairs it before any resend.
-11. Retry uses the same delivery planning and target-delivery pipeline as live work. No special transport bypass path exists.
+4. Before capacity acquisition or transport dispatch, the worker checks startup target availability (LIVE scope). When startup classification recorded the row's target adapter as not started, the worker asks `DeliveryLifecycleService.defer_retry_outbox` to reschedule the row (`failure_kind=ADAPTER_TRANSIENT`, durable `adapter_unavailable_startup` marker on the outbox row). Because step 3 already reconciled persisted completion evidence, deferral cannot hide a terminal outcome from a prior attempt. `attempt_number` is unchanged — no transport attempt is consumed for a delivery that never ran — and the worker emits a truthful `retry_failed` event with `status=adapter_unavailable_startup`. Deferred rows stay durable and are re-claimed on later cycles; they are never dispatched into an adapter that did not complete startup and never exhausted as if an attempt had run. An adapter permanently disabled or removed from configuration keeps its durable work under the same rule; deferral is not an auto-heal.
+5. If no persisted next-attempt evidence exists, the worker attempts to acquire delivery capacity. If capacity is unavailable, it asks `DeliveryLifecycleService` to schedule outbox backoff. Receipts remain immutable; capacity rejection does not modify an existing receipt and does not advance `attempt_number`.
+6. If capacity is acquired, the worker re-invokes the same delivery pipeline. The retry receipt carries `source='retry'`, `target_channel`, and `route_id`. Each attempt appends new receipt evidence; earlier receipts are never overwritten.
+7. If delivery raises, `DeliveryLifecycleService` is the sole durable retry-classification authority. It resolves evidence for the current outbox attempt using `outbox_id` plus exact attempt/target/lineage correlation, then commits exactly one resulting outbox transition. Current-attempt receipt classification overrides generic exception inference when both exist.
+8. Durable `queued` or `sent` evidence wins over an exception raised later in the same delivery call and suppresses an immediate resend. `queued` evidence keeps the outbox non-terminal while it awaits confirmation or stale `queued` to `in_progress` reclaim. Only `sent` evidence finalizes the outbox as accepted. A `suppressed` receipt is finalized as terminal abandonment and is not counted as retry success.
+9. A retryable failure below the attempt limit returns to `retry_wait`. When the failed receipt already persisted `next_retry_at`, the outbox MUST reuse that exact timestamp so receipt evidence and scheduler state cannot drift. If no current-attempt failure receipt exists, lifecycle policy computes the backoff from the attempt number.
+10. A non-retryable current-attempt failure is dead-lettered immediately. A retryable failure at `attempt_number >= max_attempts` is dead-lettered as retry exhaustion. When `deliver_to_target` already appended a linked `dead_lettered` receipt, lifecycle reconciliation preserves that receipt as the terminal evidence link and retains its recorded `failure_kind`, falling back to `retry_exhausted` only when the receipt omits it. Missing or invalid taxonomy on persisted `failed` retry evidence is an invariant violation; reconciliation terminally repairs the outbox as `adapter_permanent` rather than leaving it indefinitely reclaimable.
+11. Evidence lookup and lifecycle persistence failures propagate out of `DeliveryLifecycleService`. `RetryWorker` MAY emit an operational `retry_failed` event describing `lifecycle_persistence_error`, but MUST NOT report a durable retry/dead-letter/success transition that storage did not commit. An untransitioned claimed row remains recoverable through outbox lease expiry; if attempt evidence was persisted, the next claim preflight repairs it before any resend.
+12. Retry uses the same delivery planning and target-delivery pipeline as live work. No special transport bypass path exists.
 
 ### 7.5 Policy Persistence
 

@@ -420,14 +420,21 @@ deterministically degraded to inline fallback text.
 ## Known Limitations
 
 - **No reply or reaction support.** Capabilities declare both as `"unsupported"`. LXMF has no built-in threading mechanism; however, relation reconstruction from the MEDRE fields envelope (`0xFD`) is implemented via `_reconstruct_relations` in `codec.py`. The codec reconstructs `EventRelation` objects from the envelope's `relations` list at decode time. FIELD_THREAD (`0x08`) is explicitly excluded — MEDRE does not read or write the LXMF native thread field.
-- **Destination routing resolves from the route's `dest_channel`.** The
-  renderer carries `RenderingContext.target_channel` (the route's
-  `dest_channel`) into the payload's `destination_hash` per the
-  routing-delivery spec's `"lxmf_destination"` addressing: the value is the
-  recipient's 16-byte LXMF delivery destination hash (32 hex chars). An empty
-  value (route without `dest_channel`) keeps the historical empty destination
-  and delivery fails permanently with "cannot recall identity" rather than
-  guessing a recipient.
+- **Destination routing follows one documented precedence.** The payload's
+  `destination_hash` is the recipient's 16-byte LXMF delivery destination
+  hash (32 hex chars), resolved from the route target in this order:
+  1. A structured `dest_destination` (`kind: "lxmf_destination"` with
+     `destination_hash`) on the route — the normative identity/hash
+     addressing form (routing-delivery §2.3/§2.4), threaded through
+     `RouteTarget.destination` into the rendering context.
+  2. Otherwise the route's `dest_channel`, which for LXMF routes acts as
+     the transport-defined address selector carrying the same hash.
+     A route configures exactly one of the two (`dest_destination` and
+     `dest_channel`/`dest_room` are mutually exclusive at load time). An
+     empty result (route with neither) keeps the historical empty destination
+     and delivery fails permanently with "cannot recall identity" rather than
+     guessing a recipient. The structured destination is durable: it is
+     persisted in outbox metadata and reconstructed by retry.
 - **Attachment-only messages are classified but not relayed.** `has_fields` without `content` yields `"unsupported"` category.
 - **No channel concept.** LXMF uses point-to-point identity hashes; `channels=False` and `channel_index` is always `None`.
 - **Reticulum singleton constraint.** `RNS.Reticulum()` raises `OSError` if already running; the session uses `get_instance()` to reuse existing instances. Multiple sessions share the same Reticulum transport.

@@ -33,7 +33,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.runtime.errors import RuntimeConfigError
 
@@ -442,12 +442,26 @@ def _expand_route_config(
         source_channel = rc.dest_channel
         dest_channel = rc.source_channel
         origin_label = rc.dest_origin_label
+        # Reverse legs deliver to the configured source side, which has no
+        # structured destination: ``dest_destination`` addresses the route's
+        # configured dest side only.
+        destination = None
     else:
         source_ids = rc.source_adapters
         dest_ids = rc.dest_adapters
         source_channel = rc.source_channel
         dest_channel = rc.dest_channel
         origin_label = rc.source_origin_label
+        destination = (
+            None
+            if rc.dest_destination is None
+            else RouteDestination(
+                kind=rc.dest_destination.kind,
+                destination_hash=rc.dest_destination.destination_hash,
+                destination_name=rc.dest_destination.destination_name,
+                metadata=dict(rc.dest_destination.metadata),
+            )
+        )
 
     # BridgePolicy event types → RouteSource event_kinds
     event_kinds: tuple[str, ...] = ()
@@ -472,7 +486,10 @@ def _expand_route_config(
         else:
             route_id = f"{rc.route_id}__{src_idx}"
 
-        targets = [RouteTarget(adapter=did, channel=dest_channel) for did in dest_ids]
+        targets = [
+            RouteTarget(adapter=did, channel=dest_channel, destination=destination)
+            for did in dest_ids
+        ]
 
         source = RouteSource(
             adapter=src_id,

@@ -636,6 +636,7 @@ class TargetDeliveryService:
                 delivery_strategy=_validated_strategy,
                 capability_level=_capability_level,
                 source_origin_label=route.source.origin_label,
+                target_destination=target.destination,
             )
         except Exception as exc:
             rendering_error = f"Rendering failed: {type(exc).__name__}: {exc}"

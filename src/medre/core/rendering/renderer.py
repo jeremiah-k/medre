@@ -49,6 +49,7 @@ from typing import (
 )
 
 from medre.core.events import CanonicalEvent
+from medre.core.routing.models import RouteDestination
 
 if TYPE_CHECKING:
     from medre.core.rendering.evidence import RenderingEvidence
@@ -162,6 +163,15 @@ class RenderingContext:
         route-level label set" — renderers fall back to the adapter
         origin label.  Populated by the delivery pipeline from the
         route's source descriptor.
+    target_destination:
+        Optional structured destination for the delivery target,
+        threaded from ``RouteTarget.destination`` by the delivery
+        pipeline.  This is the identity/hash addressing form
+        (routing-delivery spec §2.4 Rule 2); renderers that address a
+        specific entity MUST prefer it over ``target_channel``.  For
+        hash-based kinds only ``destination_hash`` is meaningful to a
+        renderer; ``None`` means "no structured destination" — the
+        target is addressed through ``target_channel`` alone.
     """
 
     delivery_strategy: DeliveryStrategyMethod
@@ -173,6 +183,7 @@ class RenderingContext:
     capability_level: CapabilityLevel = "native"
     capability_policy: str | None = None
     source_origin_label: str | None = None
+    target_destination: RouteDestination | None = None
 
     _VALID_STRATEGIES: ClassVar[frozenset[str]] = frozenset(
         get_args(DeliveryStrategyMethod)
@@ -464,6 +475,7 @@ class RenderingPipeline:
         delivery_strategy: DeliveryStrategyMethod | None = None,
         capability_level: CapabilityLevel | None = None,
         source_origin_label: str | None = None,
+        target_destination: RouteDestination | None = None,
     ) -> RenderingResult:
         """Try renderers in priority order until one can render.
 
@@ -504,6 +516,10 @@ class RenderingPipeline:
             Threaded verbatim into :attr:`RenderingContext.source_origin_label`.
             When ``None``, the context field stays ``None`` and renderers
             fall back to the adapter origin label.
+        target_destination:
+            Optional structured destination from the matched route target.
+            Threaded verbatim into
+            :attr:`RenderingContext.target_destination`.
 
         Returns
         -------
@@ -546,6 +562,7 @@ class RenderingPipeline:
             max_text_bytes=max_text_bytes,
             capability_level=cap_level,
             source_origin_label=source_origin_label,
+            target_destination=target_destination,
         )
 
         for _pri, _seq, renderer in self._renderers:

@@ -1389,12 +1389,30 @@ class TestStructuredChannelRoomMapEntry:
     """Verify the structured ChannelRoomMapEntry shape (dict with 'room'
     key) appears in at least one example payload."""
 
+    @staticmethod
+    def _example_routes() -> list[dict]:
+        """Load the routing example, navigating a RouteConfigSet wrapper.
+
+        routing-config-example.json may be a single RouteConfig object or
+        a ``{"routes": [...]}`` set demonstrating several shapes.
+        """
+        example = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
+        if "routes" in example:
+            return example["routes"]
+        return [example]
+
     def test_routing_example_has_structured_entry(self) -> None:
         """routing-config-example.json must contain at least one structured
         channel_room_map entry (a dict with a 'room' key, not a bare string).
         """
-        example = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
-        crm = example.get("channel_room_map")
+        crm = next(
+            (
+                r.get("channel_room_map")
+                for r in self._example_routes()
+                if r.get("channel_room_map")
+            ),
+            None,
+        )
         assert crm is not None, "routing-config-example.json missing channel_room_map"
         assert isinstance(
             crm, dict
@@ -1412,8 +1430,15 @@ class TestStructuredChannelRoomMapEntry:
 
     def test_structured_entry_has_required_room_field(self) -> None:
         """The structured entry must have a 'room' field starting with '!'."""
-        example = _load_json(_EXAMPLES_DIR / "routing-config-example.json")
-        crm = example["channel_room_map"]
+        crm = next(
+            (
+                r["channel_room_map"]
+                for r in self._example_routes()
+                if r.get("channel_room_map")
+            ),
+            None,
+        )
+        assert crm is not None
         for key, val in crm.items():
             if isinstance(val, dict):
                 assert (
