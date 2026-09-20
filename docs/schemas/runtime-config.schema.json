@@ -227,6 +227,11 @@
           "default": null,
           "description": "Optional destination room ID (alias for dest_channel)."
         },
+        "dest_destination": {
+          "type": ["object", "null"],
+          "default": null,
+          "description": "Optional structured destination addressing (identity/hash form). Shape validated by routing-config.schema.json RouteDestination. Mutually exclusive with dest_channel and dest_room."
+        },
         "policy": {
           "type": ["object", "null"],
           "default": null,

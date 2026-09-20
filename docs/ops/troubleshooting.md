@@ -176,7 +176,7 @@ Expected: exit code **0**, `startup.boot_summary.startup_outcome == "partial"`, 
 
 Inspect: `startup.boot_summary.failed_adapter_ids`, `routes.startup_readiness` for routes marked `degraded` or `skipped`.
 
-**Caveat:** Degraded startup does NOT exit. The runtime keeps running. Routes referencing only failed adapters are skipped entirely. Routes with some failed targets operate in degraded mode.
+**Caveat:** Degraded startup does NOT exit. The runtime keeps running. Routes whose targets ALL failed are removed from the router (planning into them would dead-letter per event). Routes whose SOURCE failed keep routing stored canonical work — already-admitted durable ingress and replay still reach surviving targets; only fresh live ingress is impossible because the source adapter never started — while their `SKIPPED` readiness entry stays visible. Routes with some failed targets operate in degraded mode. Retry and durable-ingress workers start only after adapters settle, so due work is never dispatched into an adapter that is still starting. Existing due retry rows whose target failed startup are durably deferred without consuming an attempt; persisted terminal evidence is still reconciled first.
 
 ## Runtime Delivery Failure Drills
 
@@ -717,14 +717,6 @@ Diagnostics → Operator Actions by Severity).
 
 - **Missing outbox_id:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains queued after the grace period, investigate the upstream producer that wrote the row without an outbox_id.
 - **outbox_id present but uncorrelated:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains uncorrelated after the grace period, verify that the adapter callback is propagating `outbox_id` and `attempt_number` through its queue processing.
-
-### "Replay-only callback warning"
-
-**Symptom:** Logs show a warning about "only replay-sourced queued receipts found" during callback correlation, and no supplemental sent receipt is created.
-
-**Cause:** A live adapter callback is arriving, but the only matching queued receipt(s) are from a replay run. `OutboundNativeRefRecord` carries no trusted replay provenance, so replay-only queued receipts are skipped to prevent live recovery state mutation.
-
-**Fix:** Verify that the callback is from the replay run, not a live delivery. If a live delivery also occurred, the live receipt chain remains intact. The replay queued receipt stays uncorrelated. If this is a live callback that should have a matching live queued receipt, investigate whether the live delivery produced a queued receipt. This restriction may be relaxed in a future version when callback records carry trusted replay provenance.
 
 ## Lifecycle Convergence Finding Troubleshooting
 

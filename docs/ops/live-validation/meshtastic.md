@@ -66,13 +66,39 @@ meshtastic --port /dev/ttyACM0 --ch-index 0 --sendtext "MEDRE validation test"
 | `MESHTASTIC_LIVE_SEND`       | TX       |         | `1` to enable RF transmission           |
 | `MESHTASTIC_SOAK_CYCLES`     | No       | `10`    | Lifecycle cycles, valid range `1`–`100` |
 
-## Evidence Tiers Achieved
+## Physical Pair Harness (two real nodes)
 
-| Tier     | Sub-class             | Date       | Result                                                                                                                            |
-| -------- | --------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| hardware | Hardware (serial CLI) | 2026-05-12 | Device discovery, hardware/firmware capture, 1 outbound on ch0, 3 reconnect cycles. CLI-level only — not MEDRE adapter lifecycle. |
-| docker   | Docker SDK-boundary   | —          | Outbound + lifecycle proven. Inbound via pubsub not proven.                                                                       |
-| —        | MEDRE adapter live    | —          | NOT EXECUTED (mtjk not in project venv during validation session).                                                                |
+```bash
+export MESHTASTIC_CONNECTION_TYPE="serial"
+export MESHTASTIC_SERIAL_PORT="/dev/serial/by-id/<medre-node>"
+export MESHTASTIC_PEER_SERIAL_PORT="/dev/serial/by-id/<independent-peer>"
+export MESHTASTIC_LIVE_SEND="1"
+pytest tests/test_meshtastic_pair_live.py -m "live and hardware" -v
+```
+
+One node runs under a real in-process MEDRE runtime (real adapter, storage,
+route, rendering, delivery); the second node is driven only by the pinned
+mtjk SDK as an independent native peer. Proven 2026-09-19 on the private lab
+mesh (US, LONG_TURBO, private primary channel, tx power 10):
+
+| Case              | Result | Evidence                                                                                                                                                                                                                          |
+| ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N2 ingress        | PASS   | Native peer sends → durable canonical events with exact content, native sender identity and packet-id correlation (`medre inspect native-ref`).                                                                                   |
+| N3 egress         | PASS   | Controlled local fake-source event → real route/plan → receipt `status="sent"` with native packet id → independent peer RF receipt of the nonce. Egress status tops out at `sent` (SDK acceptance); RF receipt is peer-side only. |
+| N4 boundaries     | PASS   | Unicode/multibyte and newline payloads survive end-to-end; ~1.2 KB UTF-8 payload delivered UTF-8-safe truncated at the configured 227-byte `max_text_bytes` boundary; normal message after boundaries succeeds.                   |
+| N5 identity/dedup | PASS   | Identical text with distinct native packet ids → two distinct durable events. Same-second duplicates are not physically producible: the firmware drops sends spaced < ~2.2 s (see pacing note).                                   |
+
+### Manual negative-control evidence
+
+N6 is separate bench evidence, not a case implemented by
+`tests/test_meshtastic_pair_live.py`: wrong PSK on the owned peer produced a
+firmware-level drop with no canonical event; the receiver remained usable, the
+PSK was restored byte-exact, and a subsequent positive delivery was admitted.
+
+**Pacing note:** the lab pair (nRF52, LONG_TURBO) requires >= 2.2 s between
+sends; at shorter spacing the sender firmware silently drops every second
+message. The pair harness sets adapter `message_delay_seconds=2.5` and paces
+peer sends at 2.5 s.
 
 ## Delivery Classification
 
@@ -83,16 +109,15 @@ Based on CLI-level serial validation:
 | ACK reliability             | UNRELIABLE — no ACK confirmation for broadcast sends          |
 | Delivery guarantee          | BEST EFFORT — fire-and-forget LoRa broadcast                  |
 | Reconnect reliability (CLI) | RELIABLE — 4/4 serial connections succeeded across ~7.7 hours |
-| MEDRE adapter reliability   | NOT ASSESSED                                                  |
+| MEDRE adapter reliability   | ASSESSED — live pair harness proves lifecycle + routed send   |
 
 ## Known Gaps
 
-- MEDRE adapter lifecycle (start/stop/health) via live pytest tests: NOT EXECUTED.
-- `send_one` path via MEDRE adapter: NOT EXECUTED.
-- MEDRE session reconnect with exponential backoff: NOT EXECUTED.
-- Soak test (sustained runtime): NOT EXECUTED.
-- Second-node inbound reception: NOT EXECUTED.
-- Encrypted channel support: NOT EXECUTED.
+- MEDRE adapter lifecycle via live pytest: proven (pair harness + smoke class).
+- `send_one` queue path via MEDRE adapter: proven against real radio (pair harness egress).
+- Encrypted channel support: private-PSK primary channel exercised; wrong-key negative control proven separately by manual firmware-level bench evidence.
+- Second-node inbound reception: proven (pair harness, independent native peer).
+- Session reconnect under sustained failure: partially observed (bounded stop/start cycles); no long soak.
 - BLE connectivity: NOT EXECUTED.
 - Docker inbound via pubsub: not proven (meshtasticd simulation mode limitation).
 

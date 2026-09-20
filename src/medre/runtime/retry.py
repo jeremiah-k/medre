@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Protocol
@@ -49,6 +50,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalizati
 from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
+from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.events import RuntimeEventType
 
@@ -172,6 +174,7 @@ class RetryWorker:
         event_buffer: EventBuffer | None = None,
         lifecycle: DeliveryLifecycleService | None = None,
         stop_timeout_seconds: float = 5.0,
+        available_target_adapters: Iterable[str] | None = None,
     ) -> None:
         config = retry_config if retry_config is not None else RetryConfig()
         self._storage: RetryWorkerStorage = storage
@@ -199,6 +202,11 @@ class RetryWorker:
             max_attempts if max_attempts is not None else config.max_attempts
         )
         self._event_buffer = event_buffer
+        self._available_target_adapters = (
+            None
+            if available_target_adapters is None
+            else frozenset(available_target_adapters)
+        )
         if stop_timeout_seconds <= 0:
             raise ValueError(
                 f"stop_timeout_seconds must be > 0, got {stop_timeout_seconds!r}"
@@ -219,6 +227,23 @@ class RetryWorker:
         self._outbox_counts: dict[str, int] = {}
         self._cycle_completed: bool = False
         self.state = RetryWorkerState(enabled=self._enabled)
+
+    def set_available_target_adapters(self, adapter_ids: Iterable[str]) -> None:
+        """Restrict transport retries to adapters that completed startup.
+
+        The worker may be constructed before adapter startup so its lifecycle
+        ownership is available to startup cleanup, but it is activated only
+        after every adapter reaches a terminal startup state.  The runtime sets
+        this allow-list immediately before activation.  Rows targeting a
+        startup-failed adapter remain durable and are rescheduled without
+        consuming an attempt instead of being dispatched into a known-dead
+        transport.
+        """
+        if self.state.running:
+            raise RuntimeError(
+                "cannot change available target adapters while RetryWorker is running"
+            )
+        self._available_target_adapters = frozenset(adapter_ids)
 
     @property
     def outbox_counts(self) -> dict[str, int] | None:
@@ -584,9 +609,7 @@ class RetryWorker:
                     "interval": self._interval,
                     "batch_size": self._batch_size,
                     "max_attempts": self._max_attempts,
-                    "previous_run_in_progress": (
-                        self.state.previous_run_in_progress
-                    ),
+                    "previous_run_in_progress": (self.state.previous_run_in_progress),
                 },
             )
 
@@ -926,6 +949,69 @@ class RetryWorker:
                 reconciled.attempt_number,
                 item.outbox_id,
                 reconciled.outcome,
+            )
+            return
+
+        if (
+            self._available_target_adapters is not None
+            and item.target_adapter not in self._available_target_adapters
+        ):
+            # Startup has already classified this target as unavailable.  Do
+            # not turn a process-local startup refusal into a durable transport
+            # attempt.  Persisted receipt evidence was reconciled above first,
+            # so deferral cannot hide a terminal outcome from a prior attempt.
+            self.state.processed += 1
+            try:
+                next_attempt = await self._lifecycle.defer_retry_outbox(
+                    self._lifecycle_storage,
+                    item,
+                    retry_context.retry_policy,
+                    failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+                    attempt_number=item.attempt_number,
+                    error_summary=(
+                        "adapter_unavailable_startup: target adapter did not "
+                        "complete runtime startup"
+                    ),
+                )
+            except Exception as lifecycle_exc:
+                _logger.exception(
+                    "RetryWorker: failed to defer outbox %s for unavailable "
+                    "startup target %s",
+                    item.outbox_id,
+                    item.target_adapter,
+                )
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=item.attempt_number,
+                )
+                return
+
+            self.state.failed += 1
+            self._emit(
+                "retry_failed",
+                {
+                    "receipt_id": item.receipt_id or item.outbox_id,
+                    "parent_receipt_id": item.parent_receipt_id,
+                    "retry_receipt_id": None,
+                    "event_id": item.event_id,
+                    "target_adapter": item.target_adapter,
+                    "attempt_number": item.attempt_number,
+                    "status": "adapter_unavailable_startup",
+                    "failure_kind": DeliveryFailureKind.ADAPTER_TRANSIENT.value,
+                    "error": (
+                        "adapter_unavailable_startup: target adapter did not "
+                        "complete runtime startup"
+                    ),
+                    "next_retry_at": next_attempt.isoformat(),
+                },
+            )
+            _logger.warning(
+                "RetryWorker: deferred outbox %s without consuming attempt %d; "
+                "target adapter %s did not complete startup",
+                item.outbox_id,
+                item.attempt_number,
+                item.target_adapter,
             )
             return
 

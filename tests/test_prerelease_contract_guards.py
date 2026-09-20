@@ -261,8 +261,17 @@ def test_routing_schema_keeps_channel_room_map_structured_only() -> None:
 
     expected_ref = "#/$defs/ChannelRoomMapEntry"
     for occurrence in occurrences:
+        # Conditional schema branches may narrow channel_room_map to null when
+        # another addressing authority is active.  That is not a second
+        # channel-map representation and must not be mistaken for one.
+        if occurrence == {"type": "null"}:
+            continue
+
         variants = occurrence.get("oneOf")
-        assert isinstance(variants, list)
+        assert isinstance(variants, list), (
+            "channel_room_map must be either the structured mapping contract "
+            "or a conditional null-only narrowing"
+        )
         object_variants = [
             variant
             for variant in variants

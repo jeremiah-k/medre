@@ -228,11 +228,29 @@ class LxmfRenderer:
         if ctx.max_text_chars is not None:
             text, truncated = _truncate_text(text, max_text_chars=ctx.max_text_chars)
 
+        # Destination addressing — one authority with a documented
+        # precedence (routing-delivery §2.4, transport-profiles/lxmf):
+        # 1. A structured ``RouteTarget.destination`` with a hash is the
+        #    normative identity/hash addressing form.
+        # 2. Otherwise ``target_channel`` is the transport-defined address
+        #    selector; for LXMF routes it carries the recipient LXMF
+        #    destination hash.
+        # ``None``/empty keeps the historical empty value:
+        # :meth:`LxmfAdapter.deliver` treats an unusable destination as a
+        # permanent delivery failure rather than guessing a recipient.
+        destination = ctx.target_destination
+        if destination is not None and destination.destination_hash:
+            destination_hash = destination.destination_hash
+        elif ctx.target_channel:
+            destination_hash = str(ctx.target_channel)
+        else:
+            destination_hash = ""
+
         content: dict[str, object] = {
             "content": text,
             "title": title,
             "fields": fields,
-            "destination_hash": "",
+            "destination_hash": destination_hash,
         }
 
         metadata: dict[str, object] = {

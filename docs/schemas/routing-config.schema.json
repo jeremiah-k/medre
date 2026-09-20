@@ -17,6 +17,7 @@
         },
         "source_adapters": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string"
           },
@@ -24,6 +25,7 @@
         },
         "dest_adapters": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string"
           },
@@ -59,6 +61,18 @@
           "type": ["string", "null"],
           "default": null,
           "description": "Optional destination room ID (alias for dest_channel)."
+        },
+        "dest_destination": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RouteDestination"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional structured destination addressing for the delivery targets (identity/hash form). Mutually exclusive with dest_channel and dest_room: a route target has exactly one addressing authority. Applies to the route's configured dest side only."
         },
         "policy": {
           "oneOf": [
@@ -115,7 +129,23 @@
         }
       },
       "required": ["route_id", "source_adapters", "dest_adapters"],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "dest_destination": { "type": "object" } },
+            "required": ["dest_destination"]
+          },
+          "then": {
+            "properties": {
+              "dest_channel": { "type": "null" },
+              "dest_room": { "type": "null" },
+              "channel_room_map": { "type": "null" },
+              "dest_adapters": { "maxItems": 1 }
+            }
+          }
+        }
+      ]
     },
     {
       "title": "RouteConfigSet",
@@ -135,6 +165,94 @@
     }
   ],
   "$defs": {
+    "RouteDestination": {
+      "title": "RouteDestination",
+      "description": "Structured destination addressing (routing-delivery spec §2.3). Mirrors RouteDestinationConfig in config/routes.py.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "channel",
+            "lxmf_destination",
+            "meshcore_contact",
+            "matrix_room"
+          ],
+          "description": "Addressing scheme. 'channel'/'matrix_room' address a logical channel or room by name; 'lxmf_destination' addresses a 32-hex-character LXMF destination hash; 'meshcore_contact' addresses a contact by hash and/or name."
+        },
+        "destination_hash": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Hash-based identifier when applicable for the kind. Required and 32-hex for 'lxmf_destination'; must be null for 'channel'/'matrix_room'.",
+          "minLength": 1
+        },
+        "destination_name": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Human-readable name when applicable for the kind. Required for 'channel'/'matrix_room'.",
+          "minLength": 1
+        },
+        "metadata": {
+          "type": "object",
+          "default": {},
+          "description": "Extensible destination-specific parameters."
+        }
+      },
+      "required": ["kind"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "lxmf_destination" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "destination_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{32}$"
+              }
+            },
+            "required": ["destination_hash"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "enum": ["channel", "matrix_room"] } },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "destination_hash": { "type": "null" },
+              "destination_name": { "type": "string", "minLength": 1 }
+            },
+            "required": ["destination_name"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "meshcore_contact" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "destination_hash": { "type": "string", "minLength": 1 }
+                },
+                "required": ["destination_hash"]
+              },
+              {
+                "properties": {
+                  "destination_name": { "type": "string", "minLength": 1 }
+                },
+                "required": ["destination_name"]
+              }
+            ]
+          }
+        }
+      ]
+    },
     "ChannelRoomMapEntry": {
       "title": "ChannelRoomMapEntry",
       "description": "A single channel_room_map entry mapping a Meshtastic channel index to a Matrix room ID, with optional per-entry origin labels that override the route-level labels for this entry's expanded legs only.",
@@ -170,12 +288,14 @@
         },
         "source_adapters": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string"
           }
         },
         "dest_adapters": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string"
           }
@@ -203,6 +323,17 @@
         },
         "dest_room": {
           "type": ["string", "null"],
+          "default": null
+        },
+        "dest_destination": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RouteDestination"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null
         },
         "policy": {
@@ -255,7 +386,23 @@
         }
       },
       "required": ["route_id", "source_adapters", "dest_adapters"],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "dest_destination": { "type": "object" } },
+            "required": ["dest_destination"]
+          },
+          "then": {
+            "properties": {
+              "dest_channel": { "type": "null" },
+              "dest_room": { "type": "null" },
+              "channel_room_map": { "type": "null" },
+              "dest_adapters": { "maxItems": 1 }
+            }
+          }
+        }
+      ]
     },
     "BridgePolicy": {
       "title": "BridgePolicy",

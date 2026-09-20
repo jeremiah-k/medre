@@ -383,6 +383,11 @@
           "default": null,
           "description": "Path for LXMF LXMRouter persistent storage. Required for 'reticulum' mode."
         },
+        "reticulum_config_dir": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Path to an isolated Reticulum configuration directory for this adapter instance. When set, the adapter starts its own Reticulum with that configdir instead of the host default, enabling private per-instance radio setups."
+        },
         "announce_interval_seconds": {
           "type": "number",
           "default": 600.0,

@@ -32,15 +32,119 @@ def test_installed_meshcore_matches_declared_extra() -> None:
 
 
 def test_connection_factory_shapes_accept_medre_reconnect_control() -> None:
-    """Every SDK connection factory accepts MEDRE's explicit reconnect control."""
+    """Consumed SDK factories accept MEDRE's explicit reconnect control.
+
+    ``create_serial`` is deliberately absent: MEDRE does not consume the
+    serial factory because its no-response retry inverts DTR (see
+    :doc:`adapter-sdk-parity`); the serial surface MEDRE consumes is
+    pinned by the construction tests below.
+    """
     root, _, _, _ = _load_sdk()
-    for name in ("create_tcp", "create_serial", "create_ble"):
+    for name in ("create_tcp", "create_ble"):
         factory = getattr(root.MeshCore, name)
         assert inspect.iscoroutinefunction(factory)
         signature = inspect.signature(factory)
         auto_reconnect = signature.parameters.get("auto_reconnect")
         assert auto_reconnect is not None
         assert auto_reconnect.kind is not inspect.Parameter.POSITIONAL_ONLY
+
+
+def test_medre_serial_construction_surface_is_frozen() -> None:
+    """Pin the SDK surface MEDRE uses to build deasserted serial clients.
+
+    MEDRE constructs ``SerialConnection(port, baudrate, cx_dly=..., rts=...,
+    dtr=...)`` itself and hands it to ``MeshCore(connection,
+    auto_reconnect=False)``; both constructor shapes plus the awaited
+    connect/disconnect semantics are consumed API.  A pin bump that
+    renames or removes any of them must fail this tier before a lab run.
+    """
+    root, _, _, _ = _load_sdk()
+
+    serial_init = inspect.signature(root.SerialConnection.__init__)
+    for name in ("port", "baudrate", "cx_dly", "rts", "dtr"):
+        assert name in serial_init.parameters, f"SerialConnection.{name}"
+
+    meshcore_init = inspect.signature(root.MeshCore.__init__)
+    for name in (
+        "cx",
+        "debug",
+        "only_error",
+        "default_timeout",
+        "auto_reconnect",
+        "max_reconnect_attempts",
+    ):
+        assert name in meshcore_init.parameters, f"MeshCore.{name}"
+
+    assert inspect.iscoroutinefunction(root.MeshCore.connect)
+    assert inspect.iscoroutinefunction(root.MeshCore.disconnect)
+
+
+async def test_serial_connection_latches_requested_deasserted_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Execute the pinned ``SerialConnection`` against a simulated port.
+
+    ``connection_made`` applies the requested DTR/RTS state when the port
+    opens — before any protocol handshake.  That latch timing is exactly
+    why a post-hoc line check could never satisfy MEDRE's never-assert
+    contract: whatever construction path MEDRE uses must apply the
+    deasserted state at open.  The fake serial object records the writes;
+    the firmware-side effect (bootloader entry on assertion) is modelled,
+    not observed on hardware.
+    """
+    root, _, _, _ = _load_sdk()
+    serial_cx = import_module("meshcore.serial_cx")
+    written: dict[str, bool] = {}
+
+    class FakeSerial:
+        dtr = True  # SDK default state starts asserted
+        rts = True
+
+        def __setattr__(self, name: str, value: object) -> None:
+            if name in ("dtr", "rts"):
+                written[name] = value  # type: ignore[assignment]
+            object.__setattr__(self, name, value)
+
+    class FakeTransport(serial_cx.serial_asyncio.SerialTransport):
+        def __init__(self, serial_obj: FakeSerial) -> None:
+            # Skip the real transport init (no loop/reader); the read-only
+            # ``serial`` property reads ``_serial``.
+            self._serial = serial_obj
+            self.closed = False
+
+        def write(self, data: object) -> None:
+            return None
+
+        def close(self) -> None:
+            self.closed = True
+
+    opened: dict[str, object] = {}
+
+    async def fake_create_serial_connection(
+        loop: object, factory: object, port: str, **kwargs: object
+    ) -> tuple[FakeTransport, object]:
+        protocol = factory()  # type: ignore[misc]
+        transport = FakeTransport(FakeSerial())
+        protocol.connection_made(transport)
+        opened["port"] = port
+        opened["kwargs"] = kwargs
+        return transport, protocol
+
+    monkeypatch.setattr(
+        serial_cx.serial_asyncio,
+        "create_serial_connection",
+        fake_create_serial_connection,
+    )
+
+    connection = root.SerialConnection(
+        "/dev/ttyUSB0", 57600, cx_dly=0.1, rts=False, dtr=False
+    )
+    result = await connection.connect(timeout=5.0)
+
+    assert result == "/dev/ttyUSB0"
+    assert written == {"dtr": False, "rts": False}
+    assert opened["port"] == "/dev/ttyUSB0"
+    assert opened["kwargs"] == {"baudrate": 57600}
 
 
 def test_subscription_and_disconnect_lifecycle_shapes_are_frozen() -> None:
@@ -130,12 +234,6 @@ async def test_send_appstart_executes_once_on_initial_and_sdk_reconnect_paths() 
     [
         ("create_tcp", "TCPConnection", ("127.0.0.1", 4000), {"auto_reconnect": False}),
         (
-            "create_serial",
-            "SerialConnection",
-            ("/dev/ttyUSB0",),
-            {"auto_reconnect": False},
-        ),
-        (
             "create_ble",
             "BLEConnection",
             (),
@@ -150,7 +248,12 @@ async def test_connection_factories_await_connect_once(
     args: tuple[object, ...],
     kwargs: dict[str, object],
 ) -> None:
-    """Every pinned SDK factory must await one client connect before return."""
+    """Every consumed SDK factory must await one client connect before return.
+
+    ``create_serial`` is not consumed (MEDRE constructs the serial client
+    directly to keep DTR/RTS deasserted); its single-connect behavior is
+    covered indirectly by the SDK itself and the construction tests above.
+    """
     root, _, _, _ = _load_sdk()
     sdk_module = import_module("meshcore.meshcore")
     connection = MagicMock()

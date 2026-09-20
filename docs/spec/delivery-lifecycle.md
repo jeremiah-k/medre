@@ -276,11 +276,21 @@ distinguishable from live receipts by the `source` and `replay_run_id` fields.
 ### 5.3 Replay Isolation
 
 Replay deliveries are tagged with `source="replay"` and `replay_run_id` to
-maintain isolation from live delivery. When all matching queued receipt
-candidates are replay-sourced, the pipeline MUST NOT create supplemental sent
-receipts or transition the outbox from `queued` to `sent`. See
-[routing-delivery.md](routing-delivery.md) §8.5 and
-[diagnostics-evidence.md](diagnostics-evidence.md) §15.
+maintain isolation from live delivery. Queued callbacks finalize only through
+exact `outbox_id` + `attempt_number` correlation against the authoritative
+outbox row, which is validated for status, event, adapter, plan, channel, and
+attempt before any candidate is selected (see
+[routing-delivery.md](routing-delivery.md) §8.5). A matching queued receipt's
+own durable `source` / `replay_run_id` lineage is the trusted provenance for
+that one attempt, so a replay-sourced candidate is finalized exactly like a
+live one and its replay lineage is carried onto the supplemental `sent`
+receipt. When malformed history offers duplicate queued receipts across
+sources for the same row and attempt (a row is single-sourced in normal
+operation), non-replay candidates are preferred. Callbacks that do not match
+the validated row — stale attempts, terminal or reclaimed rows — are still
+rejected with a warning; replay isolation never overrides row validation. See
+[diagnostics-evidence.md](diagnostics-evidence.md) §15 for the full
+requirement set.
 
 ### 5.4 Replay Non-Guarantees
 

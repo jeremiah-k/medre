@@ -54,7 +54,10 @@ The session supports four connection types via
     Connects via TCP using ``MeshCore.create_tcp(host, port)`` factory.
 
 ``"serial"``
-    Connects via serial using ``MeshCore.create_serial(port, baudrate)`` factory.
+    Connects via serial by constructing ``SerialConnection(port, baudrate,
+    cx_dly=0.1, rts=False, dtr=False)`` and handing it to the ``MeshCore``
+    constructor — not the ``create_serial`` factory, whose no-response
+    retry would re-open the port with DTR asserted.
 
 ``"ble"``
     Pre-scans with ``BleakScanner.find_device_by_filter()`` for a
@@ -180,11 +183,15 @@ class _MeshCoreModule(Protocol):
     SDK's type stubs to be installed.
 
     The SDK exposes async factory methods on ``MeshCore`` —
-    ``create_tcp``, ``create_serial``, ``create_ble`` — which handle
-    connection construction and initial handshake internally.
+    ``create_tcp`` and ``create_ble`` — which handle connection
+    construction and initial handshake internally.  Serial clients are
+    constructed from ``SerialConnection`` directly (see
+    :class:`MeshCoreSession._connect_real`) to keep the DTR/RTS lines
+    deasserted; the serial factory is deliberately not consumed.
     """
 
     MeshCore: type
+    SerialConnection: type
     EventType: Any
 
 
@@ -863,12 +870,40 @@ class MeshCoreSession:
                         "No response from MeshCore node (TCP)"
                     )
             elif self._config.connection_type == "serial":
-                self._meshcore = await mc.MeshCore.create_serial(
+                # Construct the serial client MEDRE-side instead of calling
+                # MeshCore.create_serial.  The pinned SDK's factory retries
+                # once with ``dtr=not dtr`` when the first connect produces
+                # no protocol response (e.g. a slow board boot), re-opening
+                # the port with DTR asserted — and SerialConnection latches
+                # ``transport.serial.dtr`` in connection_made, so the line
+                # is asserted before any post-hoc check could run.
+                #
+                # Deassert DTR/RTS unconditionally: the pinned SDK defaults
+                # dtr=True, which holds IO0 low on boards whose USB-UART
+                # auto-download circuit drives it (e.g. LilyGO T-LoRa
+                # V2.1).  IO0 held low makes the companion boot into the ROM
+                # bootloader or MeshCore "CLI rescue" mode, killing the
+                # serial protocol.  Deasserted is the safe state for every
+                # observed board, so MEDRE never runs the inversion
+                # heuristic and a failed handshake raises for the normal
+                # startup classification/retry handling instead.
+                # cx_dly mirrors create_serial's default (0.1), which differs
+                # from SerialConnection's own default (0.2).
+                connection = mc.SerialConnection(
                     self._config.serial_port or "/dev/ttyUSB0",
                     self._config.serial_baudrate,
-                    auto_reconnect=False,
+                    cx_dly=0.1,
+                    rts=False,
+                    dtr=False,
                 )
-                if self._meshcore is None:
+                # Retain ownership before awaiting connect().  The SDK may
+                # open the serial transport and then raise while completing
+                # its protocol handshake; keeping the client on the session
+                # lets the common failure cleanup reliably disconnect that
+                # partially-initialised transport.
+                self._meshcore = mc.MeshCore(connection, auto_reconnect=False)
+                connect_result = await self._meshcore.connect()
+                if connect_result is None:
                     raise MeshCoreConnectionError(
                         "No response from MeshCore node (serial)"
                     )

@@ -5,14 +5,35 @@ Split from the original walkthrough CLI test monolith.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
+import time
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from medre.cli import main
+from medre.cli.replay_commands import _drain_inflight_deliveries
+from medre.config.model import (
+    AdapterConfigSet,
+    LoggingConfig,
+    MatrixRuntimeConfig,
+    MeshtasticRuntimeConfig,
+    RuntimeConfig,
+    RuntimeOptions,
+    StorageConfig,
+)
+from medre.config.paths import MedrePaths, resolve
+from medre.config.routes import RouteConfig, RouteConfigSet
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.storage.backend import DeliveryOutboxItem
+from medre.runtime.builder import RuntimeBuilder
+from tests.helpers.async_utils import wait_until
+from tests.helpers.storage_outbox import make_outbox_item
 from tests.helpers.walkthrough import (
     seed_via_smoke_cli,
     smoke_config_path,
@@ -55,7 +76,6 @@ class TestReplayDryRunCLI:
 
     def test_dry_run_no_side_effects(self, tmp_path: Path) -> None:
         """DRY_RUN does not create replay receipts."""
-        import asyncio
 
         from medre.core.storage.sqlite.storage import SQLiteStorage
 
@@ -126,7 +146,6 @@ class TestReplayBestEffortCLI:
 
     def test_best_effort_creates_replay_receipts(self, tmp_path: Path) -> None:
         """BEST_EFFORT replay creates receipts with source='replay'."""
-        import asyncio
 
         from medre.core.storage.sqlite.storage import SQLiteStorage
 
@@ -164,8 +183,330 @@ class TestReplayBestEffortCLI:
 
 
 # ---------------------------------------------------------------------------
-# Test: full walkthrough sequence
+# Tests: best_effort replay must not dispatch unrelated pending/live work
 # ---------------------------------------------------------------------------
+
+
+_SCOPE_YAML = """\
+runtime:
+  name: alpha-replay-scope
+  shutdown_timeout_seconds: 10
+logging:
+  level: WARNING
+  format: text
+storage:
+  backend: sqlite
+  path: '{storage_path}'
+retry:
+  enabled: true
+  interval_seconds: 0.2
+adapters:
+  matrix:
+    fake_matrix:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: fake
+      room_allowlist: ['!room:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    fake_meshtastic:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+      origin_label: operator-workflows
+routes:
+  mx_to_mesh:
+    source_adapters: [fake_matrix]
+    dest_adapters: [fake_meshtastic]
+    directionality: source_to_dest
+    enabled: true
+"""
+
+
+def _write_scope_config(tmp_path: Path, db_path: Path) -> str:
+    cfg = tmp_path / "scope_replay_config.yaml"
+    cfg.write_text(_SCOPE_YAML.format(storage_path=str(db_path)))
+    return str(cfg)
+
+
+_LIVE_EVENT_ID = "evt-scope-live-pending"
+
+
+def _nonsel_event(event_id: str) -> CanonicalEvent:
+    """A routable, genuinely dispatchable event that replay did NOT select."""
+    return CanonicalEvent(
+        event_id=event_id,
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(UTC),
+        source_adapter="fake_matrix",
+        source_transport_id="t-nonsel",
+        source_channel_id="!room:fake.local",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"text": "nonselected pending work"},
+        metadata=EventMetadata(),
+    )
+
+
+def _scope_runtime_config(db_path: Path) -> RuntimeConfig:
+    """Matrix→Meshtastic fake runtime with SQLite storage at *db_path*."""
+    return RuntimeConfig(
+        runtime=RuntimeOptions(name="replay-scope-test"),
+        logging=LoggingConfig(level="WARNING"),
+        storage=StorageConfig(backend="sqlite", path=str(db_path)),
+        adapters=AdapterConfigSet(
+            matrix={
+                "fake_matrix": MatrixRuntimeConfig(
+                    adapter_id="fake_matrix",
+                    enabled=True,
+                    adapter_kind="fake",
+                ),
+            },
+            meshtastic={
+                "fake_meshtastic": MeshtasticRuntimeConfig(
+                    adapter_id="fake_meshtastic",
+                    enabled=True,
+                    adapter_kind="fake",
+                ),
+            },
+        ),
+        routes=RouteConfigSet(
+            routes=(
+                RouteConfig(
+                    route_id="mx-to-mesh",
+                    source_adapters=("fake_matrix",),
+                    dest_adapters=("fake_meshtastic",),
+                ),
+            )
+        ),
+    )
+
+
+async def _seed_pending_ingress(db_path: Path, event_id: str) -> None:
+    """Persist one pending durable-ingress row via the storage authority.
+
+    This is the exact state a crash leaves behind: durably admitted live
+    ingress that no worker has routed yet.
+    """
+    from medre.core.storage.sqlite.storage import SQLiteStorage
+
+    storage = SQLiteStorage(db_path=str(db_path))
+    try:
+        await storage.initialize()
+        result = await storage.admit_ingress(_nonsel_event(event_id), None, "live")
+        assert result.created and result.work_status == "pending"
+    finally:
+        await storage.close()
+
+
+async def _receipt_count(db_path: Path, event_id: str) -> int:
+    from medre.core.storage.sqlite.storage import SQLiteStorage
+
+    storage = SQLiteStorage(db_path=str(db_path))
+    try:
+        await storage.initialize()
+        return len(await storage.list_receipts_for_event(event_id))
+    finally:
+        await storage.close()
+
+
+async def _event_present(db_path: Path, event_id: str) -> bool:
+    from medre.core.storage.sqlite.storage import SQLiteStorage
+
+    storage = SQLiteStorage(db_path=str(db_path))
+    try:
+        await storage.initialize()
+        return await storage.get(event_id) is not None
+    finally:
+        await storage.close()
+
+
+@pytest.fixture()
+def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path / "medre_home"))
+    return resolve()
+
+
+class TestReplayBestEffortScopeIsolation:
+    """best_effort replay executes only the selected replay.
+
+    The replay CLI starts the full runtime lifecycle for side-effect modes.
+    That lifecycle must not, as a side effect of starting, dispatch
+    unrelated work: due ``pending``/``retry_wait`` outbox rows (retry
+    worker) or pending durable ingress rows (ingress worker).  Those rows
+    belong to the live runtime's authority, not to the replay execution
+    scope.
+    """
+
+    def test_best_effort_leaves_unrelated_pending_outbox_undispatched(
+        self, tmp_path: Path
+    ) -> None:
+        """A due pending outbox row for a NONSELECTED event stays pending.
+
+        Consumer-visible contract: after ``medre replay --mode best_effort
+        --event <selected>``, the selected event carries replay receipts
+        while the unrelated dispatchable row is untouched — no claim, no
+        attempt bump, no receipts.
+        """
+
+        from medre.core.storage.sqlite.storage import SQLiteStorage
+
+        selected_id, db_path = seed_via_smoke_cli(tmp_path)
+        config_path = _write_scope_config(tmp_path, db_path)
+        nonsel_id = "evt-nonselected-pending"
+
+        async def _seed() -> str:
+            storage = SQLiteStorage(db_path=str(db_path))
+            try:
+                await storage.initialize()
+                await storage.append(_nonsel_event(nonsel_id))
+                item = make_outbox_item(
+                    delivery_plan_id="plan-nonsel",
+                    target_adapter="fake_meshtastic",
+                    target_channel=None,
+                    status="pending",
+                    event_id=nonsel_id,
+                )
+                created = await storage.create_outbox_item(item)
+                return created.outbox_id
+            finally:
+                await storage.close()
+
+        outbox_id = asyncio.run(_seed())
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main(
+                [
+                    "replay",
+                    "--config",
+                    config_path,
+                    "--mode",
+                    "best_effort",
+                    "--event",
+                    selected_id,
+                    "--json",
+                ]
+            )
+
+        async def _check() -> tuple[DeliveryOutboxItem | None, int]:
+            storage = SQLiteStorage(db_path=str(db_path))
+            try:
+                await storage.initialize()
+                row = await storage.get_outbox_item(outbox_id)
+                receipts = await storage.list_receipts_for_event(nonsel_id)
+                return row, len(receipts)
+            finally:
+                await storage.close()
+
+        row, receipt_count = asyncio.run(_check())
+        assert row is not None, "nonselected outbox row vanished"
+        assert row.status == "pending", (
+            f"replay dispatched unrelated pending work: status={row.status!r} "
+            f"attempt={row.attempt_number}"
+        )
+        assert row.attempt_number == 1
+        assert (
+            receipt_count == 0
+        ), f"replay appended {receipt_count} receipt(s) to the nonselected event"
+
+        async def _selected_check() -> int:
+            storage = SQLiteStorage(db_path=str(db_path))
+            try:
+                await storage.initialize()
+                receipts = await storage.list_receipts_for_event(selected_id)
+                return len([r for r in receipts if r.source == "replay"])
+            finally:
+                await storage.close()
+
+        assert (
+            asyncio.run(_selected_check()) >= 1
+        ), "best_effort replay produced no replay receipt for the selected event"
+
+    def test_scoped_start_defers_unrelated_work_without_loss(
+        self,
+        tmp_paths: MedrePaths,
+        tmp_path: Path,
+    ) -> None:
+        """StartupScope contract at the runtime lifecycle seam.
+
+        LIVE start processes pending durable ingress (pre-existing
+        behaviour, asserted here as the live authority).  REPLAY scope
+        starts storage/pipeline/adapters for the replay delivery but does
+        NOT claim pending durable work: unrelated rows stay pending while
+        scoped, live ingress admitted during the scope crosses the durable
+        admission boundary (never silently lost), and a normal LIVE start
+        afterwards processes both.
+        """
+
+        from medre.adapters.fakes.matrix import FakeMatrixAdapter
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+        from medre.runtime.app import RuntimeState, StartupScope
+
+        async def _scenario() -> None:
+            # -- LIVE authority: a normal start processes pending ingress.
+            db = tmp_path / "scope_defer.db"
+            config = _scope_runtime_config(db)
+            app = RuntimeBuilder(config, tmp_paths).build()
+            await _seed_pending_ingress(db, _LIVE_EVENT_ID)
+            await app.start()
+            try:
+                assert app._ingress_worker is not None
+                beta = app.adapters["fake_meshtastic"]
+                assert isinstance(beta, FakeMeshtasticAdapter)
+                await wait_until(lambda: len(beta.delivered_payloads) >= 1, timeout=5.0)
+            finally:
+                await app.stop()
+                assert app.state is RuntimeState.STOPPED
+
+            # -- REPLAY scope: unrelated work deferred, nothing lost.
+            db2 = tmp_path / "scope_defer2.db"
+            config2 = _scope_runtime_config(db2)
+            app2 = RuntimeBuilder(config2, tmp_paths).build()
+            await _seed_pending_ingress(db2, _LIVE_EVENT_ID)
+            await app2.start(scope=StartupScope.REPLAY)
+            try:
+                assert app2.state is RuntimeState.RUNNING
+                assert app2._ingress_worker is None
+                alpha = app2.adapters["fake_matrix"]
+                assert isinstance(alpha, FakeMatrixAdapter)
+                # Live ingress while scoped crosses the durable admission
+                # boundary (adapters keep admitting; processing deferred).
+                await alpha.simulate_inbound(alpha.make_event("scoped live ingress"))
+                admitted_id = alpha.inbound_events[0].event_id
+                assert await wait_until(
+                    lambda: _event_present(db2, admitted_id), timeout=5.0
+                ), "scoped live ingress was not durably admitted"
+                beta2 = app2.adapters["fake_meshtastic"]
+                assert isinstance(beta2, FakeMeshtasticAdapter)
+                assert (
+                    beta2.delivered_payloads == []
+                ), "REPLAY scope dispatched unrelated pending work"
+                assert (await _receipt_count(db2, _LIVE_EVENT_ID)) == 0
+                # Durable admission above is the synchronization boundary for
+                # the negative dispatch assertion; no fixed timing window.
+            finally:
+                await app2.stop()
+                assert app2.state is RuntimeState.STOPPED
+
+            # -- A normal LIVE start afterwards processes the deferred work.
+            config3 = _scope_runtime_config(db2)
+            app3 = RuntimeBuilder(config3, tmp_paths).build()
+            await app3.start()
+            try:
+                beta3 = app3.adapters["fake_meshtastic"]
+                assert isinstance(beta3, FakeMeshtasticAdapter)
+                await wait_until(
+                    lambda: len(beta3.delivered_payloads) >= 2, timeout=5.0
+                )
+            finally:
+                await app3.stop()
+
+        asyncio.run(_scenario())
 
 
 class TestFullWalkthroughCLI:
@@ -383,3 +724,74 @@ class TestFullWalkthroughCLI:
             )
         dry_summary = json.loads(stdout_buf.getvalue())
         assert dry_summary["events_replayed"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: the replay teardown drain is a bounded WAIT, not a delivery authority
+# ---------------------------------------------------------------------------
+
+
+class _DrainDiagnosticsAdapter:
+    """Adapter stub exposing only the real ``diagnostics()`` contract."""
+
+    def __init__(self, pending_sequence: list[int]) -> None:
+        self._pending_sequence = list(pending_sequence)
+        self.diagnostic_calls = 0
+
+    def diagnostics(self) -> dict[str, Any]:
+        self.diagnostic_calls += 1
+        if len(self._pending_sequence) > 1:
+            return {"queue_pending": self._pending_sequence.pop(0)}
+        return {"queue_pending": self._pending_sequence[0]}
+
+
+class _DrainStubApp:
+    """Minimal app surface consumed by ``_drain_inflight_deliveries``."""
+
+    def __init__(self, adapter: _DrainDiagnosticsAdapter) -> None:
+        self.started_adapter_ids = ["mt_radio"]
+        self.adapters = {"mt_radio": adapter}
+
+
+class TestReplayTeardownDrainIsBoundedWait:
+    """The replay teardown drain only WAITS for adapters' own diagnostics
+    to report no unflushed outbound work.  Delivery truth is recorded by
+    the real queue terminal callbacks through the lifecycle authority —
+    the drain itself never creates receipts or outbox transitions, gives
+    up bounded by the configured timeout, and observes only each started
+    adapter's public diagnostics report.
+    """
+
+    async def test_drain_returns_once_queue_pending_clears(self) -> None:
+        """queue_pending 1 → 0: the wait ends as soon as work is flushed."""
+        adapter = _DrainDiagnosticsAdapter([1, 0, 0])
+        app = _DrainStubApp(adapter)
+
+        start = time.monotonic()
+        await _drain_inflight_deliveries(app, timeout=10.0)
+
+        assert time.monotonic() - start < 10.0
+        assert adapter.diagnostic_calls >= 2
+
+    async def test_drain_gives_up_bounded_when_work_never_flushes(self) -> None:
+        """queue_pending stuck > 0: the wait gives up after the timeout."""
+        adapter = _DrainDiagnosticsAdapter([1])
+        app = _DrainStubApp(adapter)
+
+        start = time.monotonic()
+        await _drain_inflight_deliveries(app, timeout=0.3)
+
+        elapsed = time.monotonic() - start
+        assert 0.3 <= elapsed < 5.0
+
+    async def test_drain_returns_immediately_without_diagnostics(self) -> None:
+        """No adapter exposes pending-work diagnostics: no waiting at all."""
+        adapter = _DrainDiagnosticsAdapter([1])
+        app = _DrainStubApp(adapter)
+        app.adapters = {"mt_radio": object()}
+
+        start = time.monotonic()
+        await _drain_inflight_deliveries(app, timeout=10.0)
+
+        assert time.monotonic() - start < 10.0
+        assert adapter.diagnostic_calls == 0

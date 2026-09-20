@@ -572,29 +572,32 @@ class DeliveryLifecycleService:
         candidates: list[DeliveryReceipt],
         record: OutboundNativeRefRecord,
     ) -> DeliveryReceipt | None:
-        """Select the best queued receipt candidate with source awareness.
+        """Select the queued receipt candidate for this exact row/attempt.
 
-        When multiple candidates match the same
-        ``(delivery_plan_id, adapter, channel)``, prefer non-replay
-        (``"live"`` / ``"retry"``) candidates over ``"replay"`` candidates.
-        This prevents a live callback from silently linking to a replay queued
-        receipt when a live candidate exists.
+        The caller guarantees every candidate already matches the callback's
+        ``outbox_id`` + ``attempt_number`` AND that the authoritative outbox
+        row was validated for this exact callback (status, event, adapter,
+        plan, channel, attempt).  Each candidate therefore belongs to this
+        one delivery attempt; selecting it cannot mutate any other row.
+        The receipt's own durable ``source`` / ``replay_run_id`` lineage is
+        the trusted attempt provenance — the same recovery used by
+        :meth:`~medre.core.engine.pipeline.outbox_manager.OutboxManager.record_terminal`
+        for terminal failure callbacks — so a replay-sourced candidate is
+        finalized exactly like a live one, with its replay lineage carried
+        onto the supplemental ``sent`` receipt.
 
-        Among the preferred source group the most-recent (last in
-        append-order) candidate wins, preserving the existing retry-lineage
+        When malformed history offers duplicates across sources for the
+        same row/attempt (a row is single-sourced in normal operation),
+        non-replay (``"live"`` / ``"retry"``) candidates are preferred over
+        ``"replay"`` candidates; within the preferred group the most-recent
+        (last in append-order) candidate wins, preserving retry-lineage
         behaviour.
-
-        If only replay candidates are available the method returns ``None``
-        after logging an operator-visible warning.  ``OutboundNativeRefRecord``
-        carries no trusted ``source`` / ``replay_run_id`` provenance, so
-        replay-only queued receipts cannot be safely used for callback
-        correlation without risking live recovery state mutation.
 
         Parameters
         ----------
         candidates:
             Non-empty list of matching queued receipts (already filtered by
-            plan_id and optionally channel).
+            outbox_id + attempt_number against the validated row).
         record:
             The outbound native reference record from the adapter callback.
             Used for log context only.
@@ -602,52 +605,29 @@ class DeliveryLifecycleService:
         Returns
         -------
         DeliveryReceipt | None
-            The selected receipt, or ``None`` if no trustworthy candidate is
-            available (empty list or replay-only candidates).
+            The selected receipt, or ``None`` when no candidate exists.
         """
         if not candidates:
             return None
-        if len(candidates) == 1:
-            candidate = candidates[0]
-            if candidate.source == "replay":
-                self._log.warning(
-                    "Supplemental queued→sent correlation: only replay-sourced "
-                    "queued receipt found for delivery_plan_id=%s event_id=%s "
-                    "adapter=%s channel=%s; skipping replay candidate %s "
-                    "(source=%s, replay_run_id=%s). OutboundNativeRefRecord "
-                    "carries no trusted replay provenance — correlation "
-                    "skipped to prevent live recovery state mutation.",
-                    record.delivery_plan_id,
-                    record.event_id,
-                    record.adapter,
-                    candidate.target_channel,
-                    candidate.receipt_id,
-                    candidate.source,
-                    candidate.replay_run_id,
-                )
-                return None
-            return candidate
-
         live_candidates = [r for r in candidates if r.source != "replay"]
-        replay_candidates = [r for r in candidates if r.source == "replay"]
-
         if live_candidates:
             # Prefer the latest non-replay candidate.
             return live_candidates[-1]
 
-        # Only replay-sourced candidates — skip with warning.
-        self._log.warning(
-            "Supplemental queued→sent correlation: only replay-sourced "
-            "queued receipts found for delivery_plan_id=%s event_id=%s "
-            "adapter=%s (%d candidates); skipping all replay candidates. "
-            "OutboundNativeRefRecord carries no trusted replay provenance — "
-            "correlation skipped to prevent live recovery state mutation.",
-            record.delivery_plan_id,
+        # Only replay-sourced candidates — this row belongs to a replay
+        # execution and the callback matched its exact outbox_id +
+        # attempt_number, so finalize it with its replay lineage.
+        self._log.debug(
+            "Supplemental queued→sent correlation: selecting replay-sourced "
+            "queued receipt %s (replay_run_id=%s) for outbox_id=%s "
+            "event_id=%s adapter=%s — exact row/attempt correlation",
+            candidates[-1].receipt_id,
+            candidates[-1].replay_run_id,
+            record.outbox_id,
             record.event_id,
             record.adapter,
-            len(replay_candidates),
         )
-        return None
+        return candidates[-1]
 
     # -- Atomic queued->sent finalization ------------------------------------
 
@@ -701,8 +681,8 @@ class DeliveryLifecycleService:
         transaction. The storage transaction re-checks outbox ID, attempt
         number, and status so a concurrent reclaim cannot partially commit.
 
-        If no matching ``"queued"`` receipt is found (e.g. non-queued
-        adapter or replay context), the method returns silently.
+        If no matching ``"queued"`` receipt is found (e.g. a non-queued
+        adapter), the method returns silently.
 
         Parameters
         ----------
@@ -1063,9 +1043,7 @@ class DeliveryLifecycleService:
         failed attempt and must point back to evidence for this exact outbox.
         """
         target_receipts = [
-            receipt
-            for receipt in receipts
-            if receipt.outbox_id == item.outbox_id
+            receipt for receipt in receipts if receipt.outbox_id == item.outbox_id
         ]
         malformed_current = [
             receipt

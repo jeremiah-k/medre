@@ -85,12 +85,97 @@ pytest tests/test_meshcore_live.py -m live -v
 | —          | Docker SDK-boundary | —          | Not proven (no containerized MeshCore node)                                                                                                                                                      |
 | historical | Live network/radio  | 2026-06-11 | Historical record only, not a current-tree validation claim: first live 3-way bridge (Matrix + Meshtastic + MeshCore BLE); bidirectional routing observed with connection/reconnect bugs present |
 
+## Physical Pair Validation (2026-09-19, campaign `buildout/hardware-readiness`)
+
+Two LilyGo T-Beam v1.0 (SX1276 + AXP192) companions on official
+`Tbeam_SX1276_companion_radio_ble` v1.17.1, one owned by MEDRE over BLE, the
+other an independent native SDK peer. Commissioned to the US lab preset
+(910.525 MHz / SF7 / BW 62.5 / CR5) on a private group channel; host pairing is
+a one-time `bluetoothctl` bond — test runs connect pin-less over the existing
+bond and never re-pair.
+
+Opt-in harness (ordinary suite stays deselected; full output piped to the
+private lab evidence directory):
+
+```bash
+MESHCORE_PAIR=1 \
+MESHCORE_MEDRE_BLE_ADDRESS="<owned-board-a>" \
+MESHCORE_PEER_BLE_ADDRESS="<owned-board-b>" \
+pytest tests/test_meshcore_pair_live.py -m "live and hardware" \
+  -p no:unraisableexception
+```
+
+Roles are reversible via the same env keys plus `MESHCORE_MEDRE_NODE_NAME` /
+`MESHCORE_PEER_NODE_NAME`; both boards were validated under MEDRE (each
+allocation passed the full module). `MEDRE_LIVE_QUICK=1` runs a core-evidence
+subset for fast iteration; full mode is the proof gate. Coverage:
+
+- N1 healthy lifecycle + bounded quiet window (no stale admission).
+- N2 native ingress: exact content, Unicode, newline, durable admission; the
+  firmware prepends the sender node name on the wire, so canonical bodies
+  carry `"<sender-name>: <text>"` and no per-packet sender pubkey exists to
+  assert.
+- N5 controlled sender-timestamp cases through the supported SDK argument:
+  wire-identical same-second text dedups to one event; distinct timestamps
+  admit separately.
+- N6 wrong-key channel probe is not admitted; channel restored and a positive
+  delivery still admitted.
+- N3 routed egress observed by the independent peer on the expected channel,
+  correlated with durable receipts (channel sends are local-acceptance only —
+  `PACKET_OK` is not RF delivery).
+- N4 Unicode/newline passthrough and the documented radio cap: the firmware
+  limits the whole group text to 160 chars _including_ its sender-name prefix.
+
+The fully-native cross-transport bridge and fault cases (B1 both directions,
+B3 negative + restored positive, B4 bounded echo, F1 BLE stop/restart, F6
+scoped isolation) live in `tests/test_meshcore_meshtastic_bridge_live.py`
+(`MEDRE_MC_BRIDGE=1` plus MT serial and MC BLE env endpoints).
+
+Operational firmware truths proven on this hardware:
+
+- The T-Beam RTC does not survive power loss; MeshCore group-message replay
+  protection silently drops stale sender timestamps, so boards must be
+  time-synced through the companion command after any power/reset before
+  group messaging works.
+- Each board accepts exactly one BLE central connection; a leftover peer or
+  app holding the slot fails MEDRE's connect with async errors, not a busy
+  signal. Release stale links with a targeted `bluetoothctl disconnect`.
+- A channel readback keeps a fixed 16-byte secret slot; the empty-channel
+  default reads back as 16 zero bytes (not an absent field).
+- A T-Beam can refuse BLE central connects for minutes after its previous
+  central disconnects — MEDRE's startup ladder (3 attempts) can exhaust
+  against a healthy board ("Failed to connect to device"). This is a setup
+  hazard, not firmware damage: allow settle time between a runtime stop and
+  the next start, verify a healthy 3/3 adapter start before arming traffic,
+  and reserve hub power-cycle + clock re-sync for a genuinely wedged board
+  (RTC is always lost and must be re-synced afterwards). During a soak, the
+  board then held one steady central for the full window with zero
+  reconnects (see the LXMF page's three-transport pass).
+
+## Hardware Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
+
+- The pinned `meshcore` SDK defaults `dtr=True` on serial connections, and
+  its `create_serial` factory re-opens the port with `dtr=not dtr` after an
+  unanswered handshake. Boards with a USB-UART auto-download circuit on IO0
+  (observed: LilyGO T-LoRa V2.1-1.6) must see `dtr=False, rts=False` from
+  port open, so `MeshCoreSession` constructs the serial client directly
+  (no factory, no inversion retry) and always requests deasserted lines.
+- Official companion v1.17.1 ships USB-serial builds for `lilygo_tlora_v2_1`
+  but not for the SX1276 T-Beam; the T-Beam companion is BLE-only.
+- US preset per docs.meshcore.io FAQ 2.3: 910.525 MHz, SF7, BW 62.5, CR5.
+
 ## Known Gaps
 
 - No Docker setup for MeshCore. No containerized node for Docker SDK-boundary tests.
-- BLE live validation complete with known instability. Pre-scan and stale BlueZ cleanup required for a reliable connection. Connection/reconnect bugs observed and tracked.
-- Live hardware smoke test recorded (BLE, June 2026). BLE is the least reliable transport; prefer TCP or serial for stable deployments.
-- Real TCP/serial connections work via `MeshCoreSession` but have not been exercised in a full live smoke test.
+- Live hardware smoke test recorded (BLE, June 2026) reported BLE instability
+  with pre-scan/stale-BlueZ workarounds. The 2026-09-19 pair campaign refined
+  that picture: over a one-time host bond, pin-less BLE sessions ran stably
+  across repeated connects; the instability was tied to stale bonds and
+  pairing-time churn rather than bonded sessions. Transport choice should
+  follow the board: on ESP32 auto-download wiring, serial carries a reset
+  hazard that BLE avoids, while TCP suits networked nodes.
+- Real TCP/serial connections work via `MeshCoreSession` but have not been
+  exercised in a full live smoke test.
 
 ## Serial-First Three-Transport Bridge
 

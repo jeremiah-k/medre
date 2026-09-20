@@ -13,9 +13,9 @@ import pytest
 
 from medre.adapters.fakes.lxmf import FakeLxmfAdapter
 from medre.adapters.lxmf.adapter import LxmfAdapter
-from medre.adapters.lxmf.event_shape import LXMF_NATIVE_SCHEMA_VERSION
 from medre.adapters.lxmf.compat import HAS_LXMF
 from medre.adapters.lxmf.errors import LxmfConnectionError
+from medre.adapters.lxmf.event_shape import LXMF_NATIVE_SCHEMA_VERSION
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
@@ -411,6 +411,27 @@ class TestLxmfAdapterNonFakeMode:
         assert info.health != "healthy"
 
 
+class TestLxmfAdapterReticulumConfigDir:
+    """The runtime config seam for the isolated Reticulum config dir."""
+
+    def test_config_field_reaches_session(self) -> None:
+        """Runtime builders construct adapters as ``cls(config)``; the
+        config's ``reticulum_config_dir`` must therefore select the
+        session's Reticulum configuration directory."""
+        config = _make_config(reticulum_config_dir="/lab/rns-a")
+        adapter = LxmfAdapter(config)
+        assert adapter.session._reticulum_config_dir == "/lab/rns-a"
+
+    def test_explicit_constructor_arg_overrides_config(self) -> None:
+        config = _make_config(reticulum_config_dir="/lab/rns-a")
+        adapter = LxmfAdapter(config, reticulum_config_dir="/lab/rns-b")
+        assert adapter.session._reticulum_config_dir == "/lab/rns-b"
+
+    def test_none_everywhere_keeps_sdk_discovery(self) -> None:
+        adapter = LxmfAdapter(_make_config())
+        assert adapter.session._reticulum_config_dir is None
+
+
 # ===================================================================
 # Event subscription scaffold
 # ===================================================================
@@ -666,8 +687,7 @@ class TestLxmfAdapterTaskScheduling:
         # Wait for the event AND the task's done-callback removing it from
         # _background_tasks — publication and cleanup land on different turns.
         await wait_until(
-            lambda: len(inbound_collector.events) == 1
-            and not adapter._background_tasks
+            lambda: len(inbound_collector.events) == 1 and not adapter._background_tasks
         )
 
         assert len(inbound_collector.events) == 1

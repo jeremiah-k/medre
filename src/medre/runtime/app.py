@@ -70,7 +70,7 @@ if TYPE_CHECKING:
     from medre.runtime.retry import RetryWorker
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
 
-__all__ = ["MedreApp", "RuntimeState"]
+__all__ = ["MedreApp", "RuntimeState", "StartupScope"]
 
 _logger = logging.getLogger(__name__)
 _ROUTE_IDS_DISPLAY_LIMIT = 10
@@ -92,6 +92,30 @@ class RuntimeState(enum.Enum):
     STOPPING = "stopping"
     STOPPED = "stopped"
     FAILED = "failed"
+
+
+class StartupScope(enum.Enum):
+    """Execution scope for :meth:`MedreApp.start`.
+
+    ``LIVE``
+        Full live runtime: storage, pipeline, adapters, the durable
+        ingress worker (routes admitted ingress), and the retry worker
+        (claims due outbox work).  This is the default and preserves
+        historical behaviour for every existing caller.
+
+    ``REPLAY``
+        Replay-delivery scope: storage, pipeline, and adapters start so a
+        side-effect replay can deliver through real adapters, but the
+        durable-ingress and retry workers do NOT run.  Live ingress
+        received while scoped still crosses the established durable
+        admission boundary (canonical event + pending work marker are
+        committed — nothing is silently lost), and due
+        ``pending``/``retry_wait`` outbox rows are left untouched for the
+        live authority.  A normal LIVE start processes the deferred work.
+    """
+
+    LIVE = "live"
+    REPLAY = "replay"
 
 
 def _utc_now() -> datetime:
@@ -279,6 +303,7 @@ class MedreApp:
     adapter_start_duration_ms: dict[str, float] = field(default_factory=dict)
     started_adapter_ids: list[str] = field(default_factory=list)
     _state: RuntimeState = field(default=RuntimeState.INITIALIZED, init=False)
+    _startup_scope: StartupScope = field(default=StartupScope.LIVE, init=False)
     _capacity_controller: CapacityController | None = field(default=None, init=False)
     _replay_engine: ReplayEngine | None = field(default=None, init=False)
     _retry_worker: RetryWorker | None = field(default=None, init=False)
@@ -657,7 +682,7 @@ class MedreApp:
 
     # -- Lifecycle ---------------------------------------------------------------
 
-    async def start(self) -> None:
+    async def start(self, scope: StartupScope = StartupScope.LIVE) -> None:
         """Start all subsystems in dependency order.
 
         Order: storage → pipeline runner → adapters.
@@ -670,6 +695,24 @@ class MedreApp:
         attribution but do **not** abort the remaining adapters.  On
         catastrophic core subsystem failure, any already-started adapters
         are stopped in reverse order.
+
+        In LIVE scope the retry and durable-ingress workers are activated
+        only at the post-adapter boundary, after startup readiness is
+        computed and every adapter has settled: a worker claim cycle must
+        never dispatch due work into an adapter that is still starting.
+
+        Parameters
+        ----------
+        scope:
+            Execution scope (:class:`StartupScope`).  ``LIVE`` (default)
+            runs the full runtime including the durable-ingress worker and
+            the retry worker.  ``REPLAY`` starts the same delivery core
+            (storage, pipeline, adapters) for side-effect replay executions
+            but does NOT start those workers: due ``pending``/``retry_wait``
+            outbox rows and pending durable-ingress rows belong to the live
+            authority and stay untouched, while live ingress received by
+            started adapters still crosses the durable admission boundary
+            and is processed by a later LIVE start.
 
         Startup semantics
         -----------------
@@ -697,7 +740,12 @@ class MedreApp:
             )
 
         self._set_state(RuntimeState.STARTING)
-        _logger.info("Starting MEDRE runtime %s", self.config.runtime.name)
+        self._startup_scope = scope
+        _logger.info(
+            "Starting MEDRE runtime %s (scope=%s)",
+            self.config.runtime.name,
+            scope.value,
+        )
 
         # Record startup timestamps.
         self._startup_wall = _utc_now().isoformat()
@@ -781,7 +829,9 @@ class MedreApp:
         #        until adapter startup is complete. Cursor-owned adapters may
         #        admit work during startup; the rows remain durable until all
         #        available delivery targets have had a chance to start.
-        if self.storage is not None:
+        #        REPLAY scope does not construct the worker: admitted rows
+        #        stay pending for the live authority (nothing is lost).
+        if self.storage is not None and scope is StartupScope.LIVE:
             from medre.core.ingress import DurableIngressWorker
 
             self._ingress_worker = DurableIngressWorker(
@@ -789,8 +839,14 @@ class MedreApp:
                 pipeline=self.pipeline_runner,
             )
 
-        # 2.5. Start the retry worker (if enabled).
-        if not self.config.retry.enabled and self.config.routes.routes:
+        # 2.5. Start the retry worker (if enabled). REPLAY scope never
+        #        starts it: a replay execution must not claim due
+        #        pending/retry_wait rows belonging to unrelated work.
+        if (
+            scope is StartupScope.LIVE
+            and not self.config.retry.enabled
+            and self.config.routes.routes
+        ):
             stale = [
                 r.route_id
                 for r in self.config.routes.routes
@@ -806,7 +862,11 @@ class MedreApp:
                     shown,
                     suffix,
                 )
-        if self.config.retry.enabled and self.storage is not None:
+        if (
+            scope is StartupScope.LIVE
+            and self.config.retry.enabled
+            and self.storage is not None
+        ):
             from medre.runtime.retry import RetryWorker as _RW
 
             self._retry_worker = _RW(
@@ -820,7 +880,14 @@ class MedreApp:
                     self.config.runtime.shutdown_timeout_seconds
                 ),
             )
-            await self._retry_worker.start()
+            # Activation is deferred to the post-adapter boundary below:
+            # the worker's first claim cycle must not run while adapters
+            # are still STARTING.  Real adapters refuse delivery until
+            # started (``AdapterPermanentError("Adapter not started")``),
+            # so a cycle dispatched during startup would consume an
+            # attempt — permanently classifying/dead-lettering durable
+            # work — purely from ordering, not from any real transport
+            # failure.
 
         # 3. Start each adapter in deterministic order.
         #    Sort by adapter_id for reproducible startup sequence.
@@ -1071,7 +1138,10 @@ class MedreApp:
 
         # -- Compute startup-derived route readiness ----------------------------
         if self._route_eligibility is not None and self._route_provenance is not None:
-            from medre.runtime.route_engine import compute_startup_readiness
+            from medre.runtime.route_engine import (
+                SKIPPED_REASON_TARGETS_START_FAILED,
+                compute_startup_readiness,
+            )
 
             self._startup_readiness = compute_startup_readiness(
                 eligibility=self._route_eligibility,
@@ -1080,6 +1150,43 @@ class MedreApp:
                 registered_routes=self._registered_routes,
                 config_routes=self.config.routes,
             )
+
+            # Enforce the assessment where planning into a never-started
+            # adapter is the only possible outcome.  compute_startup_readiness
+            # only assesses; without removal the router keeps planning
+            # deliveries into adapters that failed to start, and every event
+            # for that target dead-letters with the adapter's own not-started
+            # error (observed physically: ten "Session not initialised" MeshCore
+            # dead letters after a BLE startup refusal).
+            #
+            # The enforcement is scope- and reason-aware:
+            #
+            # * LIVE + all targets failed (SKIPPED_REASON_TARGETS_START_FAILED)
+            #   → remove the route.  Every fresh delivery would fail.
+            # * LIVE + source failed (SKIPPED_REASON_SOURCE_START_FAILED)
+            #   → keep the route.  Routing a stored canonical event keys off
+            #   the event's recorded source adapter, not a live connection:
+            #   already-admitted durable ingress and other stored work must
+            #   still reach surviving targets.  Fresh live ingress cannot
+            #   arrive from an adapter that never started, so keeping the
+            #   route plans nothing into the dead adapter.
+            # * REPLAY → remove nothing.  Replay selection executes stored
+            #   events explicitly; a pruned route would misreport the
+            #   execution as "no routes matched" instead of delivering to
+            #   surviving targets (or failing per-target, truthfully, when
+            #   targets are down).  The readiness report below still records
+            #   every skip.
+            # * DEGRADED routes (some targets surviving) always stay
+            #   registered: partial target loss keeps honest per-target
+            #   outcomes.
+            if self._startup_scope is StartupScope.LIVE:
+                for skipped_route in self._startup_readiness.skipped:
+                    if skipped_route.reason != SKIPPED_REASON_TARGETS_START_FAILED:
+                        continue
+                    try:
+                        self.router.remove_route(skipped_route.route_id)
+                    except KeyError:
+                        pass
 
         # -- Emit startup classified event ------------------------------------
         self._emit_event(
@@ -1139,8 +1246,53 @@ class MedreApp:
                 degradation_cause,
             )
 
-        if self._ingress_worker is not None:
-            await self._ingress_worker.start()
+        # -- Activate LIVE workers at the post-adapter boundary ----------------
+        # Both workers' first cycles run only after every adapter has
+        # reached its terminal startup state (READY or FAILED), so due
+        # retry work is claimed against adapters that have actually
+        # settled — never against one still INITIALIZING.  Startup-failure
+        # cleanup (``_cleanup_core_resources``) and ``stop()`` already
+        # handle a constructed-but-not-started worker.
+        try:
+            if self._retry_worker is not None:
+                # Existing durable rows can target adapters that failed this
+                # startup.  Preserve that work without consuming a transport
+                # attempt on a process-local "not started" refusal.  The retry
+                # worker still reconciles persisted terminal evidence before this
+                # availability gate.
+                self._retry_worker.set_available_target_adapters(
+                    self.started_adapter_ids
+                )
+                await self._retry_worker.start()
+
+            if self._ingress_worker is not None:
+                await self._ingress_worker.start()
+        except asyncio.CancelledError as c_exc:
+            # Worker activation is still part of startup.  Do not strand
+            # already-started adapters/core resources if cancellation lands
+            # after adapter readiness but before RUNNING.
+            cleared = _drain_pending_cancellations()
+            cleanup_drained = await self._start_failure_cleanup()
+            total = cleared + cleanup_drained
+            if total:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(total):
+                        current.cancel()
+            raise c_exc
+        except Exception as exc:
+            cleanup_drained = await self._start_failure_cleanup()
+            if cleanup_drained:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(cleanup_drained):
+                        current.cancel()
+                raise asyncio.CancelledError(
+                    "cancelled during runtime-worker activation cleanup"
+                ) from exc
+            raise RuntimeStartupError(
+                f"Failed to activate runtime workers: {exc}"
+            ) from exc
 
         self._set_state(RuntimeState.RUNNING)
 
@@ -1163,7 +1315,7 @@ class MedreApp:
                     },
                 )
 
-    async def stop(self) -> None:
+    async def stop(self, *, drain_deadline: float | None = None) -> None:
         """Stop all subsystems in reverse dependency order.
 
         Order: adapters → pipeline runner → storage.
@@ -1171,6 +1323,18 @@ class MedreApp:
         Adapters are stopped in reverse start order.  Individual stop
         failures are logged but do not prevent other subsystems from
         shutting down.
+
+        Parameters
+        ----------
+        drain_deadline:
+            Absolute ``time.monotonic()`` deadline for the shutdown drain.
+            ``None`` (default) derives the deadline from
+            ``limits.shutdown_drain_timeout_seconds`` at stop time.  A
+            caller that already consumed part of the documented drain
+            budget (e.g. the ``best_effort`` replay CLI's pre-stop
+            in-flight-delivery drain) passes the same absolute deadline so
+            congestion cannot spend the configured budget twice
+            (durable-ingress.md "Capacity and shutdown handoff").
 
         This method is idempotent: calling it when the runtime is in
         ``STOPPED``, ``STOPPING``, or ``INITIALIZED`` state returns
@@ -1209,9 +1373,13 @@ class MedreApp:
         # capacity. Ingress grace and the subsequent capacity drain share one
         # deadline so congestion cannot spend the configured drain timeout
         # twice. Adapters remain live while ingress drains; newly admitted
-        # events stay durably pending for the next run.
+        # events stay durably pending for the next run.  A caller-supplied
+        # deadline (already-running budget, see docstring) replaces the
+        # freshly-derived one.
         drain_deadline = (
-            _time.monotonic() + self.config.limits.shutdown_drain_timeout_seconds
+            drain_deadline
+            if drain_deadline is not None
+            else _time.monotonic() + self.config.limits.shutdown_drain_timeout_seconds
         )
         if self._replay_engine is not None:
             self._replay_engine.cancel()

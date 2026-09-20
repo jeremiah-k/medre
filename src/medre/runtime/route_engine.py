@@ -33,7 +33,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
 from medre.core.routing.router import Router
 from medre.runtime.errors import RuntimeConfigError
 
@@ -50,6 +50,8 @@ __all__ = [
     "RouteRegistrationResult",
     "RouteStartupReadiness",
     "RouteValidationError",
+    "SKIPPED_REASON_SOURCE_START_FAILED",
+    "SKIPPED_REASON_TARGETS_START_FAILED",
     "SkippedRoute",
     "UnavailableRoute",
     "build_runtime_routes",
@@ -102,6 +104,17 @@ class RouteOperationalState(enum.Enum):
 # Route eligibility metadata models
 # ---------------------------------------------------------------------------
 
+# Machine-readable startup-skip reasons (SkippedRoute.reason).  The
+# distinction is load-bearing for enforcement: see
+# compute_startup_readiness and MedreApp.start — routes skipped because
+# every TARGET failed are removed from the router (planning into them
+# dead-letters per event), while routes skipped because their SOURCE
+# failed stay registered (stored canonical work from that source still
+# routes; fresh live ingress cannot arrive from an adapter that never
+# started).
+SKIPPED_REASON_SOURCE_START_FAILED = "source_adapter_start_failed"
+SKIPPED_REASON_TARGETS_START_FAILED = "no_surviving_targets_start_failed"
+
 
 @dataclass(frozen=True)
 class DegradedRoute:
@@ -128,8 +141,10 @@ class SkippedRoute:
     route_id:
         The expanded route ID that was skipped.
     reason:
-        Human-readable reason, e.g. ``"source_adapter_failed"`` or
-        ``"no_surviving_targets"``.
+        Machine-readable skip reason: ``SKIPPED_REASON_SOURCE_START_FAILED``
+        (startup only: the route's source adapter failed to start) or
+        ``SKIPPED_REASON_TARGETS_START_FAILED`` (startup only: no target
+        adapter survived startup), or a build-failure reason string.
     failed_adapter_ids:
         Adapter IDs that caused the skip (source or all dest adapters
         that failed to build).
@@ -427,12 +442,26 @@ def _expand_route_config(
         source_channel = rc.dest_channel
         dest_channel = rc.source_channel
         origin_label = rc.dest_origin_label
+        # Reverse legs deliver to the configured source side, which has no
+        # structured destination: ``dest_destination`` addresses the route's
+        # configured dest side only.
+        destination = None
     else:
         source_ids = rc.source_adapters
         dest_ids = rc.dest_adapters
         source_channel = rc.source_channel
         dest_channel = rc.dest_channel
         origin_label = rc.source_origin_label
+        destination = (
+            None
+            if rc.dest_destination is None
+            else RouteDestination(
+                kind=rc.dest_destination.kind,
+                destination_hash=rc.dest_destination.destination_hash,
+                destination_name=rc.dest_destination.destination_name,
+                metadata=dict(rc.dest_destination.metadata),
+            )
+        )
 
     # BridgePolicy event types → RouteSource event_kinds
     event_kinds: tuple[str, ...] = ()
@@ -457,7 +486,10 @@ def _expand_route_config(
         else:
             route_id = f"{rc.route_id}__{src_idx}"
 
-        targets = [RouteTarget(adapter=did, channel=dest_channel) for did in dest_ids]
+        targets = [
+            RouteTarget(adapter=did, channel=dest_channel, destination=destination)
+            for did in dest_ids
+        ]
 
         source = RouteSource(
             adapter=src_id,
@@ -1207,12 +1239,13 @@ def compute_startup_readiness(
     * Routes already **SKIPPED** at build time remain SKIPPED (build
       eligibility is the source of truth for build failures).
     * For routes that were REGISTERED or DEGRADED at build time:
-      - If the source adapter has state ``FAILED`` → SKIPPED
+      - If all target adapters have state ``FAILED`` → SKIPPED
+        (reason: ``no_surviving_targets_start_failed``).  This target-safety
+        condition takes precedence when the source also failed.
+      - Otherwise, if the source adapter has state ``FAILED`` → SKIPPED
         (reason: ``source_adapter_start_failed``).
       - If some target adapters have state ``FAILED`` but others are
         ``READY`` → DEGRADED.
-      - If all target adapters have state ``FAILED`` → SKIPPED
-        (reason: ``no_surviving_targets_start_failed``).
       - If source and all targets are ``READY`` → REGISTERED.
     * Adapters in states other than ``FAILED`` or ``READY`` (e.g.
       ``DEGRADED``, ``BACKPRESSURED``) are treated as surviving for
@@ -1236,6 +1269,15 @@ def compute_startup_readiness(
     -------
     RouteStartupReadiness
         Startup-derived readiness assessment with per-route states.
+
+    Enforcement contract (see :meth:`~medre.runtime.app.MedreApp.start`):
+    only ``SKIPPED_REASON_TARGETS_START_FAILED`` routes are removed from
+    the router, and only for LIVE scope.  Routes skipped because their
+    SOURCE failed stay registered: routing a stored canonical event keys
+    off the event's recorded source adapter, not a live connection, and
+    an adapter that never started cannot deliver fresh live ingress
+    anyway.  Pruning source-failed routes would silently re-route stored
+    work into a false ``no-route`` outcome.
     """
     from medre.core.lifecycle.states import AdapterState
 
@@ -1280,27 +1322,11 @@ def compute_startup_readiness(
             if route is None:
                 continue
 
-            src = route.source.adapter
-            if src is not None:
-                src_state = adapter_states.get(src)
-                if src_state is AdapterState.FAILED:
-                    _logger.warning(
-                        "Startup readiness: route %r source adapter %r "
-                        "failed to start — skipping",
-                        expanded_id,
-                        src,
-                    )
-                    startup_skipped.append(
-                        SkippedRoute(
-                            route_id=expanded_id,
-                            reason="source_adapter_start_failed",
-                            failed_adapter_ids=(src,),
-                        )
-                    )
-                    any_skipped = True
-                    continue
-
-            # Check target adapter states.
+            # Target viability is the safety gate and therefore takes
+            # precedence over the source-state reason.  If the source and
+            # every target both fail startup, the route still has no possible
+            # delivery path and must be classified as an all-target failure so
+            # LIVE startup enforcement removes it.
             failed_target_ids: list[str] = []
             surviving_count = 0
             for t in route.targets:
@@ -1322,12 +1348,34 @@ def compute_startup_readiness(
                 startup_skipped.append(
                     SkippedRoute(
                         route_id=expanded_id,
-                        reason="no_surviving_targets_start_failed",
+                        reason=SKIPPED_REASON_TARGETS_START_FAILED,
                         failed_adapter_ids=tuple(sorted(failed_target_ids)),
                     )
                 )
                 any_skipped = True
-            elif failed_target_ids:
+                continue
+
+            src = route.source.adapter
+            if src is not None:
+                src_state = adapter_states.get(src)
+                if src_state is AdapterState.FAILED:
+                    _logger.warning(
+                        "Startup readiness: route %r source adapter %r "
+                        "failed to start — skipping",
+                        expanded_id,
+                        src,
+                    )
+                    startup_skipped.append(
+                        SkippedRoute(
+                            route_id=expanded_id,
+                            reason=SKIPPED_REASON_SOURCE_START_FAILED,
+                            failed_adapter_ids=(src,),
+                        )
+                    )
+                    any_skipped = True
+                    continue
+
+            if failed_target_ids:
                 _logger.warning(
                     "Startup readiness: route %r degraded — target "
                     "adapters %r failed to start",

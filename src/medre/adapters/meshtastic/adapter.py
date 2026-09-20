@@ -116,6 +116,7 @@ from medre.core.policies.startup_backlog_suppress import (
     should_suppress_startup_backlog,
 )
 from medre.core.rendering.renderer import RenderingResult
+from medre.core.supervision.diagnostic_contract import QUEUE_PENDING
 
 
 class MeshtasticAdapter(AdapterContract):
@@ -830,7 +831,7 @@ class MeshtasticAdapter(AdapterContract):
             "connection_type": self._config.connection_type,
             "mode": self._config.connection_type,
             "health": self._last_health,
-            "queue_pending": self._queue.pending_count,
+            QUEUE_PENDING: self._queue.pending_count,
             "queue_total_sent": self._queue.total_sent,
             "queue_total_failed": self._queue.total_failed,
             "queue_total_enqueued": self._queue.total_enqueued,

@@ -476,7 +476,7 @@ A conforming implementation detects exactly ten finding kinds: `orphaned_outbox`
 ### 9.4 Replay/Live Separation Conformance
 
 1. Queued callback source selection prefers non-replay (`"live"`, `"retry"`) candidates over `"replay"` candidates when multiple matching queued receipts exist.
-2. When only replay candidates are available, the pipeline skips correlation and emits a warning. No supplemental sent receipt is created. Replay-only queued receipts MUST NOT be used for callback correlation because `OutboundNativeRefRecord` carries no trusted `source` / `replay_run_id` provenance. This restriction MAY be relaxed in a future version when callback records carry trusted replay provenance.
+2. Replay-sourced queued candidates finalize through the same exact `outbox_id` + `attempt_number` correlation as live candidates, against the authoritative outbox row validated first; the selected receipt's durable `source` / `replay_run_id` lineage is carried onto the supplemental `sent` receipt, and replay-only selection is logged at debug level. When duplicates across sources exist for the same row and attempt, non-replay candidates are preferred. A callback that does not match the validated outbox row is rejected regardless of candidate source.
 3. Replay does not mutate live recovery state (receipts, outbox items, retry state).
 
 ### 9.5 Startup Ownership Conformance

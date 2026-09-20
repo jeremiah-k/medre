@@ -68,6 +68,7 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.rendering.renderer import RenderingResult
+from medre.core.supervision.diagnostic_contract import PENDING_DELIVERY_COUNT
 
 # Capabilities for the LXMF transport adapter.
 _LXMF_CAPABILITIES = AdapterCapabilities(
@@ -129,11 +130,20 @@ class LxmfAdapter(AdapterContract):
         self._config = config
         self.adapter_id = config.adapter_id
         self._capabilities = _LXMF_CAPABILITIES
+        # Explicit constructor injection wins over the config field so
+        # programmatic callers can override; runtime-built adapters pass
+        # only the config, whose ``reticulum_config_dir`` field then
+        # selects the isolated Reticulum configuration directory.
+        self._reticulum_config_dir: str | None = (
+            reticulum_config_dir
+            if reticulum_config_dir is not None
+            else config.reticulum_config_dir
+        )
         self._session = LxmfSession(
             config=config,
             adapter_id=config.adapter_id,
             platform=self.platform,
-            reticulum_config_dir=reticulum_config_dir,
+            reticulum_config_dir=self._reticulum_config_dir,
         )
         self._codec = LxmfCodec(config.adapter_id, config)
         self._classifier = LxmfPacketClassifier(config)
@@ -467,7 +477,7 @@ class LxmfAdapter(AdapterContract):
                 "last_error": session_diag.last_error,
                 "known_path_count": session_diag.known_path_count,
                 "propagation_enabled": session_diag.propagation_enabled,
-                "pending_delivery_count": session_diag.pending_delivery_count,
+                PENDING_DELIVERY_COUNT: session_diag.pending_delivery_count,
                 "mode": session_diag.mode,
                 "announces_sent": session_diag.announces_sent,
                 "announce_failures": session_diag.announce_failures,

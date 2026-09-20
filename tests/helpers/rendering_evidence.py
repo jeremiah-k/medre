@@ -24,6 +24,7 @@ from medre.core.events import (
 from medre.core.rendering.renderer import (
     RenderingContext,
 )
+from medre.core.routing.models import RouteDestination
 
 
 def make_event(
@@ -57,6 +58,7 @@ def make_context(
     max_text_bytes: int | None = None,
     max_text_chars: int | None = None,
     source_origin_label: str | None = None,
+    target_destination: RouteDestination | None = None,
 ) -> RenderingContext:
     """Create a RenderingContext with sensible defaults."""
     return RenderingContext(
@@ -67,6 +69,7 @@ def make_context(
         max_text_bytes=max_text_bytes,
         max_text_chars=max_text_chars,
         source_origin_label=source_origin_label,
+        target_destination=target_destination,
     )
 
 

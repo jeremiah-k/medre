@@ -35,6 +35,29 @@ medre replay --mode dry_run --config my-bridge.yaml
 medre replay --mode best_effort --config my-bridge.yaml
 ```
 
+`best_effort` starts the configured runtime in the replay-delivery scope
+(real adapters included — delivery requires them), executes the
+re-delivery, holds adapters open for a bounded drain of in-flight
+outbound deliveries, then stops. The pre-stop drain and the runtime
+stop's own capacity drain share one `limits.shutdown_drain_timeout_seconds`
+deadline — congestion cannot spend the documented drain budget twice
+(the CLI passes its already-running deadline into `stop()`). Queue-backed
+completions (and native failures) are finalized by the
+adapters' real terminal callbacks through the lifecycle authority, carrying
+the replay attempt's own `source`/`replay_run_id` lineage; the bounded drain
+is only a wait and never infers per-message delivery truth. A replay body
+failure or cancellation stays the operator-facing error: secondary
+teardown failures are logged, never silently swallowed, and never replace
+the primary failure. The
+replay-delivery scope starts storage, pipeline, and adapters
+only: the durable-ingress and retry workers do not run, so the replay
+never dispatches unrelated due `pending`/`retry_wait` outbox rows and
+never routes live ingress received during the window. Ingress received
+while scoped still crosses the durable admission boundary (canonical
+event + pending work marker committed) and is processed by the next
+normal live start — deferred, not lost. Other modes run without starting
+adapters and without delivery side effects.
+
 ### Find Current Unresolved Deliveries
 
 ```bash
@@ -338,6 +361,26 @@ sqlite3 {state}/medre.sqlite "
   WHERE r.event_id IS NULL;
 "
 ```
+
+### Replay Is Not Gated by Live Source Connectivity
+
+Replay routes a stored canonical event by the event's recorded source
+adapter; it does not need the old INPUT radio to be online. A replay
+execution starts the runtime in the replay scope, where a degraded start
+(for example, the source adapter's radio being offline) never removes
+routes from the router: the selected event still routes to surviving
+targets, and the delivery records honest `replay` lineage. If a route's
+targets are genuinely unavailable, the replay result reports the per-target
+delivery failure — it is never silently collapsed into a `no routes
+matched` outcome. `dry_run` and other read-only modes are unaffected.
+
+The same boundary applies to the live runtime's already-admitted durable
+ingress: a source adapter that fails to start on a restart does not erase
+input that was durably admitted earlier. Stored events from that source
+still route to surviving targets; only fresh live ingress is impossible,
+because an adapter that never started cannot receive anything. A genuine
+no-route condition (no configured route for an event's source, or a
+disabled route) still yields no delivery.
 
 ## Database Corruption Recovery
 
@@ -844,7 +887,7 @@ When a queue-based adapter callback arrives to confirm a queued delivery (queued
 
 `delivery_plan_id` and `native_channel_id` are validation metadata only. They are checked against the outbox row when present, but they are never used as correlation selectors. No plan/channel latest-candidate fallback exists.
 
-Replay-sourced receipts (`source="replay"`) are not allowed to mutate live recovery state unless they match the exact trusted outbox lineage. When only replay-sourced queued receipts are available and the outbox row does not match, the pipeline skips correlation and emits an operator-visible warning. No supplemental sent receipt is created, no outbox transition occurs. This restriction may be relaxed in a future version when callback records carry trusted replay provenance.
+Replay-sourced receipts (`source="replay"`) are not allowed to mutate live recovery state unless they match the exact trusted outbox lineage. Because queued callbacks correlate by exact `outbox_id` + `attempt_number` against the authoritative outbox row (validated for status, event, adapter, plan, channel, and attempt before selection), a replay-sourced queued receipt is finalized exactly like a live one: the supplemental `sent` receipt carries the row's durable `source` / `replay_run_id` lineage and the outbox transitions `queued` to `sent`. Only the matching row transitions — a replay callback never touches any other row, and callbacks that fail row validation (stale attempt, terminal or reclaimed row) are still rejected with a warning. Replay-only selection is logged at debug level; the former operator-visible skip warning no longer occurs.
 
 ### Uncorrelated Queued Outbox Items
 
