@@ -36,6 +36,7 @@ async def main() -> None:
 
     from nio import (
         AsyncClient,
+        AsyncClientConfig as ClientConfig,
         MegolmEvent,
         RoomMessageEmote,
         RoomMessageNotice,
@@ -59,8 +60,11 @@ async def main() -> None:
     jsonl_path = sys.argv[9] if len(sys.argv) > 9 else ""
 
     client = AsyncClient(
-        homeserver, user_id, device_id=device_id, store_path=store,
-        encryption_enabled=True,
+        homeserver,
+        user_id,
+        device_id=device_id,
+        store_path=store,
+        config=ClientConfig(encryption_enabled=True),
     )
     client.restore_login(user_id, device_id, token)
 
