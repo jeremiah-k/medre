@@ -50,6 +50,8 @@ __all__ = [
     "RouteRegistrationResult",
     "RouteStartupReadiness",
     "RouteValidationError",
+    "SKIPPED_REASON_SOURCE_START_FAILED",
+    "SKIPPED_REASON_TARGETS_START_FAILED",
     "SkippedRoute",
     "UnavailableRoute",
     "build_runtime_routes",
@@ -102,6 +104,17 @@ class RouteOperationalState(enum.Enum):
 # Route eligibility metadata models
 # ---------------------------------------------------------------------------
 
+# Machine-readable startup-skip reasons (SkippedRoute.reason).  The
+# distinction is load-bearing for enforcement: see
+# compute_startup_readiness and MedreApp.start — routes skipped because
+# every TARGET failed are removed from the router (planning into them
+# dead-letters per event), while routes skipped because their SOURCE
+# failed stay registered (stored canonical work from that source still
+# routes; fresh live ingress cannot arrive from an adapter that never
+# started).
+SKIPPED_REASON_SOURCE_START_FAILED = "source_adapter_start_failed"
+SKIPPED_REASON_TARGETS_START_FAILED = "no_surviving_targets_start_failed"
+
 
 @dataclass(frozen=True)
 class DegradedRoute:
@@ -128,8 +141,10 @@ class SkippedRoute:
     route_id:
         The expanded route ID that was skipped.
     reason:
-        Human-readable reason, e.g. ``"source_adapter_failed"`` or
-        ``"no_surviving_targets"``.
+        Machine-readable skip reason: ``SKIPPED_REASON_SOURCE_START_FAILED``
+        (startup only: the route's source adapter failed to start) or
+        ``SKIPPED_REASON_TARGETS_START_FAILED`` (startup only: no target
+        adapter survived startup), or a build-failure reason string.
     failed_adapter_ids:
         Adapter IDs that caused the skip (source or all dest adapters
         that failed to build).
@@ -1236,6 +1251,15 @@ def compute_startup_readiness(
     -------
     RouteStartupReadiness
         Startup-derived readiness assessment with per-route states.
+
+    Enforcement contract (see :meth:`~medre.runtime.app.MedreApp.start`):
+    only ``SKIPPED_REASON_TARGETS_START_FAILED`` routes are removed from
+    the router, and only for LIVE scope.  Routes skipped because their
+    SOURCE failed stay registered: routing a stored canonical event keys
+    off the event's recorded source adapter, not a live connection, and
+    an adapter that never started cannot deliver fresh live ingress
+    anyway.  Pruning source-failed routes would silently re-route stored
+    work into a false ``no-route`` outcome.
     """
     from medre.core.lifecycle.states import AdapterState
 
@@ -1293,7 +1317,7 @@ def compute_startup_readiness(
                     startup_skipped.append(
                         SkippedRoute(
                             route_id=expanded_id,
-                            reason="source_adapter_start_failed",
+                            reason=SKIPPED_REASON_SOURCE_START_FAILED,
                             failed_adapter_ids=(src,),
                         )
                     )
@@ -1322,7 +1346,7 @@ def compute_startup_readiness(
                 startup_skipped.append(
                     SkippedRoute(
                         route_id=expanded_id,
-                        reason="no_surviving_targets_start_failed",
+                        reason=SKIPPED_REASON_TARGETS_START_FAILED,
                         failed_adapter_ids=tuple(sorted(failed_target_ids)),
                     )
                 )

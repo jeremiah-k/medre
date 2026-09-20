@@ -176,7 +176,7 @@ Expected: exit code **0**, `startup.boot_summary.startup_outcome == "partial"`, 
 
 Inspect: `startup.boot_summary.failed_adapter_ids`, `routes.startup_readiness` for routes marked `degraded` or `skipped`.
 
-**Caveat:** Degraded startup does NOT exit. The runtime keeps running. Routes referencing only failed adapters are skipped entirely. Routes with some failed targets operate in degraded mode.
+**Caveat:** Degraded startup does NOT exit. The runtime keeps running. Routes whose targets ALL failed are removed from the router (planning into them would dead-letter per event). Routes whose SOURCE failed keep routing stored canonical work — already-admitted durable ingress and replay still reach surviving targets; only fresh live ingress is impossible because the source adapter never started — while their `SKIPPED` readiness entry stays visible. Routes with some failed targets operate in degraded mode. Retry and durable-ingress workers start only after adapters settle, so due work is never dispatched into an adapter that is still starting.
 
 ## Runtime Delivery Failure Drills
 

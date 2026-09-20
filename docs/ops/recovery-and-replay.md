@@ -356,6 +356,26 @@ sqlite3 {state}/medre.sqlite "
 "
 ```
 
+### Replay Is Not Gated by Live Source Connectivity
+
+Replay routes a stored canonical event by the event's recorded source
+adapter; it does not need the old INPUT radio to be online. A replay
+execution starts the runtime in the replay scope, where a degraded start
+(for example, the source adapter's radio being offline) never removes
+routes from the router: the selected event still routes to surviving
+targets, and the delivery records honest `replay` lineage. If a route's
+targets are genuinely unavailable, the replay result reports the per-target
+delivery failure — it is never silently collapsed into a `no routes
+matched` outcome. `dry_run` and other read-only modes are unaffected.
+
+The same boundary applies to the live runtime's already-admitted durable
+ingress: a source adapter that fails to start on a restart does not erase
+input that was durably admitted earlier. Stored events from that source
+still route to surviving targets; only fresh live ingress is impossible,
+because an adapter that never started cannot receive anything. A genuine
+no-route condition (no configured route for an event's source, or a
+disabled route) still yields no delivery.
+
 ## Database Corruption Recovery
 
 If `PRAGMA integrity_check` returns anything other than `ok`:

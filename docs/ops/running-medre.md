@@ -60,7 +60,14 @@ Runtime started — 2 adapter(s) in 457ms
 
 ### Degraded Startup
 
-If at least one adapter starts but others fail, the runtime enters `READY` with `DEGRADED` health and continues operating. Routes referencing failed adapters are skipped or degraded.
+If at least one adapter starts but others fail, the runtime enters `READY` with `DEGRADED` health and continues operating. Route enforcement after startup is scope- and reason-aware:
+
+- **All targets of a route failed to start (LIVE)** — the route is removed from the router; planning into never-started adapters would dead-letter per event.
+- **A route's source adapter failed to start (LIVE)** — the route stays registered. Routing stored canonical work keys off the event's recorded source adapter, not a live connection: already-admitted durable ingress still reaches surviving targets, and a source that never started cannot deliver fresh live ingress anyway. The route's `SKIPPED` readiness entry remains visible.
+- **Replay scope** — startup skips never remove routes; replay executes stored events explicitly, and unavailable targets fail per-target in the replay result rather than collapsing into a false `no-route` outcome.
+- **Some targets survive** — the route stays registered (DEGRADED) with honest per-target outcomes.
+
+The retry and durable-ingress workers activate only after every adapter has settled, so due retry work is never claimed against an adapter that is still starting.
 
 Diagnostic surfaces for degraded startup:
 

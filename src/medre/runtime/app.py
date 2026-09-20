@@ -696,6 +696,11 @@ class MedreApp:
         catastrophic core subsystem failure, any already-started adapters
         are stopped in reverse order.
 
+        In LIVE scope the retry and durable-ingress workers are activated
+        only at the post-adapter boundary, after startup readiness is
+        computed and every adapter has settled: a worker claim cycle must
+        never dispatch due work into an adapter that is still starting.
+
         Parameters
         ----------
         scope:
@@ -875,7 +880,14 @@ class MedreApp:
                     self.config.runtime.shutdown_timeout_seconds
                 ),
             )
-            await self._retry_worker.start()
+            # Activation is deferred to the post-adapter boundary below:
+            # the worker's first claim cycle must not run while adapters
+            # are still STARTING.  Real adapters refuse delivery until
+            # started (``AdapterPermanentError("Adapter not started")``),
+            # so a cycle dispatched during startup would consume an
+            # attempt — permanently classifying/dead-lettering durable
+            # work — purely from ordering, not from any real transport
+            # failure.
 
         # 3. Start each adapter in deterministic order.
         #    Sort by adapter_id for reproducible startup sequence.
@@ -1126,7 +1138,10 @@ class MedreApp:
 
         # -- Compute startup-derived route readiness ----------------------------
         if self._route_eligibility is not None and self._route_provenance is not None:
-            from medre.runtime.route_engine import compute_startup_readiness
+            from medre.runtime.route_engine import (
+                SKIPPED_REASON_TARGETS_START_FAILED,
+                compute_startup_readiness,
+            )
 
             self._startup_readiness = compute_startup_readiness(
                 eligibility=self._route_eligibility,
@@ -1136,18 +1151,42 @@ class MedreApp:
                 config_routes=self.config.routes,
             )
 
-            # Enforce the assessment: a SKIPPED route must stop routing.
-            # compute_startup_readiness only assesses; without this removal
-            # the router keeps planning deliveries into adapters that failed
-            # to start, and every event for that target dead-letters with the
-            # adapter's own not-started error.  DEGRADED routes (some targets
-            # surviving) stay registered: partial target loss keeps honest
-            # per-target outcomes.
-            for skipped_route in self._startup_readiness.skipped:
-                try:
-                    self.router.remove_route(skipped_route.route_id)
-                except KeyError:
-                    pass
+            # Enforce the assessment where planning into a never-started
+            # adapter is the only possible outcome.  compute_startup_readiness
+            # only assesses; without removal the router keeps planning
+            # deliveries into adapters that failed to start, and every event
+            # for that target dead-letters with the adapter's own not-started
+            # error (observed physically: ten "Session not initialised" MeshCore
+            # dead letters after a BLE startup refusal).
+            #
+            # The enforcement is scope- and reason-aware:
+            #
+            # * LIVE + all targets failed (SKIPPED_REASON_TARGETS_START_FAILED)
+            #   → remove the route.  Every fresh delivery would fail.
+            # * LIVE + source failed (SKIPPED_REASON_SOURCE_START_FAILED)
+            #   → keep the route.  Routing a stored canonical event keys off
+            #   the event's recorded source adapter, not a live connection:
+            #   already-admitted durable ingress and other stored work must
+            #   still reach surviving targets.  Fresh live ingress cannot
+            #   arrive from an adapter that never started, so keeping the
+            #   route plans nothing into the dead adapter.
+            # * REPLAY → remove nothing.  Replay selection executes stored
+            #   events explicitly; a pruned route would misreport the
+            #   execution as "no routes matched" instead of delivering to
+            #   surviving targets (or failing per-target, truthfully, when
+            #   targets are down).  The readiness report below still records
+            #   every skip.
+            # * DEGRADED routes (some targets surviving) always stay
+            #   registered: partial target loss keeps honest per-target
+            #   outcomes.
+            if self._startup_scope is StartupScope.LIVE:
+                for skipped_route in self._startup_readiness.skipped:
+                    if skipped_route.reason != SKIPPED_REASON_TARGETS_START_FAILED:
+                        continue
+                    try:
+                        self.router.remove_route(skipped_route.route_id)
+                    except KeyError:
+                        pass
 
         # -- Emit startup classified event ------------------------------------
         self._emit_event(
@@ -1206,6 +1245,16 @@ class MedreApp:
                 attempted_total,
                 degradation_cause,
             )
+
+        # -- Activate LIVE workers at the post-adapter boundary ----------------
+        # Both workers' first cycles run only after every adapter has
+        # reached its terminal startup state (READY or FAILED), so due
+        # retry work is claimed against adapters that have actually
+        # settled — never against one still INITIALIZING.  Startup-failure
+        # cleanup (``_cleanup_core_resources``) and ``stop()`` already
+        # handle a constructed-but-not-started worker.
+        if self._retry_worker is not None:
+            await self._retry_worker.start()
 
         if self._ingress_worker is not None:
             await self._ingress_worker.start()
