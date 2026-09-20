@@ -32,7 +32,7 @@ from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.builder import RuntimeBuilder
-from tests.helpers.fake_runtime import wait_until
+from tests.helpers.async_utils import wait_until
 from tests.helpers.storage_outbox import make_outbox_item
 from tests.helpers.walkthrough import (
     seed_via_smoke_cli,
@@ -423,9 +423,9 @@ class TestReplayBestEffortScopeIsolation:
             finally:
                 await storage.close()
 
-        assert asyncio.run(_selected_check()) >= 1, (
-            "best_effort replay produced no replay receipt for the selected event"
-        )
+        assert (
+            asyncio.run(_selected_check()) >= 1
+        ), "best_effort replay produced no replay receipt for the selected event"
 
     def test_scoped_start_defers_unrelated_work_without_loss(
         self,

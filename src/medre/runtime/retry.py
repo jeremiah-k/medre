@@ -609,9 +609,7 @@ class RetryWorker:
                     "interval": self._interval,
                     "batch_size": self._batch_size,
                     "max_attempts": self._max_attempts,
-                    "previous_run_in_progress": (
-                        self.state.previous_run_in_progress
-                    ),
+                    "previous_run_in_progress": (self.state.previous_run_in_progress),
                 },
             )
 

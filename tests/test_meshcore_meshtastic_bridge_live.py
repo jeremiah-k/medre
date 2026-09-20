@@ -29,14 +29,10 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
-from tests.helpers.meshcore_live_peer import (
-    MeshCorePeerListener as _PeerListener,
-    run_meshcore_peer as _mc_peer,
-)
-from tests.helpers.meshtastic_live_peer import (
-    MeshtasticPeerListener as _MtListener,
-    run_meshtastic_peer as _mt_peer,
-)
+from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _PeerListener
+from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
+from tests.helpers.meshtastic_live_peer import MeshtasticPeerListener as _MtListener
+from tests.helpers.meshtastic_live_peer import run_meshtastic_peer as _mt_peer
 
 _BRIDGE = os.environ.get("MEDRE_MC_BRIDGE", "") == "1"
 _MT_MEDRE = os.environ.get("MESHTASTIC_MEDRE_SERIAL_PORT", "")
@@ -75,7 +71,6 @@ _QUICK = os.environ.get("MEDRE_LIVE_QUICK", "") == "1"
 _QUICK_SKIP = pytest.mark.skipif(
     _QUICK, reason="quick iteration mode: MT->MC directed route only"
 )
-
 
 
 def _build_runtime(db_path: Path, *, direction: str):
@@ -291,9 +286,7 @@ async def test_directed_route_mc_to_mt_with_negative(tmp_path: Path) -> None:
         negative = [p for p in mt_out if probe in (p.get("text") or "")]
         assert negative == [], "nonmatching-route probe crossed the bridge"
         restored_positive = [p for p in mt_out if positive in (p.get("text") or "")]
-        assert (
-            restored_positive
-        ), "positive ch1 control did not cross after ch2 restore"
+        assert restored_positive, "positive ch1 control did not cross after ch2 restore"
 
         # -- B1 positive: ch1 message crosses MC -> MT.
         nonce = _nonce("MC2MT")
@@ -313,8 +306,6 @@ async def test_directed_route_mc_to_mt_with_negative(tmp_path: Path) -> None:
         assert hits, f"MT-B peer did not observe the crossed message; raw={out!r}"
     finally:
         await _stop(app)
-
-
 
 
 @pytest.mark.live
@@ -371,6 +362,7 @@ async def test_bidirectional_echo_is_bounded(tmp_path: Path) -> None:
     finally:
         await _stop(app)
 
+
 @pytest.mark.live
 @pytest.mark.hardware
 @_REQUIRE
@@ -417,9 +409,7 @@ async def test_mc_stop_restart_and_mt_isolation(tmp_path: Path) -> None:
         deadline = time.monotonic() + _RECEIPT_TIMEOUT
         admitted = False
         while time.monotonic() < deadline and not admitted:
-            ids = await app.storage.list_event_ids_page(
-                after_event_id=None, limit=200
-            )
+            ids = await app.storage.list_event_ids_page(after_event_id=None, limit=200)
             for eid in ids:
                 ev = await app.storage.get(eid)
                 if ev and nonce in (ev.payload or {}).get("body", ""):

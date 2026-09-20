@@ -1259,9 +1259,7 @@ class MedreApp:
             # attempt on a process-local "not started" refusal.  The retry
             # worker still reconciles persisted terminal evidence before this
             # availability gate.
-            self._retry_worker.set_available_target_adapters(
-                self.started_adapter_ids
-            )
+            self._retry_worker.set_available_target_adapters(self.started_adapter_ids)
             await self._retry_worker.start()
 
         if self._ingress_worker is not None:

@@ -42,11 +42,9 @@ import pytest
 
 from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import bounded
-from tests.helpers.lxmf_live_peer import (
-    LxmfPeerListener as _PeerListener,
-    delivery_dest_hash as _delivery_dest_hash,
-    run_lxmf_peer as _peer,
-)
+from tests.helpers.lxmf_live_peer import LxmfPeerListener as _PeerListener
+from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash
+from tests.helpers.lxmf_live_peer import run_lxmf_peer as _peer
 from tests.helpers.meshtastic import make_meshtastic_text_packet
 
 _PAIR_ENABLED = os.environ.get("LXMF_PAIR", "") == "1"

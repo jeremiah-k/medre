@@ -39,10 +39,8 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
-from tests.helpers.meshcore_live_peer import (
-    MeshCorePeerListener as _PeerListener,
-    run_meshcore_peer as _peer,
-)
+from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _PeerListener
+from tests.helpers.meshcore_live_peer import run_meshcore_peer as _peer
 from tests.helpers.meshtastic import make_meshtastic_text_packet
 
 # ---------------------------------------------------------------------------
@@ -446,9 +444,7 @@ class TestMeshCorePairEgress:
             cases = [unicode_msg, newline_msg, long_msg, normal_msg]
             events: dict[str, str] = {}
             pid = 800_000
-            window = (
-                len(cases) * (_TX_PACING_SECONDS + 1.0) + 30.0
-            )
+            window = len(cases) * (_TX_PACING_SECONDS + 1.0) + 30.0
             with _PeerListener(window) as peer:
                 for text in cases:
                     pid += 1  # unique native packet id per message (dedup)

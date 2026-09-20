@@ -81,12 +81,12 @@ route, rendering, delivery); the second node is driven only by the pinned
 mtjk SDK as an independent native peer. Proven 2026-09-19 on the private lab
 mesh (US, LONG_TURBO, private primary channel, tx power 10):
 
-| Case                 | Result | Evidence                                                                                                                                                                                                                          |
-| -------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| N2 ingress           | PASS   | Native peer sends → durable canonical events with exact content, native sender identity and packet-id correlation (`medre inspect native-ref`).                                                                                   |
-| N3 egress            | PASS   | Controlled local fake-source event → real route/plan → receipt `status="sent"` with native packet id → independent peer RF receipt of the nonce. Egress status tops out at `sent` (SDK acceptance); RF receipt is peer-side only. |
-| N4 boundaries        | PASS   | Unicode/multibyte and newline payloads survive end-to-end; ~720-byte payload delivered UTF-8-safe truncated at ~227 bytes (`max_text_bytes`); normal message after boundaries succeeds.                                           |
-| N5 identity/dedup    | PASS   | Identical text with distinct native packet ids → two distinct durable events. Same-second duplicates are not physically producible: the firmware drops sends spaced < ~2.2 s (see pacing note).                                   |
+| Case              | Result | Evidence                                                                                                                                                                                                                          |
+| ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N2 ingress        | PASS   | Native peer sends → durable canonical events with exact content, native sender identity and packet-id correlation (`medre inspect native-ref`).                                                                                   |
+| N3 egress         | PASS   | Controlled local fake-source event → real route/plan → receipt `status="sent"` with native packet id → independent peer RF receipt of the nonce. Egress status tops out at `sent` (SDK acceptance); RF receipt is peer-side only. |
+| N4 boundaries     | PASS   | Unicode/multibyte and newline payloads survive end-to-end; ~720-byte payload delivered UTF-8-safe truncated at ~227 bytes (`max_text_bytes`); normal message after boundaries succeeds.                                           |
+| N5 identity/dedup | PASS   | Identical text with distinct native packet ids → two distinct durable events. Same-second duplicates are not physically producible: the firmware drops sends spaced < ~2.2 s (see pacing note).                                   |
 
 ### Manual negative-control evidence
 

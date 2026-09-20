@@ -33,19 +33,13 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
-from tests.helpers.lxmf_live_peer import (
-    LxmfPeerListener as _LxListener,
-    delivery_dest_hash as _delivery_dest_hash,
-    run_lxmf_peer as _lx_peer,
-)
-from tests.helpers.meshcore_live_peer import (
-    MeshCorePeerListener as _McListener,
-    run_meshcore_peer as _mc_peer,
-)
-from tests.helpers.meshtastic_live_peer import (
-    MeshtasticPeerListener as _MtListener,
-    run_meshtastic_peer as _mt_peer,
-)
+from tests.helpers.lxmf_live_peer import LxmfPeerListener as _LxListener
+from tests.helpers.lxmf_live_peer import delivery_dest_hash as _delivery_dest_hash
+from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
+from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _McListener
+from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
+from tests.helpers.meshtastic_live_peer import MeshtasticPeerListener as _MtListener
+from tests.helpers.meshtastic_live_peer import run_meshtastic_peer as _mt_peer
 
 _BRIDGE = os.environ.get("MEDRE_LX_BRIDGE", "") == "1"
 _MT_MEDRE = os.environ.get("MESHTASTIC_MEDRE_SERIAL_PORT", "")

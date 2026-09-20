@@ -52,11 +52,9 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
-from tests.helpers.meshtastic_live_peer import (
-    MeshtasticPeerListener as _PeerListener,
-    run_meshtastic_peer as _peer,
-)
 from tests.helpers.meshtastic import make_meshtastic_text_packet
+from tests.helpers.meshtastic_live_peer import MeshtasticPeerListener as _PeerListener
+from tests.helpers.meshtastic_live_peer import run_meshtastic_peer as _peer
 
 # ---------------------------------------------------------------------------
 # Environment gate
@@ -254,9 +252,7 @@ class TestMeshtasticPairEgress:
             assert len(cases) <= _TX_BUDGET
             events: dict[str, str] = {}
             pid = 900_000
-            window = (
-                len(cases) * (_TX_PACING_SECONDS + 0.6) + 40.0
-            )
+            window = len(cases) * (_TX_PACING_SECONDS + 0.6) + 40.0
             with _PeerListener(window) as peer:
                 for text in cases:
                     pid += 1  # unique native packet id per message (dedup)
@@ -288,9 +284,9 @@ class TestMeshtasticPairEgress:
             expected_long = long_msg.encode("utf-8")[:max_bytes].decode(
                 "utf-8", errors="ignore"
             )
-            assert long_rx == expected_long, (
-                "peer did not observe the exact UTF-8-safe configured truncation"
-            )
+            assert (
+                long_rx == expected_long
+            ), "peer did not observe the exact UTF-8-safe configured truncation"
             # Adapter remains usable after the boundary cases.
             assert "N4-ok" in by_nonce
             for text, eid in events.items():
@@ -331,9 +327,9 @@ class TestMeshtasticPairIngress:
             sent_ids = [item["sent_id"] for item in sent]
             assert all(sent_ids), "peer failed to submit a send"
             sender_ids = {item.get("sender_id") for item in sent}
-            assert len(sender_ids) == 1 and None not in sender_ids, (
-                f"peer did not report one native sender id: {sender_ids!r}"
-            )
+            assert (
+                len(sender_ids) == 1 and None not in sender_ids
+            ), f"peer did not report one native sender id: {sender_ids!r}"
             expected_sender = next(iter(sender_ids))
 
             async def _admitted(packet_id: str) -> dict | None:

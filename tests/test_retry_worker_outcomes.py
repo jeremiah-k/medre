@@ -1100,7 +1100,9 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
     storage.get = AsyncMock(return_value=object())
     storage.delivery_status = AsyncMock(return_value=None)
     pipeline = MagicMock()
-    pipeline.deliver_to_target = AsyncMock(side_effect=ConnectionError("transport down"))
+    pipeline.deliver_to_target = AsyncMock(
+        side_effect=ConnectionError("transport down")
+    )
     lifecycle = MagicMock()
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
     lifecycle.finalize_retry_attempt_error = AsyncMock(

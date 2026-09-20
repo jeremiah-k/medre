@@ -550,13 +550,13 @@ def test_due_retry_for_startup_failed_target_is_deferred_without_attempt(
             assert "mesh_tgt" in app.boot_summary.failed_adapter_ids
             assert app._retry_worker is not None
 
-            # Stop the background loop so this assertion drives exactly one
-            # deterministic claim cycle.  A first cycle that already ran is
-            # harmless: it can only have deferred the same attempt.
-            await app._retry_worker.stop()
-            await app._retry_worker._process_due(
-                datetime.now(UTC) + timedelta(days=1)
-            )
+            # Stop the background loop from interfering: the 300 s retry
+            # interval guarantees no background claim cycle during this
+            # test.  The worker must stay started — stop() sets the
+            # shutdown event, and _process_due claims rows but refuses to
+            # process them once that event is set, leaving rows claimed
+            # in_progress.  Driving a cycle directly is deterministic.
+            await app._retry_worker._process_due(datetime.now(UTC) + timedelta(days=1))
 
             storage = SQLiteStorage(db_path=str(db))
             try:

@@ -21,6 +21,7 @@ _PEER_READY_TIMEOUT = 40.0
 _SCRATCH_JSONL = Path("/tmp/medre_lxmf_pair_peer.json")
 _READY_PATH = Path("/tmp/medre_lxmf_pair_peer.ready")
 
+
 def delivery_dest_hash(identity_path: str) -> str:
     """LXMF delivery destination hash for an identity file (32 hex)."""
     import RNS
@@ -28,6 +29,7 @@ def delivery_dest_hash(identity_path: str) -> str:
     identity = RNS.Identity.from_file(identity_path)
     assert identity is not None, f"cannot load identity {identity_path!r}"
     return RNS.Destination.hash_from_name_and_identity("lxmf.delivery", identity).hex()
+
 
 _PEER_SCRIPT = r'''
 import json, sys, time

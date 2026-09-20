@@ -76,6 +76,7 @@ def run_meshtastic_peer(args: list[str], timeout: float) -> list[dict]:
     lines = [ln for ln in proc.stdout.strip().splitlines() if ln.strip()]
     return json.loads(lines[-1]) if lines else []
 
+
 class MeshtasticPeerListener:
     """Bounded MT-B listener (serial SDK, channel 0) — incremental.
 
