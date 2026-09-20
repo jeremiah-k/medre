@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from collections.abc import Callable, Mapping
 from typing import Protocol
 
 import pytest
 
+from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import bounded
 
 pytestmark = [pytest.mark.live, pytest.mark.hardware]
@@ -42,7 +42,6 @@ async def launch_healthy_meshcore_runtime(
     health_check_timeout: float = 15.0,
     health_label: str = "mc_radio health_check",
     attempts: int = 2,
-    settle_seconds: float = 6.0,
 ) -> MeshCoreRuntime:
     """Start a fresh runtime until its MeshCore adapter reports healthy."""
     if attempts < 1:
@@ -55,16 +54,22 @@ async def launch_healthy_meshcore_runtime(
             await bounded(app.start(), start_timeout, start_label)
             deadline = time.monotonic() + health_timeout
             last_health: str | None = None
-            while time.monotonic() < deadline:
+
+            async def _healthy() -> bool:
+                nonlocal last_health
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
                 info = await bounded(
                     app.adapters[adapter_id].health_check(),
-                    health_check_timeout,
+                    min(health_check_timeout, remaining),
                     health_label,
                 )
                 last_health = info.health
-                if last_health == "healthy":
-                    return app
-                await asyncio.sleep(1.0)
+                return last_health == "healthy"
+
+            if await wait_until(_healthy, timeout=health_timeout, interval=1.0):
+                return app
             last_error = f"health stayed {last_health!r}"
         except Exception as exc:
             last_error = f"launch attempt {attempt} failed: {exc}"
@@ -74,7 +79,8 @@ async def launch_healthy_meshcore_runtime(
         except Exception as cleanup_exc:
             last_error = f"{last_error}; cleanup failed: {cleanup_exc}"
 
-        if attempt < attempts:
-            await asyncio.sleep(settle_seconds)
+        # ``app.stop()`` is the deterministic ownership boundary for the
+        # failed attempt.  A fresh runtime is built immediately on retry; no
+        # fixed host-side settle delay is required or permitted here.
 
     raise RuntimeError(f"MeshCore runtime never reached healthy ({last_error})")

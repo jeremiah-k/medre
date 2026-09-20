@@ -288,12 +288,14 @@
         },
         "source_adapters": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string"
           }
         },
         "dest_adapters": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string"
           }

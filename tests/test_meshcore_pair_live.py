@@ -270,8 +270,9 @@ class TestMeshCorePairIngress:
             )
             before = await _event_count(app)
             if not _QUICK:
-                quiet = await asyncio.to_thread(_peer, ["listen", _PEER_BLE, "10"], 60)
-                assert quiet["received"] == [], "unexpected RF traffic in quiet window"
+                with _PeerListener(10.0) as quiet_peer:
+                    received = await asyncio.to_thread(quiet_peer.packets)
+                assert received == [], "unexpected RF traffic in quiet window"
                 assert await _event_count(app) == before, "stale admission during quiet"
 
             # -- N2: exact content, unicode, newline; sender identity correlates.

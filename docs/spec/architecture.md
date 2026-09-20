@@ -227,7 +227,8 @@ computed in both scopes from the adapter startup classification:
 
 - A LIVE route whose every target failed startup is removed: planning
   into a never-started adapter would dead-letter every fresh delivery,
-  so the route is unregistered instead of preserved to fail.
+  so the route is unregistered instead of preserved to fail. This target
+  safety condition takes precedence when the source also failed startup.
 - A LIVE route whose startup failure is source-only is kept: routing a
   stored canonical event keys off the event's recorded source adapter,
   not a live connection, so already-recorded canonical work (including

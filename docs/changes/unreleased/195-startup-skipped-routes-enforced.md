@@ -13,8 +13,9 @@ Startup readiness is now enforced with scope- and reason-aware semantics:
 
 - **LIVE, all targets failed** — the route is removed from the router
   before the runtime accepts work. Every fresh delivery into the failed
-  adapters would fail, so the route stops planning.
-- **LIVE, source failed** — the route stays registered. Routing a stored
+  adapters would fail, so the route stops planning. This target-safety
+  classification takes precedence when the source also failed startup.
+- **LIVE, source-only failure** — the route stays registered. Routing a stored
   canonical event keys off the event's recorded source adapter, not a live
   connection: already-admitted durable ingress and other stored work must
   still reach surviving targets, and a source adapter that never started
@@ -52,3 +53,6 @@ unchanged attempt number, keep permanently absent adapters' durable work).
 Post-adapter retry/durable-ingress worker activation remains part of startup
 ownership: an activation failure or cancellation now runs the same full startup
 cleanup path instead of leaving started adapters, pipeline, or storage behind.
+If external cancellation arrives while activation-failure cleanup is running,
+the drained cancellation count is restored and cancellation still propagates;
+the original activation error is not allowed to swallow caller cancellation.

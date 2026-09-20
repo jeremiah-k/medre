@@ -56,7 +56,7 @@ Public symbols
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
-from typing import Any, Mapping
+from typing import Any, Final, Mapping
 
 from medre.core.observability.sanitization import (
     _is_secret_key,
@@ -93,10 +93,10 @@ COMMON_DIAGNOSTIC_KEYS: frozenset[str] = frozenset(
 # contract rather than under any transport package because both adapters
 # (producers) and the replay/runtime lifecycle (consumers) depend on them.
 # They are observational only: neither key is delivery evidence.
-PENDING_DELIVERY_COUNT = "pending_delivery_count"
+PENDING_DELIVERY_COUNT: Final[str] = "pending_delivery_count"
 """Outstanding asynchronous deliveries, exposed under ``session``."""
 
-QUEUE_PENDING = "queue_pending"
+QUEUE_PENDING: Final[str] = "queue_pending"
 """Outstanding adapter-local queue items, exposed at adapter top level."""
 
 # Sentinel used internally; never appears in output.

@@ -1239,12 +1239,13 @@ def compute_startup_readiness(
     * Routes already **SKIPPED** at build time remain SKIPPED (build
       eligibility is the source of truth for build failures).
     * For routes that were REGISTERED or DEGRADED at build time:
-      - If the source adapter has state ``FAILED`` → SKIPPED
+      - If all target adapters have state ``FAILED`` → SKIPPED
+        (reason: ``no_surviving_targets_start_failed``).  This target-safety
+        condition takes precedence when the source also failed.
+      - Otherwise, if the source adapter has state ``FAILED`` → SKIPPED
         (reason: ``source_adapter_start_failed``).
       - If some target adapters have state ``FAILED`` but others are
         ``READY`` → DEGRADED.
-      - If all target adapters have state ``FAILED`` → SKIPPED
-        (reason: ``no_surviving_targets_start_failed``).
       - If source and all targets are ``READY`` → REGISTERED.
     * Adapters in states other than ``FAILED`` or ``READY`` (e.g.
       ``DEGRADED``, ``BACKPRESSURED``) are treated as surviving for
@@ -1321,27 +1322,11 @@ def compute_startup_readiness(
             if route is None:
                 continue
 
-            src = route.source.adapter
-            if src is not None:
-                src_state = adapter_states.get(src)
-                if src_state is AdapterState.FAILED:
-                    _logger.warning(
-                        "Startup readiness: route %r source adapter %r "
-                        "failed to start — skipping",
-                        expanded_id,
-                        src,
-                    )
-                    startup_skipped.append(
-                        SkippedRoute(
-                            route_id=expanded_id,
-                            reason=SKIPPED_REASON_SOURCE_START_FAILED,
-                            failed_adapter_ids=(src,),
-                        )
-                    )
-                    any_skipped = True
-                    continue
-
-            # Check target adapter states.
+            # Target viability is the safety gate and therefore takes
+            # precedence over the source-state reason.  If the source and
+            # every target both fail startup, the route still has no possible
+            # delivery path and must be classified as an all-target failure so
+            # LIVE startup enforcement removes it.
             failed_target_ids: list[str] = []
             surviving_count = 0
             for t in route.targets:
@@ -1368,7 +1353,29 @@ def compute_startup_readiness(
                     )
                 )
                 any_skipped = True
-            elif failed_target_ids:
+                continue
+
+            src = route.source.adapter
+            if src is not None:
+                src_state = adapter_states.get(src)
+                if src_state is AdapterState.FAILED:
+                    _logger.warning(
+                        "Startup readiness: route %r source adapter %r "
+                        "failed to start — skipping",
+                        expanded_id,
+                        src,
+                    )
+                    startup_skipped.append(
+                        SkippedRoute(
+                            route_id=expanded_id,
+                            reason=SKIPPED_REASON_SOURCE_START_FAILED,
+                            failed_adapter_ids=(src,),
+                        )
+                    )
+                    any_skipped = True
+                    continue
+
+            if failed_target_ids:
                 _logger.warning(
                     "Startup readiness: route %r degraded — target "
                     "adapters %r failed to start",

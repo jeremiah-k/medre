@@ -20,7 +20,7 @@ def _route(destination: dict, *, dest_adapters: list[str] | None = None) -> dict
     return {
         "route_id": "structured-destination",
         "source_adapters": ["source"],
-        "dest_adapters": dest_adapters or ["target"],
+        "dest_adapters": ["target"] if dest_adapters is None else dest_adapters,
         "dest_destination": destination,
     }
 
@@ -89,3 +89,15 @@ def test_structured_destination_rejects_selectors_and_multiple_adapters() -> Non
             },
             schema=_SCHEMA,
         )
+
+
+def test_route_config_ref_requires_nonempty_adapter_arrays() -> None:
+    valid_destination = {
+        "kind": "lxmf_destination",
+        "destination_hash": "0123456789abcdef0123456789abcdef",
+    }
+    for field in ("source_adapters", "dest_adapters"):
+        route = _route(valid_destination)
+        route[field] = []
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance={"routes": [route]}, schema=_SCHEMA)

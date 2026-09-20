@@ -1281,7 +1281,15 @@ class MedreApp:
                         current.cancel()
             raise c_exc
         except Exception as exc:
-            await self._start_failure_cleanup()
+            cleanup_drained = await self._start_failure_cleanup()
+            if cleanup_drained:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(cleanup_drained):
+                        current.cancel()
+                raise asyncio.CancelledError(
+                    "cancelled during runtime-worker activation cleanup"
+                ) from exc
             raise RuntimeStartupError(
                 f"Failed to activate runtime workers: {exc}"
             ) from exc
