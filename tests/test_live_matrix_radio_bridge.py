@@ -315,58 +315,45 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
         with MatrixRoomObserver(
             _OBSERVER_WINDOW * len(legs), "", str(tmp_path / "observer.jsonl")
         ) as observer:
+            # NOTE: no radio-side listeners here -- the sender needs the
+            # peer device exclusively (pyserial flock / single BLE central /
+            # RNode serial).  The far-side evidence for the radio->matrix
+            # legs is the matrix delivery receipt plus the observer device.
             for tag, transport in legs:
                 nonce = _nonce(f"{tag}2MX")
                 if transport == "MESHTASTIC":
-                    with _MtListener(_RECEIPT_TIMEOUT + 30) as listener:
-                        sent = await asyncio.to_thread(
-                            _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce])], 60
-                        )
-                        assert sent and sent[-1].get("sent_id"), "MT send not accepted"
-                        ev, receipts = await _wait_for_receipt(
-                            app, nonce, "matrix", _RECEIPT_TIMEOUT
-                        )
-                        assert (
-                            ev is not None
-                        ), f"{tag}: canonical event for {nonce!r} never appeared"
-                        latest = max(receipts, key=lambda r: r.sequence)
-                        assert (
-                            latest.status == "sent"
-                        ), f"{tag}: matrix receipt status {latest.status!r}"
-                        listener.packets()
+                    sent = await asyncio.to_thread(
+                        _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce])], 60
+                    )
+                    assert sent and sent[-1].get("sent_id"), "MT send not accepted"
                 elif transport == "MESHCORE":
-                    with _McListener(_RECEIPT_TIMEOUT + 30) as listener:
-                        sent = await asyncio.to_thread(
-                            _mc_peer, ["sendn", _MC_PEER, nonce], 90
-                        )
-                        assert sent.get("sent"), f"MC send not accepted: {sent!r}"
-                        ev, receipts = await _wait_for_receipt(
-                            app, nonce, "matrix", _RECEIPT_TIMEOUT
-                        )
-                        assert (
-                            ev is not None
-                        ), f"{tag}: canonical event for {nonce!r} never appeared"
-                        latest = max(receipts, key=lambda r: r.sequence)
-                        assert latest.status == "sent"
-                        listener.packets()
+                    sent = await asyncio.to_thread(
+                        _mc_peer, ["sendn", _MC_PEER, nonce], 90
+                    )
+                    assert sent.get("sent"), f"MC send not accepted: {sent!r}"
                 else:
-                    with _LxListener(_RECEIPT_TIMEOUT + 30) as listener:
-                        dest = _lx_dest_hash(_LX_MEDRE_IDENT)
-                        sent = await asyncio.to_thread(
-                            _lx_peer,
-                            ["send", dest, json.dumps([nonce + " / ünïcode ✓\nline2"])],
-                            120,
-                        )
-                        assert sent.get("sent"), f"LX send not accepted: {sent!r}"
-                        ev, receipts = await _wait_for_receipt(
-                            app, nonce, "matrix", _RECEIPT_TIMEOUT
-                        )
-                        assert (
-                            ev is not None
-                        ), f"{tag}: canonical event for {nonce!r} never appeared"
-                        latest = max(receipts, key=lambda r: r.sequence)
-                        assert latest.status == "sent"
-                        listener.packets()
+                    dest = _lx_dest_hash(_LX_MEDRE_IDENT)
+                    sent = await asyncio.to_thread(
+                        _lx_peer,
+                        [
+                            "send",
+                            dest,
+                            json.dumps([nonce + " / \u00fcn\u00efcode \u2713\nline2"]),
+                        ],
+                        120,
+                    )
+                    assert sent.get("sent"), f"LX send not accepted: {sent!r}"
+
+                ev, receipts = await _wait_for_receipt(
+                    app, nonce, "matrix", _RECEIPT_TIMEOUT
+                )
+                assert (
+                    ev is not None
+                ), f"{tag}: canonical event for {nonce!r} never appeared"
+                latest = max(receipts, key=lambda r: r.sequence)
+                assert (
+                    latest.status == "sent"
+                ), f"{tag}: matrix receipt status {latest.status!r}"
 
             # Observer evidence: every leg must arrive DECRYPTED at the far
             # end.  A MegolmEvent entry means nio could NOT decrypt it.
@@ -462,14 +449,9 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
     app = await _launch(db_path)
     nonce1 = _nonce("RESTART-A")
     try:
-        with _MtListener(_RECEIPT_TIMEOUT + 30):
-            await asyncio.to_thread(
-                _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce1])], 60
-            )
-            ev, receipts = await _wait_for_receipt(
-                app, nonce1, "matrix", _RECEIPT_TIMEOUT
-            )
-            assert ev is not None and receipts, "pre-restart leg never delivered"
+        await asyncio.to_thread(_mt_peer, ["sendn", _MT_PEER, json.dumps([nonce1])], 60)
+        ev, receipts = await _wait_for_receipt(app, nonce1, "matrix", _RECEIPT_TIMEOUT)
+        assert ev is not None and receipts, "pre-restart leg never delivered"
     finally:
         await _stop(app)
 
