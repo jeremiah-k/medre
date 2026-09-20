@@ -122,6 +122,11 @@ pytestmark = [
     pytest.mark.filterwarnings(
         "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning"
     ),
+    # RNS 1.5.4 threading.setDaemon Deprecation under filterwarnings=error
+    # kills the LXMF router task (documented lab gotcha; see RUNBOOK).
+    pytest.mark.filterwarnings(
+        "ignore:setDaemon\\(\\) is deprecated:DeprecationWarning"
+    ),
 ]
 
 
