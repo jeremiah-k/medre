@@ -284,15 +284,14 @@ def test_best_effort_replay_delivers_with_source_adapter_dead(
         finally:
             await storage.close()
 
-    replay_receipts, bystander_receipts, pending_rows = asyncio.run(
-        _check_storage()
-    )
+    replay_receipts, bystander_receipts, pending_rows = asyncio.run(_check_storage())
     assert any(
         r.target_adapter == "fake_meshtastic" and r.status == "sent"
         for r in replay_receipts
     ), f"replay never reached the healthy target: {replay_receipts}"
     assert len(bystander_receipts) == 0, "replay dispatched unrelated work"
     assert pending_rows >= 1, "unrelated pending durable ingress vanished"
+
 
 def test_replay_scope_keeps_source_skipped_route_registered(
     tmp_paths: MedrePaths,
@@ -327,10 +326,7 @@ def test_replay_scope_keeps_source_skipped_route_registered(
             # Truthful reporting: the route is assessed SKIPPED...
             readiness = app.startup_readiness
             assert readiness is not None
-            assert (
-                readiness.route_states["src-to-tgt"]
-                is RouteOperationalState.SKIPPED
-            )
+            assert readiness.route_states["src-to-tgt"] is RouteOperationalState.SKIPPED
 
             # ...but the REPLAY scope must not prune it from the
             # router: stored events from this source still route.
@@ -461,9 +457,7 @@ def test_due_retry_work_held_until_target_adapter_ready(
             start_task.result()  # startup must not have failed
             assert app.state is RuntimeState.RUNNING
 
-            await wait_until(
-                lambda: len(target.delivered_payloads) == 1, timeout=5.0
-            )
+            await wait_until(lambda: len(target.delivered_payloads) == 1, timeout=5.0)
 
             final_row = await _row()
             assert final_row is not None
@@ -640,17 +634,12 @@ def test_admitted_ingress_delivered_when_source_start_fails(
             # Truthful readiness reporting is unchanged...
             readiness = app.startup_readiness
             assert readiness is not None
-            assert (
-                readiness.route_states["src-to-tgt"]
-                is RouteOperationalState.SKIPPED
-            )
+            assert readiness.route_states["src-to-tgt"] is RouteOperationalState.SKIPPED
 
             # ...but the stored event still routes to the healthy
             # target: its producer being offline does not erase
             # already-admitted input.
-            await wait_until(
-                lambda: len(target.delivered_payloads) >= 1, timeout=5.0
-            )
+            await wait_until(lambda: len(target.delivered_payloads) >= 1, timeout=5.0)
             assert any(
                 result.payload.get("text") == "admitted before outage"
                 for result in target.delivered_payloads
@@ -676,9 +665,7 @@ def test_admitted_ingress_delivered_when_source_start_fails(
                 _ingress_drained, timeout=5.0
             ), "durable ingress worker did not finish admitted rows"
             noroute_receipts, pending_rows = await _counts()
-            assert (
-                noroute_receipts == 0
-            ), "source-less no-route bystander was delivered"
+            assert noroute_receipts == 0, "source-less no-route bystander was delivered"
             assert pending_rows == 0, f"admitted rows left pending: {pending_rows}"
 
             survivor_receipts: list[Any] = []
@@ -695,8 +682,7 @@ def test_admitted_ingress_delivered_when_source_start_fails(
 
             await _survivor_receipts()
             assert any(r.status == "sent" for r in survivor_receipts), (
-                f"admitted input was consumed without delivery: "
-                f"{survivor_receipts}"
+                f"admitted input was consumed without delivery: " f"{survivor_receipts}"
             )
         finally:
             await app.stop()
@@ -755,10 +741,7 @@ def test_live_route_removed_when_source_and_all_targets_fail(
 
             readiness = app.startup_readiness
             assert readiness is not None
-            assert (
-                readiness.route_states["src-to-tgt"]
-                is RouteOperationalState.SKIPPED
-            )
+            assert readiness.route_states["src-to-tgt"] is RouteOperationalState.SKIPPED
             skipped = {item.route_id: item for item in readiness.skipped}
             assert skipped["src-to-tgt"].reason == "no_surviving_targets_start_failed"
 
@@ -824,7 +807,6 @@ async def test_worker_activation_failure_cleanup_preserves_external_cancellation
         database_path=db,
     )
     app = RuntimeBuilder(config, paths).build()
-    assert app._retry_worker is not None
     cleanup_entered = asyncio.Event()
 
     async def _fail_retry_start(self: Any) -> None:
@@ -844,5 +826,8 @@ async def test_worker_activation_failure_cleanup_preserves_external_cancellation
     with pytest.raises(asyncio.CancelledError):
         await start_task
 
+    # The worker was constructed pre-activation; its failing start is what
+    # triggered the cleanup this test exercises.
+    assert app._retry_worker is not None
     assert app.state is RuntimeState.FAILED
     assert all(not adapter.is_started for adapter in app.adapters.values())

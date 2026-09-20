@@ -350,18 +350,12 @@ async def test_skipped_route_removed_and_failed_target_never_delivered(
 
         readiness = app.startup_readiness
         assert readiness is not None
-        assert (
-            readiness.route_states["src-to-dead"] is RouteOperationalState.SKIPPED
-        )
-        assert (
-            readiness.route_states["src-to-ok"] is RouteOperationalState.REGISTERED
-        )
+        assert readiness.route_states["src-to-dead"] is RouteOperationalState.SKIPPED
+        assert readiness.route_states["src-to-ok"] is RouteOperationalState.REGISTERED
 
         src = app.adapters["mx_src"]
         assert isinstance(src, FakeMatrixAdapter)
-        event = src.make_event(
-            "post-start probe", event_kind=EventKind.MESSAGE_TEXT
-        )
+        event = src.make_event("post-start probe", event_kind=EventKind.MESSAGE_TEXT)
         assert [r.id for r in app.router.match(event)] == [
             "src-to-ok"
         ], "route into a startup-failed adapter must no longer match"
