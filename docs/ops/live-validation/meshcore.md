@@ -154,9 +154,12 @@ Operational firmware truths proven on this hardware:
 
 ## Hardware Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
 
-- The pinned `meshcore` SDK defaults `dtr=True` on `create_serial`; boards
-  with a USB-UART auto-download circuit on IO0 (observed: LilyGO T-LoRa
-  V2.1-1.6) must use `dtr=False, rts=False` (fixed in `MeshCoreSession`).
+- The pinned `meshcore` SDK defaults `dtr=True` on serial connections, and
+  its `create_serial` factory re-opens the port with `dtr=not dtr` after an
+  unanswered handshake. Boards with a USB-UART auto-download circuit on IO0
+  (observed: LilyGO T-LoRa V2.1-1.6) must see `dtr=False, rts=False` from
+  port open, so `MeshCoreSession` constructs the serial client directly
+  (no factory, no inversion retry) and always requests deasserted lines.
 - Official companion v1.17.1 ships USB-serial builds for `lilygo_tlora_v2_1`
   but not for the SX1276 T-Beam; the T-Beam companion is BLE-only.
 - US preset per docs.meshcore.io FAQ 2.3: 910.525 MHz, SF7, BW 62.5, CR5.

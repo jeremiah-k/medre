@@ -86,12 +86,15 @@ def _patch_ble_helpers():
 
 
 async def test_serial_constructor_args() -> None:
-    """MeshCore.create_serial is called with (port, baudrate) positional args.
+    """MEDRE constructs the SDK client itself with deasserted DTR/RTS.
 
-    DTR/RTS must be explicitly deasserted: the pinned MeshCore SDK
-    defaults dtr=True, which holds IO0 low on boards with a USB-UART
-    auto-download circuit (observed on LilyGO T-LoRa V2.1) and knocks the
-    companion into the ROM bootloader or MeshCore CLI-rescue mode.
+    The serial path must NOT call ``MeshCore.create_serial``: the pinned
+    SDK's factory retries once with ``dtr=not dtr`` when the first connect
+    produces no protocol response, asserting IO0 — the exact line state
+    that drops boards with a USB-UART auto-download circuit (observed on
+    LilyGO T-LoRa V2.1) into the ROM bootloader or MeshCore CLI-rescue
+    mode.  MEDRE therefore builds ``SerialConnection`` directly with
+    ``dtr=False``/``rts=False`` and hands it to ``MeshCore``.
     """
     mock_mc, mock_inst = build_mock_meshcore_module()
 
@@ -108,11 +111,19 @@ async def test_serial_constructor_args() -> None:
     ):
         await session.start(lambda _pkt: None)
 
-    # create_serial should have been called with (port, baudrate) and the
-    # safe deasserted line state.
-    mock_mc.MeshCore.create_serial.assert_awaited_once_with(
-        "/dev/ttyACM0", 57600, auto_reconnect=False, dtr=False, rts=False
+    # The SDK factory with its inversion retry is never consumed.
+    mock_mc.MeshCore.create_serial.assert_not_awaited()
+
+    # The connection is constructed with (port, baudrate) and the safe
+    # deasserted line state; cx_dly mirrors create_serial's default.
+    mock_mc.SerialConnection.assert_called_once_with(
+        "/dev/ttyACM0", 57600, cx_dly=0.1, rts=False, dtr=False
     )
+    # The client wraps that connection with MEDRE's reconnect control and
+    # performs exactly one connect.
+    connection = mock_mc.SerialConnection.return_value
+    mock_mc.MeshCore.assert_called_once_with(connection, auto_reconnect=False)
+    mock_inst.connect.assert_awaited_once()
     assert session.connected is True
 
     # Cleanup.
@@ -135,8 +146,8 @@ async def test_serial_default_baudrate() -> None:
     ):
         await session.start(lambda _pkt: None)
 
-    mock_mc.MeshCore.create_serial.assert_awaited_once_with(
-        "/dev/ttyUSB0", 115200, auto_reconnect=False, dtr=False, rts=False
+    mock_mc.SerialConnection.assert_called_once_with(
+        "/dev/ttyUSB0", 115200, cx_dly=0.1, rts=False, dtr=False
     )
 
 
@@ -449,9 +460,9 @@ async def test_send_msg_transient_failure_exhausted() -> None:
 
 
 async def test_connect_failure_sets_meshcore_none() -> None:
-    """When create_serial raises, _meshcore is reset to None."""
+    """When SDK construction raises, _meshcore is reset to None."""
     mock_mc, mock_inst = build_mock_meshcore_module()
-    mock_mc.MeshCore.create_serial.side_effect = OSError("port not found")
+    mock_mc.MeshCore.side_effect = OSError("port not found")
 
     config = _make_config(
         connection_type="serial",
@@ -467,6 +478,46 @@ async def test_connect_failure_sets_meshcore_none() -> None:
             await session.start(lambda _pkt: None)
 
     # _meshcore should have been cleaned up.
+    assert session._meshcore is None
+    assert session.connected is False
+
+
+async def test_serial_no_response_fails_without_dtr_inversion() -> None:
+    """A silent serial companion fails the session; DTR is never asserted.
+
+    Regression for the pinned-SDK inversion heuristic: the SDK's
+    ``create_serial`` factory re-opens the port with ``dtr=not dtr`` when
+    the first handshake is unanswered.  MEDRE's direct construction must
+    instead surface the failure through the normal startup
+    classification/retry boundary — exactly one deasserted-line
+    connection attempt, a client ``disconnect()``, and no second attempt.
+    """
+    mock_mc, mock_inst = build_mock_meshcore_module()
+    # First (and only) connect attempt produces no protocol response —
+    # the condition under which the SDK factory would invert DTR.
+    mock_inst.connect = AsyncMock(return_value=None)
+
+    config = _make_config(
+        connection_type="serial",
+        serial_port="/dev/ttyUSB0",
+    )
+    session = MeshCoreSession(config, "serial-silent")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+    ):
+        with pytest.raises(MeshCoreConnectionError, match="No response"):
+            await session.start(lambda _pkt: None)
+
+    # Exactly one connection was ever constructed, with deasserted lines:
+    # no inverted-DTR retry path exists to reach.
+    mock_mc.SerialConnection.assert_called_once()
+    assert mock_mc.SerialConnection.call_args.kwargs["dtr"] is False
+    assert mock_mc.SerialConnection.call_args.kwargs["rts"] is False
+    mock_inst.connect.assert_awaited_once()
+    # The half-open client was released before the failure propagated.
+    mock_inst.disconnect.assert_awaited_once()
     assert session._meshcore is None
     assert session.connected is False
 

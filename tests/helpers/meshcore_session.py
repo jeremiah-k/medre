@@ -69,12 +69,17 @@ def build_mock_meshcore_module() -> tuple[MagicMock, AsyncMock]:
     instance.start_auto_message_fetching = AsyncMock()
     instance.stop_auto_message_fetching = AsyncMock()
 
-    # Factory methods: MeshCore.create_tcp/create_serial/create_ble
-    # These are async class methods that return the instance.
-    mock_mc.MeshCore = MagicMock()
+    # Factory methods: MeshCore.create_tcp/create_ble.  The serial path no
+    # longer uses create_serial (MEDRE constructs SerialConnection itself to
+    # keep DTR/RTS deasserted), so MeshCore(...) construction returns the
+    # instance for the serial startup tests.
+    mock_mc.MeshCore = MagicMock(return_value=instance)
     mock_mc.MeshCore.create_tcp = AsyncMock(return_value=instance)
     mock_mc.MeshCore.create_serial = AsyncMock(return_value=instance)
     mock_mc.MeshCore.create_ble = AsyncMock(return_value=instance)
+    # Serial connection class MEDRE constructs directly (dtr/rts recorded
+    # for call-shape assertions).
+    mock_mc.SerialConnection = MagicMock(return_value=MagicMock())
 
     return mock_mc, instance
 

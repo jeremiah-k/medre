@@ -179,8 +179,23 @@ diagnostics. The executable `meshcore_sdk` tier freezes the surfaces MEDRE
 relies on:
 
 - the installed MeshCore distribution matches MEDRE's current declared `meshcore` extra;
-- `create_tcp`, `create_serial`, and `create_ble` accept MEDRE's explicit
-  `auto_reconnect=False` control without pinning unrelated SDK defaults;
+- `create_tcp` and `create_ble` accept MEDRE's explicit `auto_reconnect=False`
+  control without pinning unrelated SDK defaults;
+- MEDRE does not consume `create_serial`: the pinned SDK factory retries once
+  with `dtr=not dtr` when the first handshake gets no protocol response, and
+  `SerialConnection` latches `transport.serial.dtr` in `connection_made`, so
+  that retry asserts DTR at port-open — the exact line state that can drop
+  companions with a USB-UART auto-download circuit (observed: LilyGO T-LoRa
+  V2.1) into the ESP32 ROM bootloader or the MeshCore CLI-rescue mode.
+  Instead, MEDRE constructs `SerialConnection(port, baudrate, cx_dly=0.1,
+rts=False, dtr=False)` itself and hands it to `MeshCore(connection,
+auto_reconnect=False)`: `SerialConnection.__init__` accepting
+  `port`/`baudrate`/`cx_dly`/`rts`/`dtr`, `MeshCore.__init__` accepting
+  `cx`/`debug`/`only_error`/`default_timeout`/`auto_reconnect`/
+  `max_reconnect_attempts`, and the awaited `connect()`/`disconnect()`
+  semantics are frozen by the contract tier, and a simulated-port check
+  executes the pinned `SerialConnection` to prove the requested deasserted
+  state is latched at open;
 - MEDRE remains the reconnect owner and now passes `auto_reconnect=False`
   explicitly instead of depending only on the SDK default;
 - `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV`, `MSG_SENT`, `ACK`, `CONTACTS`,
