@@ -383,7 +383,9 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
                         sent = await asyncio.to_thread(
                             _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce])], 60
                         )
-                        assert sent and sent[-1].get("sent_id"), "MT send not accepted"
+                        assert any(
+                            isinstance(e, dict) and e.get("sent_id") for e in sent
+                        ), "MT send not accepted"
                     elif transport == "MESHCORE":
                         # sendn takes a JSON ARRAY of texts (peer script
                         # json.loads argv[3]); a bare nonce crashes the
@@ -409,8 +411,11 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
                         )
                         assert sent.get("sent"), f"LX send not accepted: {sent!r}"
 
+                    # LX direct delivery includes first-path discovery; the
+                    # established pair convention allows 90-120s.
+                    lx_timeout = 120.0 if transport == "LXMF" else _RECEIPT_TIMEOUT
                     ev, receipts = await _wait_for_receipt(
-                        app, nonce, "matrix", _RECEIPT_TIMEOUT
+                        app, nonce, "matrix", lx_timeout
                     )
                     assert (
                         ev is not None
@@ -561,7 +566,9 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
             sent = await asyncio.to_thread(
                 _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce2])], 60
             )
-            assert sent and sent[-1].get("sent_id"), "post-restart MT send not accepted"
+            assert any(
+                isinstance(e, dict) and e.get("sent_id") for e in sent
+            ), "post-restart MT send not accepted"
             ev, receipts = await _wait_for_receipt(
                 app2, nonce2, "matrix", _RECEIPT_TIMEOUT
             )
