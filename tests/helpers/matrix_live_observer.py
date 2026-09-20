@@ -78,7 +78,9 @@ async def main() -> None:
 
     def _record(room, event) -> None:
         nonlocal matched
-        if room is not None and room != room_id:
+        # nio passes a Room OBJECT (with .room_id), not a string.
+        rid = room if isinstance(room, str) else getattr(room, "room_id", None)
+        if rid is not None and rid != room_id:
             return
         rec = {
             "type": type(event).__name__,
