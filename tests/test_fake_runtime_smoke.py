@@ -30,6 +30,7 @@ from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
+    LxmfRuntimeConfig,
     MatrixRuntimeConfig,
     MeshtasticRuntimeConfig,
     RuntimeConfig,
@@ -38,11 +39,13 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.events.kinds import EventKind
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
+from medre.runtime.route_engine import RouteOperationalState
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
 from tests.helpers.fake_runtime import (
     build_and_start,
@@ -275,6 +278,113 @@ class TestSyntheticEventRoutesThroughPipeline:
                         f"{len(payloads)} deliveries"
                     )
         finally:
+            await clean_stop(app)
+
+
+class TestStartupSkippedRouteStopsRouting:
+    """Startup-SKIPPED routes must stop routing, not dead-letter per event.
+
+    When a target adapter fails to start, its route is assessed SKIPPED;
+    that assessment must be enforced on the router.  Otherwise every source
+    event is still planned into the never-started adapter and dead-letters
+    with the adapter's own not-started error — observed physically as ten
+    ``Session not initialised`` dead letters when a soak restarted before
+    its MeshCore board would accept a connection again.
+    """
+
+    @staticmethod
+    def _config() -> RuntimeConfig:
+        return RuntimeConfig(
+            runtime=RuntimeOptions(name="skipped-route-enforcement"),
+            logging=LoggingConfig(level="DEBUG"),
+            storage=StorageConfig(backend="memory"),
+            adapters=AdapterConfigSet(
+                matrix={
+                    "mx_src": MatrixRuntimeConfig(
+                        adapter_id="mx_src",
+                        enabled=True,
+                        adapter_kind="fake",
+                    ),
+                },
+                meshtastic={
+                    "mesh_dead": MeshtasticRuntimeConfig(
+                        adapter_id="mesh_dead",
+                        enabled=True,
+                        adapter_kind="fake",
+                    ),
+                },
+                lxmf={
+                    "lx_ok": LxmfRuntimeConfig(
+                        adapter_id="lx_ok",
+                        enabled=True,
+                        adapter_kind="fake",
+                    ),
+                },
+            ),
+            routes=RouteConfigSet(
+                routes=(
+                    RouteConfig(
+                        route_id="src-to-dead",
+                        source_adapters=("mx_src",),
+                        dest_adapters=("mesh_dead",),
+                    ),
+                    RouteConfig(
+                        route_id="src-to-ok",
+                        source_adapters=("mx_src",),
+                        dest_adapters=("lx_ok",),
+                    ),
+                )
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_skipped_route_removed_and_failed_target_never_delivered(
+        self,
+        tmp_paths: MedrePaths,
+    ) -> None:
+        """Degraded start removes the dead-target route; the healthy target
+        still receives, and the failed adapter is never asked to deliver."""
+        config = self._config()
+        builder = RuntimeBuilder(config, tmp_paths)
+        app = builder.build()
+
+        async def _fail_start(ctx: Any) -> None:
+            raise RuntimeError("simulated meshtastic start failure")
+
+        failing = app.adapters["mesh_dead"]
+        original_start = failing.start
+        failing.start = _fail_start  # type: ignore[assignment]
+        await app.start()
+        try:
+            assert app.boot_summary is not None
+            assert app.boot_summary.runtime_health == "degraded"
+            assert "mesh_dead" in app.boot_summary.failed_adapter_ids
+
+            readiness = app.startup_readiness
+            assert readiness is not None
+            assert (
+                readiness.route_states["src-to-dead"] is RouteOperationalState.SKIPPED
+            )
+            assert (
+                readiness.route_states["src-to-ok"] is RouteOperationalState.REGISTERED
+            )
+
+            src = app.adapters["mx_src"]
+            assert isinstance(src, FakeMatrixAdapter)
+            event = src.make_event(
+                "post-start probe", event_kind=EventKind.MESSAGE_TEXT
+            )
+            assert [r.id for r in app.router.match(event)] == [
+                "src-to-ok"
+            ], "route into a startup-failed adapter must no longer match"
+
+            await src.simulate_inbound(event)
+            ok = app.adapters["lx_ok"]
+            await wait_until(lambda: len(ok.delivered_payloads) == 1, timeout=2.0)
+            assert len(ok.delivered_payloads) == 1
+            assert len(app.adapters["mesh_dead"].delivered_payloads) == 0
+        finally:
+            failing.start = original_start  # type: ignore[assignment]
             await clean_stop(app)
 
 

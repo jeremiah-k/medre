@@ -1136,6 +1136,19 @@ class MedreApp:
                 config_routes=self.config.routes,
             )
 
+            # Enforce the assessment: a SKIPPED route must stop routing.
+            # compute_startup_readiness only assesses; without this removal
+            # the router keeps planning deliveries into adapters that failed
+            # to start, and every event for that target dead-letters with the
+            # adapter's own not-started error.  DEGRADED routes (some targets
+            # surviving) stay registered: partial target loss keeps honest
+            # per-target outcomes.
+            for skipped_route in self._startup_readiness.skipped:
+                try:
+                    self.router.remove_route(skipped_route.route_id)
+                except KeyError:
+                    pass
+
         # -- Emit startup classified event ------------------------------------
         self._emit_event(
             RuntimeEventType.STARTUP_CLASSIFIED,
