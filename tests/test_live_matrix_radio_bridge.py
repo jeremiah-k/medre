@@ -432,6 +432,11 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
                     f"observer: {result['undecryptable']} in-window undecryptable "
                     f"Megolm events: {result!r}"
                 )
+            if result.get("sync_failures"):
+                failures.append(
+                    f"observer: {result['sync_failures']} sync(es) failed "
+                    f"(last: {result.get('last_sync_error')!r})"
+                )
             events = observer.events()
             seen_bodies = [e.get("body") or "" for e in events]
             for tag in ran_tags:
@@ -565,6 +570,9 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
             assert (
                 result["undecryptable"] == 0
             ), f"post-restart observer could not decrypt: {result!r}"
+            assert not result.get(
+                "sync_failures"
+            ), f"post-restart observer sync(es) failed: {result!r}"
             bodies = [e.get("body") or "" for e in observer.events()]
             assert any(
                 nonce2 in b for b in bodies

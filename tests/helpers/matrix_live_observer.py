@@ -102,18 +102,32 @@ async def main() -> None:
 
     deadline = time.monotonic() + seconds
     first = True
+    sync_failures: list[str] = []
     try:
         while time.monotonic() < deadline and matched is None:
             remaining_ms = int(max(1000.0, (deadline - time.monotonic()) * 1000))
-            await client.sync(
+            resp = await client.sync(
                 timeout=min(8000, remaining_ms), full_state=first
             )
             first = False
+            tname = type(resp).__name__
+            if tname.endswith("Error"):
+                # A failed sync previously passed SILENTLY here: the watcher
+                # looped for the whole window seeing nothing while the
+                # process still exited zero.  Record it, and after repeated
+                # failures re-arm the checkpoint with one full_state sync
+                # (the pinned SDK's Classic Sync staged-response token can
+                # wedge after concurrent same-device sync sessions).
+                sync_failures.append(f"{tname}: {getattr(resp, 'message', '')}")
+                if len(sync_failures) % 3 == 0:
+                    first = True
     finally:
         result = {
             "found": matched is not None,
             "matched": matched,
             "event_count": len(events),
+            "sync_failures": len(sync_failures),
+            "last_sync_error": sync_failures[-1] if sync_failures else None,
             # Undecryptable Megolm events RECEIVED DURING THIS WINDOW.
             # Older events (backlog that predates the watch / this
             # device's key store) are unconditionally undecryptable and
