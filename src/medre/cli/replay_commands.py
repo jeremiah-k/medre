@@ -1,17 +1,27 @@
-"""Replay CLI command: execute replay operations via the built (not started) runtime."""
+"""Replay CLI command: execute replay operations via the built runtime.
+
+Modes without delivery side effects (everything except ``best_effort``)
+run against the built-but-not-started runtime with read-only storage
+access.  ``best_effort`` re-delivers through real adapters, so it starts
+the full runtime lifecycle first (storage → pipeline → adapters) and
+stops it afterwards.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import time as _time
+from typing import Any
 
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 from medre.core.engine.replay.summary import collect_replay_summary
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest
+from medre.core.observability.sanitization import sanitize_error
 from medre.runtime.builder import RuntimeBuilder
 
-from .exit_codes import EXIT_BUILD, EXIT_CONFIG
+from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
 from .json import to_json
 
 _BEST_EFFORT_WARNING = (
@@ -21,6 +31,38 @@ _BEST_EFFORT_WARNING = (
     "traceability is NOT dedupe — duplicate-send risk remains.  "
     "Use --mode dry_run first to preview."
 )
+
+
+async def _drain_inflight_deliveries(app: Any, timeout: float) -> None:
+    """Wait for adapters' in-flight outbound deliveries to go terminal.
+
+    Reads each started adapter's own ``diagnostics()`` report —
+    ``session.pending_delivery_count`` where the adapter exposes one — and
+    returns as soon as every exposed count is zero, or after *timeout*
+    seconds.  Purely observational: no adapter state is mutated.
+    """
+    deadline = _time.monotonic() + timeout
+    while True:
+        any_exposed = False
+        all_terminal = True
+        for adapter_id in getattr(app, "started_adapter_ids", []):
+            adapter = app.adapters.get(adapter_id)
+            diag_fn = getattr(adapter, "diagnostics", None)
+            if diag_fn is None:
+                continue
+            diag = diag_fn()
+            session = (diag or {}).get("session") or {}
+            if "pending_delivery_count" not in session:
+                continue
+            any_exposed = True
+            if session["pending_delivery_count"] > 0:
+                all_terminal = False
+                break
+        if not any_exposed or all_terminal:
+            return
+        if _time.monotonic() >= deadline:
+            return
+        await asyncio.sleep(0.2)
 
 
 async def _replay(
@@ -81,8 +123,25 @@ async def _replay(
         )
         sys.exit(EXIT_BUILD)
 
-    # Initialize storage for read access without starting the runtime.
-    await app.storage.initialize()
+    # Side-effect modes (best_effort) re-deliver through real adapters, so
+    # the built runtime must be STARTED — the deliver stage requires live
+    # adapters and fails with ``AdapterPermanentError("Adapter not
+    # started")`` otherwise (observed on real hardware recovery).  Modes
+    # without delivery side effects keep the read-only storage-only path.
+    needs_runtime = replay_mode == ReplayMode.BEST_EFFORT
+    if needs_runtime:
+        try:
+            await app.start()
+        except Exception as exc:
+            print(
+                f"\nRuntime startup failed: {sanitize_error(str(exc))}",
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(EXIT_STARTUP)
+    else:
+        # Initialize storage for read access without starting the runtime.
+        await app.storage.initialize()
     try:
         # Build replay request.
         request = ReplayRequest(
@@ -106,7 +165,22 @@ async def _replay(
 
         summary_dict = summary.to_dict()
     finally:
-        await app.storage.close()
+        if needs_runtime:
+            # Give adapters' in-flight outbound deliveries a bounded window
+            # to reach terminal state before teardown — an immediate stop
+            # would abort asynchronous transfers (e.g. LXMF DIRECT link
+            # delivery) right after acceptance.  Bounded by the documented
+            # shutdown drain limit; purely observational.
+            try:
+                await _drain_inflight_deliveries(
+                    app, config.limits.shutdown_drain_timeout_seconds
+                )
+            except Exception:
+                pass  # best-effort: stop must proceed regardless
+            # Full lifecycle teardown (stops adapters, closes storage).
+            await app.stop()
+        else:
+            await app.storage.close()
 
     if json_output:
         print(to_json(summary_dict))

@@ -35,6 +35,12 @@ medre replay --mode dry_run --config my-bridge.yaml
 medre replay --mode best_effort --config my-bridge.yaml
 ```
 
+`best_effort` starts the configured runtime (real adapters included),
+executes the re-delivery, holds adapters open for a bounded drain of
+in-flight outbound deliveries (`limits.shutdown_drain_timeout_seconds`),
+then stops. Other modes run without starting adapters and without
+delivery side effects.
+
 ### Find Current Unresolved Deliveries
 
 ```bash
