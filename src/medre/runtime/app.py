@@ -70,7 +70,7 @@ if TYPE_CHECKING:
     from medre.runtime.retry import RetryWorker
     from medre.runtime.route_engine import RouteEligibility, RouteStartupReadiness
 
-__all__ = ["MedreApp", "RuntimeState"]
+__all__ = ["MedreApp", "RuntimeState", "StartupScope"]
 
 _logger = logging.getLogger(__name__)
 _ROUTE_IDS_DISPLAY_LIMIT = 10
@@ -92,6 +92,30 @@ class RuntimeState(enum.Enum):
     STOPPING = "stopping"
     STOPPED = "stopped"
     FAILED = "failed"
+
+
+class StartupScope(enum.Enum):
+    """Execution scope for :meth:`MedreApp.start`.
+
+    ``LIVE``
+        Full live runtime: storage, pipeline, adapters, the durable
+        ingress worker (routes admitted ingress), and the retry worker
+        (claims due outbox work).  This is the default and preserves
+        historical behaviour for every existing caller.
+
+    ``REPLAY``
+        Replay-delivery scope: storage, pipeline, and adapters start so a
+        side-effect replay can deliver through real adapters, but the
+        durable-ingress and retry workers do NOT run.  Live ingress
+        received while scoped still crosses the established durable
+        admission boundary (canonical event + pending work marker are
+        committed — nothing is silently lost), and due
+        ``pending``/``retry_wait`` outbox rows are left untouched for the
+        live authority.  A normal LIVE start processes the deferred work.
+    """
+
+    LIVE = "live"
+    REPLAY = "replay"
 
 
 def _utc_now() -> datetime:
@@ -279,6 +303,7 @@ class MedreApp:
     adapter_start_duration_ms: dict[str, float] = field(default_factory=dict)
     started_adapter_ids: list[str] = field(default_factory=list)
     _state: RuntimeState = field(default=RuntimeState.INITIALIZED, init=False)
+    _startup_scope: StartupScope = field(default=StartupScope.LIVE, init=False)
     _capacity_controller: CapacityController | None = field(default=None, init=False)
     _replay_engine: ReplayEngine | None = field(default=None, init=False)
     _retry_worker: RetryWorker | None = field(default=None, init=False)
@@ -657,7 +682,7 @@ class MedreApp:
 
     # -- Lifecycle ---------------------------------------------------------------
 
-    async def start(self) -> None:
+    async def start(self, scope: StartupScope = StartupScope.LIVE) -> None:
         """Start all subsystems in dependency order.
 
         Order: storage → pipeline runner → adapters.
@@ -670,6 +695,19 @@ class MedreApp:
         attribution but do **not** abort the remaining adapters.  On
         catastrophic core subsystem failure, any already-started adapters
         are stopped in reverse order.
+
+        Parameters
+        ----------
+        scope:
+            Execution scope (:class:`StartupScope`).  ``LIVE`` (default)
+            runs the full runtime including the durable-ingress worker and
+            the retry worker.  ``REPLAY`` starts the same delivery core
+            (storage, pipeline, adapters) for side-effect replay executions
+            but does NOT start those workers: due ``pending``/``retry_wait``
+            outbox rows and pending durable-ingress rows belong to the live
+            authority and stay untouched, while live ingress received by
+            started adapters still crosses the durable admission boundary
+            and is processed by a later LIVE start.
 
         Startup semantics
         -----------------
@@ -697,7 +735,12 @@ class MedreApp:
             )
 
         self._set_state(RuntimeState.STARTING)
-        _logger.info("Starting MEDRE runtime %s", self.config.runtime.name)
+        self._startup_scope = scope
+        _logger.info(
+            "Starting MEDRE runtime %s (scope=%s)",
+            self.config.runtime.name,
+            scope.value,
+        )
 
         # Record startup timestamps.
         self._startup_wall = _utc_now().isoformat()
@@ -781,7 +824,9 @@ class MedreApp:
         #        until adapter startup is complete. Cursor-owned adapters may
         #        admit work during startup; the rows remain durable until all
         #        available delivery targets have had a chance to start.
-        if self.storage is not None:
+        #        REPLAY scope does not construct the worker: admitted rows
+        #        stay pending for the live authority (nothing is lost).
+        if self.storage is not None and scope is StartupScope.LIVE:
             from medre.core.ingress import DurableIngressWorker
 
             self._ingress_worker = DurableIngressWorker(
@@ -789,8 +834,14 @@ class MedreApp:
                 pipeline=self.pipeline_runner,
             )
 
-        # 2.5. Start the retry worker (if enabled).
-        if not self.config.retry.enabled and self.config.routes.routes:
+        # 2.5. Start the retry worker (if enabled). REPLAY scope never
+        #        starts it: a replay execution must not claim due
+        #        pending/retry_wait rows belonging to unrelated work.
+        if (
+            scope is StartupScope.LIVE
+            and not self.config.retry.enabled
+            and self.config.routes.routes
+        ):
             stale = [
                 r.route_id
                 for r in self.config.routes.routes
@@ -806,7 +857,11 @@ class MedreApp:
                     shown,
                     suffix,
                 )
-        if self.config.retry.enabled and self.storage is not None:
+        if (
+            scope is StartupScope.LIVE
+            and self.config.retry.enabled
+            and self.storage is not None
+        ):
             from medre.runtime.retry import RetryWorker as _RW
 
             self._retry_worker = _RW(

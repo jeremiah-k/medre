@@ -35,11 +35,18 @@ medre replay --mode dry_run --config my-bridge.yaml
 medre replay --mode best_effort --config my-bridge.yaml
 ```
 
-`best_effort` starts the configured runtime (real adapters included),
-executes the re-delivery, holds adapters open for a bounded drain of
-in-flight outbound deliveries (`limits.shutdown_drain_timeout_seconds`),
-then stops. Other modes run without starting adapters and without
-delivery side effects.
+`best_effort` starts the configured runtime in the replay-delivery scope
+(real adapters included — delivery requires them), executes the
+re-delivery, holds adapters open for a bounded drain of in-flight
+outbound deliveries (`limits.shutdown_drain_timeout_seconds`), then
+stops. The replay-delivery scope starts storage, pipeline, and adapters
+only: the durable-ingress and retry workers do not run, so the replay
+never dispatches unrelated due `pending`/`retry_wait` outbox rows and
+never routes live ingress received during the window. Ingress received
+while scoped still crosses the durable admission boundary (canonical
+event + pending work marker committed) and is processed by the next
+normal live start — deferred, not lost. Other modes run without starting
+adapters and without delivery side effects.
 
 ### Find Current Unresolved Deliveries
 

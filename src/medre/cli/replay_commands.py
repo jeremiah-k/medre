@@ -3,8 +3,10 @@
 Modes without delivery side effects (everything except ``best_effort``)
 run against the built-but-not-started runtime with read-only storage
 access.  ``best_effort`` re-delivers through real adapters, so it starts
-the full runtime lifecycle first (storage → pipeline → adapters) and
-stops it afterwards.
+the runtime in the replay-delivery scope first (storage → pipeline →
+adapters; the durable-ingress and retry workers stay stopped so the
+replay never dispatches unrelated pending/live work) and stops it
+afterwards.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from medre.config.loader import load_config
 from medre.core.engine.replay.summary import collect_replay_summary
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.observability.sanitization import sanitize_error
+from medre.runtime.app import StartupScope
 from medre.runtime.builder import RuntimeBuilder
 
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
@@ -131,7 +134,14 @@ async def _replay(
     needs_runtime = replay_mode == ReplayMode.BEST_EFFORT
     if needs_runtime:
         try:
-            await app.start()
+            # REPLAY scope: adapters start so the selected replay can be
+            # delivered through them, but the durable-ingress and retry
+            # workers stay stopped — the replay must not dispatch unrelated
+            # pending/retryable work or route live ingress outside the
+            # selected replay.  Ingress received while scoped crosses the
+            # durable admission boundary and is processed by the next live
+            # start (see StartupScope.REPLAY).
+            await app.start(scope=StartupScope.REPLAY)
         except Exception as exc:
             print(
                 f"\nRuntime startup failed: {sanitize_error(str(exc))}",
