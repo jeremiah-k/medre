@@ -395,7 +395,7 @@ async def test_own_account_echo_is_suppressed_not_relayed(tmp_path: Path) -> Non
     (same bot account) posts into the encrypted room; the runtime must
     suppress it (no canonical ingress, no radio-side delivery).
     """
-    from nio import AsyncClient
+    from nio import AsyncClient, AsyncClientConfig
 
     app = await _launch(tmp_path / "lab.db")
     try:
@@ -405,7 +405,7 @@ async def test_own_account_echo_is_suppressed_not_relayed(tmp_path: Path) -> Non
             _MATRIX_USER,
             device_id=_OBSERVER_DEVICE,
             store_path=_OBSERVER_STORE,
-            encryption_enabled=True,
+            config=AsyncClientConfig(encryption_enabled=True),
         )
         client.restore_login(_MATRIX_USER, _OBSERVER_DEVICE, _OBSERVER_TOKEN)
         try:
@@ -417,6 +417,7 @@ async def test_own_account_echo_is_suppressed_not_relayed(tmp_path: Path) -> Non
                 room_id=_MATRIX_ROOM,
                 message_type="m.room.message",
                 content={"msgtype": "m.text", "body": probe},
+                ignore_unverified_devices=True,
             )
             assert not type(send).__name__.endswith(
                 "Error"
