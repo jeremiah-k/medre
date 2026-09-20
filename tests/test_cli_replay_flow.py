@@ -8,13 +8,16 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import time
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from medre.cli import main
+from medre.cli.replay_commands import _drain_inflight_deliveries
 from medre.config.model import (
     AdapterConfigSet,
     LoggingConfig,
@@ -716,3 +719,74 @@ class TestFullWalkthroughCLI:
             )
         dry_summary = json.loads(stdout_buf.getvalue())
         assert dry_summary["events_replayed"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: the replay teardown drain is a bounded WAIT, not a delivery authority
+# ---------------------------------------------------------------------------
+
+
+class _DrainDiagnosticsAdapter:
+    """Adapter stub exposing only the real ``diagnostics()`` contract."""
+
+    def __init__(self, pending_sequence: list[int]) -> None:
+        self._pending_sequence = list(pending_sequence)
+        self.diagnostic_calls = 0
+
+    def diagnostics(self) -> dict[str, Any]:
+        self.diagnostic_calls += 1
+        if len(self._pending_sequence) > 1:
+            return {"queue_pending": self._pending_sequence.pop(0)}
+        return {"queue_pending": self._pending_sequence[0]}
+
+
+class _DrainStubApp:
+    """Minimal app surface consumed by ``_drain_inflight_deliveries``."""
+
+    def __init__(self, adapter: _DrainDiagnosticsAdapter) -> None:
+        self.started_adapter_ids = ["mt_radio"]
+        self.adapters = {"mt_radio": adapter}
+
+
+class TestReplayTeardownDrainIsBoundedWait:
+    """The replay teardown drain only WAITS for adapters' own diagnostics
+    to report no unflushed outbound work.  Delivery truth is recorded by
+    the real queue terminal callbacks through the lifecycle authority —
+    the drain itself never creates receipts or outbox transitions, gives
+    up bounded by the configured timeout, and observes only each started
+    adapter's public diagnostics report.
+    """
+
+    async def test_drain_returns_once_queue_pending_clears(self) -> None:
+        """queue_pending 1 → 0: the wait ends as soon as work is flushed."""
+        adapter = _DrainDiagnosticsAdapter([1, 0, 0])
+        app = _DrainStubApp(adapter)
+
+        start = time.monotonic()
+        await _drain_inflight_deliveries(app, timeout=10.0)
+
+        assert time.monotonic() - start < 10.0
+        assert adapter.diagnostic_calls >= 2
+
+    async def test_drain_gives_up_bounded_when_work_never_flushes(self) -> None:
+        """queue_pending stuck > 0: the wait gives up after the timeout."""
+        adapter = _DrainDiagnosticsAdapter([1])
+        app = _DrainStubApp(adapter)
+
+        start = time.monotonic()
+        await _drain_inflight_deliveries(app, timeout=0.3)
+
+        elapsed = time.monotonic() - start
+        assert 0.3 <= elapsed < 5.0
+
+    async def test_drain_returns_immediately_without_diagnostics(self) -> None:
+        """No adapter exposes pending-work diagnostics: no waiting at all."""
+        adapter = _DrainDiagnosticsAdapter([1])
+        app = _DrainStubApp(adapter)
+        app.adapters = {"mt_radio": object()}
+
+        start = time.monotonic()
+        await _drain_inflight_deliveries(app, timeout=10.0)
+
+        assert time.monotonic() - start < 10.0
+        assert adapter.diagnostic_calls == 0

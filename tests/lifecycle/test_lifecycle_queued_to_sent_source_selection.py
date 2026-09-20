@@ -11,16 +11,17 @@ live vs replay source contamination hardening).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
+from medre.core.contracts.adapter import OutboundNativeRefRecord, QueueTerminalRecord
+from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
-    make_outbox_item,
 )
 
 from .conftest import _make_lifecycle, _make_receipt
@@ -182,12 +183,13 @@ class TestSourceAwareCandidateSelection:
         assert sent[0].parent_receipt_id == "rcpt-live-early"
         assert sent[0].source == "live"
 
-    async def test_replay_only_candidate_skipped_with_warning(
+    async def test_replay_only_candidate_finalizes_with_replay_lineage(
         self,
         temp_storage: StorageBackend,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Only replay queued receipt exists → skipped with warning, no sent receipt."""
+        """Replay queued receipt for the exact callback row → sent with the
+        replay lineage carried from the durable queued receipt."""
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
@@ -236,16 +238,20 @@ class TestSourceAwareCandidateSelection:
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-        # The replay receipt remains untouched and the outbox is still queued.
-        queued = [r for r in all_receipts if r.status == "queued"]
-        assert len(queued) == 1
-        assert queued[0].receipt_id == "rcpt-replay-only"
+        assert len(sent) == 1
+        # The supplemental sent receipt carries the replay lineage of the
+        # exact queued receipt it finalizes — no live provenance fabricated.
+        assert sent[0].source == "replay"
+        assert sent[0].replay_run_id == "run-77"
+        assert sent[0].parent_receipt_id == "rcpt-replay-only"
+        assert sent[0].attempt_number == 1
+        assert sent[0].adapter_message_id == "pkt-replay"
+        assert sent[0].outbox_id == "obox-replay-only"
+        # The outbox row reached the terminal sent state at callback time.
         outbox = await temp_storage.get_outbox_item("obox-replay-only")
         assert outbox is not None
-        assert outbox.status == "queued"
-        assert "only replay-sourced" in caplog.text
-        assert "skipping replay candidate" in caplog.text
+        assert outbox.status == "sent"
+        assert "skipping" not in caplog.text
         assert "Hard reject" not in caplog.text
 
     async def test_normal_live_only_unchanged(
@@ -484,12 +490,13 @@ class TestSourceAwareCandidateSelection:
         assert sent[0].parent_receipt_id == "rcpt-l1"
         assert sent[0].source == "live"
 
-    async def test_multiple_replay_candidates_skipped_with_warning(
+    async def test_multiple_replay_candidates_selects_latest_lineage(
         self,
         temp_storage: StorageBackend,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Multiple replay candidates, no live → all skipped with warning."""
+        """Multiple replay queued receipts for the exact row/attempt →
+        the most recent (append-order) replay lineage wins."""
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
@@ -552,15 +559,15 @@ class TestSourceAwareCandidateSelection:
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-        # Both replay receipts remain untouched and the outbox stays queued.
-        queued = [r for r in all_receipts if r.status == "queued"]
-        assert len(queued) == 2
+        assert len(sent) == 1
+        assert sent[0].source == "replay"
+        assert sent[0].replay_run_id == "run-b"
+        assert sent[0].parent_receipt_id == "rcpt-rp2"
+        assert sent[0].adapter_message_id == "pkt-rmulti"
         outbox = await temp_storage.get_outbox_item("obox-rmulti")
         assert outbox is not None
-        assert outbox.status == "queued"
-        assert "only replay-sourced" in caplog.text
-        assert "skipping all replay candidates" in caplog.text
+        assert outbox.status == "sent"
+        assert "skipping" not in caplog.text
         assert "Hard reject" not in caplog.text
 
     async def test_single_candidate_no_channel_succeeds(
@@ -685,149 +692,221 @@ class TestSourceAwareCandidateSelection:
 
 
 # ===================================================================
-# Replay orphan closure
+# Replay queued terminal correlation
 # ===================================================================
 
 
-class TestReplayOrphanClosure:
-    """``finalize_replay_queued_deliveries`` closes replay-created
-    queue-backed rows and never touches live lineage.
+class TestReplayQueuedTerminalCorrelation:
+    """Queue-backed replay completions finalize through the real terminal
+    callbacks with exact row/attempt correlation.
 
-    Without this closure a best_effort replay to a queue-backed adapter
-    leaves a non-terminal ``queued`` row that the live retry authority
-    later reclaims as crash-orphaned work and re-transmits over RF.
+    A best_effort replay to a queue-backed adapter records a ``queued``
+    receipt (SDK enqueue acceptance).  The success (native ref) and
+    failure (queue terminal record) callbacks must reach the exact
+    replay row/attempt and carry its durable replay lineage; aggregate
+    queue-drain state must never manufacture per-attempt delivery truth.
     """
 
-    async def test_closes_replay_row_and_leaves_live_row(
+    async def _seed_queued_row(
+        self,
+        storage: StorageBackend,
+        *,
+        outbox_id: str,
+        attempt_number: int,
+        receipt_id: str,
+        source: str,
+        replay_run_id: str | None,
+        event_id: str = "evt-001",
+    ) -> None:
+        """One queue-backed row: in_progress → queued with its queued receipt.
+
+        All rows share the delivery-plan identity — the production shape
+        for live + replay runs of the same event/target (replay creates
+        its own row with attempt = max(existing) + 1); only outbox_id and
+        attempt_number distinguish them.
+        """
+        await append_receipt_with_parent(
+            storage,
+            _make_receipt(
+                receipt_id=receipt_id,
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-shared",
+                source=source,
+                replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
+                attempt_number=attempt_number,
+                event_id=event_id,
+            ),
+        )
+        item = DeliveryOutboxItem(
+            outbox_id=outbox_id,
+            event_id=event_id,
+            route_id="route-001",
+            delivery_plan_id="plan-shared",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=attempt_number,
+        )
+        await create_outbox_item_with_parent(storage, item)
+        await storage.mark_outbox_queued(outbox_id)
+
+    async def test_replay_native_ref_closes_only_its_exact_row(
         self,
         temp_storage: StorageBackend,
     ) -> None:
-        """Replay-shaped queued row closes; live queued row stays pending."""
+        """The run-B replay callback finalizes only run-B's row with the
+        correct source/run/attempt/parent/native-ref lineage; the live row
+        and the other replay run's row stay pending, and the terminal row
+        is never reclaimable by the retry authority."""
         lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
 
-        replay_row = await create_outbox_item_with_parent(
+        await self._seed_queued_row(
             temp_storage,
-            make_outbox_item(
-                delivery_plan_id="plan-r",
-                target_adapter="m",
-                target_channel="0",
-                status="in_progress",
-                event_id="evt-replay-orphan",
-            ),
+            outbox_id="obox-live",
+            attempt_number=1,
+            receipt_id="rcpt-live-q",
+            source="live",
+            replay_run_id=None,
         )
-        # Reach 'queued' through the production transition (adapter-local
-        # queue acceptance), as the live pipeline does.
-        await temp_storage.mark_outbox_queued(replay_row.outbox_id)
-        await append_receipt_with_parent(
+        await self._seed_queued_row(
             temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-r-q",
-                status="queued",
+            outbox_id="obox-run-a",
+            attempt_number=2,
+            receipt_id="rcpt-ra-q",
+            source="replay",
+            replay_run_id="run-a",
+        )
+        await self._seed_queued_row(
+            temp_storage,
+            outbox_id="obox-run-b",
+            attempt_number=3,
+            receipt_id="rcpt-rb-q",
+            source="replay",
+            replay_run_id="run-b",
+        )
+
+        await lifecycle.finalize_queued_delivery(
+            temp_storage,
+            record=OutboundNativeRefRecord(
+                event_id="evt-001",
                 adapter="m",
-                channel="0",
-                plan_id="plan-r",
-                source="replay",
-                replay_run_id="run-1",
-                outbox_id=replay_row.outbox_id,
-                event_id="evt-replay-orphan",
+                native_channel_id="0",
+                native_message_id="pkt-run-b",
+                delivery_plan_id="plan-shared",
+                outbox_id="obox-run-b",
+                attempt_number=3,
             ),
-        )
-        live_row = await create_outbox_item_with_parent(
-            temp_storage,
-            make_outbox_item(
-                delivery_plan_id="plan-l",
-                target_adapter="m",
-                target_channel="0",
-                status="in_progress",
-                event_id="evt-live-pending",
-            ),
-        )
-        await temp_storage.mark_outbox_queued(live_row.outbox_id)
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-l-q",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-l",
-                source="live",
-                outbox_id=live_row.outbox_id,
-                event_id="evt-live-pending",
-            ),
+            now=datetime.now(tz=timezone.utc),
         )
 
-        closed = await lifecycle.finalize_replay_queued_deliveries(temp_storage, now)
-
-        assert closed == 1
-        replay_after = await temp_storage.get_outbox_item(replay_row.outbox_id)
-        assert replay_after is not None and replay_after.status == "sent"
-        live_after = await temp_storage.get_outbox_item(live_row.outbox_id)
-        assert live_after is not None and live_after.status == "queued"
-        sent = [
-            r
-            for r in await temp_storage.list_receipts_for_event("evt-replay-orphan")
-            if r.status == "sent"
-        ]
+        # Run-B's row closed with its own lineage and the real native ref.
+        run_b = await temp_storage.get_outbox_item("obox-run-b")
+        assert run_b is not None
+        assert run_b.status == "sent"
+        receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in receipts if r.status == "sent"]
         assert len(sent) == 1
+        assert sent[0].outbox_id == "obox-run-b"
         assert sent[0].source == "replay"
-        assert sent[0].replay_run_id == "run-1"
-        assert sent[0].parent_receipt_id == "rcpt-r-q"
-        # The live event gained no receipts.
-        assert await temp_storage.list_receipts_for_event("evt-live-pending")
+        assert sent[0].replay_run_id == "run-b"
+        assert sent[0].attempt_number == 3
+        assert sent[0].parent_receipt_id == "rcpt-rb-q"
+        assert sent[0].adapter_message_id == "pkt-run-b"
+        refs = await temp_storage.list_native_refs_for_event("evt-001")
+        outbound_refs = [r for r in refs if r.direction == "outbound"]
+        assert len(outbound_refs) == 1
+        assert outbound_refs[0].native_message_id == "pkt-run-b"
 
-    async def test_failure_guard_blocks_sent_upgrade(
+        # The live row and the other run's row are untouched: still
+        # queued, receipts unchanged.
+        live = await temp_storage.get_outbox_item("obox-live")
+        assert live is not None
+        assert live.status == "queued"
+        run_a = await temp_storage.get_outbox_item("obox-run-a")
+        assert run_a is not None
+        assert run_a.status == "queued"
+        assert [r.status for r in receipts if r.outbox_id == "obox-live"] == ["queued"]
+        assert [r.status for r in receipts if r.outbox_id == "obox-run-a"] == ["queued"]
+
+        # Past the stale-queued grace, the retry authority may reclaim the
+        # still-pending rows (their normal crash-recovery path) but never
+        # the terminal replay row — no orphan re-transmission.
+        claim_now = (
+            datetime.now(tz=timezone.utc)
+            + timedelta(seconds=STALE_QUEUED_GRACE_SECONDS + 5)
+        ).isoformat()
+        claims = await temp_storage.claim_due_outbox_items(
+            claim_now,
+            worker_id="worker-retry-scan",
+        )
+        assert {c.outbox_id for c in claims} == {"obox-live", "obox-run-a"}
+
+    async def test_replay_native_failure_stays_failed_rejects_late_success(
         self,
         temp_storage: StorageBackend,
     ) -> None:
-        """A replay row whose attempt already recorded a failure stays."""
+        """A terminal native failure records the failure with replay
+        lineage and can never be upgraded to sent afterwards — not by a
+        late or duplicate native-ref callback, and not by a queue drain."""
         lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
+        manager = OutboxManager(temp_storage, lifecycle=lifecycle)
 
-        row = await create_outbox_item_with_parent(
+        await self._seed_queued_row(
             temp_storage,
-            make_outbox_item(
-                delivery_plan_id="plan-f",
-                target_adapter="m",
-                target_channel="0",
-                status="in_progress",
-                attempt_number=2,
-                event_id="evt-replay-failed",
-            ),
+            outbox_id="obox-replay-fail",
+            attempt_number=1,
+            receipt_id="rcpt-rf-q",
+            source="replay",
+            replay_run_id="run-9",
         )
-        await temp_storage.mark_outbox_queued(row.outbox_id)
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-f-q",
-                status="queued",
+
+        await manager.record_terminal(
+            QueueTerminalRecord(
+                event_id="evt-001",
                 adapter="m",
-                channel="0",
-                plan_id="plan-f",
-                source="replay",
-                outbox_id=row.outbox_id,
-                event_id="evt-replay-failed",
-                attempt_number=2,
-            ),
+                outcome="permanent_failed",
+                outbox_id="obox-replay-fail",
+                delivery_plan_id="plan-shared",
+                attempt_number=1,
+                native_channel_id="0",
+                error="permanent RF encode failure",
+            )
         )
-        await append_receipt_with_parent(
+
+        row = await temp_storage.get_outbox_item("obox-replay-fail")
+        assert row is not None
+        assert row.status == "dead_lettered"
+        receipts = await temp_storage.list_receipts_for_event("evt-001")
+        failed = [r for r in receipts if r.status == "failed"]
+        assert len(failed) == 1
+        assert failed[0].source == "replay"
+        assert failed[0].replay_run_id == "run-9"
+        # record_terminal preserves the queued receipt's lineage fields
+        # (source/replay_run_id/parent) onto the terminal failure receipt.
+        assert failed[0].parent_receipt_id is None
+        assert failed[0].failure_kind == "adapter_permanent"
+        assert failed[0].attempt_number == 1
+
+        # A late/duplicate success callback for the same row/attempt is
+        # stale-rejected: terminal delivery truth was already recorded.
+        await lifecycle.finalize_queued_delivery(
             temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-f-fail",
-                status="failed",
+            record=OutboundNativeRefRecord(
+                event_id="evt-001",
                 adapter="m",
-                channel="0",
-                plan_id="plan-f",
-                source="replay",
-                outbox_id=row.outbox_id,
-                event_id="evt-replay-failed",
-                attempt_number=2,
+                native_channel_id="0",
+                native_message_id="pkt-late",
+                delivery_plan_id="plan-shared",
+                outbox_id="obox-replay-fail",
+                attempt_number=1,
             ),
+            now=datetime.now(tz=timezone.utc),
         )
-
-        closed = await lifecycle.finalize_replay_queued_deliveries(temp_storage, now)
-
-        assert closed == 0
-        after = await temp_storage.get_outbox_item(row.outbox_id)
-        assert after is not None and after.status == "queued"
+        receipts_after = await temp_storage.list_receipts_for_event("evt-001")
+        assert [r for r in receipts_after if r.status == "sent"] == []
+        row_after = await temp_storage.get_outbox_item("obox-replay-fail")
+        assert row_after is not None
+        assert row_after.status == "dead_lettered"

@@ -39,7 +39,11 @@ medre replay --mode best_effort --config my-bridge.yaml
 (real adapters included — delivery requires them), executes the
 re-delivery, holds adapters open for a bounded drain of in-flight
 outbound deliveries (`limits.shutdown_drain_timeout_seconds`), then
-stops. The replay-delivery scope starts storage, pipeline, and adapters
+stops. Queue-backed completions (and native failures) are finalized by the
+adapters' real terminal callbacks through the lifecycle authority, carrying
+the replay attempt's own `source`/`replay_run_id` lineage; the bounded drain
+is only a wait and never infers per-message delivery truth. The
+replay-delivery scope starts storage, pipeline, and adapters
 only: the durable-ingress and retry workers do not run, so the replay
 never dispatches unrelated due `pending`/`retry_wait` outbox rows and
 never routes live ingress received during the window. Ingress received

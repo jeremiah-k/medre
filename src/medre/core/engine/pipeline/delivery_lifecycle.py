@@ -572,29 +572,32 @@ class DeliveryLifecycleService:
         candidates: list[DeliveryReceipt],
         record: OutboundNativeRefRecord,
     ) -> DeliveryReceipt | None:
-        """Select the best queued receipt candidate with source awareness.
+        """Select the queued receipt candidate for this exact row/attempt.
 
-        When multiple candidates match the same
-        ``(delivery_plan_id, adapter, channel)``, prefer non-replay
-        (``"live"`` / ``"retry"``) candidates over ``"replay"`` candidates.
-        This prevents a live callback from silently linking to a replay queued
-        receipt when a live candidate exists.
+        The caller guarantees every candidate already matches the callback's
+        ``outbox_id`` + ``attempt_number`` AND that the authoritative outbox
+        row was validated for this exact callback (status, event, adapter,
+        plan, channel, attempt).  Each candidate therefore belongs to this
+        one delivery attempt; selecting it cannot mutate any other row.
+        The receipt's own durable ``source`` / ``replay_run_id`` lineage is
+        the trusted attempt provenance — the same recovery used by
+        :meth:`~medre.core.engine.pipeline.outbox_manager.OutboxManager.record_terminal`
+        for terminal failure callbacks — so a replay-sourced candidate is
+        finalized exactly like a live one, with its replay lineage carried
+        onto the supplemental ``sent`` receipt.
 
-        Among the preferred source group the most-recent (last in
-        append-order) candidate wins, preserving the existing retry-lineage
+        When malformed history offers duplicates across sources for the
+        same row/attempt (a row is single-sourced in normal operation),
+        non-replay (``"live"`` / ``"retry"``) candidates are preferred over
+        ``"replay"`` candidates; within the preferred group the most-recent
+        (last in append-order) candidate wins, preserving retry-lineage
         behaviour.
-
-        If only replay candidates are available the method returns ``None``
-        after logging an operator-visible warning.  ``OutboundNativeRefRecord``
-        carries no trusted ``source`` / ``replay_run_id`` provenance, so
-        replay-only queued receipts cannot be safely used for callback
-        correlation without risking live recovery state mutation.
 
         Parameters
         ----------
         candidates:
             Non-empty list of matching queued receipts (already filtered by
-            plan_id and optionally channel).
+            outbox_id + attempt_number against the validated row).
         record:
             The outbound native reference record from the adapter callback.
             Used for log context only.
@@ -602,169 +605,32 @@ class DeliveryLifecycleService:
         Returns
         -------
         DeliveryReceipt | None
-            The selected receipt, or ``None`` if no trustworthy candidate is
-            available (empty list or replay-only candidates).
+            The selected receipt, or ``None`` when no candidate exists.
         """
         if not candidates:
             return None
         if len(candidates) == 1:
-            candidate = candidates[0]
-            if candidate.source == "replay":
-                self._log.warning(
-                    "Supplemental queued→sent correlation: only replay-sourced "
-                    "queued receipt found for delivery_plan_id=%s event_id=%s "
-                    "adapter=%s channel=%s; skipping replay candidate %s "
-                    "(source=%s, replay_run_id=%s). OutboundNativeRefRecord "
-                    "carries no trusted replay provenance — correlation "
-                    "skipped to prevent live recovery state mutation.",
-                    record.delivery_plan_id,
-                    record.event_id,
-                    record.adapter,
-                    candidate.target_channel,
-                    candidate.receipt_id,
-                    candidate.source,
-                    candidate.replay_run_id,
-                )
-                return None
-            return candidate
+            return candidates[0]
 
         live_candidates = [r for r in candidates if r.source != "replay"]
-        replay_candidates = [r for r in candidates if r.source == "replay"]
-
         if live_candidates:
             # Prefer the latest non-replay candidate.
             return live_candidates[-1]
 
-        # Only replay-sourced candidates — skip with warning.
-        self._log.warning(
-            "Supplemental queued→sent correlation: only replay-sourced "
-            "queued receipts found for delivery_plan_id=%s event_id=%s "
-            "adapter=%s (%d candidates); skipping all replay candidates. "
-            "OutboundNativeRefRecord carries no trusted replay provenance — "
-            "correlation skipped to prevent live recovery state mutation.",
-            record.delivery_plan_id,
+        # Only replay-sourced candidates — this row belongs to a replay
+        # execution and the callback matched its exact outbox_id +
+        # attempt_number, so finalize it with its replay lineage.
+        self._log.debug(
+            "Supplemental queued→sent correlation: selecting replay-sourced "
+            "queued receipt %s (replay_run_id=%s) for outbox_id=%s "
+            "event_id=%s adapter=%s — exact row/attempt correlation",
+            candidates[-1].receipt_id,
+            candidates[-1].replay_run_id,
+            record.outbox_id,
             record.event_id,
             record.adapter,
-            len(replay_candidates),
         )
-        return None
-
-    # -- Replay orphan closure -------------------------------------------------
-
-    async def finalize_replay_queued_deliveries(
-        self,
-        storage: DeliveryLifecycleStorage,
-        now: datetime,
-    ) -> int:
-        """Close replay-created queue-backed outbox rows left non-terminal.
-
-        A best_effort replay delivery to a queue-backed adapter is recorded
-        as a ``queued`` receipt (SDK enqueue acceptance).  The queue's
-        success callback cannot finalize a replay-sourced queued receipt
-        (the terminal record carries no replay provenance), so such a row
-        would otherwise stay non-terminal and later be reclaimed by the
-        live retry authority as if it were crash-orphaned work —
-        re-rendering and re-transmitting the same content over RF.
-
-        Call this ONLY after the replay's outbound queue has drained (the
-        replay teardown drain waits for queue-backed adapters to flush).
-        Each non-terminal row whose latest queued receipt for that exact
-        row is replay-sourced is closed with a supplemental ``sent``
-        receipt (same replay source/replay_run_id lineage — no live
-        provenance is fabricated) plus the atomic
-        ``queued|in_progress -> sent`` outbox transition.  Rows whose
-        latest attempt recorded a failure are left untouched, and rows
-        with live/retry lineage are never considered: the live
-        provenance-based stale-callback protection is unchanged.
-
-        Returns the number of rows closed.
-        """
-        closed = 0
-        try:
-            rows = await storage.list_outbox_items(
-                status_filter=["queued", "in_progress"],
-            )
-        except Exception:
-            self._log.exception(
-                "finalize_replay_queued_deliveries: failed to list "
-                "non-terminal outbox rows; closing nothing",
-            )
-            return 0
-
-        for row in rows:
-            try:
-                receipts = await storage.list_receipts_for_event(row.event_id)
-            except Exception:
-                self._log.exception(
-                    "finalize_replay_queued_deliveries: failed to list "
-                    "receipts for event_id=%s; skipping row %s",
-                    row.event_id,
-                    row.outbox_id,
-                )
-                continue
-
-            row_receipts = [r for r in receipts if r.outbox_id == row.outbox_id]
-            queued = [r for r in row_receipts if r.status == "queued"]
-            if not queued:
-                continue
-            latest_queued = queued[-1]
-            if latest_queued.source != "replay":
-                # Live/retry lineage belongs to the live callback path.
-                continue
-            if any(
-                r.attempt_number == latest_queued.attempt_number
-                and r.status in ("failed", "dead_lettered")
-                for r in row_receipts
-            ):
-                # A terminal failure for this attempt is already durable;
-                # never upgrade it to sent.
-                continue
-
-            supplemental = build_delivery_receipt(
-                event_id=row.event_id,
-                delivery_plan_id=latest_queued.delivery_plan_id,
-                target_adapter=row.target_adapter,
-                target_channel=row.target_channel or latest_queued.target_channel,
-                route_id=latest_queued.route_id,
-                status="sent",
-                adapter_message_id=None,
-                created_at=now,
-                attempt_number=latest_queued.attempt_number,
-                parent_receipt_id=latest_queued.receipt_id,
-                source=latest_queued.source,
-                replay_run_id=latest_queued.replay_run_id,
-                retry_max_attempts=latest_queued.retry_max_attempts,
-                retry_backoff_base=latest_queued.retry_backoff_base,
-                retry_max_delay=latest_queued.retry_max_delay,
-                retry_jitter=latest_queued.retry_jitter,
-                rendering_evidence=latest_queued.rendering_evidence,
-                outbox_id=row.outbox_id,
-            )
-            try:
-                # No outbound native ref is written: the queue terminal
-                # record carried no trusted native message id for this
-                # replay attempt, and fabricating one is prohibited.  The
-                # supplemental receipt keeps the replay source lineage, and
-                # mark_outbox_sent applies the guarded non-terminal ->
-                # sent transition (no-op if a terminal state already won).
-                await storage.append_receipt(supplemental)
-                await storage.mark_outbox_sent(row.outbox_id)
-                closed += 1
-            except Exception:
-                self._log.exception(
-                    "finalize_replay_queued_deliveries: commit failed for "
-                    "outbox_id=%s event_id=%s",
-                    row.outbox_id,
-                    row.event_id,
-                )
-                continue
-        if closed:
-            self._log.info(
-                "finalize_replay_queued_deliveries: closed %d replay "
-                "queue-backed row(s)",
-                closed,
-            )
-        return closed
+        return candidates[-1]
 
     # -- Atomic queued->sent finalization ------------------------------------
 
@@ -818,8 +684,8 @@ class DeliveryLifecycleService:
         transaction. The storage transaction re-checks outbox ID, attempt
         number, and status so a concurrent reclaim cannot partially commit.
 
-        If no matching ``"queued"`` receipt is found (e.g. non-queued
-        adapter or replay context), the method returns silently.
+        If no matching ``"queued"`` receipt is found (e.g. a non-queued
+        adapter), the method returns silently.
 
         Parameters
         ----------
