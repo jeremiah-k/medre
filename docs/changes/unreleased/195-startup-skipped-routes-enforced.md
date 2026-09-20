@@ -39,3 +39,12 @@ transport failure. After startup settles, persisted terminal evidence is
 reconciled normally; unresolved retry rows whose target adapter failed this
 startup are rescheduled without incrementing their attempt number. Work for
 started targets proceeds through the existing retry authority.
+
+architecture §7.1 and routing-delivery §7.4 are reconciled with this
+behavior in the same change: §7.1 now documents construction versus
+activation, the LIVE/REPLAY startup scopes (REPLAY constructs neither
+worker while unsolicited native ingress is still admitted durably for the
+next LIVE start), and the scope-aware route enforcement; §7.4 inserts the
+availability gate into the normative retry sequence (reconcile persisted
+completion first, defer with the `adapter_unavailable_startup` marker and
+unchanged attempt number, keep permanently absent adapters' durable work).

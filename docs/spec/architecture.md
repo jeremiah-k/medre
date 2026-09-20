@@ -184,16 +184,63 @@ vocabulary for individual transitions is owned by
 2. Conversation-projection rebuild/check — after storage facts exist and
    before any worker or adapter can consume stale pre-crash projection state.
 3. Pipeline runner (which fans target work out to `DeliveryCoordinator`).
-4. Durable-ingress worker construction, with processing deferred until
-   adapter startup completes so cursor-owned adapters can admit work while
-   delivery targets are still coming up.
-5. Retry worker — only when retry is enabled and storage is present.
+4. Durable-ingress worker construction — LIVE scope only — with processing
+   deferred until adapter startup completes so cursor-owned adapters can
+   admit work while delivery targets are still coming up.
+5. Retry worker construction — only when retry is enabled and storage is
+   present (LIVE scope only).
 6. Adapters, in sorted `adapter_id` order. Adapter start failures are
    logged and attributed; they do not abort sibling adapters.
+7. LIVE worker activation at the post-adapter boundary: after every
+   adapter has reached its terminal startup state (READY or FAILED) and
+   startup-derived route readiness has been computed, the retry worker
+   and the durable-ingress worker start. A worker claim cycle MUST NOT
+   dispatch due work into an adapter that is still starting: real
+   adapters refuse delivery until started, so an early cycle would
+   consume a transport attempt — permanently classifying durable work —
+   purely from ordering rather than from any transport outcome.
+   Construction (steps 4-5) and activation (this step) are deliberately
+   different; construction does not imply activation. Startup-failure
+   cleanup and shutdown already handle a constructed-but-not-started
+   worker.
 
 Startup outcomes: zero adapters started (including build failures) raises
 `RuntimeStartupError` after core cleanup; partial adapter startup enters
 `RUNNING` with degraded health; full startup enters `RUNNING` healthy.
+
+### 7.1.1 Startup Scope
+
+`start(scope=...)` selects one of two execution scopes:
+
+- **LIVE** (default) is the full runtime: storage, projection, pipeline,
+  adapters, and both workers (steps 4, 5, and 7).
+- **REPLAY** starts the same delivery core (steps 1-3 and 6) for
+  side-effect replay executions but constructs neither worker. Due
+  `pending` / `retry_wait` outbox rows and pending durable-ingress rows
+  belong to the live authority and stay untouched by a replay execution.
+  Live ingress received by started adapters during replay still crosses
+  the durable admission boundary: rows are admitted durably and
+  processed by the next LIVE start — never dropped.
+
+Scope also gates startup-derived route enforcement. Route readiness is
+computed in both scopes from the adapter startup classification:
+
+- A LIVE route whose every target failed startup is removed: planning
+  into a never-started adapter would dead-letter every fresh delivery,
+  so the route is unregistered instead of preserved to fail.
+- A LIVE route whose startup failure is source-only is kept: routing a
+  stored canonical event keys off the event's recorded source adapter,
+  not a live connection, so already-recorded canonical work (including
+  admitted durable ingress) must still reach its surviving targets.
+  Fresh live ingress cannot arrive from an adapter that never started,
+  so keeping the route plans nothing into the failed adapter.
+- REPLAY removes no routes: replay selection executes stored events
+  explicitly, and a pruned route would misreport the execution as "no
+  routes matched" instead of delivering to surviving targets (or failing
+  per-target, truthfully, when targets are down). The readiness report
+  still records every skip.
+- DEGRADED routes (some targets surviving) stay registered in every
+  scope: partial target loss keeps honest per-target outcomes.
 
 ### 7.2 Shutdown Order
 
