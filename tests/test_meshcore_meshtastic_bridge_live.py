@@ -460,6 +460,13 @@ class _MtListener:
         if self._proc and self._proc.poll() is None:
             self._proc.kill()
             self._proc.wait(timeout=10)
+        # Close the child pipe handles — under filterwarnings=error an
+        # unclosed-pipe ResourceWarning during interpreter GC surfaces as
+        # an unraisable-exception test failure (same class as the LXMF
+        # pair listener fix).
+        for stream in (self._proc.stdout, self._proc.stderr):
+            if stream is not None:
+                stream.close()
 
 
 @pytest.mark.live
