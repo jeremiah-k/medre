@@ -254,6 +254,72 @@ async def test_sync_response_commits_checkpoint_before_nio_ack() -> None:
     assert session.diagnostics().committed_checkpoint_present is True
 
 
+async def test_ack_token_mismatch_defers_instead_of_killing_sync() -> None:
+    """Live finding F4 (run4): while MEDRE's awaited checkpoint commit runs,
+    nio recovery dispatches (undecryptable-event room-key work) can still be
+    active; `acknowledge_classic_sync` then raises LocalProtocolError. The
+    exception used to propagate out of the response callback and kill
+    sync_forever, burning the reconnect budget. The durable checkpoint is
+    already committed at that point — the acknowledgement must defer to a
+    later quiet response, not crash the sync loop."""
+    ack_calls: list[str] = []
+
+    def _ack(cursor: str) -> None:
+        from nio.exceptions import LocalProtocolError
+
+        ack_calls.append(cursor)
+        raise LocalProtocolError(
+            "Classic Sync acknowledgement token does not match the staged " "response."
+        )
+
+    session = _durable_session()
+    client = MagicMock()
+    client.acknowledge_classic_sync.side_effect = _ack
+    session._client = client
+    response = SimpleNamespace(next_batch="s43", abandoned_rooms={})
+
+    await session._on_sync_response(response)  # must not raise
+
+    assert ack_calls == ["s43"]
+    assert session._committed_sync_token == "s43"
+    assert session.diagnostics().classic_ack_deferrals == 1
+
+
+async def test_deferred_classic_ack_recovers_on_next_response() -> None:
+    """After recovery work settles, the next response's acknowledgement
+    succeeds and the deferral counter stops growing."""
+    calls: list[str] = []
+    fail_first = True
+
+    def _ack(cursor: str) -> None:
+        nonlocal fail_first
+        from nio.exceptions import LocalProtocolError
+
+        calls.append(cursor)
+        if fail_first:
+            fail_first = False
+            raise LocalProtocolError(
+                "Classic Sync acknowledgement token does not match the "
+                "staged response."
+            )
+
+    session = _durable_session()
+    client = MagicMock()
+    client.acknowledge_classic_sync.side_effect = _ack
+    session._client = client
+
+    await session._on_sync_response(
+        SimpleNamespace(next_batch="s43", abandoned_rooms={})
+    )
+    await session._on_sync_response(
+        SimpleNamespace(next_batch="s44", abandoned_rooms={})
+    )
+
+    assert calls == ["s43", "s44"]
+    assert session._committed_sync_token == "s44"
+    assert session.diagnostics().classic_ack_deferrals == 0
+
+
 async def test_checkpoint_failure_does_not_acknowledge_nio() -> None:
     async def commit(_stream: str, _cursor: str, _metadata: str) -> None:
         raise OSError("disk full")

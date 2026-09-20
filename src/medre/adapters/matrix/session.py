@@ -156,6 +156,7 @@ class MatrixSessionDiagnostics:
     last_successful_sync: float | None
     checkpoint_owned_by_medre: bool
     committed_checkpoint_present: bool
+    classic_ack_deferrals: int
     recovered_event_count: int
     history_event_count: int
     recovery_abandoned_room_count: int
@@ -253,6 +254,7 @@ class MatrixSession:
         # Own-device cross-signing lifecycle
         "_cross_signing_service",
         "_cross_signing_diagnostics",
+        "_classic_ack_deferrals",
     )
 
     _UNDECRYPTABLE_DEDUP_WINDOW_SECS: float = 60.0
@@ -298,6 +300,9 @@ class MatrixSession:
         self._room_key_request_successes: int = 0
         self._room_key_request_failures: int = 0
         self._room_key_request_tasks: dict[str, asyncio.Task[None]] = {}
+        # Consecutive Classic Sync acknowledgements deferred because nio
+        # recovery work was still active at ack time (campaign F4).
+        self._classic_ack_deferrals: int = 0
         # Sync recovery
         self._reconnect_attempts: int = 0
         self._reconnecting: bool = False
@@ -478,6 +483,29 @@ class MatrixSession:
             if rooms is not None and isinstance(rooms, dict):
                 room_obj = rooms.get(room_id)
                 if room_obj is not None and getattr(room_obj, "encrypted", False):
+                    return True
+        return False
+
+    def encryption_state_known(self, room_id: str) -> bool:
+        """``True`` when the room's encryption state is affirmatively
+        established.
+
+        Established means session-tracked (``encrypted``/``plaintext``) or
+        the client reports the room with a known ``encrypted`` flag.
+        ``False`` means *not yet established* — callers must distinguish
+        that from an affirmatively unencrypted room before classifying a
+        policy refusal as permanent.
+        """
+        if self.room_state(room_id) in ("encrypted", "plaintext"):
+            return True
+        if self._client is not None:
+            rooms = getattr(self._client, "rooms", None)
+            if rooms is not None and isinstance(rooms, dict):
+                room_obj = rooms.get(room_id)
+                if (
+                    room_obj is not None
+                    and getattr(room_obj, "encrypted", None) is not None
+                ):
                     return True
         return False
 
@@ -1136,7 +1164,29 @@ class MatrixSession:
             if committer is None:
                 raise RuntimeError("durable Matrix sync has no checkpoint committer")
             await committer("classic_sync", next_batch, metadata_json)
-            client.acknowledge_classic_sync(next_batch)
+            try:
+                client.acknowledge_classic_sync(next_batch)
+                self._classic_ack_deferrals = 0
+            except Exception as exc:
+                from nio.exceptions import LocalProtocolError
+
+                if not isinstance(exc, LocalProtocolError):
+                    raise
+                # Campaign F4 (run4): recovery dispatches (undecryptable-event
+                # room-key work) were still active when the acknowledgement
+                # ran, so nio rejects the token. The durable checkpoint is
+                # already committed — deferring the acknowledgement to a
+                # later quiet response is contract-correct, while letting the
+                # error propagate kills sync_forever and burns the reconnect
+                # budget. nio keeps the staged state bookkeeping-only until
+                # the next successful acknowledgement.
+                self._classic_ack_deferrals += 1
+                self._logger.warning(
+                    "Matrix Classic sync acknowledgement deferred (%d "
+                    "consecutive): durable checkpoint committed, nio "
+                    "recovery work still active",
+                    self._classic_ack_deferrals,
+                )
             self._committed_sync_token = next_batch
             if abandoned:
                 settle = getattr(client, "acknowledge_unrecovered_rooms", None)
@@ -2096,6 +2146,7 @@ class MatrixSession:
             last_successful_sync=self._last_successful_sync,
             checkpoint_owned_by_medre=self._durable_sync_enabled,
             committed_checkpoint_present=self._committed_sync_token is not None,
+            classic_ack_deferrals=self._classic_ack_deferrals,
             recovered_event_count=self._recovered_event_count,
             history_event_count=self._history_event_count,
             recovery_abandoned_room_count=len(self._recovery_abandoned_rooms),

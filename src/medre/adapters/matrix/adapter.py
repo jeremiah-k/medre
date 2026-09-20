@@ -554,11 +554,22 @@ class MatrixAdapter(AdapterContract):
                     transient=False,
                 )
             if not self._session.is_room_encrypted(room_id):
+                if self._session.encryption_state_known(room_id):
+                    raise MatrixSendError(
+                        f"Matrix room {room_id} is not established as encrypted; "
+                        "require_encrypted_rooms=True refuses plaintext and "
+                        "unverified rooms",
+                        transient=False,
+                    )
+                # Startup race (run9): the state is not established YET. The
+                # immediate send is still refused (fail closed), but the
+                # refusal is transient so durable work is retried after the
+                # session establishes room state instead of being lost.
                 raise MatrixSendError(
-                    f"Matrix room {room_id} is not established as encrypted; "
-                    "require_encrypted_rooms=True refuses plaintext and "
-                    "unverified rooms",
-                    transient=False,
+                    f"Matrix room {room_id} encryption state is not yet "
+                    "established; require_encrypted_rooms=True defers the "
+                    "send until room state is established",
+                    transient=True,
                 )
             return
 

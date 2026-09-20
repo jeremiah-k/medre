@@ -135,13 +135,45 @@ async def test_plaintext_room_refused_without_sdk_send() -> None:
     assert client.room_send.await_count == 0
 
 
-async def test_unknown_room_refused_without_sdk_send() -> None:
-    """A room with no known encryption state must fail closed, not guess."""
+async def test_unknown_room_state_is_transient_not_permanent() -> None:
+    """A room whose encryption state is not yet established must be retried,
+    not terminated.
+
+    Startup race (run9): a MeshCore board replays buffered group messages to
+    a fresh connection, so a delivery can be attempted before the runtime's
+    first sync establishes room-encryption state. Terminating that attempt
+    as permanent loses durable work for a room that IS encrypted. The
+    fail-closed policy still refuses the immediate send (no SDK call), but
+    classifies it transient so the existing retry machinery re-attempts
+    after readiness.
+    """
+    from medre.core.contracts.adapter import AdapterSendError
+
     adapter = MatrixAdapter(_policy_config())
     client = _send_client()
     session = wire_mock_session(adapter, client)
     session._crypto_enabled = True
     # Room absent from client.rooms and absent from session tracking.
+
+    with pytest.raises(AdapterSendError, match="not yet established") as exc:
+        await adapter.deliver(_make_result())
+
+    assert exc.value.transient is True
+    assert client.room_send.await_count == 0
+
+
+async def test_session_tracked_plaintext_room_stays_permanent() -> None:
+    """A room affirmatively known to be plaintext must fail closed for good.
+
+    Distinguishes the fail-closed contract from the startup race: this room's
+    state IS established (session-tracked ``plaintext``), so the refusal is
+    permanent and no retry may re-attempt it.
+    """
+    adapter = MatrixAdapter(_policy_config())
+    client = _send_client()
+    session = wire_mock_session(adapter, client)
+    session._crypto_enabled = True
+    session._room_states[_ROOM] = "plaintext"
 
     with pytest.raises(AdapterPermanentError, match="not established as encrypted"):
         await adapter.deliver(_make_result())

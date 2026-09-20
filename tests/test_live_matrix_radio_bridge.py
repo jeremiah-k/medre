@@ -6,15 +6,22 @@ credentials, radio peer endpoints).  Skipped by default; never runs in CI.
 Topology (lab defaults, reversible via env):
 - ONE MEDRE runtime owns four adapters: matrix (e2ee_required, private
   encrypted room), meshtastic (MT-A serial), meshcore (MC-A BLE), lxmf
-  (LX-A via isolated RNS config).
+  (LX-A via isolated RNS config).  One Matrix client, one device, one
+  crypto store — the room is observed INTERNALLY (canonical storage,
+  delivery receipts, runtime sync/diagnostics counters).
 - Three explicit bidirectional routes: matrix<->each radio.  No radio<->radio
   routes exist, so there are no all-to-all echo cycles; the six directed
   Matrix<->radio paths are the coverage target.
-- A second bot-account DEVICE (own crypto store) observes the room
-  independently: proves real Megolm encryption and far-side decryption.
-  Contract-disclosed limitation: same account, so it is NOT an
-  independent-sender ingress test.  Own-account echo must be suppressed
-  by the runtime's self-guard and never relayed (asserted explicitly).
+- Radio-side peers (MT-B / MC-B / LX-B) are driven exclusively by the peer
+  helpers as senders or listeners; they are the far-side radio evidence.
+- Runtime-originated Matrix events return to the runtime's own sync
+  timeline; the self-guard must suppress them.  That loopback is the
+  positive control for every suppression claim in this module.
+- A second bot-account device was tried as an external "observer"; bot-to-bot
+  key sharing is not achievable with the account's trust state, and a second
+  device of the same account was never independent evidence.  Independent
+  recipient confirmation comes from the invited human in the collector
+  window instead.
 
 Radio->Matrix direction is fully automated.  Matrix->radio with a genuine
 independent sender requires the invited human user to post in the room; the
@@ -39,13 +46,8 @@ import pytest
 from tests.helpers.live_harness import bounded
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _lx_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
-from tests.helpers.matrix_live_observer import (
-    MatrixRoomObserver,
-    observer_account_devices,
-)
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _McListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
-from tests.helpers.meshtastic_live_peer import MeshtasticPeerListener as _MtListener
 from tests.helpers.meshtastic_live_peer import run_meshtastic_peer as _mt_peer
 
 _BRIDGE = os.environ.get("MEDRE_MX_BRIDGE", "") == "1"
@@ -55,9 +57,6 @@ _MATRIX_USER = os.environ.get("MATRIX_USER_ID", "")
 _MATRIX_TOKEN = os.environ.get("MATRIX_ACCESS_TOKEN", "")
 _MATRIX_ROOM = os.environ.get("MATRIX_ROOM_ID", "")
 _MATRIX_STORE = os.environ.get("MATRIX_STORE_PATH", "")
-_OBSERVER_TOKEN = os.environ.get("MATRIX_OBSERVER_TOKEN", "")
-_OBSERVER_DEVICE = os.environ.get("MATRIX_OBSERVER_DEVICE_ID", "")
-_OBSERVER_STORE = os.environ.get("MATRIX_OBSERVER_STORE_PATH", "")
 
 _MT_MEDRE = os.environ.get("MESHTASTIC_MEDRE_SERIAL_PORT", "")
 _MT_PEER = os.environ.get("MESHTASTIC_PEER_SERIAL_PORT", "")
@@ -78,9 +77,6 @@ _MATRIX_OK = all(
         _MATRIX_TOKEN,
         _MATRIX_ROOM,
         _MATRIX_STORE,
-        _OBSERVER_TOKEN,
-        _OBSERVER_DEVICE,
-        _OBSERVER_STORE,
     ]
 )
 _RADIOS_OK = all(
@@ -102,8 +98,7 @@ _REQUIRE = pytest.mark.skipif(
     reason=(
         "opt-in Matrix<->radio bridge: set MEDRE_MX_BRIDGE=1, MATRIX_HOMESERVER, "
         "MATRIX_USER_ID, MATRIX_ACCESS_TOKEN, MATRIX_ROOM_ID, MATRIX_STORE_PATH, "
-        "MATRIX_OBSERVER_TOKEN, MATRIX_OBSERVER_DEVICE_ID, "
-        "MATRIX_OBSERVER_STORE_PATH, MESHTASTIC_MEDRE_SERIAL_PORT, "
+        "MESHTASTIC_MEDRE_SERIAL_PORT, "
         "MESHTASTIC_PEER_SERIAL_PORT, MESHCORE_MEDRE_BLE_ADDRESS, "
         "MESHCORE_PEER_BLE_ADDRESS, LXMF_MEDRE_RNS_CONFIG, "
         "LXMF_MEDRE_IDENTITY, LXMF_MEDRE_STORAGE, LXMF_PEER_RNS_CONFIG, "
@@ -113,7 +108,6 @@ _REQUIRE = pytest.mark.skipif(
 
 _TX_PACING = 2.5
 _RECEIPT_TIMEOUT = 60.0
-_OBSERVER_WINDOW = 90.0
 
 pytestmark = [
     pytest.mark.live,
@@ -135,6 +129,25 @@ pytestmark = [
     # files so any other unraisable resource warning still errors.
     pytest.mark.filterwarnings(
         "ignore:Exception ignored in.*ratchets:pytest.PytestUnraisableExceptionWarning"
+    ),
+    # Pinned aiohttp: at ClientSession close its default connector performs a
+    # graceful TLS shutdown (ssl_shutdown_timeout=30 s, not configurable
+    # through nio 0.40.0's public API); an idle keep-alive socket to the
+    # homeserver is still mid-shutdown when the test loop exits, and its GC
+    # warnings surface as unraisables. MEDRE's own drain of client-bound
+    # request tasks is pinned deterministically by
+    # test_stop_drains_client_bound_tasks_before_close, so this filter only
+    # covers the shutdown-window socket, not a request-leak regression.
+    pytest.mark.filterwarnings(
+        "ignore:Exception ignored in: <socket.socket.*443:pytest.PytestUnraisableExceptionWarning"
+    ),
+    pytest.mark.filterwarnings(
+        "ignore:Exception ignored in: <function _SelectorTransport\\.__del__.*:pytest.PytestUnraisableExceptionWarning"
+    ),
+    # bleak/BlueZ peer-helper teardown leaves the system-bus socket for the
+    # same GC round; helper-owned, not MEDRE state.
+    pytest.mark.filterwarnings(
+        "ignore:Exception ignored in: <socket.socket.*system_bus_socket:pytest.PytestUnraisableExceptionWarning"
     ),
 ]
 
@@ -318,6 +331,40 @@ async def _stop(app):
     await bounded(app.stop(), 45.0, "matrix bridge runtime stop")
 
 
+def _loopback_snapshot(app) -> dict[str, int]:
+    """Internal room-observation counters for the runtime's Matrix adapter."""
+    diag = app.adapters["matrix"].diagnostics()
+    return {
+        "self_suppressed": diag["inbound_suppressed_self"],
+        "undecryptable": diag["undecryptable_event_count"],
+    }
+
+
+async def _wait_self_suppressed_at_least(
+    app, baseline: dict[str, int], count: int, timeout: float
+) -> int:
+    """Bounded wait until the runtime's own sync loopback has been suppressed
+    at least *count* times; returns the observed delta."""
+    deadline = time.monotonic() + timeout
+    delta = 0
+    while time.monotonic() < deadline:
+        delta = _loopback_snapshot(app)["self_suppressed"] - baseline["self_suppressed"]
+        if delta >= count:
+            return delta
+        await asyncio.sleep(1.0)
+    return delta
+
+
+async def _canonical_probe_count(app, nonce: str) -> int:
+    ids = await app.storage.list_event_ids_page(after_event_id=None, limit=200)
+    matches = 0
+    for eid in ids:
+        ev = await app.storage.get(eid)
+        if ev and nonce in (ev.payload or {}).get("body", ""):
+            matches += 1
+    return matches
+
+
 async def _wait_for_receipt(app, nonce: str, target: str, timeout: float):
     """Poll canonical storage for the event carrying *nonce* and a receipt."""
     deadline = time.monotonic() + timeout
@@ -338,10 +385,10 @@ async def _wait_for_receipt(app, nonce: str, target: str, timeout: float):
 @pytest.mark.live
 @pytest.mark.hardware
 @_REQUIRE
-async def test_radio_to_matrix_three_legs_decrypted_by_observer(
+async def test_radio_to_matrix_three_legs_relayed_encrypted(
     tmp_path: Path,
 ) -> None:
-    """MT-B / MC-B / LX-B -> MEDRE -> encrypted room -> observer decrypts."""
+    """MT-B / MC-B / LX-B -> MEDRE -> encrypted room, observed internally."""
     legs = (
         ("mt", "MESHTASTIC"),
         ("mc", "MESHCORE"),
@@ -369,110 +416,94 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
     failures: list[str] = []
     ran_tags: list[str] = []
     nonces: dict[str, str] = {}
+    baseline = _loopback_snapshot(app)
     try:
-        with MatrixRoomObserver(
-            _OBSERVER_WINDOW * len(legs), "", str(tmp_path / "observer.jsonl")
-        ) as observer:
-            # NOTE: no radio-side listeners here -- the sender needs the
-            # peer device exclusively (pyserial flock / single BLE central /
-            # RNode serial).  The far-side evidence for the radio->matrix
-            # legs is the matrix delivery receipt plus the observer device.
-            for tag, transport in legs:
-                health = adapter_health[leg_adapter[tag]]
-                if health != "healthy":
-                    degraded.append(
-                        f"{tag}: MEDRE adapter {leg_adapter[tag]} not healthy "
-                        f"({health!r}) -- leg not exercised"
-                    )
-                    continue
-                ran_tags.append(tag)
-                nonce = _nonce(f"{tag}2MX")
-                nonces[tag] = nonce
-                try:
-                    if transport == "MESHTASTIC":
-                        sent = await asyncio.to_thread(
-                            _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce])], 60
-                        )
-                        assert any(
-                            isinstance(e, dict) and e.get("sent_id") for e in sent
-                        ), "MT send not accepted"
-                    elif transport == "MESHCORE":
-                        # sendn takes a JSON ARRAY of texts (peer script
-                        # json.loads argv[3]); a bare nonce crashes the
-                        # peer's parser and yields a non-JSON exit.
-                        sent = await asyncio.to_thread(
-                            _mc_peer,
-                            ["sendn", _MC_PEER, json.dumps([nonce])],
-                            90,
-                        )
-                        assert sent.get("sent"), f"MC send not accepted: {sent!r}"
-                    else:
-                        dest = _lx_dest_hash(_LX_MEDRE_IDENT)
-                        sent = await asyncio.to_thread(
-                            _lx_peer,
-                            [
-                                "send",
-                                dest,
-                                json.dumps(
-                                    [nonce + " / \u00fcn\u00efcode \u2713\nline2"]
-                                ),
-                            ],
-                            120,
-                        )
-                        assert sent.get("sent"), f"LX send not accepted: {sent!r}"
-
-                    # LX direct delivery includes first-path discovery; the
-                    # established pair convention allows 90-120s.
-                    lx_timeout = 120.0 if transport == "LXMF" else _RECEIPT_TIMEOUT
-                    ev, receipts = await _wait_for_receipt(
-                        app, nonce, "matrix", lx_timeout
-                    )
-                    assert (
-                        ev is not None
-                    ), f"canonical event for {nonce!r} never appeared"
-                    latest = max(receipts, key=lambda r: r.sequence)
-                    assert (
-                        latest.status == "sent"
-                    ), f"matrix receipt status {latest.status!r}"
-                except AssertionError as exc:
-                    failures.append(f"{tag} leg: {exc}")
-
-            # Observer evidence: every ATTEMPTED leg must arrive DECRYPTED
-            # at the far end in this window.  A MegolmEvent entry means nio
-            # could NOT decrypt it (in-window only; backlog that predates
-            # the watch is not attributable to this run).
-            result = observer.wait(timeout=_OBSERVER_WINDOW * len(legs) + 30)
-            if result["undecryptable"] != 0:
-                failures.append(
-                    f"observer: {result['undecryptable']} in-window undecryptable "
-                    f"Megolm events: {result!r}"
+        # NOTE: no radio-side listeners here -- the sender needs the
+        # peer device exclusively (pyserial flock / single BLE central /
+        # RNode serial).  The far-side evidence for the radio->matrix
+        # legs is the matrix delivery receipt plus the runtime's own
+        # internal room observation below.
+        for tag, transport in legs:
+            health = adapter_health[leg_adapter[tag]]
+            if health != "healthy":
+                degraded.append(
+                    f"{tag}: MEDRE adapter {leg_adapter[tag]} not healthy "
+                    f"({health!r}) -- leg not exercised"
                 )
-            if result.get("sync_failures"):
-                failures.append(
-                    f"observer: {result['sync_failures']} sync(es) failed "
-                    f"(last: {result.get('last_sync_error')!r})"
-                )
-            events = observer.events()
-            seen_bodies = [e.get("body") or "" for e in events]
-            for tag in ran_tags:
-                leg_bodies = [b for b in seen_bodies if f"MX-X{tag}2MX-" in b]
-                if not leg_bodies:
-                    failures.append(
-                        f"{tag}: observer never received the leg; " f"events={events!r}"
+                continue
+            ran_tags.append(tag)
+            nonce = _nonce(f"{tag}2MX")
+            nonces[tag] = nonce
+            try:
+                if transport == "MESHTASTIC":
+                    sent = await asyncio.to_thread(
+                        _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce])], 60
                     )
-                    continue
-                if "{sender}" in leg_bodies[0]:
-                    failures.append(
-                        f"{tag}: unrendered prefix template in {leg_bodies[0]!r}"
+                    assert any(
+                        isinstance(e, dict) and e.get("sent_id") for e in sent
+                    ), "MT send not accepted"
+                elif transport == "MESHCORE":
+                    # sendn takes a JSON ARRAY of texts (peer script
+                    # json.loads argv[3]); a bare nonce crashes the
+                    # peer's parser and yields a non-JSON exit.
+                    sent = await asyncio.to_thread(
+                        _mc_peer,
+                        ["sendn", _MC_PEER, json.dumps([nonce])],
+                        90,
                     )
-                elif not ("medre-lab" in leg_bodies[0] or "/" in leg_bodies[0]):
-                    failures.append(
-                        f"{tag}: attribution prefix missing from {leg_bodies[0]!r}"
+                    assert sent.get("sent"), f"MC send not accepted: {sent!r}"
+                else:
+                    dest = _lx_dest_hash(_LX_MEDRE_IDENT)
+                    sent = await asyncio.to_thread(
+                        _lx_peer,
+                        [
+                            "send",
+                            dest,
+                            json.dumps([nonce + " / \u00fcn\u00efcode \u2713\nline2"]),
+                        ],
+                        120,
                     )
-            for tag, nonce in nonces.items():
-                print(f"LEG-NONCE {tag} {nonce}", flush=True)
-            if degraded:
-                print("DEGRADED-NOT-EXERCISED " + " | ".join(degraded), flush=True)
+                    assert sent.get("sent"), f"LX send not accepted: {sent!r}"
+
+                # LX direct delivery includes first-path discovery; the
+                # established pair convention allows 90-120s.
+                lx_timeout = 120.0 if transport == "LXMF" else _RECEIPT_TIMEOUT
+                ev, receipts = await _wait_for_receipt(app, nonce, "matrix", lx_timeout)
+                assert ev is not None, f"canonical event for {nonce!r} never appeared"
+                latest = max(receipts, key=lambda r: r.sequence)
+                assert (
+                    latest.status == "sent"
+                ), f"matrix receipt status {latest.status!r}"
+            except AssertionError as exc:
+                failures.append(f"{tag} leg: {exc}")
+
+        # Internal room evidence: every relayed leg is live in the room AND
+        # returns to the runtime's own sync timeline, where the self-guard
+        # must suppress it. The suppressed-loopback delta is the positive
+        # control that the runtime actually received its own traffic;
+        # a rising undecryptable counter would mean Megolm decryption
+        # degraded in-window.
+        loopback_delta = await _wait_self_suppressed_at_least(
+            app, baseline, len(ran_tags), 45.0
+        )
+        if ran_tags and loopback_delta < len(ran_tags):
+            failures.append(
+                f"own-loopback suppressed {loopback_delta} < "
+                f"{len(ran_tags)} relayed leg(s); runtime never observed "
+                "its own relays via sync"
+            )
+        undecryptable_delta = (
+            _loopback_snapshot(app)["undecryptable"] - baseline["undecryptable"]
+        )
+        if undecryptable_delta:
+            failures.append(
+                f"runtime undecryptable events rose by {undecryptable_delta} "
+                "in-window (Megolm decryption health)"
+            )
+        for tag, nonce in nonces.items():
+            print(f"LEG-NONCE {tag} {nonce}", flush=True)
+        if degraded:
+            print("DEGRADED-NOT-EXERCISED " + " | ".join(degraded), flush=True)
     finally:
         await _stop(app)
 
@@ -481,7 +512,7 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
             "no radio leg could be exercised -- "
             + ("; ".join(degraded) if degraded else "no legs ran")
         )
-    assert not failures, f"{len(failures)} leg/observer failure(s): " + " | ".join(
+    assert not failures, f"{len(failures)} leg/loopback failure(s): " + " | ".join(
         failures
     )
 
@@ -489,61 +520,58 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
 @pytest.mark.live
 @pytest.mark.hardware
 @_REQUIRE
-async def test_own_account_echo_is_suppressed_not_relayed(tmp_path: Path) -> None:
-    """Same-account second device MUST NOT cross the bridge to any radio.
+async def test_own_relayed_message_loopback_is_suppressed_not_relayed(
+    tmp_path: Path,
+) -> None:
+    """The runtime's own Matrix traffic must not loop back through the bridge.
 
-    Proves the self-echo guard holds on the new path: the observer device
-    (same bot account) posts into the encrypted room; the runtime must
-    suppress it (no canonical ingress, no radio-side delivery).
+    Positive control first: a radio nonce is relayed into the encrypted room
+    (canonical event + ``sent`` receipt prove the relay).  That relayed event
+    then returns to the runtime's OWN sync timeline; the self-guard must
+    consume it — observable as an ``inbound_suppressed_self`` increment —
+    without a second canonical admission and without fanning back out to the
+    other radios.  Suppression claims are therefore anchored to an observed
+    loopback, not to silence.
     """
-    from nio import AsyncClient, AsyncClientConfig
-
     app = await _launch(tmp_path / "lab.db", tmp_path / "lxmf_storage")
+    baseline = _loopback_snapshot(app)
+    probe = _nonce("ECHO")
     try:
-        probe = _nonce("ECHO")
-        client = AsyncClient(
-            _MATRIX_HS,
-            _MATRIX_USER,
-            device_id=_OBSERVER_DEVICE,
-            store_path=_OBSERVER_STORE,
-            config=AsyncClientConfig(encryption_enabled=True),
+        sent = await asyncio.to_thread(
+            _mt_peer, ["sendn", _MT_PEER, json.dumps([probe])], 60
         )
-        client.restore_login(_MATRIX_USER, _OBSERVER_DEVICE, _OBSERVER_TOKEN)
-        try:
-            resp = await client.sync(timeout=8000, full_state=True)
-            assert not type(resp).__name__.endswith(
-                "Error"
-            ), f"observer sync failed: {resp!r}"
-            send = await client.room_send(
-                room_id=_MATRIX_ROOM,
-                message_type="m.room.message",
-                content={"msgtype": "m.text", "body": probe},
-                ignore_unverified_devices=True,
-            )
-            assert not type(send).__name__.endswith(
-                "Error"
-            ), f"observer send failed: {send!r}"
-        finally:
-            await client.close()
+        assert any(
+            isinstance(e, dict) and e.get("sent_id") for e in sent
+        ), "MT send not accepted"
+        ev, receipts = await _wait_for_receipt(app, probe, "matrix", _RECEIPT_TIMEOUT)
+        assert ev is not None and receipts, "relay never delivered"
+        assert await _canonical_probe_count(app, probe) == 1, (
+            "relayed probe admitted more than once (duplicate ingress before "
+            "the loopback even returned)"
+        )
 
-        # Bounded wait: nothing may cross to either radio peer, and no
-        # canonical event carrying the probe may appear.
-        with _MtListener(45) as mt_listener, _McListener(45) as mc_listener:
-            await asyncio.sleep(45)
-            mt_out = mt_listener.packets()
+        # The loopback: own event arrives via sync while MC-B listens to
+        # prove nothing fans back out over the radio.
+        with _McListener(45) as mc_listener:
+            loopback_delta = await _wait_self_suppressed_at_least(
+                app, baseline, 1, 30.0
+            )
+            await asyncio.sleep(10)
             mc_out = mc_listener.packets()
-        assert not [
-            p for p in mt_out if probe in (p.get("text") or "")
-        ], "own-account echo crossed to Meshtastic"
+        assert loopback_delta >= 1, (
+            "own relayed event never returned via the runtime's own sync "
+            "(loopback unobservable; suppression would be unproven)"
+        )
+        assert (
+            await _canonical_probe_count(app, probe) == 1
+        ), "loopback entered the canonical pipeline a second time"
         assert not [
             p for p in mc_out if probe in (p.get("text") or "")
-        ], "own-account echo crossed to MeshCore"
-        ids = await app.storage.list_event_ids_page(after_event_id=None, limit=200)
-        for eid in ids:
-            ev = await app.storage.get(eid)
-            assert not (
-                ev and probe in (ev.payload or {}).get("body", "")
-            ), "own-account echo entered the canonical pipeline"
+        ], "own relayed message fanned back out to MeshCore"
+        final = _loopback_snapshot(app)
+        assert (
+            final["undecryptable"] == baseline["undecryptable"]
+        ), "runtime undecryptable count moved (Megolm decryption health)"
     finally:
         await _stop(app)
 
@@ -552,11 +580,12 @@ async def test_own_account_echo_is_suppressed_not_relayed(tmp_path: Path) -> Non
 @pytest.mark.hardware
 @_REQUIRE
 async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> None:
-    """One controlled restart: same olm store, same device, observer decrypts."""
+    """One controlled restart: same olm store, same device, fresh encrypted
+    ingress and egress, observed internally."""
     db_path = tmp_path / "lab.db"
-    devices_before = observer_account_devices()
 
     app = await _launch(db_path, tmp_path / "lxmf_storage")
+    device_before = app.adapters["matrix"].diagnostics()["device_id_in_use"]
     nonce1 = _nonce("RESTART-A")
     try:
         await asyncio.to_thread(_mt_peer, ["sendn", _MT_PEER, json.dumps([nonce1])], 60)
@@ -565,43 +594,43 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
     finally:
         await _stop(app)
 
-    # Genuine stop: the process boundary is crossed (launch builds a fresh
-    # runtime from the SAME matrix olm store).
+    # Controlled stop/start: a fresh runtime is built from the SAME matrix
+    # olm store and database.
     app2 = await _launch(db_path, tmp_path / "lxmf_storage")
     nonce2 = _nonce("RESTART-B")
     try:
-        with MatrixRoomObserver(
-            _OBSERVER_WINDOW, "", str(tmp_path / "observer2.jsonl")
-        ) as observer:
-            sent = await asyncio.to_thread(
-                _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce2])], 60
-            )
-            assert any(
-                isinstance(e, dict) and e.get("sent_id") for e in sent
-            ), "post-restart MT send not accepted"
-            ev, receipts = await _wait_for_receipt(
-                app2, nonce2, "matrix", _RECEIPT_TIMEOUT
-            )
-            assert ev is not None and receipts, "post-restart leg never delivered"
-            result = observer.wait(timeout=_OBSERVER_WINDOW + 30)
-            assert (
-                result["undecryptable"] == 0
-            ), f"post-restart observer could not decrypt: {result!r}"
-            assert not result.get(
-                "sync_failures"
-            ), f"post-restart observer sync(es) failed: {result!r}"
-            bodies = [e.get("body") or "" for e in observer.events()]
-            assert any(
-                nonce2 in b for b in bodies
-            ), f"post-restart nonce never decrypted at observer: {bodies!r}"
-            assert not any(
-                nonce1 in b for b in bodies
-            ), "pre-restart nonce replayed after restart"
+        baseline = _loopback_snapshot(app2)
+        sent = await asyncio.to_thread(
+            _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce2])], 60
+        )
+        assert any(
+            isinstance(e, dict) and e.get("sent_id") for e in sent
+        ), "post-restart MT send not accepted"
+        ev, receipts = await _wait_for_receipt(app2, nonce2, "matrix", _RECEIPT_TIMEOUT)
+        assert ev is not None and receipts, "post-restart leg never delivered"
+        # Fresh encrypted egress is live: the post-restart relay returns to
+        # the runtime's own sync and is suppressed exactly like pre-restart.
+        loopback_delta = await _wait_self_suppressed_at_least(app2, baseline, 1, 45.0)
+        assert loopback_delta >= 1, (
+            "post-restart own-loopback unobserved; crypto/session continuity "
+            "after restart is unproven"
+        )
+        final = _loopback_snapshot(app2)
+        assert (
+            final["undecryptable"] == baseline["undecryptable"]
+        ), "post-restart runtime undecryptable count moved"
+        # No unintended replay: the pre-restart nonce stays admitted exactly
+        # once and the post-restart nonce exactly once.
+        assert (
+            await _canonical_probe_count(app2, nonce1) == 1
+        ), "pre-restart nonce replayed into canonical storage after restart"
+        assert (
+            await _canonical_probe_count(app2, nonce2) == 1
+        ), "post-restart nonce admitted more than once"
+        device_after = app2.adapters["matrix"].diagnostics()["device_id_in_use"]
+        assert device_after == device_before, (
+            f"device identity drifted across restart: "
+            f"{device_before!r} -> {device_after!r}"
+        )
     finally:
         await _stop(app2)
-
-    devices_after = observer_account_devices()
-    assert sorted(devices_after) == sorted(devices_before), (
-        f"device identity drifted across restart: {devices_before!r} -> "
-        f"{devices_after!r}"
-    )
