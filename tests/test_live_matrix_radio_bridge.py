@@ -43,7 +43,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.helpers.live_harness import bounded
+from tests.helpers.live_harness import (
+    PINNED_SDK_UNRAISABLE_FILTERS,
+    bounded,
+)
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _lx_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _McListener
@@ -120,35 +123,12 @@ pytestmark = [
     pytest.mark.filterwarnings(
         "ignore:setDaemon\\(\\) is deprecated:DeprecationWarning"
     ),
-    # RNS 1.5.4 Destination._reload_ratchets (Destination.py:444) opens the
-    # ratchets file and never closes it; under filterwarnings=error the GC-time
-    # ResourceWarning surfaces as PytestUnraisableExceptionWarning in whatever
-    # test runs next. External pinned-SDK defect reached via
-    # LXMRouter.register_delivery_identity -> enable_ratchets; minimal
-    # reproducer: medre-lab/rns_ratchets_leak_repro.py. Scoped to ratchets
-    # files so any other unraisable resource warning still errors.
-    pytest.mark.filterwarnings(
-        "ignore:Exception ignored in.*ratchets:pytest.PytestUnraisableExceptionWarning"
-    ),
-    # Pinned aiohttp: at ClientSession close its default connector performs a
-    # graceful TLS shutdown (ssl_shutdown_timeout=30 s, not configurable
-    # through nio 0.40.0's public API); an idle keep-alive socket to the
-    # homeserver is still mid-shutdown when the test loop exits, and its GC
-    # warnings surface as unraisables. MEDRE's own drain of client-bound
-    # request tasks is pinned deterministically by
-    # test_stop_drains_client_bound_tasks_before_close, so this filter only
-    # covers the shutdown-window socket, not a request-leak regression.
-    pytest.mark.filterwarnings(
-        "ignore:Exception ignored in: <socket.socket.*443:pytest.PytestUnraisableExceptionWarning"
-    ),
-    pytest.mark.filterwarnings(
-        "ignore:Exception ignored in: <function _SelectorTransport\\.__del__.*:pytest.PytestUnraisableExceptionWarning"
-    ),
-    # bleak/BlueZ peer-helper teardown leaves the system-bus socket for the
-    # same GC round; helper-owned, not MEDRE state.
-    pytest.mark.filterwarnings(
-        "ignore:Exception ignored in: <socket.socket.*system_bus_socket:pytest.PytestUnraisableExceptionWarning"
-    ),
+    # Pinned-SDK unraisable boundaries (RNS ratchets fd leak, aiohttp
+    # TLS-shutdown linger, bleak system-bus socket): canonical strings live
+    # in tests/helpers/live_harness.py with the boundary documentation, and
+    # tests/test_live_harness.py pins that each spec stays loadable by
+    # pytest (a malformed spec is a run-fatal INTERNALERROR) and narrow.
+    *(pytest.mark.filterwarnings(spec) for spec in PINNED_SDK_UNRAISABLE_FILTERS),
 ]
 
 

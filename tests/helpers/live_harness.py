@@ -314,3 +314,58 @@ def get_live_artifact_dir() -> Path:
         p = _default_artifact_dir
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+# ---------------------------------------------------------------------------
+# Scoped unraisable-warning filters for pinned SDK boundaries
+# ---------------------------------------------------------------------------
+# pytest splits a ``filterwarnings`` spec on EVERY colon into
+# ``action:message:category:module:lineno`` -- the message field may not
+# contain a literal ``:``.  The unraisable texts targeted here all begin
+# ``Exception ignored in: <...>``, so the colon is matched by ``.*`` in
+# the message regex instead of appearing literally.  A malformed spec is
+# a run-fatal pytest INTERNALERROR (a hardware-gated suite then cannot
+# even report a skip), so the strings live here once and
+# tests/test_live_harness.py runs each through pytest's own filter
+# parser.  Each filter is deliberately narrow: any unraisable outside the
+# documented boundary still errors.
+#
+# - ratchets: RNS 1.5.4 ``Destination._reload_ratchets`` (Destination.py:444)
+#   opens ``<storage>/lxmf/ratchets/*.ratchets`` and never closes the
+#   handle; the GC-time ResourceWarning surfaces as an unraisable in a
+#   LATER test.  External pinned-SDK defect reached via
+#   ``LXMRouter.register_delivery_identity -> enable_ratchets``; minimal
+#   reproducer: medre-lab/rns_ratchets_leak_repro.py.
+# - 443 / _SelectorTransport: pinned aiohttp performs a graceful TLS
+#   shutdown on one idle keep-alive socket at ClientSession close
+#   (``ssl_shutdown_timeout=30 s``, not reachable through nio 0.40.0's
+#   public config); the socket is still mid-shutdown when the test loop
+#   exits, surfacing either as the socket finaliser or the transport
+#   finaliser.  MEDRE's own drain of client-bound request tasks is pinned
+#   deterministically by test_stop_drains_client_bound_tasks_before_close,
+#   so these filters cover only the shutdown-window socket.
+# - system_bus_socket: bleak/BlueZ peer-helper teardown leaves the
+#   system-bus socket for the same GC round; helper-owned, not MEDRE state.
+
+RNS_RATCHETS_UNRAISABLE_FILTER = (
+    "ignore:Exception ignored in.*ratchets:pytest.PytestUnraisableExceptionWarning"
+)
+AIOHTTP_TLS_SHUTDOWN_UNRAISABLE_FILTER = (
+    "ignore:Exception ignored in.*<socket\\.socket.*443"
+    ":pytest.PytestUnraisableExceptionWarning"
+)
+SELECTOR_TRANSPORT_UNRAISABLE_FILTER = (
+    "ignore:Exception ignored in.*_SelectorTransport\\.__del__"
+    ":pytest.PytestUnraisableExceptionWarning"
+)
+BLEAK_SYSTEM_BUS_UNRAISABLE_FILTER = (
+    "ignore:Exception ignored in.*system_bus_socket"
+    ":pytest.PytestUnraisableExceptionWarning"
+)
+
+PINNED_SDK_UNRAISABLE_FILTERS: tuple[str, ...] = (
+    RNS_RATCHETS_UNRAISABLE_FILTER,
+    AIOHTTP_TLS_SHUTDOWN_UNRAISABLE_FILTER,
+    SELECTOR_TRANSPORT_UNRAISABLE_FILTER,
+    BLEAK_SYSTEM_BUS_UNRAISABLE_FILTER,
+)
