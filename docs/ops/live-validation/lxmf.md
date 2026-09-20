@@ -172,11 +172,43 @@ project-wide `filterwarnings = ["error"]` would otherwise kill the runtime).
 - No Docker setup for Reticulum/LXMF. No containerized router for Docker SDK-boundary tests.
 - Propagation node config not in LxmfConfig yet.
 - Physical RNode pair proven (see above); external/multi-hop peer reachability
-  beyond the two-board bench pair remains unproven. The cross-transport
-  LXMF bridge directions and fan-out live harness are the next milestone.
+  beyond the two-board bench pair remains unproven.
 - Adapter health covers the local session/router only — it cannot observe
   whether any peer is reachable.
 - No native reply mechanism — replies rendered as plain text.
+
+## Physical Cross-Transport Bridge (2026-09-19)
+
+Opt-in `tests/test_lxmf_bridge_live.py` (`MEDRE_LX_BRIDGE=1` + owned
+endpoints per its `_REQUIRE` docstring) runs four directed routes through
+one in-process MEDRE runtime owning MT-A (serial), MC-A (BLE) and LX-A
+(RNode, isolated `reticulum_config_dir`), with independent native peers
+MT-B/MC-B/LX-B: `mt_to_lx`, `lx_to_mt`, `mc_to_lx`, `lx_to_mc`, plus a
+controlled fan-out (`mt_to_lx` + `mt_to_mc`) asserting per-target receipts
+and per-target far-peer RF observation. All five cases green in full mode
+(individual runs logged under private lab evidence `lx_bridge_run*.log`).
+Operating note: the T-Beam BLE stack refuses central connects after a few
+rapid cycles (~2-4 observed); power-cycle the owned hub port and re-sync
+the board clock, then run the affected case immediately.
+
+## Operator Configuration Seam (2026-09-19)
+
+The serialized path is proven end-to-end, not just programmatic
+construction: a private operator YAML (storage/identity/`reticulum_config_dir`
+under a restricted lab tree) validates through `medre config check --config`,
+then an actual managed `medre run --config` with `MEDRE_HOME` isolation
+delivers a native MT-B RF message through the routed LXMF `dest_channel`;
+the durable receipt `adapter_message_id` matches the independently observed
+LX-B message hash. Fault/recovery gates on the same runtime: owned-port
+power loss (hub VBUS, labelled as such) breaks LX egress while MT admission
+stays usable (acceptance receipts, no false delivery claims; RNS
+reconnects the interface on power restore); crash termination at a pending
+boundary preserves events/receipts/outbox and restarts clean on the same
+DB; read-only `recover`/`inspect` pages leave the DB bit-identical
+(WAL/SHM sidecars excepted); `replay --mode dry_run` writes no receipts;
+an executed `--mode best_effort` replay resolves the pending delivery with
+independent RF confirmation (see changelog 193 for the startup/drain fix
+this required).
 
 ## Deterministic Local Integration
 
