@@ -17,6 +17,7 @@
         },
         "source_adapters": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string"
           },
@@ -24,6 +25,7 @@
         },
         "dest_adapters": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string"
           },
@@ -127,7 +129,23 @@
         }
       },
       "required": ["route_id", "source_adapters", "dest_adapters"],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {"dest_destination": {"type": "object"}},
+            "required": ["dest_destination"]
+          },
+          "then": {
+            "properties": {
+              "dest_channel": {"type": "null"},
+              "dest_room": {"type": "null"},
+              "channel_room_map": {"type": "null"},
+              "dest_adapters": {"maxItems": 1}
+            }
+          }
+        }
+      ]
     },
     {
       "title": "RouteConfigSet",
@@ -165,12 +183,14 @@
         "destination_hash": {
           "type": ["string", "null"],
           "default": null,
-          "description": "Hash-based identifier when applicable for the kind. Required and 32-hex for 'lxmf_destination'; must be null for 'channel'/'matrix_room'."
+          "description": "Hash-based identifier when applicable for the kind. Required and 32-hex for 'lxmf_destination'; must be null for 'channel'/'matrix_room'.",
+          "minLength": 1
         },
         "destination_name": {
           "type": ["string", "null"],
           "default": null,
-          "description": "Human-readable name when applicable for the kind. Required for 'channel'/'matrix_room'."
+          "description": "Human-readable name when applicable for the kind. Required for 'channel'/'matrix_room'.",
+          "minLength": 1
         },
         "metadata": {
           "type": "object",
@@ -179,7 +199,59 @@
         }
       },
       "required": ["kind"],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {"kind": {"const": "lxmf_destination"}},
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "destination_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{32}$"
+              }
+            },
+            "required": ["destination_hash"]
+          }
+        },
+        {
+          "if": {
+            "properties": {"kind": {"enum": ["channel", "matrix_room"]}},
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "destination_hash": {"type": "null"},
+              "destination_name": {"type": "string", "minLength": 1}
+            },
+            "required": ["destination_name"]
+          }
+        },
+        {
+          "if": {
+            "properties": {"kind": {"const": "meshcore_contact"}},
+            "required": ["kind"]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "destination_hash": {"type": "string", "minLength": 1}
+                },
+                "required": ["destination_hash"]
+              },
+              {
+                "properties": {
+                  "destination_name": {"type": "string", "minLength": 1}
+                },
+                "required": ["destination_name"]
+              }
+            ]
+          }
+        }
+      ]
     },
     "ChannelRoomMapEntry": {
       "title": "ChannelRoomMapEntry",
@@ -312,7 +384,23 @@
         }
       },
       "required": ["route_id", "source_adapters", "dest_adapters"],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {"dest_destination": {"type": "object"}},
+            "required": ["dest_destination"]
+          },
+          "then": {
+            "properties": {
+              "dest_channel": {"type": "null"},
+              "dest_room": {"type": "null"},
+              "channel_room_map": {"type": "null"},
+              "dest_adapters": {"maxItems": 1}
+            }
+          }
+        }
+      ]
     },
     "BridgePolicy": {
       "title": "BridgePolicy",

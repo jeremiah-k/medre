@@ -52,6 +52,7 @@ from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.app import RuntimeState, StartupScope
+from medre.runtime.errors import RuntimeStartupError
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.route_engine import RouteOperationalState
 from tests.helpers.fake_runtime import wait_until
@@ -680,6 +681,13 @@ class TestAdmittedIngressSurvivesSourceOutage:
                     finally:
                         await storage.close()
 
+                async def _ingress_drained() -> bool:
+                    _receipts, pending = await _counts()
+                    return pending == 0
+
+                assert await wait_until(_ingress_drained, timeout=5.0), (
+                    "durable ingress worker did not finish admitted rows"
+                )
                 noroute_receipts, pending_rows = await _counts()
                 assert (
                     noroute_receipts == 0
@@ -708,3 +716,35 @@ class TestAdmittedIngressSurvivesSourceOutage:
                 assert app.state is RuntimeState.STOPPED
 
         asyncio.run(_scenario())
+
+
+async def test_retry_worker_activation_failure_cleans_up_started_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Post-adapter worker activation is still inside startup ownership."""
+    db = tmp_path / "retry-activation-failure.db"
+    config = _mx_to_mesh_config(
+        db,
+        retry=RetryConfig(enabled=True, interval_seconds=1.0),
+    )
+    paths = MedrePaths(
+        config_dir=tmp_path / "config",
+        config_file=tmp_path / "config" / "config.yaml",
+        state_dir=tmp_path / "state",
+        data_dir=tmp_path / "data",
+        cache_dir=tmp_path / "cache",
+        log_dir=tmp_path / "logs",
+        database_path=db,
+    )
+    app = RuntimeBuilder(config, paths).build()
+
+    async def _fail_retry_start(self: Any) -> None:
+        raise RuntimeError("retry startup evidence failed")
+
+    monkeypatch.setattr("medre.runtime.retry.RetryWorker.start", _fail_retry_start)
+
+    with pytest.raises(RuntimeStartupError, match="Failed to activate runtime workers"):
+        await app.start()
+
+    assert app.state is RuntimeState.FAILED
+    assert all(not adapter.is_started for adapter in app.adapters.values())

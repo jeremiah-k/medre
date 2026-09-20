@@ -48,3 +48,7 @@ next LIVE start), and the scope-aware route enforcement; §7.4 inserts the
 availability gate into the normative retry sequence (reconcile persisted
 completion first, defer with the `adapter_unavailable_startup` marker and
 unchanged attempt number, keep permanently absent adapters' durable work).
+
+Post-adapter retry/durable-ingress worker activation remains part of startup
+ownership: an activation failure or cancellation now runs the same full startup
+cleanup path instead of leaving started adapters, pipeline, or storage behind.

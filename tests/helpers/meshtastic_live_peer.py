@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,8 @@ my_info = getattr(iface, "myInfo", None)
 my_num = getattr(my_info, "myNodeNum", None)
 own_id = f"!{int(my_num):08x}" if isinstance(my_num, int) and my_num >= 0 else None
 got = []
+scratch_path = sys.argv[5] if mode == "listen" else None
+ready_path = sys.argv[6] if mode == "listen" else None
 def on_packet(packet, interface=None):
     d = packet.get("decoded", {}) or {}
     if d.get("portnum") == "TEXT_MESSAGE_APP":
@@ -43,12 +46,12 @@ def on_packet(packet, interface=None):
         }
         got.append(rec)
         if mode == "listen":
-            with open("/tmp/meshtastic_pair_mt.json", "a") as fh:
+            with open(scratch_path, "a") as fh:
                 fh.write(json.dumps(rec) + "\n")
 pub.subscribe(on_packet, "meshtastic.receive")
 if mode == "listen":
     # Ready handshake: subscription armed before any MEDRE-side traffic.
-    with open("/tmp/meshtastic_pair_mt.ready", "w") as fh:
+    with open(ready_path, "w") as fh:
         fh.write("1")
     deadline = time.time() + float(sys.argv[4])
     while time.time() < deadline:
@@ -115,6 +118,8 @@ class MeshtasticPeerListener:
                         "listen",
                         _MT_PEER,
                         str(self._seconds),
+                        str(self._JSON_PATH),
+                        str(self._READY_PATH),
                     ]
                 )
                 return self
@@ -128,7 +133,11 @@ class MeshtasticPeerListener:
     def _read_packets(self) -> list[dict]:
         return read_jsonl(self._JSON_PATH)
 
-    def packets_until(self, predicate, timeout: float) -> list[dict]:
+    def packets_until(
+        self,
+        predicate: Callable[[list[dict]], bool],
+        timeout: float,
+    ) -> list[dict]:
         """Poll collected packets until ``predicate`` holds or timeout."""
         return poll_packets_until(self._read_packets, predicate, timeout)
 

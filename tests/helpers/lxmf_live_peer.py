@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -84,7 +85,6 @@ def recall_or_fail(dest_hex, timeout=45.0):
     return dest_identity
 
 if MODE == "listen":
-    got = []
     def on_delivery(message):
         mh = getattr(message, "hash", None)
         sh = getattr(message, "source_hash", None)
@@ -114,7 +114,7 @@ if MODE == "listen":
     with open(READY, "w") as fh:
         fh.write("1")
     time.sleep(float(sys.argv[7]))
-    print(json.dumps({"received_count": len(got)}))
+    print(json.dumps({}))
 elif MODE == "send":
     dest_hex = sys.argv[7]
     texts = json.loads(sys.argv[8])
@@ -166,8 +166,6 @@ def run_lxmf_peer(args: list[str], timeout: float) -> dict:
     Each invocation gets a FRESH LXMF router storage dir so a pending
     outbound from a previous phase cannot leak into this one.
     """
-    tmp = Path("/tmp/medre_lxmf_peer_tmp")
-    tmp.mkdir(exist_ok=True)
     storage = tempfile.mkdtemp(prefix="medre_lxmf_peer_storage_")
     try:
         proc = subprocess.run(
@@ -220,26 +218,34 @@ class LxmfPeerListener:
         _SCRATCH_JSONL.unlink(missing_ok=True)
         _READY_PATH.unlink(missing_ok=True)
         self._storage = tempfile.mkdtemp(prefix="medre_lxmf_peer_storage_")
-        self._owner.start(
-            [
-                sys.executable,
-                "-c",
-                _PEER_SCRIPT,
-                "listen",
-                _PEER_RNS,
-                _PEER_IDENTITY,
-                self._storage,
-                str(_READY_PATH),
-                str(_SCRATCH_JSONL),
-                str(self._seconds),
-            ]
-        )
+        try:
+            self._owner.start(
+                [
+                    sys.executable,
+                    "-c",
+                    _PEER_SCRIPT,
+                    "listen",
+                    _PEER_RNS,
+                    _PEER_IDENTITY,
+                    self._storage,
+                    str(_READY_PATH),
+                    str(_SCRATCH_JSONL),
+                    str(self._seconds),
+                ]
+            )
+        except BaseException:
+            shutil.rmtree(self._storage, ignore_errors=True)
+            raise
         return self
 
     def _read_packets(self) -> list[dict]:
         return read_jsonl(_SCRATCH_JSONL)
 
-    def packets_until(self, predicate, timeout: float) -> list[dict]:
+    def packets_until(
+        self,
+        predicate: Callable[[list[dict]], bool],
+        timeout: float,
+    ) -> list[dict]:
         """Poll collected packets until ``predicate`` holds or timeout."""
         return poll_packets_until(self._read_packets, predicate, timeout)
 

@@ -15,8 +15,9 @@ silently produced permanent "cannot recall identity" failures.
 `routes.<id>.dest_destination` now parses and validates the structured
 destination (`kind` ∈ channel/lxmf_destination/meshcore_contact/
 matrix_room; per-kind requirements per §2.3; mutually exclusive with
-`dest_channel`, `dest_room`, and `channel_room_map` — one addressing
-authority per route target), flows through `_expand_route_config` onto
+`dest_channel`, `dest_room`, and `channel_room_map`; exactly one
+`dest_adapter` — one transport-specific addressing authority per route),
+flows through `_expand_route_config` onto
 `RouteTarget.destination`, and is threaded via a new
 `RenderingContext.target_destination` (populated by the delivery pipeline
 from the plan target) so the LXMF renderer addresses the payload from the
@@ -31,3 +32,7 @@ already includes the structured destination. The routing-delivery §2.6
 example now shows the real loader schema (the previous `from:`/`to:` YAML
 was never an accepted loader form), and the transport profile states the
 single precedence rule.
+
+The published routing JSON schema now enforces the same per-kind destination
+requirements and selector/single-target exclusivity as the loader, so invalid
+structured routes fail consistently before runtime assembly.

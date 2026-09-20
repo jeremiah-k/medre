@@ -823,7 +823,8 @@ class RouteDestinationConfig:
         }
         if unknown:
             raise ConfigValidationError(
-                f"Route {route_id!r}: unknown key(s) {sorted(unknown)} in "
+                f"Route {route_id!r}: unknown key(s) "
+                f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))} in "
                 f"{dest_path}. Accepted keys: "
                 "['destination_hash', 'destination_name', 'kind', 'metadata']",
                 section_path=dest_path,
@@ -1126,6 +1127,13 @@ class RouteConfig:
                     f"exclusive with {sorted(_dest_conflicts)}. A route "
                     f"target has exactly one addressing authority: a "
                     f"structured destination or a channel selector.",
+                    section_path=section_path,
+                )
+            if len(dest_adapters) != 1:
+                raise ConfigValidationError(
+                    f"Route {route_id!r}: 'dest_destination' addresses one "
+                    f"transport-specific entity and requires exactly one "
+                    f"dest adapter, got {len(dest_adapters)}",
                     section_path=section_path,
                 )
 

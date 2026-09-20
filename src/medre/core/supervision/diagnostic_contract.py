@@ -64,6 +64,8 @@ from medre.core.observability.sanitization import (
 
 __all__ = [
     "COMMON_DIAGNOSTIC_KEYS",
+    "PENDING_DELIVERY_COUNT",
+    "QUEUE_PENDING",
     "normalize_diagnostics",
     "sanitize_diagnostic_value",
     "sanitize_diagnostic_mapping",
@@ -86,6 +88,16 @@ COMMON_DIAGNOSTIC_KEYS: frozenset[str] = frozenset(
     }
 )
 """The 8 common diagnostic key names shared across all adapters."""
+
+# Cross-runtime observation keys.  These live in the core diagnostics
+# contract rather than under any transport package because both adapters
+# (producers) and the replay/runtime lifecycle (consumers) depend on them.
+# They are observational only: neither key is delivery evidence.
+PENDING_DELIVERY_COUNT = "pending_delivery_count"
+"""Outstanding asynchronous deliveries, exposed under ``session``."""
+
+QUEUE_PENDING = "queue_pending"
+"""Outstanding adapter-local queue items, exposed at adapter top level."""
 
 # Sentinel used internally; never appears in output.
 _UNSET = object()

@@ -83,6 +83,8 @@ The `kind` field determines the addressing model:
 
 **Rule 4:** Matrix room mapping is not stored in `RouteDestination`. Routes reference channels by logical name. The Matrix adapter's `connection.rooms` config maps logical names to Matrix room IDs. Routes MUST NOT contain Matrix room IDs directly.
 
+**Rule 5:** A configured `dest_destination` addresses one transport-specific entity and therefore MUST have exactly one `dest_adapter`. Fan-out to multiple adapters requires separate routes so each target has an unambiguous transport-specific addressing contract.
+
 | Scenario                            | `channel`     | `destination`                                    |
 | ----------------------------------- | ------------- | ------------------------------------------------ |
 | Deliver to Matrix room "general"    | `"general"`   | `None`                                           |

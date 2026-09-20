@@ -1253,17 +1253,38 @@ class MedreApp:
         # settled — never against one still INITIALIZING.  Startup-failure
         # cleanup (``_cleanup_core_resources``) and ``stop()`` already
         # handle a constructed-but-not-started worker.
-        if self._retry_worker is not None:
-            # Existing durable rows can target adapters that failed this
-            # startup.  Preserve that work without consuming a transport
-            # attempt on a process-local "not started" refusal.  The retry
-            # worker still reconciles persisted terminal evidence before this
-            # availability gate.
-            self._retry_worker.set_available_target_adapters(self.started_adapter_ids)
-            await self._retry_worker.start()
+        try:
+            if self._retry_worker is not None:
+                # Existing durable rows can target adapters that failed this
+                # startup.  Preserve that work without consuming a transport
+                # attempt on a process-local "not started" refusal.  The retry
+                # worker still reconciles persisted terminal evidence before this
+                # availability gate.
+                self._retry_worker.set_available_target_adapters(
+                    self.started_adapter_ids
+                )
+                await self._retry_worker.start()
 
-        if self._ingress_worker is not None:
-            await self._ingress_worker.start()
+            if self._ingress_worker is not None:
+                await self._ingress_worker.start()
+        except asyncio.CancelledError as c_exc:
+            # Worker activation is still part of startup.  Do not strand
+            # already-started adapters/core resources if cancellation lands
+            # after adapter readiness but before RUNNING.
+            cleared = _drain_pending_cancellations()
+            cleanup_drained = await self._start_failure_cleanup()
+            total = cleared + cleanup_drained
+            if total:
+                current = asyncio.current_task()
+                if current is not None:
+                    for _ in range(total):
+                        current.cancel()
+            raise c_exc
+        except Exception as exc:
+            await self._start_failure_cleanup()
+            raise RuntimeStartupError(
+                f"Failed to activate runtime workers: {exc}"
+            ) from exc
 
         self._set_state(RuntimeState.RUNNING)
 

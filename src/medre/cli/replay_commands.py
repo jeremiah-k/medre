@@ -17,12 +17,15 @@ import sys
 import time as _time
 from typing import Any
 
-from medre.adapters.diagnostics_keys import PENDING_DELIVERY_COUNT, QUEUE_PENDING
 from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 from medre.core.engine.replay.summary import collect_replay_summary
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.observability.sanitization import sanitize_error
+from medre.core.supervision.diagnostic_contract import (
+    PENDING_DELIVERY_COUNT,
+    QUEUE_PENDING,
+)
 from medre.runtime.app import StartupScope
 from medre.runtime.builder import RuntimeBuilder
 
@@ -45,7 +48,7 @@ async def _drain_inflight_deliveries(app: Any, timeout: float) -> None:
 
     Reads each started adapter's own ``diagnostics()`` report and waits
     while an adapter still reports unflushed outbound work under the
-    shared keys from :mod:`medre.adapters.diagnostics_keys`
+    shared keys from :mod:`medre.core.supervision.diagnostic_contract`
     (``session.pending_delivery_count`` for async-transfer adapters such
     as LXMF; ``queue_pending`` for queue-backed adapters such as
     Meshtastic).  Returns as soon as every exposed count is zero, or
@@ -95,6 +98,8 @@ async def _teardown_replay_runtime(app: Any, drain_timeout: float) -> None:
     """
     primary_error = sys.exc_info()[1]
     drain_deadline = _time.monotonic() + drain_timeout
+    drain_error: BaseException | None = None
+    stop_error: BaseException | None = None
     # Give adapters' in-flight outbound deliveries a bounded window to
     # reach terminal state before teardown — an immediate stop would abort
     # asynchronous transfers (e.g. LXMF DIRECT link delivery) right after
@@ -106,31 +111,45 @@ async def _teardown_replay_runtime(app: Any, drain_timeout: float) -> None:
         await _drain_inflight_deliveries(
             app, max(0.0, drain_deadline - _time.monotonic())
         )
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        # Never silently swallowed: visible either way, fatal only when
-        # the replay body itself succeeded.
+    except BaseException as exc:
+        # The drain is observational only.  It must never prevent lifecycle
+        # teardown, including when it is itself cancelled.  Preserve a replay
+        # body's already-in-flight error; otherwise surface the drain failure
+        # only after ``app.stop()`` has had its chance to close resources.
         if primary_error is None:
-            _logger.error("Replay pre-stop drain failed: %s", exc)
-            raise
-        _logger.warning(
-            "Replay pre-stop drain failed (replay error preserved): %s", exc
-        )
+            drain_error = exc
+            _logger.error(
+                "Replay pre-stop drain failed: %s", sanitize_error(str(exc))
+            )
+        else:
+            _logger.warning(
+                "Replay pre-stop drain failed (replay error preserved): %s",
+                sanitize_error(str(exc)),
+            )
     # Full lifecycle teardown (stops adapters, closes storage), bounded by
     # the SAME deadline the drain just consumed from.
     try:
         await app.stop(drain_deadline=drain_deadline)
-    except asyncio.CancelledError:
-        raise
-    except Exception as stop_exc:
+    except BaseException as exc:
         if primary_error is None:
-            raise
-        _logger.error(
-            "Runtime stop after replay failure also failed "
-            "(primary replay error preserved): %s",
-            sanitize_error(str(stop_exc)),
-        )
+            stop_error = exc
+        else:
+            _logger.error(
+                "Runtime stop after replay failure also failed "
+                "(primary replay error preserved): %s",
+                sanitize_error(str(exc)),
+            )
+
+    # When the replay body itself succeeded, teardown failures are fatal —
+    # but only after the full lifecycle stop has been attempted.  Prefer the
+    # stop failure because it describes the authoritative teardown operation;
+    # chain an earlier observational drain failure for diagnosis.
+    if primary_error is None and stop_error is not None:
+        if drain_error is not None:
+            raise stop_error from drain_error
+        raise stop_error
+    if primary_error is None and drain_error is not None:
+        raise drain_error
 
 
 async def _replay(

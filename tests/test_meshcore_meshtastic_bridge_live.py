@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
+from tests.helpers.meshcore_runtime import launch_healthy_meshcore_runtime
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _PeerListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
 from tests.helpers.meshtastic_live_peer import MeshtasticPeerListener as _MtListener
@@ -160,50 +161,16 @@ def _build_runtime(db_path: Path, *, direction: str):
     return RuntimeBuilder(config, paths).build()
 
 
-async def _start(app):
-    # A failed start leaves the app in state 'failed' — starting the same
-    # object again is invalid; _launch retries with a fresh runtime.
-    await bounded(app.start(), 120.0, "bridge runtime start")
-
-
 async def _launch(db_path: Path, direction: str):
-    """Build and start a runtime, verifying the MC link actually came up.
-
-    A start can either raise or silently come up DEGRADED (which
-    dead-letters deliveries with ``Session not initialised``).  Both cases
-    retry with a FRESH runtime after a settle; the same app object is
-    never started twice.
-    """
-    health = None
-    last_error: str | None = None
-    for _attempt in range(2):
-        app = _build_runtime(db_path, direction=direction)
-        try:
-            await bounded(app.start(), 120.0, "bridge runtime start")
-        except RuntimeError as exc:
-            last_error = f"start raised: {exc}"
-            try:
-                await _stop(app)
-            except Exception:
-                pass
-            await asyncio.sleep(6.0)
-            continue
-        deadline = time.monotonic() + 20.0
-        while time.monotonic() < deadline:
-            info = await bounded(
-                app.adapters["mc_radio"].health_check(), 15.0, "mc health"
-            )
-            health = info.health
-            if health == "healthy":
-                return app
-            await asyncio.sleep(1.0)
-        last_error = f"health stayed {health!r}"
-        try:
-            await _stop(app)
-        except Exception:
-            pass
-        await asyncio.sleep(6.0)
-    raise RuntimeError(f"bridge runtime never reached healthy ({last_error})")
+    """Build a fresh runtime and require a healthy MeshCore link."""
+    return await launch_healthy_meshcore_runtime(
+        lambda: _build_runtime(db_path, direction=direction),
+        start_timeout=120.0,
+        start_label="bridge runtime start",
+        stop_timeout=30.0,
+        stop_label="bridge runtime stop",
+        health_label="mc health",
+    )
 
 
 async def _stop(app):
@@ -398,8 +365,7 @@ async def test_mc_stop_restart_and_mt_isolation(tmp_path: Path) -> None:
             "Connected: yes" not in probe.stdout
         ), f"cycle {cycle}: BLE link not released"
     # Final start: MT route still usable after MC recovery cycles.
-    app = _build_runtime(tmp_path / "lab-final.db", direction="mc_to_mt")
-    await _start(app)
+    app = await _launch(tmp_path / "lab-final.db", "mc_to_mt")
     try:
         nonce = _nonce("F6")
         sent = await asyncio.to_thread(

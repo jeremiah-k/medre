@@ -522,6 +522,32 @@ async def test_serial_no_response_fails_without_dtr_inversion() -> None:
     assert session.connected is False
 
 
+async def test_serial_connect_exception_releases_partially_open_client() -> None:
+    """A serial connect exception still disconnects the retained SDK client."""
+    mock_mc, mock_inst = build_mock_meshcore_module()
+    mock_inst.connect = AsyncMock(side_effect=OSError("serial handshake failed"))
+    # Cleanup errors are secondary and must not replace the connect failure.
+    mock_inst.disconnect = AsyncMock(side_effect=RuntimeError("close failed"))
+
+    config = _make_config(
+        connection_type="serial",
+        serial_port="/dev/ttyUSB0",
+    )
+    session = MeshCoreSession(config, "serial-connect-error")
+
+    with (
+        patch("medre.adapters.meshcore.session.HAS_MESHCORE", True),
+        patch.dict(sys.modules, {"meshcore": mock_mc}),
+    ):
+        with pytest.raises(MeshCoreConnectionError, match="serial handshake failed"):
+            await session.start(lambda _pkt: None)
+
+    mock_inst.connect.assert_awaited_once()
+    mock_inst.disconnect.assert_awaited_once()
+    assert session._meshcore is None
+    assert session.connected is False
+
+
 async def test_subscription_failure_cleans_up() -> None:
     """When subscribe raises after connection succeeds, full cleanup occurs.
 

@@ -20,5 +20,10 @@ level when the body succeeded, warning/error alongside the preserved
 primary otherwise) — the previous silent `except Exception: pass` around
 the drain and the finally-block `stop()` exception override are gone.
 Cancellation still propagates. The drain's observed keys are now the shared
-`medre.adapters.diagnostics_keys` contract instead of string literals, and
+`medre.core.supervision.diagnostic_contract` contract instead of string literals, and
 `stop()` continues to release pipeline and storage on every path.
+
+The observational pre-stop drain can no longer bypass lifecycle teardown when
+it raises or is cancelled. MEDRE always attempts `app.stop()` first, then
+re-raises the appropriate teardown failure when the replay body succeeded; a
+primary replay failure remains authoritative.

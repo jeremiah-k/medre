@@ -52,3 +52,7 @@ configuration and readback reliably.
   firmware-side bootloader effect is modelled, not observed).
 - Live board evidence recorded in the ops live-validation notes (deasserted
   lines, warm reset; not re-run for this change).
+
+Serial startup now retains ownership of the SDK client before awaiting the
+handshake, so a connect-time exception after opening the transport still runs
+the common failed-start disconnect path and releases the serial port.

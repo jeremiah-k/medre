@@ -25,12 +25,15 @@ from typing import Any
 
 import pytest
 
-from medre.adapters.diagnostics_keys import PENDING_DELIVERY_COUNT, QUEUE_PENDING
 from medre.cli.replay_commands import (
     _drain_inflight_deliveries,
     _teardown_replay_runtime,
 )
 from medre.config.paths import MedrePaths, resolve
+from medre.core.supervision.diagnostic_contract import (
+    PENDING_DELIVERY_COUNT,
+    QUEUE_PENDING,
+)
 from tests.helpers.fake_runtime import (
     build_and_start,
     clean_stop,
@@ -65,130 +68,147 @@ def _diagnostics(pending: int, key: str) -> dict:
     return {key: pending}
 
 
-class TestDrainObservationSeam:
-    async def test_pending_clears_returns_before_deadline(self) -> None:
-        app = _StubApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
-        started = time.monotonic()
-        await _drain_inflight_deliveries(app, timeout=5.0)
-        assert time.monotonic() - started < 1.0
-
-    async def test_never_pending_times_out_bounded(self) -> None:
-        app = _StubApp({"lx": _diagnostics(3, PENDING_DELIVERY_COUNT)})
-        started = time.monotonic()
-        await _drain_inflight_deliveries(app, timeout=0.5)
-        assert 0.4 <= time.monotonic() - started < 2.0
-
-    async def test_queue_pending_key_observed(self) -> None:
-        app = _StubApp({"mt": _diagnostics(1, QUEUE_PENDING)})
-        started = time.monotonic()
-        await _drain_inflight_deliveries(app, timeout=0.5)
-        assert time.monotonic() - started >= 0.4  # it waited on the key
-
-    async def test_adapter_without_diagnostics_gets_no_grace(self) -> None:
-        app = _StubApp({})
-        app.adapters["bare"] = SimpleNamespace()  # no diagnostics()
-        app.started_adapter_ids = ["bare"]
-        started = time.monotonic()
-        await _drain_inflight_deliveries(app, timeout=5.0)
-        assert time.monotonic() - started < 1.0
+async def test_pending_clears_returns_before_deadline() -> None:
+    app = _StubApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
+    started = time.monotonic()
+    await _drain_inflight_deliveries(app, timeout=5.0)
+    assert time.monotonic() - started < 1.0
 
 
-class TestSharedDrainDeadline:
-    async def test_stop_receives_the_one_deadline(self) -> None:
-        """The deadline stop() honors is the one the drain consumed from."""
-        app = _StubApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
-        await _teardown_replay_runtime(app, drain_timeout=7.0)
-        assert len(app.stop_calls) == 1
-        passed = app.stop_calls[0]["drain_deadline"]
-        assert passed is not None
-        # One budget: the deadline given to stop() is at most one full
-        # drain window from now — never a fresh full timer on top of the
-        # already-consumed drain.
-        assert passed - time.monotonic() <= 7.0
+async def test_never_pending_times_out_bounded() -> None:
+    app = _StubApp({"lx": _diagnostics(3, PENDING_DELIVERY_COUNT)})
+    started = time.monotonic()
+    await _drain_inflight_deliveries(app, timeout=0.5)
+    assert 0.4 <= time.monotonic() - started < 2.0
 
 
-class TestPrimaryErrorPreservation:
-    async def test_stop_failure_propagates_when_body_succeeded(self) -> None:
-        class _FailingStopApp(_StubApp):
-            async def stop(self, *, drain_deadline: float | None = None) -> None:
-                raise RuntimeError("shutdown exploded")
-
-        app = _FailingStopApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
-        with pytest.raises(RuntimeError, match="shutdown exploded"):
-            await _teardown_replay_runtime(app, drain_timeout=1.0)
-
-    async def test_body_failure_is_not_masked_by_stop_failure(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        class _FailingStopApp(_StubApp):
-            async def stop(self, *, drain_deadline: float | None = None) -> None:
-                raise RuntimeError("shutdown exploded")
-
-        app = _FailingStopApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
-        with caplog.at_level(logging.ERROR, logger="medre.cli.replay_commands"):
-            try:
-                raise RuntimeError("replay body failed")
-            except RuntimeError:
-                await _teardown_replay_runtime(app, drain_timeout=1.0)
-        # Primary preserved (no teardown exception surfaced) and the
-        # secondary failure is visible, not swallowed.
-        assert any("shutdown exploded" in r.message for r in caplog.records)
-
-    async def test_drain_failure_is_logged_and_never_silent(
-        self,
-        caplog: pytest.LogCaptureFixture,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        async def _explode(app: Any, timeout: float) -> None:  # type: ignore[name-defined]
-            raise RuntimeError("drain exploded")
-
-        monkeypatch.setattr(
-            "medre.cli.replay_commands._drain_inflight_deliveries", _explode
-        )
-        app = _StubApp()
-        with caplog.at_level(logging.WARNING, logger="medre.cli.replay_commands"):
-            try:
-                raise RuntimeError("replay body failed")
-            except RuntimeError:
-                await _teardown_replay_runtime(app, drain_timeout=1.0)
-        assert any("drain failed" in r.message for r in caplog.records)
-        # Stop still ran after the drain anomaly.
-        assert len(app.stop_calls) == 1
-
-    async def test_drain_failure_fatal_when_body_succeeded(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        async def _explode(app: Any, timeout: float) -> None:  # type: ignore[name-defined]
-            raise RuntimeError("drain exploded")
-
-        monkeypatch.setattr(
-            "medre.cli.replay_commands._drain_inflight_deliveries", _explode
-        )
-        app = _StubApp()
-        with pytest.raises(RuntimeError, match="drain exploded"):
-            await _teardown_replay_runtime(app, drain_timeout=1.0)
-        # Stop never ran: the drain failure surfaced first.
-        assert app.stop_calls == []
-
-    async def test_cancellation_from_stop_propagates(self) -> None:
-        class _CancellingApp(_StubApp):
-            async def stop(self, *, drain_deadline: float | None = None) -> None:
-                raise asyncio.CancelledError()
-
-        app = _CancellingApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
-        with pytest.raises(asyncio.CancelledError):
-            await _teardown_replay_runtime(app, drain_timeout=1.0)
+async def test_queue_pending_key_observed() -> None:
+    app = _StubApp({"mt": _diagnostics(1, QUEUE_PENDING)})
+    started = time.monotonic()
+    await _drain_inflight_deliveries(app, timeout=0.5)
+    assert time.monotonic() - started >= 0.4  # it waited on the key
 
 
-class TestStopHonorsCallerDeadline:
-    async def test_stop_with_expired_deadline_skips_drain_wait(self, tmp_paths) -> None:
-        """The runtime owner enforces a caller-supplied absolute deadline."""
-        config, _route = make_two_adapter_config_with_route()
-        app = await build_and_start(config, tmp_paths)
+async def test_adapter_without_diagnostics_gets_no_grace() -> None:
+    app = _StubApp({})
+    app.adapters["bare"] = SimpleNamespace()  # no diagnostics()
+    app.started_adapter_ids = ["bare"]
+    started = time.monotonic()
+    await _drain_inflight_deliveries(app, timeout=5.0)
+    assert time.monotonic() - started < 1.0
+
+
+async def test_stop_receives_the_one_deadline() -> None:
+    """The deadline stop() honors is the one the drain consumed from."""
+    app = _StubApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
+    await _teardown_replay_runtime(app, drain_timeout=7.0)
+    assert len(app.stop_calls) == 1
+    passed = app.stop_calls[0]["drain_deadline"]
+    assert passed is not None
+    # One budget: the deadline given to stop() is at most one full
+    # drain window from now — never a fresh full timer on top of the
+    # already-consumed drain.
+    assert passed - time.monotonic() <= 7.0
+
+
+async def test_stop_failure_propagates_when_body_succeeded() -> None:
+    class _FailingStopApp(_StubApp):
+        async def stop(self, *, drain_deadline: float | None = None) -> None:
+            raise RuntimeError("shutdown exploded")
+
+    app = _FailingStopApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
+    with pytest.raises(RuntimeError, match="shutdown exploded"):
+        await _teardown_replay_runtime(app, drain_timeout=1.0)
+
+
+async def test_body_failure_is_not_masked_by_stop_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _FailingStopApp(_StubApp):
+        async def stop(self, *, drain_deadline: float | None = None) -> None:
+            raise RuntimeError("shutdown exploded")
+
+    app = _FailingStopApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
+    with caplog.at_level(logging.ERROR, logger="medre.cli.replay_commands"):
         try:
-            started = time.monotonic()
-            await app.stop(drain_deadline=started - 1.0)  # already expired
-            assert time.monotonic() - started < 5.0  # no fresh full budget
-        finally:
-            if app._state.value not in ("stopped", "failed"):
-                await clean_stop(app)
+            raise RuntimeError("replay body failed")
+        except RuntimeError:
+            await _teardown_replay_runtime(app, drain_timeout=1.0)
+    # Primary preserved (no teardown exception surfaced) and the
+    # secondary failure is visible, not swallowed.
+    assert any("shutdown exploded" in r.message for r in caplog.records)
+
+
+async def test_drain_failure_is_logged_and_never_silent(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _explode(app: Any, timeout: float) -> None:
+        raise RuntimeError("drain exploded")
+
+    monkeypatch.setattr(
+        "medre.cli.replay_commands._drain_inflight_deliveries", _explode
+    )
+    app = _StubApp()
+    with caplog.at_level(logging.WARNING, logger="medre.cli.replay_commands"):
+        try:
+            raise RuntimeError("replay body failed")
+        except RuntimeError:
+            await _teardown_replay_runtime(app, drain_timeout=1.0)
+    assert any("drain failed" in r.message for r in caplog.records)
+    assert len(app.stop_calls) == 1
+
+
+async def test_drain_failure_fatal_after_stop_when_body_succeeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _explode(app: Any, timeout: float) -> None:
+        raise RuntimeError("drain exploded")
+
+    monkeypatch.setattr(
+        "medre.cli.replay_commands._drain_inflight_deliveries", _explode
+    )
+    app = _StubApp()
+    with pytest.raises(RuntimeError, match="drain exploded"):
+        await _teardown_replay_runtime(app, drain_timeout=1.0)
+    assert len(app.stop_calls) == 1
+
+
+async def test_drain_cancellation_still_stops_then_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _cancel(app: Any, timeout: float) -> None:
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(
+        "medre.cli.replay_commands._drain_inflight_deliveries", _cancel
+    )
+    app = _StubApp()
+    with pytest.raises(asyncio.CancelledError):
+        await _teardown_replay_runtime(app, drain_timeout=1.0)
+    assert len(app.stop_calls) == 1
+
+
+async def test_cancellation_from_stop_propagates() -> None:
+    class _CancellingApp(_StubApp):
+        async def stop(self, *, drain_deadline: float | None = None) -> None:
+            raise asyncio.CancelledError()
+
+    app = _CancellingApp({"lx": _diagnostics(0, PENDING_DELIVERY_COUNT)})
+    with pytest.raises(asyncio.CancelledError):
+        await _teardown_replay_runtime(app, drain_timeout=1.0)
+
+
+async def test_stop_with_expired_deadline_skips_drain_wait(
+    tmp_paths: MedrePaths,
+) -> None:
+    """The runtime owner enforces a caller-supplied absolute deadline."""
+    config, _route = make_two_adapter_config_with_route()
+    app = await build_and_start(config, tmp_paths)
+    try:
+        started = time.monotonic()
+        await app.stop(drain_deadline=started - 1.0)  # already expired
+        assert time.monotonic() - started < 5.0  # no fresh full budget
+    finally:
+        if app._state.value not in ("stopped", "failed"):
+            await clean_stop(app)

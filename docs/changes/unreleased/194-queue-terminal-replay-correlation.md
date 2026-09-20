@@ -26,3 +26,7 @@ replaced by the "Replay-lineage finalize" signal, logged at debug) and
 §15.4(7), conformance §9.4(2), plus the operator-facing
 recovery-and-replay and troubleshooting entries — the operator-visible
 skip warning can no longer occur.
+
+Replay-only queued→sent selection emits the documented debug lineage signal
+even in the normal single-candidate case, not only when malformed duplicate
+candidates exist.

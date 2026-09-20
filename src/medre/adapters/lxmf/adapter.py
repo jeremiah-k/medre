@@ -68,6 +68,7 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.rendering.renderer import RenderingResult
+from medre.core.supervision.diagnostic_contract import PENDING_DELIVERY_COUNT
 
 # Capabilities for the LXMF transport adapter.
 _LXMF_CAPABILITIES = AdapterCapabilities(
@@ -476,7 +477,7 @@ class LxmfAdapter(AdapterContract):
                 "last_error": session_diag.last_error,
                 "known_path_count": session_diag.known_path_count,
                 "propagation_enabled": session_diag.propagation_enabled,
-                "pending_delivery_count": session_diag.pending_delivery_count,
+                PENDING_DELIVERY_COUNT: session_diag.pending_delivery_count,
                 "mode": session_diag.mode,
                 "announces_sent": session_diag.announces_sent,
                 "announce_failures": session_diag.announce_failures,

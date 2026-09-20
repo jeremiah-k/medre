@@ -39,6 +39,7 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
+from tests.helpers.meshcore_runtime import launch_healthy_meshcore_runtime
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _PeerListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _peer
 from tests.helpers.meshtastic import make_meshtastic_text_packet
@@ -151,61 +152,20 @@ def _build_runtime(db_path: Path, *, with_route: bool):
     return RuntimeBuilder(config, paths).build()
 
 
-async def _start_app(app) -> None:  # noqa: ANN001
-    # No proactive disconnects here: boards tolerate a single clean owner
-    # handover, and gratuitous disconnect/reconnect churn is itself the
-    # flake source.  MEDRE's session performs its own best-effort stale
-    # cleanup for its address; teardown disconnects exactly once.
-    # A failed start leaves the app in state 'failed' — starting the same
-    # object again is invalid; _launch retries with a fresh runtime.
-    await bounded(app.start(), 100.0, "pair runtime app.start()")
-
-
 async def _stop_app(app) -> None:  # noqa: ANN001
     await bounded(app.stop(), 30.0, "pair runtime app.stop()")
 
 
 async def _launch(db_path: Path, *, with_route: bool):
-    """Build and start a runtime, verifying the MC link actually came up.
-
-    The preflight probe releases each board seconds before the runtime
-    connects; in that settle window a start can either raise or silently
-    come up DEGRADED (which dead-letters deliveries with ``Session not
-    initialised``).  Both cases retry with a FRESH runtime after a
-    settle; the same app object is never started twice.
-    """
-    health = None
-    last_error: str | None = None
-    for _attempt in range(2):
-        app = _build_runtime(db_path, with_route=with_route)
-        try:
-            await bounded(app.start(), 100.0, "pair runtime app.start()")
-        except RuntimeError as exc:
-            last_error = f"start raised: {exc}"
-            try:
-                await _stop_app(app)
-            except Exception:
-                pass
-            await asyncio.sleep(6.0)
-            continue
-        deadline = time.monotonic() + 20.0
-        while time.monotonic() < deadline:
-            info = await bounded(
-                app.adapters["mc_radio"].health_check(),
-                15.0,
-                "mc_radio health_check",
-            )
-            health = info.health
-            if health == "healthy":
-                return app
-            await asyncio.sleep(1.0)
-        last_error = f"health stayed {health!r}"
-        try:
-            await _stop_app(app)
-        except Exception:
-            pass
-        await asyncio.sleep(6.0)
-    raise RuntimeError(f"pair runtime never reached healthy ({last_error})")
+    """Build a fresh runtime and require a healthy MeshCore link."""
+    return await launch_healthy_meshcore_runtime(
+        lambda: _build_runtime(db_path, with_route=with_route),
+        start_timeout=100.0,
+        start_label="pair runtime app.start()",
+        stop_timeout=30.0,
+        stop_label="pair runtime app.stop()",
+        health_label="mc_radio health_check",
+    )
 
 
 # The pinned meshcore SDK still calls the deprecated
@@ -257,7 +217,9 @@ async def _await_receipts(storage, event_id: str) -> list:  # noqa: ANN001
     return await _poll()
 
 
-async def _events_with_body(app, needle: str) -> list:  # noqa: ANN001
+async def _events_with_body(
+    app, needle: str, expected: int = 1  # noqa: ANN001
+) -> list:
     """Boundedly poll durable canonical events whose body contains needle."""
     deadline = time.monotonic() + _RECEIPT_TIMEOUT
     hits: list = []
@@ -269,7 +231,7 @@ async def _events_with_body(app, needle: str) -> list:  # noqa: ANN001
             body = (ev.payload or {}).get("body", "") if ev else ""
             if needle in body:
                 hits.append(ev)
-        if hits:
+        if len(hits) >= expected:
             return hits
         await asyncio.sleep(1.0)
     return hits
@@ -359,7 +321,7 @@ class TestMeshCorePairIngress:
             await asyncio.to_thread(
                 _peer, ["sendts", _PEER_BLE, text_dist, str(now), str(now + 1)], 90
             )
-            hits = await _events_with_body(app, text_dist)
+            hits = await _events_with_body(app, text_dist, expected=2)
             assert (
                 len(hits) == 2
             ), f"distinct same-second timestamps produced {len(hits)} events"

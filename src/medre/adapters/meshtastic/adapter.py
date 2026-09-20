@@ -77,7 +77,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
-from medre.adapters.diagnostics_keys import QUEUE_PENDING
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
@@ -117,6 +116,7 @@ from medre.core.policies.startup_backlog_suppress import (
     should_suppress_startup_backlog,
 )
 from medre.core.rendering.renderer import RenderingResult
+from medre.core.supervision.diagnostic_contract import QUEUE_PENDING
 
 
 class MeshtasticAdapter(AdapterContract):

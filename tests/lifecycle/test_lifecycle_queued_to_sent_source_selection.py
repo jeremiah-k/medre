@@ -229,7 +229,7 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-replay-only",
             attempt_number=1,
         )
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG):
             await lifecycle.finalize_queued_delivery(
                 temp_storage,
                 record=record,
@@ -251,6 +251,8 @@ class TestSourceAwareCandidateSelection:
         outbox = await temp_storage.get_outbox_item("obox-replay-only")
         assert outbox is not None
         assert outbox.status == "sent"
+        assert "selecting replay-sourced queued receipt rcpt-replay-only" in caplog.text
+        assert "replay_run_id=run-77" in caplog.text
         assert "skipping" not in caplog.text
         assert "Hard reject" not in caplog.text
 

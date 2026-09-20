@@ -80,6 +80,7 @@ _TX_PACING_SECONDS: float = 2.5
 
 # Bounded waits (seconds).
 _RECEIPT_TIMEOUT: float = 45.0
+_MAX_TEXT_BYTES: int = 227
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +119,7 @@ def _build_runtime(db_path: Path, *, with_route: bool):
             default_channel=0,
             # Empirical RF pacing for the lab pair (user-directed 2.2 s floor).
             message_delay_seconds=_TX_PACING_SECONDS,
+            max_text_bytes=_MAX_TEXT_BYTES,
         ).validate(),
     )
     routes: RouteConfigSet = RouteConfigSet()
@@ -210,7 +212,13 @@ class TestMeshtasticPairEgress:
                 event = fake.inbound_events[-1]
                 receipts = await _await_receipts(app.storage, event.event_id)
                 assert receipts, "no durable delivery receipt appeared"
-                rx = [p for p in peer.packets() if nonce in (p.get("text") or "")]
+                peer_out = peer.packets_until(
+                    lambda packets: any(
+                        nonce in (packet.get("text") or "") for packet in packets
+                    ),
+                    _RECEIPT_TIMEOUT,
+                )
+                rx = [p for p in peer_out if nonce in (p.get("text") or "")]
             assert rx, "native peer did not receive the egress over RF"
             pkt = rx[-1]
             # RX packet dicts may omit `channel` for the primary channel.
@@ -246,7 +254,7 @@ class TestMeshtasticPairEgress:
             fake = app.adapters["lab_src"]
             unicode_msg = _nonce("N4-uni") + " héllo wörld ✓ 你好"
             newline_msg = _nonce("N4-nl") + "line1\nline2"
-            long_msg = _nonce("N4-long") + " " + "αβγδε" * 120  # ~720 bytes
+            long_msg = _nonce("N4-long") + " " + "αβγδε" * 120  # ~1.2 KB UTF-8
             normal_msg = _nonce("N4-ok")
             cases = [unicode_msg, newline_msg, long_msg, normal_msg]
             assert len(cases) <= _TX_BUDGET
@@ -264,7 +272,14 @@ class TestMeshtasticPairEgress:
                     events[text] = event.event_id
                     # Pace ingress so outbound queue + airtime stay stable.
                     await asyncio.sleep(_TX_PACING_SECONDS + 0.6)
-                received = peer.packets()
+                expected_keys = ("N4-uni", "N4-nl", "N4-long", "N4-ok")
+                received = peer.packets_until(
+                    lambda packets: all(
+                        any(key in (packet.get("text") or "") for packet in packets)
+                        for key in expected_keys
+                    ),
+                    _RECEIPT_TIMEOUT,
+                )
             by_nonce = {}
             for p in received:
                 t = p.get("text") or ""
@@ -278,10 +293,7 @@ class TestMeshtasticPairEgress:
             # Long payload is delivered truncated (not dropped, not split).
             long_rx = by_nonce.get("N4-long")
             assert long_rx, "long payload not observed at peer"
-            from medre.config.adapters.meshtastic import MeshtasticConfig
-
-            max_bytes = MeshtasticConfig(adapter_id="budget-probe").max_text_bytes
-            expected_long = long_msg.encode("utf-8")[:max_bytes].decode(
+            expected_long = long_msg.encode("utf-8")[:_MAX_TEXT_BYTES].decode(
                 "utf-8", errors="ignore"
             )
             assert (

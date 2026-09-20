@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -85,6 +86,8 @@ async def main():
 
     if MODE == "listen":
         seconds = float(sys.argv[3])
+        scratch_path = sys.argv[4]
+        ready_path = sys.argv[5]
         mc = await _connect()
         try:
             out["own_pubkey_prefix"] = await _own_pubkey_prefix(mc)
@@ -118,13 +121,13 @@ async def main():
                     "snr": p.get("SNR", p.get("snr")),
                     "sender_timestamp": p.get("sender_timestamp"),
                 })
-                with open("/tmp/meshcore_pair_peer.json", "a") as fh:
+                with open(scratch_path, "a") as fh:
                     fh.write(json.dumps(got[-1]) + "\n")
 
             sub = mc.subscribe(EventType.CHANNEL_MSG_RECV, on_msg)
             await mc.start_auto_message_fetching()
             # Ready handshake: collection is armed (drained, subscribed).
-            with open("/tmp/meshcore_pair_peer.ready", "w") as fh:
+            with open(ready_path, "w") as fh:
                 fh.write("1")
             await asyncio.sleep(seconds)
             mc.unsubscribe(sub)
@@ -290,6 +293,8 @@ class MeshCorePeerListener:
                 "listen",
                 _PEER_BLE,
                 str(self._seconds),
+                str(self._JSON_PATH),
+                str(self._READY_PATH),
             ]
         )
         return self
@@ -297,7 +302,11 @@ class MeshCorePeerListener:
     def _read_packets(self) -> list[dict]:
         return read_jsonl(self._JSON_PATH)
 
-    def packets_until(self, predicate, timeout: float) -> list[dict]:
+    def packets_until(
+        self,
+        predicate: Callable[[list[dict]], bool],
+        timeout: float,
+    ) -> list[dict]:
         """Poll collected packets until ``predicate`` holds or timeout."""
         return poll_packets_until(self._read_packets, predicate, timeout)
 

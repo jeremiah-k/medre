@@ -896,18 +896,17 @@ class MeshCoreSession:
                     rts=False,
                     dtr=False,
                 )
-                client = mc.MeshCore(connection, auto_reconnect=False)
-                connect_result = await client.connect()
+                # Retain ownership before awaiting connect().  The SDK may
+                # open the serial transport and then raise while completing
+                # its protocol handshake; keeping the client on the session
+                # lets the common failure cleanup reliably disconnect that
+                # partially-initialised transport.
+                self._meshcore = mc.MeshCore(connection, auto_reconnect=False)
+                connect_result = await self._meshcore.connect()
                 if connect_result is None:
-                    # Mirror create_serial's no-response handling: release
-                    # the SDK client and fail visibly.  A transport-level
-                    # connect failure raises ConnectionError and is wrapped
-                    # by the generic handler below.
-                    await client.disconnect()
                     raise MeshCoreConnectionError(
                         "No response from MeshCore node (serial)"
                     )
-                self._meshcore = client
             elif self._config.connection_type == "ble":
                 _addr = self._config.ble_address or ""
 

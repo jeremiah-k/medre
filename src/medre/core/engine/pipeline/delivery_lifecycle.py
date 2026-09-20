@@ -609,9 +609,6 @@ class DeliveryLifecycleService:
         """
         if not candidates:
             return None
-        if len(candidates) == 1:
-            return candidates[0]
-
         live_candidates = [r for r in candidates if r.source != "replay"]
         if live_candidates:
             # Prefer the latest non-replay candidate.
