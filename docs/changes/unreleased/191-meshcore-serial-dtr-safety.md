@@ -5,10 +5,19 @@
 `MeshCoreSession` now passes `dtr=False, rts=False` to
 `meshcore.MeshCore.create_serial`. The pinned SDK (`meshcore==2.3.11`) defaults
 `dtr=True`; on boards whose USB-UART auto-download circuit drives IO0 from DTR
-(observed on LilyGO T-LoRa V2.1-1.6, CH9102X), asserting DTR holds IO0 low,
-which knocks the companion radio into the ESP32 ROM bootloader or MeshCore
-"CLI rescue" mode, killing the serial protocol until a clean warm boot.
+(observed on LilyGO T-LoRa V2.1-1.6, CH9102X), asserting DTR holds IO0 low, so
+an EN-line reset while DTR is asserted can drop the companion radio into the
+ESP32 ROM bootloader, killing the serial protocol until a clean warm boot.
 Deasserted is the safe state for every board observed with the pinned SDK.
+
+Later bench evidence (2026-09-19) refined the failure attribution: the MeshCore
+"CLI rescue" banner on these boards is triggered by the board's own floating
+GPIO0 user-button input (`PIN_USER_BTN`, `INPUT`, no internal pull), which can
+phantom-press within seconds of a power cycle — a board quirk independent of
+MEDRE's line state. It recovers with a warm reset while the port is held at
+`dtr=False, rts=False`. The SDK default-line fix remains correct and necessary:
+MEDRE must never assert IO0/EN itself, and deasserted lines are also the
+recovery posture for the board quirk.
 
 ## Why
 
