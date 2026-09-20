@@ -1061,7 +1061,6 @@ class TestRouteConfigRetry:
         assert exc_info.value.section_path == "routes.my_route.retry"
 
 
-
 # ---------------------------------------------------------------------------
 # Route retry YAML loader integration
 # ---------------------------------------------------------------------------
@@ -1164,3 +1163,54 @@ class TestRouteDirectionality:
             RouteDirectionality("dest_to_source") is RouteDirectionality.DEST_TO_SOURCE
         )
         assert RouteDirectionality("bidirectional") is RouteDirectionality.BIDIRECTIONAL
+
+
+class TestRouteDirectionalityProgrammaticCoercion:
+    """Programmatic RouteConfig construction must coerce directionality
+    strings exactly like the YAML loader path.
+
+    The route engine compares ``rc.directionality`` against enum members;
+    an uncoerced plain string matches no expansion branch and silently
+    drops the route (a runtime would start with zero delivery paths).
+    """
+
+    def test_construction_coerces_plain_strings(self) -> None:
+        for raw, expected in (
+            ("source_to_dest", RouteDirectionality.SOURCE_TO_DEST),
+            ("dest_to_source", RouteDirectionality.DEST_TO_SOURCE),
+            ("bidirectional", RouteDirectionality.BIDIRECTIONAL),
+        ):
+            rc = RouteConfig(
+                route_id="coerce_dir",
+                source_adapters=("main",),
+                dest_adapters=("radio",),
+                directionality=raw,  # type: ignore[arg-type]
+            )
+            assert rc.directionality is expected
+
+    def test_construction_accepts_enum_idempotently(self) -> None:
+        rc = RouteConfig(
+            route_id="enum_dir",
+            source_adapters=("main",),
+            dest_adapters=("radio",),
+            directionality=RouteDirectionality.BIDIRECTIONAL,
+        )
+        assert rc.directionality is RouteDirectionality.BIDIRECTIONAL
+
+    def test_construction_invalid_value_raises_with_route_context(self) -> None:
+        with pytest.raises(ConfigValidationError, match="invalid directionality"):
+            RouteConfig(
+                route_id="bad_dir",
+                source_adapters=("main",),
+                dest_adapters=("radio",),
+                directionality="sideways",  # type: ignore[arg-type]
+            )
+
+    def test_construction_non_string_value_raises(self) -> None:
+        with pytest.raises(ConfigValidationError, match="invalid directionality"):
+            RouteConfig(
+                route_id="bad_dir_type",
+                source_adapters=("main",),
+                dest_adapters=("radio",),
+                directionality=7,  # type: ignore[arg-type]
+            )

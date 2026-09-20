@@ -469,6 +469,87 @@ class TestPathPlaceholderExpansion:
 
 
 # ---------------------------------------------------------------------------
+# Renderer templates vs path placeholders
+# ---------------------------------------------------------------------------
+
+
+class TestRendererTemplatesInYaml:
+    """Renderer template syntax in non-path string fields must load.
+
+    Regression: the YAML loader applied strict *path*-placeholder
+    validation to every adapter string field, so the documented Matrix
+    ``relay_prefix`` template (``[{sender}/{origin_label}]: ``) failed
+    config load with "Invalid path placeholder" while the identical
+    programmatic config worked.  Path-designated fields keep strict
+    validation; other fields expand known path placeholders leniently
+    and leave renderer tokens verbatim.
+    """
+
+    YAML = """\
+runtime:
+  name: template-test
+
+storage:
+  backend: sqlite
+  path: "{state}/test.db"
+
+adapters:
+  matrix:
+    main:
+      enabled: true
+      homeserver: "https://matrix.test"
+      user_id: "@bot:test"
+      access_token: tok
+      room_allowlist:
+        - "!room:test"
+      encryption_mode: plaintext
+      relay_prefix: "[{sender}/{origin_label}]: "
+"""
+
+    def test_documented_relay_prefix_template_loads(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(self.YAML)
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        config, _, _ = load_config(str(cfg))
+        matrix = config.adapters.matrix["main"].config
+        assert matrix.relay_prefix == "[{sender}/{origin_label}]: "
+
+    def test_known_and_renderer_tokens_mixed(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            self.YAML.replace(
+                '"[{sender}/{origin_label}]: "',
+                '"{state}/x {sender}"',
+            )
+        )
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        config, _, paths = load_config(str(cfg))
+        matrix = config.adapters.matrix["main"].config
+        assert matrix.relay_prefix == f"{paths.state_dir}/x {{sender}}"
+
+    def test_unknown_placeholder_in_path_field_still_raises(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            self.YAML.replace(
+                'relay_prefix: "[{sender}/{origin_label}]: "\n',
+                "",
+            ).replace(
+                "access_token: tok",
+                'access_token: tok\n      store_path: "{bogus}/store"',
+            )
+        )
+        monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+        with pytest.raises(ConfigFileError, match="Invalid path placeholder"):
+            load_config(str(cfg))
+
+
+# ---------------------------------------------------------------------------
 # ConfigSource enum
 # ---------------------------------------------------------------------------
 

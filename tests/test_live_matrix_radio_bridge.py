@@ -133,8 +133,17 @@ def _nonce(tag: str) -> str:
     return f"MX-X{tag}-{uuid.uuid4().hex[:8]}"
 
 
-def _build_runtime(db_path: Path):
-    """Four real adapters, three explicit bidirectional matrix<->radio routes."""
+def _build_runtime(db_path: Path, lx_storage: Path):
+    """Four real adapters, three explicit bidirectional matrix<->radio routes.
+
+    ``lx_storage`` is the LX-A LXMF message/ratchet store.  It MUST be
+    test-scoped (fresh per test): reusing a shared store both violates
+    runtime ownership ("a new test must not inherit the previous
+    runtime's store") and triggers a pinned-RNS unclosed-read defect
+    (RNS 1.5.4 ``Destination._reload_ratchets`` opens an existing
+    ``.ratchets`` file without closing it) whose GC-time ResourceWarning
+    surfaces as a pytest-unraisable error in a *later* test.
+    """
     from medre.config.adapters.lxmf import LxmfConfig
     from medre.config.adapters.matrix import MatrixConfig
     from medre.config.adapters.meshcore import MeshCoreConfig
@@ -208,7 +217,7 @@ def _build_runtime(db_path: Path):
             adapter_id="lx_radio",
             connection_type="reticulum",
             identity_path=_LX_MEDRE_IDENT,
-            storage_path=_LX_MEDRE_STORAGE,
+            storage_path=str(lx_storage),
             reticulum_config_dir=_LX_MEDRE_RNS,
             display_name="MEDRE-LX-A",
             announce_interval_seconds=8.0,
@@ -271,9 +280,27 @@ def _build_runtime(db_path: Path):
     return RuntimeBuilder(config, paths).build()
 
 
-async def _launch(db_path: Path):
-    app = _build_runtime(db_path)
-    await bounded(app.start(), 180.0, "matrix bridge runtime start")
+async def _launch(db_path: Path, lx_storage: Path):
+    """Build and start the runtime, guaranteeing cleanup on failed start.
+
+    ``bounded`` cancellation of ``app.start()`` would otherwise abandon
+    already-started adapters holding exclusive radio endpoints (serial
+    flock, BLE central, RNode serial) — the next test would inherit a
+    leaked owner.  On any start failure the partially-started app is
+    stopped before the error propagates.
+    """
+    app = _build_runtime(db_path, lx_storage)
+    try:
+        await bounded(app.start(), 180.0, "matrix bridge runtime start")
+    except BaseException:
+        try:
+            await bounded(app.stop(), 45.0, "matrix bridge runtime start cleanup")
+        except Exception as cleanup_exc:  # pragma: no cover - live-only
+            print(
+                f"runtime cleanup after failed start also failed: {cleanup_exc!r}",
+                flush=True,
+            )
+        raise
     return app
 
 
@@ -310,12 +337,15 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
         ("mc", "MESHCORE"),
         ("lx", "LXMF"),
     )
-    app = await _launch(tmp_path / "lab.db")
+    app = await _launch(tmp_path / "lab.db", tmp_path / "lxmf_storage")
 
-    # Honest per-path degradation: if a MEDRE-side radio adapter failed to
-    # start (e.g. owned-board BLE refusal while a zombie central holds the
-    # link), that leg is xfailed with the adapter state as evidence while
-    # the remaining legs still prove their paths.
+    # Every configured leg is ATTEMPTED before the verdict: an early
+    # xfail/abort would hide later legs behind the first one's failure.
+    # Verdict rules:
+    # - all adapters degraded (nothing exercised) -> xfail with evidence;
+    # - an attempted leg failing -> loud failure (real delivery defect);
+    # - attempted legs green -> pass; degraded-not-exercised legs are
+    #   disclosed in the output but never mask green paths.
     adapter_health: dict[str, str] = {}
     for aid in ("mt_radio", "mc_radio", "lx_radio"):
         try:
@@ -325,6 +355,10 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
             adapter_health[aid] = f"error:{exc}"
     leg_adapter = {"mt": "mt_radio", "mc": "mc_radio", "lx": "lx_radio"}
 
+    degraded: list[str] = []
+    failures: list[str] = []
+    ran_tags: list[str] = []
+    nonces: dict[str, str] = {}
     try:
         with MatrixRoomObserver(
             _OBSERVER_WINDOW * len(legs), "", str(tmp_path / "observer.jsonl")
@@ -336,64 +370,95 @@ async def test_radio_to_matrix_three_legs_decrypted_by_observer(
             for tag, transport in legs:
                 health = adapter_health[leg_adapter[tag]]
                 if health != "healthy":
-                    pytest.xfail(
-                        f"{tag} leg: MEDRE adapter {leg_adapter[tag]} not "
-                        f"healthy ({health!r}) -- leg not exercised this run"
+                    degraded.append(
+                        f"{tag}: MEDRE adapter {leg_adapter[tag]} not healthy "
+                        f"({health!r}) -- leg not exercised"
                     )
+                    continue
+                ran_tags.append(tag)
                 nonce = _nonce(f"{tag}2MX")
-                if transport == "MESHTASTIC":
-                    sent = await asyncio.to_thread(
-                        _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce])], 60
-                    )
-                    assert sent and sent[-1].get("sent_id"), "MT send not accepted"
-                elif transport == "MESHCORE":
-                    sent = await asyncio.to_thread(
-                        _mc_peer, ["sendn", _MC_PEER, nonce], 90
-                    )
-                    assert sent.get("sent"), f"MC send not accepted: {sent!r}"
-                else:
-                    dest = _lx_dest_hash(_LX_MEDRE_IDENT)
-                    sent = await asyncio.to_thread(
-                        _lx_peer,
-                        [
-                            "send",
-                            dest,
-                            json.dumps([nonce + " / \u00fcn\u00efcode \u2713\nline2"]),
-                        ],
-                        120,
-                    )
-                    assert sent.get("sent"), f"LX send not accepted: {sent!r}"
+                nonces[tag] = nonce
+                try:
+                    if transport == "MESHTASTIC":
+                        sent = await asyncio.to_thread(
+                            _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce])], 60
+                        )
+                        assert sent and sent[-1].get("sent_id"), "MT send not accepted"
+                    elif transport == "MESHCORE":
+                        sent = await asyncio.to_thread(
+                            _mc_peer, ["sendn", _MC_PEER, nonce], 90
+                        )
+                        assert sent.get("sent"), f"MC send not accepted: {sent!r}"
+                    else:
+                        dest = _lx_dest_hash(_LX_MEDRE_IDENT)
+                        sent = await asyncio.to_thread(
+                            _lx_peer,
+                            [
+                                "send",
+                                dest,
+                                json.dumps(
+                                    [nonce + " / \u00fcn\u00efcode \u2713\nline2"]
+                                ),
+                            ],
+                            120,
+                        )
+                        assert sent.get("sent"), f"LX send not accepted: {sent!r}"
 
-                ev, receipts = await _wait_for_receipt(
-                    app, nonce, "matrix", _RECEIPT_TIMEOUT
-                )
-                assert (
-                    ev is not None
-                ), f"{tag}: canonical event for {nonce!r} never appeared"
-                latest = max(receipts, key=lambda r: r.sequence)
-                assert (
-                    latest.status == "sent"
-                ), f"{tag}: matrix receipt status {latest.status!r}"
+                    ev, receipts = await _wait_for_receipt(
+                        app, nonce, "matrix", _RECEIPT_TIMEOUT
+                    )
+                    assert (
+                        ev is not None
+                    ), f"canonical event for {nonce!r} never appeared"
+                    latest = max(receipts, key=lambda r: r.sequence)
+                    assert (
+                        latest.status == "sent"
+                    ), f"matrix receipt status {latest.status!r}"
+                except AssertionError as exc:
+                    failures.append(f"{tag} leg: {exc}")
 
-            # Observer evidence: every leg must arrive DECRYPTED at the far
-            # end.  A MegolmEvent entry means nio could NOT decrypt it.
+            # Observer evidence: every ATTEMPTED leg must arrive DECRYPTED
+            # at the far end in this window.  A MegolmEvent entry means nio
+            # could NOT decrypt it (in-window only; backlog that predates
+            # the watch is not attributable to this run).
             result = observer.wait(timeout=_OBSERVER_WINDOW * len(legs) + 30)
-            assert (
-                result["undecryptable"] == 0
-            ), f"observer saw undecryptable Megolm events: {result!r}"
+            if result["undecryptable"] != 0:
+                failures.append(
+                    f"observer: {result['undecryptable']} in-window undecryptable "
+                    f"Megolm events: {result!r}"
+                )
             events = observer.events()
             seen_bodies = [e.get("body") or "" for e in events]
-            for tag, _ in legs:
+            for tag in ran_tags:
                 leg_bodies = [b for b in seen_bodies if f"MX-X{tag}2MX-" in b]
-                assert leg_bodies, (
-                    f"{tag}: observer never received the leg; " f"events={events!r}"
-                )
-                assert "{sender}" not in leg_bodies[0], "unrendered prefix template"
-                assert (
-                    "medre-lab" in leg_bodies[0] or "/" in leg_bodies[0]
-                ), f"{tag}: attribution prefix missing from {leg_bodies[0]!r}"
+                if not leg_bodies:
+                    failures.append(
+                        f"{tag}: observer never received the leg; " f"events={events!r}"
+                    )
+                    continue
+                if "{sender}" in leg_bodies[0]:
+                    failures.append(
+                        f"{tag}: unrendered prefix template in {leg_bodies[0]!r}"
+                    )
+                elif not ("medre-lab" in leg_bodies[0] or "/" in leg_bodies[0]):
+                    failures.append(
+                        f"{tag}: attribution prefix missing from {leg_bodies[0]!r}"
+                    )
+            for tag, nonce in nonces.items():
+                print(f"LEG-NONCE {tag} {nonce}", flush=True)
+            if degraded:
+                print("DEGRADED-NOT-EXERCISED " + " | ".join(degraded), flush=True)
     finally:
         await _stop(app)
+
+    if not ran_tags:
+        pytest.xfail(
+            "no radio leg could be exercised -- "
+            + ("; ".join(degraded) if degraded else "no legs ran")
+        )
+    assert not failures, f"{len(failures)} leg/observer failure(s): " + " | ".join(
+        failures
+    )
 
 
 @pytest.mark.live
@@ -408,7 +473,7 @@ async def test_own_account_echo_is_suppressed_not_relayed(tmp_path: Path) -> Non
     """
     from nio import AsyncClient, AsyncClientConfig
 
-    app = await _launch(tmp_path / "lab.db")
+    app = await _launch(tmp_path / "lab.db", tmp_path / "lxmf_storage")
     try:
         probe = _nonce("ECHO")
         client = AsyncClient(
@@ -466,7 +531,7 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
     db_path = tmp_path / "lab.db"
     devices_before = observer_account_devices()
 
-    app = await _launch(db_path)
+    app = await _launch(db_path, tmp_path / "lxmf_storage")
     nonce1 = _nonce("RESTART-A")
     try:
         await asyncio.to_thread(_mt_peer, ["sendn", _MT_PEER, json.dumps([nonce1])], 60)
@@ -477,7 +542,7 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
 
     # Genuine stop: the process boundary is crossed (launch builds a fresh
     # runtime from the SAME matrix olm store).
-    app2 = await _launch(db_path)
+    app2 = await _launch(db_path, tmp_path / "lxmf_storage")
     nonce2 = _nonce("RESTART-B")
     try:
         with MatrixRoomObserver(

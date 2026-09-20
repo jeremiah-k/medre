@@ -30,7 +30,11 @@ from medre.core.contracts.adapter import AdapterContract
 from medre.core.routing.router import Router
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeConfigError
-from medre.runtime.route_engine import RouteValidationError, register_routes
+from medre.runtime.route_engine import (
+    RouteValidationError,
+    build_runtime_routes,
+    register_routes,
+)
 from tests.helpers.runtime_builder import (
     clean_path_env,
     make_fake_matrix_config,
@@ -1006,3 +1010,57 @@ class TestChannelRoomMapBuilderIntegration:
         assert "!active_room:test.org" in result["fm"]
         # The disabled route's room must NOT appear (line 572-573: if not route.enabled: continue)
         assert "!disabled_room:test.org" not in result["fm"]
+
+
+# ---------------------------------------------------------------------------
+# Programmatic directionality coercion -> expansion parity
+# ---------------------------------------------------------------------------
+
+
+class TestProgrammaticDirectionalityExpansion:
+    """A programmatically constructed route with a plain-string
+    ``directionality`` must expand exactly like a YAML-loaded one.
+
+    Regression: the route engine compares ``rc.directionality`` against
+    enum members; an uncoerced string matched no expansion branch, the
+    route registered zero runtime routes, and the runtime silently ran
+    with no delivery paths (observed live: bidirectional Matrix<->radio
+    routes produced no deliveries in either direction).
+    """
+
+    def test_string_bidirectional_expands_both_directions(self) -> None:
+        rc = RouteConfig(
+            route_id="mx_bridge",
+            source_adapters=("main",),
+            dest_adapters=("radio",),
+            directionality="bidirectional",  # type: ignore[arg-type]
+        )
+        assert rc.directionality is RouteDirectionality.BIDIRECTIONAL
+        routes = build_runtime_routes(
+            RouteConfigSet(routes=(rc,)),
+            {"main": "matrix", "radio": "meshtastic"},
+        )
+        assert len(routes) == 2
+        ids = {r.id for r in routes}
+        assert ids == {"mx_bridge", "mx_bridge__rev_0"}
+        by_id = {r.id: r for r in routes}
+        forward = by_id["mx_bridge"]
+        reverse = by_id["mx_bridge__rev_0"]
+        assert forward.source.adapter == "main"
+        assert {t.adapter for t in forward.targets} == {"radio"}
+        assert reverse.source.adapter == "radio"
+        assert {t.adapter for t in reverse.targets} == {"main"}
+
+    def test_unknown_directionality_raises_loudly(self) -> None:
+        rc = RouteConfig(
+            route_id="tampered",
+            source_adapters=("main",),
+            dest_adapters=("radio",),
+        )
+        # Simulate future drift bypassing construction-time coercion.
+        object.__setattr__(rc, "directionality", "sideways")
+        with pytest.raises(RouteValidationError, match="unrecognized directionality"):
+            build_runtime_routes(
+                RouteConfigSet(routes=(rc,)),
+                {"main": "matrix", "radio": "meshtastic"},
+            )

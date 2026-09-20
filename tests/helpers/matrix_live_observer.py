@@ -59,6 +59,11 @@ async def main() -> None:
     substr = sys.argv[8] if len(sys.argv) > 8 else ""
     jsonl_path = sys.argv[9] if len(sys.argv) > 9 else ""
 
+    # Window start: events older than this are history from before this
+    # watch began (e.g. room backlog from before this device existed) and
+    # can never be decryptable; they must not count against this run.
+    start_ms = time.time() * 1000.0
+
     client = AsyncClient(
         homeserver,
         user_id,
@@ -73,6 +78,8 @@ async def main() -> None:
 
     def _record(room, event) -> None:
         nonlocal matched
+        if room is not None and room != room_id:
+            return
         rec = {
             "type": type(event).__name__,
             "sender": getattr(event, "sender", None),
@@ -107,7 +114,17 @@ async def main() -> None:
             "found": matched is not None,
             "matched": matched,
             "event_count": len(events),
-            "undecryptable": sum(1 for e in events if e["type"] == "MegolmEvent"),
+            # Undecryptable Megolm events RECEIVED DURING THIS WINDOW.
+            # Older events (backlog that predates the watch / this
+            # device's key store) are unconditionally undecryptable and
+            # are not attributable to this run.
+            "undecryptable": sum(
+                1
+                for e in events
+                if e["type"] == "MegolmEvent"
+                and isinstance(e["server_ts"], (int, float))
+                and e["server_ts"] >= start_ms - 5000.0
+            ),
         }
         print(json.dumps(result))
         await client.close()

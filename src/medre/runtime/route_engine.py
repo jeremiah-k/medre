@@ -825,6 +825,16 @@ def _expand_all_routes(
         elif direction == RouteDirectionality.BIDIRECTIONAL:
             new_routes = _expand_route_config(rc)
             new_routes.extend(_expand_route_config(rc, swap_direction=True))
+        else:
+            # Unreachable for validated configs (RouteConfig.__post_init__
+            # coerces), but an unrecognized directionality must never
+            # silently drop an enabled route: that surfaces downstream as a
+            # runtime with zero delivery paths and no error.
+            raise RouteValidationError(
+                f"Route {rc.route_id!r}: unrecognized directionality "
+                f"{direction!r}; expected one of "
+                f"{', '.join(d.value for d in RouteDirectionality)}"
+            )
 
         # Validate expanded route IDs are unique before accumulating.
         for r in new_routes:

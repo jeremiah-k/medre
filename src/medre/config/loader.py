@@ -692,17 +692,40 @@ def _parse_adapter_section(
     return result
 
 
+_PATH_FIELD_SUFFIXES = ("_path", "_dir", "_file")
+"""String fields whose names mark them as filesystem paths.
+
+Values of such fields use the path-placeholder language exclusively
+(``{state}``, ``{data}``, ...) and keep strict unknown-placeholder
+validation.  Every other string field may also carry renderer template
+syntax (``{sender}``, ``{origin_label}``, ...); there, known path
+placeholders are still expanded, but unknown ``{...}`` tokens belong to
+the renderer and are passed through verbatim instead of failing config
+load.
+"""
+
+
 def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
-    """Recursively expand ``{placeholder}`` tokens in string values."""
+    """Recursively expand ``{placeholder}`` tokens in string values.
+
+    Path-designated fields (``*_path``/``*_dir``/``*_file``) are expanded
+    strictly: an unknown placeholder is a config error.  All other string
+    fields expand known path placeholders leniently and leave non-path
+    template tokens (renderer variables) untouched.
+    """
     result: dict = {}
     for k, v in d.items():
+        is_path_field = isinstance(k, str) and k.endswith(_PATH_FIELD_SUFFIXES)
         if isinstance(v, str) and "{" in v:
-            try:
-                result[k] = str(paths.expand_placeholder(v))
-            except MedrePathsError as exc:
-                raise ConfigFileError(
-                    f"Invalid path placeholder in config field {k!r}: {exc}"
-                ) from exc
+            if is_path_field:
+                try:
+                    result[k] = str(paths.expand_placeholder(v))
+                except MedrePathsError as exc:
+                    raise ConfigFileError(
+                        f"Invalid path placeholder in config field {k!r}: {exc}"
+                    ) from exc
+            else:
+                result[k] = paths.expand_known_placeholders(v)
         elif isinstance(v, dict):
             result[k] = _expand_paths_in_dict(v, paths)
         elif isinstance(v, list):

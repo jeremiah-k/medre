@@ -218,6 +218,40 @@ class MedrePaths:
         expanded = _PLACEHOLDER_RE.sub(_replace, value)
         return Path(expanded)
 
+    def expand_known_placeholders(self, value: str) -> str:
+        """Expand known ``{name}`` path placeholders, leaving others intact.
+
+        Like :meth:`expand_placeholder`, but tokens that are not path
+        placeholders (renderer templates such as ``{sender}``) are copied
+        through verbatim instead of raising.  Non-path string config
+        fields may legitimately carry non-path template syntax; strict
+        unknown-placeholder validation remains the contract of
+        :meth:`expand_placeholder` for path-designated fields.
+
+        Returns
+        -------
+        str
+            The string with every known path placeholder expanded.
+        """
+        config_root = (
+            self.config_dir if self.config_dir is not None else self.config_file.parent
+        )
+        placeholder_map: dict[str, Path] = {
+            "config": config_root,
+            "state": self.state_dir,
+            "data": self.data_dir,
+            "cache": self.cache_dir,
+            "logs": self.log_dir,
+        }
+
+        def _replace(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name in _VALID_PLACEHOLDERS:
+                return str(placeholder_map[name])
+            return match.group(0)
+
+        return _PLACEHOLDER_RE.sub(_replace, value)
+
     # -- Diagnostics ----------------------------------------------------------
 
     def to_diagnostics(self) -> dict[str, str]:

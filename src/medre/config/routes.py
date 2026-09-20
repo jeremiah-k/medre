@@ -984,7 +984,24 @@ class RouteConfig:
     dest_origin_label: str | None = None
 
     def __post_init__(self) -> None:
-        """Enforce the normalized in-memory ``channel_room_map`` shape."""
+        """Normalize enum-typed fields and the ``channel_room_map`` shape.
+
+        ``directionality`` is coerced from its config string form so that
+        programmatically constructed routes behave identically to YAML-loaded
+        ones — the route engine compares enum identity, and an uncoerced
+        string silently matches no expansion branch (yielding zero routes).
+        """
+        if not isinstance(self.directionality, RouteDirectionality):
+            try:
+                coerced = RouteDirectionality(self.directionality)
+            except ValueError:
+                valid = ", ".join(d.value for d in RouteDirectionality)
+                raise ConfigValidationError(
+                    f"Route {self.route_id!r}: invalid directionality "
+                    f"{self.directionality!r} (valid: {valid})",
+                    section_path=f"routes.{self.route_id}",
+                ) from None
+            object.__setattr__(self, "directionality", coerced)
         if self.channel_room_map is None:
             return
         section_path = f"routes.{self.route_id}"
@@ -1079,17 +1096,8 @@ class RouteConfig:
                 section_path=section_path,
             )
 
-        # --- directionality ---
-        raw_dir = data.pop("directionality", "source_to_dest")
-        try:
-            directionality = RouteDirectionality(raw_dir)
-        except ValueError:
-            valid = ", ".join(d.value for d in RouteDirectionality)
-            raise ConfigValidationError(
-                f"Route {route_id!r}: invalid directionality {raw_dir!r} "
-                f"(valid: {valid})",
-                section_path=section_path,
-            ) from None
+        # --- directionality (coerced by RouteConfig.__post_init__) ---
+        directionality = data.pop("directionality", "source_to_dest")
 
         # --- enabled ---
         enabled: bool = data.pop("enabled", True)
