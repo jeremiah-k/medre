@@ -230,6 +230,57 @@ destination, malformed and late callback containment, and cleanup after a
 partial startup failure. It intentionally does not claim remote delivery or
 multi-hop behavior. The `soak` selection repeats the real-router lifecycle.
 
+## Three-Transport Steady-Session Pass (2026-09-20)
+
+One fresh 19-minute low-rate pass (`soak4`) through a single managed
+`medre run` runtime owning MT-A (serial), MC-A (BLE) and LX-A (RNode,
+isolated `reticulum_config_dir`, RNode-only interface), with independent
+native peers MT-B/MC-B/LX-B held steady for the whole window. Acyclic
+routes only: `mt→mc`, `mt→lx` (fan-out), `mc→lx`; LX ingress has no
+outbound route. 27 source messages total (3 preflight + 24 phase), 25 s
+source spacing, MT egress pacing 2.5 s.
+
+| Path (source → far peer over RF)    | Sources | Target outcomes observed                    |
+| ----------------------------------- | ------- | ------------------------------------------- |
+| MT-B → MC-B (group text via MEDRE)  | 8       | 8/8 received once, exact content            |
+| MT-B → LX-B (LXMF direct via MEDRE) | 8       | 8/8 received once, exact content            |
+| MC-B → LX-B (LXMF direct via MEDRE) | 8       | 8/8 received once, exact content            |
+| LX-B → MEDRE admission (no route)   | 8       | 8/8 durably admitted; zero outbound traffic |
+
+All 34 outbox rows terminal `sent` at attempt 1; 34/34 receipts `sent`
+(live); zero error rows, zero retries, zero reconnects, zero WARNING/ERROR
+log lines across the window. Runtime RSS 64.4 MB → 59.6 MB (34 min
+uptime). Each far-peer delivery was correlated by unique nonce and, for
+LXMF, by unique message hash; MC group texts carry the sending board's
+name prefix on the wire (`MEDRE-MC-A:` / `MEDRE-MC-B:`) and no per-packet
+sender pubkey. Preflight proofs ran on the exact long-lived sessions later
+kept for the pass: one MT source reaching BOTH MC-B and LX-B, one MC source
+reaching LX-B, and one LX source admitted without routing.
+
+Two LX-B deliveries were operator-induced duplicates (two source texts sent
+twice from an overlapping helper process schedule): distinct native sender
+timestamps produced two canonical events and two deliveries — the
+documented identity/dedup contract, not an RF or MEDRE defect. Three
+stale soak3-era group texts replayed from the MC-B firmware buffer on the
+first post-restart connect were re-admitted as new events and delivered
+once each; old `SOAK-MC-*` nonces are distinguished from the fresh run's
+nonces. One earlier MT→MC target receipt (preflight) was keyed at the
+board (local accept) but never collected by the peer listener; the same
+path was proven twice afterwards.
+
+An earlier partial soak (`soak3`, 2026-09-20) is retained as honest
+history and is NOT a pass: its second runtime start attempted a MeshCore
+BLE connect ~47 s after the previous disconnect, exhausted the 3-attempt
+startup ladder ("Failed to connect to device"), and continued DEGRADED;
+10 subsequent MT→MC targets dead-lettered with the adapter's own
+`Session not initialised` error from the first event. Root cause: board
+BLE-stack startup refusal after a too-quick restart, proceeding into a
+DEGRADED runtime — compounded by a since-fixed MEDRE gap where startup
+readiness assessed routes into failed adapters as SKIPPED but the router
+kept delivering into them (changelog 195). Steady-session discipline
+(one central per board, verified clock, settle time between runtime
+restarts, healthy 3/3 start before arming sources) is the proven setup.
+
 ## See Also
 
 - [transport-setup/lxmf.md](../transport-setup/lxmf.md) — adapter setup, delivery modes, Reticulum topology

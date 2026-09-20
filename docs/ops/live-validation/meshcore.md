@@ -142,6 +142,15 @@ Operational firmware truths proven on this hardware:
   signal. Release stale links with a targeted `bluetoothctl disconnect`.
 - A channel readback keeps a fixed 16-byte secret slot; the empty-channel
   default reads back as 16 zero bytes (not an absent field).
+- A T-Beam can refuse BLE central connects for minutes after its previous
+  central disconnects — MEDRE's startup ladder (3 attempts) can exhaust
+  against a healthy board ("Failed to connect to device"). This is a setup
+  hazard, not firmware damage: allow settle time between a runtime stop and
+  the next start, verify a healthy 3/3 adapter start before arming traffic,
+  and reserve hub power-cycle + clock re-sync for a genuinely wedged board
+  (RTC is always lost and must be re-synced afterwards). During a soak, the
+  board then held one steady central for the full window with zero
+  reconnects (see the LXMF page's three-transport pass).
 
 ## Hardware Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
 
