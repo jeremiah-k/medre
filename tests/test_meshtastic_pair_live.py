@@ -320,9 +320,10 @@ class TestMeshtasticPairIngress:
             # the operator-defined RF budget before the peer transmits.
             texts = [uni, nl, identical, identical]
             assert len(texts) <= _TX_BUDGET
-            sent = _peer(
+            sent = await asyncio.to_thread(
+                _peer,
                 ["sendn", _PEER_PORT, json.dumps(texts)],
-                timeout=120,
+                120,
             )
             sent_ids = [item["sent_id"] for item in sent]
             assert all(sent_ids), "peer failed to submit a send"
