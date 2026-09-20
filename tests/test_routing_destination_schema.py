@@ -10,8 +10,9 @@ import pytest
 jsonschema = pytest.importorskip("jsonschema")
 
 _SCHEMA = json.loads(
-    (Path(__file__).resolve().parents[1] / "docs/schemas/routing-config.schema.json")
-    .read_text(encoding="utf-8")
+    (
+        Path(__file__).resolve().parents[1] / "docs/schemas/routing-config.schema.json"
+    ).read_text(encoding="utf-8")
 )
 
 

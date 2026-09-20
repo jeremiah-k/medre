@@ -8,8 +8,8 @@ and persistence timestamps.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
@@ -257,9 +257,7 @@ async def test_native_ref_callback_runs_after_persistence() -> None:
         native_ref_persisted_fn=_on_native_ref,
     )
 
-    receipt = await svc.deliver_to_target(
-        _make_event(), *_make_route_and_plan()
-    )
+    receipt = await svc.deliver_to_target(_make_event(), *_make_route_and_plan())
 
     assert receipt.status == "sent"
     assert observed == [("evt-001", 1)]
@@ -286,9 +284,7 @@ async def test_native_ref_callback_failure_does_not_reclassify_accepted_send(
     )
 
     with caplog.at_level(logging.ERROR, logger="test.target_delivery"):
-        receipt = await svc.deliver_to_target(
-            _make_event(), *_make_route_and_plan()
-        )
+        receipt = await svc.deliver_to_target(_make_event(), *_make_route_and_plan())
 
     assert receipt.status == "sent"
     assert len(storage.native_refs) == 1

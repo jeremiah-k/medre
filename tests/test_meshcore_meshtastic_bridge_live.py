@@ -29,9 +29,9 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
-from tests.helpers.meshcore_runtime import launch_healthy_meshcore_runtime
 from tests.helpers.meshcore_live_peer import MeshCorePeerListener as _PeerListener
 from tests.helpers.meshcore_live_peer import run_meshcore_peer as _mc_peer
+from tests.helpers.meshcore_runtime import launch_healthy_meshcore_runtime
 from tests.helpers.meshtastic_live_peer import MeshtasticPeerListener as _MtListener
 from tests.helpers.meshtastic_live_peer import run_meshtastic_peer as _mt_peer
 

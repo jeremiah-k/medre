@@ -180,9 +180,7 @@ async def test_drain_cancellation_still_stops_then_propagates(
     async def _cancel(app: Any, timeout: float) -> None:
         raise asyncio.CancelledError()
 
-    monkeypatch.setattr(
-        "medre.cli.replay_commands._drain_inflight_deliveries", _cancel
-    )
+    monkeypatch.setattr("medre.cli.replay_commands._drain_inflight_deliveries", _cancel)
     app = _StubApp()
     with pytest.raises(asyncio.CancelledError):
         await _teardown_replay_runtime(app, drain_timeout=1.0)

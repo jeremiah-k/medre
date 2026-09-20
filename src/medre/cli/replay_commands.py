@@ -118,9 +118,7 @@ async def _teardown_replay_runtime(app: Any, drain_timeout: float) -> None:
         # only after ``app.stop()`` has had its chance to close resources.
         if primary_error is None:
             drain_error = exc
-            _logger.error(
-                "Replay pre-stop drain failed: %s", sanitize_error(str(exc))
-            )
+            _logger.error("Replay pre-stop drain failed: %s", sanitize_error(str(exc)))
         else:
             _logger.warning(
                 "Replay pre-stop drain failed (replay error preserved): %s",

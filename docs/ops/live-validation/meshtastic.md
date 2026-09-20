@@ -85,7 +85,7 @@ mesh (US, LONG_TURBO, private primary channel, tx power 10):
 | ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | N2 ingress        | PASS   | Native peer sends → durable canonical events with exact content, native sender identity and packet-id correlation (`medre inspect native-ref`).                                                                                   |
 | N3 egress         | PASS   | Controlled local fake-source event → real route/plan → receipt `status="sent"` with native packet id → independent peer RF receipt of the nonce. Egress status tops out at `sent` (SDK acceptance); RF receipt is peer-side only. |
-| N4 boundaries     | PASS   | Unicode/multibyte and newline payloads survive end-to-end; ~1.2 KB UTF-8 payload delivered UTF-8-safe truncated at the configured 227-byte `max_text_bytes` boundary; normal message after boundaries succeeds.                                           |
+| N4 boundaries     | PASS   | Unicode/multibyte and newline payloads survive end-to-end; ~1.2 KB UTF-8 payload delivered UTF-8-safe truncated at the configured 227-byte `max_text_bytes` boundary; normal message after boundaries succeeds.                   |
 | N5 identity/dedup | PASS   | Identical text with distinct native packet ids → two distinct durable events. Same-second duplicates are not physically producible: the firmware drops sends spaced < ~2.2 s (see pacing note).                                   |
 
 ### Manual negative-control evidence
@@ -109,7 +109,7 @@ Based on CLI-level serial validation:
 | ACK reliability             | UNRELIABLE — no ACK confirmation for broadcast sends          |
 | Delivery guarantee          | BEST EFFORT — fire-and-forget LoRa broadcast                  |
 | Reconnect reliability (CLI) | RELIABLE — 4/4 serial connections succeeded across ~7.7 hours |
-| MEDRE adapter reliability   | ASSESSED — live pair harness proves lifecycle + routed send    |
+| MEDRE adapter reliability   | ASSESSED — live pair harness proves lifecycle + routed send   |
 
 ## Known Gaps
 

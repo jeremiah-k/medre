@@ -133,15 +133,15 @@
       "allOf": [
         {
           "if": {
-            "properties": {"dest_destination": {"type": "object"}},
+            "properties": { "dest_destination": { "type": "object" } },
             "required": ["dest_destination"]
           },
           "then": {
             "properties": {
-              "dest_channel": {"type": "null"},
-              "dest_room": {"type": "null"},
-              "channel_room_map": {"type": "null"},
-              "dest_adapters": {"maxItems": 1}
+              "dest_channel": { "type": "null" },
+              "dest_room": { "type": "null" },
+              "channel_room_map": { "type": "null" },
+              "dest_adapters": { "maxItems": 1 }
             }
           }
         }
@@ -203,7 +203,7 @@
       "allOf": [
         {
           "if": {
-            "properties": {"kind": {"const": "lxmf_destination"}},
+            "properties": { "kind": { "const": "lxmf_destination" } },
             "required": ["kind"]
           },
           "then": {
@@ -218,33 +218,33 @@
         },
         {
           "if": {
-            "properties": {"kind": {"enum": ["channel", "matrix_room"]}},
+            "properties": { "kind": { "enum": ["channel", "matrix_room"] } },
             "required": ["kind"]
           },
           "then": {
             "properties": {
-              "destination_hash": {"type": "null"},
-              "destination_name": {"type": "string", "minLength": 1}
+              "destination_hash": { "type": "null" },
+              "destination_name": { "type": "string", "minLength": 1 }
             },
             "required": ["destination_name"]
           }
         },
         {
           "if": {
-            "properties": {"kind": {"const": "meshcore_contact"}},
+            "properties": { "kind": { "const": "meshcore_contact" } },
             "required": ["kind"]
           },
           "then": {
             "anyOf": [
               {
                 "properties": {
-                  "destination_hash": {"type": "string", "minLength": 1}
+                  "destination_hash": { "type": "string", "minLength": 1 }
                 },
                 "required": ["destination_hash"]
               },
               {
                 "properties": {
-                  "destination_name": {"type": "string", "minLength": 1}
+                  "destination_name": { "type": "string", "minLength": 1 }
                 },
                 "required": ["destination_name"]
               }
@@ -388,15 +388,15 @@
       "allOf": [
         {
           "if": {
-            "properties": {"dest_destination": {"type": "object"}},
+            "properties": { "dest_destination": { "type": "object" } },
             "required": ["dest_destination"]
           },
           "then": {
             "properties": {
-              "dest_channel": {"type": "null"},
-              "dest_room": {"type": "null"},
-              "channel_room_map": {"type": "null"},
-              "dest_adapters": {"maxItems": 1}
+              "dest_channel": { "type": "null" },
+              "dest_room": { "type": "null" },
+              "channel_room_map": { "type": "null" },
+              "dest_adapters": { "maxItems": 1 }
             }
           }
         }
