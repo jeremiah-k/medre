@@ -786,6 +786,83 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     assert failed_event.args[1]["error"] == "capability_suppressed"
 
 
+async def test_retry_worker_defers_startup_failed_target_without_consuming_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Known startup-unavailable targets are deferred, not dispatched."""
+    from types import SimpleNamespace
+
+    import medre.runtime.retry as retry_module
+    from medre.core.planning.delivery_plan import RetryPolicy
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-unavailable",
+        event_id="evt-unavailable",
+        route_id="route-unavailable",
+        delivery_plan_id="plan-unavailable",
+        target_adapter="target_down",
+        attempt_number=2,
+        status="in_progress",
+    )
+    storage = MagicMock()
+    storage.get = AsyncMock(return_value=object())
+    storage.delivery_status = AsyncMock(return_value=None)
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock()
+    lifecycle = MagicMock()
+    lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
+    next_attempt = datetime.now(timezone.utc) + timedelta(seconds=30)
+    lifecycle.defer_retry_outbox = AsyncMock(return_value=next_attempt)
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+        available_target_adapters={"target_ready"},
+    )
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    lifecycle.reconcile_retry_claim.assert_awaited_once()
+    lifecycle.defer_retry_outbox.assert_awaited_once()
+    defer_call = lifecycle.defer_retry_outbox.call_args
+    assert defer_call.args[0] is storage
+    assert defer_call.args[1] is item
+    assert defer_call.kwargs == {
+        "failure_kind": "adapter_transient",
+        "attempt_number": 2,
+        "error_summary": (
+            "adapter_unavailable_startup: target adapter did not complete "
+            "runtime startup"
+        ),
+    }
+    pipeline.deliver_to_target.assert_not_awaited()
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 0
+    assert worker.state.failed == 1
+    failed_event = next(
+        call for call in emit.call_args_list if call.args[0] == "retry_failed"
+    )
+    assert failed_event.args[1]["attempt_number"] == 2
+    assert failed_event.args[1]["status"] == "adapter_unavailable_startup"
+    assert failed_event.args[1]["failure_kind"] == "adapter_transient"
+    assert failed_event.args[1]["next_retry_at"] == next_attempt.isoformat()
+
+
 async def test_retry_worker_reconciles_persisted_attempt_before_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

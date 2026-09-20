@@ -28,7 +28,7 @@ import asyncio
 import io
 import json
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -425,12 +425,10 @@ class TestRetryActivationAfterAdapterBoundary:
             try:
                 await wait_until(start_entered.is_set, timeout=5.0)
 
-                # Exposure window: several retry intervals elapse while the
-                # target start is still held.  The (fixed) worker is not
-                # even running yet; a worker activated before the adapter
-                # boundary claims and dispatches within its first cycle.
-                for _ in range(6):
-                    await asyncio.sleep(0.05)
+                # Deterministic boundary: while target.start() is blocked,
+                # the retry worker must not yet be running.  This directly
+                # proves startup ordering without a timing window.
+                assert app.retry_state.running is False
 
                 async def _row() -> Any:
                     storage = SQLiteStorage(db_path=str(db))
@@ -505,6 +503,82 @@ class TestRetryActivationAfterAdapterBoundary:
             asyncio.run(_scenario())
         finally:
             target.start = original_start  # type: ignore[assignment]
+
+
+def test_due_retry_for_startup_failed_target_is_deferred_without_attempt(
+    tmp_paths: MedrePaths,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Partial startup preserves retry work for an unavailable target."""
+    db = tmp_path / "retry_failed_target.db"
+    config = _mx_to_mesh_config(
+        db,
+        retry=RetryConfig(enabled=True, interval_seconds=300.0),
+    )
+    event_id = "evt-retry-target-start-failed"
+
+    async def _seed() -> str:
+        storage = SQLiteStorage(db_path=str(db))
+        try:
+            await storage.initialize()
+            await storage.append(_mx_src_event(event_id))
+            item = make_outbox_item(
+                delivery_plan_id="plan-target-start-failed",
+                target_adapter="mesh_tgt",
+                target_channel=None,
+                status="pending",
+                event_id=event_id,
+            )
+            item.metadata = _routable_retry_metadata()
+            created = await storage.create_outbox_item(item)
+            return created.outbox_id
+        finally:
+            await storage.close()
+
+    outbox_id = asyncio.run(_seed())
+    app = RuntimeBuilder(config, tmp_paths).build()
+    target = app.adapters["mesh_tgt"]
+    assert isinstance(target, FakeMeshtasticAdapter)
+    _patch_start_failure(target, monkeypatch)
+
+    async def _scenario() -> None:
+        await app.start()
+        try:
+            assert app.state is RuntimeState.RUNNING
+            assert app.boot_summary is not None
+            assert "mesh_tgt" in app.boot_summary.failed_adapter_ids
+            assert app._retry_worker is not None
+
+            # Stop the background loop so this assertion drives exactly one
+            # deterministic claim cycle.  A first cycle that already ran is
+            # harmless: it can only have deferred the same attempt.
+            await app._retry_worker.stop()
+            await app._retry_worker._process_due(
+                datetime.now(UTC) + timedelta(days=1)
+            )
+
+            storage = SQLiteStorage(db_path=str(db))
+            try:
+                await storage.initialize()
+                row = await storage.get_outbox_item(outbox_id)
+                receipts = await storage.list_receipts_for_event(event_id)
+            finally:
+                await storage.close()
+
+            assert row is not None
+            assert row.status == "retry_wait"
+            assert row.attempt_number == 1
+            assert row.failure_kind == "adapter_transient"
+            assert row.error_summary is not None
+            assert "adapter_unavailable_startup" in row.error_summary
+            assert receipts == []
+            assert target.delivered_payloads == []
+        finally:
+            if app.state not in (RuntimeState.STOPPED, RuntimeState.FAILED):
+                await app.stop()
+
+    asyncio.run(_scenario())
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 """Live physical-pair tests for the Meshtastic adapter (two real nodes).
 
 This module is the opt-in harness for **native pair evidence** (campaign
-cases N3/N4/N5 in the Meshtastic direction).  It is skipped by default and
+cases N2/N3/N4/N5 in the Meshtastic direction).  It is skipped by default and
 requires two physical Meshtastic nodes on the private lab mesh:
 
 - **MEDRE side** — one node owned by a real in-process MEDRE runtime
@@ -45,8 +45,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
-import sys
 import time
 import uuid
 from pathlib import Path
@@ -54,6 +52,10 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
+from tests.helpers.meshtastic_live_peer import (
+    MeshtasticPeerListener as _PeerListener,
+    run_meshtastic_peer as _peer,
+)
 from tests.helpers.meshtastic import make_meshtastic_text_packet
 
 # ---------------------------------------------------------------------------
@@ -80,102 +82,6 @@ _TX_PACING_SECONDS: float = 2.5
 
 # Bounded waits (seconds).
 _RECEIPT_TIMEOUT: float = 45.0
-_PEER_STARTUP_GRACE: float = 8.0
-
-
-# ---------------------------------------------------------------------------
-# Independent native peer (pinned mtjk SDK, no MEDRE code)
-# ---------------------------------------------------------------------------
-_PEER_SCRIPT = r"""
-import json, sys, time
-mode, port = sys.argv[1], sys.argv[2]
-from meshtastic.serial_interface import SerialInterface
-iface = SerialInterface(devPath=port, noProto=False, debugOut=None)
-from pubsub import pub
-got = []
-def on_packet(packet, interface=None):
-    d = packet.get("decoded", {}) or {}
-    if d.get("portnum") == "TEXT_MESSAGE_APP" or "text" in d:
-        got.append({
-            "ts": time.time(),
-            "id": packet.get("id"),
-            "from": packet.get("fromId"),
-            "to": packet.get("toId"),
-            "channel": packet.get("channel"),
-            "text": d.get("text"),
-            "rx_snr": packet.get("rxSnr"),
-        })
-pub.subscribe(on_packet, "meshtastic.receive")
-if mode == "listen":
-    secs = float(sys.argv[3])
-    deadline = time.time() + secs
-    while time.time() < deadline:
-        time.sleep(0.2)
-elif mode == "sendn":
-    texts = json.loads(sys.argv[3])
-    for t in texts:
-        p = iface.sendText(t, channelIndex=0, wantAck=False)
-        got.append({"sent_id": p.id if p else None, "text": t})
-        time.sleep(2.5)
-iface.close()
-print(json.dumps(got))
-"""
-
-
-def _peer(args: list[str], timeout: float) -> list[dict]:
-    """Run the native peer script once and return its JSON payload."""
-    proc = subprocess.run(
-        [sys.executable, "-c", _PEER_SCRIPT, *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    if proc.returncode != 0:
-        raise AssertionError(
-            f"native peer failed ({proc.returncode}): {proc.stderr[-800:]}"
-        )
-    lines = [ln for ln in proc.stdout.strip().splitlines() if ln.strip()]
-    if not lines:
-        raise AssertionError(f"native peer produced no JSON: {proc.stderr[-400:]}")
-    return json.loads(lines[-1])
-
-
-class _PeerListener:
-    """Background native-peer listener with bounded collection."""
-
-    def __init__(self, seconds: float) -> None:
-        self._seconds = seconds
-        self._proc: subprocess.Popen[str] | None = None
-
-    def __enter__(self) -> "_PeerListener":
-        self._proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-c",
-                _PEER_SCRIPT,
-                "listen",
-                _PEER_PORT,
-                str(self._seconds),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        # Give the peer's serial connection time to establish before any TX.
-        time.sleep(_PEER_STARTUP_GRACE)
-        return self
-
-    def packets(self, timeout: float | None = None) -> list[dict]:
-        out, err = self._proc.communicate(timeout=timeout or self._seconds + 30)
-        if self._proc.returncode != 0:
-            raise AssertionError(f"native peer listener failed: {err[-800:]}")
-        lines = [ln for ln in out.strip().splitlines() if ln.strip()]
-        return json.loads(lines[-1]) if lines else []
-
-    def __exit__(self, *exc: object) -> None:
-        if self._proc and self._proc.poll() is None:
-            self._proc.kill()
-            self._proc.wait(timeout=10)
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +255,7 @@ class TestMeshtasticPairEgress:
             events: dict[str, str] = {}
             pid = 900_000
             window = (
-                _PEER_STARTUP_GRACE + len(cases) * (_TX_PACING_SECONDS + 0.6) + 40.0
+                len(cases) * (_TX_PACING_SECONDS + 0.6) + 40.0
             )
             with _PeerListener(window) as peer:
                 for text in cases:
@@ -376,10 +282,15 @@ class TestMeshtasticPairEgress:
             # Long payload is delivered truncated (not dropped, not split).
             long_rx = by_nonce.get("N4-long")
             assert long_rx, "long payload not observed at peer"
-            assert len(long_rx.encode("utf-8")) <= 240, "peer saw more than max bytes"
-            assert long_rx.endswith(
-                ("α", "β", "γ", "δ", "ε")
-            ), "truncation split a multibyte codepoint"
+            from medre.config.adapters.meshtastic import MeshtasticConfig
+
+            max_bytes = MeshtasticConfig(adapter_id="budget-probe").max_text_bytes
+            expected_long = long_msg.encode("utf-8")[:max_bytes].decode(
+                "utf-8", errors="ignore"
+            )
+            assert long_rx == expected_long, (
+                "peer did not observe the exact UTF-8-safe configured truncation"
+            )
             # Adapter remains usable after the boundary cases.
             assert "N4-ok" in by_nonce
             for text, eid in events.items():
@@ -409,13 +320,21 @@ class TestMeshtasticPairIngress:
             uni = base + " uni ✓ 你好"
             nl = base + " nl a\nb"
             identical = _nonce("N5-same")
-            # The peer script paces its own sends (2.5 s apart).
+            # The peer script paces its own sends (2.5 s apart).  Enforce
+            # the operator-defined RF budget before the peer transmits.
+            texts = [uni, nl, identical, identical]
+            assert len(texts) <= _TX_BUDGET
             sent = _peer(
-                ["sendn", _PEER_PORT, json.dumps([uni, nl, identical, identical])],
+                ["sendn", _PEER_PORT, json.dumps(texts)],
                 timeout=120,
             )
-            sent_ids = [s["sent_id"] for s in sent]
+            sent_ids = [item["sent_id"] for item in sent]
             assert all(sent_ids), "peer failed to submit a send"
+            sender_ids = {item.get("sender_id") for item in sent}
+            assert len(sender_ids) == 1 and None not in sender_ids, (
+                f"peer did not report one native sender id: {sender_ids!r}"
+            )
+            expected_sender = next(iter(sender_ids))
 
             async def _admitted(packet_id: str) -> dict | None:
                 deadline = time.monotonic() + 60
@@ -433,10 +352,13 @@ class TestMeshtasticPairIngress:
                 ev = await _admitted(str(pid))
                 assert ev is not None, f"peer message {text[:20]!r} not admitted"
                 assert ev.payload["body"] == text
+                assert ev.source_transport_id == expected_sender
             # Identical text, distinct packet ids -> distinct durable events.
             ev1 = await _admitted(str(sent_ids[2]))
             ev2 = await _admitted(str(sent_ids[3]))
             assert ev1 is not None and ev2 is not None
+            assert ev1.source_transport_id == expected_sender
+            assert ev2.source_transport_id == expected_sender
             assert ev1.event_id != ev2.event_id
         finally:
             await _stop_app(app)

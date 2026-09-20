@@ -87,7 +87,13 @@ mesh (US, LONG_TURBO, private primary channel, tx power 10):
 | N3 egress            | PASS   | Controlled local fake-source event → real route/plan → receipt `status="sent"` with native packet id → independent peer RF receipt of the nonce. Egress status tops out at `sent` (SDK acceptance); RF receipt is peer-side only. |
 | N4 boundaries        | PASS   | Unicode/multibyte and newline payloads survive end-to-end; ~720-byte payload delivered UTF-8-safe truncated at ~227 bytes (`max_text_bytes`); normal message after boundaries succeeds.                                           |
 | N5 identity/dedup    | PASS   | Identical text with distinct native packet ids → two distinct durable events. Same-second duplicates are not physically producible: the firmware drops sends spaced < ~2.2 s (see pacing note).                                   |
-| N6 wrong-key control | PASS   | Wrong PSK on owned peer → firmware-level drop, no canonical event, receiver alive before/after; PSK restored byte-exact; subsequent positive delivery admitted.                                                                   |
+
+### Manual negative-control evidence
+
+N6 is separate bench evidence, not a case implemented by
+`tests/test_meshtastic_pair_live.py`: wrong PSK on the owned peer produced a
+firmware-level drop with no canonical event; the receiver remained usable, the
+PSK was restored byte-exact, and a subsequent positive delivery was admitted.
 
 **Pacing note:** the lab pair (nRF52, LONG_TURBO) requires >= 2.2 s between
 sends; at shorter spacing the sender firmware silently drops every second
@@ -109,7 +115,7 @@ Based on CLI-level serial validation:
 
 - MEDRE adapter lifecycle via live pytest: proven (pair harness + smoke class).
 - `send_one` queue path via MEDRE adapter: proven against real radio (pair harness egress).
-- Encrypted channel support: private-PSK primary channel exercised; wrong-key negative control proven at firmware level.
+- Encrypted channel support: private-PSK primary channel exercised; wrong-key negative control proven separately by manual firmware-level bench evidence.
 - Second-node inbound reception: proven (pair harness, independent native peer).
 - Session reconnect under sustained failure: partially observed (bounded stop/start cycles); no long soak.
 - BLE connectivity: NOT EXECUTED.

@@ -88,7 +88,7 @@ def _patch_ble_helpers():
 async def test_serial_constructor_args() -> None:
     """MeshCore.create_serial is called with (port, baudrate) positional args.
 
-    DTR/RTS must be explicitly deasserted: the pinned SDK (meshcore 2.3.11)
+    DTR/RTS must be explicitly deasserted: the pinned MeshCore SDK
     defaults dtr=True, which holds IO0 low on boards with a USB-UART
     auto-download circuit (observed on LilyGO T-LoRa V2.1) and knocks the
     companion into the ROM bootloader or MeshCore CLI-rescue mode.

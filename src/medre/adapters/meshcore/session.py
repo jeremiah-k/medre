@@ -867,7 +867,7 @@ class MeshCoreSession:
                     self._config.serial_port or "/dev/ttyUSB0",
                     self._config.serial_baudrate,
                     auto_reconnect=False,
-                    # Deassert DTR/RTS: the pinned SDK (meshcore 2.3.11)
+                    # Deassert DTR/RTS: the pinned MeshCore SDK
                     # defaults dtr=True, which holds IO0 low on boards whose
                     # USB-UART auto-download circuit drives it (e.g. LilyGO
                     # T-LoRa V2.1). IO0 held low makes the companion boot

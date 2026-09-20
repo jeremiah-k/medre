@@ -123,17 +123,17 @@ config = LxmfConfig(
 ## RNode Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
 
 - Two LilyGO T-LoRa V2.1-1.6 (SX1276) boards commissioned as RNode Firmware
-  1.86 (`lora32v21`, model B9 850-950 MHz) via `rnodeconf` 2.5.0 (`rns==1.5.4`);
+  1.86 (`lora32v21`, model B9 850-950 MHz) via `rnodeconf` 2.5.0 (the pinned RNS package);
   both validate signature/EEPROM. Post-install the boards needed one physical
   power cycle before the console answered.
-- RNS 1.5.4 requires an explicit `enabled = yes` on each interface section —
+- The pinned RNS release requires an explicit `enabled = yes` on each interface section —
   interfaces without it are silently skipped ("Skipping disabled interface").
 
 ## Physical RNode Pair Validation (2026-09-19, `LXMF_PAIR=1`)
 
 **NO_PATH resolution.** The earlier "NO_PATH in 3 runs" observation was a lab
 probe defect, not an RF/RNS/MEDRE fault: `RNS.Reticulum.get_path_table()`
-returns a **list** of entry dicts in RNS 1.5.4, and the probe checked
+returns a **list** of entry dicts in the pinned RNS release, and the probe checked
 `isinstance(table, dict)` (always false → NO_PATH regardless of RF), plus a
 fragile first-line log parse that crashed the listener on the RNS notice
 line. With the corrected predicate and a paced, sequenced loop:
@@ -163,7 +163,7 @@ Env keys: `LXMF_PAIR`, `LXMF_MEDRE_RNS_CONFIG`, `LXMF_PEER_RNS_CONFIG`,
 values (config dirs, identity files, hub map) live in the restricted lab
 tree; no secrets are embedded in the module.
 
-RNS 1.5.4 on Python 3.14 raises the deprecated `threading.setDaemon`
+The pinned RNS release on Python 3.14 raises the deprecated `threading.setDaemon`
 warning; the pinned-SDK live modules filter exactly that warning (the
 project-wide `filterwarnings = ["error"]` would otherwise kill the runtime).
 

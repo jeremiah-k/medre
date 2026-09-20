@@ -423,7 +423,9 @@ class TestReplayBestEffortScopeIsolation:
             finally:
                 await storage.close()
 
-        asyncio.run(_selected_check())
+        assert asyncio.run(_selected_check()) >= 1, (
+            "best_effort replay produced no replay receipt for the selected event"
+        )
 
     def test_scoped_start_defers_unrelated_work_without_loss(
         self,
@@ -475,15 +477,18 @@ class TestReplayBestEffortScopeIsolation:
                 # Live ingress while scoped crosses the durable admission
                 # boundary (adapters keep admitting; processing deferred).
                 await alpha.simulate_inbound(alpha.make_event("scoped live ingress"))
-                await asyncio.sleep(1.5)
+                admitted_id = alpha.inbound_events[0].event_id
+                assert await wait_until(
+                    lambda: _event_present(db2, admitted_id), timeout=5.0
+                ), "scoped live ingress was not durably admitted"
                 beta2 = app2.adapters["fake_meshtastic"]
                 assert isinstance(beta2, FakeMeshtasticAdapter)
                 assert (
                     beta2.delivered_payloads == []
                 ), "REPLAY scope dispatched unrelated pending work"
                 assert (await _receipt_count(db2, _LIVE_EVENT_ID)) == 0
-                # The simulated event must be durably admitted (not dropped).
-                assert await _event_present(db2, alpha.inbound_events[0].event_id)
+                # Durable admission above is the synchronization boundary for
+                # the negative dispatch assertion; no fixed timing window.
             finally:
                 await app2.stop()
                 assert app2.state is RuntimeState.STOPPED

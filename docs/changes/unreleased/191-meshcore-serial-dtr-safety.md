@@ -3,7 +3,7 @@
 ## What changed
 
 `MeshCoreSession` now passes `dtr=False, rts=False` to
-`meshcore.MeshCore.create_serial`. The pinned SDK (`meshcore==2.3.11`) defaults
+`meshcore.MeshCore.create_serial`. The pinned `meshcore` SDK defaults
 `dtr=True`; on boards whose USB-UART auto-download circuit drives IO0 from DTR
 (observed on LilyGO T-LoRa V2.1-1.6, CH9102X), asserting DTR holds IO0 low, so
 an EN-line reset while DTR is asserted can drop the companion radio into the

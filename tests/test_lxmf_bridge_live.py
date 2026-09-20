@@ -33,12 +33,19 @@ from pathlib import Path
 import pytest
 
 from tests.helpers.live_harness import bounded
-from tests.test_lxmf_pair_live import _delivery_dest_hash
-from tests.test_lxmf_pair_live import _peer as _lx_peer
-from tests.test_lxmf_pair_live import _PeerListener as _LxListener
-from tests.test_meshcore_meshtastic_bridge_live import _mt_peer, _MtListener
-from tests.test_meshcore_pair_live import _peer as _mc_peer
-from tests.test_meshcore_pair_live import _PeerListener as _McListener
+from tests.helpers.lxmf_live_peer import (
+    LxmfPeerListener as _LxListener,
+    delivery_dest_hash as _delivery_dest_hash,
+    run_lxmf_peer as _lx_peer,
+)
+from tests.helpers.meshcore_live_peer import (
+    MeshCorePeerListener as _McListener,
+    run_meshcore_peer as _mc_peer,
+)
+from tests.helpers.meshtastic_live_peer import (
+    MeshtasticPeerListener as _MtListener,
+    run_meshtastic_peer as _mt_peer,
+)
 
 _BRIDGE = os.environ.get("MEDRE_LX_BRIDGE", "") == "1"
 _MT_MEDRE = os.environ.get("MESHTASTIC_MEDRE_SERIAL_PORT", "")
@@ -81,11 +88,11 @@ _QUICK_SKIP = pytest.mark.skipif(
 pytestmark = [
     pytest.mark.filterwarnings(
         # Regex: literal parens must be escaped or the pattern silently
-        # never matches the actual message text (RNS 1.5.4 on py3.14).
+        # never matches the actual message text (the pinned RNS release on py3.14).
         r"ignore:setDaemon\(\) is deprecated:DeprecationWarning",
     ),
     pytest.mark.filterwarnings(
-        # meshcore 2.3.11 dispatcher calls asyncio.iscoroutinefunction;
+        # the pinned meshcore dispatcher calls asyncio.iscoroutinefunction;
         # under the suite-wide error filter the DeprecationWarning kills
         # the BLE adapter before it can serve the bridge routes.
         "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",

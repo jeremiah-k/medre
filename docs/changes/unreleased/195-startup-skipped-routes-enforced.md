@@ -35,5 +35,7 @@ The retry worker is also activated at the post-adapter startup boundary
 instead of before adapter startup: its first claim cycle can no longer
 claim due work while an adapter is still starting and consume an attempt
 on the adapter's `not started` refusal — an ordering artifact, not a real
-transport failure. Once adapters settle, due work proceeds exactly once
-through the existing retry authority.
+transport failure. After startup settles, persisted terminal evidence is
+reconciled normally; unresolved retry rows whose target adapter failed this
+startup are rescheduled without incrementing their attempt number. Work for
+started targets proceeds through the existing retry authority.

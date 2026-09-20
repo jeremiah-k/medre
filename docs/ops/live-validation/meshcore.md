@@ -154,7 +154,7 @@ Operational firmware truths proven on this hardware:
 
 ## Hardware Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
 
-- Pinned SDK `meshcore==2.3.11` defaults `dtr=True` on `create_serial`; boards
+- The pinned `meshcore` SDK defaults `dtr=True` on `create_serial`; boards
   with a USB-UART auto-download circuit on IO0 (observed: LilyGO T-LoRa
   V2.1-1.6) must use `dtr=False, rts=False` (fixed in `MeshCoreSession`).
 - Official companion v1.17.1 ships USB-serial builds for `lilygo_tlora_v2_1`
