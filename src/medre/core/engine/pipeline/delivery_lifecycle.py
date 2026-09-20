@@ -649,6 +649,123 @@ class DeliveryLifecycleService:
         )
         return None
 
+    # -- Replay orphan closure -------------------------------------------------
+
+    async def finalize_replay_queued_deliveries(
+        self,
+        storage: DeliveryLifecycleStorage,
+        now: datetime,
+    ) -> int:
+        """Close replay-created queue-backed outbox rows left non-terminal.
+
+        A best_effort replay delivery to a queue-backed adapter is recorded
+        as a ``queued`` receipt (SDK enqueue acceptance).  The queue's
+        success callback cannot finalize a replay-sourced queued receipt
+        (the terminal record carries no replay provenance), so such a row
+        would otherwise stay non-terminal and later be reclaimed by the
+        live retry authority as if it were crash-orphaned work —
+        re-rendering and re-transmitting the same content over RF.
+
+        Call this ONLY after the replay's outbound queue has drained (the
+        replay teardown drain waits for queue-backed adapters to flush).
+        Each non-terminal row whose latest queued receipt for that exact
+        row is replay-sourced is closed with a supplemental ``sent``
+        receipt (same replay source/replay_run_id lineage — no live
+        provenance is fabricated) plus the atomic
+        ``queued|in_progress -> sent`` outbox transition.  Rows whose
+        latest attempt recorded a failure are left untouched, and rows
+        with live/retry lineage are never considered: the live
+        provenance-based stale-callback protection is unchanged.
+
+        Returns the number of rows closed.
+        """
+        closed = 0
+        try:
+            rows = await storage.list_outbox_items(
+                status_filter=["queued", "in_progress"],
+            )
+        except Exception:
+            self._log.exception(
+                "finalize_replay_queued_deliveries: failed to list "
+                "non-terminal outbox rows; closing nothing",
+            )
+            return 0
+
+        for row in rows:
+            try:
+                receipts = await storage.list_receipts_for_event(row.event_id)
+            except Exception:
+                self._log.exception(
+                    "finalize_replay_queued_deliveries: failed to list "
+                    "receipts for event_id=%s; skipping row %s",
+                    row.event_id,
+                    row.outbox_id,
+                )
+                continue
+
+            row_receipts = [r for r in receipts if r.outbox_id == row.outbox_id]
+            queued = [r for r in row_receipts if r.status == "queued"]
+            if not queued:
+                continue
+            latest_queued = queued[-1]
+            if latest_queued.source != "replay":
+                # Live/retry lineage belongs to the live callback path.
+                continue
+            if any(
+                r.attempt_number == latest_queued.attempt_number
+                and r.status in ("failed", "dead_lettered")
+                for r in row_receipts
+            ):
+                # A terminal failure for this attempt is already durable;
+                # never upgrade it to sent.
+                continue
+
+            supplemental = build_delivery_receipt(
+                event_id=row.event_id,
+                delivery_plan_id=latest_queued.delivery_plan_id,
+                target_adapter=row.target_adapter,
+                target_channel=row.target_channel or latest_queued.target_channel,
+                route_id=latest_queued.route_id,
+                status="sent",
+                adapter_message_id=None,
+                created_at=now,
+                attempt_number=latest_queued.attempt_number,
+                parent_receipt_id=latest_queued.receipt_id,
+                source=latest_queued.source,
+                replay_run_id=latest_queued.replay_run_id,
+                retry_max_attempts=latest_queued.retry_max_attempts,
+                retry_backoff_base=latest_queued.retry_backoff_base,
+                retry_max_delay=latest_queued.retry_max_delay,
+                retry_jitter=latest_queued.retry_jitter,
+                rendering_evidence=latest_queued.rendering_evidence,
+                outbox_id=row.outbox_id,
+            )
+            try:
+                # No outbound native ref is written: the queue terminal
+                # record carried no trusted native message id for this
+                # replay attempt, and fabricating one is prohibited.  The
+                # supplemental receipt keeps the replay source lineage, and
+                # mark_outbox_sent applies the guarded non-terminal ->
+                # sent transition (no-op if a terminal state already won).
+                await storage.append_receipt(supplemental)
+                await storage.mark_outbox_sent(row.outbox_id)
+                closed += 1
+            except Exception:
+                self._log.exception(
+                    "finalize_replay_queued_deliveries: commit failed for "
+                    "outbox_id=%s event_id=%s",
+                    row.outbox_id,
+                    row.event_id,
+                )
+                continue
+        if closed:
+            self._log.info(
+                "finalize_replay_queued_deliveries: closed %d replay "
+                "queue-backed row(s)",
+                closed,
+            )
+        return closed
+
     # -- Atomic queued->sent finalization ------------------------------------
 
     async def finalize_queued_delivery(
@@ -1063,9 +1180,7 @@ class DeliveryLifecycleService:
         failed attempt and must point back to evidence for this exact outbox.
         """
         target_receipts = [
-            receipt
-            for receipt in receipts
-            if receipt.outbox_id == item.outbox_id
+            receipt for receipt in receipts if receipt.outbox_id == item.outbox_id
         ]
         malformed_current = [
             receipt

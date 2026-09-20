@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time as _time
+from datetime import datetime, timezone
 from typing import Any
 
 from medre.config.env import apply_env_overrides
@@ -193,6 +194,22 @@ async def _replay(
                 await _drain_inflight_deliveries(
                     app, config.limits.shutdown_drain_timeout_seconds
                 )
+                # The queue-backed replay rows are now flushed (the drain
+                # waited for them).  Close the replay execution's own
+                # non-terminal rows through the lifecycle authority so the
+                # live retry authority cannot later reclaim them as
+                # crash-orphaned work and re-transmit the replayed content
+                # over RF.
+                lifecycle = getattr(
+                    getattr(app, "pipeline_runner", None),
+                    "delivery_lifecycle",
+                    None,
+                )
+                if lifecycle is not None and app.storage is not None:
+                    await lifecycle.finalize_replay_queued_deliveries(
+                        app.storage,
+                        datetime.now(timezone.utc),
+                    )
             except Exception:
                 pass  # best-effort: stop must proceed regardless
             # Full lifecycle teardown (stops adapters, closes storage).

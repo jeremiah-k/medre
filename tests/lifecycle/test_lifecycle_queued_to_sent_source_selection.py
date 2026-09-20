@@ -17,12 +17,13 @@ import pytest
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
-
-from .conftest import _make_lifecycle, _make_receipt
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
+    make_outbox_item,
 )
+
+from .conftest import _make_lifecycle, _make_receipt
 
 # ===================================================================
 # Source-aware candidate selection
@@ -58,7 +59,7 @@ class TestSourceAwareCandidateSelection:
                 source="replay",
                 replay_run_id="run-42",
                 outbox_id="obox-live-vs-replay",
-            )
+            ),
         )
         # Live queued receipt (appended second — would also win by recency).
         await append_receipt_with_parent(
@@ -71,7 +72,7 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-src",
                 source="live",
                 outbox_id="obox-live-vs-replay",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation.
@@ -129,7 +130,7 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-order",
                 source="live",
                 outbox_id="obox-order",
-            )
+            ),
         )
         # Replay queued receipt (appended second — would win by recency alone).
         await append_receipt_with_parent(
@@ -143,7 +144,7 @@ class TestSourceAwareCandidateSelection:
                 source="replay",
                 replay_run_id="run-99",
                 outbox_id="obox-order",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation.
@@ -202,7 +203,7 @@ class TestSourceAwareCandidateSelection:
                 replay_run_id="run-77",
                 outbox_id="obox-replay-only",
                 attempt_number=1,
-            )
+            ),
         )
         outbox_item = DeliveryOutboxItem(
             outbox_id="obox-replay-only",
@@ -265,7 +266,7 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-live",
                 source="live",
                 outbox_id="obox-live-single",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation.
@@ -330,7 +331,7 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-dup",
                 source="live",
                 outbox_id="obox-dup-1",
-            )
+            ),
         )
 
         # Create two outbox items with different attempt numbers so they
@@ -377,7 +378,7 @@ class TestSourceAwareCandidateSelection:
                 source="live",
                 attempt_number=2,
                 outbox_id="obox-dup-2",
-            )
+            ),
         )
         outbox_item2 = DeliveryOutboxItem(
             outbox_id="obox-dup-2",
@@ -432,7 +433,7 @@ class TestSourceAwareCandidateSelection:
                 source="replay",
                 replay_run_id="run-10",
                 outbox_id="obox-nc",
-            )
+            ),
         )
         # Live candidate second.
         await append_receipt_with_parent(
@@ -445,7 +446,7 @@ class TestSourceAwareCandidateSelection:
                 plan_id="plan-nc",
                 source="live",
                 outbox_id="obox-nc",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation.
@@ -504,7 +505,7 @@ class TestSourceAwareCandidateSelection:
                 replay_run_id="run-a",
                 outbox_id="obox-rmulti",
                 attempt_number=1,
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -518,7 +519,7 @@ class TestSourceAwareCandidateSelection:
                 replay_run_id="run-b",
                 outbox_id="obox-rmulti",
                 attempt_number=1,
-            )
+            ),
         )
         outbox_item = DeliveryOutboxItem(
             outbox_id="obox-rmulti",
@@ -579,7 +580,7 @@ class TestSourceAwareCandidateSelection:
                 channel="0",
                 plan_id="plan-single",
                 outbox_id="obox-single",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation.
@@ -633,7 +634,7 @@ class TestSourceAwareCandidateSelection:
                 channel="0",
                 attempt_number=1,
                 outbox_id="obox-retry",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -644,7 +645,7 @@ class TestSourceAwareCandidateSelection:
                 channel="0",
                 attempt_number=2,
                 outbox_id="obox-retry",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation (attempt 2).
@@ -681,3 +682,152 @@ class TestSourceAwareCandidateSelection:
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-retry"
         assert sent[0].attempt_number == 2
+
+
+# ===================================================================
+# Replay orphan closure
+# ===================================================================
+
+
+class TestReplayOrphanClosure:
+    """``finalize_replay_queued_deliveries`` closes replay-created
+    queue-backed rows and never touches live lineage.
+
+    Without this closure a best_effort replay to a queue-backed adapter
+    leaves a non-terminal ``queued`` row that the live retry authority
+    later reclaims as crash-orphaned work and re-transmits over RF.
+    """
+
+    async def test_closes_replay_row_and_leaves_live_row(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Replay-shaped queued row closes; live queued row stays pending."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        replay_row = await create_outbox_item_with_parent(
+            temp_storage,
+            make_outbox_item(
+                delivery_plan_id="plan-r",
+                target_adapter="m",
+                target_channel="0",
+                status="in_progress",
+                event_id="evt-replay-orphan",
+            ),
+        )
+        # Reach 'queued' through the production transition (adapter-local
+        # queue acceptance), as the live pipeline does.
+        await temp_storage.mark_outbox_queued(replay_row.outbox_id)
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-r-q",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-r",
+                source="replay",
+                replay_run_id="run-1",
+                outbox_id=replay_row.outbox_id,
+                event_id="evt-replay-orphan",
+            ),
+        )
+        live_row = await create_outbox_item_with_parent(
+            temp_storage,
+            make_outbox_item(
+                delivery_plan_id="plan-l",
+                target_adapter="m",
+                target_channel="0",
+                status="in_progress",
+                event_id="evt-live-pending",
+            ),
+        )
+        await temp_storage.mark_outbox_queued(live_row.outbox_id)
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-l-q",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-l",
+                source="live",
+                outbox_id=live_row.outbox_id,
+                event_id="evt-live-pending",
+            ),
+        )
+
+        closed = await lifecycle.finalize_replay_queued_deliveries(temp_storage, now)
+
+        assert closed == 1
+        replay_after = await temp_storage.get_outbox_item(replay_row.outbox_id)
+        assert replay_after is not None and replay_after.status == "sent"
+        live_after = await temp_storage.get_outbox_item(live_row.outbox_id)
+        assert live_after is not None and live_after.status == "queued"
+        sent = [
+            r
+            for r in await temp_storage.list_receipts_for_event("evt-replay-orphan")
+            if r.status == "sent"
+        ]
+        assert len(sent) == 1
+        assert sent[0].source == "replay"
+        assert sent[0].replay_run_id == "run-1"
+        assert sent[0].parent_receipt_id == "rcpt-r-q"
+        # The live event gained no receipts.
+        assert await temp_storage.list_receipts_for_event("evt-live-pending")
+
+    async def test_failure_guard_blocks_sent_upgrade(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """A replay row whose attempt already recorded a failure stays."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+
+        row = await create_outbox_item_with_parent(
+            temp_storage,
+            make_outbox_item(
+                delivery_plan_id="plan-f",
+                target_adapter="m",
+                target_channel="0",
+                status="in_progress",
+                attempt_number=2,
+                event_id="evt-replay-failed",
+            ),
+        )
+        await temp_storage.mark_outbox_queued(row.outbox_id)
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-f-q",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-f",
+                source="replay",
+                outbox_id=row.outbox_id,
+                event_id="evt-replay-failed",
+                attempt_number=2,
+            ),
+        )
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-f-fail",
+                status="failed",
+                adapter="m",
+                channel="0",
+                plan_id="plan-f",
+                source="replay",
+                outbox_id=row.outbox_id,
+                event_id="evt-replay-failed",
+                attempt_number=2,
+            ),
+        )
+
+        closed = await lifecycle.finalize_replay_queued_deliveries(temp_storage, now)
+
+        assert closed == 0
+        after = await temp_storage.get_outbox_item(row.outbox_id)
+        assert after is not None and after.status == "queued"
