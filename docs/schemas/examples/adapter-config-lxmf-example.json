@@ -10,6 +10,7 @@
   "metadata_embedding": true,
   "identity_path": null,
   "storage_path": null,
+  "reticulum_config_dir": null,
   "announce_interval_seconds": 600.0,
   "lxmf_relay_prefix": "[{origin_label}] "
 }

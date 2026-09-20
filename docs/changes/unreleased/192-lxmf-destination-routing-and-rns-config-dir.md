@@ -8,4 +8,6 @@ identity". The renderer now resolves `destination_hash` from the route's
 the routing-delivery `"lxmf_destination"` contract). `LxmfConfig` also gains
 `reticulum_config_dir`, making the session's documented isolated-Reticulum
 seam (one RNodeInterface, `share_instance = No`) reachable from runtime
-configuration instead of only via programmatic injection.
+configuration instead of only via programmatic injection. The adapter JSON
+schema and its example now cover the field (it was missing from the
+published contract despite being accepted by the loader).
