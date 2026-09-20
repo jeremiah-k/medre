@@ -718,14 +718,6 @@ Diagnostics → Operator Actions by Severity).
 - **Missing outbox_id:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains queued after the grace period, investigate the upstream producer that wrote the row without an outbox_id.
 - **outbox_id present but uncorrelated:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains uncorrelated after the grace period, verify that the adapter callback is propagating `outbox_id` and `attempt_number` through its queue processing.
 
-### "Replay-only callback warning"
-
-**Symptom:** Logs show a warning about "only replay-sourced queued receipts found" during callback correlation, and no supplemental sent receipt is created.
-
-**Cause:** A live adapter callback is arriving, but the only matching queued receipt(s) are from a replay run. `OutboundNativeRefRecord` carries no trusted replay provenance, so replay-only queued receipts are skipped to prevent live recovery state mutation.
-
-**Fix:** Verify that the callback is from the replay run, not a live delivery. If a live delivery also occurred, the live receipt chain remains intact. The replay queued receipt stays uncorrelated. If this is a live callback that should have a matching live queued receipt, investigate whether the live delivery produced a queued receipt. This restriction may be relaxed in a future version when callback records carry trusted replay provenance.
-
 ## Lifecycle Convergence Finding Troubleshooting
 
 Lifecycle convergence findings appear in the `lifecycle_convergence_report`

@@ -18,3 +18,11 @@ closed such rows after the teardown drain by inferring per-attempt success
 from aggregate queue state is removed — delivery truth is recorded only by
 real terminal callbacks through the single lifecycle authority, and the
 bounded teardown drain remains purely a wait, never a delivery authority.
+
+The normative pages that still carried the previous replay-only restriction
+are reconciled in the same change: delivery-lifecycle §5.3,
+diagnostics-evidence §15.3 (the "Replay-only skip warning" signal row is
+replaced by the "Replay-lineage finalize" signal, logged at debug) and
+§15.4(7), conformance §9.4(2), plus the operator-facing
+recovery-and-replay and troubleshooting entries — the operator-visible
+skip warning can no longer occur.
