@@ -6,10 +6,11 @@ import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
+
+from tests.helpers.live_peer_common import PeerProcess, poll_packets_until, read_jsonl
 
 pytestmark = [pytest.mark.live, pytest.mark.hardware]
 
@@ -264,19 +265,24 @@ class MeshCorePeerListener:
     lands (``packets_until``) while absence cases still drain a full
     window (``packets``).  Readiness is a file handshake: arming happens
     after the firmware buffer drain + subscribe, not after a fixed sleep.
+    Process/readiness/teardown ownership lives in
+    :class:`~tests.helpers.live_peer_common.PeerProcess`.
     """
 
     _JSON_PATH = Path("/tmp/meshcore_pair_peer.json")
     _READY_PATH = Path("/tmp/meshcore_pair_peer.ready")
+    _READY_TIMEOUT = _PEER_READY_TIMEOUT
 
     def __init__(self, seconds: float) -> None:
         self._seconds = seconds
-        self._proc: subprocess.Popen[str] | None = None
+        self._owner = PeerProcess(self._READY_PATH, self._READY_TIMEOUT)
 
     def __enter__(self) -> "MeshCorePeerListener":
         self._JSON_PATH.unlink(missing_ok=True)
         self._READY_PATH.unlink(missing_ok=True)
-        self._proc = subprocess.Popen(
+        # Ready handshake: drain + subscribe + auto-fetch armed before any
+        # MEDRE-side TX (bounded; no fixed startup sleep).
+        self._owner.start(
             [
                 sys.executable,
                 "-c",
@@ -284,66 +290,25 @@ class MeshCorePeerListener:
                 "listen",
                 _PEER_BLE,
                 str(self._seconds),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            ]
         )
-        # Ready handshake: drain + subscribe + auto-fetch armed before any
-        # MEDRE-side TX (bounded; no fixed startup sleep).  Clean up here
-        # because Python does not call __exit__ when __enter__ raises.
-        try:
-            deadline = time.monotonic() + _PEER_READY_TIMEOUT
-            while time.monotonic() < deadline:
-                if self._READY_PATH.exists():
-                    return self
-                if self._proc.poll() is not None:
-                    _, err = self._proc.communicate(timeout=10)
-                    raise AssertionError(f"native peer listener died: {err[-400:]}")
-                time.sleep(0.2)
-            raise AssertionError("native peer listener never signalled ready")
-        except BaseException:
-            self.__exit__()
-            raise
+        return self
 
     def _read_packets(self) -> list[dict]:
-        if not self._JSON_PATH.exists():
-            return []
-        packets: list[dict] = []
-        for line in self._JSON_PATH.read_text().splitlines():
-            line = line.strip()
-            if line:
-                packets.append(json.loads(line))
-        return packets
+        return read_jsonl(self._JSON_PATH)
 
     def packets_until(self, predicate, timeout: float) -> list[dict]:
         """Poll collected packets until ``predicate`` holds or timeout."""
-        deadline = time.monotonic() + timeout
-        packets: list[dict] = []
-        while time.monotonic() < deadline:
-            packets = self._read_packets()
-            if predicate(packets):
-                return packets
-            time.sleep(0.5)
-        return self._read_packets()
+        return poll_packets_until(self._read_packets, predicate, timeout)
 
     def packets(self, timeout: float | None = None) -> list[dict]:
         """Drain the listener's full window (absence/negative evidence)."""
-        assert self._proc is not None
-        out, err = self._proc.communicate(timeout=timeout or self._seconds + 40)
-        if self._proc.returncode != 0:
+        out, err = self._owner.communicate(timeout=timeout or self._seconds + 40)
+        assert self._owner.proc is not None
+        if self._owner.proc.returncode != 0:
             raise AssertionError(f"native peer listener failed: {err[-800:]}")
         lines = [ln for ln in out.strip().splitlines() if ln.strip()]
         return json.loads(lines[-1])["received"] if lines else []
 
     def __exit__(self, *exc: object) -> None:
-        if self._proc and self._proc.poll() is None:
-            self._proc.kill()
-            self._proc.wait(timeout=10)
-        # Close the child pipe handles — under filterwarnings=error an
-        # unclosed-pipe ResourceWarning during interpreter GC surfaces as
-        # an unraisable-exception test failure (same class as the LXMF
-        # pair listener fix).
-        for stream in (self._proc.stdout, self._proc.stderr):
-            if stream is not None:
-                stream.close()
+        self._owner.terminate()

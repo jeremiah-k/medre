@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.live_peer_common import PeerProcess, poll_packets_until, read_jsonl
+
 pytestmark = [pytest.mark.live, pytest.mark.hardware]
 
 _MT_PEER = os.environ.get("MESHTASTIC_PEER_SERIAL_PORT", "")
@@ -41,12 +43,12 @@ def on_packet(packet, interface=None):
         }
         got.append(rec)
         if mode == "listen":
-            with open("/tmp/meshcore_pair_mt.json", "a") as fh:
+            with open("/tmp/meshtastic_pair_mt.json", "a") as fh:
                 fh.write(json.dumps(rec) + "\n")
 pub.subscribe(on_packet, "meshtastic.receive")
 if mode == "listen":
     # Ready handshake: subscription armed before any MEDRE-side traffic.
-    with open("/tmp/meshcore_pair_mt.ready", "w") as fh:
+    with open("/tmp/meshtastic_pair_mt.ready", "w") as fh:
         fh.write("1")
     deadline = time.time() + float(sys.argv[4])
     while time.time() < deadline:
@@ -86,104 +88,58 @@ class MeshtasticPeerListener:
     once the pubsub subscription is armed.  A previous test's pyserial
     process may still be releasing the port's exclusive flock when the
     next listener spawns; one bounded settle-retry on that condition,
-    then fail honestly.
+    then fail honestly.  Process/readiness/teardown ownership lives in
+    :class:`~tests.helpers.live_peer_common.PeerProcess`.
     """
 
-    _JSON_PATH = Path("/tmp/meshcore_pair_mt.json")
-    _READY_PATH = Path("/tmp/meshcore_pair_mt.ready")
+    _JSON_PATH = Path("/tmp/meshtastic_pair_mt.json")
+    _READY_PATH = Path("/tmp/meshtastic_pair_mt.ready")
+    _READY_TIMEOUT = 40.0
 
     def __init__(self, seconds: float) -> None:
         self._seconds = seconds
-        self._proc: subprocess.Popen[str] | None = None
-
-    def _spawn(self) -> None:
-        repo = str(Path(__file__).resolve().parents[2])
-        self._proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-c",
-                _PEER_SCRIPT,
-                repo,
-                "listen",
-                _MT_PEER,
-                str(self._seconds),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        self._owner = PeerProcess(self._READY_PATH, self._READY_TIMEOUT)
 
     def __enter__(self) -> "MeshtasticPeerListener":
         for attempt in range(2):
             self._JSON_PATH.unlink(missing_ok=True)
             self._READY_PATH.unlink(missing_ok=True)
-            self._spawn()
-            # Ready handshake: pubsub armed (serial connect included).
-            deadline = time.monotonic() + 40.0
-            while time.monotonic() < deadline:
-                if self._READY_PATH.exists():
-                    return self
-                if self._proc.poll() is not None:
-                    break
-                time.sleep(0.2)
-            if self._READY_PATH.exists():
+            try:
+                # Ready handshake: pubsub armed (serial connect included).
+                self._owner.start(
+                    [
+                        sys.executable,
+                        "-c",
+                        _PEER_SCRIPT,
+                        str(Path(__file__).resolve().parents[2]),
+                        "listen",
+                        _MT_PEER,
+                        str(self._seconds),
+                    ]
+                )
                 return self
-            assert self._proc is not None
-            if self._proc.poll() is None:
-                # __exit__ is not called when __enter__ raises.  A listener
-                # that stays alive without signalling readiness must be killed
-                # here or it keeps the peer serial port exclusively open.
-                self.__exit__()
-                raise AssertionError("MT listener never signalled ready")
-            _, err = self._proc.communicate(timeout=10)
-            died = f"listener exited during settle: {err[-300:]}"
-            self._close_streams()
-            if attempt == 0 and "lock" in (err or "").lower():
-                time.sleep(5.0)  # previous holder releasing the flock
-                continue
-            raise AssertionError(died)
+            except AssertionError as exc:
+                if attempt == 0 and "lock" in str(exc).lower():
+                    time.sleep(5.0)  # previous holder releasing the flock
+                    continue
+                raise
         raise AssertionError("MT listener never signalled ready")
 
     def _read_packets(self) -> list[dict]:
-        if not self._JSON_PATH.exists():
-            return []
-        packets: list[dict] = []
-        for line in self._JSON_PATH.read_text().splitlines():
-            line = line.strip()
-            if line:
-                packets.append(json.loads(line))
-        return packets
+        return read_jsonl(self._JSON_PATH)
 
     def packets_until(self, predicate, timeout: float) -> list[dict]:
         """Poll collected packets until ``predicate`` holds or timeout."""
-        deadline = time.monotonic() + timeout
-        packets: list[dict] = []
-        while time.monotonic() < deadline:
-            packets = self._read_packets()
-            if predicate(packets):
-                return packets
-            time.sleep(0.5)
-        return self._read_packets()
+        return poll_packets_until(self._read_packets, predicate, timeout)
 
     def packets(self, timeout: float | None = None) -> list[dict]:
         """Drain the listener's full window (absence/negative evidence)."""
-        out, err = self._proc.communicate(timeout=timeout or self._seconds + 30)
-        if self._proc.returncode != 0:
+        out, err = self._owner.communicate(timeout=timeout or self._seconds + 30)
+        assert self._owner.proc is not None
+        if self._owner.proc.returncode != 0:
             raise AssertionError(f"MT listener failed: {err[-600:]}")
         lines = [ln for ln in out.strip().splitlines() if ln.strip()]
         return json.loads(lines[-1]) if lines else []
 
-    def _close_streams(self) -> None:
-        if self._proc is None:
-            return
-        for stream in (self._proc.stdout, self._proc.stderr):
-            if stream is not None and not stream.closed:
-                stream.close()
-
     def __exit__(self, *exc: object) -> None:
-        if self._proc and self._proc.poll() is None:
-            self._proc.kill()
-            self._proc.wait(timeout=10)
-        # Close child pipe handles even when the test body fails before
-        # packets() drains them; warnings are errors in this suite.
-        self._close_streams()
+        self._owner.terminate()

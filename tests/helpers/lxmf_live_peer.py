@@ -8,10 +8,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 import pytest
+
+from tests.helpers.live_peer_common import PeerProcess, poll_packets_until, read_jsonl
 
 pytestmark = [pytest.mark.live, pytest.mark.hardware]
 
@@ -204,18 +205,22 @@ class LxmfPeerListener:
     Readiness is a file handshake armed after the router and delivery
     callback are registered — before any MEDRE-side traffic.  Received
     messages append to a JSONL scratch file as they arrive so positive
-    cases finish as soon as correlated evidence lands.
+    cases finish as soon as correlated evidence lands.  Process/readiness/
+    teardown ownership lives in
+    :class:`~tests.helpers.live_peer_common.PeerProcess`.
     """
+
+    _READY_TIMEOUT = _PEER_READY_TIMEOUT
 
     def __init__(self, seconds: float) -> None:
         self._seconds = seconds
-        self._proc: subprocess.Popen[str] | None = None
+        self._owner = PeerProcess(_READY_PATH, self._READY_TIMEOUT)
 
     def __enter__(self) -> "LxmfPeerListener":
         _SCRATCH_JSONL.unlink(missing_ok=True)
         _READY_PATH.unlink(missing_ok=True)
         self._storage = tempfile.mkdtemp(prefix="medre_lxmf_peer_storage_")
-        self._proc = subprocess.Popen(
+        self._owner.start(
             [
                 sys.executable,
                 "-c",
@@ -227,58 +232,19 @@ class LxmfPeerListener:
                 str(_READY_PATH),
                 str(_SCRATCH_JSONL),
                 str(self._seconds),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            ]
         )
-        try:
-            deadline = time.monotonic() + _PEER_READY_TIMEOUT
-            while time.monotonic() < deadline:
-                if _READY_PATH.exists():
-                    return self
-                if self._proc.poll() is not None:
-                    _, err = self._proc.communicate(timeout=10)
-                    raise AssertionError(f"native peer listener died: {err[-400:]}")
-                time.sleep(0.2)
-            raise AssertionError("native peer listener never signalled ready")
-        except BaseException:
-            # __exit__ is not called when __enter__ raises.  Tear down the
-            # child explicitly so a failed readiness handshake cannot leave
-            # an RNS process holding the serial interface.
-            self.__exit__()
-            raise
+        return self
 
     def _read_packets(self) -> list[dict]:
-        if not _SCRATCH_JSONL.exists():
-            return []
-        packets: list[dict] = []
-        for line in _SCRATCH_JSONL.read_text().splitlines():
-            line = line.strip()
-            if line:
-                packets.append(json.loads(line))
-        return packets
+        return read_jsonl(_SCRATCH_JSONL)
 
     def packets_until(self, predicate, timeout: float) -> list[dict]:
         """Poll collected packets until ``predicate`` holds or timeout."""
-        deadline = time.monotonic() + timeout
-        packets: list[dict] = []
-        while time.monotonic() < deadline:
-            packets = self._read_packets()
-            if predicate(packets):
-                return packets
-            time.sleep(0.5)
-        return self._read_packets()
+        return poll_packets_until(self._read_packets, predicate, timeout)
 
     def __exit__(self, *exc: object) -> None:
-        if self._proc and self._proc.poll() is None:
-            self._proc.kill()
-            self._proc.wait(timeout=10)
-        # Close the child pipe handles — under filterwarnings=error an
-        # unclosed-pipe ResourceWarning during interpreter GC (e.g. inside
-        # RNS's gc.collect()) surfaces as an unraisable-exception error.
-        if self._proc is not None:
-            for stream in (self._proc.stdout, self._proc.stderr):
-                if stream is not None and not stream.closed:
-                    stream.close()
+        self._owner.terminate()
+        # LXMF temp storage cleanup stays LXMF-specific: the child router
+        # writes pending-message storage that must not survive the run.
         shutil.rmtree(getattr(self, "_storage", ""), ignore_errors=True)
