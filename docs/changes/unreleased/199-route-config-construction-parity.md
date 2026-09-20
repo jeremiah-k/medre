@@ -23,7 +23,7 @@ is absent. `_expand_all_routes` additionally raises `RouteValidationError`
 on an unrecognized directionality instead of silently dropping an enabled
 route.
 
-The YAML config loader also applied strict *path*-placeholder validation to
+The YAML config loader also applied strict _path_-placeholder validation to
 every adapter string field, so the documented Matrix `relay_prefix`
 renderer template (`[{sender}/{origin_label}]: `) failed config load while
 the identical programmatic config worked. Path expansion is now
