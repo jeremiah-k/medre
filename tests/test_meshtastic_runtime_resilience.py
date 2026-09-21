@@ -82,21 +82,20 @@ async def test_reconnect_detaches_failed_client_before_backoff(
 
     session._activate_client(FailedClient())
 
-    async def observe_backoff(_delay: float) -> None:
-        assert session.client is None
-        assert session.connected is False
-        assert closed == ["failed"]
-        session._stop_requested = True
-
     monkeypatch.setattr(
-        "medre.adapters.meshtastic.session.asyncio.sleep", observe_backoff
-    )
-    monkeypatch.setattr(
-        MeshtasticSession, "_reconnect_delay", lambda _self, _attempt: 1.0
+        MeshtasticSession, "_reconnect_delay", lambda _self, _attempt: 60.0
     )
 
-    await session._reconnect_loop()
+    reconnect_task = asyncio.create_task(session._reconnect_loop())
+    session._reconnect_task = reconnect_task
 
+    assert await wait_until(lambda: closed == ["failed"], timeout=1.0)
+    assert session.client is None
+    assert session.connected is False
+
+    await session.stop(timeout=0.2)
+
+    assert reconnect_task.done()
     assert session.reconnecting is False
     assert session.client is None
 
