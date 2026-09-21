@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -140,10 +141,8 @@ adapters:
 
 
 @pytest.fixture(autouse=True)
-def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
     """Prevent test-runner MEDRE_HOME/MEDRE_CONFIG from interfering."""
-    for var in ("MEDRE_HOME", "MEDRE_CONFIG"):
-        monkeypatch.delenv(var, raising=False)
 
 
 def _write_config(tmp_path: Path, text: str, name: str = "config.yaml") -> Path:

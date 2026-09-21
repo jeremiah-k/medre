@@ -9,6 +9,7 @@ bundle with fake adapters without any SDK installed.
 from __future__ import annotations
 
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -51,9 +52,8 @@ routes:
 
 
 @pytest.fixture(autouse=True)
-def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MEDRE_HOME", "MEDRE_CONFIG"):
-        monkeypatch.delenv(var, raising=False)
+def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
+    """Run against isolated MEDRE/XDG roots (tests.helpers.config_env)."""
 
 
 # ---------------------------------------------------------------------------

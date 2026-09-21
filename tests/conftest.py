@@ -32,6 +32,10 @@ from medre.core.events import (
 from medre.core.rendering import RenderingPipeline, TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+
+# Imported for fixture registration: config-loading tests consume
+# `isolated_config_env` (directly or via per-file autouse wrappers).
+from tests.helpers.config_env import isolated_config_env  # noqa: F401
 from tests.helpers.matrix import build_mock_nio_module
 from tests.helpers.storage_outbox import admit_default_event
 

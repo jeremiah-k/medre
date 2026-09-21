@@ -11,6 +11,7 @@ files rejected with the dedicated unsupported-format error message.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -31,10 +32,8 @@ _CONFIG_BODY = "runtime:\n  name: discovery\n"
 
 
 @pytest.fixture(autouse=True)
-def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
     """Clear config-related env vars for each test."""
-    for var in ("MEDRE_HOME", "MEDRE_CONFIG"):
-        monkeypatch.delenv(var, raising=False)
 
 
 # ---------------------------------------------------------------------------
