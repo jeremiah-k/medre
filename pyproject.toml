@@ -81,7 +81,7 @@ filterwarnings = ["error"]
 # This keeps CI diagnostic while also guaranteeing that one test cannot stall
 # a matrix leg until the workflow/job-level timeout.
 faulthandler_timeout = 300
-timeout = 360
+timeout = "360"
 timeout_method = "thread"
 
 [tool.ruff]

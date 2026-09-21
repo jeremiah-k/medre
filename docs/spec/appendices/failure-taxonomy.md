@@ -41,15 +41,15 @@ implications.
 
 ## 2. Cross-Transport Failure Summary
 
-| Dimension                 | Matrix               | Meshtastic        | MeshCore          | LXMF                  |
-| ------------------------- | -------------------- | ----------------- | ----------------- | --------------------- |
-| **Transient cause**       | Network/auth/rate    | Radio/link/serial | Radio/link/serial | Network/RNS           |
-| **Permanent cause**       | Auth revocation      | Config/port error | Config error      | Identity/RNS init     |
-| **Reconnect model**       | Exp backoff, 10 att  | Lifetime capped   | Exp backoff, 10   | Exp backoff, 10       |
-| **Duplicate-send risk**   | Low-Medium           | High              | Medium            | Low                   |
-| **Outbound queue**        | None (direct send)   | Scaffold (lossy)  | None (direct)     | None (router-managed) |
-| **Delivery confirmation** | Server event_id      | None              | None              | Async state callback  |
-| **Uncertainty window**    | ~0 to one sync cycle | Unbounded         | Unbounded         | Unbounded             |
+| Dimension                 | Matrix               | Meshtastic             | MeshCore          | LXMF                  |
+| ------------------------- | -------------------- | ---------------------- | ----------------- | --------------------- |
+| **Transient cause**       | Network/auth/rate    | Radio/link/serial      | Radio/link/serial | Network/RNS           |
+| **Permanent cause**       | Auth revocation      | Config/port error      | Config error      | Identity/RNS init     |
+| **Reconnect model**       | Exp backoff, 10 att  | Lifetime, capped delay | Exp backoff, 10   | Exp backoff, 10       |
+| **Duplicate-send risk**   | Low-Medium           | High                   | Medium            | Low                   |
+| **Outbound queue**        | None (direct send)   | Scaffold (lossy)       | None (direct)     | None (router-managed) |
+| **Delivery confirmation** | Server event_id      | None                   | None              | Async state callback  |
+| **Uncertainty window**    | ~0 to one sync cycle | Unbounded              | Unbounded         | Unbounded             |
 
 ## 3. Matrix Failure Detail
 
