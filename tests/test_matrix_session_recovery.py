@@ -7,6 +7,7 @@ No test requires mindroom-nio[e2e].
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import types
 from typing import Any
@@ -509,7 +510,9 @@ async def test_stop_deadline_bounds_client_close() -> None:
         release.set()
         stop_task.cancel()
         await asyncio.gather(stop_task, return_exceptions=True)
-        pytest.fail("MatrixSession.stop() blocked on cancellation-resistant client.close()")
+        pytest.fail(
+            "MatrixSession.stop() blocked on cancellation-resistant client.close()"
+        )
 
     await stop_task
     assert session._client is None
@@ -1112,10 +1115,14 @@ async def test_stop_shares_timeout_budget_with_client_task_drain(
     session._client = client
     drain = AsyncMock()
 
-    ticks = iter((100.0, 102.0))
+    # One absolute deadline: the first read anchors it at 100 (deadline
+    # 105); every later phase read sees 102, so the client-task drain
+    # receives the remaining 3.0 s of the shared 5.0 s budget and later
+    # phases (close, re-scan) still observe positive remaining time.
+    clock = itertools.chain((100.0, 102.0), itertools.repeat(102.0))
     monkeypatch.setattr(
         "medre.adapters.matrix.session.time",
-        types.SimpleNamespace(monotonic=lambda: next(ticks)),
+        types.SimpleNamespace(monotonic=lambda: next(clock)),
     )
 
     with patch.object(MatrixSession, "_drain_orphaned_client_tasks", new=drain):
