@@ -118,3 +118,11 @@ async def test_drain_all_resets_pressure_state() -> None:
     assert len(drained) == 4
     assert queue.pending_count == 0
     assert queue.pressure_state == "normal"
+
+
+def test_queue_thresholds_must_be_numeric() -> None:
+    """Non-numeric pressure thresholds are rejected at construction."""
+    with pytest.raises(ValueError, match="must be an int or float"):
+        MeshtasticOutboundQueue(warning_threshold_pct="75")
+    with pytest.raises(ValueError, match="must be an int or float"):
+        MeshtasticOutboundQueue(critical_threshold_pct="90")

@@ -124,3 +124,19 @@ def test_zero_tcp_liveness_interval_explicitly_disables_probe() -> None:
 def test_tcp_liveness_timeout_must_be_positive() -> None:
     with pytest.raises(MeshtasticConfigError, match="tcp_liveness_timeout_seconds"):
         _config(tcp_liveness_timeout_seconds=0).validate()
+
+
+def test_resilience_values_must_be_numeric() -> None:
+    """Non-numeric resilience knobs are rejected with a typed error."""
+    with pytest.raises(MeshtasticConfigError, match="must be an int or float"):
+        _config(tcp_liveness_interval_seconds="60").validate()
+
+
+def test_reconnect_backoff_initial_must_be_positive() -> None:
+    with pytest.raises(MeshtasticConfigError, match="initial_seconds must be > 0"):
+        _config(reconnect_backoff_initial_seconds=0).validate()
+
+
+def test_tcp_liveness_interval_must_be_nonnegative() -> None:
+    with pytest.raises(MeshtasticConfigError, match="interval_seconds must be >= 0"):
+        _config(tcp_liveness_interval_seconds=-1).validate()
