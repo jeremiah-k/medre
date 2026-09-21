@@ -801,39 +801,39 @@ and stop after one hang.
 #### Test volume by prefix group
 
 Counts below come from one collection snapshot of this tree: an unrestricted
-``pytest --collect-only -q -o addopts=''`` run for total cases and files, plus
-the default ``pytest --collect-only -q`` selection for deselection counts.
+`pytest --collect-only -q -o addopts=''` run for total cases and files, plus
+the default `pytest --collect-only -q` selection for deselection counts.
 Parameterized tests therefore count once per collected case, not once per Python
 test function. Timing values are coarse prior execution measurements and are not
 derived from that collection snapshot or additive.
 
-| Prefix group                                                  | Files   | Collected  | Deselected | Prior timing         |
-| ------------------------------------------------------------- | ------- | ---------- | ---------- | -------------------- |
-| `test_meshtastic*.py`                                         | 51      | 1,243      | 31         | ~44 s                |
-| `test_runtime*.py`                                            | 29      | 987        | 0          | ~34 s                |
-| `test_matrix*.py`                                             | 50      | 1,111      | 31         | ~29 s                |
-| `test_docs*.py`                                               | 13      | 801        | 0          | unmeasured           |
-| `test_meshcore*.py`                                           | 30      | 861        | 36         | ~30 s                |
-| `test_lxmf*.py`                                               | 36      | 874        | 45         | ~21 s                |
-| `test_cli*.py`                                                | 28      | 575        | 0          | ~60 s                |
-| `test_adapter*.py`                                            | 18      | 599        | 0          | unmeasured           |
-| `test_replay*.py`                                             | 22      | 410        | 0          | ~53 s                |
-| `test_capability*.py`                                         | 6       | 387        | 0          | unmeasured           |
-| `test_evidence*.py`                                           | 12      | 374        | 0          | unmeasured           |
-| `test_storage*.py`                                            | 17      | 377        | 0          | ~40 s                |
-| `test_delivery*.py`                                           | 13      | 456        | 0          | unmeasured           |
-| `test_config*.py`                                             | 15      | 513        | 0          | unmeasured           |
-| `test_architecture*.py`                                       | 11      | 285        | 0          | unmeasured           |
-| `test_cross*.py`                                              | 3       | 254        | 1          | unmeasured           |
-| `test_retry*.py`                                              | 19      | 276        | 0          | ~27 s                |
-| `test_pipeline*.py`                                           | 19      | 245        | 0          | ~30 s                |
-| `test_route*.py`                                              | 16      | 510        | 0          | unmeasured           |
-| `test_soak*`, `test_longrun*`, `test_extended*`               | 10      | 155        | 6          | **~60 s**            |
-| `conformance/`                                                | 8       | 156        | 0          | unmeasured           |
-| `lifecycle/`                                                  | 10      | 137        | 0          | unmeasured           |
-| `operational/`                                                | 4       | 62         | 0          | unmeasured           |
-| Other (boundary, canonical, rendering, drill, snapshot, etc.) | 202     | 5,094      | 29         | unmeasured           |
-| **Total**                                                     | **642** | **16,742** | **179**    | **~600–900 s est.**  |
+| Prefix group                                                  | Files   | Collected  | Deselected | Prior timing        |
+| ------------------------------------------------------------- | ------- | ---------- | ---------- | ------------------- |
+| `test_meshtastic*.py`                                         | 51      | 1,243      | 31         | ~44 s               |
+| `test_runtime*.py`                                            | 29      | 987        | 0          | ~34 s               |
+| `test_matrix*.py`                                             | 50      | 1,111      | 31         | ~29 s               |
+| `test_docs*.py`                                               | 13      | 801        | 0          | unmeasured          |
+| `test_meshcore*.py`                                           | 30      | 861        | 36         | ~30 s               |
+| `test_lxmf*.py`                                               | 36      | 874        | 45         | ~21 s               |
+| `test_cli*.py`                                                | 28      | 575        | 0          | ~60 s               |
+| `test_adapter*.py`                                            | 18      | 599        | 0          | unmeasured          |
+| `test_replay*.py`                                             | 22      | 410        | 0          | ~53 s               |
+| `test_capability*.py`                                         | 6       | 387        | 0          | unmeasured          |
+| `test_evidence*.py`                                           | 12      | 374        | 0          | unmeasured          |
+| `test_storage*.py`                                            | 17      | 377        | 0          | ~40 s               |
+| `test_delivery*.py`                                           | 13      | 456        | 0          | unmeasured          |
+| `test_config*.py`                                             | 15      | 513        | 0          | unmeasured          |
+| `test_architecture*.py`                                       | 11      | 285        | 0          | unmeasured          |
+| `test_cross*.py`                                              | 3       | 254        | 1          | unmeasured          |
+| `test_retry*.py`                                              | 19      | 276        | 0          | ~27 s               |
+| `test_pipeline*.py`                                           | 19      | 245        | 0          | ~30 s               |
+| `test_route*.py`                                              | 16      | 510        | 0          | unmeasured          |
+| `test_soak*`, `test_longrun*`, `test_extended*`               | 10      | 155        | 6          | **~60 s**           |
+| `conformance/`                                                | 8       | 156        | 0          | unmeasured          |
+| `lifecycle/`                                                  | 10      | 137        | 0          | unmeasured          |
+| `operational/`                                                | 4       | 62         | 0          | unmeasured          |
+| Other (boundary, canonical, rendering, drill, snapshot, etc.) | 202     | 5,094      | 29         | unmeasured          |
+| **Total**                                                     | **642** | **16,742** | **179**    | **~600–900 s est.** |
 
 #### Soak/longrun group — slowest per test
 
