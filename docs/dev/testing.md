@@ -72,7 +72,7 @@ class TestLegacyStorage(unittest.TestCase):
 ### Keep tests executable
 
 Every collected test should exercise an executable contract. Do not use
-``pass``/ellipsis-only test functions as placeholders for future, manual, or
+`pass`/ellipsis-only test functions as placeholders for future, manual, or
 hardware work. Record unexecuted readiness work in the release-readiness or
 known-limitations authorities and add the test when there is an executable
 path to assert.
@@ -796,32 +796,32 @@ and stop after one hang.
 
 #### Test volume by prefix group
 
-| Prefix group                                                  | Files    | Collected | Deselected | Estimated time      |
-| ------------------------------------------------------------- | -------- | --------- | ---------- | ------------------- |
-| `test_meshtastic*.py`                                         | 47       | 1,063     | 16         | ~44 s               |
-| `test_runtime*.py`                                            | 55       | 952       | 12         | ~34 s               |
-| `test_matrix*.py`                                             | 38       | 832       | 29         | ~29 s               |
-| `test_docs*.py`                                               | 18       | 729       | 0          | unmeasured          |
-| `test_meshcore*.py`                                           | 25       | 572       | 11         | ~30 s               |
-| `test_lxmf*.py`                                               | 25       | 585       | 30         | ~21 s               |
-| `test_cli*.py`                                                | 25       | 524       | 0          | ~60 s               |
-| `test_adapter*.py`                                            | 11       | 448       | 0          | unmeasured          |
-| `test_replay*.py`                                             | 23       | 413       | 0          | ~53 s               |
-| `test_capability*.py`                                         | 6        | 391       | 0          | unmeasured          |
-| `test_evidence*.py`                                           | 14       | 373       | 0          | unmeasured          |
-| `test_storage*.py`                                            | 16       | 357       | 0          | ~40 s               |
-| `test_delivery*.py`                                           | 11       | 344       | 0          | unmeasured          |
-| `test_config*.py`                                             | 7        | 308       | 0          | unmeasured          |
-| `test_architecture*.py`                                       | 11       | 285       | 0          | unmeasured          |
-| `test_cross*.py`                                              | 6        | 253       | 0          | unmeasured          |
-| `test_retry*.py`                                              | 14       | 248       | 0          | ~27 s               |
-| `test_pipeline*.py`                                           | 17       | 247       | 0          | ~30 s               |
-| `test_route*.py`                                              | 10       | 242       | 0          | unmeasured          |
-| `test_soak*`, `test_longrun*`, `test_extended*`               | 8        | 149       | 6          | **~60 s**           |
-| `conformance/`                                                | 8        | 153       | 0          | unmeasured          |
-| `lifecycle/`                                                  | 9        | 113       | 0          | unmeasured          |
-| `operational/`                                                | 4        | 57        | 0          | unmeasured          |
-| Other (boundary, canonical, rendering, drill, snapshot, etc.) | ~80      | ~1,900    | varies     | unmeasured          |
+| Prefix group                                                  | Files    | Collected  | Deselected | Estimated time      |
+| ------------------------------------------------------------- | -------- | ---------- | ---------- | ------------------- |
+| `test_meshtastic*.py`                                         | 47       | 1,063      | 16         | ~44 s               |
+| `test_runtime*.py`                                            | 55       | 952        | 12         | ~34 s               |
+| `test_matrix*.py`                                             | 38       | 832        | 29         | ~29 s               |
+| `test_docs*.py`                                               | 18       | 729        | 0          | unmeasured          |
+| `test_meshcore*.py`                                           | 25       | 572        | 11         | ~30 s               |
+| `test_lxmf*.py`                                               | 25       | 585        | 30         | ~21 s               |
+| `test_cli*.py`                                                | 25       | 524        | 0          | ~60 s               |
+| `test_adapter*.py`                                            | 11       | 448        | 0          | unmeasured          |
+| `test_replay*.py`                                             | 23       | 413        | 0          | ~53 s               |
+| `test_capability*.py`                                         | 6        | 391        | 0          | unmeasured          |
+| `test_evidence*.py`                                           | 14       | 373        | 0          | unmeasured          |
+| `test_storage*.py`                                            | 16       | 357        | 0          | ~40 s               |
+| `test_delivery*.py`                                           | 11       | 344        | 0          | unmeasured          |
+| `test_config*.py`                                             | 7        | 308        | 0          | unmeasured          |
+| `test_architecture*.py`                                       | 11       | 285        | 0          | unmeasured          |
+| `test_cross*.py`                                              | 6        | 253        | 0          | unmeasured          |
+| `test_retry*.py`                                              | 14       | 248        | 0          | ~27 s               |
+| `test_pipeline*.py`                                           | 17       | 247        | 0          | ~30 s               |
+| `test_route*.py`                                              | 10       | 242        | 0          | unmeasured          |
+| `test_soak*`, `test_longrun*`, `test_extended*`               | 8        | 149        | 6          | **~60 s**           |
+| `conformance/`                                                | 8        | 153        | 0          | unmeasured          |
+| `lifecycle/`                                                  | 9        | 113        | 0          | unmeasured          |
+| `operational/`                                                | 4        | 57         | 0          | unmeasured          |
+| Other (boundary, canonical, rendering, drill, snapshot, etc.) | ~80      | ~1,900     | varies     | unmeasured          |
 | **Total**                                                     | **~640** | **~13.7k** | **~125**   | **~600–900 s est.** |
 
 #### Soak/longrun group — slowest per test

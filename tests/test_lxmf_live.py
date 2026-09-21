@@ -541,7 +541,6 @@ class TestLxmfLiveSmoke:
     # 4. Delivery callback validation (inbound path)
     # ===================================================================
 
-
     async def test_inbound_simulate_publishes_with_fake(self):
         """Verify inbound pipeline via simulate_inbound (fake mode).
 
@@ -1144,6 +1143,7 @@ class TestLxmfLiveSmoke:
             ), "Expected 'delivery_state' in lxmf delivery metadata"
         finally:
             await bounded(adapter.stop(), _ADAPTER_STOP_TIMEOUT, "lxmf stop live send")
+
 
 # ---------------------------------------------------------------------------
 # Two-process topology tests

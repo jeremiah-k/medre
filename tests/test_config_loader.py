@@ -100,7 +100,6 @@ runtime: {}
 # ---------------------------------------------------------------------------
 
 
-
 @pytest.fixture()
 def config_file(tmp_path: Path) -> Path:
     """Write SAMPLE_YAML to a temp file and return its path."""

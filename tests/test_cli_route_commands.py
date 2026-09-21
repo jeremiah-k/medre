@@ -26,7 +26,6 @@ pytestmark = pytest.mark.usefixtures("isolated_config_env")
 # ---------------------------------------------------------------------------
 
 
-
 @pytest.fixture()
 def config_with_routes(tmp_path: Path) -> Path:
     p = tmp_path / "config.yaml"

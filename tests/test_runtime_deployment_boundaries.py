@@ -46,16 +46,17 @@ from pathlib import Path
 import pytest
 
 from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
-from tests.helpers.source_reader import source_of as _source_of
-
 from tests.helpers.import_scanner import (
     ADAPTER_CONFIG_PREFIXES as _ADAPTER_CONFIG_PREFIXES,
-    ADAPTER_FAKE_PREFIXES as _ADAPTER_FAKE_PREFIXES,
-    ADAPTER_PREFIXES as _ADAPTER_PREFIXES,
-    ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES as _ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES,
-    banned_imports as _banned_imports,
-    import_lines as _import_lines,
 )
+from tests.helpers.import_scanner import ADAPTER_FAKE_PREFIXES as _ADAPTER_FAKE_PREFIXES
+from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
+from tests.helpers.import_scanner import (
+    ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES as _ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES,
+)
+from tests.helpers.import_scanner import banned_imports as _banned_imports
+from tests.helpers.import_scanner import import_lines as _import_lines
+from tests.helpers.source_reader import source_of as _source_of
 
 _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
     sdk
@@ -351,9 +352,7 @@ class TestRuntimeCoreNoAdapterRuntime:
                 if "fakes.adapter" in line:
                     continue
                 # Allow imports from fakes.* modules (test doubles for real transports)
-                if any(
-                    f"from {prefix}." in line for prefix in _ADAPTER_FAKE_PREFIXES
-                ):
+                if any(f"from {prefix}." in line for prefix in _ADAPTER_FAKE_PREFIXES):
                     continue
             allowed_lines.append(line)
 
@@ -372,9 +371,7 @@ class TestRuntimeCoreNoAdapterRuntime:
             if line.startswith("from medre.adapters."):
                 if "fakes.adapter" in line:
                     continue
-                if any(
-                    f"from {prefix}." in line for prefix in _ADAPTER_FAKE_PREFIXES
-                ):
+                if any(f"from {prefix}." in line for prefix in _ADAPTER_FAKE_PREFIXES):
                     continue
             allowed_lines.append(line)
         # The old config import should NOT be filtered out

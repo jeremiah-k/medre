@@ -16,17 +16,13 @@ Uses no live dependencies.
 
 from __future__ import annotations
 
-
 import pytest
 
 from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
+from tests.helpers.import_scanner import banned_imports as _banned_imports
+from tests.helpers.import_scanner import import_lines as _import_lines
 from tests.helpers.source_reader import source_of as _source_of
-
-from tests.helpers.import_scanner import (
-    ADAPTER_PREFIXES as _ADAPTER_PREFIXES,
-    banned_imports as _banned_imports,
-    import_lines as _import_lines,
-)
 
 # ---------------------------------------------------------------------------
 # Shared constants
@@ -149,19 +145,19 @@ class TestSupervisionImportIndependence:
 
     def test_import_succeeds_without_transport_sdks(self) -> None:
         """Importing supervision must not trigger any SDK import."""
-        from medre.core.supervision.supervision import (
-            RuntimeHealth,  # noqa: F401
-            classify_runtime_health,  # noqa: F401
+        from medre.core.supervision.supervision import RuntimeHealth  # noqa: F401
+        from medre.core.supervision.supervision import (  # noqa: F401
+            classify_runtime_health,
         )
 
     def test_import_via_runtime_package(self) -> None:
         """Supervision symbols are available via the runtime package."""
-        from medre.core.supervision import (
-            AdapterFailureSeverity,  # noqa: F401
-            RuntimeHealth,  # noqa: F401
-            StartupOutcome,  # noqa: F401
-            classify_adapter_failure_severity,  # noqa: F401
-            classify_runtime_health,  # noqa: F401
-            classify_startup_outcome,  # noqa: F401
-            runtime_supervision_snapshot,  # noqa: F401
+        from medre.core.supervision import AdapterFailureSeverity  # noqa: F401
+        from medre.core.supervision import RuntimeHealth  # noqa: F401
+        from medre.core.supervision import StartupOutcome  # noqa: F401
+        from medre.core.supervision import classify_runtime_health  # noqa: F401
+        from medre.core.supervision import classify_startup_outcome  # noqa: F401
+        from medre.core.supervision import runtime_supervision_snapshot  # noqa: F401
+        from medre.core.supervision import (  # noqa: F401
+            classify_adapter_failure_severity,
         )

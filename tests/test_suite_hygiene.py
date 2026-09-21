@@ -22,7 +22,9 @@ def _iter_collectable_test_functions(tree: ast.Module):
                 yield member
 
 
-def _effective_test_body(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.stmt]:
+def _effective_test_body(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> list[ast.stmt]:
     """Return a test body without its optional leading docstring."""
     body = list(node.body)
     if (

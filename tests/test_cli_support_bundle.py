@@ -83,7 +83,6 @@ name = "toml-reject"
 # ---------------------------------------------------------------------------
 
 
-
 def _write(tmp_path: Path, text: str, name: str = "config.yaml") -> Path:
     p = tmp_path / name
     p.write_text(text)

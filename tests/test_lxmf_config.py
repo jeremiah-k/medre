@@ -243,6 +243,7 @@ class TestLxmfConfigInvalid:
         with pytest.raises(ValueError):
             config.validate()
 
+
 class TestLxmfConfigMetadataSafety:
     """metadata_embedding remains safe — no secrets in envelopes."""
 

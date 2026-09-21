@@ -23,7 +23,6 @@ pytestmark = pytest.mark.usefixtures("isolated_config_env")
 # ---------------------------------------------------------------------------
 
 
-
 def _seed_inspect_db(
     db_path: str,
     event_id: str = "evt-inspect-1",
@@ -497,6 +496,7 @@ class TestInspectReceipts:
         receipt = parsed[0]
         keys = list(receipt.keys())
         assert keys == sorted(keys)
+
 
 # ---------------------------------------------------------------------------
 # inspect native-ref

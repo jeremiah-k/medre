@@ -440,7 +440,6 @@ class TestMatrixLiveSmoke:
     # For now, live coverage of suppression is explicitly limited to
     # the documented note above and the deterministic fake/unit tests.
 
-
     # -- Send and verify: echo suppression diagnostics ------------------------
 
     async def test_live_send_does_not_publish_self_echo_when_observed(self):

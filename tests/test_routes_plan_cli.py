@@ -219,7 +219,6 @@ def _write_config(tmp_path: Path, yaml_text: str, name: str = "config.yaml") -> 
     return p
 
 
-
 # ===========================================================================
 # 1. Valid config prints plan → exit 0
 # ===========================================================================

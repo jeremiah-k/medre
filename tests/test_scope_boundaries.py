@@ -36,14 +36,10 @@ from pathlib import Path
 import pytest
 
 from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
+from tests.helpers.import_scanner import banned_imports as _banned_imports
+from tests.helpers.import_scanner import import_lines as _import_lines
 from tests.helpers.source_reader import source_of as _source_of
-
-from tests.helpers.import_scanner import (
-    ADAPTER_COMPAT_MODULES as _ADAPTER_COMPAT_MODULES,
-    ADAPTER_PREFIXES as _ADAPTER_PREFIXES,
-    banned_imports as _banned_imports,
-    import_lines as _import_lines,
-)
 
 # ---------------------------------------------------------------------------
 # Shared helpers (reused from test_operational_boundaries.py)

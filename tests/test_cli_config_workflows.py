@@ -284,6 +284,7 @@ class TestConfigSampleExpanded:
         assert "level" in logging_cfg
         assert "format" in logging_cfg
 
+
 # ===================================================================
 # Cross-cutting: no-Traceback guarantee for config-related paths
 # ===================================================================

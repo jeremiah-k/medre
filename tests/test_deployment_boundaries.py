@@ -32,6 +32,15 @@ from typing import Any
 import pytest
 
 from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
+from tests.helpers.import_scanner import (
+    ADAPTER_FROM_IMPORT_PREFIXES as _ADAPTER_FROM_IMPORT_PREFIXES,
+)
+from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
+from tests.helpers.import_scanner import (
+    ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES as _ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES,
+)
+from tests.helpers.import_scanner import banned_imports as _banned_imports
+from tests.helpers.import_scanner import import_lines as _import_lines
 from tests.helpers.pytest_markers import (
     declared_pytest_markers,
     marker_is_explicitly_excluded,
@@ -39,15 +48,6 @@ from tests.helpers.pytest_markers import (
 )
 from tests.helpers.sdk_constants import _SDK_INSTANTIATION_PATTERNS
 from tests.helpers.source_reader import source_of as _source_of
-
-from tests.helpers.import_scanner import (
-    ADAPTER_COMPAT_MODULES as _ADAPTER_COMPAT_MODULES,
-    ADAPTER_FROM_IMPORT_PREFIXES as _ADAPTER_FROM_IMPORT_PREFIXES,
-    ADAPTER_PREFIXES as _ADAPTER_PREFIXES,
-    ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES as _ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES,
-    banned_imports as _banned_imports,
-    import_lines as _import_lines,
-)
 
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_architectural_boundaries.py)

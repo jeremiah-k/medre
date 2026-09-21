@@ -141,7 +141,6 @@ adapters:
 # ---------------------------------------------------------------------------
 
 
-
 def _write_config(tmp_path: Path, text: str, name: str = "config.yaml") -> Path:
     """Write *text* to a temp YAML file and return its path."""
     p = tmp_path / name
