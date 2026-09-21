@@ -77,10 +77,12 @@ markers = [
 ]
 addopts = "-m 'not live and not docker and not hardware and not local_integration and not soak and not matrix_sdk and not lxmf_sdk and not meshtastic_sdk and not meshcore_sdk'"
 filterwarnings = ["error"]
-# Dump all thread tracebacks when a single test exceeds this budget, so a
-# hung suite names the blocking stack in CI instead of silently stalling
-# until the job-level timeout.
+# Dump all thread tracebacks before pytest-timeout terminates a stuck test.
+# This keeps CI diagnostic while also guaranteeing that one test cannot stall
+# a matrix leg until the workflow/job-level timeout.
 faulthandler_timeout = 300
+timeout = 360
+timeout_method = "thread"
 
 [tool.ruff]
 line-length = 88
