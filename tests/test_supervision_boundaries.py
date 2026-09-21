@@ -16,24 +16,18 @@ Uses no live dependencies.
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
 from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
+from tests.helpers.import_scanner import banned_imports as _banned_imports
+from tests.helpers.import_scanner import import_lines as _import_lines
 from tests.helpers.source_reader import source_of as _source_of
 
 # ---------------------------------------------------------------------------
 # Shared constants
 # ---------------------------------------------------------------------------
 
-_ADAPTER_PREFIXES = (
-    "medre.adapters.matrix",
-    "medre.adapters.meshtastic",
-    "medre.adapters.meshcore",
-    "medre.adapters.lxmf",
-)
-"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
 _RUNTIME_MODULES = (
     "medre.core.supervision.supervision",
@@ -62,50 +56,13 @@ _TRANSPORT_AGNOSTIC_CORE_MODULES = (
 """Core modules (storage backend, replay engine) that must remain transport-agnostic."""
 
 
-def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text."""
-    return [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(("import ", "from "))
-    ]
-
-
-def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package."""
-    found: list[str] = []
-    for line in lines:
-        for b in banned:
-            if re.search(rf"\b{re.escape(b)}\b", line):
-                found.append(line)
-                break
-    return found
-
-
 # ===================================================================
 # A) Supervision module boundary
 # ===================================================================
 
 
 class TestSupervisionBoundary:
-    """medre.core.supervision.supervision must not import transport SDKs
-    or concrete adapter packages."""
-
-    def test_no_transport_sdk_imports(self) -> None:
-        source = _source_of("medre.core.supervision.supervision")
-        lines = _import_lines(source)
-
-        banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], f"supervision.py imports transport SDKs: {banned_sdk}"
-
-    def test_no_concrete_adapter_imports(self) -> None:
-        source = _source_of("medre.core.supervision.supervision")
-        lines = _import_lines(source)
-
-        banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert (
-            banned_adapters == []
-        ), f"supervision.py imports concrete adapter packages: {banned_adapters}"
+    """Additional import-shape constraint specific to supervision.py."""
 
     def test_only_imports_core_and_lifecycle(self) -> None:
         """Supervision should only import from core/lifecycle."""
@@ -125,87 +82,7 @@ class TestSupervisionBoundary:
 
 
 # ===================================================================
-# B) Diagnostics module boundary
-# ===================================================================
-
-
-class TestDiagnosticsBoundary:
-    """medre.core.supervision.diagnostics must not import transport SDKs
-    or concrete adapter packages."""
-
-    def test_no_transport_sdk_imports(self) -> None:
-        source = _source_of("medre.core.supervision.diagnostics")
-        lines = _import_lines(source)
-
-        banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], f"diagnostics.py imports transport SDKs: {banned_sdk}"
-
-    def test_no_concrete_adapter_imports(self) -> None:
-        source = _source_of("medre.core.supervision.diagnostics")
-        lines = _import_lines(source)
-
-        banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert (
-            banned_adapters == []
-        ), f"diagnostics.py imports concrete adapter packages: {banned_adapters}"
-
-
-# ===================================================================
-# C) Health module boundary
-# ===================================================================
-
-
-class TestHealthBoundary:
-    """medre.core.supervision.health must not import transport SDKs
-    or concrete adapter packages."""
-
-    def test_no_transport_sdk_imports(self) -> None:
-        source = _source_of("medre.core.supervision.health")
-        lines = _import_lines(source)
-
-        banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert banned_sdk == [], f"health.py imports transport SDKs: {banned_sdk}"
-
-    def test_no_concrete_adapter_imports(self) -> None:
-        source = _source_of("medre.core.supervision.health")
-        lines = _import_lines(source)
-
-        banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert (
-            banned_adapters == []
-        ), f"health.py imports concrete adapter packages: {banned_adapters}"
-
-
-# ===================================================================
-# D) Diagnostic contract boundary
-# ===================================================================
-
-
-class TestDiagnosticContractBoundary:
-    """medre.core.supervision.diagnostic_contract must not import transport SDKs
-    or concrete adapter packages."""
-
-    def test_no_transport_sdk_imports(self) -> None:
-        source = _source_of("medre.core.supervision.diagnostic_contract")
-        lines = _import_lines(source)
-
-        banned_sdk = _banned_imports(lines, _SDK_PACKAGES)
-        assert (
-            banned_sdk == []
-        ), f"diagnostic_contract.py imports transport SDKs: {banned_sdk}"
-
-    def test_no_concrete_adapter_imports(self) -> None:
-        source = _source_of("medre.core.supervision.diagnostic_contract")
-        lines = _import_lines(source)
-
-        banned_adapters = _banned_imports(lines, _ADAPTER_PREFIXES)
-        assert (
-            banned_adapters == []
-        ), f"diagnostic_contract.py imports concrete adapter packages: {banned_adapters}"
-
-
-# ===================================================================
-# E) Persistence / storage boundary
+# B) Persistence / storage boundary
 # ===================================================================
 
 
@@ -232,7 +109,7 @@ class TestPersistenceBoundary:
 
 
 # ===================================================================
-# F) All runtime core modules remain transport-agnostic
+# C) All runtime core modules remain transport-agnostic
 # ===================================================================
 
 
@@ -259,7 +136,7 @@ class TestRuntimeCoreAgnostic:
 
 
 # ===================================================================
-# G) Runtime health classification is importable without transport deps
+# D) Runtime health classification is importable without transport deps
 # ===================================================================
 
 
@@ -268,19 +145,19 @@ class TestSupervisionImportIndependence:
 
     def test_import_succeeds_without_transport_sdks(self) -> None:
         """Importing supervision must not trigger any SDK import."""
-        from medre.core.supervision.supervision import (
-            RuntimeHealth,  # noqa: F401
-            classify_runtime_health,  # noqa: F401
+        from medre.core.supervision.supervision import RuntimeHealth  # noqa: F401
+        from medre.core.supervision.supervision import (  # noqa: F401
+            classify_runtime_health,
         )
 
     def test_import_via_runtime_package(self) -> None:
         """Supervision symbols are available via the runtime package."""
-        from medre.core.supervision import (
-            AdapterFailureSeverity,  # noqa: F401
-            RuntimeHealth,  # noqa: F401
-            StartupOutcome,  # noqa: F401
-            classify_adapter_failure_severity,  # noqa: F401
-            classify_runtime_health,  # noqa: F401
-            classify_startup_outcome,  # noqa: F401
-            runtime_supervision_snapshot,  # noqa: F401
+        from medre.core.supervision import AdapterFailureSeverity  # noqa: F401
+        from medre.core.supervision import RuntimeHealth  # noqa: F401
+        from medre.core.supervision import StartupOutcome  # noqa: F401
+        from medre.core.supervision import classify_runtime_health  # noqa: F401
+        from medre.core.supervision import classify_startup_outcome  # noqa: F401
+        from medre.core.supervision import runtime_supervision_snapshot  # noqa: F401
+        from medre.core.supervision import (  # noqa: F401
+            classify_adapter_failure_severity,
         )

@@ -1099,44 +1099,6 @@ class TestDisplayNameNormalization:
         ndata = published[0].metadata.native.data
         assert ndata["matrix"]["sender_display_name"] == "Bob Display"
 
-    # --- FIX 1: _matrix_display_name handles nio user objects -----------
-
-    async def test_display_name_from_user_object_display_name(self) -> None:
-        """room.users[sender] object with display_name attr enriches displayname."""
-        config = _make_matrix_config(user_id="@bot:example.com")
-        adapter = MatrixAdapter(config)
-        published, ctx = _make_adapter_context()
-        adapter.ctx = ctx
-        adapter._started = True
-
-        event = _make_fake_nio_event(sender="@tad:example.com")
-        room = _make_fake_room(room_id="!room:server")
-
-        await adapter._on_room_message(
-            _to_event_dict(room, event, sender_display_name="Tad Chilly")
-        )
-        assert len(published) == 1
-        ndata = published[0].metadata.native.data
-        assert ndata["matrix"]["sender_display_name"] == "Tad Chilly"
-
-    async def test_display_name_from_user_object_displayname(self) -> None:
-        """room.users[sender] object with displayname attr works."""
-        config = _make_matrix_config(user_id="@bot:example.com")
-        adapter = MatrixAdapter(config)
-        published, ctx = _make_adapter_context()
-        adapter.ctx = ctx
-        adapter._started = True
-
-        event = _make_fake_nio_event(sender="@tad:example.com")
-        room = _make_fake_room(room_id="!room:server")
-
-        await adapter._on_room_message(
-            _to_event_dict(room, event, sender_display_name="Tad Chilly")
-        )
-        assert len(published) == 1
-        ndata = published[0].metadata.native.data
-        assert ndata["matrix"]["sender_display_name"] == "Tad Chilly"
-
     async def test_blank_display_name_falls_back_to_sender(self) -> None:
         """Blank display_name falls back to sender MXID."""
         config = _make_matrix_config(user_id="@bot:example.com")

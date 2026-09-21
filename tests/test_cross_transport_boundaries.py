@@ -3,9 +3,9 @@
 These tests verify architectural boundaries across all registered built-in
 transports uniformly:
 
-1. Core import boundary: core packages must not import concrete adapter
-   packages (medre.adapters.{matrix,meshtastic,meshcore,lxmf}) or transport
-   SDKs (nio, meshtastic, meshcore, RNS, lxmf).  Importing from
+1. Core import boundary: core packages must not import concrete registered
+   adapter packages (``medre.adapters.<transport>``) or transport SDKs.
+   Importing from
    medre.core.contracts.adapter (protocol/base types) is permitted.
 
 2. Runtime import boundary: runtime/diagnostics/health/capability modules
@@ -40,6 +40,7 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.import_scanner import import_lines as _import_lines
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,15 +58,6 @@ def _read_module_source(module) -> str:
     assert module.__file__ is not None, f"{module} has no __file__"
     with open(module.__file__) as f:
         return f.read()
-
-
-def _import_lines(source: str) -> list[str]:
-    """Extract top-level import/from-import lines from source."""
-    return [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(("import ", "from "))
-    ]
 
 
 def _method_defs(source: str) -> list[str]:
@@ -98,7 +90,7 @@ def _adapter_modules(transport: str) -> list[str]:
 
 
 def _sibling_transports(transport: str) -> tuple[str, ...]:
-    """Return the other three transports (siblings)."""
+    """Return the other registered transports (siblings)."""
     return tuple(t for t in _ADAPTER_TRANSPORTS if t != transport)
 
 

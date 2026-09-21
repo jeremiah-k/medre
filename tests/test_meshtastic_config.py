@@ -122,11 +122,6 @@ class TestMeshtasticConfigInvalid:
         with pytest.raises(ValueError):
             config.validate()
 
-    def test_config_error_is_value_error(self) -> None:
-        config = MeshtasticConfig(adapter_id="")
-        with pytest.raises(ValueError):
-            config.validate()
-
     def test_ble_without_address_raises(self) -> None:
         config = MeshtasticConfig(
             adapter_id="mesh-1",

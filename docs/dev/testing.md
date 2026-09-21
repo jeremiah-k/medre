@@ -4,8 +4,10 @@ This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
 
-The test suite has 14k+ tests (~125 deselected by the
-live/docker/hardware marker policy). Every transport has a
+The test suite has roughly 13.7k test-function definitions. Parametrization
+expands those definitions to 16,742 collected pytest cases on the current tree;
+16,563 are selected by default and 179 are deselected by the
+live/docker/hardware/SDK/integration marker policy. Every transport has a
 fake adapter that exercises the full pipeline. The standard `pytest -q` run
 requires a generous timeout—the full suite can exceed 600 s on typical
 hardware. See the [README](../../README.md) for project context and the
@@ -68,6 +70,14 @@ class TestLegacyStorage(unittest.TestCase):
     def setUp(self):
         self.store = InMemoryStorage()
 ```
+
+### Keep tests executable
+
+Every collected test should exercise an executable contract. Do not use
+`pass`/ellipsis-only test functions as placeholders for future, manual, or
+hardware work. Record unexecuted readiness work in the release-readiness or
+known-limitations authorities and add the test when there is an executable
+path to assert.
 
 ### Use pytest fixtures over setUp/tearDown
 
@@ -599,7 +609,7 @@ edit makes unnecessary.
 
 ```bash
 PYTHONPATH=src pytest -q
-# Expected: 14k+ collected, ~125 deselected (live/docker/hardware).
+# Current snapshot: 16,563/16,742 collected, 179 deselected by default markers.
 # The full suite takes 600–900 s on typical hardware; use prefix slices
 # during development (see slow-suite partition strategy below).
 ```
@@ -765,7 +775,8 @@ always re-run suspect files in isolation to confirm.
    python -m pytest --collect-only -q
    ```
 
-   Expected: 14k+ collected, ~125 deselected. Collection takes ~11 s.
+   Expected snapshot: 16,563/16,742 collected, 179 deselected. Collection
+   timing varies by host.
 
 3. **Targeted files for changed modules** — run only the test files that
    exercise the code you changed. Use file paths, not `-k` keyword filters,
@@ -781,46 +792,55 @@ always re-run suspect files in isolation to confirm.
 
 ### Slow-suite partition strategy
 
-The full suite at 14,000+ tests cannot run within typical agent timeouts
-(300–600 s). Use directory/prefix slicing to partition the work. The groups
+The default-selected suite at roughly 16,563 collected cases cannot run within
+typical agent timeouts (300–600 s). Use directory/prefix slicing to partition
+the work. The groups
 below are ordered roughly from slowest to fastest per test; time your slices
 and stop after one hang.
 
 #### Test volume by prefix group
 
-| Prefix group                                                  | Files    | Collected | Deselected | Estimated time      |
-| ------------------------------------------------------------- | -------- | --------- | ---------- | ------------------- |
-| `test_meshtastic*.py`                                         | 47       | 1,063     | 16         | ~44 s               |
-| `test_runtime*.py`                                            | 55       | 952       | 12         | ~34 s               |
-| `test_matrix*.py`                                             | 38       | 832       | 29         | ~29 s               |
-| `test_docs*.py`                                               | 18       | 729       | 0          | unmeasured          |
-| `test_meshcore*.py`                                           | 25       | 572       | 11         | ~30 s               |
-| `test_lxmf*.py`                                               | 25       | 585       | 30         | ~21 s               |
-| `test_cli*.py`                                                | 25       | 524       | 0          | ~60 s               |
-| `test_adapter*.py`                                            | 11       | 448       | 0          | unmeasured          |
-| `test_replay*.py`                                             | 23       | 413       | 0          | ~53 s               |
-| `test_capability*.py`                                         | 6        | 391       | 0          | unmeasured          |
-| `test_evidence*.py`                                           | 14       | 373       | 0          | unmeasured          |
-| `test_storage*.py`                                            | 16       | 357       | 0          | ~40 s               |
-| `test_delivery*.py`                                           | 11       | 344       | 0          | unmeasured          |
-| `test_config*.py`                                             | 7        | 308       | 0          | unmeasured          |
-| `test_architecture*.py`                                       | 11       | 285       | 0          | unmeasured          |
-| `test_cross*.py`                                              | 6        | 253       | 0          | unmeasured          |
-| `test_retry*.py`                                              | 14       | 248       | 0          | ~27 s               |
-| `test_pipeline*.py`                                           | 17       | 247       | 0          | ~30 s               |
-| `test_route*.py`                                              | 10       | 242       | 0          | unmeasured          |
-| `test_soak*`, `test_longrun*`, `test_extended*`               | 8        | 149       | 6          | **~60 s**           |
-| `conformance/`                                                | 8        | 153       | 0          | unmeasured          |
-| `lifecycle/`                                                  | 9        | 113       | 0          | unmeasured          |
-| `operational/`                                                | 4        | 57        | 0          | unmeasured          |
-| Other (boundary, canonical, rendering, drill, snapshot, etc.) | ~80      | ~1,900    | varies     | unmeasured          |
-| **Total**                                                     | **~460** | **~14k+** | **~125**   | **~600–900 s est.** |
+Counts below come from one collection snapshot of this tree: an unrestricted
+`pytest --collect-only -q -o addopts=''` run for total cases and files, plus
+the default `pytest --collect-only -q` selection for deselection counts.
+Parameterized tests therefore count once per collected case, not once per Python
+test function. Timing values are coarse prior execution measurements and are not
+derived from that collection snapshot or additive.
+
+| Prefix group                                                  | Files   | Collected  | Deselected | Prior timing        |
+| ------------------------------------------------------------- | ------- | ---------- | ---------- | ------------------- |
+| `test_meshtastic*.py`                                         | 51      | 1,243      | 31         | ~44 s               |
+| `test_runtime*.py`                                            | 29      | 987        | 0          | ~34 s               |
+| `test_matrix*.py`                                             | 50      | 1,111      | 31         | ~29 s               |
+| `test_docs*.py`                                               | 13      | 801        | 0          | unmeasured          |
+| `test_meshcore*.py`                                           | 30      | 861        | 36         | ~30 s               |
+| `test_lxmf*.py`                                               | 36      | 874        | 45         | ~21 s               |
+| `test_cli*.py`                                                | 28      | 575        | 0          | ~60 s               |
+| `test_adapter*.py`                                            | 18      | 599        | 0          | unmeasured          |
+| `test_replay*.py`                                             | 22      | 410        | 0          | ~53 s               |
+| `test_capability*.py`                                         | 6       | 387        | 0          | unmeasured          |
+| `test_evidence*.py`                                           | 12      | 374        | 0          | unmeasured          |
+| `test_storage*.py`                                            | 17      | 377        | 0          | ~40 s               |
+| `test_delivery*.py`                                           | 13      | 456        | 0          | unmeasured          |
+| `test_config*.py`                                             | 15      | 513        | 0          | unmeasured          |
+| `test_architecture*.py`                                       | 11      | 285        | 0          | unmeasured          |
+| `test_cross*.py`                                              | 3       | 254        | 1          | unmeasured          |
+| `test_retry*.py`                                              | 19      | 276        | 0          | ~27 s               |
+| `test_pipeline*.py`                                           | 19      | 245        | 0          | ~30 s               |
+| `test_route*.py`                                              | 16      | 510        | 0          | unmeasured          |
+| `test_soak*`, `test_longrun*`, `test_extended*`               | 10      | 155        | 6          | **~60 s**           |
+| `conformance/`                                                | 8       | 156        | 0          | unmeasured          |
+| `lifecycle/`                                                  | 10      | 137        | 0          | unmeasured          |
+| `operational/`                                                | 4       | 62         | 0          | unmeasured          |
+| Other (boundary, canonical, rendering, drill, snapshot, etc.) | 202     | 5,094      | 29         | unmeasured          |
+| **Total**                                                     | **642** | **16,742** | **179**    | **~600–900 s est.** |
 
 #### Soak/longrun group — slowest per test
 
 The `test_soak*.py`, `test_longrun*.py`, and `test_extended_longrun*.py` files
-contain 149 tests that average ~0.4 s/test (60 s total). This is 10× slower
-than the runtime or matrix groups (~0.03 s/test). Run this group separately
+contain 155 collected cases; 149 are selected by default and averaged ~0.4 s/test
+in the prior timing snapshot (about 60 s total). This is 10× slower than the
+runtime or matrix groups (~0.03 s/test). Run this group separately
 and only when soak/longrun stability is explicitly in scope.
 
 #### Partition commands

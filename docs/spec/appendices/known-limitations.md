@@ -11,19 +11,22 @@ behaviour.
 > because the limitation is replaced by a different constraint), update
 > this appendix in the same change.
 
-## 1. Meshtastic → Matrix Automated Inbound Bridge
+## 1. Meshtastic → Matrix Live Inbound Evidence
 
-The automated Meshtastic-to-Matrix inbound bridge test class is
-**permanently skipped**. Reliability is not yet sufficient for CI.
+The Meshtastic-to-Matrix inbound path has an opt-in hardware harness, but it is
+not a default CI gate and current release readiness does not record physical-radio
+execution evidence for the current tree.
 
 - **Source test:**
-  `tests/test_live_matrix_meshtastic_bridge.py::TestMeshtasticToMatrix`
-  (`@pytest.mark.skip(reason="Meshtastic → Matrix automated inbound not yet reliable")`).
-- **Operator action today:** manual testing via the operator runbook in
-  `docs/ops/diagnostics-and-evidence.md`.
-- **Direction:** The live matrix/meshtastic bridge module exists
-  (`tests/operational/test_matrix_meshtastic_relations.py` and friends)
-  but the inbound bridge is not currently exercised in CI.
+  `tests/test_live_matrix_radio_bridge.py::test_radio_to_matrix_three_legs_relayed_encrypted`
+  exercises a real Meshtastic peer through the production runtime and verifies
+  canonical admission plus Matrix delivery evidence when the required hardware
+  and credentials are available.
+- **Default CI:** the hardware-marked harness is skipped unless its explicit live
+  prerequisites are configured. Synthetic and Docker/local-integration coverage
+  do not promote this row to physical live validation.
+- **Operator action today:** use the live/hardware harness and the procedures in
+  `docs/ops/diagnostics-and-evidence.md` when recording physical-radio evidence.
 
 ## 2. Delivery-Stage Policy Reserved Extension Point
 

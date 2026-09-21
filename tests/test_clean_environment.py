@@ -39,6 +39,8 @@ from typing import Any
 
 import pytest
 
+from medre.adapter_registry import registered_transports
+
 # ---------------------------------------------------------------------------
 # Repo paths
 # ---------------------------------------------------------------------------
@@ -441,11 +443,11 @@ class TestConfigSampleCleanEnv:
         assert "logging" in parsed, "sample config missing 'logging'"
 
     def test_sample_config_mentions_all_transport_types(self) -> None:
-        """Sample should document all four transport adapter types."""
+        """Sample should document every registered transport adapter type."""
         from medre.config.sample import generate_sample_config
 
         sample = generate_sample_config()
-        for transport in ("matrix", "meshtastic", "meshcore", "lxmf"):
+        for transport in registered_transports():
             assert (
                 transport in sample.lower()
             ), f"sample config does not mention transport {transport!r}"
@@ -700,9 +702,10 @@ class TestReproducibilityEvidence:
         """
         deps = self._project.get("dependencies", [])
         names = {_dep_name(d) for d in deps}
-        assert names == {"msgspec", "pyyaml"}, (
-            f"Base dependencies changed: expected {{msgspec, pyyaml}}, got {names}"
-        )
+        assert names == {
+            "msgspec",
+            "pyyaml",
+        }, f"Base dependencies changed: expected {{msgspec, pyyaml}}, got {names}"
         unpinned = [d for d in deps if "==" not in d]
         assert not unpinned, (
             f"Base dependencies must be exact pins (Renovate-maintained): "
@@ -737,9 +740,7 @@ class TestReproducibilityEvidence:
             ("pyyaml", "pyyaml"),
         ],
     )
-    def test_dep_name_extracts_bare_name(
-        self, dependency: str, expected: str
-    ) -> None:
+    def test_dep_name_extracts_bare_name(self, dependency: str, expected: str) -> None:
         """_dep_name tolerates extras, markers, and odd whitespace."""
         assert _dep_name(dependency) == expected
 
@@ -832,9 +833,7 @@ class TestCIPythonPolicy:
         wf
         for pattern in ("*.yml", "*.yaml")
         for wf in (
-            Path(__file__).resolve().parent.parent
-            / ".github"
-            / "workflows"
+            Path(__file__).resolve().parent.parent / ".github" / "workflows"
         ).glob(pattern)
     )
 

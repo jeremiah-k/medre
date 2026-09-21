@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,14 +16,11 @@ from tests.helpers.cli import (
     _run_cli_both,
 )
 
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
-    """Run against isolated MEDRE/XDG roots (tests.helpers.config_env)."""
 
 
 def _seed_inspect_db(
@@ -501,25 +497,6 @@ class TestInspectReceipts:
         keys = list(receipt.keys())
         assert keys == sorted(keys)
 
-    def test_receipts_missing_db_exits_build(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """inspect receipts with non-existent DB exits EXIT_BUILD."""
-        from medre.cli import EXIT_BUILD
-
-        missing_db = str(tmp_path / "missing.db")
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "inspect",
-                "receipts",
-                "--event",
-                "evt-1",
-                "--storage-path",
-                missing_db,
-            )
-        assert exc_info.value.code == EXIT_BUILD
-
 
 # ---------------------------------------------------------------------------
 # inspect native-ref
@@ -624,27 +601,6 @@ class TestInspectNativeRef:
         parsed = json.loads(output)
         keys = list(parsed.keys())
         assert keys == sorted(keys)
-
-    def test_native_ref_missing_db_exits_build(
-        self,
-        tmp_path: Path,
-    ) -> None:
-        """inspect native-ref with non-existent DB exits EXIT_BUILD."""
-        from medre.cli import EXIT_BUILD
-
-        missing_db = str(tmp_path / "missing.db")
-        with pytest.raises(SystemExit) as exc_info:
-            _run_cli(
-                "inspect",
-                "native-ref",
-                "--adapter",
-                "matrix",
-                "--message",
-                "$msg",
-                "--storage-path",
-                missing_db,
-            )
-        assert exc_info.value.code == EXIT_BUILD
 
     def test_inbound_direction_from_storage(
         self,

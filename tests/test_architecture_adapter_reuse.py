@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from medre.adapter_registry import registered_transports
 from medre.runtime.architecture_report import (
     _CODEC_RENDERER_FORBIDDEN,
     _SDK_PACKAGES,
@@ -87,9 +88,7 @@ def _check_module(
             continue
 
         # Check cross-adapter imports
-        other_transports = [
-            t for t in ["matrix", "meshtastic", "meshcore", "lxmf"] if t != transport
-        ]
+        other_transports = [t for t in registered_transports() if t != transport]
         for ot in other_transports:
             if import_matches(mod, (f"medre.adapters.{ot}",)):
                 violations.append(

@@ -38,6 +38,7 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import RuntimeState
 from medre.runtime.builder import RuntimeBuilder
+from tests.helpers.import_scanner import import_lines as _import_lines
 from tests.helpers.source_reader import source_of as _source_of
 
 # ---------------------------------------------------------------------------
@@ -139,14 +140,6 @@ def _make_config_with_fake_matrix(
             },
         ),
     )
-
-
-def _import_lines(source: str) -> list[str]:
-    return [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(("import ", "from "))
-    ]
 
 
 # ===================================================================

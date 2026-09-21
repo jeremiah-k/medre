@@ -5,13 +5,34 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-ADAPTER_PREFIXES = (
-    "medre.adapters.matrix",
-    "medre.adapters.meshtastic",
-    "medre.adapters.meshcore",
-    "medre.adapters.lxmf",
+from medre.adapter_registry import registered_transports
+
+ADAPTER_PREFIXES: tuple[str, ...] = tuple(
+    f"medre.adapters.{transport}" for transport in registered_transports()
 )
-"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
+"""Concrete packages for every registered built-in adapter transport."""
+
+ADAPTER_CONFIG_PREFIXES: tuple[str, ...] = tuple(
+    f"medre.config.adapters.{transport}" for transport in registered_transports()
+)
+"""Configuration package prefixes for every registered adapter transport."""
+
+ADAPTER_FAKE_PREFIXES: tuple[str, ...] = tuple(
+    f"medre.adapters.fakes.{transport}" for transport in registered_transports()
+)
+"""Fake-adapter package prefixes for every registered adapter transport."""
+
+ADAPTER_FROM_IMPORT_PREFIXES: tuple[str, ...] = tuple(
+    f"from {prefix}" for prefix in ADAPTER_PREFIXES
+)
+"""Source prefixes that import a concrete registered adapter package."""
+
+ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES: tuple[str, ...] = tuple(
+    f"from {prefix}.{suffix}"
+    for prefix in ADAPTER_PREFIXES
+    for suffix in ("adapter", "session", "codec", "queue")
+)
+"""Source prefixes for concrete adapter runtime modules used by boundary scans."""
 
 
 def import_lines(source: str) -> list[str]:

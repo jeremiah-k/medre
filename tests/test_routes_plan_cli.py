@@ -8,12 +8,13 @@ NEW file — the existing :mod:`tests.test_cli_route_commands` covers the
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from tests.helpers.cli import _run_cli_raw
+
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
 
 # ---------------------------------------------------------------------------
 # YAML config fragments
@@ -216,11 +217,6 @@ def _write_config(tmp_path: Path, yaml_text: str, name: str = "config.yaml") -> 
     p = tmp_path / name
     p.write_text(yaml_text)
     return p
-
-
-@pytest.fixture(autouse=True)
-def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
-    """Ensure MEDRE_HOME / MEDRE_CONFIG do not leak from the environment."""
 
 
 # ===========================================================================

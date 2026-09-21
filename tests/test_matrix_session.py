@@ -349,6 +349,7 @@ class TestAdapterStartBehavior:
         original = compat.HAS_E2EE
         try:
             compat.HAS_E2EE = True
+
             # Fail only the encrypted config. Plaintext config construction
             # must remain available for the fallback path being exercised.
             def _config_factory(**kwargs: object) -> MagicMock:
@@ -1023,7 +1024,6 @@ class TestRegisterInviteCallback:
         session._client.add_event_callback.assert_not_called()
 
 
-
 class TestJoinOncePaths:
     """Targeted tests for _join_once inner coroutine (session.py:688-701).
 
@@ -1230,20 +1230,6 @@ class TestConcurrentJoinDeduplication:
                 session.ensure_joined("!room:server"),
             )
             assert results == [False, False]
-        finally:
-            await session.stop()
-
-    async def test_already_joined_skips_join(self, mock_nio) -> None:
-        """Already-joined room returns True without calling join."""
-        config = make_matrix_config()
-        session = MatrixSession(config)
-        try:
-            await session.start()
-            mock_client = mock_nio.AsyncClient.return_value
-            mock_client.rooms = {"!room:server": MagicMock()}
-            result = await session.ensure_joined("!room:server")
-            assert result is True
-            mock_client.join.assert_not_called()
         finally:
             await session.stop()
 

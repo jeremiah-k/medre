@@ -325,16 +325,6 @@ class TestMalformedPayloadValidation:
             CanonicalEvent(**kw)
 
 
-# ===================================================================
-# Schema version contract
-# ===================================================================
-
-
-def test_current_schema_version_is_1() -> None:
-    """v1 is the current canonical event contract."""
-    assert CURRENT_SCHEMA_VERSION == 1
-
-
 def test_schema_version_must_be_positive() -> None:
     """schema_version < 1 is rejected at construction."""
     kw = _valid_kwargs()
@@ -453,12 +443,6 @@ class TestEventTaxonomyAudit:
     def test_event_kind_count(self) -> None:
         """The number of known kinds is stable at 16."""
         assert len(KNOWN_KINDS) == 16
-
-    def test_relation_types_match_constant(self) -> None:
-        """EventRelation Literal types match VALID_RELATION_TYPES."""
-        assert VALID_RELATION_TYPES == frozenset(
-            {"reply", "reaction", "edit", "delete", "thread"}
-        )
 
     def test_delivery_kinds_are_separate_from_message(self) -> None:
         """Delivery kinds use the 'delivery.' namespace, not 'message.'."""

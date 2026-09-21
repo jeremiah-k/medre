@@ -3,11 +3,11 @@ config construction, error handling."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
+from medre.adapter_registry import registered_transports
 from medre.config.errors import (
     ConfigFileError,
     ConfigNotFoundError,
@@ -19,6 +19,8 @@ from medre.config.model import (
     RuntimeConfig,
 )
 from medre.config.paths import MedrePaths
+
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
 
 # ---------------------------------------------------------------------------
 # Sample YAML content
@@ -96,11 +98,6 @@ runtime: {}
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
-    """Clear config-related env vars for each test."""
 
 
 @pytest.fixture()
@@ -275,6 +272,13 @@ class TestLoadErrors:
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
         with pytest.raises(ConfigNotFoundError):
             load_config(None)
+
+
+def test_empty_file_raises_config_file_error(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("")
+    with pytest.raises(ConfigFileError, match="empty"):
+        load_config(str(config_file))
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +469,16 @@ class TestPathPlaceholderExpansion:
         config, _, paths = load_config(str(cfg))
         assert config.storage.path is not None
         assert str(home / "state" / "mydb.sqlite") in config.storage.path
+
+
+def test_adapter_store_path_expanded(multi_config_file: Path) -> None:
+    config, _, paths = load_config(str(multi_config_file))
+    alt = config.adapters.matrix["alt"]
+    assert alt.config is not None
+    assert alt.config.store_path is not None
+    assert alt.config.store_path == str(
+        paths.state_dir / "adapters" / "alt" / "matrix" / "store"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -902,8 +916,8 @@ class TestUnknownTransportRejection:
         assert exc_info.value.section_path == "adapters"
         msg = str(exc_info.value)
         assert "bogustype" in msg
-        # All four canonical transports appear in the accepted list.
-        for t in ("matrix", "meshtastic", "meshcore", "lxmf"):
+        # Every registered transport appears in the accepted list.
+        for t in registered_transports():
             assert t in msg
 
     def test_known_transports_load(self, multi_config_file: Path) -> None:

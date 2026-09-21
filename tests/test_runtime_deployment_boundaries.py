@@ -46,6 +46,16 @@ from pathlib import Path
 import pytest
 
 from medre.runtime.architecture_report import _BANNED_SDK_IMPORT_PREFIXES, _SDK_PACKAGES
+from tests.helpers.import_scanner import (
+    ADAPTER_CONFIG_PREFIXES as _ADAPTER_CONFIG_PREFIXES,
+)
+from tests.helpers.import_scanner import ADAPTER_FAKE_PREFIXES as _ADAPTER_FAKE_PREFIXES
+from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
+from tests.helpers.import_scanner import (
+    ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES as _ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES,
+)
+from tests.helpers.import_scanner import banned_imports as _banned_imports
+from tests.helpers.import_scanner import import_lines as _import_lines
 from tests.helpers.source_reader import source_of as _source_of
 
 _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
@@ -59,67 +69,12 @@ _SESSION_BASELINE_SDK_MODULES: frozenset[str] = frozenset(
 # Shared helpers (same pattern as test_deployment_boundaries.py)
 # ---------------------------------------------------------------------------
 
-_ADAPTER_PREFIXES = (
-    "medre.adapters.matrix",
-    "medre.adapters.meshtastic",
-    "medre.adapters.meshcore",
-    "medre.adapters.lxmf",
-)
-"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
-_ADAPTER_CONFIG_ALLOWED = (
-    "medre.config.adapters.matrix",
-    "medre.config.adapters.meshtastic",
-    "medre.config.adapters.meshcore",
-    "medre.config.adapters.lxmf",
-)
-"""Adapter config modules that ARE allowed — pure dataclasses, no SDK."""
+_ADAPTER_CONFIG_ALLOWED = _ADAPTER_CONFIG_PREFIXES
 
 # Adapter runtime module imports banned in runtime core contexts.
 # Config imports (medre.config.adapters.*) are pure dataclasses — permitted.
-_BANNED_ADAPTER_RUNTIME_IMPORTS = (
-    "from medre.adapters.matrix.adapter",
-    "from medre.adapters.matrix.session",
-    "from medre.adapters.matrix.codec",
-    "from medre.adapters.meshtastic.adapter",
-    "from medre.adapters.meshtastic.session",
-    "from medre.adapters.meshtastic.codec",
-    "from medre.adapters.meshtastic.queue",
-    "from medre.adapters.meshcore.adapter",
-    "from medre.adapters.meshcore.session",
-    "from medre.adapters.meshcore.codec",
-    "from medre.adapters.lxmf.adapter",
-    "from medre.adapters.lxmf.session",
-    "from medre.adapters.lxmf.codec",
-)
-
-
-def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text.
-
-    See also: architecture_ast.runtime_scope_imports() for AST-based
-    import extraction (returns ImportRecord objects with resolved names).
-    """
-    return [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(("import ", "from "))
-    ]
-
-
-def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package.
-
-    See also: architecture_ast.import_matches() for module-prefix matching
-    on resolved module names (AST-level, not text-level).
-    """
-    found: list[str] = []
-    for line in lines:
-        for b in banned:
-            if re.search(rf"\b{re.escape(b)}\b", line):
-                found.append(line)
-                break
-    return found
+_BANNED_ADAPTER_RUNTIME_IMPORTS = _ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES
 
 
 def _file_source(path: Path) -> str:
@@ -397,10 +352,7 @@ class TestRuntimeCoreNoAdapterRuntime:
                 if "fakes.adapter" in line:
                     continue
                 # Allow imports from fakes.* modules (test doubles for real transports)
-                if any(
-                    f"from medre.adapters.fakes.{t}." in line
-                    for t in ("matrix", "meshtastic", "meshcore", "lxmf")
-                ):
+                if any(f"from {prefix}." in line for prefix in _ADAPTER_FAKE_PREFIXES):
                     continue
             allowed_lines.append(line)
 
@@ -419,10 +371,7 @@ class TestRuntimeCoreNoAdapterRuntime:
             if line.startswith("from medre.adapters."):
                 if "fakes.adapter" in line:
                     continue
-                if any(
-                    f"from medre.adapters.fakes.{t}." in line
-                    for t in ("matrix", "meshtastic", "meshcore", "lxmf")
-                ):
+                if any(f"from {prefix}." in line for prefix in _ADAPTER_FAKE_PREFIXES):
                     continue
             allowed_lines.append(line)
         # The old config import should NOT be filtered out

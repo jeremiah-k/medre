@@ -541,21 +541,6 @@ class TestLxmfLiveSmoke:
     # 4. Delivery callback validation (inbound path)
     # ===================================================================
 
-    async def test_inbound_session_callback_wired_note(self):
-        """Document: LxmfSession wires real LXMRouter delivery callbacks.
-
-        This test always passes.  The ``LxmfSession`` registers the
-        inbound message callback with the LXMRouter on ``start()`` and
-        tears it down on ``stop()``.  Real inbound messages are
-        normalised to plain dicts within the session boundary before
-        reaching the adapter's ``_on_packet()`` handler.
-
-        Live validation of real inbound messages from a remote peer
-        requires a second LXMF identity or loopback fixture not
-        available in this harness.
-        """
-        pass
-
     async def test_inbound_simulate_publishes_with_fake(self):
         """Verify inbound pipeline via simulate_inbound (fake mode).
 
@@ -1158,18 +1143,6 @@ class TestLxmfLiveSmoke:
             ), "Expected 'delivery_state' in lxmf delivery metadata"
         finally:
             await bounded(adapter.stop(), _ADAPTER_STOP_TIMEOUT, "lxmf stop live send")
-
-    # ===================================================================
-    # 9. Documentation notes
-    # ===================================================================
-
-    async def test_e2ee_not_supported_note(self):
-        """Document: LXMF encrypted messages are not supported.
-
-        This test always passes.  End-to-end encrypted LXMF messages
-        are out of scope.
-        """
-        pass
 
 
 # ---------------------------------------------------------------------------

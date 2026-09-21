@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import types
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -23,14 +22,11 @@ from tests.helpers.cli import (
     _run_cli_raw,
 )
 
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
-    """Run against isolated MEDRE/XDG roots (tests.helpers.config_env)."""
 
 
 @pytest.fixture()

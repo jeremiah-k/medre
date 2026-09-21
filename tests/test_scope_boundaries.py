@@ -36,27 +36,15 @@ from pathlib import Path
 import pytest
 
 from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
+from tests.helpers.import_scanner import banned_imports as _banned_imports
+from tests.helpers.import_scanner import import_lines as _import_lines
 from tests.helpers.source_reader import source_of as _source_of
 
 # ---------------------------------------------------------------------------
 # Shared helpers (reused from test_operational_boundaries.py)
 # ---------------------------------------------------------------------------
 
-_ADAPTER_PREFIXES = (
-    "medre.adapters.matrix",
-    "medre.adapters.meshtastic",
-    "medre.adapters.meshcore",
-    "medre.adapters.lxmf",
-)
-"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
-
-_ADAPTER_COMPAT_MODULES = (
-    "medre.adapters.matrix.compat",
-    "medre.adapters.meshtastic.compat",
-    "medre.adapters.meshcore.compat",
-    "medre.adapters.lxmf.compat",
-)
-"""Adapter compat modules that are ALLOWED to import SDKs internally."""
 
 _DISTRIBUTED_PACKAGES = (
     "redis",
@@ -89,34 +77,6 @@ _TESTS_DIR = Path(__file__).parent
 
 _SRC_ROOT = _TESTS_DIR.parent / "src" / "medre"
 """Root source directory for medre package."""
-
-
-def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text.
-
-    See also: architecture_ast.runtime_scope_imports() for AST-based
-    import extraction (returns ImportRecord objects with resolved names).
-    """
-    return [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(("import ", "from "))
-    ]
-
-
-def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package.
-
-    See also: architecture_ast.import_matches() for module-prefix matching
-    on resolved module names (AST-level, not text-level).
-    """
-    found: list[str] = []
-    for line in lines:
-        for b in banned:
-            if re.search(rf"\b{re.escape(b)}\b", line):
-                found.append(line)
-                break
-    return found
 
 
 def _file_source(path: Path) -> str:

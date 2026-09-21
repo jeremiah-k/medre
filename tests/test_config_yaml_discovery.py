@@ -11,13 +11,14 @@ files rejected with the dedicated unsupported-format error message.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from medre.config.errors import ConfigFileError, ConfigNotFoundError
 from medre.config.loader import ConfigSource, find_config
+
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
 
 # ---------------------------------------------------------------------------
 # Common config text
@@ -29,11 +30,6 @@ _CONFIG_BODY = "runtime:\n  name: discovery\n"
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
-    """Clear config-related env vars for each test."""
 
 
 # ---------------------------------------------------------------------------

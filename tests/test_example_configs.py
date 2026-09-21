@@ -250,11 +250,6 @@ class TestMeshtasticSerial:
         assert rtc.config is not None
         assert rtc.config.serial_port == "/dev/ttyACM0"
 
-    @pytest.mark.skip(reason="Requires real Meshtastic hardware on serial port")
-    def test_build_with_hardware(self) -> None:
-        """Placeholder: building real Meshtastic adapter needs live SDK + hardware."""
-        pass
-
 
 # ===========================================================================
 # 5. Matrix: credential-required (empty access token)
@@ -294,11 +289,6 @@ class TestMatrixConfig:
             "e2ee_required",
             "e2ee_optional",
         )
-
-    @pytest.mark.skip(reason="Requires real Matrix homeserver credentials")
-    def test_build_with_credentials(self) -> None:
-        """Placeholder: building real Matrix adapter needs live credentials."""
-        pass
 
 
 # ===========================================================================
@@ -977,19 +967,6 @@ class TestEnvVarDocumentation:
                     f"{config_path.name}: env var {var_name!r} contains "
                     f"'CHANGEME' — use a descriptive name instead"
                 )
-
-    def test_env_var_summary(self) -> None:
-        """Print a summary of all env vars used across configs (informational)."""
-        all_vars: dict[str, list[str]] = {}
-        for config_path in _ALL_CONFIG_FILES:
-            for var in sorted(self._extract_env_vars(config_path)):
-                all_vars.setdefault(var, []).append(config_path.name)
-
-        # This test always passes — it's a documentation cross-check.
-        # The assertion just ensures the mapping is built correctly.
-        assert isinstance(all_vars, dict)
-        for var in all_vars:
-            assert len(all_vars[var]) >= 1
 
 
 # ===========================================================================

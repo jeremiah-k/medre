@@ -21,26 +21,21 @@ and works in environments where some or all SDKs are not installed.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.import_scanner import ADAPTER_PREFIXES as _ADAPTER_PREFIXES
+from tests.helpers.import_scanner import banned_imports as _banned_imports
+from tests.helpers.import_scanner import import_lines as _import_lines
 from tests.helpers.source_reader import source_of as _source_of
 
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_architectural_boundaries.py)
 # ---------------------------------------------------------------------------
 
-_ADAPTER_PREFIXES = (
-    "medre.adapters.matrix",
-    "medre.adapters.meshtastic",
-    "medre.adapters.meshcore",
-    "medre.adapters.lxmf",
-)
-"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
 _RUNTIME_PREFIXES = (
     "medre.runtime.app",
@@ -60,33 +55,8 @@ _ADAPTER_LIFECYCLE_PREFIXES = (
 )
 """Adapter lifecycle modules that replay should not own."""
 
-_ADAPTER_FACTORIES = (
-    "medre.adapters.matrix.",
-    "medre.adapters.meshtastic.",
-    "medre.adapters.meshcore.",
-    "medre.adapters.lxmf.",
-)
+_ADAPTER_FACTORIES = tuple(f"{prefix}." for prefix in _ADAPTER_PREFIXES)
 """Concrete adapter factory/module prefixes."""
-
-
-def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text."""
-    return [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(("import ", "from "))
-    ]
-
-
-def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package."""
-    found: list[str] = []
-    for line in lines:
-        for b in banned:
-            if re.search(rf"\b{re.escape(b)}\b", line):
-                found.append(line)
-                break
-    return found
 
 
 def _file_source(path: Path) -> str:
@@ -298,10 +268,7 @@ class TestDurabilityHelpersTransportAgnostic:
     ]
 
     _BANNED_PATTERNS = (
-        "from medre.adapters.matrix",
-        "from medre.adapters.meshtastic",
-        "from medre.adapters.meshcore",
-        "from medre.adapters.lxmf",
+        *tuple(f"from {prefix}" for prefix in _ADAPTER_PREFIXES),
         "import nio",
         "import meshtastic",
         "import meshcore",
@@ -363,10 +330,7 @@ class TestSoakFakeOnly:
     ]
 
     _BANNED_PATTERNS = (
-        "from medre.adapters.matrix",
-        "from medre.adapters.meshtastic",
-        "from medre.adapters.meshcore",
-        "from medre.adapters.lxmf",
+        *tuple(f"from {prefix}" for prefix in _ADAPTER_PREFIXES),
         "import nio",
         "import meshtastic",
         "import meshcore",
