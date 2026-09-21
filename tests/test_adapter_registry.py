@@ -8,17 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from medre.cli.transport_constants import RADIO_TRANSPORTS
-from medre.cli.transports import TRANSPORTS
 from medre.adapter_registry import (
-    AdapterTypeRegistry,
-    AdapterSpec,
     BUILTIN_ADAPTER_REGISTRY,
+    AdapterSpec,
+    AdapterTypeRegistry,
     SymbolRef,
     adapter_sdk_packages,
     native_detection_specs,
     registered_transports,
 )
+from medre.cli.transport_constants import RADIO_TRANSPORTS
+from medre.cli.transports import TRANSPORTS
 from medre.config.model import AdapterConfigSet
 from medre.runtime.architecture_report import SESSION_ALLOWED_SDKS
 
@@ -66,7 +66,6 @@ def test_registry_accepts_future_adapter_without_core_model_change() -> None:
     assert registry.require("briar").install_extra == "briar"
 
 
-
 def test_registry_supports_sidecar_adapter_without_python_sdk() -> None:
     spec = replace(
         _synthetic_spec("briar"),
@@ -76,7 +75,6 @@ def test_registry_supports_sidecar_adapter_without_python_sdk() -> None:
     )
     registry = AdapterTypeRegistry((spec,))
     assert registry.require("briar").has_python_sdk is False
-
 
 
 def test_registry_requires_complete_cli_contribution_pair() -> None:
@@ -114,6 +112,7 @@ def test_support_bundle_field_metadata_is_registry_owned() -> None:
     assert matrix.support_secret_fields == ("access_token",)
     assert meshcore.support_secret_fields == ("ble_pin",)
 
+
 def test_native_detection_priority_preserves_existing_precedence() -> None:
     assert tuple(spec.transport for spec in native_detection_specs()) == (
         "meshcore",
@@ -121,6 +120,7 @@ def test_native_detection_priority_preserves_existing_precedence() -> None:
         "meshtastic",
         "lxmf",
     )
+
 
 def test_cli_transport_inventory_derives_from_registry() -> None:
     expected = [

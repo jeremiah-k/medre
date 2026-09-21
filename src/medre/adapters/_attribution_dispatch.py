@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from medre.adapters._native_metadata_dispatch import versioned_native_namespace
 from medre.adapter_registry import (
     get_adapter_spec,
     iter_adapter_specs,
     native_detection_specs,
 )
+from medre.adapters._native_metadata_dispatch import versioned_native_namespace
 
 __all__ = ["detect_source_platform", "project_source_fields"]
 
@@ -62,7 +62,5 @@ def project_source_fields(
     if spec is None:
         return fields
     projector = spec.attribution_projector.load()
-    fields.update(
-        projector(native_data, source_transport_id=source_transport_id)
-    )
+    fields.update(projector(native_data, source_transport_id=source_transport_id))
     return fields

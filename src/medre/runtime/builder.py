@@ -134,9 +134,11 @@ def _build_source_attribution(
         result[adapter_id] = SourceAttributionConfig(
             adapter_id=adapter_id,
             platform=transport,
-            origin_label=getattr(adapter_config, "origin_label", "")
-            if adapter_config is not None
-            else "",
+            origin_label=(
+                getattr(adapter_config, "origin_label", "")
+                if adapter_config is not None
+                else ""
+            ),
         )
     return result
 

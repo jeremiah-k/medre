@@ -298,10 +298,9 @@ _CODEC_RENDERER_FORBIDDEN = (
 )
 
 _BANNED_SDK_IMPORT_PREFIXES = tuple(
-    prefix
-    for sdk in _SDK_PACKAGES
-    for prefix in (f"import {sdk}", f"from {sdk}")
+    prefix for sdk in _SDK_PACKAGES for prefix in (f"import {sdk}", f"from {sdk}")
 )
+
 
 @dataclass
 class BoundaryViolation:
@@ -904,8 +903,7 @@ def build_route_adapter_boundary_report(
             (
                 edge
                 for edge in builder_info.imports
-                if edge.target == "medre.adapter_registry"
-                and not edge.is_type_checking
+                if edge.target == "medre.adapter_registry" and not edge.is_type_checking
             ),
             None,
         )

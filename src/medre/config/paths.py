@@ -47,7 +47,9 @@ _VALID_PLACEHOLDERS: frozenset[str] = frozenset(
     {"config", "state", "data", "cache", "logs"}
 )
 
-_SUPPORTED_TRANSPORT_PATH_COMPONENTS: frozenset[str] = frozenset(registered_transports())
+_SUPPORTED_TRANSPORT_PATH_COMPONENTS: frozenset[str] = frozenset(
+    registered_transports()
+)
 
 
 class MedrePathsError(Exception):

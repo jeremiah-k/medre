@@ -72,6 +72,4 @@ def matrix_runtime_directories(
     """Return Matrix-owned state directories required before startup."""
     if config is not None and config.store_path:
         return (Path(config.store_path),)
-    return (
-        paths.adapter_transport_state_dir(adapter_id, "matrix") / "store",
-    )
+    return (paths.adapter_transport_state_dir(adapter_id, "matrix") / "store",)

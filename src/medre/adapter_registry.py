@@ -126,13 +126,9 @@ class AdapterTypeRegistry:
             endpoint_fields = spec.support_endpoint_fields
             secret_fields = spec.support_secret_fields
             if len(endpoint_fields) != len(set(endpoint_fields)):
-                raise ValueError(
-                    f"duplicate support endpoint field for {transport!r}"
-                )
+                raise ValueError(f"duplicate support endpoint field for {transport!r}")
             if len(secret_fields) != len(set(secret_fields)):
-                raise ValueError(
-                    f"duplicate support secret field for {transport!r}"
-                )
+                raise ValueError(f"duplicate support secret field for {transport!r}")
             overlap = set(endpoint_fields) & set(secret_fields)
             if overlap:
                 raise ValueError(
@@ -223,9 +219,7 @@ BUILTIN_ADAPTER_REGISTRY = AdapterTypeRegistry(
             transport="meshtastic",
             config=SymbolRef("medre.config.adapters.meshtastic", "MeshtasticConfig"),
             runtime_config=SymbolRef("medre.config.model", "MeshtasticRuntimeConfig"),
-            adapter=SymbolRef(
-                "medre.adapters.meshtastic.adapter", "MeshtasticAdapter"
-            ),
+            adapter=SymbolRef("medre.adapters.meshtastic.adapter", "MeshtasticAdapter"),
             fake_adapter=SymbolRef(
                 "medre.adapters.fakes.meshtastic", "FakeMeshtasticAdapter"
             ),

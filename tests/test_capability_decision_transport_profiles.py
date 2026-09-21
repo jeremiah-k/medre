@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from medre.adapter_registry import registered_transports
 from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.canonical import EventRelation, NativeRef
 from medre.core.planning.capability_decision import resolver

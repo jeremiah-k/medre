@@ -17,14 +17,13 @@ import re
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
-from typing import Any
 
-from medre.config._yaml import StrictYAMLError, parse_yaml_config
 from medre.adapter_registry import (
     AdapterSpec,
     iter_adapter_specs,
     registered_transports,
 )
+from medre.config._yaml import StrictYAMLError, parse_yaml_config
 from medre.config.errors import (
     ConfigFileError,
     ConfigNotFoundError,
@@ -32,8 +31,8 @@ from medre.config.errors import (
 )
 from medre.config.model import (
     AdapterConfigSet,
-    LoggingConfig,
     GenericAdapterRuntimeConfig,
+    LoggingConfig,
     RetryConfig,
     RuntimeConfig,
     RuntimeLimits,

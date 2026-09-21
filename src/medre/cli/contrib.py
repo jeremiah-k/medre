@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from medre.adapter_registry import get_adapter_spec, iter_adapter_specs, registered_transports
+from medre.adapter_registry import (
+    get_adapter_spec,
+    iter_adapter_specs,
+    registered_transports,
+)
 
 ALLOWED_NAMESPACES = ("adapter", "plugin")
 DISALLOWED_TOPLEVEL = registered_transports()

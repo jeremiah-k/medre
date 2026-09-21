@@ -189,7 +189,6 @@ class TestMatrixStorePathDerivation:
         return captured[0] if captured else None
 
 
-
 class TestEnsureDirsMatrixStore:
     """Runtime start creates the derived Matrix store directory."""
 

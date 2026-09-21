@@ -1021,9 +1021,7 @@ async def test_route_retry_disabled_warning_skipped_when_global_retry_enabled(
     from medre.config.model import RetryConfig
 
     config = _config_with_retry_routes(("route_a",))
-    config = config.__class__(
-        **{**config.__dict__, "retry": RetryConfig(enabled=True)}
-    )
+    config = config.__class__(**{**config.__dict__, "retry": RetryConfig(enabled=True)})
     app: MedreApp = RuntimeBuilder(config, tmp_paths).build()
     with caplog.at_level("WARNING", logger="medre.runtime.app"):
         try:

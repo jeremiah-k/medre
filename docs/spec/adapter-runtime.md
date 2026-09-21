@@ -360,16 +360,16 @@ class AdapterState(Enum):
     STOPPED       = "stopped"         # Terminal
 ```
 
-| State             | Meaning                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------ |
-| `INITIALIZING`    | Adapter is being set up; not yet ready to process events.                                              |
-| `READY`           | Adapter is fully operational.                                                                         |
-| `DEGRADED`        | Adapter is partially functional (e.g., high latency, missing features).                               |
-| `BACKPRESSURED`   | Adapter's outbound queue is full; inbound traffic **MUST** be throttled.                              |
-| `DISCONNECTED`    | Adapter has lost its transport connection.                                                            |
-| `STOPPING`        | Adapter is shutting down gracefully.                                                                   |
-| `FAILED`          | Adapter has encountered an unrecoverable error. Terminal — no outgoing transitions.                   |
-| `STOPPED`         | Adapter has shut down cleanly. Terminal — no outgoing transitions.                                     |
+| State           | Meaning                                                                             |
+| --------------- | ----------------------------------------------------------------------------------- |
+| `INITIALIZING`  | Adapter is being set up; not yet ready to process events.                           |
+| `READY`         | Adapter is fully operational.                                                       |
+| `DEGRADED`      | Adapter is partially functional (e.g., high latency, missing features).             |
+| `BACKPRESSURED` | Adapter's outbound queue is full; inbound traffic **MUST** be throttled.            |
+| `DISCONNECTED`  | Adapter has lost its transport connection.                                          |
+| `STOPPING`      | Adapter is shutting down gracefully.                                                |
+| `FAILED`        | Adapter has encountered an unrecoverable error. Terminal — no outgoing transitions. |
+| `STOPPED`       | Adapter has shut down cleanly. Terminal — no outgoing transitions.                  |
 
 ### 8.2 State Transition Graph
 
@@ -417,16 +417,16 @@ Any transition not listed above is a bug. `is_valid_transition()` returns
 
 ### 8.3 Behavior per State
 
-| State             | Ingress Policy        | Delivery Policy                       | Notes                                                       |
-| ----------------- | --------------------- | ------------------------------------- | ----------------------------------------------------------- |
-| `INITIALIZING`    | Buffer                | Buffer                                | Connection not yet established. `start()` has not returned. |
-| `READY`           | Accept                | Queue and deliver                     | Normal operation.                                           |
-| `DEGRADED`        | Accept                | Queue, delay, may fallback            | Connection unstable. Queue events for later delivery.       |
-| `BACKPRESSURED`   | Throttle              | Queue, refuse new outbound enqueues   | Outbound queue full. Inbound traffic **MUST** be throttled. |
-| `DISCONNECTED`    | Accept (buffered)     | Queue, no remote dispatch             | Transport endpoint unreachable. Recoverable on reconnect.   |
-| `STOPPING`        | Reject                | Complete in-flight only               | Graceful shutdown. Reject new work.                         |
-| `FAILED`          | Reject                | None                                  | Terminal. Adapter is no longer operational.                 |
-| `STOPPED`         | Reject                | None                                  | Terminal. Clean shutdown.                                   |
+| State           | Ingress Policy    | Delivery Policy                     | Notes                                                       |
+| --------------- | ----------------- | ----------------------------------- | ----------------------------------------------------------- |
+| `INITIALIZING`  | Buffer            | Buffer                              | Connection not yet established. `start()` has not returned. |
+| `READY`         | Accept            | Queue and deliver                   | Normal operation.                                           |
+| `DEGRADED`      | Accept            | Queue, delay, may fallback          | Connection unstable. Queue events for later delivery.       |
+| `BACKPRESSURED` | Throttle          | Queue, refuse new outbound enqueues | Outbound queue full. Inbound traffic **MUST** be throttled. |
+| `DISCONNECTED`  | Accept (buffered) | Queue, no remote dispatch           | Transport endpoint unreachable. Recoverable on reconnect.   |
+| `STOPPING`      | Reject            | Complete in-flight only             | Graceful shutdown. Reject new work.                         |
+| `FAILED`        | Reject            | None                                | Terminal. Adapter is no longer operational.                 |
+| `STOPPED`       | Reject            | None                                | Terminal. Clean shutdown.                                   |
 
 ### 8.4 State Transition Events
 
@@ -453,13 +453,13 @@ connection handshakes) **MAY** define internal substates. Internal substates
 `AdapterHealth.details` for observability. The lifecycle manager tracks only
 the eight generic states.
 
-| Internal Substate                          | Maps To                                                 |
-| ------------------------------------------ | ------------------------------------------------------- |
+| Internal Substate                                         | Maps To                                        |
+| --------------------------------------------------------- | ---------------------------------------------- |
 | `DISCONNECTED`, `CONNECTING`, `AUTHENTICATING`, `SYNCING` | `INITIALIZING` or `DEGRADED` or `DISCONNECTED` |
-| `READY`                                    | `READY`                                                 |
-| `DEGRADED`                                 | `DEGRADED`                                              |
-| `BACKPRESSURED`                            | `BACKPRESSURED`                                         |
-| `STOPPING`                                 | `STOPPING` or `STOPPED`                                 |
+| `READY`                                                   | `READY`                                        |
+| `DEGRADED`                                                | `DEGRADED`                                     |
+| `BACKPRESSURED`                                           | `BACKPRESSURED`                                |
+| `STOPPING`                                                | `STOPPING` or `STOPPED`                        |
 
 ### 8.6 Simplified Vocabulary Mapping
 
@@ -468,14 +468,14 @@ The operator-facing evidence labels in
 eight-state enum. The mapping below is the complete correspondence used by
 `normalize_adapter_health()`:
 
-| Evidence Label      | Source `AdapterState` value(s)                                       |
-| ------------------- | -------------------------------------------------------------------- |
-| `connected`         | `READY`                                                              |
-| `degraded`          | `DEGRADED` or `BACKPRESSURED`                                       |
-| `unavailable`       | `DISCONNECTED`                                                       |
-| `stopping`          | `STOPPING`                                                           |
-| `failed`            | `FAILED`                                                             |
-| `stopped`           | `STOPPED`                                                            |
+| Evidence Label | Source `AdapterState` value(s) |
+| -------------- | ------------------------------ |
+| `connected`    | `READY`                        |
+| `degraded`     | `DEGRADED` or `BACKPRESSURED`  |
+| `unavailable`  | `DISCONNECTED`                 |
+| `stopping`     | `STOPPING`                     |
+| `failed`       | `FAILED`                       |
+| `stopped`      | `STOPPED`                      |
 
 `INITIALIZING` is the transient period between `build()` and `start()`
 completion; evidence output uses the configuration-derived `starting` label
