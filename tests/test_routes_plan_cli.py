@@ -8,6 +8,7 @@ NEW file — the existing :mod:`tests.test_cli_route_commands` covers the
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -218,10 +219,8 @@ def _write_config(tmp_path: Path, yaml_text: str, name: str = "config.yaml") -> 
 
 
 @pytest.fixture(autouse=True)
-def _clean_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
     """Ensure MEDRE_HOME / MEDRE_CONFIG do not leak from the environment."""
-    for var in ("MEDRE_HOME", "MEDRE_CONFIG"):
-        monkeypatch.delenv(var, raising=False)
 
 
 # ===========================================================================
