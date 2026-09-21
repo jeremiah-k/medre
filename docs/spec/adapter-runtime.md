@@ -722,8 +722,9 @@ All sessions own these responsibilities:
 | Connection management | Establishing and maintaining the transport connection                   |
 | Callback registration | Registering transport-level callbacks/subscriptions internally          |
 | Inbound forwarding    | Forwarding received messages to the adapter-provided `message_callback` |
-| Bounded reconnect     | Exponential backoff reconnect with max 10 attempts                      |
-| Outbound send         | Sending messages through the transport SDK                              |
+| Connection recovery  | Transport-profile recovery with bounded-rate backoff and shutdown ownership |
+| Liveness supervision  | Optional transport-specific active liveness where required by the profile    |
+| Outbound send         | Sending messages through the transport SDK                                  |
 | Send retry            | Bounded retry (up to 3 attempts) for transient send failures            |
 | Diagnostics           | Providing a read-only snapshot of session operational state             |
 | Graceful teardown     | Clean shutdown of SDK client, cancellation of background tasks          |
@@ -736,7 +737,7 @@ Sessions **MUST NOT**:
 - Make routing decisions.
 - Record delivery receipts or interact with storage.
 - Evaluate bridge policy.
-- Implement health polling loops.
+- Implement generic cross-adapter health polling or restart policy. A session MAY own a transport-specific liveness probe when its transport profile defines that probe as part of raw connection management.
 - Throttle or reject based on load.
 - Manage secret lifecycles.
 

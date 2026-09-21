@@ -95,11 +95,15 @@ config = MeshtasticConfig(
     connection_type="tcp",
     host="meshtastic.local",
     port=4403,
+    tcp_liveness_interval_seconds=60,
+    tcp_liveness_timeout_seconds=30,
 )
 ```
 
-- Uses `meshtastic.tcp_interface.TCPInterface(hostname, portNumber)`.
+- Uses the pinned mtjk `meshtastic.tcp_interface.TCPInterface(hostname, portNumber)`.
 - Connection is synchronous internally; `send_one()` wraps `sendText` in `asyncio.to_thread()`.
+- mtjk owns low-level TCP heartbeat/socket recovery. MEDRE adds session-level supervision above it: a bounded local metadata request proves round-trip liveness and complete client recreation continues with capped backoff until recovery or adapter shutdown.
+- Set `tcp_liveness_interval_seconds=0` to disable the active probe. This is not recommended for long-running TCP bridges because a half-open path may otherwise remain undetected until another operation fails.
 
 ### Serial Mode
 
@@ -220,9 +224,10 @@ asyncio.run(main())
 
 1. The adapter checks `HAS_MESHTASTIC` (the `mtjk` import guard). If not installed and not fake mode, raises `MeshtasticConnectionError`.
 2. A `MeshtasticSession` is created, which delegates transport lifecycle to the session boundary.
-3. `session.start(message_callback=...)` creates the appropriate interface and subscribes to `meshtastic.receive` pubsub callbacks. Client creation is synchronous and blocking.
-4. A background `_drain_task` is created to continuously drain the outbound queue.
-5. `_started` is set to `True`.
+3. `session.start(message_callback=...)` creates the appropriate interface and subscribes to receive/connection-loss pubsub callbacks. Client creation is synchronous and blocking.
+4. TCP sessions start the MEDRE liveness supervisor after initial connection setup; serial/BLE do not run this TCP-specific probe.
+5. A background `_drain_task` is created to continuously drain the outbound queue.
+6. `_started` is set to `True`.
 
 Expected output:
 
@@ -232,12 +237,12 @@ INFO  MeshtasticAdapter mesh-alpha started (mode=tcp)
 
 ### Shutdown Sequence
 
-1. The `_drain_task` is cancelled and awaited with a 5-second timeout. Items mid-send are dropped.
-2. All tracked background tasks are cancelled and drained.
-3. `session.stop()` unsubscribes pubsub callbacks and closes the underlying client interface.
+1. The `_drain_task` is cancelled and awaited with a 5-second timeout.
+2. All tracked adapter background tasks are cancelled and drained.
+3. `session.stop()` cancels TCP liveness/reconnect supervision, unsubscribes pubsub callbacks, and closes the underlying client interface.
 4. State is cleared.
 
-**Shutdown queue abandonment:** Items remaining in the adapter-local outbound queue at shutdown are lost — not persisted, not requeued. The queue is in-memory and non-durable. Delivery receipts already written to SQLite survive.
+**Queue durability:** The adapter-local queue is in-memory and non-durable across process restart. During an ordinary adapter stop, an item interrupted mid-send is reported through the queue-terminal path; when there is no in-flight cancellation, pending queue items remain on the adapter object for a subsequent `start()` of that same object. Durable delivery receipts/outbox state remain owned by core storage.
 
 Shutdown is idempotent.
 
@@ -281,6 +286,10 @@ The adapter exposes `queue_health` as a snapshot of the outbound queue:
 | `total_permanent_failed` | Items that failed permanently on first attempt        |
 | `max_queue_size`         | Maximum queue capacity                                |
 | `utilization_pct`        | Current queue utilization as percentage               |
+| `pressure_state`         | `normal`, `warning`, `critical`, or `full`             |
+| `warning_threshold_pct`  | Configured advisory pressure threshold                 |
+| `critical_threshold_pct` | Configured health-degrading pressure threshold         |
+| `peak_depth`             | Maximum observed pending depth                         |
 
 ## Packet Classification
 
@@ -297,8 +306,8 @@ Only relay-action text messages produce canonical events. Everything else is cla
 
 1. **Fire-and-forget delivery.** `sent` means local node acceptance. No remote receipt confirmation.
 2. **In-memory queue is non-durable.** Process crash loses queued items. Receipts in SQLite survive.
-3. **No auto-reconnect.** The session does not automatically reconnect on disconnect. Restart the runtime.
-4. **No ACK confirmation for broadcast sends.** Meshtastic CLI does not print ACK for broadcast messages on shared channels.
+3. **Recovery is local-client supervision, not peer reachability.** TCP liveness proves the MEDRE↔local-radio API round trip only. A healthy adapter does not imply that any remote mesh peer is reachable.
+4. **No ACK confirmation for broadcast sends.** Local send acceptance is not remote receipt confirmation.
 5. **BLE not validated.** BLE connectivity is implemented but not exercised against real hardware.
 6. **Single-channel operation.** Current prerelease validation covers text on a single channel index only.
 7. **No inbound pubsub delivery proven at Docker level.** meshtasticd simulation mode may not relay packets between TCP clients.

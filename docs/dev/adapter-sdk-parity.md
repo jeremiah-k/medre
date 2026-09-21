@@ -246,16 +246,7 @@ still open. Each is characterized behaviorally by
 `tests/test_sdk_parity_runtime_backlog.py` so improvements and regressions
 are detectable; none is a normative spec obligation.
 
-- **Meshtastic connection liveness.** No periodic TCP health verification
-  exists; a silently dropped half-open TCP connection leaves the bridge deaf
-  until an outbound send fails. Candidate: a configurable health-check
-  interval issuing a bounded SDK call.
-- **Meshtastic reconnect budget.** Reconnect backoff is capped at 30 seconds
-  with a maximum of 10 attempts, after which the session gives up. A bridge
-  that outlives radio downtime may want a longer cap and no attempt ceiling.
-- **Meshtastic queue water-marks.** The outbound queue has no warning
-  thresholds before capacity rejection; fill is only visible after
-  `MeshtasticSendError`.
+- **Meshtastic runtime resilience — closed.** TCP sessions now perform a configurable bounded local metadata request as an active round-trip liveness probe. MEDRE's session-level client recreation retries for the lifetime of the started adapter with configurable capped backoff rather than a finite attempt ceiling. The adapter-local outbound queue exposes configurable warning/critical pressure thresholds, peak depth, and health degradation before the existing hard-cap rejection boundary. The probe uses the pinned mtjk `Node._send_admin(..., wantResponse=True, onResponse=...)` callback seam so mtjk remains authoritative for admin-channel selection, PKI encryption, session-passkey attachment, and response matching; timed-out response handlers are retired through the source-audited mtjk request runtime. Low-level mtjk heartbeat/socket reconnect behavior remains SDK-owned.
 - **Matrix sync-token durability.** Runtime-managed Matrix adapters persist
   MEDRE-owned Classic Sync checkpoints (see
   [spec/durable-ingress.md](../spec/durable-ingress.md)); nio-internal
