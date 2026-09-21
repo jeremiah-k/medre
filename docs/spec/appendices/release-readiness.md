@@ -71,6 +71,8 @@ not external network behavior, federation, or real-world rate limits.
 - [x] Evidence bundle
 - [x] Run-session path
 - [x] Operator runbook
+- [x] Active stale-sync supervision with fail-closed loop recycle
+- [x] Bounded Megolm missing-key recovery admission
 - [x] Live validation recorded
 - [ ] External live validation (not Docker SDK-boundary)
 - [ ] Multi-room concurrent inbound (live)

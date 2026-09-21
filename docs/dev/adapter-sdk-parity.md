@@ -239,12 +239,14 @@ The default suite explicitly excludes all three markers, just as it excludes
 boundaries honest while making dependency upgrades executable rather than
 comment-only audits.
 
-## Open parity gaps
+## Runtime parity status
 
-Reliability gaps between MEDRE and the reference implementations that are
-still open. Each is characterized behaviorally by
-`tests/test_sdk_parity_runtime_backlog.py` so improvements and regressions
-are detectable; none is a normative spec obligation.
+Reliability items identified by the adapter source audits are retained here as
+a status ledger. Resolved items remain listed so their behavioral contracts do
+not disappear after implementation; unresolved items are marked explicitly.
+`tests/test_sdk_parity_runtime_backlog.py` characterizes these items so
+improvements and regressions are detectable. None is a normative spec
+obligation.
 
 - **Meshtastic runtime resilience — closed.** TCP sessions now perform a configurable bounded local metadata request as an active round-trip liveness probe. MEDRE's session-level client recreation retries for the lifetime of the started adapter with configurable capped backoff rather than a finite attempt ceiling. The adapter-local outbound queue exposes configurable warning/critical pressure thresholds, peak depth, and health degradation before the existing hard-cap rejection boundary. The probe uses the pinned mtjk `Node._send_admin(..., wantResponse=True, onResponse=...)` callback seam so mtjk remains authoritative for admin-channel selection, PKI encryption, session-passkey attachment, and response matching; timed-out response handlers are retired through the source-audited mtjk request runtime. Low-level mtjk heartbeat/socket reconnect behavior remains SDK-owned.
 - **Matrix sync-token durability.** Runtime-managed Matrix adapters persist
@@ -253,12 +255,13 @@ are detectable; none is a normative spec obligation.
   `store_sync_tokens` remains disabled by design. Sessions constructed
   without checkpoint callbacks (test-only paths) still perform a full
   initial sync.
-- **Matrix stale-sync watchdog.** Stale-sync detection exists in
-  `health_check()` with a threshold; there is no proactive watchdog beyond
-  it.
-- **Matrix key-request rate limiting.** Undecryptable-event key requests are
-  not rate-limited; the 60-second logging dedup does not gate the to-device
-  send.
+- **Matrix runtime supervision — closed.** `MatrixSession` now actively
+  supervises durable Classic Sync progress.  A configurable stale-progress
+  deadline recycles the current `sync_forever()` owner before the existing
+  bounded outer restart path runs; MEDRE refuses to start a replacement loop
+  when the stale loop cannot be cancelled.  Missing-room-key recovery has an
+  independent rolling request-attempt limit and a concurrent recovery-task
+  cap, separate from the 60-second undecryptable warning dedup.
 - **LXMF outbound-tracking eviction detail.** The bounded outbound tracking
   set logs only a count on eviction, not the state/age of the evicted
   entries.

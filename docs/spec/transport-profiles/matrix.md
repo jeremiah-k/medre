@@ -23,6 +23,9 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 | `metadata_embedding_mode` | `str`                                                  | `"safe"`      | How metadata is embedded in messages                                            |
 | `store_path`              | `str \| None`                                          | `None`        | Internal — derived under `{state}/adapters/{id}/matrix/store`                   |
 | `sync_timeout_ms`         | `int`                                                  | `30000`       | Long-polling sync timeout in milliseconds                                       |
+| `sync_stale_timeout_seconds` | `float`                                               | `300.0`       | Max durable-sync silence before active loop recycle; `0` disables watchdog      |
+| `megolm_key_request_rate_limit_per_minute` | `int`                                  | `30`          | Max missing-room-key to-device attempts per rolling minute                       |
+| `megolm_key_request_max_inflight` | `int`                                             | `4`           | Max concurrent detached missing-room-key recovery tasks                          |
 | `encryption_mode`         | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                     |
 | `require_encrypted_rooms` | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`   |
 | `auto_join_rooms`         | `tuple[str, ...]`                                      | `()`          | Canonical room IDs (`!localpart:server`) to auto-join on startup and via invite |
@@ -231,9 +234,14 @@ The Matrix renderer (`MatrixRenderer`) produces:
 5. **Checkpoint commit** — after a successful response has no unaccepted relevant
    events, MEDRE persists `next_batch` and recovery-abandonment metadata, then calls
    `acknowledge_classic_sync()`. nio does not persist the Classic cursor.
-6. **Reconnecting** — sync-loop failure resets uncommitted in-memory Classic state,
-   restores MEDRE's last committed cursor, and triggers bounded outer backoff
-   (1 s → 2 s → 4 s → … capped at 60 s, ±25 % jitter, max 10 attempts).
+6. **Supervising / reconnecting** — `MatrixSession` watches durable Classic
+   Sync progress.  If the configured stale-progress deadline expires, MEDRE asks
+   nio to stop the current `sync_forever()` owner, cancels it, and verifies it
+   terminated before the existing bounded outer recovery path may start another
+   loop.  Ordinary sync-loop failures use the same reset-to-committed-cursor
+   path and bounded outer backoff (1 s → 2 s → 4 s → … capped at 60 s, ±25 %
+   jitter, max 10 attempts).  A stale loop that ignores cancellation fails
+   closed; MEDRE never overlaps two sync owners on one client.
 7. **Stopped** — `stop(timeout)` asks nio to stop `sync_forever()`, cancels
    MEDRE-owned Megolm recovery and room-join tasks, drains nio client-bound request
    tasks, and closes the client under one shared absolute timeout budget. Tasks that
@@ -307,10 +315,15 @@ provider's missing-room-key request in a tracked background task with at most th
 attempts and a ten-second per-attempt timeout. The nio sync callback MUST return without
 waiting for this recovery task. Retryable transport or explicit to-device failures use
 2 s then 4 s backoff; cancellation propagates, and permanent Matrix errcodes terminate
-recovery immediately. Startup-history events do not trigger recovery requests. Live
-undecryptable events are deduplicated for 60 seconds by the pair `(room_id, session_id)`;
-within that window MEDRE emits neither a duplicate warning nor a duplicate recovery task.
-Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
+recovery immediately. Startup-history events do not trigger recovery requests.
+
+Recovery admission has two independent bounds: `megolm_key_request_max_inflight` caps
+concurrent detached recovery tasks, while
+`megolm_key_request_rate_limit_per_minute` caps actual outbound to-device request
+attempts in a rolling minute, including retries. These are network-admission controls,
+not logging controls. Live undecryptable warnings are separately deduplicated for 60
+seconds by `(room_id, session_id)`; changing that warning window does not change the
+request limiter. Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 
 ---
 
@@ -334,9 +347,14 @@ Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `megolm_recovery_attempts`                 | `int`           | Missing-room-key to-device send attempts             |
 | `megolm_recovery_successes`                | `int`           | Missing-room-key requests accepted by the provider   |
 | `megolm_recovery_failures`                 | `int`           | Terminal missing-room-key request failures           |
+| `megolm_recovery_rate_limited`              | `int`           | Outbound key-request attempts refused by rolling limit |
+| `megolm_recovery_inflight_rejected`         | `int`           | Recovery campaigns refused by max-in-flight cap      |
+| `megolm_recovery_inflight`                  | `int`           | Recovery tasks currently in flight                   |
 | `sync_running`                             | `bool`          | Sync loop active                                     |
 | `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
 | `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |
+| `stale_sync_recoveries`                    | `int`           | Sync loops recycled after stale-progress detection   |
+| `last_stale_sync_at`                        | `float \| None` | Monotonic time of last stale-progress detection      |
 | `classic_ack_deferrals`                    | `int`           | Consecutive deferred Classic acknowledgements        |
 | `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                     |
 | `checkpoint_owned_by_medre`                | `bool`          | MEDRE owns the Classic Sync checkpoint               |

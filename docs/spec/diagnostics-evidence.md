@@ -87,7 +87,7 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 
 > **Note:** Transport profiles define the complete per-adapter diagnostic key set. The tables below show the minimum contractual keys present in all adapter implementations. Key counts may differ from transport profiles, which define additional transport-specific keys.
 
-### 3.1 Matrix (24 minimum keys)
+### 3.1 Matrix (minimum operational keys)
 
 | Key                         | Type            | Semantics                                                   |
 | --------------------------- | --------------- | ----------------------------------------------------------- |
@@ -103,6 +103,11 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 | `megolm_recovery_attempts`  | `int`           | Missing-room-key to-device send attempts                    |
 | `megolm_recovery_successes` | `int`           | Missing-room-key requests accepted by the provider          |
 | `megolm_recovery_failures`  | `int`           | Terminal missing-room-key request failures                  |
+| `megolm_recovery_rate_limited` | `int`        | Missing-room-key attempts refused by the rolling network limit |
+| `megolm_recovery_inflight_rejected` | `int`    | Recovery campaigns refused by the concurrent-task cap       |
+| `megolm_recovery_inflight` | `int`            | Missing-room-key recovery tasks currently in flight         |
+| `stale_sync_recoveries`       | `int`           | Matrix sync loops recycled after stale-progress detection   |
+| `last_stale_sync_at`          | `float or None` | Monotonic time of the most recent stale-sync recycle        |
 | `sync_running`              | `bool`          | Sync loop state                                             |
 | `last_successful_sync`      | `float or None` | Monotonic time of last successful sync                      |
 | `crypto_store_loaded`       | `bool`          | Crypto database loaded (olm and store both present)         |
