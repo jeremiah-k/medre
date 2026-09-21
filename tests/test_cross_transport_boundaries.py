@@ -1,7 +1,7 @@
 """Cross-transport boundary enforcement tests.
 
-These tests verify architectural boundaries across all four transports
-(Matrix, Meshtastic, MeshCore, LXMF) uniformly:
+These tests verify architectural boundaries across all registered built-in
+transports uniformly:
 
 1. Core import boundary: core packages must not import concrete adapter
    packages (medre.adapters.{matrix,meshtastic,meshcore,lxmf}) or transport
@@ -46,7 +46,7 @@ from medre.runtime.architecture_report import _SDK_PACKAGES
 # ---------------------------------------------------------------------------
 
 _ADAPTER_TRANSPORTS = registered_transports()
-"""Four transport names."""
+"""Registered built-in transport names."""
 
 _CONCRETE_ADAPTER_PREFIXES = tuple(f"medre.adapters.{t}" for t in _ADAPTER_TRANSPORTS)
 """Fully-qualified concrete adapter package prefixes."""
