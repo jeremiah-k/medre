@@ -136,6 +136,10 @@ class LxmfCodec(AdapterCodec):
     ) -> CanonicalEvent:
         """Convert a native LXMF message payload dict into a canonical event.
 
+        The sender's delivery-destination hash becomes the event's source
+        transport and channel ID so inbound routes can match the same peer
+        hash used for outbound ``dest_channel`` addressing.
+
         Parameters
         ----------
         native_event:

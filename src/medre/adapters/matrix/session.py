@@ -1155,7 +1155,11 @@ class MatrixSession:
         )
 
     async def _on_sync_response(self, response: Any) -> None:
-        """Commit MEDRE's Classic cursor, then acknowledge it to nio."""
+        """Commit MEDRE's Classic cursor, then acknowledge it to nio.
+
+        Nio's staged-token mismatch is deferred until a later quiet response;
+        other acknowledgement errors still propagate.
+        """
         next_batch = getattr(response, "next_batch", None)
         if not isinstance(next_batch, str) or not next_batch:
             return
@@ -1977,11 +1981,13 @@ class MatrixSession:
         return len(owned)
 
     async def _drain_orphaned_client_tasks(self, timeout: float) -> None:
-        """Cancel and reap client-bound request tasks still in flight.
+        """Cancel client-bound request tasks within *timeout*.
 
         Runs while the client's HTTP session is open so aiohttp can release
         each connection through the normal cancellation path instead of
-        racing the connector close.
+        racing the connector close.  Completed tasks are reaped immediately;
+        cancellation-resistant tasks retain a callback that consumes their
+        eventual terminal result.
         """
         client = self._client
         if client is None:

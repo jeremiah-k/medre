@@ -71,10 +71,11 @@ class MeshCoreCodec(AdapterCodec):
             ``channel_idx`` field.
         contact_label:
             Known-contact advertised name for the sender, resolved by
-            the adapter from the session's local contacts store.  When
-            ``None`` (sender not a known contact), no label is injected
-            and the projection leaves ``source_sender_label`` as
-            ``None``.  Opaque pubkey prefixes are never passed here.
+            the adapter from the session's local contacts store.  For channel
+            messages without a known contact, ``None`` allows the codec to
+            derive the firmware-embedded name from ``"<name>: <text>"``;
+            direct messages do not use that fallback.  Opaque pubkey prefixes
+            are never passed here.
         contact_short_label:
             Optional abbreviated contact label.  When ``None``, the
             projection derives a compact form from *contact_label*.

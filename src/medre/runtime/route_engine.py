@@ -798,6 +798,12 @@ def _expand_all_routes(
     tuple[list[Route], dict[str, str]]
         A pair of (expanded routes, provenance mapping).
         The provenance dict maps ``expanded_route_id → config_route_id``.
+
+    Raises
+    ------
+    RouteValidationError
+        If an enabled config cannot be expanded into valid, uniquely identified
+        routes, including invalid directionality or conflicting selectors.
     """
     from medre.config.routes import RouteDirectionality
 

@@ -311,7 +311,8 @@ async def _adapter_matrix_provision(args: object) -> None:
 
     Requires completed credentials from ``medre adapter matrix auth login``
     (sidecar).  Never prints tokens; room/space IDs and permalinks are not
-    credentials.
+    credentials.  Prints the verified provisioning report on success and
+    exits with status 1 after reporting validation or provisioning failures.
     """
     import sys
 

@@ -984,7 +984,7 @@ class RouteConfig:
     dest_origin_label: str | None = None
 
     def __post_init__(self) -> None:
-        """Normalize enum-typed fields and the ``channel_room_map`` shape.
+        """Normalize directionality, room aliases, and channel-map entries.
 
         ``directionality`` is coerced from its config string form so that
         programmatically constructed routes behave identically to YAML-loaded
@@ -994,6 +994,8 @@ class RouteConfig:
         ``*_channel`` runtime form here too (the loader used to do this
         only on the YAML path, so programmatic routes silently kept
         ``source_channel=None`` and reverse legs lost their Matrix room).
+        Conflicting room/channel aliases and malformed ``channel_room_map``
+        entries raise :class:`ConfigValidationError`.
         """
         if not isinstance(self.directionality, RouteDirectionality):
             try:

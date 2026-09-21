@@ -398,6 +398,8 @@ class MeshCoreSession:
         """Disconnect from MeshCore and release all resources.
 
         Sets ``_stop_requested`` to prevent reconnect loops.
+        BLE sessions also attempt a bounded, best-effort BlueZ disconnect for
+        the configured address after the SDK client disconnects.
         Idempotent — safe to call multiple times.
         """
         if not self._started:
@@ -724,7 +726,9 @@ class MeshCoreSession:
         gating on it would make this method a no-op in the exact scenario
         it is meant to handle.  Instead we call ``disconnect()`` directly
         — on a truly disconnected client it is a no-op or raises a
-        harmless error, both of which are suppressed.
+        harmless error, both of which are suppressed.  The disconnect wait is
+        bounded; a cancellation-resistant task is detached with its eventual
+        result consumed.
 
         IMPORTANT: we do NOT use ``async with BleakClient`` here
         because that would connect (and then disconnect), creating

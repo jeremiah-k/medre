@@ -142,6 +142,10 @@ def merge_power_level_users(
 
 
 def _server_name_from_user_id(user_id: str) -> str:
+    """Return the server component of a colon-delimited Matrix user ID.
+
+    Raises :class:`ValueError` when *user_id* has no server component.
+    """
     _, _, domain = user_id.partition(":")
     if not domain:
         raise ValueError(f"user_id {user_id!r} is not a fully-qualified MXID")
@@ -151,6 +155,11 @@ def _server_name_from_user_id(user_id: str) -> str:
 def _validate_inputs(
     invite_user_ids: Sequence[str], admin_power_user_ids: Sequence[str]
 ) -> None:
+    """Validate invite/admin MXIDs and require admins to be invite targets.
+
+    Raises :class:`ValueError` for malformed or duplicate IDs and for an
+    admin absent from *invite_user_ids*.
+    """
     for label, values in (
         ("invite_user_ids", invite_user_ids),
         ("admin_power_user_ids", admin_power_user_ids),
@@ -185,6 +194,10 @@ def _validate_inputs(
 
 
 async def _raise_if_error(response: Any, action: str) -> None:
+    """Raise ``MatrixProvisionError`` for a nio error response.
+
+    The error message includes *action* so callers retain operation context.
+    """
     from medre.adapters.matrix.errors import MatrixProvisionError
 
     if type(response).__name__.endswith("Error"):
@@ -292,6 +305,11 @@ async def _invite_users(
 
 
 async def _verify_encryption(client: _ProvisionClient, room_id: str) -> str:
+    """Return the room's verified Megolm algorithm.
+
+    Raises ``MatrixProvisionError`` when encryption state is unreadable or
+    names an algorithm other than :data:`MEGOLM_ROOM_ALGORITHM`.
+    """
     from medre.adapters.matrix.errors import MatrixProvisionError
 
     response = await client.room_get_state_event(room_id, "m.room.encryption")
@@ -313,6 +331,11 @@ async def _verify_encryption(client: _ProvisionClient, room_id: str) -> str:
 async def _verify_linkage(
     client: _ProvisionClient, space_id: str, room_id: str, server_name: str
 ) -> bool:
+    """Verify reciprocal canonical space/room linkage through *server_name*.
+
+    Returns ``True`` after both state events pass validation and raises
+    ``MatrixProvisionError`` for missing, malformed, or inconsistent state.
+    """
     from medre.adapters.matrix.errors import MatrixProvisionError
 
     child = await client.room_get_state_event(
@@ -363,13 +386,14 @@ async def provision_private_space_and_room(
 ) -> ProvisionReport:
     """Provision a private space + encrypted room pair and verify its state.
 
-    Sequence: create space → create room (encryption in initial_state) →
-    preassign and verify power levels on both → write parent/child linkage →
-    verify encryption/linkage from actual server state → invite on both.
+    Creates and verifies the space's power grants, then creates the room with
+    encryption in its initial state and verifies its grants.  Parent/child
+    linkage and encryption are read back before any invitations are sent.
 
     Raises :class:`~medre.adapters.matrix.errors.MatrixProvisionError` on any
-    response error or verification mismatch.  Raises :class:`ValueError` on
-    malformed user IDs or admins outside the invite set.
+    response error or verification mismatch.  Raises :class:`ValueError` for
+    invalid or duplicate user IDs, admins outside the invite set, or a client
+    user ID without a server component.
     """
     _validate_inputs(invite_user_ids, admin_power_user_ids)
 

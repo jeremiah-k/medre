@@ -737,13 +737,15 @@ def _reject_env_placeholder(field: str, value: str) -> None:
 
 
 def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
-    """Recursively expand ``{placeholder}`` tokens in string values.
+    """Recursively process placeholders in a config mapping.
 
     Path-designated fields (``path``/``*_path``/``*_dir``/``*_file``) are expanded
     strictly: an unknown placeholder is a config error.  All other string
     fields expand known path placeholders leniently, leave non-path
     template tokens (renderer variables) untouched, and reject surviving
-    ``${ENV_VAR}`` references with a config error.
+    ``${ENV_VAR}`` references with a config error.  Nested mappings in lists
+    are processed recursively; string list items are preserved after the same
+    unresolved-environment-placeholder check.
     """
     result: dict = {}
     for k, v in d.items():

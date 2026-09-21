@@ -33,6 +33,7 @@ def register_builtin_contributors(subparsers) -> None:
 
 
 def _register_matrix_contributions(subparsers) -> None:
+    """Register Matrix credential, identity, and provisioning commands."""
     # -- adapter namespace ----------------------------------------------------
     adapter_p = subparsers.add_parser("adapter", help="Adapter management commands")
     adapter_sub = adapter_p.add_subparsers(dest="adapter_command", required=True)
