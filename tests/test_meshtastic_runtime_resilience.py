@@ -744,7 +744,7 @@ async def test_reconnect_close_failure_of_partial_client_is_contained(
     # Silence the session logger: this test asserts containment of a failing
     # close(), and pytest's log-capture emit for per-attempt warnings can
     # otherwise serialize against the capture handler on slow CI schedulers.
-    session._logger.disabled = True
+    monkeypatch.setattr(session._logger, "disabled", True)
     attempts = 0
 
     class PartialClient:

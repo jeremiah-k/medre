@@ -61,6 +61,8 @@ async def bounded_cancel_and_reap(
     Returns the tasks that were still pending after *timeout* — the caller
     decides whether that constitutes a failure.
     """
+    if not tasks:
+        return []
     done, active = await asyncio.wait(tasks, timeout=0)
     if done:
         await asyncio.gather(*done, return_exceptions=True)

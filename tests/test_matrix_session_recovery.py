@@ -452,20 +452,22 @@ async def test_stop_deadline_bounds_recovery_and_join_task_drains() -> None:
     session._client = client
 
     release = asyncio.Event()
-    resistant_tasks_started = asyncio.Event()
+    recovery_started = asyncio.Event()
+    join_started = asyncio.Event()
 
-    async def _resists_one_cancel() -> None:
-        resistant_tasks_started.set()
+    async def _resists_one_cancel(started: asyncio.Event) -> None:
+        started.set()
         try:
             await asyncio.Event().wait()
         except asyncio.CancelledError:
             await release.wait()
 
-    recovery = asyncio.create_task(_resists_one_cancel())
-    join = asyncio.create_task(_resists_one_cancel())
+    recovery = asyncio.create_task(_resists_one_cancel(recovery_started))
+    join = asyncio.create_task(_resists_one_cancel(join_started))
     session._room_key_request_tasks["room:session"] = recovery
     session._joining_rooms["!room:example.com"] = join
-    await resistant_tasks_started.wait()
+    await recovery_started.wait()
+    await join_started.wait()
 
     stop_task = asyncio.create_task(session.stop(timeout=0.02))
     # This is a test-harness watchdog, not the product shutdown budget.
