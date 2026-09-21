@@ -151,6 +151,53 @@ def _register_matrix_contributions(subparsers) -> None:
         ),
     )
 
+    # -- adapter matrix provision ---------------------------------------------
+    provision_p = adapter_matrix_sub.add_parser(
+        "provision",
+        help=(
+            "Provision one private space + one private encrypted room linked to "
+            "it, invite users to both, and pre-assign admin power (effective on "
+            "join). Verifies encryption/linkage/power from server state. "
+            "Requires 'adapter matrix auth login' first. Prints room/space IDs "
+            "(IDs are not credentials)."
+        ),
+        allow_abbrev=False,
+    )
+    provision_p.add_argument(
+        "--space-name",
+        required=True,
+        help="Name for the private test space",
+    )
+    provision_p.add_argument(
+        "--room-name",
+        required=True,
+        help="Name for the private encrypted test room",
+    )
+    provision_p.add_argument(
+        "--room-topic",
+        required=False,
+        default=None,
+        help="Optional topic for the encrypted room",
+    )
+    provision_p.add_argument(
+        "--invite",
+        action="append",
+        required=True,
+        metavar="USER_ID",
+        help="User ID to invite to BOTH resources (repeatable)",
+    )
+    provision_p.add_argument(
+        "--admin",
+        action="append",
+        required=False,
+        default=None,
+        metavar="USER_ID",
+        help=(
+            "Invited user to pre-assign admin power 100 in BOTH resources "
+            "(effective on join; repeatable)"
+        ),
+    )
+
 
 def dispatch_contribution(args) -> None:
     """Dispatch a contributed command, lazy-importing only when needed."""
@@ -176,3 +223,13 @@ def dispatch_contribution(args) -> None:
         from medre.adapters.matrix.cli import _adapter_matrix_auth_login
 
         asyncio.run(_adapter_matrix_auth_login(args))
+    elif (
+        args.command == "adapter"
+        and getattr(args, "adapter_command", None) == "matrix"
+        and getattr(args, "adapter_matrix_command", None) == "provision"
+    ):
+        import asyncio
+
+        from medre.adapters.matrix.cli import _adapter_matrix_provision
+
+        asyncio.run(_adapter_matrix_provision(args))

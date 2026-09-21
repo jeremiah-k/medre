@@ -299,3 +299,144 @@ async def _adapter_matrix_auth_status(credentials_path: Path | None = None) -> N
         print(f"\nMissing: {', '.join(missing)}")
     else:
         print("\nCredentials are complete.")
+
+
+async def _adapter_matrix_provision(args: object) -> None:
+    """Handle ``medre adapter matrix provision``.
+
+    Provisions ONE private space + ONE private encrypted room linked to it,
+    invites the requested users to both, pre-assigns admin power (effective
+    on join, no watcher loop), and verifies encryption/linkage/power state
+    from actual server state.
+
+    Requires completed credentials from ``medre adapter matrix auth login``
+    (sidecar).  Never prints tokens; room/space IDs and permalinks are not
+    credentials.
+    """
+    import sys
+
+    space_name = getattr(args, "space_name", None)
+    room_name = getattr(args, "room_name", None)
+    room_topic = getattr(args, "room_topic", None)
+    invite_ids: list[str] = list(getattr(args, "invite", None) or [])
+    admin_ids: list[str] = list(getattr(args, "admin", None) or [])
+
+    if not space_name or not room_name:
+        print("Error: --space-name and --room-name are required", file=sys.stderr)
+        sys.exit(1)
+    if not invite_ids:
+        print(
+            "Error: at least one --invite USER_ID is required (e.g. --invite @user:matrix.org)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    from medre.adapters.matrix.auth import (
+        MatrixConnectionError,
+        check_credentials_completeness,
+        matrix_whoami,
+    )
+    from medre.config.adapters.matrix_credentials import (
+        get_credentials_path,
+        load_credentials_json,
+    )
+
+    path = get_credentials_path()
+    if not path.exists():
+        print(
+            f"No credentials file at: {path}\n"
+            "Run 'medre adapter matrix auth login' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    creds = load_credentials_json(path=path)
+    if creds is None:
+        print(f"Credentials file malformed: {path}", file=sys.stderr)
+        sys.exit(1)
+    missing = check_credentials_completeness(creds)
+    if missing:
+        print(
+            f"Credentials incomplete (missing: {', '.join(missing)}); "
+            "run 'medre adapter matrix auth login' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    homeserver = str(creds["homeserver"])
+    user_id = str(creds["user_id"])
+    access_token = str(creds["access_token"])
+    device_id = creds.get("device_id")
+
+    try:
+        verified = matrix_whoami(homeserver, access_token)
+        if verified != user_id:
+            print(
+                f"Error: verified user_id {verified!r} does not match "
+                f"credentials {user_id!r}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        import nio
+
+        client = nio.AsyncClient(homeserver, user_id, device_id=device_id)
+        client.restore_login(user_id, device_id, access_token)
+        try:
+            from medre.adapters.matrix.provision import (
+                provision_private_space_and_room,
+            )
+
+            report = await provision_private_space_and_room(
+                client,
+                space_name=space_name,
+                room_name=room_name,
+                invite_user_ids=invite_ids,
+                admin_power_user_ids=admin_ids,
+                room_topic=room_topic,
+            )
+        finally:
+            primary = sys.exc_info()[1]
+            try:
+                await client.close()
+            except BaseException as close_exc:
+                if primary is None:
+                    raise
+                print(
+                    "Warning: Matrix client cleanup also failed while preserving "
+                    f"the provisioning error: {close_exc!r}",
+                    file=sys.stderr,
+                )
+    except MatrixConnectionError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as exc:
+        print(f"Error: provisioning failed: {exc}", file=sys.stderr)
+        # Best-effort session invalidation is NOT attempted here: the session
+        # itself verified fine; only the provisioning calls failed.
+        sys.exit(1)
+
+    links = report.permalinks()
+    print("Provisioned (private, federation enabled):")
+    print(f"  Space: {report.space.room_id}")
+    print(f"         {links['space']}")
+    print(f"  Room:  {report.room.room_id}")
+    print(f"         {links['room']}")
+    print(f"  Encryption verified: {report.encryption_algorithm}")
+    print(f"  Space<->room linkage verified: {report.linkage_verified}")
+    print(f"  Bot (admin): {report.bot_user_id}")
+    for label, resource in (("space", report.space), ("room", report.room)):
+        print(f"  {label} invited (invite is NOT join):")
+        if resource.invited:
+            for invited in resource.invited:
+                power = resource.granted_power_levels.get(invited)
+                suffix = f" (power {power}, effective on join)" if power else ""
+                print(f"    - {invited}{suffix}")
+        else:
+            print("    (none)")
+    print(
+        "\nMembership note: invited users appear as INVITED until they accept. "
+        "Read back actual joins with the room membership state."
+    )

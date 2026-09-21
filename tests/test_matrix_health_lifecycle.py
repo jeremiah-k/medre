@@ -378,6 +378,7 @@ async def test_diagnostics_json_safe():
         sync_running=True,
         reconnecting=False,
         reconnect_attempts=0,
+        classic_ack_deferrals=0,
         last_successful_sync=100.0,
         checkpoint_owned_by_medre=False,
         committed_checkpoint_present=False,

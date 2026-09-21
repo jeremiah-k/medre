@@ -1061,7 +1061,6 @@ class TestRouteConfigRetry:
         assert exc_info.value.section_path == "routes.my_route.retry"
 
 
-
 # ---------------------------------------------------------------------------
 # Route retry YAML loader integration
 # ---------------------------------------------------------------------------

@@ -46,7 +46,7 @@ adapters:
       room_allowlist:
         - "!room:example.com" # REQUIRED — your test room ID
       encryption_mode: plaintext # plaintext | e2ee_optional | e2ee_required
-      # relay_prefix: "[{sender}/{origin_label}]: "  # Meshtastic→Matrix: prepend sender info via target-local prefix
+      relay_prefix: "[{sender}/{origin_label}]: " # Meshtastic→Matrix: prepend sender info via target-local prefix
 
   # ---------------------------------------------------------------------------
   # Meshtastic transport (serial)

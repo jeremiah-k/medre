@@ -10,6 +10,7 @@ MeshCore dependency.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -71,9 +72,11 @@ class MeshCoreCodec(AdapterCodec):
         contact_label:
             Known-contact advertised name for the sender, resolved by
             the adapter from the session's local contacts store.  When
-            ``None`` (sender not a known contact), no label is injected
-            and the projection leaves ``source_sender_label`` as
-            ``None``.  Opaque pubkey prefixes are never passed here.
+            ``None`` for a channel text, the codec falls back to the
+            firmware wire-embedded sender name (``"<name>: <text>"``);
+            when no wire name is present, or for direct messages, no
+            label is injected. Opaque pubkey prefixes are never passed
+            here and are never derived.
         contact_short_label:
             Optional abbreviated contact label.  When ``None``, the
             projection derives a compact form from *contact_label*.
@@ -91,6 +94,13 @@ class MeshCoreCodec(AdapterCodec):
         if not isinstance(native_event, dict):
             raise MeshCoreCodecError(
                 f"packet must be a dict, got {type(native_event).__name__}"
+            )
+
+        raw_text = native_event.get("text")
+        if raw_text is not None and not isinstance(raw_text, str):
+            raise MeshCoreCodecError(
+                "packet text must be a string when present, got "
+                f"{type(raw_text).__name__}"
             )
 
         classification = self._classifier.classify(native_event)
@@ -141,6 +151,16 @@ class MeshCoreCodec(AdapterCodec):
 
         # No reply relation support in MeshCore
         relations: list[Any] = []
+        # MeshCore firmware prepends the sending node's advertised name to
+        # group texts on the wire ("<name>: <text>") because the channel
+        # protocol carries no sender identity (CHANNEL_MSG_RECV has no
+        # pubkey; only DMs do).  When no known-contact label was resolved,
+        # lift the wire-embedded name into the attribution label so relay
+        # prefixes like "{sender}/{origin_label}: " render the sender
+        # instead of an empty field.  DMs carry real identity and are
+        # excluded; an explicitly resolved contact label always wins.
+        if contact_label is None and not classification.is_direct_message:
+            contact_label = _wire_sender_name(text)
 
         native_meta = NativeMetadata(
             data=build_meshcore_native_metadata(
@@ -179,3 +199,27 @@ class MeshCoreCodec(AdapterCodec):
             metadata=metadata,
             source_native_ref=source_native_ref,
         )
+
+
+# MeshCore firmware wire convention for group texts: the sending node's
+# advertised name is prepended as "<name>: <text>" (channel messages carry
+# no protocol-level sender identity).  The name charset mirrors advertised
+# node names (letters, digits, spaces, and common separators); the
+# remainder must be non-empty.  A leading alnum character and a max length
+# keep ordinary sentences without the separator from matching.
+_WIRE_SENDER_NAME_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9 ._@\\/-]{0,30}):\s+\S")
+
+
+def _wire_sender_name(text: str) -> str | None:
+    """Extract the firmware-embedded sender name from a group text.
+
+    Returns the advertised node name when *text* follows the wire
+    convention ``"<name>: <text>"``, otherwise ``None``.  Heuristic by
+    necessity: the MeshCore channel protocol provides no other sender
+    identity for group messages.
+    """
+    match = _WIRE_SENDER_NAME_RE.match(text)
+    if match is None:
+        return None
+    name = match.group(1).strip()
+    return name or None

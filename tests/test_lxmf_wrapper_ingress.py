@@ -342,7 +342,9 @@ class TestLxmfWrapperCallbackIngress:
             )
             await lxmf_adapter.simulate_inbound(packet)
 
-            # Resolve via native ref
+            # LXMF has no native channel concept.  The sender hash is the
+            # canonical routing channel, while the persisted native-ref key
+            # remains channel-less for transport-identity compatibility.
             resolved = await temp_storage.resolve_native_ref(
                 adapter="lxmf-meta",
                 native_channel_id=None,
@@ -356,8 +358,9 @@ class TestLxmfWrapperCallbackIngress:
             # source_adapter matches the adapter
             assert stored.source_adapter == "lxmf-meta"
 
-            # source_channel_id is None (LXMF has no channel concept)
-            assert stored.source_channel_id is None
+            # source_channel_id is the sender's delivery-destination hash
+            # (the lxmf channel key used by bidirectional route configs)
+            assert stored.source_channel_id == "99887766aabb"
 
             # event_kind is MESSAGE_CREATED
             assert stored.event_kind == EventKind.MESSAGE_CREATED
@@ -367,6 +370,7 @@ class TestLxmfWrapperCallbackIngress:
 
             # source_native_ref has the message_id
             assert stored.source_native_ref is not None
+            assert stored.source_native_ref.native_channel_id is None
             assert stored.source_native_ref.native_message_id == "meta-msg-001"
 
             # Payload contains the body text
@@ -450,9 +454,9 @@ class TestLxmfWrapperCallbackIngress:
                 )
                 return len(rows) == 1
 
-            assert await wait_until(_canonical_persisted), (
-                "canonical event was not persisted after delivery"
-            )
+            assert await wait_until(
+                _canonical_persisted
+            ), "canonical event was not persisted after delivery"
 
             # Canonical event stored
             events = await temp_storage._read_all(

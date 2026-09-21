@@ -234,8 +234,12 @@ The Matrix renderer (`MatrixRenderer`) produces:
 6. **Reconnecting** — sync-loop failure resets uncommitted in-memory Classic state,
    restores MEDRE's last committed cursor, and triggers bounded outer backoff
    (1 s → 2 s → 4 s → … capped at 60 s, ±25 % jitter, max 10 attempts).
-7. **Stopped** — `stop()` asks nio to stop `sync_forever()`, cancels the supervisor,
-   closes the client, and nulls the session. Idempotent.
+7. **Stopped** — `stop(timeout)` asks nio to stop `sync_forever()`, cancels
+   MEDRE-owned Megolm recovery and room-join tasks, drains nio client-bound request
+   tasks, and closes the client under one shared absolute timeout budget. Tasks that
+   ignore cancellation past that budget are detached with terminal-result ownership
+   so shutdown remains bounded without producing unobserved-task warnings. The
+   session is then nulled. Idempotent.
 
 ### Classic Sync ownership and recovery
 
@@ -262,7 +266,11 @@ Protocol provenance is authoritative. The generic adapter-start timestamp filter
 not override Matrix recovery evidence. `LIVE` and `RECOVERED` events are routed;
 `HISTORY` events are persisted as `suppressed_history` and are not routed. Recovery
 abandonment is persisted with the checkpoint and exposed through diagnostics before
-the cursor advances.
+the cursor advances. After MEDRE commits a Classic cursor, it asks the pinned SDK to
+acknowledge that cursor. If the SDK reports its specific staged-token mismatch while
+recovery work is still active, MEDRE defers that acknowledgement instead of killing
+the sync loop; unrelated protocol errors still propagate. The consecutive deferral
+count is exposed as `classic_ack_deferrals` and resets after a successful ack.
 
 The durability guarantee is intentionally narrower than exactly-once delivery: once
 Matrix ingress is accepted, MEDRE retains the canonical event and durable work state
@@ -329,6 +337,7 @@ Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `sync_running`                             | `bool`          | Sync loop active                                     |
 | `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
 | `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |
+| `classic_ack_deferrals`                    | `int`           | Consecutive deferred Classic acknowledgements        |
 | `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                     |
 | `checkpoint_owned_by_medre`                | `bool`          | MEDRE owns the Classic Sync checkpoint               |
 | `committed_checkpoint_present`             | `bool`          | A committed Classic cursor has been restored/stored  |

@@ -168,6 +168,7 @@ class LxmfCodec(AdapterCodec):
         title = classification["title"]
 
         sender = classification["sender_id"] or ""
+        channel_id = sender or None
         pkt_id = classification["packet_id"]
 
         event_kind = EventKind.MESSAGE_CREATED
@@ -239,7 +240,15 @@ class LxmfCodec(AdapterCodec):
             timestamp=self._clock(),
             source_adapter=self._adapter_id,
             source_transport_id=sender,
-            source_channel_id=None,
+            # The LXMF "channel" key is the peer's delivery-destination
+            # hash -- the same value the lxmf route config carries as
+            # ``dest_channel`` in the matrix->lxmf direction.  Leaving it
+            # None made every inbound event fail the router's channel
+            # filter, so bidirectional lxmf routes could never match in
+            # the reverse (lxmf->matrix) direction ("No routes matched";
+            # the MT adapter carries the equivalent default-channel
+            # fallback for the same reason).
+            source_channel_id=channel_id,
             parent_event_id=None,
             lineage=(),
             relations=tuple(relations),

@@ -732,3 +732,135 @@ async def test_stale_cleanup_before_rescan_order() -> None:
         "stale_cleanup",
         "find",
     ]
+
+
+# ===================================================================
+# stop(): BlueZ central-link teardown (BLE stop-leak)
+# ===================================================================
+
+
+def _started_ble_session_with_client() -> tuple[MeshCoreSession, AsyncMock]:
+    """A BLE session in the post-start state stop() expects."""
+    session = _make_ble_session()
+    client = AsyncMock()
+    client.stop_auto_message_fetching = AsyncMock()
+    session._started = True
+    session._meshcore = client
+    return session, client
+
+
+async def test_stop_drops_bluez_central_link_for_ble() -> None:
+    """stop() must drop the BlueZ central link for BLE sessions.
+
+    Observed twice live: a clean runtime stop (SDK disconnect returned)
+    left the board ``Connected`` at the BlueZ level for ~35s+ until an
+    explicit ``bluetoothctl disconnect``; the lingering link plausibly
+    fed the historical intermittent "Failed to connect" on the next
+    start.  stop() therefore performs the bounded best-effort stale-BLE
+    disconnect for the configured address after the SDK disconnect.
+    """
+    session, client = _started_ble_session_with_client()
+    with patch.object(
+        session, "_disconnect_stale_ble_client", new_callable=AsyncMock
+    ) as stale_drop:
+        await session.stop()
+
+    client.disconnect.assert_awaited_once()
+    stale_drop.assert_awaited_once_with("AA:BB:CC:DD:EE:FF")
+    assert session._started is False
+
+
+async def test_stop_ble_drop_failure_does_not_break_stop() -> None:
+    """A failing BlueZ drop must not fail stop() or skip teardown."""
+    session, client = _started_ble_session_with_client()
+    with patch.object(
+        session,
+        "_disconnect_stale_ble_client",
+        side_effect=RuntimeError("bluez gone"),
+    ):
+        await session.stop()
+
+    client.disconnect.assert_awaited_once()
+    assert session._started is False
+
+
+async def test_stop_skips_bluez_drop_for_serial() -> None:
+    """Non-BLE sessions never touch the BlueZ helper."""
+    config = MeshCoreConfig(
+        adapter_id="serial-test", connection_type="serial", serial_port="/dev/x"
+    )
+    session = MeshCoreSession(config, "serial-test-session")
+    client = AsyncMock()
+    session._started = True
+    session._meshcore = client
+    with patch.object(
+        session, "_disconnect_stale_ble_client", new_callable=AsyncMock
+    ) as stale_drop:
+        await session.stop()
+
+    client.disconnect.assert_awaited_once()
+    stale_drop.assert_not_awaited()
+
+
+async def test_stale_bluez_disconnect_is_hard_bounded() -> None:
+    """A cancellation-resistant Bleak disconnect cannot hang session cleanup."""
+    import types
+
+    session = _make_ble_session()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    class _StaleClient:
+        async def disconnect(self) -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await release.wait()
+            finally:
+                finished.set()
+
+    fake_bleak = types.SimpleNamespace(
+        BleakClient=lambda address, timeout: _StaleClient()
+    )
+    with (
+        patch.dict(sys.modules, {"bleak": fake_bleak}),
+        patch("medre.adapters.meshcore.session._SDK_LIFECYCLE_TIMEOUT", 0.02),
+    ):
+        await session._disconnect_stale_ble_client("AA:BB:CC:DD:EE:FF")
+
+    assert started.is_set()
+    release.set()
+    await asyncio.wait_for(finished.wait(), timeout=1.0)
+
+
+async def test_stop_hard_bounds_stale_bluez_helper() -> None:
+    """stop() itself owns a deadline even if the helper regresses or is mocked."""
+    session, client = _started_ble_session_with_client()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def _hung_cleanup(address: str) -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+        finally:
+            finished.set()
+
+    with (
+        patch.object(
+            session, "_disconnect_stale_ble_client", side_effect=_hung_cleanup
+        ),
+        patch("medre.adapters.meshcore.session._SDK_LIFECYCLE_TIMEOUT", 0.02),
+    ):
+        await session.stop()
+
+    assert started.is_set()
+    assert session._started is False
+    client.disconnect.assert_awaited_once()
+    release.set()
+    await asyncio.wait_for(finished.wait(), timeout=1.0)

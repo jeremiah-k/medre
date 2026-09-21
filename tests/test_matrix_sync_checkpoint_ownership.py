@@ -19,6 +19,18 @@ from medre.core.ingress.types import AdapterCheckpoint
 from tests.helpers.matrix_session import make_matrix_config
 
 
+class LocalProtocolError(Exception):
+    """SDK-shaped test double for nio's local protocol error."""
+
+
+def _recovery_state(*, busy: bool) -> SimpleNamespace:
+    return SimpleNamespace(
+        _active_dispatches={object()} if busy else set(),
+        gaps={},
+        _deferred_dispatch_errors=[],
+    )
+
+
 def _durable_session(**overrides: object) -> MatrixSession:
     async def admit(_event: dict[str, object], _provenance: str) -> None:
         return None
@@ -252,6 +264,93 @@ async def test_sync_response_commits_checkpoint_before_nio_ack() -> None:
     assert calls == [("commit", "classic_sync:s42"), ("ack", "s42")]
     assert session._committed_sync_token == "s42"
     assert session.diagnostics().committed_checkpoint_present is True
+
+
+async def test_ack_token_mismatch_defers_instead_of_killing_sync() -> None:
+    """Live finding F4 (run4): while MEDRE's awaited checkpoint commit runs,
+    nio recovery dispatches (undecryptable-event room-key work) can still be
+    active; `acknowledge_classic_sync` then raises LocalProtocolError. The
+    exception used to propagate out of the response callback and kill
+    sync_forever, burning the reconnect budget. The durable checkpoint is
+    already committed at that point — the acknowledgement must defer to a
+    later quiet response, not crash the sync loop."""
+    ack_calls: list[str] = []
+
+    def _ack(cursor: str) -> None:
+        ack_calls.append(cursor)
+        raise LocalProtocolError(
+            "Classic Sync acknowledgement token does not match the staged " "response."
+        )
+
+    session = _durable_session()
+    client = MagicMock()
+    client._recovery = _recovery_state(busy=True)
+    client.acknowledge_classic_sync.side_effect = _ack
+    session._client = client
+    response = SimpleNamespace(next_batch="s43", abandoned_rooms={})
+
+    await session._on_sync_response(response)  # must not raise
+
+    assert ack_calls == ["s43"]
+    assert session._committed_sync_token == "s43"
+    assert session.diagnostics().classic_ack_deferrals == 1
+
+
+async def test_deferred_classic_ack_recovers_on_next_response() -> None:
+    """After recovery work settles, the next response's acknowledgement
+    succeeds and the deferral counter stops growing."""
+    calls: list[str] = []
+    fail_first = True
+    session = _durable_session()
+    client = MagicMock()
+    client._recovery = _recovery_state(busy=True)
+
+    def _ack(cursor: str) -> None:
+        nonlocal fail_first
+        calls.append(cursor)
+        if not fail_first:
+            return
+        fail_first = False
+        # Recovery dispatches are still active: nio rejects the token.
+        raise LocalProtocolError(
+            "Classic Sync acknowledgement token does not match the " "staged response."
+        )
+
+    client.acknowledge_classic_sync.side_effect = _ack
+    session._client = client
+
+    await session._on_sync_response(
+        SimpleNamespace(next_batch="s43", abandoned_rooms={})
+    )
+
+    # Recovery work settles before the next response arrives, so the next
+    # acknowledgement succeeds and the deferral counter resets.
+    client._recovery = _recovery_state(busy=False)
+    await session._on_sync_response(
+        SimpleNamespace(next_batch="s44", abandoned_rooms={})
+    )
+
+    assert calls == ["s43", "s44"]
+    assert session._committed_sync_token == "s44"
+    assert session.diagnostics().classic_ack_deferrals == 0
+
+
+async def test_non_recovery_ack_mismatch_propagates() -> None:
+    session = _durable_session()
+    client = MagicMock()
+    client._recovery = _recovery_state(busy=False)
+    client.acknowledge_classic_sync.side_effect = LocalProtocolError(
+        "Classic Sync acknowledgement token does not match the staged response."
+    )
+    session._client = client
+
+    with pytest.raises(LocalProtocolError, match="staged response"):
+        await session._on_sync_response(
+            SimpleNamespace(next_batch="s43", abandoned_rooms={})
+        )
+
+    assert session._committed_sync_token is None
+    assert session.diagnostics().classic_ack_deferrals == 0
 
 
 async def test_checkpoint_failure_does_not_acknowledge_nio() -> None:

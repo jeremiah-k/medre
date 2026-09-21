@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,11 @@ from tests.helpers.live_config import (
     matrix_second_user_env_set,
 )
 from tests.helpers.live_harness import (
+    AIOHTTP_TLS_SHUTDOWN_UNRAISABLE_FILTER,
+    BLEAK_SYSTEM_BUS_UNRAISABLE_FILTER,
+    PINNED_SDK_UNRAISABLE_FILTERS,
+    RNS_RATCHETS_UNRAISABLE_FILTER,
+    SELECTOR_TRANSPORT_UNRAISABLE_FILTER,
     LiveRequirement,
     LiveSmokeResult,
     assert_no_secret_leak,
@@ -460,3 +466,89 @@ class TestMatrixSecondUserEnvSet:
         result = matrix_second_user_env_set()
         assert result is True
         # The function returns bool only — no string value to inspect.
+
+
+# ===================================================================
+# (i) PINNED_SDK_UNRAISABLE_FILTERS
+# ===================================================================
+
+
+def _with_pinned_unraisable_marks(func):
+    """Apply every pinned unraisable spec to one test function."""
+    for spec in PINNED_SDK_UNRAISABLE_FILTERS:
+        func = pytest.mark.filterwarnings(spec)(func)
+    return func
+
+
+# Each pinned filter guards one documented unraisable boundary.  The
+# target texts are the real GC-time messages; the non-targets are nearby
+# shapes that must keep erroring so a filter can never be broadened into
+# a blanket suppression.
+_UNRAISABLE_BOUNDARIES = [
+    (
+        RNS_RATCHETS_UNRAISABLE_FILTER,
+        "Exception ignored in: <_io.BufferedReader name='/s/lxmf/ratchets/ab12.ratchets'>",
+        "Exception ignored in: <_io.BufferedReader name='/s/lxmf/inbox/ab12'>",
+    ),
+    (
+        AIOHTTP_TLS_SHUTDOWN_UNRAISABLE_FILTER,
+        "Exception ignored in: <socket.socket fd=25, family=2, type=1, proto=6, "
+        "laddr=('83.223.79.169', 443)>",
+        "Exception ignored in: <socket.socket fd=25, family=2, type=1, proto=6, "
+        "laddr=('10.0.0.5', 1443)>",
+    ),
+    (
+        SELECTOR_TRANSPORT_UNRAISABLE_FILTER,
+        "Exception ignored in: <function _SelectorTransport.__del__ at 0x7f9a>",
+        "Exception ignored in: <function _SelectorSocketTransport.__del__ at 0x7f9a>",
+    ),
+    (
+        BLEAK_SYSTEM_BUS_UNRAISABLE_FILTER,
+        "Exception ignored in: <socket.socket fd=28, family=1, type=1, proto=0, "
+        "laddr=/run/system_bus_socket>",
+        "Exception ignored in: <socket.socket fd=28, family=1, type=1, proto=0, "
+        "laddr=/tmp/org-dbus>",
+    ),
+]
+
+
+@_with_pinned_unraisable_marks
+def test_pinned_unraisable_marks_are_applied_by_pytest() -> None:
+    """Runs under all pinned specs; pytest parsed each of them."""
+    assert True
+
+
+@_with_pinned_unraisable_marks
+@pytest.mark.parametrize(("spec", "target", "non_target"), _UNRAISABLE_BOUNDARIES)
+def test_pinned_unraisable_spec_has_only_field_delimiter_colons(
+    spec: str, target: str, non_target: str
+) -> None:
+    """Exactly action:message:category fields, category the unraisable."""
+    parts = spec.split(":")
+    assert len(parts) == 3, f"colon inside message field: {spec!r}"
+    action, message_spec, category = parts
+    assert action == "ignore"
+    assert category == "pytest.PytestUnraisableExceptionWarning"
+    assert message_spec
+
+
+@_with_pinned_unraisable_marks
+@pytest.mark.parametrize(("spec", "target", "non_target"), _UNRAISABLE_BOUNDARIES)
+def test_pinned_unraisable_spec_matches_only_documented_boundary(
+    spec: str, target: str, non_target: str
+) -> None:
+    """Message regex matches its boundary text and rejects near misses."""
+    message_spec = spec.split(":")[1]
+    pattern = re.compile(message_spec, re.IGNORECASE)
+    assert pattern.match(target)
+    assert not pattern.match(non_target)
+
+
+def test_aiohttp_tls_filter_does_not_match_fd_443() -> None:
+    message_spec = AIOHTTP_TLS_SHUTDOWN_UNRAISABLE_FILTER.split(":")[1]
+    pattern = re.compile(message_spec, re.IGNORECASE)
+    near_miss = (
+        "Exception ignored in: <socket.socket fd=443, family=2, type=1, "
+        "proto=6, laddr=('10.0.0.5', 8443)>"
+    )
+    assert not pattern.match(near_miss)

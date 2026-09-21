@@ -117,6 +117,16 @@ def _make_matrix_mock_session(**diag_overrides: Any) -> MagicMock:
     mock_diag.reconnecting = False
     mock_diag.reconnect_attempts = 0
     mock_diag.last_successful_sync = None
+    mock_diag.checkpoint_owned_by_medre = False
+    mock_diag.committed_checkpoint_present = False
+    mock_diag.classic_ack_deferrals = 0
+    mock_diag.recovered_event_count = 0
+    mock_diag.history_event_count = 0
+    mock_diag.recovery_abandoned_room_count = 0
+    mock_diag.recovery_last_abandonment = None
+    mock_diag.megolm_recovery_attempts = 0
+    mock_diag.megolm_recovery_successes = 0
+    mock_diag.megolm_recovery_failures = 0
     mock_diag.crypto_store_loaded = False
     mock_diag.olm_loaded = False
     mock_diag.store_loaded = False
@@ -863,3 +873,10 @@ class TestMeshtasticModeMatchesConnectionType:
         )
         adapter = MeshtasticAdapter(config)
         assert adapter.diagnostics()["mode"] == "ble"
+
+
+def test_matrix_diagnostics_exposes_classic_ack_deferrals(matrix_adapter) -> None:
+    """Adapter diagnostics surface the session checkpoint-deferral counter."""
+    assert matrix_adapter.diagnostics()["classic_ack_deferrals"] == 0
+    matrix_adapter._session = _make_matrix_mock_session(classic_ack_deferrals=3)
+    assert matrix_adapter.diagnostics()["classic_ack_deferrals"] == 3

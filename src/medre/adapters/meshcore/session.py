@@ -88,7 +88,6 @@ On unexpected disconnect the session attempts bounded exponential backoff:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import importlib
 import logging
 import math
@@ -448,6 +447,37 @@ class MeshCoreSession:
                 )
             self._meshcore = None
 
+        # BlueZ central-link teardown: the pinned SDK's disconnect() can
+        # return while BlueZ still holds the central link (observed twice
+        # live: clean runtime stop left the board ``Connected`` ~35s+
+        # until an explicit disconnect, plausibly feeding the historical
+        # intermittent "Failed to connect" on the next start).  Drop the
+        # link deterministically — bounded, best-effort, BLE only, and
+        # never allowed to fail the stop path itself.
+        if self._config.connection_type == "ble" and self._config.ble_address:
+            cleanup_task = asyncio.create_task(
+                self._disconnect_stale_ble_client(self._config.ble_address)
+            )
+            try:
+                done, _pending = await asyncio.wait(
+                    {cleanup_task}, timeout=_SDK_LIFECYCLE_TIMEOUT
+                )
+            except asyncio.CancelledError:
+                cleanup_task.cancel()
+                cleanup_task.add_done_callback(self._consume_cleanup_task_result)
+                raise
+            if cleanup_task in done:
+                self._consume_cleanup_task_result(cleanup_task)
+            else:
+                cleanup_task.cancel()
+                cleanup_task.add_done_callback(self._consume_cleanup_task_result)
+                self._logger.warning(
+                    "MeshCoreSession %s: stale BlueZ cleanup exceeded %.1fs; "
+                    "continuing shutdown",
+                    self._adapter_id,
+                    _SDK_LIFECYCLE_TIMEOUT,
+                )
+
         self._diag.connected = False
         self._diag.reconnecting = False
         # Reset observability counters on stop so they don't leak across
@@ -710,11 +740,40 @@ class MeshCoreSession:
                 self._adapter_id,
                 address,
             )
-            # Unconditional disconnect — see docstring rationale.
-            with contextlib.suppress(Exception):
-                await stale.disconnect()
+            # Unconditional disconnect — see docstring rationale.  Keep this
+            # hard-bounded: a wedged D-Bus/Bleak disconnect must never stall
+            # adapter stop or the next connection attempt indefinitely.
+            task = asyncio.create_task(stale.disconnect())
+            try:
+                done, _pending = await asyncio.wait(
+                    {task}, timeout=_SDK_LIFECYCLE_TIMEOUT
+                )
+            except asyncio.CancelledError:
+                task.cancel()
+                task.add_done_callback(self._consume_cleanup_task_result)
+                raise
+            if done:
+                await asyncio.gather(task, return_exceptions=True)
+            else:
+                task.cancel()
+                task.add_done_callback(self._consume_cleanup_task_result)
+                self._logger.debug(
+                    "MeshCoreSession %s: stale BlueZ disconnect for %s "
+                    "did not finish within %.1fs",
+                    self._adapter_id,
+                    address,
+                    _SDK_LIFECYCLE_TIMEOUT,
+                )
         except Exception:
             pass  # best-effort — proceed even if cleanup fails
+
+    @staticmethod
+    def _consume_cleanup_task_result(task: asyncio.Future[object]) -> None:
+        """Own a detached best-effort cleanup task's terminal result."""
+        try:
+            task.exception()
+        except (asyncio.CancelledError, Exception):
+            pass
 
     def _sanitize_ble_exc(self, exc: BaseException) -> str:
         """Return a safe string representation of *exc* for BLE paths.

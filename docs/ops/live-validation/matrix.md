@@ -73,6 +73,7 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 | `tests/integration/test_synapse_bridge_smoke.py`  | `docker`     | Full pipeline with real Matrix SDK                 |
 | `tests/integration/test_synapse_e2ee_smoke.py`    | `docker`     | E2EE encrypted room lifecycle                      |
 | `tests/test_matrix_e2ee_live.py`                  | `live`       | E2EE mode startup and encrypted-room operations    |
+| `tests/test_live_matrix_radio_bridge.py`          | `live`       | Matrix↔radio bridge, loopback suppression, restart |
 | `tests/test_matrix_sync_checkpoint_ownership.py`  | unit         | MEDRE-owned Classic cursor commit/ack ordering     |
 | `tests/test_matrix_durable_admission_boundary.py` | unit         | nio admission rejection and durable handoff        |
 | `tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract          |
@@ -153,6 +154,38 @@ must increment `recovered_event_count`; initial cold history may increment
 `history_event_count` but must remain durably suppressed. Any unrecoverable room gap
 must increment `recovery_abandoned_room_count` and leave secret-free abandonment
 evidence in `recovery_last_abandonment`.
+
+## Live Validation
+
+### Matrix <-> radio bridge (six directed paths, opt-in)
+
+`tests/test_live_matrix_radio_bridge.py` runs ONE runtime with four real
+adapters (matrix `e2ee_required` + meshtastic serial + meshcore BLE + lxmf
+Reticulum) and three explicit bidirectional routes — matrix<->each radio,
+no radio<->radio legs. Matrix-room evidence is observed internally through
+canonical storage, delivery receipts, `inbound_suppressed_self`, and
+`undecryptable_event_count`. A second bot-account observer device was tried
+during the campaign but abandoned: same-account observation is not independent
+evidence and the bot trust state did not provide reliable bot-to-bot Megolm key
+sharing. One controlled restart must preserve the runtime device identity and
+crypto session.
+
+Opt-in env: `MEDRE_MX_BRIDGE=1`, `MATRIX_HOMESERVER`, `MATRIX_USER_ID`,
+`MATRIX_ACCESS_TOKEN`, `MATRIX_ROOM_ID`, `MATRIX_STORE_PATH`, plus the standard
+radio peer endpoints
+(`MESHTASTIC_MEDRE_SERIAL_PORT`, `MESHTASTIC_PEER_SERIAL_PORT`,
+`MESHCORE_MEDRE_BLE_ADDRESS`, `MESHCORE_PEER_BLE_ADDRESS`,
+`LXMF_MEDRE_RNS_CONFIG`, `LXMF_MEDRE_IDENTITY`, `LXMF_MEDRE_STORAGE`,
+`LXMF_PEER_RNS_CONFIG`, `LXMF_PEER_IDENTITY`). All RF stays on private
+lab channels with bounded per-leg TX budgets.
+
+```bash
+pytest tests/test_live_matrix_radio_bridge.py -m live -v
+```
+
+A genuine Matrix->radio hop with an independent sender requires the invited
+human user to post in the room (the bot's own echoes are suppressed by
+design); the interactive session is the intended path for that evidence.
 
 ## See Also
 

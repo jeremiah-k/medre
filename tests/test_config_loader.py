@@ -469,6 +469,94 @@ class TestPathPlaceholderExpansion:
 
 
 # ---------------------------------------------------------------------------
+# Renderer templates vs path placeholders
+# ---------------------------------------------------------------------------
+
+
+_RENDERER_TEMPLATE_YAML = """\
+runtime:
+  name: template-test
+
+storage:
+  backend: sqlite
+  path: "{state}/test.db"
+
+adapters:
+  matrix:
+    main:
+      enabled: true
+      homeserver: "https://matrix.test"
+      user_id: "@bot:test"
+      access_token: tok
+      room_allowlist:
+        - "!room:test"
+      encryption_mode: plaintext
+      relay_prefix: "[{sender}/{origin_label}]: "
+"""
+
+
+def test_documented_relay_prefix_template_loads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Renderer tokens in non-path adapter strings pass through verbatim."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(_RENDERER_TEMPLATE_YAML)
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    config, _, _ = load_config(str(cfg))
+    matrix = config.adapters.matrix["main"].config
+    assert matrix.relay_prefix == "[{sender}/{origin_label}]: "
+
+
+def test_known_and_renderer_tokens_mixed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        _RENDERER_TEMPLATE_YAML.replace(
+            '"[{sender}/{origin_label}]: "',
+            '"{state}/x {sender}"',
+        )
+    )
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    config, _, paths = load_config(str(cfg))
+    matrix = config.adapters.matrix["main"].config
+    assert matrix.relay_prefix == f"{paths.state_dir}/x {{sender}}"
+
+
+def test_unknown_placeholder_in_path_field_still_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        _RENDERER_TEMPLATE_YAML.replace(
+            'relay_prefix: "[{sender}/{origin_label}]: "\n',
+            "",
+        ).replace(
+            "access_token: tok",
+            'access_token: tok\n      store_path: "{bogus}/store"',
+        )
+    )
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    with pytest.raises(ConfigFileError, match="Invalid path placeholder"):
+        load_config(str(cfg))
+
+
+def test_unknown_placeholder_in_storage_path_still_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The literal key ``path`` remains a strict filesystem field."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        _RENDERER_TEMPLATE_YAML.replace(
+            'path: "{state}/test.db"', 'path: "{bogus}/test.db"'
+        )
+    )
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    with pytest.raises(ConfigFileError, match="Invalid path placeholder"):
+        load_config(str(cfg))
+
+
+# ---------------------------------------------------------------------------
 # ConfigSource enum
 # ---------------------------------------------------------------------------
 

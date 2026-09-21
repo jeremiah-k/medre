@@ -9,7 +9,8 @@ Hierarchy::
     MatrixError
     ├── MatrixConnectionError   — connection / authentication failures
     ├── MatrixSendError         — message send failures
-    └── MatrixCodecError        — decode failures
+    ├── MatrixCodecError        — decode failures
+    └── MatrixProvisionError    — provisioning / verification failures
 """
 
 from __future__ import annotations
@@ -64,3 +65,43 @@ class MatrixSendError(MatrixError):
 
 class MatrixCodecError(MatrixError):
     """Raised when decode operations fail."""
+
+
+class MatrixProvisionError(MatrixError):
+    """Raised when room/space provisioning or its state verification fails.
+
+    Partial provisioning is not generally reversible in Matrix.  When a
+    failure occurs after resource creation, the error preserves the generated
+    room IDs and completed steps so an operator can reconcile the existing
+    resources instead of blindly creating another pair.
+    """
+
+    space_id: str | None
+    room_id: str | None
+    completed_steps: tuple[str, ...]
+    invited_space_user_ids: tuple[str, ...]
+    invited_room_user_ids: tuple[str, ...]
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        space_id: str | None = None,
+        room_id: str | None = None,
+        completed_steps: tuple[str, ...] = (),
+        invited_space_user_ids: tuple[str, ...] = (),
+        invited_room_user_ids: tuple[str, ...] = (),
+    ) -> None:
+        self.space_id = space_id
+        self.room_id = room_id
+        self.completed_steps = completed_steps
+        self.invited_space_user_ids = invited_space_user_ids
+        self.invited_room_user_ids = invited_room_user_ids
+        if space_id is not None or room_id is not None:
+            message = (
+                f"{message}; partial provisioning preserved "
+                f"space_id={space_id!r} room_id={room_id!r} "
+                f"completed_steps={list(completed_steps)!r}. "
+                "Reconcile these resources before retrying."
+            )
+        super().__init__(message)

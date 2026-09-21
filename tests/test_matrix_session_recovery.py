@@ -7,7 +7,9 @@ No test requires mindroom-nio[e2e].
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
+import types
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,6 +19,7 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
+from tests.helpers.async_utils import wait_until
 from tests.helpers.matrix_session import (
     fast_sleep_patch,
     make_matrix_config,
@@ -360,6 +363,165 @@ class TestCryptoStoreContinuity:
 # ===================================================================
 # TestSyncStateResilience
 # ===================================================================
+
+
+async def test_stop_drains_client_bound_tasks_before_close(mock_nio) -> None:
+    """nio's sync loop starts each iteration's request coroutines (sync
+    long-poll, to-device send, keys upload/query/claim) with
+    ``asyncio.ensure_future`` into a local ``asyncio.as_completed`` batch.
+    During cancellation the SDK may retain and await an in-flight request
+    child while unwinding the outer sync task.  MEDRE must drain those
+    client-bound requests before waiting out the shutdown budget on the
+    outer task, and before ``client.close()`` runs.
+    """
+    client = mock_nio.AsyncClient.return_value
+
+    orphan_started = asyncio.Event()
+
+    async def _keys_query(self) -> None:
+        orphan_started.set()
+        await asyncio.Event().wait()
+
+    # Bound like a real nio method so the coroutine carries the client
+    # in its frame locals.
+    client.keys_query = types.MethodType(_keys_query, client)
+
+    async def _sync_forever_with_orphan(*args: object, **kwargs: object) -> None:
+        # Model nio's cancellation cleanup: the outer sync task retains its
+        # per-iteration request child and awaits it while unwinding.  MEDRE
+        # must cancel/drain that child before waiting out the full stop budget
+        # on the parent, otherwise parent and child keep each other live.
+        request_task = asyncio.create_task(client.keys_query())
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            try:
+                await request_task
+            except asyncio.CancelledError:
+                pass
+            raise
+
+    client.sync_forever = _sync_forever_with_orphan
+
+    def _binds(task: asyncio.Future, owner: object) -> bool:
+        frame = getattr(task.get_coro(), "cr_frame", None)
+        return frame is not None and frame.f_locals.get("self") is owner
+
+    observation: dict[str, list[asyncio.Future]] = {}
+    real_close = client.close
+
+    async def _observing_close() -> None:
+        observation["pending_at_close"] = [
+            t
+            for t in asyncio.all_tasks()
+            if t is not asyncio.current_task() and not t.done() and _binds(t, client)
+        ]
+        await real_close()
+
+    client.close = _observing_close
+
+    config = make_matrix_config()
+    session = MatrixSession(config)
+    await session.start()
+    await asyncio.wait_for(orphan_started.wait(), timeout=1.0)
+
+    await session.stop()
+
+    assert observation["pending_at_close"] == [], (
+        "client.close() ran while client-bound request task(s) were "
+        f"still in flight: {observation['pending_at_close']}"
+    )
+    assert await wait_until(
+        lambda: not any(_binds(t, client) for t in asyncio.all_tasks()),
+        timeout=1.0,
+    )
+    leftovers = [t for t in asyncio.all_tasks() if _binds(t, client)]
+    assert leftovers == [], f"client-bound task(s) survived stop: {leftovers}"
+
+
+async def test_stop_deadline_bounds_recovery_and_join_task_drains() -> None:
+    """Cancellation-resistant owned tasks cannot overrun ``stop(timeout)``."""
+    config = make_matrix_config()
+    session = MatrixSession(config)
+    client = MagicMock(name="client")
+    client.stop_sync_forever = MagicMock()
+    client.close = AsyncMock()
+    session._client = client
+
+    release = asyncio.Event()
+
+    async def _resists_one_cancel() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    recovery = asyncio.create_task(_resists_one_cancel())
+    join = asyncio.create_task(_resists_one_cancel())
+    session._room_key_request_tasks["room:session"] = recovery
+    session._joining_rooms["!room:example.com"] = join
+    await asyncio.sleep(0)
+
+    stop_task = asyncio.create_task(session.stop(timeout=0.02))
+    done, _pending = await asyncio.wait({stop_task}, timeout=0.2)
+    if not done:
+        release.set()
+        stop_task.cancel()
+        await asyncio.gather(stop_task, recovery, join, return_exceptions=True)
+        pytest.fail("MatrixSession.stop() exceeded its cooperative timeout budget")
+
+    await stop_task
+    assert session._client is None
+    assert session.closed is True
+    client.close.assert_awaited_once()
+
+    # The tasks deliberately ignored their first cancellation, so stop() may
+    # return with them detached.  Release them and verify the terminal-result
+    # ownership path lets the event loop reap them cleanly.
+    release.set()
+    await asyncio.gather(recovery, join, return_exceptions=True)
+    await asyncio.sleep(0)
+
+
+async def test_stop_deadline_bounds_client_close() -> None:
+    """A cancellation-resistant client close cannot overrun ``stop(timeout)``."""
+    config = make_matrix_config()
+    session = MatrixSession(config)
+    client = MagicMock(name="client")
+    client.stop_sync_forever = MagicMock()
+
+    release = asyncio.Event()
+    close_task: dict[str, asyncio.Task[None]] = {}
+
+    async def _resistant_close() -> None:
+        task = asyncio.current_task()
+        assert task is not None
+        close_task["task"] = task
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    client.close = _resistant_close
+    session._client = client
+
+    stop_task = asyncio.create_task(session.stop(timeout=0.02))
+    done, _pending = await asyncio.wait({stop_task}, timeout=0.2)
+    if not done:
+        release.set()
+        stop_task.cancel()
+        await asyncio.gather(stop_task, return_exceptions=True)
+        pytest.fail(
+            "MatrixSession.stop() blocked on cancellation-resistant client.close()"
+        )
+
+    await stop_task
+    assert session._client is None
+    assert session.closed is True
+    assert "task" in close_task
+
+    release.set()
+    await close_task["task"]
 
 
 class TestSyncStateResilience:
@@ -883,3 +1045,91 @@ class TestOperationalDiagnostics:
         assert diag["transient_delivery_failures"] == 0
         assert diag["permanent_delivery_failures"] == 0
         assert diag["olm_loaded"] is False
+
+
+async def test_client_task_drain_consumes_late_exception() -> None:
+    """A cancellation-resistant nio request must not leak a late exception."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class _Client:
+        async def keys_query(self) -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                # Model an SDK request that needs extra cleanup and then fails.
+                await release.wait()
+                raise RuntimeError("late request cleanup failure") from None
+
+    client = _Client()
+    session = MatrixSession(make_matrix_config())
+    session._client = client  # exercise the shutdown seam without a network client
+
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+    contexts: list[dict[str, Any]] = []
+    loop.set_exception_handler(lambda _loop, context: contexts.append(context))
+    try:
+        task = asyncio.create_task(client.keys_query())
+        await started.wait()
+
+        # Zero timeout forces the cancellation-resistant request into the
+        # straggler path.  The result-consumer callback must own its eventual
+        # exception after this method returns.
+        await session._drain_orphaned_client_tasks(timeout=0.0)
+        assert not task.done()
+
+        release.set()
+        assert await wait_until(task.done, timeout=1.0)
+
+        # Let the done callback run before checking the loop's unhandled-task
+        # channel.  Do not await/inspect task.exception() here: doing so would
+        # make the test itself consume the result and mask the regression.
+        await asyncio.sleep(0)
+        assert (
+            getattr(task, "_log_traceback", True) is False
+        ), "straggler result was not retrieved by the shutdown callback"
+        leaked = [
+            context
+            for context in contexts
+            if "never retrieved" in str(context.get("message", "")).lower()
+        ]
+        assert leaked == []
+    finally:
+        loop.set_exception_handler(previous_handler)
+        session._client = None
+
+
+async def test_stop_shares_timeout_budget_with_client_task_drain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The client-task drain receives only the stop budget that remains."""
+    session = MatrixSession(make_matrix_config())
+    client = MagicMock()
+    client.stop_sync_forever = MagicMock()
+    client.close = AsyncMock()
+    session._client = client
+    drain = AsyncMock()
+
+    # One absolute deadline: the first read anchors it at 100 (deadline
+    # 105); every later phase read sees 102, so the client-task drain
+    # receives the remaining 3.0 s of the shared 5.0 s budget and later
+    # phases (close, re-scan) still observe positive remaining time.
+    clock = itertools.chain((100.0, 102.0), itertools.repeat(102.0))
+    monkeypatch.setattr(
+        "medre.adapters.matrix.session.time",
+        types.SimpleNamespace(monotonic=lambda: next(clock)),
+    )
+
+    with patch.object(MatrixSession, "_drain_orphaned_client_tasks", new=drain):
+        await session.stop(timeout=5.0)
+
+    drain.assert_awaited_once_with(timeout=3.0)
+    client.close.assert_awaited_once()
+
+
+async def test_client_task_drain_is_noop_without_client() -> None:
+    session = MatrixSession(make_matrix_config())
+    session._client = None
+    await session._drain_orphaned_client_tasks(timeout=1.0)

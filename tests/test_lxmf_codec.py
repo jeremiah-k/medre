@@ -15,6 +15,8 @@ from medre.adapters.lxmf.fields import LxmfFieldsHelper
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
 from medre.core.events.kinds import EventKind
+from medre.core.routing.models import Route, RouteSource, RouteTarget
+from medre.core.routing.router import Router
 
 
 def _lxmf_data(event: CanonicalEvent) -> dict[str, object]:
@@ -52,6 +54,57 @@ def _make_text_packet(
         "signature_validated": True,
         "has_fields": fields is not None and len(fields) > 0,
     }
+
+
+def test_decode_channel_id_is_peer_dest_hash() -> None:
+    """The LXMF channel key is the peer's delivery-destination hash.
+
+    Route configs for lxmf carry that same hash as ``dest_channel``
+    in the matrix->lxmf direction; the reverse (lxmf->matrix) route
+    filters inbound events on it, so ``source_channel_id`` must be
+    the sender hash -- ``None`` made every bidirectional lxmf route
+    silently unmatched ("No routes matched").
+    """
+    codec = LxmfCodec("lxmf-1", _make_config())
+    packet = _make_text_packet(source_hash="ef" * 16)
+    event = codec.decode(packet)
+    assert event.source_channel_id == "ef" * 16
+
+
+def test_decoded_event_matches_bidirectional_reverse_route() -> None:
+    """Ingress routes: an inbound packet matches the reverse direction
+    of a bidirectional route whose ``dest_channel`` is the peer hash.
+
+    Regression for the live edge-6 miss: the codec used to emit
+    ``source_channel_id=None``, so the router's channel filter
+    rejected every lxmf-sourced event and the runtime logged
+    "No routes matched" despite durable admission.
+    """
+    peer_hash = "41b935a0b32a5970b0a7e4801bcb3542"
+    codec = LxmfCodec("lx_radio", _make_config())
+    event = codec.decode(_make_text_packet(source_hash=peer_hash))
+
+    # The reverse direction of RouteConfig(dest_channel=peer_hash,
+    # directionality="bidirectional") as built by the runtime's
+    # route engine: source adapter lx_radio, channel = the forward
+    # route's dest_channel, target = the matrix adapter.
+    reverse = Route(
+        id="mx_lx_bridge__rev_0",
+        source=RouteSource(
+            adapter="lx_radio", event_kinds=("message.created",), channel=peer_hash
+        ),
+        targets=[RouteTarget(adapter="matrix")],
+    )
+    # And a route aimed at a DIFFERENT peer must keep rejecting it.
+    other_peer = Route(
+        id="mx_lx_bridge_other__rev_0",
+        source=RouteSource(
+            adapter="lx_radio", event_kinds=("message.created",), channel="ff" * 16
+        ),
+        targets=[RouteTarget(adapter="matrix")],
+    )
+    router = Router(routes=[reverse, other_peer])
+    assert router.match(event) == [reverse]
 
 
 class TestLxmfCodecDecode:
@@ -94,13 +147,6 @@ class TestLxmfCodecDecode:
         packet = _make_text_packet(source_hash="ef" * 16)
         event = codec.decode(packet)
         assert event.source_transport_id == "ef" * 16
-
-    def test_decode_channel_id_is_none(self) -> None:
-        """LXMF has no channel concept — source_channel_id is always None."""
-        codec = LxmfCodec("lxmf-1", _make_config())
-        packet = _make_text_packet()
-        event = codec.decode(packet)
-        assert event.source_channel_id is None
 
 
 class TestLxmfCodecSourceNativeRef:
@@ -782,3 +828,16 @@ class TestEventRelationReconstructionEdgeCases:
         assert r.target_event_id is None
         assert r.key is None
         assert r.fallback_text is None
+
+
+def test_missing_sender_uses_no_native_channel_key() -> None:
+    """A packet without a source hash must not manufacture an empty channel."""
+    codec = LxmfCodec("lxmf-1", _make_config())
+    packet = _make_text_packet()
+    packet["source_hash"] = None
+
+    event = codec.decode(packet)
+
+    assert event.source_channel_id is None
+    assert event.source_native_ref is not None
+    assert event.source_native_ref.native_channel_id is None
