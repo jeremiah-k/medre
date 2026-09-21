@@ -465,7 +465,7 @@ def get_live_artifact_dir() -> Path:
 # parser.  Each filter is deliberately narrow: any unraisable outside the
 # documented boundary still errors.
 #
-# - ratchets: RNS 1.5.4 ``Destination._reload_ratchets`` (Destination.py:444)
+# - ratchets: the pinned RNS release ``Destination._reload_ratchets`` (Destination.py:444)
 #   opens ``<storage>/lxmf/ratchets/*.ratchets`` and never closes the
 #   handle; the GC-time ResourceWarning surfaces as an unraisable in a
 #   LATER test.  External pinned-SDK defect reached via
@@ -473,7 +473,7 @@ def get_live_artifact_dir() -> Path:
 #   reproducer: medre-lab/rns_ratchets_leak_repro.py.
 # - 443 / _SelectorTransport: pinned aiohttp performs a graceful TLS
 #   shutdown on one idle keep-alive socket at ClientSession close
-#   (``ssl_shutdown_timeout=30 s``, not reachable through nio 0.40.0's
+#   (``ssl_shutdown_timeout=30 s``, not reachable through the pinned mindroom-nio release's
 #   public config); the socket is still mid-shutdown when the test loop
 #   exits, surfacing either as the socket finaliser or the transport
 #   finaliser.  MEDRE's own drain of client-bound request tasks is pinned

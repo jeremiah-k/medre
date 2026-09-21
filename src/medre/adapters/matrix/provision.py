@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from enum import Enum
 from typing import Any, Protocol
 
 __all__ = [
@@ -36,11 +37,23 @@ MEGOLM_ROOM_ALGORITHM = "m.megolm.v1.aes-sha2"
 _ADMIN_POWER = 100
 
 
+class _WireRoomVisibility(Enum):
+    """Minimal ``.value`` contract consumed by the pinned nio room-create API."""
+
+    PRIVATE = "private"
+
+
+class _WireRoomPreset(Enum):
+    """Minimal ``.value`` contract consumed by the pinned nio room-create API."""
+
+    PRIVATE_CHAT = "private_chat"
+
+
 class _ProvisionClient(Protocol):
     """Structural subset of :class:`nio.AsyncClient` this module consumes.
 
     Keeping the surface structural lets tests stub the client while the
-    SDK contract test pins the real 0.40 signatures.
+    dedicated SDK-contract tier verifies the pinned release's signatures.
     """
 
     user_id: str
@@ -205,14 +218,12 @@ async def _provision_resource(
     topic: str | None = None,
 ) -> ProvisionedResource:
     """Create one room/space and persist verified power-level grants."""
-    from nio import RoomPreset, RoomVisibility
-
     from medre.adapters.matrix.errors import MatrixProvisionError
 
     create_kwargs: dict[str, Any] = {
-        "visibility": RoomVisibility.private,
+        "visibility": _WireRoomVisibility.PRIVATE,
         "name": name,
-        "preset": RoomPreset.private_chat,
+        "preset": _WireRoomPreset.PRIVATE_CHAT,
         # Room visibility (directory listing) is orthogonal to federation:
         # private rooms still federate with matrix.org by default.
         "federate": True,
@@ -360,8 +371,6 @@ async def provision_private_space_and_room(
     response error or verification mismatch.  Raises :class:`ValueError` on
     malformed user IDs or admins outside the invite set.
     """
-    from nio import RoomPutStateResponse
-
     _validate_inputs(invite_user_ids, admin_power_user_ids)
 
     bot_user_id = getattr(client, "user_id", "")
@@ -396,16 +405,14 @@ async def provision_private_space_and_room(
         space_child_content([server_name]),
         state_key=room_resource.room_id,
     )
-    if not isinstance(child_put, RoomPutStateResponse):
-        await _raise_if_error(child_put, "space child state put")
+    await _raise_if_error(child_put, "space child state put")
     parent_put = await client.room_put_state(
         room_resource.room_id,
         "m.space.parent",
         space_parent_content([server_name]),
         state_key=space_resource.room_id,
     )
-    if not isinstance(parent_put, RoomPutStateResponse):
-        await _raise_if_error(parent_put, "space parent state put")
+    await _raise_if_error(parent_put, "space parent state put")
 
     # Verify the safety-critical state before invitations become externally
     # visible.  If the homeserver rejected/rewrote encryption or linkage,

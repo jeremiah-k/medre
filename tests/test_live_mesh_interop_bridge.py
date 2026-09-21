@@ -487,7 +487,7 @@ async def test_mesh_interop_restart_preserves_state(tmp_path: Path) -> None:
     app2 = await _launch(db_path, tmp_path / "lxmf_storage")
     nonce2 = _nonce("RST-B")
     try:
-        # The LXMF ratchets fd ResourceWarning is a pinned RNS 1.5.4
+        # The LXMF ratchets fd ResourceWarning is a pinned RNS release
         # boundary (see live_harness docs); a second launch over existing
         # storage is exactly its trigger condition.
         await asyncio.to_thread(_mc_peer, ["sendn", _MC_PEER, json.dumps([nonce2])], 90)

@@ -492,7 +492,7 @@ class TestLxmfNativeRefPersistence:
         event = inbound_collector.events[0]
         assert event.source_native_ref is not None
         assert event.source_native_ref.adapter == "lxmf-native"
-        assert event.source_native_ref.native_channel_id == "ab" * 16
+        assert event.source_native_ref.native_channel_id is None
         assert event.source_native_ref.native_message_id == "aa" * 32
 
 

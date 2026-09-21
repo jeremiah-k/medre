@@ -1138,6 +1138,22 @@ class MatrixSession:
             separators=(",", ":"),
         )
 
+    @staticmethod
+    def _is_classic_ack_deferral_error(exc: BaseException) -> bool:
+        """Return whether *exc* is nio's staged Classic-ack mismatch.
+
+        The Matrix SDK is optional, so the default runtime/test surface must
+        not import ``nio`` merely to classify an exception object that the
+        client already raised.  Match the SDK's public exception name plus
+        the specific staged-token contract instead of swallowing unrelated
+        ``LocalProtocolError`` failures.
+        """
+        return (
+            type(exc).__name__ == "LocalProtocolError"
+            and str(exc)
+            == "Classic Sync acknowledgement token does not match the staged response."
+        )
+
     async def _on_sync_response(self, response: Any) -> None:
         """Commit MEDRE's Classic cursor, then acknowledge it to nio."""
         next_batch = getattr(response, "next_batch", None)
@@ -1168,9 +1184,7 @@ class MatrixSession:
                 client.acknowledge_classic_sync(next_batch)
                 self._classic_ack_deferrals = 0
             except Exception as exc:
-                from nio.exceptions import LocalProtocolError
-
-                if not isinstance(exc, LocalProtocolError):
+                if not self._is_classic_ack_deferral_error(exc):
                     raise
                 # Campaign F4 (run4): recovery dispatches (undecryptable-event
                 # room-key work) were still active when the acknowledgement
@@ -1905,12 +1919,62 @@ class MatrixSession:
         return found
 
     @staticmethod
-    def _consume_client_task_result(task: asyncio.Future[Any]) -> None:
-        """Retrieve a detached nio request task's terminal result."""
+    def _consume_task_result(task: asyncio.Future[Any]) -> None:
+        """Retrieve a detached task's terminal result without surfacing it."""
         try:
             task.exception()
         except (asyncio.CancelledError, Exception):
             pass
+
+    async def _cancel_tasks_with_deadline(
+        self,
+        tasks: Iterable[asyncio.Task[Any]],
+        *,
+        deadline: float,
+        label: str,
+    ) -> int:
+        """Cancel owned tasks without exceeding the caller's stop deadline.
+
+        Completed exceptions are consumed immediately.  Cancellation-resistant
+        stragglers retain a result-consumer callback so a hard-bounded stop does
+        not trade deadline compliance for late unobserved-task warnings.
+        """
+        owned = list(dict.fromkeys(tasks))
+        if not owned:
+            return 0
+
+        for task in owned:
+            if not task.done():
+                task.cancel()
+
+        done_now = [task for task in owned if task.done()]
+        if done_now:
+            await asyncio.gather(*done_now, return_exceptions=True)
+
+        pending = [task for task in owned if not task.done()]
+        if not pending:
+            return len(owned)
+
+        remaining = max(0.0, deadline - time.monotonic())
+        try:
+            done, still_pending = await asyncio.wait(pending, timeout=remaining)
+        except asyncio.CancelledError:
+            for task in pending:
+                task.add_done_callback(self._consume_task_result)
+            raise
+
+        if done:
+            await asyncio.gather(*done, return_exceptions=True)
+        if still_pending:
+            for task in still_pending:
+                task.add_done_callback(self._consume_task_result)
+            self._logger.warning(
+                "Matrix session stop: %d %s task(s) still in flight after "
+                "the shared shutdown deadline",
+                len(still_pending),
+                label,
+            )
+        return len(owned)
 
     async def _drain_orphaned_client_tasks(self, timeout: float) -> None:
         """Cancel and reap client-bound request tasks still in flight.
@@ -1937,7 +2001,7 @@ class MatrixSession:
             # cancellation.  Preserve caller cancellation, but still arrange
             # to retrieve any eventual exception from every detached request.
             for task in orphans:
-                task.add_done_callback(self._consume_client_task_result)
+                task.add_done_callback(self._consume_task_result)
             raise
 
         if done:
@@ -1947,7 +2011,7 @@ class MatrixSession:
             await asyncio.gather(*done, return_exceptions=True)
         if pending:
             for task in pending:
-                task.add_done_callback(self._consume_client_task_result)
+                task.add_done_callback(self._consume_task_result)
             self._logger.warning(
                 "Matrix session stop: %d client request task(s) still in "
                 "flight after %.1fs",
@@ -1958,9 +2022,10 @@ class MatrixSession:
     async def stop(self, timeout: float = 5.0) -> None:
         """Stop syncing, close the client.  Idempotent.
 
-        The caller-provided *timeout* is a shared shutdown budget for the
-        sync-task wait and nio client-bound request drain; the latter does
-        not receive a fresh timeout after the former consumes time.
+        The caller-provided *timeout* is one shared shutdown budget across
+        MEDRE-owned task cancellation, nio sync/request cleanup, and client
+        close. No teardown phase receives a fresh timeout after an earlier
+        phase consumes time.
         """
         deadline = time.monotonic() + max(0.0, timeout)
 
@@ -1971,35 +2036,38 @@ class MatrixSession:
             if callable(stop_sync):
                 stop_sync()
 
-        # Cancel detached Megolm recovery before closing the client. Drain in
-        # a loop: a sync callback racing stop() can register a task after a
-        # single snapshot (task creation also refuses during shutdown, so
-        # this converges immediately in practice).
+        # Cancel detached Megolm recovery before closing the client.  A sync
+        # callback can race the first snapshot, so drain in a loop; new recovery
+        # is refused once ``_stop_requested`` is set.  Every wait shares the
+        # caller's absolute stop deadline.
         drained = 0
         while self._room_key_request_tasks:
             recovery_tasks = list(self._room_key_request_tasks.values())
             self._room_key_request_tasks.clear()
-            for task in recovery_tasks:
-                task.cancel()
-            await asyncio.gather(*recovery_tasks, return_exceptions=True)
-            drained += len(recovery_tasks)
+            drained += await self._cancel_tasks_with_deadline(
+                recovery_tasks,
+                deadline=deadline,
+                label="Megolm recovery",
+            )
         if drained:
             self._logger.debug(
                 "Cancelled %d outstanding Megolm recovery task(s)", drained
             )
 
-        # Cancel outstanding join tasks before closing the client.
-        join_tasks = list(self._joining_rooms.values())
-        if join_tasks:
-            for t in join_tasks:
-                t.cancel()
+        # Cancel outstanding join tasks under the same deadline.  A join whose
+        # SDK await ignores cancellation is detached with terminal-result
+        # ownership rather than allowing ``stop(timeout)`` to block forever.
+        joined = 0
+        while self._joining_rooms:
+            join_tasks = list(self._joining_rooms.values())
             self._joining_rooms.clear()
-            for t in join_tasks:
-                try:
-                    await t
-                except asyncio.CancelledError:
-                    pass
-            self._logger.debug("Cancelled %d outstanding join task(s)", len(join_tasks))
+            joined += await self._cancel_tasks_with_deadline(
+                join_tasks,
+                deadline=deadline,
+                label="room join",
+            )
+        if joined:
+            self._logger.debug("Cancelled %d outstanding join task(s)", joined)
 
         if self._sync_task is not None:
             sync_task = self._sync_task
@@ -2024,9 +2092,9 @@ class MatrixSession:
                             "Sync task did not stop within remaining %.1fs budget",
                             remaining,
                         )
-                        sync_task.add_done_callback(self._consume_client_task_result)
+                        sync_task.add_done_callback(self._consume_task_result)
             if sync_task.done():
-                self._consume_client_task_result(sync_task)
+                self._consume_task_result(sync_task)
             self._sync_task = None
 
         # Re-scan after the sync task settles (or after its hard observation
@@ -2037,18 +2105,35 @@ class MatrixSession:
             await self._drain_orphaned_client_tasks(timeout=min(remaining, 5.0))
 
         if self._client is not None:
+            client = self._client
+            close_task = asyncio.create_task(client.close())
+            remaining = max(0.0, deadline - time.monotonic())
             try:
-                await self._client.close()
-            except Exception as exc:
+                done, pending = await asyncio.wait({close_task}, timeout=remaining)
+            except asyncio.CancelledError:
+                close_task.cancel()
+                close_task.add_done_callback(self._consume_task_result)
+                raise
+
+            if done:
+                try:
+                    close_task.result()
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    self._logger.warning("Error closing client: %s", exc)
+            else:
+                close_task.cancel()
+                close_task.add_done_callback(self._consume_task_result)
                 self._logger.warning(
-                    "Error closing client: %s",
-                    exc,
+                    "Matrix client close did not finish within the shared "
+                    "shutdown deadline"
                 )
-            # Yield to the event loop so aiohttp can finish closing its
-            # internal connector and any in-flight responses.  Without
-            # this drain, Python may garbage-collect the aiohttp
-            # ClientSession before its __aexit__ completes, producing
-            # ``ResourceWarning: Unclosed client session``.
+
+            # Yield to the event loop so a normally completed aiohttp close
+            # can finish connector callbacks before the session drops its
+            # provider reference.  Cancellation-resistant close work retains
+            # its own client reference through ``close_task`` until it settles.
             await asyncio.sleep(0)
             self._client = None
 

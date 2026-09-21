@@ -437,6 +437,89 @@ async def test_stop_drains_client_bound_tasks_before_close(mock_nio) -> None:
     assert leftovers == [], f"client-bound task(s) survived stop: {leftovers}"
 
 
+async def test_stop_deadline_bounds_recovery_and_join_task_drains() -> None:
+    """Cancellation-resistant owned tasks cannot overrun ``stop(timeout)``."""
+    config = make_matrix_config()
+    session = MatrixSession(config)
+    client = MagicMock(name="client")
+    client.stop_sync_forever = MagicMock()
+    client.close = AsyncMock()
+    session._client = client
+
+    release = asyncio.Event()
+
+    async def _resists_one_cancel() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    recovery = asyncio.create_task(_resists_one_cancel())
+    join = asyncio.create_task(_resists_one_cancel())
+    session._room_key_request_tasks["room:session"] = recovery
+    session._joining_rooms["!room:example.com"] = join
+    await asyncio.sleep(0)
+
+    stop_task = asyncio.create_task(session.stop(timeout=0.02))
+    done, _pending = await asyncio.wait({stop_task}, timeout=0.2)
+    if not done:
+        release.set()
+        stop_task.cancel()
+        await asyncio.gather(stop_task, recovery, join, return_exceptions=True)
+        pytest.fail("MatrixSession.stop() exceeded its cooperative timeout budget")
+
+    await stop_task
+    assert session._client is None
+    assert session.closed is True
+    client.close.assert_awaited_once()
+
+    # The tasks deliberately ignored their first cancellation, so stop() may
+    # return with them detached.  Release them and verify the terminal-result
+    # ownership path lets the event loop reap them cleanly.
+    release.set()
+    await asyncio.gather(recovery, join, return_exceptions=True)
+    await asyncio.sleep(0)
+
+
+async def test_stop_deadline_bounds_client_close() -> None:
+    """A cancellation-resistant client close cannot overrun ``stop(timeout)``."""
+    config = make_matrix_config()
+    session = MatrixSession(config)
+    client = MagicMock(name="client")
+    client.stop_sync_forever = MagicMock()
+
+    release = asyncio.Event()
+    close_task: dict[str, asyncio.Task[None]] = {}
+
+    async def _resistant_close() -> None:
+        task = asyncio.current_task()
+        assert task is not None
+        close_task["task"] = task
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    client.close = _resistant_close
+    session._client = client
+
+    stop_task = asyncio.create_task(session.stop(timeout=0.02))
+    done, _pending = await asyncio.wait({stop_task}, timeout=0.2)
+    if not done:
+        release.set()
+        stop_task.cancel()
+        await asyncio.gather(stop_task, return_exceptions=True)
+        pytest.fail("MatrixSession.stop() blocked on cancellation-resistant client.close()")
+
+    await stop_task
+    assert session._client is None
+    assert session.closed is True
+    assert "task" in close_task
+
+    release.set()
+    await close_task["task"]
+
+
 class TestSyncStateResilience:
     """Hardened start/stop — no leaked tasks/exceptions/clients."""
 

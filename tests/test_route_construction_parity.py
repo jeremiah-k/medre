@@ -8,6 +8,7 @@ from medre.config.errors import ConfigValidationError
 from medre.config.routes import (
     ChannelRoomMapEntry,
     RouteConfig,
+    RouteDestinationConfig,
     RouteConfigSet,
     RouteDirectionality,
 )
@@ -151,3 +152,79 @@ def test_expansion_carries_room_channel_to_reverse_target() -> None:
     assert {target.adapter: target.channel for target in reverse.targets} == {
         "main": "!room:example.com"
     }
+
+
+def test_standard_expansion_rejects_empty_source_adapters() -> None:
+    rc = RouteConfig(
+        route_id="empty_source",
+        source_adapters=(),
+        dest_adapters=("radio",),
+    )
+    with pytest.raises(RouteValidationError, match="source_adapters must not be empty"):
+        build_runtime_routes(
+            RouteConfigSet(routes=(rc,)),
+            {"radio": "meshtastic"},
+        )
+
+
+def test_standard_expansion_rejects_empty_dest_adapters() -> None:
+    rc = RouteConfig(
+        route_id="empty_dest",
+        source_adapters=("main",),
+        dest_adapters=(),
+    )
+    with pytest.raises(RouteValidationError, match="dest_adapters must not be empty"):
+        build_runtime_routes(
+            RouteConfigSet(routes=(rc,)),
+            {"main": "matrix"},
+        )
+
+
+def test_programmatic_structured_destination_requires_single_dest_adapter() -> None:
+    rc = RouteConfig(
+        route_id="structured_fanout",
+        source_adapters=("main",),
+        dest_adapters=("lx_a", "lx_b"),
+        dest_destination=RouteDestinationConfig(
+            kind="lxmf_destination",
+            destination_hash="ab" * 16,
+        ),
+    )
+    with pytest.raises(RouteValidationError, match="requires exactly one dest adapter"):
+        build_runtime_routes(
+            RouteConfigSet(routes=(rc,)),
+            {"main": "matrix", "lx_a": "lxmf", "lx_b": "lxmf"},
+        )
+
+
+def test_programmatic_structured_destination_rejects_channel_selector() -> None:
+    rc = RouteConfig(
+        route_id="structured_conflict",
+        source_adapters=("main",),
+        dest_adapters=("lx_a",),
+        dest_channel="legacy-destination",
+        dest_destination=RouteDestinationConfig(
+            kind="lxmf_destination",
+            destination_hash="ab" * 16,
+        ),
+    )
+    with pytest.raises(RouteValidationError, match="mutually exclusive"):
+        build_runtime_routes(
+            RouteConfigSet(routes=(rc,)),
+            {"main": "matrix", "lx_a": "lxmf"},
+        )
+
+
+def test_programmatic_channel_room_map_rejects_selector_conflict() -> None:
+    rc = RouteConfig(
+        route_id="map_conflict",
+        source_adapters=("main",),
+        dest_adapters=("radio",),
+        source_channel="!room:example.com",
+        channel_room_map={"0": ChannelRoomMapEntry(room="!room:example.com")},
+    )
+    with pytest.raises(RouteValidationError, match="channel_room_map is mutually exclusive"):
+        build_runtime_routes(
+            RouteConfigSet(routes=(rc,)),
+            {"main": "matrix", "radio": "meshtastic"},
+        )

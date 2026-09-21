@@ -342,11 +342,12 @@ class TestLxmfWrapperCallbackIngress:
             )
             await lxmf_adapter.simulate_inbound(packet)
 
-            # Resolve via native ref (native_channel_id now carries the
-            # sender's delivery-destination hash -- the lxmf channel key)
+            # LXMF has no native channel concept.  The sender hash is the
+            # canonical routing channel, while the persisted native-ref key
+            # remains channel-less for transport-identity compatibility.
             resolved = await temp_storage.resolve_native_ref(
                 adapter="lxmf-meta",
-                native_channel_id="99887766aabb",
+                native_channel_id=None,
                 native_message_id="meta-msg-001",
             )
             assert resolved is not None
@@ -369,6 +370,7 @@ class TestLxmfWrapperCallbackIngress:
 
             # source_native_ref has the message_id
             assert stored.source_native_ref is not None
+            assert stored.source_native_ref.native_channel_id is None
             assert stored.source_native_ref.native_message_id == "meta-msg-001"
 
             # Payload contains the body text

@@ -33,3 +33,12 @@ unknown-placeholder validation; other string fields expand known path
 placeholders leniently (`MedrePaths.expand_known_placeholders`) and leave
 renderer tokens verbatim. The documented example template passes
 `medre config check` end to end.
+
+Runtime expansion now also re-validates parser-only semantic invariants for
+directly constructed routes. Enabled routes with an empty source or destination
+adapter side fail loudly instead of expanding to zero routes. Programmatic
+structured destinations must retain exactly one destination adapter and may not
+be combined with a legacy destination channel; programmatic `channel_room_map`
+routes likewise reject competing selector/destination authorities before
+expansion. This keeps the runtime boundary safe even when callers bypass
+`RouteConfig.from_dict()`.

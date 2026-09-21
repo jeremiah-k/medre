@@ -19,6 +19,10 @@ from medre.core.ingress.types import AdapterCheckpoint
 from tests.helpers.matrix_session import make_matrix_config
 
 
+class LocalProtocolError(Exception):
+    """SDK-shaped test double for nio's local protocol error."""
+
+
 def _durable_session(**overrides: object) -> MatrixSession:
     async def admit(_event: dict[str, object], _provenance: str) -> None:
         return None
@@ -265,8 +269,6 @@ async def test_ack_token_mismatch_defers_instead_of_killing_sync() -> None:
     ack_calls: list[str] = []
 
     def _ack(cursor: str) -> None:
-        from nio.exceptions import LocalProtocolError
-
         ack_calls.append(cursor)
         raise LocalProtocolError(
             "Classic Sync acknowledgement token does not match the staged " "response."
@@ -293,8 +295,6 @@ async def test_deferred_classic_ack_recovers_on_next_response() -> None:
 
     def _ack(cursor: str) -> None:
         nonlocal fail_first
-        from nio.exceptions import LocalProtocolError
-
         calls.append(cursor)
         if fail_first:
             fail_first = False

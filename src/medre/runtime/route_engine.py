@@ -820,6 +820,47 @@ def _expand_all_routes(
                 f"{', '.join(d.value for d in RouteDirectionality)}"
             )
 
+        # ``RouteConfig.from_dict`` rejects these shapes during config
+        # parsing, but direct/programmatic construction bypasses that parser.
+        # Validate the runtime-semantic invariants here as a final boundary so
+        # an enabled direct route can never disappear into zero expansions or
+        # produce a target with two competing addressing authorities.
+        if not rc.source_adapters:
+            raise RouteValidationError(
+                f"Route {rc.route_id!r}: source_adapters must not be empty"
+            )
+        if not rc.dest_adapters:
+            raise RouteValidationError(
+                f"Route {rc.route_id!r}: dest_adapters must not be empty"
+            )
+        if rc.dest_destination is not None:
+            if len(rc.dest_adapters) != 1:
+                raise RouteValidationError(
+                    f"Route {rc.route_id!r}: dest_destination addresses one "
+                    f"transport-specific entity and requires exactly one dest "
+                    f"adapter, got {len(rc.dest_adapters)}"
+                )
+            if rc.dest_channel is not None:
+                raise RouteValidationError(
+                    f"Route {rc.route_id!r}: dest_destination is mutually "
+                    "exclusive with dest_channel/dest_room"
+                )
+        if rc.channel_room_map is not None:
+            conflicts = [
+                name
+                for name, value in (
+                    ("source_channel/source_room", rc.source_channel),
+                    ("dest_channel/dest_room", rc.dest_channel),
+                    ("dest_destination", rc.dest_destination),
+                )
+                if value is not None
+            ]
+            if conflicts:
+                raise RouteValidationError(
+                    f"Route {rc.route_id!r}: channel_room_map is mutually "
+                    f"exclusive with {conflicts}"
+                )
+
         new_routes: list[Route] = []
         if rc.channel_room_map is not None:
             # channel_room_map expansion — bypasses standard expansion.

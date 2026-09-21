@@ -20,14 +20,23 @@ second bounded client-task scan before closing the HTTP session. Completed reque
 that ignore cancellation within the stop timeout receive a terminal-result
 callback before they are logged as stragglers, preventing late unobserved-task
 warnings. Cancellation of `stop()` itself is still propagated. The
-caller-supplied stop timeout is shared between the sync-task wait and the
-client-bound request drain rather than being restarted for each phase.
+caller-supplied stop timeout is shared across all session-owned teardown
+work: detached Megolm recovery tasks, in-flight room joins, the sync-task wait,
+the client-bound request drain, and client close. Cancellation-resistant owned
+tasks are cancelled, observed only until that absolute deadline, and then
+detached with a terminal-result consumer rather than allowing ``stop(timeout)``
+to overrun its cooperative shutdown budget.
 
 Live proof against the real homeserver: runtime start/stop now completes
 with zero ResourceWarnings, zero remaining client sessions, and zero live
 TLS transports after the pinned aiohttp graceful-TLS-shutdown window (its
-`ssl_shutdown_timeout`, 30 s default, is not configurable through nio
-0.40.0's public API; the idle keep-alive socket resolves itself within that
-window and fds return to baseline). Deterministic regression:
+`ssl_shutdown_timeout`, 30 s default, is not configurable through the pinned
+mindroom-nio release's public API; the idle keep-alive socket resolves itself
+within that window and fds return to baseline). Deterministic regression:
 `test_stop_drains_client_bound_tasks_before_close` fails on the previous
 stop ordering and passes now.
+
+Classic checkpoint acknowledgement no longer imports the optional Matrix SDK merely
+to classify the staged-token mismatch. MEDRE recognizes that specific protocol error
+from the raised exception contract, defers only that known recovery race, and leaves
+all unrelated acknowledgement failures fatal.

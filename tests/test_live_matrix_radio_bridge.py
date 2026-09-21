@@ -118,7 +118,7 @@ pytestmark = [
     pytest.mark.filterwarnings(
         "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning"
     ),
-    # RNS 1.5.4 threading.setDaemon Deprecation under filterwarnings=error
+    # the pinned RNS release threading.setDaemon Deprecation under filterwarnings=error
     # kills the LXMF router task (documented lab gotcha; see RUNBOOK).
     pytest.mark.filterwarnings(
         "ignore:setDaemon\\(\\) is deprecated:DeprecationWarning"
@@ -143,7 +143,7 @@ def _build_runtime(db_path: Path, lx_storage: Path):
     test-scoped (fresh per test): reusing a shared store both violates
     runtime ownership ("a new test must not inherit the previous
     runtime's store") and triggers a pinned-RNS unclosed-read defect
-    (RNS 1.5.4 ``Destination._reload_ratchets`` opens an existing
+    (the pinned RNS release ``Destination._reload_ratchets`` opens an existing
     ``.ratchets`` file without closing it) whose GC-time ResourceWarning
     surfaces as a pytest-unraisable error in a *later* test.
     """
