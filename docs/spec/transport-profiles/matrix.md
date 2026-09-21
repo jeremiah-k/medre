@@ -239,8 +239,8 @@ The Matrix renderer (`MatrixRenderer`) produces:
    nio to stop the current `sync_forever()` owner, cancels it, and verifies it
    terminated before the existing bounded outer recovery path may start another
    loop.  Ordinary sync-loop failures use the same reset-to-committed-cursor
-   path and bounded outer backoff (1 s → 2 s → 4 s → … capped at 60 s, ±25 %
-   jitter, max 10 attempts).  A stale loop that ignores cancellation fails
+   path and bounded outer backoff (1 s → 2 s → 4 s → … with ±25 %
+   jitter and the final delay clamped to 60 s, max 10 attempts).  A stale loop that ignores cancellation fails
    closed; MEDRE never overlaps two sync owners on one client.
 7. **Stopped** — `stop(timeout)` asks nio to stop `sync_forever()`, cancels
    MEDRE-owned Megolm recovery and room-join tasks, drains nio client-bound request

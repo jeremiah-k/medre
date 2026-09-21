@@ -242,3 +242,68 @@ def test_adapter_stopped_diagnostics_preserve_supervision_shape() -> None:
     assert diag["megolm_recovery_rate_limited"] == 0
     assert diag["megolm_recovery_inflight_rejected"] == 0
     assert diag["megolm_recovery_inflight"] == 0
+
+async def test_sync_reconnect_jitter_never_exceeds_backoff_cap() -> None:
+    from medre.adapters.matrix import session as session_module
+
+    session = MatrixSession(make_matrix_config())
+    session._client = SimpleNamespace()
+    session._reconnect_attempts = 6  # next attempt reaches the 60s raw cap
+
+    async def _stop_after_observing_delay(delay: float) -> None:
+        assert delay == session_module._BACKOFF_CAP
+        raise asyncio.CancelledError
+
+    with (
+        patch.object(
+            MatrixSession,
+            "_run_sync_forever_attempt",
+            new=AsyncMock(side_effect=RuntimeError("boom")),
+        ),
+        patch(
+            "medre.adapters.matrix.session.random.uniform",
+            return_value=session_module._BACKOFF_CAP
+            * session_module._BACKOFF_JITTER_FRACTION,
+        ),
+        patch.object(
+            session_module,
+            "asyncio",
+            SimpleNamespace(
+                sleep=_stop_after_observing_delay,
+                CancelledError=asyncio.CancelledError,
+            ),
+        ),
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await session._sync_with_reconnect()
+
+async def test_warning_dedup_does_not_suppress_later_key_recovery() -> None:
+    session = MatrixSession(
+        make_matrix_config(
+            encryption_mode="e2ee_required",
+            megolm_key_request_rate_limit_per_minute=5,
+        )
+    )
+    session._crypto_enabled = True
+    session._live_sync_started = True
+    session._client = SimpleNamespace(
+        device_id="DEVICE",
+        user_id="@bot:example.com",
+        to_device=AsyncMock(return_value=SimpleNamespace()),
+    )
+    room = SimpleNamespace(room_id="!room:example.com")
+    event = SimpleNamespace(
+        event_id="$event",
+        session_id="session-1",
+        as_key_request=MagicMock(return_value={"request": 1}),
+    )
+    key = "!room:example.com:session-1"
+    session._undecryptable_dedup[key] = __import__("time").monotonic()
+
+    await session._on_megolm_event(room, event)
+    task = session._room_key_request_tasks[key]
+    await asyncio.wait_for(task, timeout=0.5)
+
+    session._client.to_device.assert_awaited_once()
+    assert session._suppressed_rate_limited_undecryptable == 1
+    assert session._room_key_request_attempts == 1

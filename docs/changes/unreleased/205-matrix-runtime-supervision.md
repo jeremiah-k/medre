@@ -10,3 +10,5 @@
   Matrix adapter is stopped.
 - Align Matrix config, JSON Schema, examples, operator documentation, SDK-parity
   authorities, and focused tests with the new runtime policy.
+- Enforce the Matrix reconnect-delay cap after jitter and keep live warning
+  deduplication independent from missing-room-key recovery admission.

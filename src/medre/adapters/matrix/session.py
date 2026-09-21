@@ -1643,20 +1643,20 @@ class MatrixSession:
                 session_id_tag,
                 now - prev,
             )
-            return
-
-        self._logger.warning(
-            "Undecryptable MegolmEvent %s in room %s",
-            event_id,
-            room_id,
-        )
-        self._undecryptable_dedup[key] = now
+        else:
+            self._logger.warning(
+                "Undecryptable MegolmEvent %s in room %s",
+                event_id,
+                room_id,
+            )
+            self._undecryptable_dedup[key] = now
 
         # nio awaits async event callbacks while processing a sync response.
         # Missing-key recovery may spend tens of seconds in bounded network
         # retries, so detach it from the sync callback and track the task for
-        # deterministic shutdown.  The warning dedup key also prevents a second
-        # task for the same room/session during the dedup window.
+        # deterministic shutdown. Warning deduplication is intentionally only
+        # a logging policy: recovery admission is independently bounded by the
+        # per-session in-flight guard and rolling outbound request limiter.
         if self._stop_requested:
             # Refuse new recovery during shutdown so stop()'s cancel-and-drain
             # cannot miss a task created after its snapshot.
@@ -2078,7 +2078,10 @@ class MatrixSession:
                     _BACKOFF_CAP,
                 )
                 jitter = raw_delay * _BACKOFF_JITTER_FRACTION
-                delay = max(0.0, raw_delay + random.uniform(-jitter, jitter))
+                delay = min(
+                    _BACKOFF_CAP,
+                    max(0.0, raw_delay + random.uniform(-jitter, jitter)),
+                )
                 self._logger.warning(
                     "Matrix sync failed (attempt %d/%d); retrying in %.1fs: %s",
                     self._reconnect_attempts,
