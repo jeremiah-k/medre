@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 import types
 from types import SimpleNamespace
 
@@ -498,3 +499,283 @@ async def test_stop_cancels_liveness_supervisor() -> None:
     assert liveness_task.cancelled()
     assert session._liveness_task is None
     assert session._started is False
+
+
+async def test_liveness_success_records_diagnostics(monkeypatch) -> None:
+    """A passing probe resets the failure streak and records success timing."""
+    session = _session(tcp_liveness_interval_seconds=0.01)
+    session._activate_client(object())
+    session._started = True
+    session._loop = asyncio.get_running_loop()
+
+    probe_calls = 0
+
+    async def ok_probe(_client: object, _generation: int) -> None:
+        nonlocal probe_calls
+        probe_calls += 1
+        if probe_calls >= 2:
+            session._stop_requested = True
+
+    monkeypatch.setattr(
+        MeshtasticSession,
+        "_probe_tcp_liveness",
+        lambda _self, client, generation: ok_probe(client, generation),
+    )
+    monkeypatch.setattr(
+        "medre.adapters.meshtastic.session._LIVENESS_INITIAL_DELAY_SECONDS",
+        0.0,
+    )
+
+    await session._liveness_loop()
+
+    diag = session.diagnostics()
+    assert probe_calls == 2
+    assert diag.liveness_probe_successes == 1
+    assert diag.liveness_consecutive_failures == 0
+    assert diag.last_liveness_success_time is not None
+    assert diag.last_liveness_error is None
+
+
+async def test_probe_skips_stale_generation_before_touching_the_client(
+    monkeypatch,
+) -> None:
+    session = _session()
+    session._activate_client(object())
+    session._started = True
+    stale_generation = session.connection_generation - 1
+
+    seam_calls: list[object] = []
+
+    def send_admin(_request: object, **_kwargs: object) -> object:
+        seam_calls.append(_request)
+        return SimpleNamespace(id=1)
+
+    client = SimpleNamespace(localNode=SimpleNamespace(_send_admin=send_admin))
+    monkeypatch.setattr(MeshtasticSession, "_create_client", lambda _self: client)
+
+    await session._probe_tcp_liveness(client, stale_generation)
+
+    assert seam_calls == []
+    assert session._last_liveness_probe_time is None
+
+
+async def test_probe_rejects_send_admin_returning_none(monkeypatch) -> None:
+    """A wedged admin send (no packet id) is a connection error, not a pass."""
+    admin_module = types.ModuleType("meshtastic.protobuf.admin_pb2")
+
+    class AdminMessage:
+        def __init__(self) -> None:
+            self.get_device_metadata_request = False
+
+    admin_module.AdminMessage = AdminMessage  # type: ignore[attr-defined]
+    protobuf_module = types.ModuleType("meshtastic.protobuf")
+    protobuf_module.admin_pb2 = admin_module  # type: ignore[attr-defined]
+    mesh_module = types.ModuleType("meshtastic")
+    mesh_module.protobuf = protobuf_module  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "meshtastic", mesh_module)
+    monkeypatch.setitem(sys.modules, "meshtastic.protobuf", protobuf_module)
+    monkeypatch.setitem(sys.modules, "meshtastic.protobuf.admin_pb2", admin_module)
+
+    client = SimpleNamespace(
+        localNode=SimpleNamespace(_send_admin=lambda *_a, **_kw: None),
+        _request_wait_runtime=SimpleNamespace(
+            drop_response_handler=lambda _request_id: None
+        ),
+    )
+    session = _session()
+    session._activate_client(client)
+    session._started = True
+
+    with pytest.raises(
+        MeshtasticConnectionError,
+        match="did not start the TCP liveness admin request",
+    ):
+        await session._probe_tcp_liveness(client, session.connection_generation)
+
+
+async def test_probe_survives_handler_retire_failure(monkeypatch) -> None:
+    """A failing drop_response_handler is logged, never raised."""
+    admin_module = types.ModuleType("meshtastic.protobuf.admin_pb2")
+
+    class AdminMessage:
+        def __init__(self) -> None:
+            self.get_device_metadata_request = False
+
+    admin_module.AdminMessage = AdminMessage  # type: ignore[attr-defined]
+    protobuf_module = types.ModuleType("meshtastic.protobuf")
+    protobuf_module.admin_pb2 = admin_module  # type: ignore[attr-defined]
+    mesh_module = types.ModuleType("meshtastic")
+    mesh_module.protobuf = protobuf_module  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "meshtastic", mesh_module)
+    monkeypatch.setitem(sys.modules, "meshtastic.protobuf", protobuf_module)
+    monkeypatch.setitem(sys.modules, "meshtastic.protobuf.admin_pb2", admin_module)
+
+    captured: dict[str, object] = {}
+
+    def send_admin(_request: object, **kwargs: object) -> object:
+        # Fire the response from a worker thread, as mtjk's reader thread does.
+        on_response = kwargs["onResponse"]
+        threading.Timer(0.05, on_response, args=({"decoded": {}},)).start()
+        captured["on_response"] = on_response
+        return SimpleNamespace(id=999)
+
+    client = SimpleNamespace(
+        localNode=SimpleNamespace(_send_admin=send_admin),
+        _request_wait_runtime=SimpleNamespace(
+            drop_response_handler=lambda _request_id: (_ for _ in ()).throw(
+                OSError("runtime already torn down")
+            )
+        ),
+    )
+    session = _session(tcp_liveness_timeout_seconds=5.0)
+    session._activate_client(client)
+    session._started = True
+
+    await session._probe_tcp_liveness(client, session.connection_generation)
+
+    # A late response after retirement must not raise from the resolve guard.
+    on_response = captured["on_response"]
+    on_response({"decoded": {}})
+    on_response({"decoded": {}})
+
+
+async def test_reconnect_delay_constant_when_initial_meets_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(
+        reconnect_backoff_initial_seconds=4.0,
+        reconnect_backoff_max_seconds=4.0,
+    )
+    monkeypatch.setattr(
+        "medre.adapters.meshtastic.session.random.uniform",
+        lambda _a, _b: 0.0,
+    )
+    assert session._reconnect_delay(7) == 4.0
+
+
+async def test_liveness_cancelled_without_stop_propagates(monkeypatch) -> None:
+    """External cancellation (not shutdown) must surface, not be swallowed."""
+    session = _session(tcp_liveness_interval_seconds=5.0)
+    session._activate_client(object())
+    session._started = True
+    session._loop = asyncio.get_running_loop()
+    probe_entered = asyncio.Event()
+
+    async def parked_probe(_client: object, _generation: int) -> None:
+        probe_entered.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        MeshtasticSession,
+        "_probe_tcp_liveness",
+        lambda _self, client, generation: parked_probe(client, generation),
+    )
+    monkeypatch.setattr(
+        "medre.adapters.meshtastic.session._LIVENESS_INITIAL_DELAY_SECONDS",
+        0.0,
+    )
+
+    task = asyncio.ensure_future(session._liveness_loop())
+    await wait_until(probe_entered.is_set)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
+
+
+async def test_reconnect_cancelled_without_stop_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    session._started = True
+    session._loop = asyncio.get_running_loop()
+    monkeypatch.setattr(
+        MeshtasticSession,
+        "_create_client",
+        lambda _self: (_ for _ in ()).throw(
+            AssertionError("should not reach client creation")
+        ),
+    )
+    monkeypatch.setattr(
+        MeshtasticSession, "_reconnect_delay", lambda _self, _attempt: 60.0
+    )
+
+    task = asyncio.ensure_future(session._reconnect_loop())
+    assert await wait_until(lambda: session.reconnecting)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
+
+
+async def test_reconnect_cancelled_after_stop_request_exits_cleanly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    session._started = True
+    session._loop = asyncio.get_running_loop()
+    monkeypatch.setattr(
+        MeshtasticSession,
+        "_create_client",
+        lambda _self: (_ for _ in ()).throw(
+            AssertionError("should not reach client creation")
+        ),
+    )
+    monkeypatch.setattr(
+        MeshtasticSession, "_reconnect_delay", lambda _self, _attempt: 60.0
+    )
+
+    task = asyncio.ensure_future(session._reconnect_loop())
+    assert await wait_until(lambda: session.reconnecting)
+    session._stop_requested = True
+    task.cancel()
+    await task  # returns without raising
+    assert not task.cancelled()
+    assert session.reconnecting is False
+
+
+async def test_reconnect_close_failure_of_partial_client_is_contained(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A close() failure on a partial client never escapes the retry loop."""
+    session = _session()
+    session._started = True
+    session._loop = asyncio.get_running_loop()
+    # Silence the session logger: this test asserts containment of a failing
+    # close(), and pytest's log-capture emit for per-attempt warnings can
+    # otherwise serialize against the capture handler on slow CI schedulers.
+    session._logger.disabled = True
+    attempts = 0
+
+    class PartialClient:
+        def close(self) -> None:
+            raise OSError("close failed")
+
+    def create_client() -> object:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return PartialClient()
+        session._stop_requested = True
+        raise OSError("offline")
+
+    def subscribe() -> None:
+        if attempts == 1:
+            raise MeshtasticConnectionError("pubsub unavailable")
+
+    monkeypatch.setattr(
+        MeshtasticSession, "_create_client", lambda _self: create_client()
+    )
+    monkeypatch.setattr(
+        MeshtasticSession, "_subscribe_callbacks", lambda _self: subscribe()
+    )
+    monkeypatch.setattr(MeshtasticSession, "_refresh_node_id", lambda _self: None)
+    monkeypatch.setattr(
+        MeshtasticSession, "_reconnect_delay", lambda _self, _attempt: 0.0
+    )
+
+    await session._reconnect_loop()
+
+    assert attempts == 2
+    assert session.reconnecting is False
+    assert session.client is None
