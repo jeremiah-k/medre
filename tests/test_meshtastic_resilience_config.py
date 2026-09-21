@@ -2,18 +2,59 @@
 
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 
 import pytest
 
 from medre.config.adapters.errors import MeshtasticConfigError
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.sample import generate_sample_config
 
 
 def _config(**overrides: object) -> MeshtasticConfig:
     values: dict[str, object] = {"adapter_id": "mesh"}
     values.update(overrides)
     return MeshtasticConfig(**values)  # type: ignore[arg-type]
+
+
+_RESILIENCE_DEFAULTS: dict[str, int | float] = {
+    "queue_max_size": 1024,
+    "queue_warning_threshold_pct": 75.0,
+    "queue_critical_threshold_pct": 90.0,
+    "reconnect_backoff_initial_seconds": 1.0,
+    "reconnect_backoff_max_seconds": 30.0,
+    "tcp_liveness_interval_seconds": 60.0,
+    "tcp_liveness_timeout_seconds": 30.0,
+}
+
+
+def test_resilience_defaults_match_schema_example_and_sample() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = _config().validate()
+    schema = json.loads(
+        (root / "docs/schemas/adapter-config.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    meshtastic_schema = next(
+        branch for branch in schema["oneOf"] if branch.get("title") == "MeshtasticConfig"
+    )
+    properties = meshtastic_schema["properties"]
+    example = json.loads(
+        (
+            root
+            / "docs/schemas/examples/adapter-config-meshtastic-example.json"
+        ).read_text(encoding="utf-8")
+    )
+    sample = generate_sample_config()
+
+    for field_name, expected in _RESILIENCE_DEFAULTS.items():
+        assert getattr(config, field_name) == expected
+        assert properties[field_name]["default"] == expected
+        assert example[field_name] == expected
+        assert f"# {field_name}: {expected}" in sample
 
 
 def test_resilience_defaults_are_safe_and_bounded() -> None:

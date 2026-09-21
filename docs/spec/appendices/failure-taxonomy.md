@@ -45,7 +45,7 @@ implications.
 | ------------------------- | -------------------- | ----------------- | ----------------- | --------------------- |
 | **Transient cause**       | Network/auth/rate    | Radio/link/serial | Radio/link/serial | Network/RNS           |
 | **Permanent cause**       | Auth revocation      | Config/port error | Config error      | Identity/RNS init     |
-| **Reconnect model**       | Exp backoff, 10 att  | Exp backoff, 10   | Exp backoff, 10   | Exp backoff, 10       |
+| **Reconnect model**       | Exp backoff, 10 att  | Lifetime capped   | Exp backoff, 10   | Exp backoff, 10       |
 | **Duplicate-send risk**   | Low-Medium           | High              | Medium            | Low                   |
 | **Outbound queue**        | None (direct send)   | Scaffold (lossy)  | None (direct)     | None (router-managed) |
 | **Delivery confirmation** | Server event_id      | None              | None              | Async state callback  |
@@ -195,7 +195,10 @@ persisted.
    confirmation (server-persisted event_id).
 3. Queue-drain retry is bounded in Meshtastic. Exhausted retries are dropped.
 4. E2EE failures in Matrix are recoverable but require operator intervention.
-5. Reconnect budgets are finite (10 consecutive attempts) across all transports.
+5. Reconnect policy is transport-specific. Matrix, MeshCore, and LXMF use
+   finite 10-attempt budgets; Meshtastic session-level client recreation
+   continues for the lifetime of the started adapter with a configured capped
+   delay.
 6. No transport provides end-to-end delivery confirmation that MEDRE can
    observe, except Matrix (server-side event_id) and LXMF (async DELIVERED
    state callback).
