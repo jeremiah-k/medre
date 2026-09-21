@@ -47,7 +47,11 @@ def register_builtin_contributors(subparsers: Any) -> None:
 
 
 def dispatch_contribution(args: Any) -> None:
-    """Dispatch a contributed adapter command through its registered hook."""
+    """Dispatch a contributed adapter command through its registered hook.
+
+    Raises :class:`RuntimeError` when a registered parser has no dispatch hook
+    or its hook declines the parsed command.
+    """
     if getattr(args, "command", None) != "adapter":
         return
 

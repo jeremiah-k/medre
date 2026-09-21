@@ -678,7 +678,12 @@ class RuntimeBuilder:
         adapter_id: str,
         rtc: Any,
     ) -> AdapterContract:
-        """Construct one enabled adapter from its registered specification."""
+        """Construct one enabled adapter from its registered specification.
+
+        Raises :class:`RuntimeConfigError` when the transport is unknown,
+        preparation or construction fails, configuration is missing, or the
+        required optional SDK is unavailable.
+        """
         spec = get_adapter_spec(transport)
         if spec is None:
             known = ", ".join(s.transport for s in iter_adapter_specs())

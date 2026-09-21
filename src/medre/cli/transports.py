@@ -14,7 +14,10 @@ TRANSPORTS: list[tuple[str, str | None, tuple[str, ...]]] = [
 
 
 def is_transport_installed(transport: str) -> bool:
-    """Check whether a registered transport SDK is importable."""
+    """Return whether a transport is registered and its SDK is available.
+
+    Registered transports that declare no Python SDK are always available.
+    """
     for t_key, _dist, import_names in TRANSPORTS:
         if t_key != transport:
             continue

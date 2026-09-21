@@ -331,7 +331,12 @@ class GenericAdapterRuntimeConfig:
         transport: str,
         config_cls: type,
     ) -> Self:
-        """Construct a runtime wrapper from one adapter config table."""
+        """Construct and validate a runtime wrapper from an adapter config table.
+
+        Wrapper fields are removed before the remaining values are coerced for
+        *config_cls*. Raises :class:`ConfigValidationError` for an unsupported
+        adapter kind or invalid adapter configuration.
+        """
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)
@@ -468,6 +473,7 @@ class AdapterConfigSet:
         )
 
     def __getattr__(self, name: str) -> dict[str, AdapterRuntimeConfig]:
+        """Expose registered transport groups as compatibility attributes."""
         groups = object.__getattribute__(self, "_groups")
         if name in groups:
             return groups[name]

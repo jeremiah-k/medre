@@ -226,6 +226,9 @@ def project_matrix_attribution(
     native_data:
         Raw Matrix native metadata dict.  Missing keys are treated as
         absent (not an error).
+    source_transport_id:
+        Accepted for the shared projector interface but unused because Matrix
+        sender identity comes from native metadata.
 
     Returns
     -------

@@ -51,6 +51,7 @@ class SymbolRef:
     name: str
 
     def load(self) -> Any:
+        """Import and return the referenced symbol."""
         module = importlib.import_module(self.module)
         return getattr(module, self.name)
 
@@ -106,6 +107,12 @@ class AdapterTypeRegistry:
     _by_transport: Mapping[str, AdapterSpec]
 
     def __init__(self, specs: Iterable[AdapterSpec]) -> None:
+        """Build and validate an immutable registry from *specs*.
+
+        Raises :class:`ValueError` for invalid or duplicate transport names,
+        invalid native-detection priorities, incomplete CLI hook pairs, or
+        conflicting support-field declarations.
+        """
         ordered = tuple(specs)
         by_transport: dict[str, AdapterSpec] = {}
         for spec in ordered:
@@ -146,9 +153,15 @@ class AdapterTypeRegistry:
         return len(self._specs)
 
     def get(self, transport: str) -> AdapterSpec | None:
+        """Return the spec for *transport*, or ``None`` when unregistered."""
         return self._by_transport.get(transport)
 
     def require(self, transport: str) -> AdapterSpec:
+        """Return the spec for *transport*.
+
+        Raises :class:`KeyError` naming the known transports when *transport*
+        is not registered.
+        """
         try:
             return self._by_transport[transport]
         except KeyError as exc:
@@ -158,9 +171,11 @@ class AdapterTypeRegistry:
             ) from exc
 
     def transports(self) -> tuple[str, ...]:
+        """Return transport names in registration order."""
         return tuple(spec.transport for spec in self._specs)
 
     def with_trait(self, trait: str) -> tuple[AdapterSpec, ...]:
+        """Return specs declaring *trait* in registration order."""
         return tuple(spec for spec in self._specs if trait in spec.traits)
 
     def native_detection_order(self) -> tuple[AdapterSpec, ...]:

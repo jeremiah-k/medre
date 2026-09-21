@@ -436,7 +436,7 @@ def _collect_adapter_strings(
 
 
 def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
-    """Extract dynamic adapter module strings from builder source.
+    """Extract dynamic adapter module strings from Python source.
 
     Parses AST for legacy builder factories/renderer specs, registry-like
     assignments containing ``medre.adapters.*`` symbol references, dynamic
