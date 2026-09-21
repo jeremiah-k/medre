@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 import types
 from types import SimpleNamespace
 
@@ -12,6 +13,7 @@ import pytest
 from medre.adapters.meshtastic.errors import MeshtasticConnectionError
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from tests.helpers.async_utils import wait_until
 
 
 def _tcp_config(**overrides: object) -> MeshtasticConfig:
@@ -135,6 +137,81 @@ async def test_reconnect_continues_beyond_old_ten_attempt_ceiling(
     assert session.reconnect_attempts == 0
     assert session.diagnostics().reconnect_total_attempts == 11
     assert session.client is replacement
+
+
+async def test_disconnect_during_reconnect_exit_schedules_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A disconnect racing the reconnect loop's exit still schedules recovery.
+
+    The SDK reader thread can deliver a connection-lost notification for the
+    freshly activated client while the reconnect loop task is between client
+    activation and task exit. That notification must schedule a fresh loop;
+    dropping it as a duplicate strands the session (on serial/BLE no liveness
+    probe would re-detect the loss). The gate logger freezes the loop inside
+    its exit window so the racing notification is delivered from a thread at
+    that exact point, as it is in production.
+    """
+
+    class _GateLogger:
+        def __init__(self) -> None:
+            self.entered_exit_window = threading.Event()
+            self.leave_exit_window = threading.Event()
+            self.notify_returned = threading.Event()
+
+        def info(self, *_args: object, **_kwargs: object) -> None:
+            self.entered_exit_window.set()
+            self.leave_exit_window.wait(timeout=5)
+
+        def warning(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def debug(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+    gate = _GateLogger()
+    session = _session()
+    session._started = True
+    session._loop = asyncio.get_running_loop()
+    session._logger = gate  # type: ignore[assignment]
+    replacement = SimpleNamespace(isConnected=SimpleNamespace(is_set=lambda: True))
+
+    monkeypatch.setattr(MeshtasticSession, "_create_client", lambda _self: replacement)
+    monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda _self: None)
+    monkeypatch.setattr(MeshtasticSession, "_refresh_node_id", lambda _self: None)
+    monkeypatch.setattr(
+        MeshtasticSession, "_reconnect_delay", lambda _self, _attempt: 0.0
+    )
+
+    recovery_loops = 0
+
+    async def counting_loop() -> None:
+        nonlocal recovery_loops
+        recovery_loops += 1
+
+    loop_task = asyncio.ensure_future(session._reconnect_loop())
+    # First loop runs the real body and freezes inside its exit-window log.
+    assert await wait_until(gate.entered_exit_window.is_set)
+
+    # From here, recovery scheduling is observable via the counting stub.
+    monkeypatch.setattr(
+        MeshtasticSession, "_reconnect_loop", lambda self: counting_loop()
+    )
+
+    def racing_notify() -> None:
+        session.notify_connection_lost(
+            expected_generation=session.connection_generation
+        )
+        gate.notify_returned.set()
+
+    racer = threading.Thread(target=racing_notify)
+    racer.start()
+    assert gate.notify_returned.wait(timeout=5)
+    racer.join()
+    gate.leave_exit_window.set()
+    await loop_task
+
+    assert await wait_until(lambda: recovery_loops == 1)
 
 
 async def test_reconnect_loop_stops_only_when_session_stop_requested(

@@ -1222,6 +1222,18 @@ class MeshtasticSession:
                     self._activate_client(new_client)
                     self._subscribe_callbacks()
                     self._refresh_node_id()
+                    with self._client_state_lock:
+                        # Ownership passed to the fresh client. Release the
+                        # reconnecting state before this task exits: a
+                        # disconnect notification for this generation can
+                        # arrive from the SDK reader thread from here until
+                        # the finally block, and it must schedule a fresh
+                        # loop instead of being dropped as a duplicate — on
+                        # serial/BLE no liveness probe would ever re-detect
+                        # the loss.
+                        self._reconnecting = False
+                        if self._reconnect_task is asyncio.current_task():
+                            self._reconnect_task = None
                     self._logger.info(
                         "MeshtasticSession %s reconnected after %d "
                         "consecutive attempts",
@@ -1242,6 +1254,11 @@ class MeshtasticSession:
                     # backoff interval.
                     failed_client = self._invalidate_client()
                     self._unsubscribe_callbacks()
+                    with self._client_state_lock:
+                        # The retry loop stays live: re-arm the state that the
+                        # activation window released so liveness and notify
+                        # paths keep treating recovery as in progress.
+                        self._reconnecting = True
                     if failed_client is not None:
                         try:
                             close_fn = getattr(failed_client, "close", None)
