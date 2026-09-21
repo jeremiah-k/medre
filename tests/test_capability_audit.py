@@ -355,9 +355,6 @@ class TestRoomChannelDiscovery:
     def test_matrix_direct_messages_true(self) -> None:
         assert _get_fake_caps("matrix").direct_messages is True
 
-    def test_matrix_topic_rooms_true(self) -> None:
-        assert _get_fake_caps("matrix").topic_rooms is True
-
     def test_meshtastic_channels_true(self) -> None:
         assert _get_fake_caps("meshtastic").channels is True
 

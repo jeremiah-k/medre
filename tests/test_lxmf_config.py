@@ -243,12 +243,6 @@ class TestLxmfConfigInvalid:
         with pytest.raises(ValueError):
             config.validate()
 
-    def test_config_error_is_value_error(self) -> None:
-        config = LxmfConfig(adapter_id="")
-        with pytest.raises(ValueError):
-            config.validate()
-
-
 class TestLxmfConfigMetadataSafety:
     """metadata_embedding remains safe — no secrets in envelopes."""
 

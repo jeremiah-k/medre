@@ -20,7 +20,6 @@ all SDKs are not installed.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
@@ -35,25 +34,19 @@ from tests.helpers.pytest_markers import (
 from tests.helpers.sdk_constants import _SDK_INSTANTIATION_PATTERNS
 from tests.helpers.source_reader import source_of as _source_of
 
+from tests.helpers.import_scanner import (
+    ADAPTER_COMPAT_MODULES as _ADAPTER_COMPAT_MODULES,
+    ADAPTER_FROM_IMPORT_PREFIXES as _ADAPTER_FROM_IMPORT_PREFIXES,
+    ADAPTER_PREFIXES as _ADAPTER_PREFIXES,
+    ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES as _ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES,
+    banned_imports as _banned_imports,
+    import_lines as _import_lines,
+)
+
 # ---------------------------------------------------------------------------
 # Shared helpers (same pattern as test_architectural_boundaries.py)
 # ---------------------------------------------------------------------------
 
-_ADAPTER_PREFIXES = (
-    "medre.adapters.matrix",
-    "medre.adapters.meshtastic",
-    "medre.adapters.meshcore",
-    "medre.adapters.lxmf",
-)
-"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
-
-_ADAPTER_COMPAT_MODULES = (
-    "medre.adapters.matrix.compat",
-    "medre.adapters.meshtastic.compat",
-    "medre.adapters.meshcore.compat",
-    "medre.adapters.lxmf.compat",
-)
-"""Adapter compat modules that are ALLOWED to import SDKs internally."""
 
 _TESTS_DIR = Path(__file__).parent
 """Root tests directory."""
@@ -61,40 +54,7 @@ _TESTS_DIR = Path(__file__).parent
 _REPO_ROOT = _TESTS_DIR.parent
 """Repository root directory."""
 
-_BANNED_ADAPTER_IMPORT_PREFIXES = (
-    "from medre.adapters.matrix",
-    "from medre.adapters.meshtastic",
-    "from medre.adapters.meshcore",
-    "from medre.adapters.lxmf",
-)
-
-
-def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text.
-
-    See also: architecture_ast.runtime_scope_imports() for AST-based
-    import extraction (returns ImportRecord objects with resolved names).
-    """
-    return [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(("import ", "from "))
-    ]
-
-
-def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package.
-
-    See also: architecture_ast.import_matches() for module-prefix matching
-    on resolved module names (AST-level, not text-level).
-    """
-    found: list[str] = []
-    for line in lines:
-        for b in banned:
-            if re.search(rf"\b{re.escape(b)}\b", line):
-                found.append(line)
-                break
-    return found
+_BANNED_ADAPTER_IMPORT_PREFIXES = _ADAPTER_FROM_IMPORT_PREFIXES
 
 
 def _file_source(path: Path) -> str:
@@ -376,21 +336,7 @@ class TestCliWorkflowsRuntimeLayerOnly:
     # Adapter config modules are pure data classes — they import no SDKs
     # and are safe for CLI tests to use.  Only ban imports of adapter
     # runtime modules (session, adapter, codec, etc.).
-    _BANNED_CLI_ADAPTER_IMPORTS = (
-        "from medre.adapters.matrix.adapter",
-        "from medre.adapters.matrix.session",
-        "from medre.adapters.matrix.codec",
-        "from medre.adapters.meshtastic.adapter",
-        "from medre.adapters.meshtastic.session",
-        "from medre.adapters.meshtastic.codec",
-        "from medre.adapters.meshtastic.queue",
-        "from medre.adapters.meshcore.adapter",
-        "from medre.adapters.meshcore.session",
-        "from medre.adapters.meshcore.codec",
-        "from medre.adapters.lxmf.adapter",
-        "from medre.adapters.lxmf.session",
-        "from medre.adapters.lxmf.codec",
-    )
+    _BANNED_CLI_ADAPTER_IMPORTS = _ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES
 
     def test_cli_test_files_no_concrete_adapter_imports(
         self,

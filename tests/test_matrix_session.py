@@ -1233,21 +1233,6 @@ class TestConcurrentJoinDeduplication:
         finally:
             await session.stop()
 
-    async def test_already_joined_skips_join(self, mock_nio) -> None:
-        """Already-joined room returns True without calling join."""
-        config = make_matrix_config()
-        session = MatrixSession(config)
-        try:
-            await session.start()
-            mock_client = mock_nio.AsyncClient.return_value
-            mock_client.rooms = {"!room:server": MagicMock()}
-            result = await session.ensure_joined("!room:server")
-            assert result is True
-            mock_client.join.assert_not_called()
-        finally:
-            await session.stop()
-
-
 class TestInviteHandling:
     """_on_invite callback behaviour."""
 

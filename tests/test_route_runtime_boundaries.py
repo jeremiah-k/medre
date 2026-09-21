@@ -27,6 +27,7 @@ import pytest
 
 from medre.adapter_registry import registered_transports
 from medre.runtime.architecture_report import _SDK_PACKAGES
+from tests.helpers.import_scanner import import_lines as _import_lines
 
 # ---------------------------------------------------------------------------
 # Helpers (mirroring test_cross_transport_boundaries style)
@@ -50,15 +51,6 @@ def _read_module_source(module) -> str:
     assert module.__file__ is not None, f"{module} has no __file__"
     with open(module.__file__) as f:
         return f.read()
-
-
-def _import_lines(source: str) -> list[str]:
-    """Extract top-level import/from-import lines from source."""
-    return [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(("import ", "from "))
-    ]
 
 
 def _method_defs(source: str) -> list[str]:

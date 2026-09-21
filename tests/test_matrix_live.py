@@ -440,31 +440,6 @@ class TestMatrixLiveSmoke:
     # For now, live coverage of suppression is explicitly limited to
     # the documented note above and the deterministic fake/unit tests.
 
-    async def test_self_message_suppression_note(self):
-        """Document: self-message suppression is covered by unit tests.
-
-        This test always passes.  It exists to document why live
-        suppression testing is limited and to keep the coverage note
-        visible in test reports.
-        """
-        # Self-message suppression (sender == config.user_id) is
-        # unconditionally enforced in _on_room_message before decode.
-        # Live validation requires a second actor or unreliable waits.
-        # Deterministic coverage: tests/test_matrix_lifecycle.py,
-        # tests/test_matrix_codec.py, tests/test_matrix_adapter.py.
-        pass
-
-    async def test_medre_origin_envelope_suppression_note(self):
-        """Document: MEDRE-origin suppression is covered by unit tests.
-
-        This test always passes.  The MEDRE-origin envelope check is a
-        secondary suppression path; the primary path is the sender check.
-        Both are tested deterministically in unit tests.
-        """
-        # MEDRE-origin envelope suppression (envelope.source_adapter match)
-        # is defense-in-depth.  Storage is authoritative for dedup.
-        # Deterministic coverage: tests/test_matrix_adapter.py.
-        pass
 
     # -- Send and verify: echo suppression diagnostics ------------------------
 

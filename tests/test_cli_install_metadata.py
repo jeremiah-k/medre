@@ -18,9 +18,12 @@ from pathlib import Path
 
 import pytest
 
+from medre.adapter_registry import registered_transports
 from tests.helpers.cli import (
     _run_cli,
 )
+
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
 
 # ===================================================================
 # 5. Paths workflow
@@ -63,22 +66,15 @@ class TestPathsWorkflow:
 class TestVersionWorkflow:
     """Operators run 'medre version' to check installed version."""
 
-    def test_version_format(self) -> None:
+    def test_version_output_contract(self) -> None:
         output = _run_cli("version")
         lines = output.strip().splitlines()
         assert lines[0].startswith("medre ")
         version_str = lines[0].split()[-1]
         parts = version_str.split(".")
         assert len(parts) >= 2
-        for part in parts:
-            assert part.isdigit(), f"non-numeric version segment: {part!r}"
-
-    def test_version_includes_python(self) -> None:
-        output = _run_cli("version")
+        assert all(part.isdigit() for part in parts)
         assert "Python" in output
-
-    def test_version_includes_platform(self) -> None:
-        output = _run_cli("version")
         assert "Platform" in output
 
     def test_version_deterministic(self) -> None:
@@ -99,7 +95,7 @@ class TestAdaptersWorkflow:
     def test_adapters_shows_types(self) -> None:
         output = _run_cli("adapters")
         assert "Adapter types:" in output
-        for transport in ("matrix", "meshtastic", "meshcore", "lxmf"):
+        for transport in registered_transports():
             assert transport in output, f"adapters output missing {transport}"
 
     def test_adapters_shows_sdk_status(self) -> None:

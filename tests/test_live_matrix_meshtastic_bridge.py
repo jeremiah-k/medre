@@ -2,8 +2,9 @@
 
 These tests exercise the **adapter boundary** (start, health, diagnostics,
 outbound delivery) against real Matrix homeservers and Meshtastic radio
-nodes.  They are **not** full end-to-end bridge tests — that would require
-automated Meshtastic→Matrix inbound verification which is not yet reliable.
+nodes. Full runtime Matrix↔radio ingress/delivery coverage lives in
+``test_live_matrix_radio_bridge.py``; this module intentionally remains a
+smaller adapter smoke harness.
 
 **Skipped by default** — all tests require explicit opt-in via environment
 variables.  See :mod:`tests.helpers.live_config` for the full list.
@@ -27,8 +28,6 @@ Test classes
     Adapter health and diagnostics (requires all env vars).
 ``TestMatrixToMeshtasticSmoke``
     Matrix outbound delivery smoke test (requires all env vars).
-``TestMeshtasticToMatrix``
-    Placeholder for Meshtastic→Matrix inbound (explicitly skipped).
 """
 
 import asyncio
@@ -356,40 +355,3 @@ class TestMatrixToMeshtasticSmoke:
             )
         finally:
             await adapter.stop()
-
-
-# ===========================================================================
-# 4. Meshtastic→Matrix (placeholder, explicitly skipped)
-# ===========================================================================
-
-
-@pytest.mark.skip(reason="Meshtastic → Matrix automated inbound not yet reliable")
-class TestMeshtasticToMatrix:
-    """Placeholder for Meshtastic→Matrix inbound tests.
-
-    Automated inbound testing from Meshtastic to Matrix is not yet
-    reliable enough for CI.  Manual testing via the operator runbook
-    is recommended.
-
-    See ``docs/ops/diagnostics-and-evidence.md`` for manual test
-    procedures.
-    """
-
-    def test_meshtastic_inbound_to_matrix(self) -> None:
-        """Manual test placeholder — see runbook for manual procedures.
-
-        To test Meshtastic→Matrix inbound manually:
-
-        1. Start the MEDRE runtime with a live bridge config.
-        2. Send a text message from another Meshtastic node on the
-           configured channel.
-        3. Verify the message appears in the target Matrix room.
-
-        This test is a ``pass`` statement because the automated path
-        is not yet reliable.
-        """
-        # Meshtastic → Matrix inbound delivery requires a second radio
-        # node sending a message on the configured channel and the
-        # runtime pipeline forwarding it.  This is exercised manually
-        # via the operator runbook.
-        pass

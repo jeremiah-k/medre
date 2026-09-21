@@ -8,9 +8,10 @@ silently changes validation results (see
 ``MatrixConfig._apply_sidecar_fallback`` — a local sidecar can make an
 incomplete config validate while a CI runner without one rejects it).
 
-Config-loading tests should consume :func:`isolated_config_env` (directly
-or through a per-file autouse wrapper) so every test starts from a
-pristine environment instead of inheriting the host's state.
+Config-loading test modules should activate :func:`isolated_config_env` with a
+module-level ``pytest.mark.usefixtures`` marker. Tests that need the returned
+root mapping can request the fixture directly. This keeps isolation visible at
+the module boundary without repeating no-op autouse wrapper fixtures.
 """
 
 from __future__ import annotations

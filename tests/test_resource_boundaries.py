@@ -9,11 +9,16 @@ sessions never import resource-control modules.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from medre.runtime.architecture_report import _SDK_PACKAGES
 from tests.helpers.source_reader import source_of as _source_of
+
+from tests.helpers.import_scanner import (
+    ADAPTER_PREFIXES as _ADAPTER_PREFIXES,
+    banned_imports as _banned_imports,
+    import_lines as _import_lines,
+)
 
 # ---------------------------------------------------------------------------
 # Shared constants & helpers
@@ -21,37 +26,10 @@ from tests.helpers.source_reader import source_of as _source_of
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
 
-_ADAPTER_PREFIXES = (
-    "medre.adapters.matrix",
-    "medre.adapters.meshtastic",
-    "medre.adapters.meshcore",
-    "medre.adapters.lxmf",
-)
-"""Concrete adapter package prefixes (excludes medre.core.contracts.adapter and fake_*)."""
 
 _RESOURCE_CONTROL_MODULES = ("medre.core.supervision.capacity",)
 
 """Runtime resource-control modules that must stay transport-agnostic."""
-
-
-def _import_lines(source: str) -> list[str]:
-    """Extract all import/from-import lines from source text."""
-    return [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(("import ", "from "))
-    ]
-
-
-def _banned_imports(lines: list[str], banned: tuple[str, ...]) -> list[str]:
-    """Return import lines referencing any banned package."""
-    found: list[str] = []
-    for line in lines:
-        for b in banned:
-            if re.search(rf"\b{re.escape(b)}\b", line):
-                found.append(line)
-                break
-    return found
 
 
 def _all_py_files_under(directory: Path, prefix: str) -> list[tuple[str, str]]:

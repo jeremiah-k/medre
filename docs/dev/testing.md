@@ -4,7 +4,7 @@ This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
 
-The test suite has 14k+ tests (~125 deselected by the
+The test suite has roughly 13.7k tests (~125 deselected by the
 live/docker/hardware marker policy). Every transport has a
 fake adapter that exercises the full pipeline. The standard `pytest -q` run
 requires a generous timeout—the full suite can exceed 600 s on typical
@@ -68,6 +68,14 @@ class TestLegacyStorage(unittest.TestCase):
     def setUp(self):
         self.store = InMemoryStorage()
 ```
+
+### Keep tests executable
+
+Every collected test should exercise an executable contract. Do not use
+``pass``/ellipsis-only test functions as placeholders for future, manual, or
+hardware work. Record unexecuted readiness work in the release-readiness or
+known-limitations authorities and add the test when there is an executable
+path to assert.
 
 ### Use pytest fixtures over setUp/tearDown
 
@@ -599,7 +607,7 @@ edit makes unnecessary.
 
 ```bash
 PYTHONPATH=src pytest -q
-# Expected: 14k+ collected, ~125 deselected (live/docker/hardware).
+# Expected: roughly 13.7k collected, ~125 deselected (live/docker/hardware).
 # The full suite takes 600–900 s on typical hardware; use prefix slices
 # during development (see slow-suite partition strategy below).
 ```
@@ -765,7 +773,7 @@ always re-run suspect files in isolation to confirm.
    python -m pytest --collect-only -q
    ```
 
-   Expected: 14k+ collected, ~125 deselected. Collection takes ~11 s.
+   Expected: roughly 13.7k collected, ~125 deselected. Collection takes ~11 s.
 
 3. **Targeted files for changed modules** — run only the test files that
    exercise the code you changed. Use file paths, not `-k` keyword filters,
@@ -781,7 +789,7 @@ always re-run suspect files in isolation to confirm.
 
 ### Slow-suite partition strategy
 
-The full suite at 14,000+ tests cannot run within typical agent timeouts
+The full suite at roughly 13,700 tests cannot run within typical agent timeouts
 (300–600 s). Use directory/prefix slicing to partition the work. The groups
 below are ordered roughly from slowest to fastest per test; time your slices
 and stop after one hang.
@@ -814,7 +822,7 @@ and stop after one hang.
 | `lifecycle/`                                                  | 9        | 113       | 0          | unmeasured          |
 | `operational/`                                                | 4        | 57        | 0          | unmeasured          |
 | Other (boundary, canonical, rendering, drill, snapshot, etc.) | ~80      | ~1,900    | varies     | unmeasured          |
-| **Total**                                                     | **~460** | **~14k+** | **~125**   | **~600–900 s est.** |
+| **Total**                                                     | **~640** | **~13.7k** | **~125**   | **~600–900 s est.** |
 
 #### Soak/longrun group — slowest per test
 

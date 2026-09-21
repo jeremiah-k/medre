@@ -3,11 +3,11 @@ config construction, error handling."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
+from medre.adapter_registry import registered_transports
 from medre.config.errors import (
     ConfigFileError,
     ConfigNotFoundError,
@@ -19,6 +19,8 @@ from medre.config.model import (
     RuntimeConfig,
 )
 from medre.config.paths import MedrePaths
+
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
 
 # ---------------------------------------------------------------------------
 # Sample YAML content
@@ -97,10 +99,6 @@ runtime: {}
 # Fixtures
 # ---------------------------------------------------------------------------
 
-
-@pytest.fixture(autouse=True)
-def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
-    """Clear config-related env vars for each test."""
 
 
 @pytest.fixture()
@@ -263,6 +261,12 @@ class TestLoadErrors:
     ) -> None:
         with pytest.raises(ConfigFileError, match="unexpected end of stream"):
             load_config(str(invalid_config_file))
+
+    def test_empty_file_raises_config_file_error(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("")
+        with pytest.raises(ConfigFileError, match="empty"):
+            load_config(str(config_file))
 
     def test_missing_config_raises_not_found(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -446,6 +450,13 @@ class TestPathPlaceholderExpansion:
         assert config.storage.path is not None
         # The expanded path should start with the state_dir
         assert config.storage.path.startswith(str(paths.state_dir))
+
+    def test_adapter_store_path_expanded(self, multi_config_file: Path) -> None:
+        config, _, _ = load_config(str(multi_config_file))
+        alt = config.adapters.matrix["alt"]
+        assert alt.config is not None
+        assert alt.config.store_path is not None
+        assert "adapters/alt/matrix/store" in str(alt.config.store_path)
 
     def test_medre_home_placeholder(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -902,8 +913,8 @@ class TestUnknownTransportRejection:
         assert exc_info.value.section_path == "adapters"
         msg = str(exc_info.value)
         assert "bogustype" in msg
-        # All four canonical transports appear in the accepted list.
-        for t in ("matrix", "meshtastic", "meshcore", "lxmf"):
+        # Every registered transport appears in the accepted list.
+        for t in registered_transports():
             assert t in msg
 
     def test_known_transports_load(self, multi_config_file: Path) -> None:

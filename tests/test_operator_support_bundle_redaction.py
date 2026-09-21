@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import json
 import zipfile
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from medre.runtime.support_bundle import create_support_bundle
+
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
 
 # ---------------------------------------------------------------------------
 # Config templates with FAKE secret values
@@ -152,10 +153,6 @@ adapters:
 # Fixtures
 # ---------------------------------------------------------------------------
 
-
-@pytest.fixture(autouse=True)
-def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
-    """Run against isolated MEDRE/XDG roots (tests.helpers.config_env)."""
 
 
 def _write_config(tmp_path: Path, text: str, name: str = "config.yaml") -> Path:

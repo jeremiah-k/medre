@@ -39,6 +39,8 @@ from typing import Any
 
 import pytest
 
+from medre.adapter_registry import registered_transports
+
 # ---------------------------------------------------------------------------
 # Repo paths
 # ---------------------------------------------------------------------------
@@ -441,11 +443,11 @@ class TestConfigSampleCleanEnv:
         assert "logging" in parsed, "sample config missing 'logging'"
 
     def test_sample_config_mentions_all_transport_types(self) -> None:
-        """Sample should document all four transport adapter types."""
+        """Sample should document every registered transport adapter type."""
         from medre.config.sample import generate_sample_config
 
         sample = generate_sample_config()
-        for transport in ("matrix", "meshtastic", "meshcore", "lxmf"):
+        for transport in registered_transports():
             assert (
                 transport in sample.lower()
             ), f"sample config does not mention transport {transport!r}"

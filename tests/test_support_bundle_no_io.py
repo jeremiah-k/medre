@@ -9,13 +9,14 @@ bundle with fake adapters without any SDK installed.
 from __future__ import annotations
 
 import zipfile
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from medre.runtime import support_bundle
 from medre.runtime.support_bundle import create_support_bundle
+
+pytestmark = pytest.mark.usefixtures("isolated_config_env")
 
 # ---------------------------------------------------------------------------
 # Config: fake adapters only (no SDK required)
@@ -50,10 +51,6 @@ routes:
     enabled: true
 """
 
-
-@pytest.fixture(autouse=True)
-def _clean_config_env(isolated_config_env: Mapping[str, Path]) -> None:
-    """Run against isolated MEDRE/XDG roots (tests.helpers.config_env)."""
 
 
 # ---------------------------------------------------------------------------

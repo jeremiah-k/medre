@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from medre.adapter_registry import registered_transports
 from medre.config._yaml import parse_yaml_config
 from tests.helpers.cli import (
     _run_cli,
@@ -79,9 +80,9 @@ class TestConfigSampleWorkflow:
         assert "Traceback" not in output
 
     def test_sample_includes_all_adapter_types(self) -> None:
-        """Sample mentions all four transport types."""
+        """Sample mentions every registered transport type."""
         output = _run_cli("config", "sample")
-        for transport in ("matrix", "meshtastic", "meshcore", "lxmf"):
+        for transport in registered_transports():
             assert transport in output, f"sample missing {transport} adapter"
 
     def test_sample_includes_all_key_sections(self) -> None:
@@ -282,13 +283,6 @@ class TestConfigSampleExpanded:
         logging_cfg = parsed.get("logging", {})
         assert "level" in logging_cfg
         assert "format" in logging_cfg
-
-    def test_sample_no_duplicate_keys(self) -> None:
-        """Sample YAML has no duplicate keys."""
-        output = _run_cli("config", "sample")
-        parsed = parse_yaml_config(output)
-        assert isinstance(parsed, dict)
-
 
 # ===================================================================
 # Cross-cutting: no-Traceback guarantee for config-related paths
