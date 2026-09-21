@@ -13,7 +13,7 @@ Two bounded-failure fixes:
    stop path itself).
 
 2. **`bounded()` is a hard deadline.** The live-harness helper used
-   `asyncio.wait_for`, which waits for the inner task to *acknowledge*
+   `asyncio.wait_for`, which waits for the inner task to _acknowledge_
    cancellation — cancellation-resistant SDK code (a callback that
    swallows `CancelledError` and keeps hanging) defeated the bound and
    deferred discovery to some much larger outer timeout (the campaign's

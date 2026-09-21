@@ -968,7 +968,7 @@ async def test_client_task_drain_consumes_late_exception() -> None:
             except asyncio.CancelledError:
                 # Model an SDK request that needs extra cleanup and then fails.
                 await release.wait()
-                raise RuntimeError("late request cleanup failure")
+                raise RuntimeError("late request cleanup failure") from None
 
     client = _Client()
     session = MatrixSession(make_matrix_config())
@@ -999,9 +999,9 @@ async def test_client_task_drain_consumes_late_exception() -> None:
         # channel.  Do not await/inspect task.exception() here: doing so would
         # make the test itself consume the result and mask the regression.
         await asyncio.sleep(0)
-        assert getattr(task, "_log_traceback", True) is False, (
-            "straggler result was not retrieved by the shutdown callback"
-        )
+        assert (
+            getattr(task, "_log_traceback", True) is False
+        ), "straggler result was not retrieved by the shutdown callback"
         leaked = [
             context
             for context in contexts

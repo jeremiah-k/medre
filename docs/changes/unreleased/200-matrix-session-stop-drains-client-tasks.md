@@ -19,7 +19,7 @@ connection through its normal cancellation path — and only then closes the
 client. Completed request exceptions are retrieved during the drain, and tasks
 that ignore cancellation within the stop timeout receive a terminal-result
 callback before they are logged as stragglers, preventing late unobserved-task
-warnings. Cancellation of ``stop()`` itself is still propagated.
+warnings. Cancellation of `stop()` itself is still propagated.
 
 Live proof against the real homeserver: runtime start/stop now completes
 with zero ResourceWarnings, zero remaining client sessions, and zero live

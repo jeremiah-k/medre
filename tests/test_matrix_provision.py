@@ -220,9 +220,9 @@ async def test_provision_sequence_creates_invites_and_verifies() -> None:
     assert space_kwargs["visibility"].value == "private"
     assert space_kwargs["preset"].value == "private_chat"
     assert space_kwargs["federate"] is True
-    assert "invite" not in space_kwargs, (
-        "room_create must not expose invitations before power/link state is ready"
-    )
+    assert (
+        "invite" not in space_kwargs
+    ), "room_create must not expose invitations before power/link state is ready"
     assert "invite" not in room_kwargs
     # Encryption arrives with the room's first state, not after creation.
     assert room_kwargs["initial_state"] == [encryption_initial_state()]
@@ -253,9 +253,9 @@ async def test_provision_sequence_creates_invites_and_verifies() -> None:
         if name == "room_put_state"
         and kw["event_type"] in {"m.space.child", "m.space.parent"}
     ]
-    assert linkage_indices and max(linkage_indices) < first_invite_idx, (
-        "space/room linkage must be written before invitations become visible"
-    )
+    assert (
+        linkage_indices and max(linkage_indices) < first_invite_idx
+    ), "space/room linkage must be written before invitations become visible"
 
     # The room's power put preserved the unrelated ban field.
     room_pl_put = next(
@@ -394,9 +394,9 @@ async def test_provision_fails_when_room_not_encrypted() -> None:
             room_name="r",
             invite_user_ids=[USER],
         )
-    assert not any(name == "room_invite" for name, _ in client.calls), (
-        "users must not be invited when encryption verification fails"
-    )
+    assert not any(
+        name == "room_invite" for name, _ in client.calls
+    ), "users must not be invited when encryption verification fails"
 
 
 async def test_provision_fails_on_wrong_algorithm() -> None:

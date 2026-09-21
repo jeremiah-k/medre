@@ -316,9 +316,7 @@ async def _verify_linkage(
     if not isinstance(child_content, Mapping) or not isinstance(
         parent_content, Mapping
     ):
-        raise MatrixProvisionError(
-            "space linkage state returned non-mapping content"
-        )
+        raise MatrixProvisionError("space linkage state returned non-mapping content")
     child_via = child_content.get("via", [])
     parent_via = parent_content.get("via", [])
     if not isinstance(child_via, Sequence) or isinstance(child_via, (str, bytes)):
