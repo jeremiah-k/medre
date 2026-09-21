@@ -1163,7 +1163,6 @@ class MeshtasticSession:
         # completion, and its done callback retires the handler even though
         # this coroutine already returned TimeoutError to the supervisor.
         worker = asyncio.ensure_future(_send_request())
-        worker.add_done_callback(lambda _task: retire_response_handler())
         try:
             # One deadline covers request initiation and response wait: a
             # send that wedges must not defer recovery past the configured
@@ -1173,10 +1172,19 @@ class MeshtasticSession:
                 # The Node seam owns admin-channel selection, PKI encryption, cached
                 # session-passkey attachment, and response matching.
                 await asyncio.shield(worker)
-                retire_response_handler()
+                # The response handler must stay registered until the
+                # response resolves — retiring it here would orphan a
+                # healthy in-flight response and force a reconnect on every
+                # healthy probe.
                 await asyncio.shield(completed)
         finally:
-            retire_response_handler()
+            # Retire after the response resolves, or — when startup or the
+            # wait timed out and the worker is still finishing — retire via
+            # its done callback so the late packet id is still reaped.
+            if worker.done():
+                retire_response_handler()
+            else:
+                worker.add_done_callback(lambda _task: retire_response_handler())
 
     async def _create_client_offloop(self) -> Any:
         """Create the SDK client in a worker thread, off the event loop.

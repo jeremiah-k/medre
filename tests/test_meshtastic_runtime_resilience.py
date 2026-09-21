@@ -374,6 +374,60 @@ async def test_tcp_probe_retires_mtjk_response_handler(
     assert dropped == [777]
 
 
+async def test_probe_retires_handler_only_after_response_resolves(
+    monkeypatch,
+) -> None:
+    """The handler stays registered until the response resolves.
+
+    mtjk delivers the response asynchronously, after _send_admin returns.
+    Retiring the handler when the send returns would orphan a healthy
+    in-flight response: the probe would time out and trigger a reconnect
+    on a perfectly healthy connection.
+    """
+    admin_module = types.ModuleType("meshtastic.protobuf.admin_pb2")
+
+    class AdminMessage:
+        def __init__(self) -> None:
+            self.get_device_metadata_request = False
+
+    admin_module.AdminMessage = AdminMessage  # type: ignore[attr-defined]
+    protobuf_module = types.ModuleType("meshtastic.protobuf")
+    protobuf_module.admin_pb2 = admin_module  # type: ignore[attr-defined]
+    mesh_module = types.ModuleType("meshtastic")
+    mesh_module.protobuf = protobuf_module  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "meshtastic", mesh_module)
+    monkeypatch.setitem(sys.modules, "meshtastic.protobuf", protobuf_module)
+    monkeypatch.setitem(sys.modules, "meshtastic.protobuf.admin_pb2", admin_module)
+
+    events: list[str] = []
+
+    def send_admin(_request: object, **kwargs: object) -> object:
+        original = kwargs["onResponse"]
+
+        def deliver_later() -> None:
+            events.append("resolved")
+            original({"decoded": {}})
+
+        threading.Timer(0.05, deliver_later).start()
+        return SimpleNamespace(id=555)
+
+    client = SimpleNamespace(
+        localNode=SimpleNamespace(_send_admin=send_admin),
+        _request_wait_runtime=SimpleNamespace(
+            drop_response_handler=lambda request_id: events.append(
+                f"dropped:{request_id}"
+            )
+        ),
+    )
+    session = _session(tcp_liveness_timeout_seconds=5.0)
+    session._activate_client(client)
+    session._started = True
+
+    await session._probe_tcp_liveness(client, session.connection_generation)
+
+    assert events == ["resolved", "dropped:555"]
+
+
 async def test_tcp_probe_timeout_retires_response_handler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
