@@ -13,6 +13,7 @@ Public API
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
@@ -699,10 +700,35 @@ Values of such fields use the path-placeholder language exclusively
 (``{state}``, ``{data}``, ...) and keep strict unknown-placeholder
 validation.  Every other string field may also carry renderer template
 syntax (``{sender}``, ``{origin_label}``, ...); there, known path
-placeholders are still expanded, but unknown ``{...}`` tokens belong to
+placeholders are still expanded, unknown ``{...}`` tokens belong to
 the renderer and are passed through verbatim instead of failing config
-load.
+load, but ``${ENV_VAR}`` references are rejected: the loader performs no
+environment substitution (overrides use ``MEDRE_ADAPTER__*`` variables),
+so a surviving ``${...}`` is an unexpanded example-config placeholder.
 """
+
+_ENV_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _reject_env_placeholder(field: str, value: str) -> None:
+    """Reject a ``${ENV_VAR}`` reference left in a non-path config value.
+
+    Environment overrides use ``MEDRE_ADAPTER__<TOKEN>__<FIELD>`` style
+    variables; the loader never substitutes ``${...}`` inside YAML values.
+    A surviving reference is therefore an unexpanded placeholder (typically
+    an example config loaded without its required environment) and must
+    fail with a clean, operator-actionable error rather than leaking the
+    literal string into adapter validation.
+    """
+    match = _ENV_PLACEHOLDER_RE.search(value)
+    if match:
+        var = match.group(1)
+        raise ConfigFileError(
+            f"Unresolved environment placeholder in config field {field!r}: "
+            f"${{{var}}} is not expanded — set the {var} environment "
+            "variable (or a MEDRE_ADAPTER__* override) or provide the "
+            "value directly"
+        )
 
 
 def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
@@ -710,8 +736,9 @@ def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
 
     Path-designated fields (``*_path``/``*_dir``/``*_file``) are expanded
     strictly: an unknown placeholder is a config error.  All other string
-    fields expand known path placeholders leniently and leave non-path
-    template tokens (renderer variables) untouched.
+    fields expand known path placeholders leniently, leave non-path
+    template tokens (renderer variables) untouched, and reject surviving
+    ``${ENV_VAR}`` references with a config error.
     """
     result: dict = {}
     for k, v in d.items():
@@ -725,14 +752,22 @@ def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
                         f"Invalid path placeholder in config field {k!r}: {exc}"
                     ) from exc
             else:
-                result[k] = paths.expand_known_placeholders(v)
+                expanded = paths.expand_known_placeholders(v)
+                _reject_env_placeholder(k, expanded)
+                result[k] = expanded
         elif isinstance(v, dict):
             result[k] = _expand_paths_in_dict(v, paths)
         elif isinstance(v, list):
-            result[k] = [
-                _expand_paths_in_dict(item, paths) if isinstance(item, dict) else item
-                for item in v
-            ]
+            expanded_items: list = []
+            for i, item in enumerate(v):
+                if isinstance(item, dict):
+                    expanded_items.append(_expand_paths_in_dict(item, paths))
+                elif isinstance(item, str):
+                    _reject_env_placeholder(f"{k}[{i}]", item)
+                    expanded_items.append(item)
+                else:
+                    expanded_items.append(item)
+            result[k] = expanded_items
         else:
             result[k] = v
     return result
