@@ -301,7 +301,6 @@ async def test_deferred_classic_ack_recovers_on_next_response() -> None:
     succeeds and the deferral counter stops growing."""
     calls: list[str] = []
     fail_first = True
-
     session = _durable_session()
     client = MagicMock()
     client._recovery = _recovery_state(busy=True)
@@ -309,13 +308,13 @@ async def test_deferred_classic_ack_recovers_on_next_response() -> None:
     def _ack(cursor: str) -> None:
         nonlocal fail_first
         calls.append(cursor)
-        if fail_first:
-            fail_first = False
-            client._recovery = _recovery_state(busy=False)
-            raise LocalProtocolError(
-                "Classic Sync acknowledgement token does not match the "
-                "staged response."
-            )
+        if not fail_first:
+            return
+        fail_first = False
+        # Recovery dispatches are still active: nio rejects the token.
+        raise LocalProtocolError(
+            "Classic Sync acknowledgement token does not match the " "staged response."
+        )
 
     client.acknowledge_classic_sync.side_effect = _ack
     session._client = client
@@ -323,6 +322,10 @@ async def test_deferred_classic_ack_recovers_on_next_response() -> None:
     await session._on_sync_response(
         SimpleNamespace(next_batch="s43", abandoned_rooms={})
     )
+
+    # Recovery work settles before the next response arrives, so the next
+    # acknowledgement succeeds and the deferral counter resets.
+    client._recovery = _recovery_state(busy=False)
     await session._on_sync_response(
         SimpleNamespace(next_batch="s44", abandoned_rooms={})
     )
