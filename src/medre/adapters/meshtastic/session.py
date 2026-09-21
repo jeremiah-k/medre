@@ -1120,23 +1120,25 @@ class MeshtasticSession:
         request = admin_pb2.AdminMessage()
         request.get_device_metadata_request = True
         try:
-            # Use mtjk's Node admin transport rather than raw MeshInterface.sendData.
-            # The Node seam owns admin-channel selection, PKI encryption, cached
-            # session-passkey attachment, and response matching.
-            sent_packet = await asyncio.to_thread(
-                send_admin,
-                request,
-                wantResponse=True,
-                onResponse=on_response,
-            )
-            if sent_packet is None:
-                raise MeshtasticConnectionError(
-                    "mtjk did not start the TCP liveness admin request"
+            # One deadline covers request initiation and response wait: the
+            # admin send runs synchronously in a worker thread, and a send
+            # that wedges must not defer recovery past the configured
+            # liveness timeout.
+            async with asyncio.timeout(self._config.tcp_liveness_timeout_seconds):
+                # Use mtjk's Node admin transport rather than raw MeshInterface.sendData.
+                # The Node seam owns admin-channel selection, PKI encryption, cached
+                # session-passkey attachment, and response matching.
+                sent_packet = await asyncio.to_thread(
+                    send_admin,
+                    request,
+                    wantResponse=True,
+                    onResponse=on_response,
                 )
-            await asyncio.wait_for(
-                asyncio.shield(completed),
-                timeout=self._config.tcp_liveness_timeout_seconds,
-            )
+                if sent_packet is None:
+                    raise MeshtasticConnectionError(
+                        "mtjk did not start the TCP liveness admin request"
+                    )
+                await asyncio.shield(completed)
         finally:
             request_id = getattr(sent_packet, "id", None)
             request_runtime = getattr(client, "_request_wait_runtime", None)
@@ -1218,6 +1220,11 @@ class MeshtasticSession:
                 if self._stop_requested:
                     return
                 try:
+                    # NOTE: _create_client is a blocking SDK call and runs on
+                    # the event loop thread here (as it does at initial
+                    # start). Moving it to a worker thread requires executor
+                    # lifecycle design (cancellation, late-client disposal,
+                    # shutdown ordering) and is tracked as follow-up work.
                     new_client = self._create_client()
                     self._activate_client(new_client)
                     self._subscribe_callbacks()
