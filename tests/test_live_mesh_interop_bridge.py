@@ -289,15 +289,22 @@ class _FarListeners:
             tag: _CAPTURE_WINDOWS[tag] + 2 * _RECEIPT_TIMEOUT + 30.0
             for tag in self._far_tags
         }
-        for tag in self._far_tags:
-            if tag == "mt":
-                self._mt = _MtListener(windows["mt"]).__enter__()
-            elif tag == "mc":
-                self._mc = _McListener(windows["mc"]).__enter__()
-            else:
-                from tests.helpers.lxmf_live_peer import LxmfPeerListener
+        try:
+            for tag in self._far_tags:
+                if tag == "mt":
+                    self._mt = _MtListener(windows["mt"]).__enter__()
+                elif tag == "mc":
+                    self._mc = _McListener(windows["mc"]).__enter__()
+                else:
+                    from tests.helpers.lxmf_live_peer import LxmfPeerListener
 
-                self._lx = LxmfPeerListener(windows["lx"]).__enter__()
+                    self._lx = LxmfPeerListener(windows["lx"]).__enter__()
+        except BaseException:
+            # A context whose __enter__ raises never receives __exit__ from
+            # Python, so explicitly unwind listeners that already acquired
+            # hardware-exclusive peer endpoints.
+            self.__exit__(None, None, None)
+            raise
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -309,13 +316,27 @@ class _FarListeners:
                     pass
         self._mt = self._mc = self._lx = None
 
-    def captured_texts(self, tag: str) -> list[str]:
+    def captured_texts(self, tag: str, nonce: str) -> list[str]:
         if tag == "mt" and self._mt is not None:
-            return [p.get("text") or "" for p in self._mt.packets()]
+            packets = self._mt.packets_until(
+                lambda rows: any(nonce in (row.get("text") or "") for row in rows),
+                _CAPTURE_WINDOWS[tag],
+            )
+            return [row.get("text") or "" for row in packets]
         if tag == "mc" and self._mc is not None:
-            return [p.get("text") or "" for p in self._mc.packets()]
+            packets = self._mc.packets_until(
+                lambda rows: any(nonce in (row.get("text") or "") for row in rows),
+                _CAPTURE_WINDOWS[tag],
+            )
+            return [row.get("text") or "" for row in packets]
         if tag == "lx" and self._lx is not None:
-            return [p.get("content") or "" for p in self._lx.packets()]
+            packets = self._lx.packets_until(
+                lambda rows: any(
+                    nonce in (row.get("content") or "") for row in rows
+                ),
+                _CAPTURE_WINDOWS[tag],
+            )
+            return [row.get("content") or "" for row in packets]
         return []
 
 
@@ -405,13 +426,9 @@ async def test_mesh_to_mesh_six_edges_relayed_over_rf(tmp_path: Path) -> None:
                     # Far-side RF oracle: the nonce (or its key for the
                     # unicode LX body) lands on both far peers.
                     for far_tag in _FAR_OF[tag]:
-                        deadline = time.monotonic() + _CAPTURE_WINDOWS[far_tag]
-                        texts: list[str] = []
-                        while time.monotonic() < deadline:
-                            texts = far.captured_texts(far_tag)
-                            if any(nonce in t for t in texts):
-                                break
-                            await asyncio.sleep(2.0)
+                        texts = await asyncio.to_thread(
+                            far.captured_texts, far_tag, nonce
+                        )
                         if not any(nonce in t for t in texts):
                             failures.append(
                                 f"{tag}->{far_tag}: far peer never captured "
@@ -455,7 +472,12 @@ async def test_mesh_interop_restart_preserves_state(tmp_path: Path) -> None:
     app = await _launch(db_path, tmp_path / "lxmf_storage")
     nonce1 = _nonce("RST-A")
     try:
-        await asyncio.to_thread(_mt_peer, ["sendn", _MT_PEER, json.dumps([nonce1])], 60)
+        sent = await asyncio.to_thread(
+            _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce1])], 60
+        )
+        assert any(
+            isinstance(event, dict) and event.get("sent_id") for event in sent
+        ), "pre-restart MT-B send not accepted"
         for far_tag in ("mc", "lx"):
             ev, receipts = await _wait_for_receipt(
                 app, nonce1, _LEG_ADAPTER[far_tag], _RECEIPT_TIMEOUT

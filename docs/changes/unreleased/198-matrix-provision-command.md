@@ -21,7 +21,9 @@ printed (IDs are not credentials).
 
 An opt-in live harness (`tests/test_live_matrix_radio_bridge.py`,
 `MEDRE_MX_BRIDGE=1`) exercises the six directed Matrix<->radio paths over
-one runtime with three explicit bidirectional routes, observes far-side
-Megolm decryption via a second bot-account device (own crypto store), asserts
-own-account echo suppression, and checks crypto/device continuity across one
-controlled restart.
+one runtime with three explicit bidirectional routes. Room-side evidence is
+observed internally through canonical storage, receipts, self-loop suppression,
+and the undecryptable-event counter; the attempted second bot-account observer
+was abandoned because it was not independent evidence and did not have reliable
+Megolm key sharing under the account trust state. The harness also checks
+crypto/device continuity across one controlled restart.

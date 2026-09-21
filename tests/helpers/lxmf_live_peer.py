@@ -242,9 +242,10 @@ class LxmfPeerListener:
         return read_jsonl(_SCRATCH_JSONL)
 
     def packets(self, timeout: float | None = None) -> list[dict]:
-        """Public collection API, mirroring the other peer listeners."""
-        _ = timeout
-        return self._read_packets()
+        """Return a snapshot, optionally waiting for the first packet."""
+        if timeout is None:
+            return self._read_packets()
+        return poll_packets_until(self._read_packets, bool, timeout)
 
     def packets_until(
         self,

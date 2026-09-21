@@ -375,12 +375,25 @@ async def test_unmapped_source_channel_does_not_leak(
     harness = _MeshInteropHarness(temp_storage)
     await harness.start()
     try:
-        before = {aid: len(harness.delivered_bodies(aid)) for aid in _SOURCES}
         await harness.mt.simulate_inbound(_mt_packet("wrong-channel", channel=2))
-        after = {aid: len(harness.delivered_bodies(aid)) for aid in _SOURCES}
-        assert (
-            after == before
-        ), f"unmapped-channel MT packet leaked to routes: {before} -> {after}"
+        # Follow with a mapped positive control.  Once both far targets have
+        # processed the later control packet, any wrongly-routed earlier packet
+        # would also have had an opportunity to surface.
+        await harness.mt.simulate_inbound(_mt_packet("mapped-control"))
+        assert await wait_until(
+            lambda: all(
+                any(
+                    "mapped-control" in body
+                    for body in harness.delivered_bodies(target)
+                )
+                for target in _FAR_TARGETS[MT_ADAPTER]
+            )
+        )
+        assert not any(
+            "wrong-channel" in body
+            for adapter_id in _SOURCES
+            for body in harness.delivered_bodies(adapter_id)
+        ), "unmapped-channel MT packet leaked to routes"
     finally:
         await harness.stop()
 

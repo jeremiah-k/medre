@@ -145,7 +145,13 @@ def _validate_inputs(
         seen: set[str] = set()
         duplicates: set[str] = set()
         for user_id in values:
-            if not user_id.startswith("@") or ":" not in user_id:
+            localpart, separator, server_name = user_id.removeprefix("@").partition(":")
+            if (
+                not user_id.startswith("@")
+                or not separator
+                or not localpart
+                or not server_name
+            ):
                 raise ValueError(
                     f"user ID {user_id!r} is not a fully-qualified MXID (@user:server)"
                 )

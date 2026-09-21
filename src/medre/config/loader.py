@@ -734,7 +734,7 @@ def _reject_env_placeholder(field: str, value: str) -> None:
 def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
     """Recursively expand ``{placeholder}`` tokens in string values.
 
-    Path-designated fields (``*_path``/``*_dir``/``*_file``) are expanded
+    Path-designated fields (``path``/``*_path``/``*_dir``/``*_file``) are expanded
     strictly: an unknown placeholder is a config error.  All other string
     fields expand known path placeholders leniently, leave non-path
     template tokens (renderer variables) untouched, and reject surviving
@@ -742,7 +742,9 @@ def _expand_paths_in_dict(d: dict, paths: MedrePaths) -> dict:
     """
     result: dict = {}
     for k, v in d.items():
-        is_path_field = isinstance(k, str) and k.endswith(_PATH_FIELD_SUFFIXES)
+        is_path_field = isinstance(k, str) and (
+            k == "path" or k.endswith(_PATH_FIELD_SUFFIXES)
+        )
         if isinstance(v, str) and "{" in v:
             if is_path_field:
                 try:

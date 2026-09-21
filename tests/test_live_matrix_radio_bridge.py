@@ -454,8 +454,10 @@ async def test_radio_to_matrix_three_legs_relayed_encrypted(
                 assert (
                     latest.status == "sent"
                 ), f"matrix receipt status {latest.status!r}"
-            except AssertionError as exc:
-                failures.append(f"{tag} leg: {exc}")
+            except Exception as exc:
+                # Peer subprocess timeouts and helper faults must not hide the
+                # remaining configured legs behind the first failure.
+                failures.append(f"{tag} leg: {exc!r}")
 
         # Internal room evidence: every relayed leg is live in the room AND
         # returns to the runtime's own sync timeline, where the self-guard
@@ -536,8 +538,16 @@ async def test_own_relayed_message_loopback_is_suppressed_not_relayed(
             loopback_delta = await _wait_self_suppressed_at_least(
                 app, baseline, 1, 30.0
             )
-            await asyncio.sleep(10)
-            mc_out = mc_listener.packets()
+            # Negative evidence with an early-exit predicate: if a fan-out
+            # packet appears the listener returns immediately; otherwise it
+            # drains only the bounded observation window.
+            mc_out = await asyncio.to_thread(
+                mc_listener.packets_until,
+                lambda packets: any(
+                    probe in (packet.get("text") or "") for packet in packets
+                ),
+                10.0,
+            )
         assert loopback_delta >= 1, (
             "own relayed event never returned via the runtime's own sync "
             "(loopback unobservable; suppression would be unproven)"

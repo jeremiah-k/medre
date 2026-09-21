@@ -190,7 +190,7 @@ def _register_matrix_contributions(subparsers) -> None:
         "--admin",
         action="append",
         required=False,
-        default=[],
+        default=None,
         metavar="USER_ID",
         help=(
             "Invited user to pre-assign admin power 100 in BOTH resources "

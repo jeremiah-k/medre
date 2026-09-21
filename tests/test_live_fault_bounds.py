@@ -8,10 +8,12 @@ contracts that live hardware suites rely on, WITHOUT radios:
   because it waits for the inner task to acknowledge cancellation) — a
   bounded in-process wait is not defeated by rude inner work.
 - ``launch_bounded`` (the shared build+start pattern of the live suites)
-  guarantees bounded cleanup on start failure: the partially-started app
-  is stopped, the primary error propagates, and a failing cleanup never
-  masks it.
-- A hanging ``start()`` still gets the deadline + cleanup treatment.
+  guarantees bounded cleanup on start failure: cancellation-responsive starts
+  settle before stop runs, the primary error propagates, and a failing cleanup
+  never masks it.
+- A cancellation-resistant ``start()`` is never raced against ``stop()``; when
+  it cannot settle inside the cleanup budget, cleanup is deferred until the
+  start task eventually reaches a terminal state.
 
 Child exit / never-ready fault cases for the peer process boundary are
 pinned in ``tests/test_live_peer_common.py``.
@@ -158,6 +160,76 @@ async def test_failing_cleanup_does_not_mask_primary(
         )
     assert app.stop_calls == 1
     assert "cleanup after failed start also failed" in capsys.readouterr().out
+
+
+
+
+async def test_cancelled_cleanup_does_not_mask_primary(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    app = _FakeApp(
+        start_exception=RuntimeError("primary start error"),
+        stop_exception=asyncio.CancelledError(),
+    )
+    with pytest.raises(RuntimeError, match="primary start error"):
+        await launch_bounded(
+            lambda: app,
+            start_timeout=10.0,
+            stop_timeout=10.0,
+            label="fault-app",
+        )
+    assert app.stop_calls == 1
+    assert "cleanup after failed start also failed" in capsys.readouterr().out
+
+
+async def test_cancellation_resistant_start_is_not_raced_by_stop(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    class _RudeStartApp:
+        def __init__(self) -> None:
+            self.start_active = False
+            self.stop_calls = 0
+            self.stop_during_start = False
+
+        async def start(self) -> None:
+            self.start_active = True
+            try:
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    await release.wait()
+            finally:
+                self.start_active = False
+                finished.set()
+
+        async def stop(self) -> None:
+            self.stop_calls += 1
+            self.stop_during_start = self.start_active
+
+    app = _RudeStartApp()
+    with pytest.raises(RuntimeError, match="fault-app start"):
+        await launch_bounded(
+            lambda: app,
+            start_timeout=0.02,
+            stop_timeout=0.02,
+            label="fault-app",
+        )
+
+    assert app.stop_calls == 0
+    assert app.stop_during_start is False
+    assert "deferring stop() until start settles" in capsys.readouterr().out
+
+    release.set()
+    await asyncio.wait_for(finished.wait(), timeout=1.0)
+    for _ in range(100):
+        if app.stop_calls == 1:
+            break
+        await asyncio.sleep(0)
+    assert app.stop_calls == 1
+    assert app.stop_during_start is False
 
 
 async def test_hanging_start_hits_deadline_then_cleans_up() -> None:

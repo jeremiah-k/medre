@@ -473,17 +473,11 @@ class TestMatrixSecondUserEnvSet:
 # ===================================================================
 
 
-def _with_pinned_unraisable_marks(cls: type) -> type:
-    """Apply every pinned unraisable spec as a real class-level mark.
-
-    Running any test of the decorated class makes pytest parse the specs
-    through the exact code path that applies ``filterwarnings`` marks; a
-    malformed spec aborts the run (the live-suite failure mode) instead
-    of passing quietly.
-    """
-    for _spec in PINNED_SDK_UNRAISABLE_FILTERS:
-        cls = pytest.mark.filterwarnings(_spec)(cls)
-    return cls
+def _with_pinned_unraisable_marks(func):
+    """Apply every pinned unraisable spec to one test function."""
+    for spec in PINNED_SDK_UNRAISABLE_FILTERS:
+        func = pytest.mark.filterwarnings(spec)(func)
+    return func
 
 
 # Each pinned filter guards one documented unraisable boundary.  The
@@ -519,39 +513,32 @@ _UNRAISABLE_BOUNDARIES = [
 
 
 @_with_pinned_unraisable_marks
-class TestPinnedSdkUnraisableFilters:
-    """Scoped unraisable filters stay loadable and narrow.
+def test_pinned_unraisable_marks_are_applied_by_pytest() -> None:
+    """Runs under all pinned specs; pytest parsed each of them."""
+    assert True
 
-    pytest splits a ``filterwarnings`` spec on every colon into
-    ``action:message:category:module:lineno``; a literal colon inside the
-    message field leaves a non-importable fragment in the category field
-    and pytest aborts the whole run with an INTERNALERROR before any test
-    (or hardware skip) executes.  The live suites apply these specs, so
-    their syntax and their narrowness are pinned here.
-    """
 
-    def test_marks_are_applied_by_pytest(self) -> None:
-        """Runs under all pinned specs; pytest parsed each of them."""
-        assert True  # failure mode is a run-fatal parse error, not an assert
+@_with_pinned_unraisable_marks
+@pytest.mark.parametrize(("spec", "target", "non_target"), _UNRAISABLE_BOUNDARIES)
+def test_pinned_unraisable_spec_has_only_field_delimiter_colons(
+    spec: str, target: str, non_target: str
+) -> None:
+    """Exactly action:message:category fields, category the unraisable."""
+    parts = spec.split(":")
+    assert len(parts) == 3, f"colon inside message field: {spec!r}"
+    action, message_spec, category = parts
+    assert action == "ignore"
+    assert category == "pytest.PytestUnraisableExceptionWarning"
+    assert message_spec
 
-    @pytest.mark.parametrize(("spec", "target", "non_target"), _UNRAISABLE_BOUNDARIES)
-    def test_spec_has_only_field_delimiter_colons(
-        self, spec: str, target: str, non_target: str
-    ) -> None:
-        """Exactly action:message:category fields, category the unraisable."""
-        parts = spec.split(":")
-        assert len(parts) == 3, f"colon inside message field: {spec!r}"
-        action, message_spec, category = parts
-        assert action == "ignore"
-        assert category == "pytest.PytestUnraisableExceptionWarning"
-        assert message_spec
 
-    @pytest.mark.parametrize(("spec", "target", "non_target"), _UNRAISABLE_BOUNDARIES)
-    def test_matches_only_documented_boundary(
-        self, spec: str, target: str, non_target: str
-    ) -> None:
-        """Message regex matches its boundary text and rejects near misses."""
-        message_spec = spec.split(":")[1]
-        pattern = re.compile(message_spec, re.IGNORECASE)
-        assert pattern.match(target)
-        assert not pattern.match(non_target)
+@_with_pinned_unraisable_marks
+@pytest.mark.parametrize(("spec", "target", "non_target"), _UNRAISABLE_BOUNDARIES)
+def test_pinned_unraisable_spec_matches_only_documented_boundary(
+    spec: str, target: str, non_target: str
+) -> None:
+    """Message regex matches its boundary text and rejects near misses."""
+    message_spec = spec.split(":")[1]
+    pattern = re.compile(message_spec, re.IGNORECASE)
+    assert pattern.match(target)
+    assert not pattern.match(non_target)

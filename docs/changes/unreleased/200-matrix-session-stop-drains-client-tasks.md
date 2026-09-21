@@ -2,24 +2,26 @@
 
 mindroom-nio's `sync_forever` starts each iteration's request coroutines
 (sync long-poll, to-device send, keys upload/query/claim) with
-`asyncio.ensure_future` into a local `asyncio.as_completed` batch. When the
-sync loop is cancelled, any request still in flight is orphaned by the SDK.
-`MatrixSession.stop()` used to close the HTTP client session immediately
-after cancelling the sync task, so the connector close raced the orphaned
-request's connection release: an in-flight `keys_query`/`keys_upload`
+`asyncio.ensure_future` into a local `asyncio.as_completed` batch. During
+cancellation, the SDK can retain and await those request tasks while unwinding
+`sync_forever`. `MatrixSession.stop()` used to wait on the outer sync task and
+then close the HTTP client without first breaking that child-request dependency,
+so the connector close could race a still-owned request's connection release: an in-flight `keys_query`/`keys_upload`
 transport to the homeserver survived the stop, held only by the event loop,
 and surfaced later as `ResourceWarning: unclosed socket` /
 `PytestUnraisableExceptionWarning` in unrelated tests (campaign finding
 F1b, runs 5-7).
 
-`MatrixSession.stop()` now drains every task still bound to the nio client
-(identifying them by bound-method frame locals, without pinning coroutine
-names) while the HTTP session is still open — aiohttp releases each
-connection through its normal cancellation path — and only then closes the
-client. Completed request exceptions are retrieved during the drain, and tasks
+`MatrixSession.stop()` now cancels the outer sync loop, gives its cleanup one
+event-loop turn, and—while that sync task is still pending—drains tasks bound
+to the nio client (identified by bound-method frame locals, without pinning
+coroutine names). It then hard-observes/reaps the outer sync task and performs a
+second bounded client-task scan before closing the HTTP session. Completed request exceptions are retrieved during the drain, and tasks
 that ignore cancellation within the stop timeout receive a terminal-result
 callback before they are logged as stragglers, preventing late unobserved-task
-warnings. Cancellation of `stop()` itself is still propagated.
+warnings. Cancellation of `stop()` itself is still propagated. The
+caller-supplied stop timeout is shared between the sync-task wait and the
+client-bound request drain rather than being restarted for each phase.
 
 Live proof against the real homeserver: runtime start/stop now completes
 with zero ResourceWarnings, zero remaining client sessions, and zero live

@@ -16,12 +16,12 @@ ones, and the difference silently killed all deliveries:
   leg's Matrix target carried no room.
 
 `RouteConfig.__post_init__` is now the single normalization authority for
-both construction paths: `directionality` strings are coerced (invalid
-values raise `ConfigValidationError` naming the route), and room/channel
-conflicts are rejected while rooms alias to channels when the channel form
-is absent. `_expand_all_routes` additionally raises `RouteValidationError`
-on an unrecognized directionality instead of silently dropping an enabled
-route.
+both construction paths: `directionality` strings are coerced (invalid or
+unhashable values raise `ConfigValidationError` naming the route), and
+room/channel conflicts are rejected while rooms alias to channels when the
+channel form is absent. `_expand_all_routes` validates directionality before
+selecting either the standard or `channel_room_map` expansion path, so a
+tampered/unrecognized value can never silently drop an enabled route.
 
 The YAML config loader also applied strict _path_-placeholder validation to
 every adapter string field, so the documented Matrix `relay_prefix`

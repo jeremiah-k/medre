@@ -33,61 +33,57 @@ SERVER = "synod.im"
 # ---------------------------------------------------------------------------
 
 
-class TestMergePowerLevelUsers:
-    def test_preserves_unrelated_fields(self) -> None:
-        existing: dict[str, Any] = {
-            "ban": 50,
-            "events": {"m.room.name": 100},
-            "invite": 0,
-            "kick": 50,
-            "redact": 50,
-            "state_default": 50,
-            "users": {BOT: 100},
-            "users_default": 0,
-            "notifications": {"room": 50},
-        }
-        merged = merge_power_level_users(existing, {USER: 100})
-        for key in (
-            "ban",
-            "events",
-            "invite",
-            "kick",
-            "redact",
-            "state_default",
-            "users_default",
-            "notifications",
-        ):
-            assert merged[key] == existing[key]
-        assert merged["users"] == {BOT: 100, USER: 100}
-        # Original untouched.
-        assert existing["users"] == {BOT: 100}
+def test_preserves_unrelated_fields() -> None:
+    existing: dict[str, Any] = {
+        "ban": 50,
+        "events": {"m.room.name": 100},
+        "invite": 0,
+        "kick": 50,
+        "redact": 50,
+        "state_default": 50,
+        "users": {BOT: 100},
+        "users_default": 0,
+        "notifications": {"room": 50},
+    }
+    merged = merge_power_level_users(existing, {USER: 100})
+    for key in (
+        "ban",
+        "events",
+        "invite",
+        "kick",
+        "redact",
+        "state_default",
+        "users_default",
+        "notifications",
+    ):
+        assert merged[key] == existing[key]
+    assert merged["users"] == {BOT: 100, USER: 100}
+    # Original untouched.
+    assert existing["users"] == {BOT: 100}
 
-    def test_overrides_existing_grant(self) -> None:
-        merged = merge_power_level_users({"users": {USER: 0}}, {USER: 100})
-        assert merged["users"] == {USER: 100}
+def test_overrides_existing_grant() -> None:
+    merged = merge_power_level_users({"users": {USER: 0}}, {USER: 100})
+    assert merged["users"] == {USER: 100}
 
-    def test_creates_users_map_when_absent(self) -> None:
-        merged = merge_power_level_users({}, {USER: 100})
-        assert merged["users"] == {USER: 100}
+def test_creates_users_map_when_absent() -> None:
+    merged = merge_power_level_users({}, {USER: 100})
+    assert merged["users"] == {USER: 100}
 
+def test_encryption_initial_state_shape() -> None:
+    state = encryption_initial_state()
+    assert state == {
+        "type": "m.room.encryption",
+        "state_key": "",
+        "content": {"algorithm": MEGOLM_ROOM_ALGORITHM},
+    }
+    assert MEGOLM_ROOM_ALGORITHM == "m.megolm.v1.aes-sha2"
 
-class TestStateContentBuilders:
-    def test_encryption_initial_state_shape(self) -> None:
-        state = encryption_initial_state()
-        assert state == {
-            "type": "m.room.encryption",
-            "state_key": "",
-            "content": {"algorithm": MEGOLM_ROOM_ALGORITHM},
-        }
-        assert MEGOLM_ROOM_ALGORITHM == "m.megolm.v1.aes-sha2"
-
-    def test_child_and_parent_content(self) -> None:
-        assert space_child_content([SERVER]) == {"via": [SERVER]}
-        assert space_parent_content([SERVER]) == {
-            "via": [SERVER],
-            "canonical": True,
-        }
-
+def test_child_and_parent_content() -> None:
+    assert space_child_content([SERVER]) == {"via": [SERVER]}
+    assert space_parent_content([SERVER]) == {
+        "via": [SERVER],
+        "canonical": True,
+    }
 
 # ---------------------------------------------------------------------------
 # Stub client exercising the provisioning sequence
@@ -299,15 +295,19 @@ async def test_provision_rejects_admin_outside_invite_set() -> None:
     assert client.calls == []
 
 
-async def test_provision_rejects_malformed_user_id() -> None:
+@pytest.mark.parametrize("bad_mxid", ["tadchilly", "@:matrix.org", "@user:"])
+async def test_provision_rejects_malformed_user_id_before_creation(
+    bad_mxid: str,
+) -> None:
     client = _StubClient(BOT)
     with pytest.raises(ValueError, match="fully-qualified MXID"):
         await provision_private_space_and_room(
             client,
             space_name="s",
             room_name="r",
-            invite_user_ids=["tadchilly"],
+            invite_user_ids=[bad_mxid],
         )
+    assert client.calls == []
 
 
 async def test_provision_rejects_duplicate_invites_before_creating_rooms() -> None:
@@ -425,61 +425,59 @@ async def test_provision_fails_on_wrong_algorithm() -> None:
 # ---------------------------------------------------------------------------
 
 
-class TestProvisionParser:
-    def test_provision_parses_flags(self) -> None:
-        parser = _build_parser()
-        args = parser.parse_args(
+def test_provision_parses_flags() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(
+        [
+            "adapter",
+            "matrix",
+            "provision",
+            "--space-name",
+            "Lab Space",
+            "--room-name",
+            "Lab Room",
+            "--room-topic",
+            "smoke",
+            "--invite",
+            USER,
+            "--admin",
+            USER,
+        ]
+    )
+    assert args.space_name == "Lab Space"
+    assert args.room_name == "Lab Room"
+    assert args.room_topic == "smoke"
+    assert args.invite == [USER]
+    assert args.admin == [USER]
+
+def test_provision_requires_space_and_room_names() -> None:
+    parser = _build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["adapter", "matrix", "provision", "--invite", USER])
+
+def test_provision_requires_invite() -> None:
+    parser = _build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
             [
                 "adapter",
                 "matrix",
                 "provision",
                 "--space-name",
-                "Lab Space",
+                "s",
                 "--room-name",
-                "Lab Room",
-                "--room-topic",
-                "smoke",
-                "--invite",
-                USER,
-                "--admin",
-                USER,
+                "r",
             ]
         )
-        assert args.space_name == "Lab Space"
-        assert args.room_name == "Lab Room"
-        assert args.room_topic == "smoke"
-        assert args.invite == [USER]
-        assert args.admin == [USER]
 
-    def test_provision_requires_space_and_room_names(self) -> None:
-        parser = _build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args(["adapter", "matrix", "provision", "--invite", USER])
-
-    def test_provision_requires_invite(self) -> None:
-        parser = _build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args(
-                [
-                    "adapter",
-                    "matrix",
-                    "provision",
-                    "--space-name",
-                    "s",
-                    "--room-name",
-                    "r",
-                ]
-            )
-
-    def test_provision_help_mentions_invite_not_join(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        parser = _build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args(["adapter", "matrix", "provision", "--help"])
-        out = capsys.readouterr().out
-        assert "effective on join" in out
-
+def test_provision_help_mentions_invite_not_join(
+    capsys: pytest.CaptureFixture[str]
+) -> None:
+    parser = _build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["adapter", "matrix", "provision", "--help"])
+    out = capsys.readouterr().out
+    assert "effective on join" in out
 
 # ---------------------------------------------------------------------------
 # Real pinned SDK contract (opt-in, matrix_sdk marker)
@@ -524,3 +522,25 @@ def test_pinned_nio_exposes_provisioning_contract() -> None:
     assert nio.RoomVisibility.private.value == "private"
     assert nio.RoomPreset.private_chat.value == "private_chat"
     assert nio.RoomPutStateResponse is not None
+
+
+def test_provision_admin_default_does_not_accumulate_across_parses() -> None:
+    """Repeated parser use must not retain values from action='append'."""
+    parser = _build_parser()
+    base = [
+        "adapter",
+        "matrix",
+        "provision",
+        "--space-name",
+        "Lab Space",
+        "--room-name",
+        "Lab Room",
+        "--invite",
+        USER,
+    ]
+
+    first = parser.parse_args([*base, "--admin", USER])
+    second = parser.parse_args(base)
+
+    assert first.admin == [USER]
+    assert second.admin is None

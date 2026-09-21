@@ -1919,8 +1919,10 @@ class MatrixSession:
         each connection through the normal cancellation path instead of
         racing the connector close.
         """
-        assert self._client is not None
-        orphans = self._client_bound_tasks(self._client)
+        client = self._client
+        if client is None:
+            return
+        orphans = self._client_bound_tasks(client)
         if not orphans:
             return
         self._logger.debug(
@@ -1954,7 +1956,14 @@ class MatrixSession:
             )
 
     async def stop(self, timeout: float = 5.0) -> None:
-        """Stop syncing, close the client.  Idempotent."""
+        """Stop syncing, close the client.  Idempotent.
+
+        The caller-provided *timeout* is a shared shutdown budget for the
+        sync-task wait and nio client-bound request drain; the latter does
+        not receive a fresh timeout after the former consumes time.
+        """
+        deadline = time.monotonic() + max(0.0, timeout)
+
         # Signal both MEDRE's supervisor and nio's inner sync loop.
         self._stop_requested = True
         if self._client is not None:
@@ -1993,33 +2002,45 @@ class MatrixSession:
             self._logger.debug("Cancelled %d outstanding join task(s)", len(join_tasks))
 
         if self._sync_task is not None:
-            if not self._sync_task.done():
-                self._sync_task.cancel()
-                try:
-                    await asyncio.wait_for(self._sync_task, timeout=timeout)
-                except asyncio.CancelledError:
-                    pass
-                except asyncio.TimeoutError:
-                    self._logger.warning(
-                        "Sync task did not stop within %.1fs",
-                        timeout,
+            sync_task = self._sync_task
+            if not sync_task.done():
+                sync_task.cancel()
+                # mindroom-nio owns per-iteration request tasks and may await
+                # them while unwinding sync_forever().  Give cancellation one
+                # event-loop turn, then drain those client-bound requests
+                # *before* spending the remaining budget waiting for the outer
+                # sync task.  Waiting for sync first can deadlock shutdown on a
+                # child that only this drain is able to cancel.
+                await asyncio.sleep(0)
+                if not sync_task.done() and self._client is not None:
+                    remaining = max(0.0, deadline - time.monotonic())
+                    await self._drain_orphaned_client_tasks(
+                        timeout=min(remaining, 5.0)
                     )
-            try:
-                self._sync_task.exception()
-            except (asyncio.CancelledError, Exception):
-                pass
+
+                if not sync_task.done():
+                    remaining = max(0.0, deadline - time.monotonic())
+                    done, _pending = await asyncio.wait(
+                        {sync_task}, timeout=remaining
+                    )
+                    if not done:
+                        self._logger.warning(
+                            "Sync task did not stop within remaining %.1fs budget",
+                            remaining,
+                        )
+                        sync_task.add_done_callback(
+                            self._consume_client_task_result
+                        )
+            if sync_task.done():
+                self._consume_client_task_result(sync_task)
             self._sync_task = None
 
-        # mindroom-nio's sync_forever starts each iteration's request
-        # coroutines (sync long-poll, to-device send, keys upload/query/claim)
-        # with ``asyncio.ensure_future`` into a local ``asyncio.as_completed``
-        # batch.  Cancelling the outer sync loop orphans any request still in
-        # flight; closing the HTTP session underneath it makes the connector
-        # release race the close and leaks a live TLS transport that only GC
-        # would reclaim.  Drain every task still bound to the client while its
-        # HTTP session can still release connections normally, then close.
+        # Re-scan after the sync task settles (or after its hard observation
+        # deadline) because SDK cleanup may create/release request tasks while
+        # unwinding.  This second pass shares the same absolute stop deadline.
         if self._client is not None:
-            await self._drain_orphaned_client_tasks(timeout=min(timeout, 5.0))
+            remaining = max(0.0, deadline - time.monotonic())
+            await self._drain_orphaned_client_tasks(timeout=min(remaining, 5.0))
 
         if self._client is not None:
             try:

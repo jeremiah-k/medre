@@ -16,7 +16,7 @@ import time
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TypeVar
+from typing import Protocol, TypeVar
 
 # ---------------------------------------------------------------------------
 # Heuristic tokens used by ``redact_env_value`` to detect secret env vars.
@@ -28,6 +28,17 @@ _SECRET_NAME_PARTS: frozenset[str] = frozenset(
 )
 
 _T = TypeVar("_T")
+
+
+class _LifecycleApp(Protocol):
+    """Minimal lifecycle surface required by :func:`launch_bounded`."""
+
+    async def start(self) -> None: ...
+
+    async def stop(self) -> None: ...
+
+
+_LifecycleT = TypeVar("_LifecycleT", bound=_LifecycleApp)
 
 
 # ---------------------------------------------------------------------------
@@ -255,34 +266,97 @@ async def bounded(coro: Awaitable[_T], timeout: float, label: str) -> _T:
 
 
 async def launch_bounded(
-    build: Callable[[], _T],
+    build: Callable[[], _LifecycleT],
     *,
     start_timeout: float,
     stop_timeout: float,
     label: str,
-) -> _T:
-    """Build + start a runtime with bounded cleanup on start failure.
+) -> _LifecycleT:
+    """Build + start a runtime with bounded, race-free failure cleanup.
 
-    ``bounded`` cancellation of ``app.start()`` would otherwise abandon
-    already-started adapters holding exclusive radio endpoints (serial
-    flock, BLE central, RNode serial) — the next test would inherit a
-    leaked owner.  On any start failure the partially-started app is
-    stopped (within *stop_timeout*) before the error propagates; a
-    failing cleanup is reported but never masks the primary error.
+    Startup owns an explicit task so timeout/caller cancellation can first
+    cancel and *settle* that task before ``stop()`` is allowed to inspect or
+    mutate the same lifecycle state.  If startup ignores cancellation beyond
+    the cleanup budget, ``stop()`` is deliberately not raced against it; the
+    still-running task is detached with terminal-result ownership and the
+    surrounding live-test process boundary remains the final reaper.
+
+    A cleanup failure (including ``CancelledError`` raised by ``stop()``) is
+    reported but never masks the primary startup failure.
     """
     app = build()
+    start_task = asyncio.create_task(app.start())
+    primary: BaseException | None = None
+    start_settled = False
+
     try:
-        await bounded(app.start(), start_timeout, f"{label} start")
-    except BaseException:
+        done, _pending = await asyncio.wait({start_task}, timeout=start_timeout)
+    except asyncio.CancelledError as exc:
+        primary = exc
+        start_task.cancel()
+    else:
+        if done:
+            start_settled = True
+            try:
+                start_task.result()
+            except BaseException as exc:
+                primary = exc
+            else:
+                return app
+        else:
+            primary = RuntimeError(
+                f"Live test timed out after {start_timeout}s: {label} start"
+            )
+            start_task.cancel()
+
+    if not start_settled:
         try:
-            await bounded(app.stop(), stop_timeout, f"{label} start cleanup")
-        except Exception as cleanup_exc:  # pragma: no cover - live-only
+            done, _pending = await asyncio.wait(
+                {start_task}, timeout=stop_timeout
+            )
+        except asyncio.CancelledError:
+            start_task.add_done_callback(_consume_task_result)
+            raise
+        start_settled = bool(done)
+        if start_settled:
+            _consume_task_result(start_task)
+        else:
+            start_task.add_done_callback(_consume_task_result)
             print(
-                f"{label}: cleanup after failed start also failed: " f"{cleanup_exc!r}",
+                f"{label}: start task did not settle within {stop_timeout}s "
+                "after cancellation; deferring stop() until start settles to "
+                "avoid racing a still-mutating lifecycle",
                 flush=True,
             )
-        raise
-    return app
+
+            async def _stop_after_late_start() -> None:
+                await asyncio.gather(start_task, return_exceptions=True)
+                try:
+                    await bounded(
+                        app.stop(), stop_timeout, f"{label} deferred start cleanup"
+                    )
+                except BaseException as cleanup_exc:  # pragma: no cover - live-only
+                    print(
+                        f"{label}: deferred cleanup after failed start also "
+                        f"failed: {cleanup_exc!r}",
+                        flush=True,
+                    )
+
+            deferred_cleanup = asyncio.create_task(_stop_after_late_start())
+            deferred_cleanup.add_done_callback(_consume_task_result)
+
+    if start_settled:
+        try:
+            await bounded(app.stop(), stop_timeout, f"{label} start cleanup")
+        except BaseException as cleanup_exc:  # pragma: no cover - live-only
+            print(
+                f"{label}: cleanup after failed start also failed: "
+                f"{cleanup_exc!r}",
+                flush=True,
+            )
+
+    assert primary is not None
+    raise primary
 
 
 # ---------------------------------------------------------------------------

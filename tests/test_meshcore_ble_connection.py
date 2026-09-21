@@ -800,3 +800,65 @@ async def test_stop_skips_bluez_drop_for_serial() -> None:
 
     client.disconnect.assert_awaited_once()
     stale_drop.assert_not_awaited()
+
+
+async def test_stale_bluez_disconnect_is_hard_bounded() -> None:
+    """A cancellation-resistant Bleak disconnect cannot hang session cleanup."""
+    import types
+
+    session = _make_ble_session()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    class _StaleClient:
+        async def disconnect(self) -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await release.wait()
+            finally:
+                finished.set()
+
+    fake_bleak = types.SimpleNamespace(
+        BleakClient=lambda address, timeout: _StaleClient()
+    )
+    with (
+        patch.dict(sys.modules, {"bleak": fake_bleak}),
+        patch("medre.adapters.meshcore.session._SDK_LIFECYCLE_TIMEOUT", 0.02),
+    ):
+        await session._disconnect_stale_ble_client("AA:BB:CC:DD:EE:FF")
+
+    assert started.is_set()
+    release.set()
+    await asyncio.wait_for(finished.wait(), timeout=1.0)
+
+
+async def test_stop_hard_bounds_stale_bluez_helper() -> None:
+    """stop() itself owns a deadline even if the helper regresses or is mocked."""
+    session, client = _started_ble_session_with_client()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def _hung_cleanup(address: str) -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+        finally:
+            finished.set()
+
+    with (
+        patch.object(session, "_disconnect_stale_ble_client", side_effect=_hung_cleanup),
+        patch("medre.adapters.meshcore.session._SDK_LIFECYCLE_TIMEOUT", 0.02),
+    ):
+        await session.stop()
+
+    assert started.is_set()
+    assert session._started is False
+    client.disconnect.assert_awaited_once()
+    release.set()
+    await asyncio.wait_for(finished.wait(), timeout=1.0)

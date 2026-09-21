@@ -998,7 +998,7 @@ class RouteConfig:
         if not isinstance(self.directionality, RouteDirectionality):
             try:
                 coerced = RouteDirectionality(self.directionality)
-            except ValueError:
+            except (TypeError, ValueError):
                 valid = ", ".join(d.value for d in RouteDirectionality)
                 raise ConfigValidationError(
                     f"Route {self.route_id!r}: invalid directionality "

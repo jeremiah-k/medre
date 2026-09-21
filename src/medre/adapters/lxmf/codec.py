@@ -168,6 +168,7 @@ class LxmfCodec(AdapterCodec):
         title = classification["title"]
 
         sender = classification["sender_id"] or ""
+        channel_id = sender or None
         pkt_id = classification["packet_id"]
 
         event_kind = EventKind.MESSAGE_CREATED
@@ -185,7 +186,7 @@ class LxmfCodec(AdapterCodec):
         if pkt_id is not None:
             source_native_ref = NativeRef(
                 adapter=self._adapter_id,
-                native_channel_id=sender,
+                native_channel_id=None,
                 native_message_id=str(pkt_id),
             )
 
@@ -247,7 +248,7 @@ class LxmfCodec(AdapterCodec):
             # the reverse (lxmf->matrix) direction ("No routes matched";
             # the MT adapter carries the equivalent default-channel
             # fallback for the same reason).
-            source_channel_id=sender,
+            source_channel_id=channel_id,
             parent_event_id=None,
             lineage=(),
             relations=tuple(relations),

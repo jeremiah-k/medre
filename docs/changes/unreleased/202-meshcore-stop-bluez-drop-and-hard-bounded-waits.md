@@ -10,7 +10,9 @@ Two bounded-failure fixes:
    start. `MeshCoreSession.stop()` now performs the bounded best-effort
    BlueZ disconnect for the configured address after the SDK disconnect
    (BLE connections only; failures are suppressed and never fail the
-   stop path itself).
+   stop path itself). The extra Bleak/D-Bus disconnect is itself hard-bounded;
+   a wedged cleanup task is cancelled, detached with terminal-result ownership,
+   and cannot stall adapter shutdown indefinitely.
 
 2. **`bounded()` is a hard deadline.** The live-harness helper used
    `asyncio.wait_for`, which waits for the inner task to _acknowledge_
@@ -21,7 +23,9 @@ Two bounded-failure fixes:
    best-effort on expiry, and returns control to the caller immediately;
    rude stragglers stay pending for the process boundary to reap. A new
    shared `launch_bounded()` helper captures the live suites' build+start
-   pattern (bounded cleanup on start failure; primary error never masked
-   by a failing cleanup), pinned deterministically by
-   `tests/test_live_fault_bounds.py` together with the rude-work
-   deadline proof.
+   pattern. It cancels and settles failed/timed-out startup before invoking
+   `stop()`, so cleanup never races a still-mutating `start()`. If startup
+   ignores cancellation beyond the cleanup budget, `stop()` is deferred until
+   that start task eventually settles. Cleanup failures never mask
+   the primary startup failure. This is pinned deterministically by
+   `tests/test_live_fault_bounds.py` together with the rude-work deadline proof.

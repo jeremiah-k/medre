@@ -59,6 +59,46 @@ def _make_channel_packet(
     }
 
 
+def test_decode_channel_extracts_wire_sender_name_as_label() -> None:
+    """Group texts carry the sender's node name on the wire.
+
+    MeshCore's firmware prepends the sending node's advertised name to
+    every group text ("<name>: <text>") because CHANNEL_MSG_RECV
+    carries no sender identity in the protocol.  The codec must lift
+    that name into ``contact_label`` so relay attribution (e.g.
+    Matrix "{sender}/{origin_label}: ") renders the sender instead of
+    an empty field (user-observed "/medre-lab: ..." in the live room).
+    """
+    codec = MeshCoreCodec("meshcore-1", _make_config())
+    packet = _make_channel_packet(text="MEDRE-MC-B: hello from b")
+    event = codec.decode(packet)
+    assert _meshcore_data(event)["contact_label"] == "MEDRE-MC-B"
+    # Body stays verbatim — wire fidelity is pinned by the live pair
+    # suite; only the attribution label is derived.
+    assert event.payload["body"] == "MEDRE-MC-B: hello from b"
+
+def test_decode_channel_without_wire_name_keeps_label_none() -> None:
+    """Texts that do not follow the "<name>: " convention stay None."""
+    codec = MeshCoreCodec("meshcore-1", _make_config())
+    event = codec.decode(_make_channel_packet(text="just talking"))
+    assert _meshcore_data(event)["contact_label"] is None
+
+def test_decode_contact_dm_does_not_extract_wire_name() -> None:
+    """DM packets carry real identity; the wire convention does not
+    apply and a "name-looking" text must not become a label."""
+    codec = MeshCoreCodec("meshcore-1", _make_config())
+    packet = _make_contact_packet(text="MEDRE-MC-B: hello dm")
+    event = codec.decode(packet)
+    assert _meshcore_data(event)["contact_label"] is None
+
+def test_decode_explicit_contact_label_wins_over_wire_name() -> None:
+    """A resolved known-contact label takes precedence over the
+    wire-embedded name for channel packets."""
+    codec = MeshCoreCodec("meshcore-1", _make_config())
+    packet = _make_channel_packet(text="MEDRE-MC-B: hello")
+    event = codec.decode(packet, contact_label="Known Contact")
+    assert _meshcore_data(event)["contact_label"] == "Known Contact"
+
 class TestMeshCoreCodecDecode:
     """MeshCoreCodec decode behaviour."""
 
@@ -101,45 +141,9 @@ class TestMeshCoreCodecDecode:
         event = codec.decode(packet)
         assert event.source_channel_id is None
 
-    def test_decode_channel_extracts_wire_sender_name_as_label(self) -> None:
-        """Group texts carry the sender's node name on the wire.
 
-        MeshCore's firmware prepends the sending node's advertised name to
-        every group text ("<name>: <text>") because CHANNEL_MSG_RECV
-        carries no sender identity in the protocol.  The codec must lift
-        that name into ``contact_label`` so relay attribution (e.g.
-        Matrix "{sender}/{origin_label}: ") renders the sender instead of
-        an empty field (user-observed "/medre-lab: ..." in the live room).
-        """
-        codec = MeshCoreCodec("meshcore-1", _make_config())
-        packet = _make_channel_packet(text="MEDRE-MC-B: hello from b")
-        event = codec.decode(packet)
-        assert _meshcore_data(event)["contact_label"] == "MEDRE-MC-B"
-        # Body stays verbatim — wire fidelity is pinned by the live pair
-        # suite; only the attribution label is derived.
-        assert event.payload["body"] == "MEDRE-MC-B: hello from b"
 
-    def test_decode_channel_without_wire_name_keeps_label_none(self) -> None:
-        """Texts that do not follow the "<name>: " convention stay None."""
-        codec = MeshCoreCodec("meshcore-1", _make_config())
-        event = codec.decode(_make_channel_packet(text="just talking"))
-        assert _meshcore_data(event)["contact_label"] is None
 
-    def test_decode_contact_dm_does_not_extract_wire_name(self) -> None:
-        """DM packets carry real identity; the wire convention does not
-        apply and a "name-looking" text must not become a label."""
-        codec = MeshCoreCodec("meshcore-1", _make_config())
-        packet = _make_contact_packet(text="MEDRE-MC-B: hello dm")
-        event = codec.decode(packet)
-        assert _meshcore_data(event)["contact_label"] is None
-
-    def test_decode_explicit_contact_label_wins_over_wire_name(self) -> None:
-        """A resolved known-contact label takes precedence over the
-        wire-embedded name for channel packets."""
-        codec = MeshCoreCodec("meshcore-1", _make_config())
-        packet = _make_channel_packet(text="MEDRE-MC-B: hello")
-        event = codec.decode(packet, contact_label="Known Contact")
-        assert _meshcore_data(event)["contact_label"] == "Known Contact"
 
     def test_decode_missing_text_graceful(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())
