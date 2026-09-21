@@ -8,8 +8,8 @@ from medre.config.errors import ConfigValidationError
 from medre.config.routes import (
     ChannelRoomMapEntry,
     RouteConfig,
-    RouteDestinationConfig,
     RouteConfigSet,
+    RouteDestinationConfig,
     RouteDirectionality,
 )
 from medre.runtime.route_engine import RouteValidationError, build_runtime_routes
@@ -223,7 +223,9 @@ def test_programmatic_channel_room_map_rejects_selector_conflict() -> None:
         source_channel="!room:example.com",
         channel_room_map={"0": ChannelRoomMapEntry(room="!room:example.com")},
     )
-    with pytest.raises(RouteValidationError, match="channel_room_map is mutually exclusive"):
+    with pytest.raises(
+        RouteValidationError, match="channel_room_map is mutually exclusive"
+    ):
         build_runtime_routes(
             RouteConfigSet(routes=(rc,)),
             {"main": "matrix", "radio": "meshtastic"},

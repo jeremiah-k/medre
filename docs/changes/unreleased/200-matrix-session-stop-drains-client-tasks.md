@@ -24,7 +24,7 @@ caller-supplied stop timeout is shared across all session-owned teardown
 work: detached Megolm recovery tasks, in-flight room joins, the sync-task wait,
 the client-bound request drain, and client close. Cancellation-resistant owned
 tasks are cancelled, observed only until that absolute deadline, and then
-detached with a terminal-result consumer rather than allowing ``stop(timeout)``
+detached with a terminal-result consumer rather than allowing `stop(timeout)`
 to overrun its cooperative shutdown budget.
 
 Live proof against the real homeserver: runtime start/stop now completes

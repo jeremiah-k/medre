@@ -270,7 +270,7 @@ the cursor advances. After MEDRE commits a Classic cursor, it asks the pinned SD
 acknowledge that cursor. If the SDK reports its specific staged-token mismatch while
 recovery work is still active, MEDRE defers that acknowledgement instead of killing
 the sync loop; unrelated protocol errors still propagate. The consecutive deferral
-count is exposed as ``classic_ack_deferrals`` and resets after a successful ack.
+count is exposed as `classic_ack_deferrals` and resets after a successful ack.
 
 The durability guarantee is intentionally narrower than exactly-once delivery: once
 Matrix ingress is accepted, MEDRE retains the canonical event and durable work state
