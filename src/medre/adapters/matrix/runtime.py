@@ -23,7 +23,12 @@ def prepare_matrix_runtime_config(
     paths: Any,
     routes: Iterable[Any],
 ) -> MatrixConfig:
-    """Derive Matrix state paths and route-driven room auto-join settings."""
+    """Derive Matrix state paths and route-driven room auto-join settings.
+
+    Enabled-route source and target room IDs are merged with explicitly
+    configured auto-join rooms. Raises :class:`ValueError` when an explicit
+    room allowlist omits a source room used by an enabled route.
+    """
     prepared = config
     if prepared.store_path is None:
         store_path = paths.adapter_transport_state_dir(adapter_id, "matrix") / "store"

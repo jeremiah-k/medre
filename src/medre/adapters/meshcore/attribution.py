@@ -34,7 +34,11 @@ def project_meshcore_attribution(
     *,
     source_transport_id: str | None = None,
 ) -> ProjectionMap:
-    """Project the current MeshCore native namespace into generic fields."""
+    """Project the current MeshCore native namespace into generic fields.
+
+    ``source_transport_id`` is accepted for the shared projector interface but
+    is not used because MeshCore sender identity comes from native metadata.
+    """
     del source_transport_id
     meshcore = meshcore_namespace(native_data)
     sender_id = _str(meshcore.get("pubkey_prefix")) or _str(meshcore.get("sender_id"))

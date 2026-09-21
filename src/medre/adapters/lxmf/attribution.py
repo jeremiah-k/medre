@@ -62,7 +62,11 @@ def project_lxmf_attribution(
     *,
     source_transport_id: str | None = None,
 ) -> dict[str, str | None]:
-    """Project the current LXMF native namespace into generic attribution."""
+    """Project the current LXMF native namespace into generic attribution.
+
+    ``source_transport_id`` is accepted for the shared projector interface but
+    is not used because LXMF sender identity comes from native metadata.
+    """
     del source_transport_id
     lxmf = lxmf_namespace(native_data)
     sender_id = normalize_source_hash(lxmf.get("source_hash"))
