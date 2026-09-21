@@ -6,7 +6,6 @@ import asyncio
 import sys
 import types
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -127,9 +126,7 @@ async def test_reconnect_loop_stops_only_when_session_stop_requested(
 def test_tcp_liveness_enabled_only_for_tcp_with_positive_interval() -> None:
     assert _session(_tcp_config())._tcp_liveness_enabled is True
     assert (
-        _session(
-            _tcp_config(tcp_liveness_interval_seconds=0.0)
-        )._tcp_liveness_enabled
+        _session(_tcp_config(tcp_liveness_interval_seconds=0.0))._tcp_liveness_enabled
         is False
     )
     serial = MeshtasticConfig(
@@ -367,9 +364,7 @@ async def test_failed_reconnect_attempt_closes_partial_client_immediately(
     monkeypatch.setattr(
         MeshtasticSession, "_create_client", lambda _self: create_client()
     )
-    monkeypatch.setattr(
-        MeshtasticSession, "_subscribe_callbacks", subscribe
-    )
+    monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", subscribe)
     monkeypatch.setattr(MeshtasticSession, "_refresh_node_id", lambda _self: None)
     monkeypatch.setattr("medre.adapters.meshtastic.session.asyncio.sleep", no_sleep)
     monkeypatch.setattr(

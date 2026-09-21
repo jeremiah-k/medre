@@ -716,18 +716,18 @@ Each transport session owns its SDK lifecycle end to end. The adapter delegates 
 
 All sessions own these responsibilities:
 
-| Responsibility        | Description                                                             |
-| --------------------- | ----------------------------------------------------------------------- |
-| SDK client lifecycle  | Construction, initialization, teardown of the SDK client object         |
-| Connection management | Establishing and maintaining the transport connection                   |
-| Callback registration | Registering transport-level callbacks/subscriptions internally          |
-| Inbound forwarding    | Forwarding received messages to the adapter-provided `message_callback` |
-| Connection recovery  | Transport-profile recovery with bounded-rate backoff and shutdown ownership |
-| Liveness supervision  | Optional transport-specific active liveness where required by the profile    |
+| Responsibility        | Description                                                                 |
+| --------------------- | --------------------------------------------------------------------------- |
+| SDK client lifecycle  | Construction, initialization, teardown of the SDK client object             |
+| Connection management | Establishing and maintaining the transport connection                       |
+| Callback registration | Registering transport-level callbacks/subscriptions internally              |
+| Inbound forwarding    | Forwarding received messages to the adapter-provided `message_callback`     |
+| Connection recovery   | Transport-profile recovery with bounded-rate backoff and shutdown ownership |
+| Liveness supervision  | Optional transport-specific active liveness where required by the profile   |
 | Outbound send         | Sending messages through the transport SDK                                  |
-| Send retry            | Bounded retry (up to 3 attempts) for transient send failures            |
-| Diagnostics           | Providing a read-only snapshot of session operational state             |
-| Graceful teardown     | Clean shutdown of SDK client, cancellation of background tasks          |
+| Send retry            | Bounded retry (up to 3 attempts) for transient send failures                |
+| Diagnostics           | Providing a read-only snapshot of session operational state                 |
+| Graceful teardown     | Clean shutdown of SDK client, cancellation of background tasks              |
 
 ### 14.2 Session Restrictions
 

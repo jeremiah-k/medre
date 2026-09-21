@@ -222,9 +222,7 @@ class TestMeshtasticSessionResourceContainment:
             config.reconnect_backoff_max_seconds
             >= config.reconnect_backoff_initial_seconds
         )
-        session_module = __import__(
-            "medre.adapters.meshtastic.session", fromlist=["x"]
-        )
+        session_module = __import__("medre.adapters.meshtastic.session", fromlist=["x"])
         assert not hasattr(session_module, "_MAX_RECONNECT_ATTEMPTS")
         assert session.diagnostics().reconnect_total_attempts == 0
 

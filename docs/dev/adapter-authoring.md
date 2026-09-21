@@ -259,11 +259,11 @@ ceiling from another adapter into generic session code. A transport profile may
 use a finite budget or lifetime recovery, but retry cadence must remain bounded
 and shutdown must always terminate recovery promptly.
 
-| Parameter      | Typical guidance                                  |
-| -------------- | ------------------------------------------------- |
-| Attempt budget | Transport-profile specific                        |
-| Backoff cap    | Transport-profile specific (commonly 30–60 s)    |
-| Jitter         | Commonly +-25% where exponential retry is used    |
+| Parameter      | Typical guidance                               |
+| -------------- | ---------------------------------------------- |
+| Attempt budget | Transport-profile specific                     |
+| Backoff cap    | Transport-profile specific (commonly 30–60 s)  |
+| Jitter         | Commonly +-25% where exponential retry is used |
 
 ### Connection modes
 

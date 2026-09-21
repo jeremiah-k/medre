@@ -219,9 +219,9 @@ class MeshtasticOutboundQueue:
         self._warning_threshold_pct = float(warning_threshold_pct)
         self._critical_threshold_pct = float(critical_threshold_pct)
         self._queue: deque[dict[str, Any]] = deque()
-        self._pressure_state: Literal[
-            "normal", "warning", "critical", "full"
-        ] = "normal"
+        self._pressure_state: Literal["normal", "warning", "critical", "full"] = (
+            "normal"
+        )
         self._peak_depth: int = 0
         self._last_send_time: float = 0.0
         self._total_sent: int = 0

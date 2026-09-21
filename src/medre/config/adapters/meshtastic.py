@@ -281,22 +281,16 @@ class MeshtasticConfig:
                 "queue_critical_threshold_pct"
             )
         if self.reconnect_backoff_initial_seconds <= 0:
-            raise MeshtasticConfigError(
-                "reconnect_backoff_initial_seconds must be > 0"
-            )
+            raise MeshtasticConfigError("reconnect_backoff_initial_seconds must be > 0")
         if self.reconnect_backoff_max_seconds < self.reconnect_backoff_initial_seconds:
             raise MeshtasticConfigError(
                 "reconnect_backoff_max_seconds must be >= "
                 "reconnect_backoff_initial_seconds"
             )
         if self.tcp_liveness_interval_seconds < 0:
-            raise MeshtasticConfigError(
-                "tcp_liveness_interval_seconds must be >= 0"
-            )
+            raise MeshtasticConfigError("tcp_liveness_interval_seconds must be >= 0")
         if self.tcp_liveness_timeout_seconds <= 0:
-            raise MeshtasticConfigError(
-                "tcp_liveness_timeout_seconds must be > 0"
-            )
+            raise MeshtasticConfigError("tcp_liveness_timeout_seconds must be > 0")
         if self.outbound_mode not in ("enabled", "listen_only"):
             raise MeshtasticConfigError(
                 f"outbound_mode must be one of enabled/listen_only, "

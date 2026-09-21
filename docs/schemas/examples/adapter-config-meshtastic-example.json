@@ -27,11 +27,7 @@
   "tcp_liveness_timeout_seconds": 30.0,
   "outbound_mode": "enabled",
   "encrypted_action": "drop",
-  "chat_portnums": [
-    "TEXT_MESSAGE_APP"
-  ],
-  "disabled_portnums": [
-    "UNKNOWN_PORTNUM"
-  ],
+  "chat_portnums": ["TEXT_MESSAGE_APP"],
+  "disabled_portnums": ["UNKNOWN_PORTNUM"],
   "detection_sensor_relay": false
 }

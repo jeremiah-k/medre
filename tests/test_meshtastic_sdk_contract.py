@@ -112,11 +112,11 @@ def test_liveness_probe_sdk_surfaces_are_frozen() -> None:
     mesh_interface, _, _, _, _ = _load_sdk()
     admin_pb2 = import_module("meshtastic.protobuf.admin_pb2")
     node_module = import_module("meshtastic.node")
-    admin_transport = import_module(
-        "meshtastic.node_runtime.transport_runtime.admin"
-    )
+    admin_transport = import_module("meshtastic.node_runtime.transport_runtime.admin")
 
-    callback = lambda _packet: None
+    def callback(_packet):
+        return None
+
     send_admin = getattr(node_module.Node, "_send_admin", None)
     assert callable(send_admin)
     inspect.signature(send_admin).bind(

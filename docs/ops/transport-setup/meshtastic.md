@@ -286,10 +286,10 @@ The adapter exposes `queue_health` as a snapshot of the outbound queue:
 | `total_permanent_failed` | Items that failed permanently on first attempt        |
 | `max_queue_size`         | Maximum queue capacity                                |
 | `utilization_pct`        | Current queue utilization as percentage               |
-| `pressure_state`         | `normal`, `warning`, `critical`, or `full`             |
-| `warning_threshold_pct`  | Configured advisory pressure threshold                 |
-| `critical_threshold_pct` | Configured health-degrading pressure threshold         |
-| `peak_depth`             | Maximum observed pending depth                         |
+| `pressure_state`         | `normal`, `warning`, `critical`, or `full`            |
+| `warning_threshold_pct`  | Configured advisory pressure threshold                |
+| `critical_threshold_pct` | Configured health-degrading pressure threshold        |
+| `peak_depth`             | Maximum observed pending depth                        |
 
 ## Packet Classification
 

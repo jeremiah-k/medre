@@ -12,32 +12,32 @@ The adapter delegates raw transport lifecycle to `MeshtasticSession`. The sessio
 
 ## Configuration Fields
 
-| Field                              | Type                                   | Default              | Description                                                       |
-| ---------------------------------- | -------------------------------------- | -------------------- | ----------------------------------------------------------------- |
-| `adapter_id`                       | `str`                                  | _(required)_         | Unique adapter instance identifier                                |
-| `connection_type`                  | `Literal["fake","tcp","serial","ble"]` | `"fake"`             | Connection mode                                                   |
-| `host`                             | `str \| None`                          | `None`               | Hostname/IP for TCP (required when `connection_type="tcp"`)       |
-| `port`                             | `int \| None`                          | `None`               | Port for TCP (default 4403)                                       |
-| `serial_port`                      | `str \| None`                          | `None`               | Serial device path (required when `connection_type="serial"`)     |
-| `ble_address`                      | `str \| None`                          | `None`               | BLE MAC address (required when `connection_type="ble"`)           |
-| `origin_label`                     | `str`                                  | `""`                 | Platform-neutral operator-defined source label for relay prefixes |
-| `default_channel`                  | `int`                                  | `0`                  | Default radio channel index for outbound                          |
-| `channel_mapping`                  | `dict[int, str]`                       | `{}`                 | Display-label map (NOT a relay allowlist)                         |
-| `message_delay_seconds`            | `float`                                | `0.5`                | Minimum seconds between outbound messages                         |
-| `startup_backlog_suppress_seconds` | `float`                                | `5.0`                | Window after start to suppress stale packets                      |
-| `sync_timeout_ms`                  | `int`                                  | `30000`              | Sync operation timeout                                            |
-| `radio_relay_prefix`               | `str`                                  | `"{sender_short}: "` | Prefix template for Matrix→Meshtastic direction                   |
-| `mmrelay_compatibility`            | `bool`                                 | `False`              | Embed mmrelay-compatible mesh metadata in Matrix events           |
-| `max_text_bytes`                   | `int`                                  | `227`                | UTF-8 byte budget for final radio text                            |
-| `queue_send_max_attempts`          | `int`                                  | `3`                  | Max send attempts per queued item                                 |
-| `queue_max_size`                   | `int`                                  | `1024`               | Hard adapter-local outbound queue capacity                        |
-| `queue_warning_threshold_pct`      | `float`                                | `75.0`               | Advisory queue-pressure threshold                                 |
-| `queue_critical_threshold_pct`     | `float`                                | `90.0`               | Health-degrading queue-pressure threshold                         |
-| `reconnect_backoff_initial_seconds`| `float`                                | `1.0`                | Initial session-level reconnect delay                             |
-| `reconnect_backoff_max_seconds`    | `float`                                | `30.0`               | Maximum session-level reconnect delay                             |
-| `tcp_liveness_interval_seconds`    | `float`                                | `60.0`               | TCP round-trip probe interval; `0` disables                       |
-| `tcp_liveness_timeout_seconds`     | `float`                                | `30.0`               | TCP round-trip probe timeout                                      |
-| `outbound_mode`                    | `Literal["enabled","listen_only"]`     | `"enabled"`          | `"listen_only"` suppresses all radio sends                        |
+| Field                               | Type                                   | Default              | Description                                                       |
+| ----------------------------------- | -------------------------------------- | -------------------- | ----------------------------------------------------------------- |
+| `adapter_id`                        | `str`                                  | _(required)_         | Unique adapter instance identifier                                |
+| `connection_type`                   | `Literal["fake","tcp","serial","ble"]` | `"fake"`             | Connection mode                                                   |
+| `host`                              | `str \| None`                          | `None`               | Hostname/IP for TCP (required when `connection_type="tcp"`)       |
+| `port`                              | `int \| None`                          | `None`               | Port for TCP (default 4403)                                       |
+| `serial_port`                       | `str \| None`                          | `None`               | Serial device path (required when `connection_type="serial"`)     |
+| `ble_address`                       | `str \| None`                          | `None`               | BLE MAC address (required when `connection_type="ble"`)           |
+| `origin_label`                      | `str`                                  | `""`                 | Platform-neutral operator-defined source label for relay prefixes |
+| `default_channel`                   | `int`                                  | `0`                  | Default radio channel index for outbound                          |
+| `channel_mapping`                   | `dict[int, str]`                       | `{}`                 | Display-label map (NOT a relay allowlist)                         |
+| `message_delay_seconds`             | `float`                                | `0.5`                | Minimum seconds between outbound messages                         |
+| `startup_backlog_suppress_seconds`  | `float`                                | `5.0`                | Window after start to suppress stale packets                      |
+| `sync_timeout_ms`                   | `int`                                  | `30000`              | Sync operation timeout                                            |
+| `radio_relay_prefix`                | `str`                                  | `"{sender_short}: "` | Prefix template for Matrix→Meshtastic direction                   |
+| `mmrelay_compatibility`             | `bool`                                 | `False`              | Embed mmrelay-compatible mesh metadata in Matrix events           |
+| `max_text_bytes`                    | `int`                                  | `227`                | UTF-8 byte budget for final radio text                            |
+| `queue_send_max_attempts`           | `int`                                  | `3`                  | Max send attempts per queued item                                 |
+| `queue_max_size`                    | `int`                                  | `1024`               | Hard adapter-local outbound queue capacity                        |
+| `queue_warning_threshold_pct`       | `float`                                | `75.0`               | Advisory queue-pressure threshold                                 |
+| `queue_critical_threshold_pct`      | `float`                                | `90.0`               | Health-degrading queue-pressure threshold                         |
+| `reconnect_backoff_initial_seconds` | `float`                                | `1.0`                | Initial session-level reconnect delay                             |
+| `reconnect_backoff_max_seconds`     | `float`                                | `30.0`               | Maximum session-level reconnect delay                             |
+| `tcp_liveness_interval_seconds`     | `float`                                | `60.0`               | TCP round-trip probe interval; `0` disables                       |
+| `tcp_liveness_timeout_seconds`      | `float`                                | `30.0`               | TCP round-trip probe timeout                                      |
+| `outbound_mode`                     | `Literal["enabled","listen_only"]`     | `"enabled"`          | `"listen_only"` suppresses all radio sends                        |
 
 ---
 
@@ -359,53 +359,53 @@ tasks.
 
 `adapter.diagnostics()` returns (no secrets, no raw protobuf):
 
-| Key                                     | Type    | Description                             |
-| --------------------------------------- | ------- | --------------------------------------- |
-| `adapter_id`                            | `str`   | Adapter identifier                      |
-| `started`                               | `bool`  | Adapter started flag                    |
-| `connection_type`                       | `str`   | Config connection mode                  |
-| `queue_pending`                         | `int`   | Items in outbound queue                 |
-| `queue_total_sent`                      | `int`   | Successfully sent items                 |
-| `queue_total_failed`                    | `int`   | Terminal failures                       |
-| `queue_total_enqueued`                  | `int`   | Total enqueue successes                 |
-| `queue_total_dequeued`                  | `int`   | Total dequeue operations                |
-| `queue_total_rejected`                  | `int`   | Enqueue rejections (full queue)         |
-| `queue_total_requeued`                  | `int`   | Transient-failure front-requeues        |
-| `queue_total_exhausted`                 | `int`   | Items dropped after max attempts        |
-| `queue_total_permanent_failed`          | `int`   | Items dropped for permanent errors      |
-| `queue_utilization_pct`                 | `float` | Queue fullness percentage               |
-| `queue_pressure_state`                  | `str`   | `normal`/`warning`/`critical`/`full`    |
-| `queue_warning_threshold_pct`           | `float` | Advisory pressure threshold             |
-| `queue_critical_threshold_pct`          | `float` | Health-degrading pressure threshold     |
-| `queue_peak_depth`                      | `int`   | Maximum observed pending depth          |
-| `drain_task_running`                    | `bool`  | Background drain task alive             |
-| `classifier_packets_seen`               | `int`   | Total classified                        |
-| `classifier_packets_relayed`            | `int`   | Relay action count                      |
-| `classifier_packets_ignored`            | `int`   | Ignore action count                     |
-| `classifier_packets_dropped`            | `int`   | Drop action count                       |
-| `classifier_packets_deferred`           | `int`   | Deferred action count                   |
-| `classifier_packets_encrypted_dropped`  | `int`   | Encrypted drop sub-counter              |
-| `classifier_packets_dm_ignored`         | `int`   | DM ignore sub-counter                   |
-| `classifier_packets_empty_text_ignored` | `int`   | Empty text sub-counter                  |
-| `inbound_published`                     | `int`   | Events published inbound                |
-| `startup_backlog_packets_suppressed`    | `int`   | Stale backlog suppressions              |
-| `outbound_mode`                         | `str`   | Current outbound mode                   |
-| `outbound_gate_suppressed`              | `int`   | Listen-only suppressions                |
-| `session.connected`                     | `bool`  | Session connected                       |
-| `session.reconnecting`                  | `bool`  | Reconnect in progress                   |
-| `session.reconnect_attempts`            | `int`   | Consecutive reconnect attempts          |
-| `session.reconnect_total_attempts`      | `int`   | Lifetime reconnect attempts this start  |
-| `session.liveness_enabled`              | `bool`  | Active TCP round-trip supervision       |
-| `session.liveness_probe_successes`      | `int`   | Successful TCP probes                   |
-| `session.liveness_probe_failures`       | `int`   | Failed TCP probes                       |
-| `session.liveness_consecutive_failures` | `int`   | Current consecutive probe failures      |
-| `session.last_liveness_probe_time`      | `float?`| Last probe monotonic timestamp           |
-| `session.last_liveness_success_time`    | `float?`| Last successful probe timestamp          |
-| `session.last_liveness_error`           | `str?`  | Last probe failure text                  |
-| `session.transient_delivery_failures`   | `int`   | Transient send errors                   |
-| `session.permanent_delivery_failures`   | `int`   | Permanent send errors                   |
-| `session.stale_receive_callbacks`       | `int`   | Packets ignored from old interfaces     |
-| `session.stale_disconnect_callbacks`    | `int`   | Disconnects ignored from old interfaces |
+| Key                                     | Type     | Description                             |
+| --------------------------------------- | -------- | --------------------------------------- |
+| `adapter_id`                            | `str`    | Adapter identifier                      |
+| `started`                               | `bool`   | Adapter started flag                    |
+| `connection_type`                       | `str`    | Config connection mode                  |
+| `queue_pending`                         | `int`    | Items in outbound queue                 |
+| `queue_total_sent`                      | `int`    | Successfully sent items                 |
+| `queue_total_failed`                    | `int`    | Terminal failures                       |
+| `queue_total_enqueued`                  | `int`    | Total enqueue successes                 |
+| `queue_total_dequeued`                  | `int`    | Total dequeue operations                |
+| `queue_total_rejected`                  | `int`    | Enqueue rejections (full queue)         |
+| `queue_total_requeued`                  | `int`    | Transient-failure front-requeues        |
+| `queue_total_exhausted`                 | `int`    | Items dropped after max attempts        |
+| `queue_total_permanent_failed`          | `int`    | Items dropped for permanent errors      |
+| `queue_utilization_pct`                 | `float`  | Queue fullness percentage               |
+| `queue_pressure_state`                  | `str`    | `normal`/`warning`/`critical`/`full`    |
+| `queue_warning_threshold_pct`           | `float`  | Advisory pressure threshold             |
+| `queue_critical_threshold_pct`          | `float`  | Health-degrading pressure threshold     |
+| `queue_peak_depth`                      | `int`    | Maximum observed pending depth          |
+| `drain_task_running`                    | `bool`   | Background drain task alive             |
+| `classifier_packets_seen`               | `int`    | Total classified                        |
+| `classifier_packets_relayed`            | `int`    | Relay action count                      |
+| `classifier_packets_ignored`            | `int`    | Ignore action count                     |
+| `classifier_packets_dropped`            | `int`    | Drop action count                       |
+| `classifier_packets_deferred`           | `int`    | Deferred action count                   |
+| `classifier_packets_encrypted_dropped`  | `int`    | Encrypted drop sub-counter              |
+| `classifier_packets_dm_ignored`         | `int`    | DM ignore sub-counter                   |
+| `classifier_packets_empty_text_ignored` | `int`    | Empty text sub-counter                  |
+| `inbound_published`                     | `int`    | Events published inbound                |
+| `startup_backlog_packets_suppressed`    | `int`    | Stale backlog suppressions              |
+| `outbound_mode`                         | `str`    | Current outbound mode                   |
+| `outbound_gate_suppressed`              | `int`    | Listen-only suppressions                |
+| `session.connected`                     | `bool`   | Session connected                       |
+| `session.reconnecting`                  | `bool`   | Reconnect in progress                   |
+| `session.reconnect_attempts`            | `int`    | Consecutive reconnect attempts          |
+| `session.reconnect_total_attempts`      | `int`    | Lifetime reconnect attempts this start  |
+| `session.liveness_enabled`              | `bool`   | Active TCP round-trip supervision       |
+| `session.liveness_probe_successes`      | `int`    | Successful TCP probes                   |
+| `session.liveness_probe_failures`       | `int`    | Failed TCP probes                       |
+| `session.liveness_consecutive_failures` | `int`    | Current consecutive probe failures      |
+| `session.last_liveness_probe_time`      | `float?` | Last probe monotonic timestamp          |
+| `session.last_liveness_success_time`    | `float?` | Last successful probe timestamp         |
+| `session.last_liveness_error`           | `str?`   | Last probe failure text                 |
+| `session.transient_delivery_failures`   | `int`    | Transient send errors                   |
+| `session.permanent_delivery_failures`   | `int`    | Permanent send errors                   |
+| `session.stale_receive_callbacks`       | `int`    | Packets ignored from old interfaces     |
+| `session.stale_disconnect_callbacks`    | `int`    | Disconnects ignored from old interfaces |
 
 ---
 

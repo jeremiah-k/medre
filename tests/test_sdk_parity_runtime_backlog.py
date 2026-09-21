@@ -100,7 +100,10 @@ class TestP01MeshtasticTcpLivenessResolved:
 
     def test_diagnostics_exposes_liveness_evidence(self) -> None:
         field_names = {
-            f.name for f in dataclass_fields(meshtastic_session_mod.MeshtasticSessionDiagnostics)
+            f.name
+            for f in dataclass_fields(
+                meshtastic_session_mod.MeshtasticSessionDiagnostics
+            )
         }
         assert {
             "liveness_enabled",
@@ -119,10 +122,13 @@ class TestP01MeshtasticTcpLivenessResolved:
     def test_session_owns_liveness_task_without_extra_pubsub_topic(self) -> None:
         slots = set(meshtastic_session_mod.MeshtasticSession.__slots__)
         assert "_liveness_task" in slots
-        source = inspect.getsource(meshtastic_session_mod.MeshtasticSession._subscribe_callbacks)
+        source = inspect.getsource(
+            meshtastic_session_mod.MeshtasticSession._subscribe_callbacks
+        )
         assert source.count("pub.subscribe(") == 2
         assert "meshtastic.receive" in source
         assert "meshtastic.connection.lost" in source
+
 
 # ===================================================================
 # P-02: Meshtastic - SDK connection-lost event subscription (RESOLVED)
@@ -682,7 +688,9 @@ class TestP08P09MeshtasticResilienceResolved:
     """Verify the former reconnect-budget and queue-watermark gaps are closed."""
 
     def test_reconnect_policy_has_no_finite_attempt_ceiling(self) -> None:
-        source = inspect.getsource(meshtastic_session_mod.MeshtasticSession._reconnect_loop)
+        source = inspect.getsource(
+            meshtastic_session_mod.MeshtasticSession._reconnect_loop
+        )
         assert "_MAX_RECONNECT_ATTEMPTS" not in source
         assert "while not self._stop_requested" in source
         fields = {f.name for f in dataclass_fields(MeshtasticConfig)}
@@ -698,6 +706,7 @@ class TestP08P09MeshtasticResilienceResolved:
             "queue_warning_threshold_pct",
             "queue_critical_threshold_pct",
         } <= fields
+
 
 # ===================================================================
 # P-10: MeshCore - appstart on reconnect (validation - no gap)
