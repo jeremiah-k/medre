@@ -1037,7 +1037,9 @@ async def test_route_retry_disabled_warning_skipped_when_global_retry_enabled(
     assert warnings == []
 
 
-def test_renderer_factory_import_failure_is_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_renderer_factory_import_failure_is_fatal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Registered MEDRE renderer failures cannot silently fall back to text."""
     from types import SimpleNamespace
 
@@ -1052,8 +1054,12 @@ def test_renderer_factory_import_failure_is_fatal(monkeypatch: pytest.MonkeyPatc
     spec = SimpleNamespace(transport="matrix", renderer_factory=BrokenRef())
     monkeypatch.setattr(builder_mod, "iter_adapter_specs", lambda: (spec,))
 
+    config = RuntimeConfig(
+        storage=StorageConfig(backend="memory"),
+        adapters=AdapterConfigSet(),
+    )
     with pytest.raises(ImportError, match="renderer implementation is broken"):
-        builder_mod._register_adapter_renderers(RenderingPipeline(), AdapterConfigSet())
+        builder_mod._register_adapter_renderers(RenderingPipeline(), config)
 
 
 def test_runtime_preparation_failure_is_fail_closed_for_fake_adapter(

@@ -743,17 +743,21 @@ class TestMatrixAutoJoinRoomsDerivation:
     def test_real_adapter_receives_merged_rooms(self, tmp_paths: MedrePaths) -> None:
         """Real construction receives the adapter-owned prepared config."""
         rt_matrix = MatrixRuntimeConfig(
-            adapter_id="fm", enabled=True, adapter_kind="real",
-            config=_make_matrix_config(
-                "fm", auto_join_rooms=("!explicit:test.org",)
-            ),
+            adapter_id="fm",
+            enabled=True,
+            adapter_kind="real",
+            config=_make_matrix_config("fm", auto_join_rooms=("!explicit:test.org",)),
         )
         rt_mesh = MeshtasticRuntimeConfig(
-            adapter_id="ft", enabled=True, adapter_kind="fake",
+            adapter_id="ft",
+            enabled=True,
+            adapter_kind="fake",
             config=make_fake_meshtastic_config(),
         )
         route = RouteConfig(
-            route_id="r1", source_adapters=("fm",), dest_adapters=("ft",),
+            route_id="r1",
+            source_adapters=("fm",),
+            dest_adapters=("ft",),
             source_channel="!derived:test.org",
         )
         config = RuntimeConfig(
@@ -779,9 +783,7 @@ class TestMatrixAutoJoinRoomsDerivation:
 
         assert len(captured_configs) == 1
         merged_cfg = captured_configs[0]
-        assert merged_cfg.auto_join_rooms == (
-            "!derived:test.org", "!explicit:test.org"
-        )
+        assert merged_cfg.auto_join_rooms == ("!derived:test.org", "!explicit:test.org")
         assert merged_cfg.store_path == str(
             tmp_paths.adapter_transport_state_dir("fm", "matrix") / "store"
         )

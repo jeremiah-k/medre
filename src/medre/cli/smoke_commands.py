@@ -17,8 +17,7 @@ def _transport_for_adapter(adapter_id: str, config: object) -> str:
         return "unknown"
     for transport, group in groups():
         if any(
-            getattr(rtc, "adapter_id", key) == adapter_id
-            for key, rtc in group.items()
+            getattr(rtc, "adapter_id", key) == adapter_id for key, rtc in group.items()
         ):
             return transport
     return "unknown"

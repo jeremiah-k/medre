@@ -58,7 +58,9 @@ def _assert_no_lxmf_sdk_imports(source: str, *, label: str) -> None:
     """Reject direct LXMF/RNS SDK imports while allowing MEDRE LXMF modules."""
     for module in _imported_modules(source):
         root = module.split(".", 1)[0]
-        assert root.lower() != "lxmf", f"{label} must not import LXMF; found: {module!r}"
+        assert (
+            root.lower() != "lxmf"
+        ), f"{label} must not import LXMF; found: {module!r}"
         assert root != "RNS", f"{label} must not import RNS; found: {module!r}"
 
 
