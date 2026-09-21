@@ -19,6 +19,7 @@ These tests verify:
 
 from __future__ import annotations
 
+import ast
 import re
 from datetime import datetime, timezone
 
@@ -40,6 +41,27 @@ def _read_module_source(module) -> str:
     """Read the source file of a loaded module."""
     with open(module.__file__) as f:
         return f.read()
+
+
+def _imported_modules(source: str) -> tuple[str, ...]:
+    """Return modules imported by *source* without substring false positives."""
+    modules: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            modules.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.append(node.module)
+    return tuple(modules)
+
+
+def _assert_no_lxmf_sdk_imports(source: str, *, label: str) -> None:
+    """Reject direct LXMF/RNS SDK imports while allowing MEDRE LXMF modules."""
+    for module in _imported_modules(source):
+        root = module.split(".", 1)[0]
+        assert (
+            root.lower() != "lxmf"
+        ), f"{label} must not import LXMF; found: {module!r}"
+        assert root != "RNS", f"{label} must not import RNS; found: {module!r}"
 
 
 # ===================================================================
@@ -663,55 +685,19 @@ class TestLxmfCompatIsolation:
         """LXMF codec is pure — no lxmf/RNS imports."""
         import medre.adapters.lxmf.codec as mod
 
-        source = _read_module_source(mod)
-        import_lines = [
-            line.strip()
-            for line in source.splitlines()
-            if line.strip().startswith(("import ", "from "))
-        ]
-        for line in import_lines:
-            assert (
-                "lxmf" not in line.lower() or "medre.adapters.lxmf" in line
-            ), f"LXMF codec must not import lxmf; found: {line!r}"
-            assert (
-                "rns" not in line.lower()
-            ), f"LXMF codec must not import RNS; found: {line!r}"
+        _assert_no_lxmf_sdk_imports(_read_module_source(mod), label="LXMF codec")
 
     def test_classifier_does_not_import_lxmf_or_rns(self) -> None:
         """LXMF classifier is pure — no lxmf/RNS imports."""
         import medre.adapters.lxmf.packet_classifier as mod
 
-        source = _read_module_source(mod)
-        import_lines = [
-            line.strip()
-            for line in source.splitlines()
-            if line.strip().startswith(("import ", "from "))
-        ]
-        for line in import_lines:
-            assert (
-                "lxmf" not in line.lower() or "medre.adapters.lxmf" in line
-            ), f"Classifier must not import lxmf; found: {line!r}"
-            assert (
-                "rns" not in line.lower()
-            ), f"Classifier must not import RNS; found: {line!r}"
+        _assert_no_lxmf_sdk_imports(_read_module_source(mod), label="Classifier")
 
     def test_renderer_does_not_import_lxmf_or_rns(self) -> None:
         """LXMF renderer does not import lxmf/RNS."""
         import medre.adapters.lxmf.renderer as mod
 
-        source = _read_module_source(mod)
-        import_lines = [
-            line.strip()
-            for line in source.splitlines()
-            if line.strip().startswith(("import ", "from "))
-        ]
-        for line in import_lines:
-            assert (
-                "lxmf" not in line.lower() or "medre.adapters.lxmf" in line
-            ), f"Renderer must not import lxmf; found: {line!r}"
-            assert (
-                "rns" not in line.lower()
-            ), f"Renderer must not import RNS; found: {line!r}"
+        _assert_no_lxmf_sdk_imports(_read_module_source(mod), label="Renderer")
 
 
 # ===================================================================

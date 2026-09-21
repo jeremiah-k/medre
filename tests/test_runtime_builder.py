@@ -290,7 +290,7 @@ class TestBuilderErrorCases:
     """Edge cases and error handling in the builder."""
 
     def test_unknown_transport_type_skipped(self, tmp_paths: MedrePaths) -> None:
-        """An adapter with a transport type not in _ADAPTER_BUILDERS raises."""
+        """An adapter with a transport type absent from the registry raises."""
         config = make_empty_config()
         builder = RuntimeBuilder(config, tmp_paths)
 
@@ -298,7 +298,7 @@ class TestBuilderErrorCases:
             builder._build_single_adapter("unknown_transport", "test_id", MagicMock())
 
     def test_real_adapter_construction_error_wrapped(
-        self, tmp_paths: MedrePaths
+        self, tmp_paths: MedrePaths, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Real adapter construction exception is wrapped in RuntimeConfigError."""
         cfg = make_fake_matrix_config()
@@ -313,20 +313,12 @@ class TestBuilderErrorCases:
         )
         builder = RuntimeBuilder(config, tmp_paths)
 
-        # Patch _ADAPTER_BUILDERS to inject a factory that raises
-        from medre.runtime.builder import _AdapterFactory
+        def fail_build(_spec: object, _config: object) -> AdapterContract:
+            raise ImportError("no module")
 
-        failing_factory = MagicMock(spec=_AdapterFactory)
-        failing_factory.build.side_effect = ImportError("no module")
-        import medre.runtime.builder as builder_mod
-
-        original = builder_mod._ADAPTER_BUILDERS["matrix"]
-        builder_mod._ADAPTER_BUILDERS["matrix"] = failing_factory
-        try:
-            with pytest.raises(RuntimeConfigError, match="Failed to build adapter"):
-                builder._build_single_adapter("matrix", "fail_adapter", rt)
-        finally:
-            builder_mod._ADAPTER_BUILDERS["matrix"] = original
+        monkeypatch.setattr("medre.runtime.builder._build_real_adapter", fail_build)
+        with pytest.raises(RuntimeConfigError, match="Failed to build adapter"):
+            builder._build_single_adapter("matrix", "fail_adapter", rt)
 
     def test_adapter_with_none_config_skipped(self, tmp_paths: MedrePaths) -> None:
         """Adapter with config=None raises RuntimeConfigError."""
@@ -1029,9 +1021,7 @@ async def test_route_retry_disabled_warning_skipped_when_global_retry_enabled(
     from medre.config.model import RetryConfig
 
     config = _config_with_retry_routes(("route_a",))
-    config = config.__class__(
-        **{**config.__dict__, "retry": RetryConfig(enabled=True)}
-    )
+    config = config.__class__(**{**config.__dict__, "retry": RetryConfig(enabled=True)})
     app: MedreApp = RuntimeBuilder(config, tmp_paths).build()
     with caplog.at_level("WARNING", logger="medre.runtime.app"):
         try:

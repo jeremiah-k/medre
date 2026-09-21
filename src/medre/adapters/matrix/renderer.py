@@ -851,3 +851,39 @@ class MatrixRenderer:
         )
         content[KEY_PORTNUM] = PORTNUM_TEXT
         content[KEY_TEXT] = text
+
+
+def build_matrix_renderer(
+    *,
+    runtime_configs: Mapping[str, Any],
+    all_runtime_configs: Mapping[str, Mapping[str, Any]],
+    source_attribution: Mapping[str, Any],
+) -> MatrixRenderer | None:
+    """Build the registered Matrix renderer for runtime assembly."""
+    from medre.config.adapters.matrix import MatrixConfig
+
+    configs: dict[str, MatrixConfig] = {}
+    for rtc in runtime_configs.values():
+        if not getattr(rtc, "enabled", False):
+            continue
+        adapter_id = rtc.adapter_id
+        config = rtc.config
+        if config is None:
+            config = MatrixConfig(adapter_id=adapter_id, homeserver="", user_id="")
+        configs[adapter_id] = config
+    if not configs:
+        return None
+
+    source_configs: dict[str, Any] = {}
+    for rtc in all_runtime_configs.get("meshtastic", {}).values():
+        if not getattr(rtc, "enabled", False):
+            continue
+        config = getattr(rtc, "config", None)
+        if config is not None:
+            source_configs[rtc.adapter_id] = config
+
+    return MatrixRenderer(
+        source_configs=source_configs,
+        source_attribution=dict(source_attribution),
+        configs=configs,
+    )

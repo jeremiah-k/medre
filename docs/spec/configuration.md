@@ -19,8 +19,10 @@ The configuration system lives under `medre.config`:
 | `model.py`       | Typed frozen-dataclass configuration models                                                          |
 | `routes.py`      | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)  |
 
-Per-transport config dataclasses live in `medre.config.adapters.*`:
-`MatrixConfig`, `MeshtasticConfig`, `MeshCoreConfig`, `LxmfConfig`.
+Per-transport config dataclasses live in `medre.config.adapters.*`. The
+allowed built-in transport vocabulary and lazy config-class references come
+from `medre.adapter_registry`; the config package does not maintain a second
+transport list.
 
 Config validation errors are `ValueError` subclasses (`AdapterConfigError`),
 not runtime adapter errors.
@@ -38,6 +40,13 @@ class RuntimeConfig:
     adapters: AdapterConfigSet    # grouped by transport type
     routes: RouteConfigSet        # ordered, validated route definitions
 ```
+
+`AdapterConfigSet` stores transport groups in a registry-keyed mapping rather
+than one field per built-in transport. Existing attribute access such as
+`config.adapters.matrix` remains available, while generic consumers iterate
+`config.adapters.groups()`. This allows a new registered built-in transport to
+flow through loading, env overrides, validation, and runtime assembly without
+changing the root config model.
 
 ### 2.1 RuntimeOptions
 
@@ -138,9 +147,11 @@ Each transport has its own sub-table under
 - `adapters.meshcore.<name>` → `MeshCoreConfig`
 - `adapters.lxmf.<name>` → `LxmfConfig`
 
-Each instance goes through a runtime wrapper (`MatrixRuntimeConfig`,
-`MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, `LxmfRuntimeConfig`)
-that consumes three wrapper-level fields before constructing the adapter
+Each instance goes through a runtime wrapper. `GenericAdapterRuntimeConfig` is
+the fallback for registered built-ins that do not declare a specialized wrapper.
+`MatrixRuntimeConfig`, `MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, and
+`LxmfRuntimeConfig` are compatibility subclasses for the current built-ins. The
+wrapper consumes three wrapper-level fields before constructing the adapter
 dataclass:
 
 | Wrapper field  | Type   | Default       | Description                                                                                                                                                                       |
@@ -493,8 +504,11 @@ by pure path resolution — only during runtime startup.
 
 ## 7. Adapter Config Wrapping
 
-Each adapter type has a runtime wrapper (`MatrixRuntimeConfig`,
-`MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, `LxmfRuntimeConfig`) that:
+Every registered adapter type is wrapped in an `AdapterRuntimeConfig`-compatible
+object. `GenericAdapterRuntimeConfig` is the default fallback when the registry
+does not declare a specialized runtime wrapper. `MatrixRuntimeConfig`,
+`MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, and `LxmfRuntimeConfig` are
+compatibility subclasses retained for the current built-ins. Each wrapper:
 
 1. Parses the YAML mapping for the instance
 2. Separates runtime fields (`enabled`, `adapter_id`) from adapter-specific fields

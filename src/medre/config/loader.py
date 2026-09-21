@@ -17,8 +17,12 @@ import re
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol, Self, TypeVar
 
+from medre.adapter_registry import (
+    AdapterSpec,
+    iter_adapter_specs,
+    registered_transports,
+)
 from medre.config._yaml import StrictYAMLError, parse_yaml_config
 from medre.config.errors import (
     ConfigFileError,
@@ -27,11 +31,8 @@ from medre.config.errors import (
 )
 from medre.config.model import (
     AdapterConfigSet,
+    GenericAdapterRuntimeConfig,
     LoggingConfig,
-    LxmfRuntimeConfig,
-    MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
-    MeshtasticRuntimeConfig,
     RetryConfig,
     RuntimeConfig,
     RuntimeLimits,
@@ -83,9 +84,7 @@ _KNOWN_ROOT_KEYS: frozenset[str] = frozenset(
 #: Adapter transport group names accepted under ``adapters:``. Any key not
 #: in this set (e.g. ``matrixx``) is rejected so a typo doesn't silently
 #: load with no adapters configured.
-_KNOWN_TRANSPORTS: frozenset[str] = frozenset(
-    {"matrix", "meshtastic", "meshcore", "lxmf"}
-)
+_KNOWN_TRANSPORTS: frozenset[str] = frozenset(registered_transports())
 
 #: Keys accepted in the top-level ``[retry]`` section (global retry policy).
 #: Per-route retry sections have their own accepted-keys set in
@@ -450,18 +449,11 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
             f"Accepted transports: {sorted(_KNOWN_TRANSPORTS)}"
         )
         raise ConfigValidationError(msg, section_path="adapters")
-    adapters = AdapterConfigSet(
-        matrix=_parse_adapter_section(
-            adapters_data, "matrix", MatrixRuntimeConfig, paths
-        ),
-        meshtastic=_parse_adapter_section(
-            adapters_data, "meshtastic", MeshtasticRuntimeConfig, paths
-        ),
-        meshcore=_parse_adapter_section(
-            adapters_data, "meshcore", MeshCoreRuntimeConfig, paths
-        ),
-        lxmf=_parse_adapter_section(adapters_data, "lxmf", LxmfRuntimeConfig, paths),
-    )
+    adapter_groups = {
+        spec.transport: _parse_adapter_section(adapters_data, spec, paths)
+        for spec in iter_adapter_specs()
+    }
+    adapters = AdapterConfigSet(groups=adapter_groups)
 
     # Validate adapter config consistency (duplicate IDs, etc.)
     adapters.validate()
@@ -648,33 +640,13 @@ def _validate_logging_section(log_data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-class _DictConstructible(Protocol):
-    """Protocol for runtime config wrappers with a dict factory method."""
-
-    @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self: ...
-
-
-_RTC = TypeVar("_RTC", bound=_DictConstructible)
-
-
 def _parse_adapter_section(
     data: dict,
-    transport: str,
-    wrapper_cls: type[_RTC],
+    spec: AdapterSpec,
     paths: MedrePaths,
-) -> dict[str, _RTC]:
-    """Parse an ``[adapters.<transport>]`` section.
-
-    Returns a mapping of *instance_name* → runtime config wrapper instance.
-
-    Raises
-    ------
-    ConfigValidationError
-        If the transport group value is not a mapping (e.g. a bare string
-        like ``adapters.matrix: "bad"``), or if any instance value is not
-        a mapping (e.g. ``adapters.matrix.main: "bad"``).
-    """
+) -> dict[str, GenericAdapterRuntimeConfig]:
+    """Parse one registered ``adapters.<transport>`` section."""
+    transport = spec.transport
     section = data.get(transport)
     if section is None:
         return {}
@@ -684,7 +656,14 @@ def _parse_adapter_section(
             f"got {type(section).__name__}",
             section_path=f"adapters.{transport}",
         )
-    result: dict[str, _RTC] = {}
+
+    wrapper_cls = (
+        spec.runtime_config.load()
+        if spec.runtime_config is not None
+        else GenericAdapterRuntimeConfig
+    )
+    config_cls = spec.config.load()
+    result: dict[str, GenericAdapterRuntimeConfig] = {}
     for instance_name, config_table in section.items():
         if not isinstance(config_table, dict):
             raise ConfigValidationError(
@@ -693,7 +672,15 @@ def _parse_adapter_section(
                 section_path=f"adapters.{transport}.{instance_name}",
             )
         expanded = _expand_paths_in_dict(config_table, paths)
-        wrapper = wrapper_cls.from_dict(instance_name, expanded)
+        if spec.runtime_config is not None:
+            wrapper = wrapper_cls.from_dict(instance_name, expanded)
+        else:
+            wrapper = GenericAdapterRuntimeConfig.from_transport_dict(
+                instance_name,
+                expanded,
+                transport=transport,
+                config_cls=config_cls,
+            )
         result[instance_name] = wrapper
     return result
 

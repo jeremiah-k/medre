@@ -247,3 +247,27 @@ def test_human_output_mentions_redaction(tmp_path: Path) -> None:
     ), f"expected stdout to mention redaction, got: {stdout!r}"
     # Also mentions the bundle was written.
     assert "bundle" in stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# Registry-driven support field classification
+# ---------------------------------------------------------------------------
+
+
+def test_support_fields_unknown_transport_is_empty() -> None:
+    from medre.runtime.support_bundle import _support_fields
+
+    assert _support_fields("nope", secret=False) == ()
+    assert _support_fields("nope", secret=True) == ()
+
+
+def test_support_fields_follow_registry_classification() -> None:
+    from medre.runtime.support_bundle import _support_fields
+
+    assert _support_fields("matrix", secret=False) == (
+        "homeserver",
+        "user_id",
+        "room_allowlist",
+    )
+    assert _support_fields("matrix", secret=True) == ("access_token",)
+    assert _support_fields("meshcore", secret=True) == ("ble_pin",)

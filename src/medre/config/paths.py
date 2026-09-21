@@ -32,6 +32,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from medre.adapter_registry import registered_transports
 from medre.config.identifiers import adapter_id_problem
 
 __all__ = ["MedrePaths", "MedrePathsError", "resolve"]
@@ -47,7 +48,7 @@ _VALID_PLACEHOLDERS: frozenset[str] = frozenset(
 )
 
 _SUPPORTED_TRANSPORT_PATH_COMPONENTS: frozenset[str] = frozenset(
-    {"matrix", "meshtastic", "meshcore", "lxmf"}
+    registered_transports()
 )
 
 
@@ -142,8 +143,7 @@ class MedrePaths:
             :meth:`adapter_state_dir` against the configured-identifier
             contract.
         transport:
-            Supported transport name (``"matrix"``, ``"meshtastic"``,
-            ``"meshcore"``, or ``"lxmf"``).  The fixed vocabulary keeps
+            Registered built-in transport name.  The registry vocabulary keeps
             this derived state path to one path-safe component.
 
         Returns

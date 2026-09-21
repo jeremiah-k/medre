@@ -1,28 +1,33 @@
-"""Transport adapter registry and SDK availability probing."""
+"""Built-in transport SDK availability probing."""
 
 from __future__ import annotations
 
 import importlib
 
-# Transport adapter types that medre supports.
-# Each entry: (transport_key, dist_name, import_module_names).
-TRANSPORTS: list[tuple[str, str, tuple[str, ...]]] = [
-    ("matrix", "mindroom-nio", ("mindroom_nio", "nio")),
-    ("meshtastic", "mtjk", ("mtjk", "meshtastic")),
-    ("meshcore", "meshcore", ("meshcore",)),
-    ("lxmf", "lxmf", ("lxmf", "RNS")),
+from medre.adapter_registry import iter_adapter_specs
+
+# Public compatibility shape consumed by config/status commands.
+TRANSPORTS: list[tuple[str, str | None, tuple[str, ...]]] = [
+    (spec.transport, spec.distribution, spec.import_names)
+    for spec in iter_adapter_specs()
 ]
 
 
 def is_transport_installed(transport: str) -> bool:
-    """Check whether a transport SDK is available via dynamic import."""
+    """Return whether a transport is registered and its SDK is available.
+
+    Registered transports that declare no Python SDK are always available.
+    """
     for t_key, _dist, import_names in TRANSPORTS:
-        if t_key == transport:
-            for mod_name in import_names:
-                try:
-                    importlib.import_module(mod_name)
-                    return True
-                except ImportError:
-                    pass
-            return False
+        if t_key != transport:
+            continue
+        if not import_names:
+            return True
+        for mod_name in import_names:
+            try:
+                importlib.import_module(mod_name)
+                return True
+            except ImportError:
+                continue
+        return False
     return False

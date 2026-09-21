@@ -358,3 +358,28 @@ class MeshCoreRenderer:
         rendered_bytes = len(truncated_text.encode("utf-8"))
 
         return (truncated_text, True, original_bytes, rendered_bytes)
+
+
+def build_meshcore_renderer(
+    *,
+    runtime_configs: Mapping[str, Any],
+    all_runtime_configs: Mapping[str, Mapping[str, Any]],
+    source_attribution: Mapping[str, Any],
+) -> MeshCoreRenderer | None:
+    """Build the registered MeshCore renderer for runtime assembly."""
+    del all_runtime_configs
+    from medre.config.adapters.meshcore import MeshCoreConfig
+
+    configs: dict[str, MeshCoreConfig] = {}
+    for rtc in runtime_configs.values():
+        if not getattr(rtc, "enabled", False):
+            continue
+        adapter_id = rtc.adapter_id
+        config = rtc.config or MeshCoreConfig(adapter_id=adapter_id)
+        configs[adapter_id] = config
+    if not configs:
+        return None
+    return MeshCoreRenderer(
+        configs=configs,
+        source_attribution=dict(source_attribution),
+    )

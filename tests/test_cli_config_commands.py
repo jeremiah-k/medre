@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import types
 from pathlib import Path
 
 import pytest
@@ -530,3 +531,28 @@ def test_route_unknown_adapter_ref_exits_nonzero(tmp_path: Path) -> None:
     combined = stdout + stderr
     assert "nonexistent" in combined
     assert "also_missing" in combined
+
+
+# ---------------------------------------------------------------------------
+# medre config adapters — registry-driven inventory
+# ---------------------------------------------------------------------------
+
+
+def test_adapters_reports_sidecar_transport_without_probing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A transport with no import names is listed as needing no Python SDK."""
+    import medre.cli.config_commands as config_commands
+
+    def _no_probes(name: str) -> object:
+        raise AssertionError(f"unexpected SDK probe: {name}")
+
+    monkeypatch.setattr(config_commands, "TRANSPORTS", [("sidecar", None, ())])
+    monkeypatch.setattr(
+        config_commands, "importlib", types.SimpleNamespace(import_module=_no_probes)
+    )
+
+    config_commands._adapters()
+    out = capsys.readouterr().out
+    assert "sidecar" in out
+    assert "Python SDK: not required" in out

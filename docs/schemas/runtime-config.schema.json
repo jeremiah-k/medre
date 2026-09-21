@@ -121,7 +121,7 @@
     },
     "adapters": {
       "type": "object",
-      "description": "Adapter instances grouped by transport. Only the four known transport groups are accepted; unknown groups (e.g. a typo like 'matrixx') are rejected. Per-instance field validation is done by adapter-config.schema.json and the typed adapter config dataclasses at load time.",
+      "description": "Adapter instances grouped by registered built-in transport. This schema snapshots the current built-in registry and remains fail-closed: unknown transport groups are rejected. A registry contract test requires these property names to match medre.adapter_registry.registered_transports(). Per-instance field validation is performed by adapter-config.schema.json and the registered typed adapter config dataclass at load time.",
       "additionalProperties": false,
       "properties": {
         "matrix": {

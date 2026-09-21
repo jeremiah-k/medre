@@ -360,16 +360,16 @@ class AdapterState(Enum):
     STOPPED       = "stopped"         # Terminal
 ```
 
-| State             | Meaning                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------ |
-| `INITIALIZING`    | Adapter is being set up; not yet ready to process events.                                              |
-| `READY`           | Adapter is fully operational.                                                                         |
-| `DEGRADED`        | Adapter is partially functional (e.g., high latency, missing features).                               |
-| `BACKPRESSURED`   | Adapter's outbound queue is full; inbound traffic **MUST** be throttled.                              |
-| `DISCONNECTED`    | Adapter has lost its transport connection.                                                            |
-| `STOPPING`        | Adapter is shutting down gracefully.                                                                   |
-| `FAILED`          | Adapter has encountered an unrecoverable error. Terminal — no outgoing transitions.                   |
-| `STOPPED`         | Adapter has shut down cleanly. Terminal — no outgoing transitions.                                     |
+| State           | Meaning                                                                             |
+| --------------- | ----------------------------------------------------------------------------------- |
+| `INITIALIZING`  | Adapter is being set up; not yet ready to process events.                           |
+| `READY`         | Adapter is fully operational.                                                       |
+| `DEGRADED`      | Adapter is partially functional (e.g., high latency, missing features).             |
+| `BACKPRESSURED` | Adapter's outbound queue is full; inbound traffic **MUST** be throttled.            |
+| `DISCONNECTED`  | Adapter has lost its transport connection.                                          |
+| `STOPPING`      | Adapter is shutting down gracefully.                                                |
+| `FAILED`        | Adapter has encountered an unrecoverable error. Terminal — no outgoing transitions. |
+| `STOPPED`       | Adapter has shut down cleanly. Terminal — no outgoing transitions.                  |
 
 ### 8.2 State Transition Graph
 
@@ -417,16 +417,16 @@ Any transition not listed above is a bug. `is_valid_transition()` returns
 
 ### 8.3 Behavior per State
 
-| State             | Ingress Policy        | Delivery Policy                       | Notes                                                       |
-| ----------------- | --------------------- | ------------------------------------- | ----------------------------------------------------------- |
-| `INITIALIZING`    | Buffer                | Buffer                                | Connection not yet established. `start()` has not returned. |
-| `READY`           | Accept                | Queue and deliver                     | Normal operation.                                           |
-| `DEGRADED`        | Accept                | Queue, delay, may fallback            | Connection unstable. Queue events for later delivery.       |
-| `BACKPRESSURED`   | Throttle              | Queue, refuse new outbound enqueues   | Outbound queue full. Inbound traffic **MUST** be throttled. |
-| `DISCONNECTED`    | Accept (buffered)     | Queue, no remote dispatch             | Transport endpoint unreachable. Recoverable on reconnect.   |
-| `STOPPING`        | Reject                | Complete in-flight only               | Graceful shutdown. Reject new work.                         |
-| `FAILED`          | Reject                | None                                  | Terminal. Adapter is no longer operational.                 |
-| `STOPPED`         | Reject                | None                                  | Terminal. Clean shutdown.                                   |
+| State           | Ingress Policy    | Delivery Policy                     | Notes                                                       |
+| --------------- | ----------------- | ----------------------------------- | ----------------------------------------------------------- |
+| `INITIALIZING`  | Buffer            | Buffer                              | Connection not yet established. `start()` has not returned. |
+| `READY`         | Accept            | Queue and deliver                   | Normal operation.                                           |
+| `DEGRADED`      | Accept            | Queue, delay, may fallback          | Connection unstable. Queue events for later delivery.       |
+| `BACKPRESSURED` | Throttle          | Queue, refuse new outbound enqueues | Outbound queue full. Inbound traffic **MUST** be throttled. |
+| `DISCONNECTED`  | Accept (buffered) | Queue, no remote dispatch           | Transport endpoint unreachable. Recoverable on reconnect.   |
+| `STOPPING`      | Reject            | Complete in-flight only             | Graceful shutdown. Reject new work.                         |
+| `FAILED`        | Reject            | None                                | Terminal. Adapter is no longer operational.                 |
+| `STOPPED`       | Reject            | None                                | Terminal. Clean shutdown.                                   |
 
 ### 8.4 State Transition Events
 
@@ -453,13 +453,13 @@ connection handshakes) **MAY** define internal substates. Internal substates
 `AdapterHealth.details` for observability. The lifecycle manager tracks only
 the eight generic states.
 
-| Internal Substate                          | Maps To                                                 |
-| ------------------------------------------ | ------------------------------------------------------- |
+| Internal Substate                                         | Maps To                                        |
+| --------------------------------------------------------- | ---------------------------------------------- |
 | `DISCONNECTED`, `CONNECTING`, `AUTHENTICATING`, `SYNCING` | `INITIALIZING` or `DEGRADED` or `DISCONNECTED` |
-| `READY`                                    | `READY`                                                 |
-| `DEGRADED`                                 | `DEGRADED`                                              |
-| `BACKPRESSURED`                            | `BACKPRESSURED`                                         |
-| `STOPPING`                                 | `STOPPING` or `STOPPED`                                 |
+| `READY`                                                   | `READY`                                        |
+| `DEGRADED`                                                | `DEGRADED`                                     |
+| `BACKPRESSURED`                                           | `BACKPRESSURED`                                |
+| `STOPPING`                                                | `STOPPING` or `STOPPED`                        |
 
 ### 8.6 Simplified Vocabulary Mapping
 
@@ -468,14 +468,14 @@ The operator-facing evidence labels in
 eight-state enum. The mapping below is the complete correspondence used by
 `normalize_adapter_health()`:
 
-| Evidence Label      | Source `AdapterState` value(s)                                       |
-| ------------------- | -------------------------------------------------------------------- |
-| `connected`         | `READY`                                                              |
-| `degraded`          | `DEGRADED` or `BACKPRESSURED`                                       |
-| `unavailable`       | `DISCONNECTED`                                                       |
-| `stopping`          | `STOPPING`                                                           |
-| `failed`            | `FAILED`                                                             |
-| `stopped`           | `STOPPED`                                                            |
+| Evidence Label | Source `AdapterState` value(s) |
+| -------------- | ------------------------------ |
+| `connected`    | `READY`                        |
+| `degraded`     | `DEGRADED` or `BACKPRESSURED`  |
+| `unavailable`  | `DISCONNECTED`                 |
+| `stopping`     | `STOPPING`                     |
+| `failed`       | `FAILED`                       |
+| `stopped`      | `STOPPED`                      |
 
 `INITIALIZING` is the transient period between `build()` and `start()`
 completion; evidence output uses the configuration-derived `starting` label
@@ -895,49 +895,103 @@ Every row in the following table is a hard boundary. Violations indicate a desig
 
 ---
 
-## 20. Adapter Registry
+## 20. Built-In Adapter Type Registry
 
-### 20.1 Registry Interface
+MEDRE has one process-static registry of **built-in adapter types** in
+`medre.adapter_registry`. It is declarative assembly metadata. It is not a
+container for running adapter instances, and it is not a third-party plugin
+loader.
 
-```python
-class AdapterRegistry(Protocol):
-    def register(self, info: AdapterInfo, adapter: AdapterContract) -> None: ...
-    def get(self, name: str) -> AdapterContract | None: ...
-    def get_info(self, name: str) -> AdapterInfo | None: ...
-    def list_adapters(self) -> list[AdapterInfo]: ...
-    def list_by_role(self, role: AdapterRole) -> list[AdapterInfo]: ...
-    def unregister(self, name: str) -> None: ...
-```
+### 20.1 Registry Model
 
-### 20.2 Registration Flow
+Each `AdapterSpec` identifies one transport and the lazy symbols generic
+assembly needs: config type, optional compatibility runtime wrapper, live and
+fake adapter classes, renderer factory, dependency probe/package metadata,
+native-metadata readers, attribution projector, optional runtime-config
+preparation/state-directory hooks, optional adapter-owned CLI contribution
+hooks, and support-bundle field classification metadata.
 
-1. The runtime loads adapter configuration from YAML.
-2. For each adapter entry, it instantiates the adapter class, passing the config block.
-3. The adapter constructs its `AdapterInfo` and returns it.
-4. The runtime calls `registry.register(info, adapter_instance)`.
-5. The runtime calls `adapter.start(context)` with a fresh `AdapterContext`.
-6. On shutdown, the runtime calls `adapter.stop(timeout)`, then `registry.unregister(name)`.
+All implementation references **MUST** remain lazy `SymbolRef` values. Importing
+`medre.adapter_registry`, configuration modules, or basic CLI discovery **MUST
+NOT** import an optional transport SDK.
 
-### 20.3 Configuration
+The registry is immutable after import. Built-in transport names **MUST** be
+unique. Runtime code **MUST** reject an enabled adapter whose transport is not
+registered.
 
-Adapter type determines the role. The operator **MUST NOT** set `role` manually.
+### 20.2 Assembly Flow
+
+1. The config loader obtains the allowed `adapters.<transport>` vocabulary from
+   `BUILTIN_ADAPTER_REGISTRY`.
+2. For each configured instance, the loader resolves the registered config
+   class and constructs an `AdapterRuntimeConfig`-compatible wrapper.
+3. `RuntimeBuilder` resolves that transport's `AdapterSpec`.
+4. Before constructing any adapter, the builder runs every registered
+   runtime-config preparation hook for enabled instances that have adapter
+   configuration, using generic paths and expanded route context. Preparation is fail-closed configuration preflight:
+   it **MUST** run for both fake and live instances, and any preparation failure
+   **MUST** abort the build rather than being recorded as an isolated adapter
+   construction failure. Transport-specific route or state preparation **MUST**
+   live behind that adapter-owned hook rather than a shared transport branch.
+5. After configuration preflight succeeds, the builder constructs the
+   registered fake adapter when `adapter_kind: fake`; otherwise it checks the
+   registered dependency probe and constructs the live adapter. The adapter-owned
+   compatibility module **MUST** translate genuine optional-SDK absence into the
+   probe's false value; failure to import or resolve the registered probe itself
+   **MUST** remain a startup-visible implementation error. Construction or
+   dependency failures may then be isolated per adapter according to the runtime
+   degradation policy.
+6. The adapter-owned renderer factory is resolved from the same spec and
+   registers the transport renderer with the shared rendering pipeline. Renderer
+   factories are MEDRE-owned assembly code and **MUST NOT** import optional
+   transport SDKs at import time. Import or construction failures from a
+   registered renderer factory **MUST** fail startup rather than silently falling
+   back to the generic text renderer.
+7. Shared native-metadata and attribution dispatch resolve adapter-owned
+   readers/projectors through the same spec.
+8. `MedreApp.adapters` owns the resulting live instances and performs the
+   normal `start(context)` / `stop(timeout)` lifecycle.
+
+Generic config, env, path, runtime assembly, CLI transport discovery and
+contribution dispatch, support-bundle field classification, metadata dispatch,
+and architecture-policy code **MUST NOT** maintain parallel built-in transport
+enumerations.
+
+### 20.3 Configuration Shape
+
+The adapter transport is the first key below `adapters`; an instance name is
+the second key. Operators **MUST NOT** configure a Python class path or adapter
+role.
 
 ```yaml
 adapters:
-  meshcore-radio-1:
-    type: meshcore # role: TRANSPORT (inferred)
-    connection: { ... }
+  meshcore:
+    radio-1:
+      enabled: true
+      connection_type: tcp
+      host: "192.168.1.100"
+      port: 5000
 
-  matrix-home:
-    type: matrix # role: PRESENTATION (inferred)
-    homeserver: "https://matrix.example.com"
-
-  irc-bridge:
-    type: irc # role: HYBRID (inferred)
-    server: "irc.example.com"
+  matrix:
+    home:
+      enabled: true
+      homeserver: "https://matrix.example.com"
+      user_id: "@medre:matrix.example.com"
 ```
 
-The `type` field maps to a Python class path resolved by the adapter registry. Built-in types resolve to `adapters/<type>/adapter.py`. Custom adapter types **MAY** specify a `class` field explicitly.
+Transport-specific fields are validated by that transport's registered config
+class. Unknown transport groups are rejected.
+
+### 20.4 Extending Built-In Adapters
+
+Adding a built-in transport normally requires adapter-owned implementation and
+config modules plus one `AdapterSpec` entry. It **MUST NOT** require another
+transport branch in generic assembly or dispatch code. The static config
+schemas/documentation and packaging extras remain explicit release artifacts
+and **MUST** be updated for a new built-in transport.
+
+`medre.plugins` is a separate extension boundary. Arbitrary third-party adapter
+class paths and runtime adapter discovery are not part of the current contract.
 
 ---
 

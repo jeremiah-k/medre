@@ -203,6 +203,8 @@ def _str(value: object) -> str | None:
 
 def project_matrix_attribution(
     native_data: dict[str, Any],
+    *,
+    source_transport_id: str | None = None,
 ) -> dict[str, str | None]:
     """Project Matrix-native metadata dict into generic attribution fields.
 
@@ -224,6 +226,9 @@ def project_matrix_attribution(
     native_data:
         Raw Matrix native metadata dict.  Missing keys are treated as
         absent (not an error).
+    source_transport_id:
+        Accepted for the shared projector interface but unused because Matrix
+        sender identity comes from native metadata.
 
     Returns
     -------
@@ -231,6 +236,7 @@ def project_matrix_attribution(
         Generic attribution fields keyed by ``RelayAttribution`` canonical
         names.  Fields are ``None`` when no value could be resolved.
     """
+    del source_transport_id
     matrix = matrix_namespace(native_data)
     sender_str = _str(matrix.get("sender"))
     display_name = matrix.get("sender_display_name")

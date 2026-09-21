@@ -382,3 +382,28 @@ class LxmfRenderer:
             Content text with inline relation descriptions appended.
         """
         return degrade_relations_inline(event, text)
+
+
+def build_lxmf_renderer(
+    *,
+    runtime_configs: Mapping[str, Any],
+    all_runtime_configs: Mapping[str, Mapping[str, Any]],
+    source_attribution: Mapping[str, Any],
+) -> LxmfRenderer | None:
+    """Build the registered LXMF renderer for runtime assembly."""
+    del all_runtime_configs
+    from medre.config.adapters.lxmf import LxmfConfig
+
+    configs: dict[str, LxmfConfig] = {}
+    for rtc in runtime_configs.values():
+        if not getattr(rtc, "enabled", False):
+            continue
+        adapter_id = rtc.adapter_id
+        config = rtc.config or LxmfConfig(adapter_id=adapter_id, connection_type="fake")
+        configs[adapter_id] = config
+    if not configs:
+        return None
+    return LxmfRenderer(
+        configs=configs,
+        source_attribution=dict(source_attribution),
+    )

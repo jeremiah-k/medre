@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Self, get_args, get_type_hints
 
+from medre.adapter_registry import registered_transports
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.config.adapters.matrix import MatrixConfig
 from medre.config.adapters.meshcore import MeshCoreConfig
@@ -305,46 +307,57 @@ class RuntimeLimits:
 
 
 @dataclass(frozen=True)
-class MatrixRuntimeConfig:
-    """Runtime wrapper for a single Matrix adapter instance."""
+class GenericAdapterRuntimeConfig:
+    """Transport-neutral wrapper for one configured adapter instance.
+
+    Concrete built-ins retain thin compatibility subclasses below, but the
+    loader can use this class directly for registered adapters without a
+    compatibility wrapper.  That keeps the
+    runtime wrapper shape stable without requiring :mod:`medre.config.model`
+    changes whenever a new transport is registered.
+    """
 
     adapter_id: str
     enabled: bool = True
     adapter_kind: str = "real"
-    config: MatrixConfig | None = None
+    config: Any | None = None
 
     @classmethod
-    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        """Construct from a config dict.
+    def from_transport_dict(
+        cls,
+        instance_name: str,
+        data: dict[str, Any],
+        *,
+        transport: str,
+        config_cls: type,
+    ) -> Self:
+        """Construct and validate a runtime wrapper from an adapter config table.
 
-        *instance_name* is the key under ``[adapters.matrix]`` and becomes
-        ``adapter_id`` unless the table explicitly provides one.
-
-        Encryption settings (``encryption_mode``,
-        ``require_encrypted_rooms``) are set directly in the config table and
-        pass through to :class:`MatrixConfig` via
-        :func:`_coerce_adapter_kwargs`.
+        Wrapper fields are removed before the remaining values are coerced for
+        *config_cls*. Raises :class:`ConfigValidationError` for an unsupported
+        adapter kind or invalid adapter configuration.
         """
         data = dict(data)
         enabled: bool = data.pop("enabled", True)
         adapter_id: str = data.pop("adapter_id", instance_name)
         adapter_kind: str = data.pop("adapter_kind", "real")
+        section_path = f"adapters.{transport}.{instance_name}"
         if adapter_kind not in ("real", "fake"):
             raise ConfigValidationError(
                 f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
-                f"in adapters.matrix.{instance_name}",
-                transport="matrix",
+                f"in {section_path}",
+                transport=transport,
                 adapter_id=adapter_id,
-                section_path=f"adapters.matrix.{instance_name}",
+                section_path=section_path,
             )
         adapter_kwargs = _coerce_adapter_kwargs(
-            MatrixConfig,
+            config_cls,
             data,
-            transport="matrix",
-            section_path=f"adapters.matrix.{instance_name}",
+            transport=transport,
+            section_path=section_path,
         )
         adapter_kwargs.setdefault("adapter_id", adapter_id)
-        config = MatrixConfig(**adapter_kwargs).validate()
+        config = config_cls(**adapter_kwargs).validate()
         return cls(
             adapter_id=adapter_id,
             enabled=enabled,
@@ -354,158 +367,140 @@ class MatrixRuntimeConfig:
 
 
 @dataclass(frozen=True)
-class MeshtasticRuntimeConfig:
-    """Runtime wrapper for a single Meshtastic adapter instance."""
+class MatrixRuntimeConfig(GenericAdapterRuntimeConfig):
+    """Compatibility wrapper for a single Matrix adapter instance."""
 
-    adapter_id: str
-    enabled: bool = True
-    adapter_kind: str = "real"
+    config: MatrixConfig | None = None
+
+    @classmethod
+    def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
+        return cls.from_transport_dict(
+            instance_name, data, transport="matrix", config_cls=MatrixConfig
+        )
+
+
+@dataclass(frozen=True)
+class MeshtasticRuntimeConfig(GenericAdapterRuntimeConfig):
+    """Compatibility wrapper for a single Meshtastic adapter instance."""
+
     config: MeshtasticConfig | None = None
 
     @classmethod
     def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        """Construct from a config dict."""
-        data = dict(data)
-        enabled: bool = data.pop("enabled", True)
-        adapter_id: str = data.pop("adapter_id", instance_name)
-        adapter_kind: str = data.pop("adapter_kind", "real")
-        if adapter_kind not in ("real", "fake"):
-            raise ConfigValidationError(
-                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
-                f"in adapters.meshtastic.{instance_name}",
-                transport="meshtastic",
-                adapter_id=adapter_id,
-                section_path=f"adapters.meshtastic.{instance_name}",
-            )
-        adapter_kwargs = _coerce_adapter_kwargs(
-            MeshtasticConfig,
-            data,
-            transport="meshtastic",
-            section_path=f"adapters.meshtastic.{instance_name}",
-        )
-        adapter_kwargs.setdefault("adapter_id", adapter_id)
-        config = MeshtasticConfig(**adapter_kwargs).validate()
-        return cls(
-            adapter_id=adapter_id,
-            enabled=enabled,
-            adapter_kind=adapter_kind,
-            config=config,
+        return cls.from_transport_dict(
+            instance_name, data, transport="meshtastic", config_cls=MeshtasticConfig
         )
 
 
 @dataclass(frozen=True)
-class MeshCoreRuntimeConfig:
-    """Runtime wrapper for a single MeshCore adapter instance."""
+class MeshCoreRuntimeConfig(GenericAdapterRuntimeConfig):
+    """Compatibility wrapper for a single MeshCore adapter instance."""
 
-    adapter_id: str
-    enabled: bool = True
-    adapter_kind: str = "real"
     config: MeshCoreConfig | None = None
 
     @classmethod
     def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        """Construct from a config dict."""
-        data = dict(data)
-        enabled: bool = data.pop("enabled", True)
-        adapter_id: str = data.pop("adapter_id", instance_name)
-        adapter_kind: str = data.pop("adapter_kind", "real")
-        if adapter_kind not in ("real", "fake"):
-            raise ConfigValidationError(
-                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
-                f"in adapters.meshcore.{instance_name}",
-                transport="meshcore",
-                adapter_id=adapter_id,
-                section_path=f"adapters.meshcore.{instance_name}",
-            )
-        adapter_kwargs = _coerce_adapter_kwargs(
-            MeshCoreConfig,
-            data,
-            transport="meshcore",
-            section_path=f"adapters.meshcore.{instance_name}",
-        )
-        adapter_kwargs.setdefault("adapter_id", adapter_id)
-        config = MeshCoreConfig(**adapter_kwargs).validate()
-        return cls(
-            adapter_id=adapter_id,
-            enabled=enabled,
-            adapter_kind=adapter_kind,
-            config=config,
+        return cls.from_transport_dict(
+            instance_name, data, transport="meshcore", config_cls=MeshCoreConfig
         )
 
 
 @dataclass(frozen=True)
-class LxmfRuntimeConfig:
-    """Runtime wrapper for a single LXMF adapter instance."""
+class LxmfRuntimeConfig(GenericAdapterRuntimeConfig):
+    """Compatibility wrapper for a single LXMF adapter instance."""
 
-    adapter_id: str
-    enabled: bool = True
-    adapter_kind: str = "real"
     config: LxmfConfig | None = None
 
     @classmethod
     def from_dict(cls, instance_name: str, data: dict[str, Any]) -> Self:
-        """Construct from a config dict."""
-        data = dict(data)
-        enabled: bool = data.pop("enabled", True)
-        adapter_id: str = data.pop("adapter_id", instance_name)
-        adapter_kind: str = data.pop("adapter_kind", "real")
-        if adapter_kind not in ("real", "fake"):
-            raise ConfigValidationError(
-                f"adapter_kind must be 'real' or 'fake', got {adapter_kind!r} "
-                f"in adapters.lxmf.{instance_name}",
-                transport="lxmf",
-                adapter_id=adapter_id,
-                section_path=f"adapters.lxmf.{instance_name}",
-            )
-        adapter_kwargs = _coerce_adapter_kwargs(
-            LxmfConfig,
-            data,
-            transport="lxmf",
-            section_path=f"adapters.lxmf.{instance_name}",
+        return cls.from_transport_dict(
+            instance_name, data, transport="lxmf", config_cls=LxmfConfig
         )
-        adapter_kwargs.setdefault("adapter_id", adapter_id)
-        config = LxmfConfig(**adapter_kwargs).validate()
-        return cls(
-            adapter_id=adapter_id,
-            enabled=enabled,
-            adapter_kind=adapter_kind,
-            config=config,
-        )
+
+
+# Registered adapters without a dedicated compatibility wrapper use the
+# transport-neutral runtime config directly.
+AdapterRuntimeConfig = GenericAdapterRuntimeConfig
 
 
 # ---------------------------------------------------------------------------
 # Adapter collection
 # ---------------------------------------------------------------------------
 
-# Union of all runtime config wrappers — used by AdapterConfigSet methods
-# and consumed by the runtime builder and app to access .enabled, .config,
-# .adapter_kind without an ``object`` typed return.
-AdapterRuntimeConfig = (
-    MatrixRuntimeConfig
-    | MeshtasticRuntimeConfig
-    | MeshCoreRuntimeConfig
-    | LxmfRuntimeConfig
-)
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class AdapterConfigSet:
-    """Holds all adapter configs grouped by transport type.
+    """Adapter configs grouped by registered transport name.
 
-    Each mapping key is the adapter *instance name* (used as ``adapter_id``
-    unless the instance config overrides it).
+    The authoritative storage is a transport-keyed mapping rather than one
+    field per built-in adapter.  The custom constructor intentionally accepts
+    the historical ``AdapterConfigSet(matrix=..., meshtastic=...)`` spelling
+    so existing callers keep working, while a newly registered transport can
+    be supplied without editing this class.
+
+    Note that the private ``_groups`` field is the only dataclass field, so
+    ``dataclasses.asdict()`` on this type (or on a root :class:`RuntimeConfig`
+    containing one) exposes ``{"_groups": ...}`` rather than per-transport
+    keys. Serialize via :meth:`groups` instead.
     """
 
-    matrix: dict[str, MatrixRuntimeConfig] = field(default_factory=dict)
-    meshtastic: dict[str, MeshtasticRuntimeConfig] = field(default_factory=dict)
-    meshcore: dict[str, MeshCoreRuntimeConfig] = field(default_factory=dict)
-    lxmf: dict[str, LxmfRuntimeConfig] = field(default_factory=dict)
+    _groups: dict[str, dict[str, AdapterRuntimeConfig]]
+
+    def __init__(
+        self,
+        groups: Mapping[str, Mapping[str, AdapterRuntimeConfig]] | None = None,
+        **transport_groups: Mapping[str, AdapterRuntimeConfig],
+    ) -> None:
+        known = registered_transports()
+        known_set = set(known)
+        merged: dict[str, Mapping[str, AdapterRuntimeConfig]] = dict(groups or {})
+        overlap = set(merged) & set(transport_groups)
+        if overlap:
+            raise TypeError(
+                f"adapter transport group(s) supplied twice: {sorted(overlap)}"
+            )
+        merged.update(transport_groups)
+        unknown = set(merged) - known_set
+        if unknown:
+            raise TypeError(
+                f"unknown adapter transport group(s): {sorted(unknown)}; "
+                f"known transports: {sorted(known_set)}"
+            )
+        object.__setattr__(
+            self,
+            "_groups",
+            {transport: dict(merged.get(transport, {})) for transport in known},
+        )
+
+    def __getattr__(self, name: str) -> dict[str, AdapterRuntimeConfig]:
+        """Expose registered transport groups as compatibility attributes."""
+        groups = object.__getattribute__(self, "_groups")
+        if name in groups:
+            return groups[name]
+        raise AttributeError(name)
+
+    def for_transport(self, transport: str) -> dict[str, AdapterRuntimeConfig]:
+        """Return the configured instances for one registered transport."""
+        try:
+            return self._groups[transport]
+        except KeyError as exc:
+            raise KeyError(
+                f"unknown adapter transport {transport!r}; "
+                f"known transports: {sorted(self._groups)}"
+            ) from exc
+
+    def groups(self) -> tuple[tuple[str, dict[str, AdapterRuntimeConfig]], ...]:
+        """Return ``(transport, instances)`` pairs in registry order."""
+        return tuple(
+            (transport, self._groups[transport])
+            for transport in registered_transports()
+        )
 
     def all_enabled(self) -> list[tuple[str, AdapterRuntimeConfig]]:
         """Return ``(adapter_id, config)`` for all enabled adapters."""
         result: list[tuple[str, AdapterRuntimeConfig]] = []
-        for group in (self.matrix, self.meshtastic, self.meshcore, self.lxmf):
-            for _name, rtc in group.items():
+        for _transport, group in self.groups():
+            for rtc in group.values():
                 if rtc.enabled:
                     result.append((rtc.adapter_id, rtc))
         return result
@@ -513,59 +508,18 @@ class AdapterConfigSet:
     def all_configs(self) -> list[tuple[str, str, AdapterRuntimeConfig]]:
         """Return ``(transport_type, adapter_id, config)`` for all adapters."""
         result: list[tuple[str, str, AdapterRuntimeConfig]] = []
-        for transport, group in (
-            ("matrix", self.matrix),
-            ("meshtastic", self.meshtastic),
-            ("meshcore", self.meshcore),
-            ("lxmf", self.lxmf),
-        ):
-            for _name, rtc in group.items():
+        for transport, group in self.groups():
+            for rtc in group.values():
                 result.append((transport, rtc.adapter_id, rtc))
         return result
 
     def validate(self) -> None:
-        """Validate the adapter configuration set for consistency.
-
-        Checks performed:
-
-        * **Adapter identifier contract** — every ``adapter_id`` (and thus
-          every instance-name default) must satisfy
-          :func:`medre.config.identifiers.adapter_id_problem` returning
-          ``None``: non-empty, no separators/whitespace/NUL, no dot-only
-          segments, portable length, and at least one alphanumeric
-          character so the derived environment token is never empty.
-          This is what keeps the identifier usable as the per-adapter
-          state-directory component.
-        * **Duplicate adapter IDs** — no two adapters (even across
-          different transports) may share the same ``adapter_id``.
-          The ``adapter_id`` determines per-adapter state directories
-          and runtime identity, so duplicates would cause path conflicts.
-        * **Environment-token collisions** — no two adapters (even across
-          different transports) may normalize to the same
-          ``MEDRE_ADAPTER__<TOKEN>`` token, because instance-scoped
-          environment overrides could not address them unambiguously.
-
-        Raises
-        ------
-        ConfigValidationError
-            If a validation rule is violated.
-        """
-        # Local import: medre.config.env imports this module at top level,
-        # so the token derivation must be pulled in lazily.  This keeps a
-        # single token convention instead of a second normalizer here.
+        """Validate identifiers, uniqueness, and environment-token safety."""
         from medre.config.env import normalize_adapter_id
 
-        # -- Identifier contract (every adapter, before cross-checks) --------
-        seen: dict[str, tuple[str, str]] = {}  # adapter_id → (transport, instance_name)
-        tokens: dict[str, tuple[str, str]] = (
-            {}
-        )  # env token → (transport, instance_name)
-        for transport, group in (
-            ("matrix", self.matrix),
-            ("meshtastic", self.meshtastic),
-            ("meshcore", self.meshcore),
-            ("lxmf", self.lxmf),
-        ):
+        seen: dict[str, tuple[str, str]] = {}
+        tokens: dict[str, tuple[str, str]] = {}
+        for transport, group in self.groups():
             for instance_name, rtc in group.items():
                 aid = rtc.adapter_id
                 section = f"adapters.{transport}.{instance_name}"
@@ -586,7 +540,6 @@ class AdapterConfigSet:
                         adapter_id=aid,
                         section_path=section,
                     )
-                # -- Duplicate adapter IDs across all transports --------------
                 if aid in seen:
                     prev_transport, prev_name = seen[aid]
                     raise ConfigValidationError(
@@ -598,7 +551,6 @@ class AdapterConfigSet:
                         section_path=section,
                     )
                 seen[aid] = (transport, instance_name)
-                # -- Environment-token collisions across all transports -------
                 token = normalize_adapter_id(aid)
                 if token in tokens:
                     prev_transport, prev_name = tokens[token]
@@ -616,7 +568,7 @@ class AdapterConfigSet:
 
 
 # ---------------------------------------------------------------------------
-# Root configuration
+# Root runtime config
 # ---------------------------------------------------------------------------
 
 

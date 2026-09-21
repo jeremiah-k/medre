@@ -57,17 +57,11 @@ import re
 from dataclasses import dataclass, field, fields
 from typing import Any, Self, get_args, get_origin, get_type_hints
 
-from medre.config.adapters.lxmf import LxmfConfig
-from medre.config.adapters.matrix import MatrixConfig
-from medre.config.adapters.meshcore import MeshCoreConfig
-from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.adapter_registry import get_adapter_spec, registered_transports
 from medre.config.errors import ConfigValidationError
 from medre.config.identifiers import adapter_id_problem
 from medre.config.model import (
-    LxmfRuntimeConfig,
-    MatrixRuntimeConfig,
-    MeshCoreRuntimeConfig,
-    MeshtasticRuntimeConfig,
+    GenericAdapterRuntimeConfig,
     RetryConfig,
     RuntimeConfig,
 )
@@ -119,11 +113,9 @@ ROUTE_ENV_NAMES: frozenset[str] = frozenset()
 
 RETRY_ENV_PREFIX = "MEDRE_RETRY__"
 
-_REJECTED_TRANSPORT_PREFIXES: tuple[str, ...] = (
-    "MEDRE_MATRIX_",
-    "MEDRE_MESHTASTIC_",
-    "MEDRE_MESHCORE_",
-    "MEDRE_LXMF_",
+_REJECTED_TRANSPORT_PREFIXES: tuple[str, ...] = tuple(
+    f"MEDRE_{transport.upper().replace('-', '_')}_"
+    for transport in registered_transports()
 )
 
 # ---------------------------------------------------------------------------
@@ -403,16 +395,22 @@ def detect_token_collisions(adapters_dict: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Transport config-class registry
+# Transport config-class resolution
 # ---------------------------------------------------------------------------
 
-# Maps transport name → (ConfigClass, RuntimeConfigClass).
-_TRANSPORT_REGISTRY: dict[str, tuple[type, type]] = {
-    "matrix": (MatrixConfig, MatrixRuntimeConfig),
-    "meshtastic": (MeshtasticConfig, MeshtasticRuntimeConfig),
-    "meshcore": (MeshCoreConfig, MeshCoreRuntimeConfig),
-    "lxmf": (LxmfConfig, LxmfRuntimeConfig),
-}
+
+def _transport_types(transport: str) -> tuple[type, type]:
+    """Resolve the config and runtime-wrapper classes for *transport*."""
+    spec = get_adapter_spec(transport)
+    if spec is None:
+        raise KeyError(transport)
+    config_cls = spec.config.load()
+    runtime_cls = (
+        spec.runtime_config.load()
+        if spec.runtime_config is not None
+        else GenericAdapterRuntimeConfig
+    )
+    return config_cls, runtime_cls
 
 
 def _valid_fields_for_transport(transport: str) -> frozenset[str]:
@@ -421,7 +419,7 @@ def _valid_fields_for_transport(transport: str) -> frozenset[str]:
     Includes ``"enabled"`` (from the runtime wrapper) and all fields from
     the transport's config dataclass.
     """
-    config_cls = _TRANSPORT_REGISTRY[transport][0]
+    config_cls, _runtime_cls = _transport_types(transport)
     config_fields = frozenset(f.name for f in fields(config_cls))
     return config_fields | frozenset({"enabled"})
 
@@ -430,7 +428,7 @@ def _get_field_type(transport: str, field_name: str) -> type | None:
     """Return the Python type annotation for a field, or ``None``."""
     if field_name == "enabled":
         return bool
-    config_cls = _TRANSPORT_REGISTRY[transport][0]
+    config_cls, _runtime_cls = _transport_types(transport)
     hints = get_type_hints(config_cls)
     hint = hints.get(field_name)
     if hint is None:
@@ -860,12 +858,7 @@ def _iter_configured_adapters(
 ) -> list[tuple[str, str, str, Any]]:
     """Return ``(transport, key, adapter_id, runtime_config)`` for all adapters."""
     result: list[tuple[str, str, str, Any]] = []
-    for transport, group in (
-        ("matrix", config.adapters.matrix),
-        ("meshtastic", config.adapters.meshtastic),
-        ("meshcore", config.adapters.meshcore),
-        ("lxmf", config.adapters.lxmf),
-    ):
+    for transport, group in config.adapters.groups():
         for key, rtc in group.items():
             result.append((transport, key, rtc.adapter_id, rtc))
     return result
@@ -876,8 +869,7 @@ def _collect_configured_adapter_refs(
 ) -> list[tuple[str, str, str]]:
     """Return list of (transport, adapter_key, adapter_id) for all configured adapters."""
     refs: list[tuple[str, str, str]] = []
-    for transport in ("matrix", "meshtastic", "meshcore", "lxmf"):
-        group = getattr(config.adapters, transport, {})
+    for transport, group in config.adapters.groups():
         for key, rtc in group.items():
             refs.append((transport, key, rtc.adapter_id))
     return refs
@@ -972,23 +964,17 @@ def apply_instance_env_overrides(
         ]
         raise ConfigValidationError(f"{'; '.join(msgs)}. Known tokens: {known}")
 
-    # Prepare mutable transport dicts.
-    new_matrix = dict(config.adapters.matrix)
-    new_meshtastic = dict(config.adapters.meshtastic)
-    new_meshcore = dict(config.adapters.meshcore)
-    new_lxmf = dict(config.adapters.lxmf)
+    # Prepare mutable transport dicts from the authoritative registry-backed
+    # adapter collection.
     transport_dicts: dict[str, dict[str, Any]] = {
-        "matrix": new_matrix,
-        "meshtastic": new_meshtastic,
-        "meshcore": new_meshcore,
-        "lxmf": new_lxmf,
+        transport: dict(group) for transport, group in config.adapters.groups()
     }
 
     # -- Apply overrides to matched (existing) tokens ----------------------
 
     for transport, adapter_overrides in transport_overrides.items():
         valid_fields = _valid_fields_for_transport(transport)
-        config_cls, runtime_cls = _TRANSPORT_REGISTRY[transport]
+        config_cls, runtime_cls = _transport_types(transport)
         transport_dict = transport_dicts[transport]
 
         for adapter_key, field_map in adapter_overrides.items():
@@ -1069,15 +1055,15 @@ def apply_instance_env_overrides(
 
     for token, field_map in created_tokens.items():
         transport_raw = field_map["transport"].raw_value.strip()
-        if transport_raw not in _TRANSPORT_REGISTRY:
-            supported = sorted(_TRANSPORT_REGISTRY.keys())
+        if get_adapter_spec(transport_raw) is None:
+            supported = sorted(registered_transports())
             raise ConfigValidationError(
                 f"Invalid TRANSPORT {transport_raw!r} for token {token!r}. "
                 f"Supported transports: {supported}"
             )
 
         transport = transport_raw
-        config_cls, runtime_cls = _TRANSPORT_REGISTRY[transport]
+        config_cls, runtime_cls = _transport_types(transport)
         valid_fields = _valid_fields_for_transport(transport)
 
         # Determine adapter_id (explicit or default).  The explicit value is
@@ -1186,12 +1172,7 @@ def apply_instance_env_overrides(
 
     from medre.config.model import AdapterConfigSet
 
-    new_adapters = AdapterConfigSet(
-        matrix=new_matrix,
-        meshtastic=new_meshtastic,
-        meshcore=new_meshcore,
-        lxmf=new_lxmf,
-    )
+    new_adapters = AdapterConfigSet(groups=transport_dicts)
 
     # Re-run the full configured-identifier validation on the merged set so
     # the post-override configuration obeys exactly the same contract as a

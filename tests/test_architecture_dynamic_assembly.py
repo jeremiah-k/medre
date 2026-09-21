@@ -24,6 +24,20 @@ _SRC = Path(__file__).resolve().parents[1] / "src" / "medre"
 # ---------------------------------------------------------------------------
 
 
+def test_extracts_real_built_in_registry() -> None:
+    """Extract lazy adapter refs from the authoritative built-in registry."""
+    registry_file = _SRC / "adapter_registry.py"
+    if not registry_file.is_file():
+        pytest.skip("adapter_registry.py not found")
+    source = registry_file.read_text(encoding="utf-8")
+    results = extract_dynamic_adapter_imports(source)
+    modules = [r[0] for r in results]
+    assert len(modules) >= 8
+    assert "medre.adapters.matrix.adapter" in modules
+    assert "medre.adapters.matrix.renderer" in modules
+    assert "medre.adapters.lxmf.adapter" in modules
+
+
 class TestExtractDynamicAdapterImports:
     """Tests for extract_dynamic_adapter_imports()."""
 
@@ -53,21 +67,6 @@ class TestExtractDynamicAdapterImports:
         modules = [r[0] for r in results]
         assert "medre.adapters.matrix.renderer" in modules
         assert "medre.adapters.lxmf.renderer" in modules
-
-    def test_extracts_both_from_real_builder(self) -> None:
-        """Extracts from the real builder.py source file."""
-        builder_file = _SRC / "runtime" / "builder.py"
-        if not builder_file.is_file():
-            pytest.skip("builder.py not found")
-        source = builder_file.read_text(encoding="utf-8")
-        results = extract_dynamic_adapter_imports(source)
-        modules = [r[0] for r in results]
-        # Should find 4 adapter factories + 4 renderer specs = 8
-        assert (
-            len(modules) >= 8
-        ), f"Expected >= 8 dynamic imports, got {len(modules)}: {modules}"
-        assert "medre.adapters.matrix.adapter" in modules
-        assert "medre.adapters.matrix.renderer" in modules
 
     def test_returns_line_numbers(self) -> None:
         """Each result includes a line number."""
@@ -206,7 +205,7 @@ class TestRealGraphBoundaryReport:
         )
 
     def test_allowed_runtime_adapter_at_least_four(self):
-        # 4 adapters via _AdapterFactory + 4 renderers via _ADAPTER_RENDERER_SPECS
+        # Built-in adapter refs are discovered from the authoritative registry.
         assert (
             self.report.allowed_runtime_adapter.count >= 4
         ), f"Expected ≥4 allowed adapter refs, got {self.report.allowed_runtime_adapter.count}"

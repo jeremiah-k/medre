@@ -25,13 +25,14 @@ from pathlib import Path
 
 import pytest
 
+from medre.adapter_registry import registered_transports
 from medre.runtime.architecture_report import _SDK_PACKAGES
 
 # ---------------------------------------------------------------------------
 # Helpers (mirroring test_cross_transport_boundaries style)
 # ---------------------------------------------------------------------------
 
-_ADAPTER_TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
+_ADAPTER_TRANSPORTS = registered_transports()
 
 _CONCRETE_ADAPTER_PREFIXES = tuple(f"medre.adapters.{t}" for t in _ADAPTER_TRANSPORTS)
 
