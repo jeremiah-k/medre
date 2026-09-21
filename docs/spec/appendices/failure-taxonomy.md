@@ -135,7 +135,7 @@ appears more than once in the event's routing metadata). The adapter's
 | Outcome status   | `skipped`                                                                                       |
 | Receipt status   | `suppressed`                                                                                    |
 | Receipt evidence | `event_id`, `route_id`, `target_adapter`, `failure_kind="loop_suppressed"`, and a reason string |
-| Retryable        | No — `next_retry_at` is `None`; durable outbox work is not scheduled for retry                              |
+| Retryable        | No — `next_retry_at` is `None`; durable outbox work is not scheduled for retry                  |
 | Adapter called   | No                                                                                              |
 
 Self-loop and route-trace suppression produce the same `failure_kind` but are
@@ -157,7 +157,7 @@ invocation.
 | Outcome status   | `skipped`                                                                                                                |
 | Receipt status   | `suppressed`                                                                                                             |
 | Receipt evidence | `event_id`, `route_id`, `target_adapter`, `failure_kind="capability_suppressed"`, `capability_field`, `capability_level` |
-| Retryable        | No — `next_retry_at` is `None`; durable outbox work is not scheduled for retry                                                       |
+| Retryable        | No — `next_retry_at` is `None`; durable outbox work is not scheduled for retry                                           |
 | Adapter called   | No                                                                                                                       |
 
 The receipt `error` field carries the capability reason (e.g. `"reactions
@@ -341,7 +341,7 @@ resumed on next startup.
 | In-flight delivery completes during drain        | Normal receipt with final status (`sent` or `failed`)       |
 | In-flight delivery abandoned after drain timeout | Suppressed receipt with error `shutdown_drain_timeout`      |
 | New delivery rejected during shutdown            | Suppressed receipt with error `delivery_rejected_shutdown`  |
-| Pending `retry_wait` outbox item at shutdown       | No change — row remains resumable and is claimed when due   |
+| Pending `retry_wait` outbox item at shutdown     | No change — row remains resumable and is claimed when due   |
 | Pending outbox item at shutdown                  | No change — outbox row remains, reclaimable on next startup |
 
 ## 14. Orphan and Invalid-Lineage Finding Kinds

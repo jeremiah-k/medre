@@ -34,18 +34,17 @@ def test_resilience_defaults_match_schema_example_and_sample() -> None:
     root = Path(__file__).resolve().parents[1]
     config = _config().validate()
     schema = json.loads(
-        (root / "docs/schemas/adapter-config.schema.json").read_text(
-            encoding="utf-8"
-        )
+        (root / "docs/schemas/adapter-config.schema.json").read_text(encoding="utf-8")
     )
     meshtastic_schema = next(
-        branch for branch in schema["oneOf"] if branch.get("title") == "MeshtasticConfig"
+        branch
+        for branch in schema["oneOf"]
+        if branch.get("title") == "MeshtasticConfig"
     )
     properties = meshtastic_schema["properties"]
     example = json.loads(
         (
-            root
-            / "docs/schemas/examples/adapter-config-meshtastic-example.json"
+            root / "docs/schemas/examples/adapter-config-meshtastic-example.json"
         ).read_text(encoding="utf-8")
     )
     sample = generate_sample_config()
