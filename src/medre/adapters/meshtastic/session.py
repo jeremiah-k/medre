@@ -1097,7 +1097,6 @@ class MeshtasticSession:
 
         loop = asyncio.get_running_loop()
         completed: asyncio.Future[None] = loop.create_future()
-        sent_packet: Any = None
         self._last_liveness_probe_time = time.monotonic()
 
         def on_response(_packet: dict[str, Any]) -> None:
@@ -1119,44 +1118,108 @@ class MeshtasticSession:
 
         request = admin_pb2.AdminMessage()
         request.get_device_metadata_request = True
+
+        request_id_holder: dict[str, int | None] = {"id": None}
+        dropped = False
+
+        def retire_response_handler() -> None:
+            """Drop the registered handler exactly once, once we have its id."""
+            nonlocal dropped
+            request_id = request_id_holder["id"]
+            if dropped or not (isinstance(request_id, int) and request_id > 0):
+                return
+            request_runtime = getattr(client, "_request_wait_runtime", None)
+            drop_handler = getattr(request_runtime, "drop_response_handler", None)
+            if not callable(drop_handler):
+                return
+            dropped = True
+            try:
+                drop_handler(request_id)
+            except Exception:
+                self._logger.debug(
+                    "MeshtasticSession %s failed to retire liveness handler %s",
+                    self._adapter_id,
+                    request_id,
+                    exc_info=True,
+                )
+
+        async def _send_request() -> Any:
+            # Runs in a worker thread: the synchronous admin send must not
+            # stall the event loop for its whole duration.
+            packet = await asyncio.to_thread(
+                send_admin,
+                request,
+                wantResponse=True,
+                onResponse=on_response,
+            )
+            if packet is None:
+                raise MeshtasticConnectionError(
+                    "mtjk did not start the TCP liveness admin request"
+                )
+            request_id_holder["id"] = getattr(packet, "id", None)
+            return packet
+
+        # A shielded worker task: on timeout the send keeps running to
+        # completion, and its done callback retires the handler even though
+        # this coroutine already returned TimeoutError to the supervisor.
+        worker = asyncio.ensure_future(_send_request())
+        worker.add_done_callback(lambda _task: retire_response_handler())
         try:
-            # One deadline covers request initiation and response wait: the
-            # admin send runs synchronously in a worker thread, and a send
-            # that wedges must not defer recovery past the configured
+            # One deadline covers request initiation and response wait: a
+            # send that wedges must not defer recovery past the configured
             # liveness timeout.
             async with asyncio.timeout(self._config.tcp_liveness_timeout_seconds):
                 # Use mtjk's Node admin transport rather than raw MeshInterface.sendData.
                 # The Node seam owns admin-channel selection, PKI encryption, cached
                 # session-passkey attachment, and response matching.
-                sent_packet = await asyncio.to_thread(
-                    send_admin,
-                    request,
-                    wantResponse=True,
-                    onResponse=on_response,
-                )
-                if sent_packet is None:
-                    raise MeshtasticConnectionError(
-                        "mtjk did not start the TCP liveness admin request"
-                    )
+                await asyncio.shield(worker)
+                retire_response_handler()
                 await asyncio.shield(completed)
         finally:
-            request_id = getattr(sent_packet, "id", None)
-            request_runtime = getattr(client, "_request_wait_runtime", None)
-            drop_handler = getattr(request_runtime, "drop_response_handler", None)
-            if (
-                isinstance(request_id, int)
-                and request_id > 0
-                and callable(drop_handler)
-            ):
-                try:
-                    drop_handler(request_id)
-                except Exception:
-                    self._logger.debug(
-                        "MeshtasticSession %s failed to retire liveness handler %s",
-                        self._adapter_id,
-                        request_id,
-                        exc_info=True,
-                    )
+            retire_response_handler()
+
+    async def _create_client_offloop(self) -> Any:
+        """Create the SDK client in a worker thread, off the event loop.
+
+        The constructor is a blocking SDK call (TCP/serial/BLE connect);
+        running it on the loop would stall queue processing, health checks,
+        and shutdown for its whole duration — once per lifetime retry.
+
+        If this await is cancelled while a constructor is still running, the
+        worker keeps going to completion and any client it produced is
+        disposed here instead of being adopted by a session that already
+        tore down.
+        """
+        created: dict[str, Any] = {}
+
+        def _build() -> Any:
+            client = self._create_client()
+            created["client"] = client
+            return client
+
+        worker = asyncio.ensure_future(asyncio.to_thread(_build))
+        try:
+            return await asyncio.shield(worker)
+        except asyncio.CancelledError:
+
+            def _dispose_late(task: asyncio.Future[Any]) -> None:
+                client = created.get("client")
+                if client is None:
+                    return
+                close_fn = getattr(client, "close", None)
+                if callable(close_fn):
+                    try:
+                        close_fn()
+                    except Exception:
+                        self._logger.debug(
+                            "MeshtasticSession %s disposed client created "
+                            "after cancellation",
+                            self._adapter_id,
+                            exc_info=True,
+                        )
+
+            worker.add_done_callback(_dispose_late)
+            raise
 
     def _reconnect_delay(self, attempt: int) -> float:
         """Return capped exponential backoff with jitter without exponent overflow."""
@@ -1220,12 +1283,7 @@ class MeshtasticSession:
                 if self._stop_requested:
                     return
                 try:
-                    # NOTE: _create_client is a blocking SDK call and runs on
-                    # the event loop thread here (as it does at initial
-                    # start). Moving it to a worker thread requires executor
-                    # lifecycle design (cancellation, late-client disposal,
-                    # shutdown ordering) and is tracked as follow-up work.
-                    new_client = self._create_client()
+                    new_client = await self._create_client_offloop()
                     self._activate_client(new_client)
                     self._subscribe_callbacks()
                     self._refresh_node_id()
