@@ -446,7 +446,7 @@ async def test_session_reconnect_on_failure(fake_client):
     fake_client.next_connect_fails(3)  # Fail 3 times
     await session.start(ctx)
     # Prove recovery ran: attempts were made and the replacement client is live.
-    assert session.diagnostics().reconnect_attempts >= 1
+    assert session.diagnostics().reconnect_total_attempts >= 1
     assert session.client is not None
     # Then assert the reconnect policy declared by this adapter's transport profile.
     assert session.diagnostics().reconnecting is False
