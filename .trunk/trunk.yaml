@@ -18,7 +18,10 @@ runtimes:
 # This is the section where you manage your linters. (https://docs.trunk.io/check/configuration)
 lint:
   enabled:
-    - pinact@5.0.0
+    # 4.0.0 is the plugin-known-good release: pinact v5 requires long flags
+    # (--format/--update/--no-api) that the plugin wrapper still passes as
+    # single-dash v4 flags, so v5 cannot run through trunk at all.
+    - pinact@4.0.0
     - actionlint@1.7.12
     - bandit@1.9.4
     - black@26.5.1
