@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from medre.adapter_registry import registered_transports
-from medre.config.env import MedreEnvConfig, _REJECTED_TRANSPORT_PREFIXES
+from medre.config.env import _REJECTED_TRANSPORT_PREFIXES, MedreEnvConfig
 from medre.config.errors import ConfigValidationError
 
 

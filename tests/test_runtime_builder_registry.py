@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -13,11 +14,18 @@ from medre.config.model import (
     RuntimeConfig,
     StorageConfig,
 )
-from medre.config.paths import MedrePaths
+from medre.config.paths import MedrePaths, resolve
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.runtime import builder as builder_mod
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeConfigError
+
+
+@pytest.fixture()
+def tmp_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MedrePaths:
+    """Create a MedrePaths pointing at a temp directory."""
+    monkeypatch.setenv("MEDRE_HOME", str(tmp_path))
+    return resolve()
 
 
 def test_renderer_factory_import_failure_is_fatal(
