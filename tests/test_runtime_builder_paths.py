@@ -174,29 +174,20 @@ class TestMatrixStorePathDerivation:
         rt: MatrixRuntimeConfig,
         adapter_id: str,
     ) -> str | None:
-        """Build a single adapter via _build_single_adapter and capture the
-        store_path that was injected into the config before it reached the
-        factory."""
-        import medre.runtime.builder as builder_mod
-        from medre.runtime.builder import _AdapterFactory
+        """Capture the Matrix config after the registered preparation hook."""
+        from unittest.mock import patch
 
         captured: list[str | None] = []
-        original_factory = builder_mod._ADAPTER_BUILDERS.get("matrix")
 
-        def _capture_factory_build(cfg: Any) -> AdapterContract:
+        def _capture_build(_spec: object, cfg: Any) -> AdapterContract:
             captured.append(getattr(cfg, "store_path", None))
             return MagicMock(spec=AdapterContract)
 
-        capture_factory = MagicMock(spec=_AdapterFactory)
-        capture_factory.build = MagicMock(side_effect=_capture_factory_build)
-        builder_mod._ADAPTER_BUILDERS["matrix"] = capture_factory
-        try:
+        with patch("medre.runtime.builder._build_real_adapter", _capture_build):
             builder._build_single_adapter("matrix", adapter_id, rt)
-        finally:
-            if original_factory is not None:
-                builder_mod._ADAPTER_BUILDERS["matrix"] = original_factory
 
         return captured[0] if captured else None
+
 
 
 class TestEnsureDirsMatrixStore:

@@ -25,7 +25,7 @@ from tests.helpers.pipeline import make_event
 # Constants
 # ---------------------------------------------------------------------------
 
-TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
+TRANSPORTS = registered_transports()
 
 PROFILES_DIR = (
     Path(__file__).resolve().parent.parent / "docs" / "spec" / "transport-profiles"

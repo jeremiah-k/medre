@@ -103,6 +103,7 @@ When implemented, each extension stage MUST produce derived events with
 
 ```text
 src/medre/
+  adapter_registry.py  lazy built-in adapter type/assembly metadata
   cli/            argument parsing, command dispatch, I/O formatting
   runtime/        builder, app, route engine, operational tooling
   core/           event model, storage, pipeline, routing, rendering
@@ -119,7 +120,7 @@ src/medre/
     observability/ logging, metrics, sanitization
     supervision/  capacity controller, health, diagnostics
     diagnostics/  replay metrics, snapshot
-  adapters/       per-transport packages (matrix/, meshtastic/, meshcore/, lxmf/)
+  adapters/       per-transport packages plus shared dispatch infrastructure
     fakes/        fake adapters for testing
   config/         loader, model, env overrides, paths, sample generation
     adapters/     per-transport config dataclasses and credential helpers
@@ -129,19 +130,22 @@ src/medre/
 
 ### 4.2 Import Rules
 
-| Layer       | May Import From                                          | Must Not Import From               |
-| ----------- | -------------------------------------------------------- | ---------------------------------- |
-| `core/`     | `core/` only                                             | `adapters/`, `config/`, `runtime/` |
-| `config/`   | `config/` (including `config.adapters`, `config.routes`) | `adapters/`, `runtime/`            |
-| `adapters/` | `core.contracts.adapter`, `config.adapters.*`, `core.*`  | Other adapter packages, `runtime/` |
-| `runtime/`  | `core.*`, `config.*`, `adapters.*`                       | —                                  |
+| Layer                  | May Import From                                                       | Must Not Import From               |
+| ---------------------- | --------------------------------------------------------------------- | ---------------------------------- |
+| `adapter_registry.py`  | stdlib only; concrete modules are lazy symbol strings                 | concrete adapter/config SDK imports |
+| `core/`                | `core/` only                                                          | `adapters/`, `config/`, `runtime/` |
+| `config/`              | `config/`, `medre.adapter_registry`                                   | `adapters/`, `runtime/`            |
+| `adapters/`            | `core.*`, `config.adapters.*`, `medre.adapter_registry`               | Other adapter packages, `runtime/` |
+| `runtime/`             | `core.*`, `config.*`, `medre.adapter_registry`; adapter assembly refs | —                                  |
 
 ### 4.3 Key Invariants
 
 - **CLI commands never import adapter implementations directly.** The `run`
   command calls `RuntimeBuilder` which handles adapter construction.
-- **`RuntimeBuilder` is the single assembly point.** It is the only module
-  that imports both config model types and adapter base classes.
+- **Adapter assembly has one declarative source of truth.**
+  `medre.adapter_registry` owns lazy built-in type metadata; `RuntimeBuilder`
+  executes that metadata. Neither generic config nor runtime code enumerates
+  concrete transports independently.
 - **`core/` is transport-agnostic.** No module under `core/` imports from
   `adapters/` or `runtime/`.
 - **Config package follows the same no-adapters, no-SDK rule as core.**

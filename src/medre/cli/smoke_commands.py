@@ -10,15 +10,14 @@ from .json import to_json
 
 
 def _transport_for_adapter(adapter_id: str, config: object) -> str:
-    """Look up the transport type for an adapter_id from config."""
+    """Look up an adapter's registered transport from runtime config."""
     adapters = getattr(config, "adapters", None)
-    if adapters is None:
+    groups = getattr(adapters, "groups", None)
+    if not callable(groups):
         return "unknown"
-    for transport in ("matrix", "meshtastic", "meshcore", "lxmf"):
-        group = getattr(adapters, transport, {})
-        for _name, rtc in group.items():
-            if rtc.adapter_id == adapter_id:
-                return transport
+    for transport, group in groups():
+        if adapter_id in group:
+            return transport
     return "unknown"
 
 

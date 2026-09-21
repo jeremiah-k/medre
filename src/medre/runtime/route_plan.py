@@ -52,7 +52,7 @@ class AdapterSummary:
     """One configured adapter summarized for plan output."""
 
     adapter_id: str
-    transport: str  # "matrix", "meshtastic", "meshcore", "lxmf"
+    transport: str  # registered built-in transport name
     enabled: bool
     origin_label: str  # the adapter's configured origin_label (fallback value)
 

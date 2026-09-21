@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 
+from medre.adapter_registry import registered_transports
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata
@@ -44,7 +45,7 @@ from medre.runtime.architecture_report import _SDK_PACKAGES
 # Helpers
 # ---------------------------------------------------------------------------
 
-_ADAPTER_TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
+_ADAPTER_TRANSPORTS = registered_transports()
 """Four transport names."""
 
 _CONCRETE_ADAPTER_PREFIXES = tuple(f"medre.adapters.{t}" for t in _ADAPTER_TRANSPORTS)

@@ -33,6 +33,7 @@ from typing import Any, Mapping
 import msgspec
 import yaml
 
+from medre.adapter_registry import get_adapter_spec
 from medre.config._yaml import parse_yaml_config
 from medre.config.errors import ConfigError, ConfigValidationError
 from medre.config.loader import ConfigSource, find_config, load_config
@@ -502,23 +503,16 @@ def _build_adapters(config: Any) -> dict[str, Any]:
     return {"adapters": adapters}
 
 
-# Safe endpoint-ish fields reported per transport (presence only, never
-# values). Chosen to aid support triage: enough to see connection shape
-# without leaking endpoints that could be sensitive in some deployments.
-_ENDPOINT_FIELDS: dict[str, tuple[str, ...]] = {
-    "matrix": ("homeserver", "user_id", "room_allowlist"),
-    "meshtastic": ("host", "port", "serial_port", "ble_address", "channel_mapping"),
-    "meshcore": ("host", "port", "serial_port", "ble_address", "serial_baudrate"),
-    "lxmf": ("storage_path", "display_name"),
-}
+# Support-bundle field classification is adapter-owned registry metadata.
+# Generic support tooling never maintains a parallel transport map.
 
-# Secret-like fields reported per transport as boolean presence only.
-# Values are NEVER included — this dict only names which fields count.
-_SECRET_FIELDS: dict[str, tuple[str, ...]] = {
-    "matrix": ("access_token",),
-    "meshcore": ("ble_pin",),
-    "lxmf": ("identity_path",),
-}
+
+def _support_fields(transport: str, *, secret: bool) -> tuple[str, ...]:
+    """Return registered support-bundle field names for *transport*."""
+    spec = get_adapter_spec(transport)
+    if spec is None:
+        return ()
+    return spec.support_secret_fields if secret else spec.support_endpoint_fields
 
 
 def _field_is_present(cfg: Any, name: str) -> bool:
@@ -555,7 +549,7 @@ def _endpoint_fields_present(transport: str, cfg: Any) -> dict[str, bool]:
     """
     return {
         name: True
-        for name in _ENDPOINT_FIELDS.get(transport, ())
+        for name in _support_fields(transport, secret=False)
         if _field_is_present(cfg, name)
     }
 
@@ -569,7 +563,7 @@ def _secret_fields_present(transport: str, cfg: Any) -> dict[str, bool]:
     """
     return {
         name: True
-        for name in _SECRET_FIELDS.get(transport, ())
+        for name in _support_fields(transport, secret=True)
         if _field_is_present(cfg, name)
     }
 

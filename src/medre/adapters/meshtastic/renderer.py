@@ -882,3 +882,30 @@ class MeshtasticRenderer:
     def _plain_text(event: CanonicalEvent) -> str:
         """Extract plain text without relation fallback formatting."""
         return str(event.payload.get("text", event.payload.get("body", "")))
+
+
+def build_meshtastic_renderer(
+    *,
+    runtime_configs: Mapping[str, Any],
+    all_runtime_configs: Mapping[str, Mapping[str, Any]],
+    source_attribution: Mapping[str, Any],
+) -> MeshtasticRenderer | None:
+    """Build the registered Meshtastic renderer for runtime assembly."""
+    del all_runtime_configs
+    from medre.config.adapters.meshtastic import MeshtasticConfig
+
+    configs: dict[str, MeshtasticConfig] = {}
+    for rtc in runtime_configs.values():
+        if not getattr(rtc, "enabled", False):
+            continue
+        adapter_id = rtc.adapter_id
+        config = rtc.config
+        if config is None:
+            config = MeshtasticConfig(adapter_id=adapter_id, radio_relay_prefix="")
+        configs[adapter_id] = config
+    if not configs:
+        return None
+    return MeshtasticRenderer(
+        configs=configs,
+        source_attribution=dict(source_attribution),
+    )

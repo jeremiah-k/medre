@@ -19,8 +19,10 @@ The configuration system lives under `medre.config`:
 | `model.py`       | Typed frozen-dataclass configuration models                                                          |
 | `routes.py`      | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)  |
 
-Per-transport config dataclasses live in `medre.config.adapters.*`:
-`MatrixConfig`, `MeshtasticConfig`, `MeshCoreConfig`, `LxmfConfig`.
+Per-transport config dataclasses live in `medre.config.adapters.*`. The
+allowed built-in transport vocabulary and lazy config-class references come
+from `medre.adapter_registry`; the config package does not maintain a second
+transport list.
 
 Config validation errors are `ValueError` subclasses (`AdapterConfigError`),
 not runtime adapter errors.
@@ -38,6 +40,13 @@ class RuntimeConfig:
     adapters: AdapterConfigSet    # grouped by transport type
     routes: RouteConfigSet        # ordered, validated route definitions
 ```
+
+`AdapterConfigSet` stores transport groups in a registry-keyed mapping rather
+than one field per built-in transport. Existing attribute access such as
+`config.adapters.matrix` remains available, while generic consumers iterate
+`config.adapters.groups()`. This allows a new registered built-in transport to
+flow through loading, env overrides, validation, and runtime assembly without
+changing the root config model.
 
 ### 2.1 RuntimeOptions
 

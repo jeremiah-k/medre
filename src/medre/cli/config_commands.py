@@ -90,12 +90,7 @@ def _config_check(config_path: str | None) -> None:
     enabled_count = 0
     validation_errors: list[str] = []
 
-    for transport, adapters in [
-        ("matrix", config.adapters.matrix),
-        ("meshtastic", config.adapters.meshtastic),
-        ("meshcore", config.adapters.meshcore),
-        ("lxmf", config.adapters.lxmf),
-    ]:
+    for transport, adapters in config.adapters.groups():
         for name, ac in adapters.items():
             total += 1
             status = "enabled" if ac.enabled else "disabled"
@@ -247,6 +242,9 @@ def _adapters() -> None:
 
     # Check SDK availability
     for transport, dist_name, import_names in TRANSPORTS:
+        if not import_names:
+            print(f"  {transport:14s} Python SDK: not required")
+            continue
         installed = False
         for mod_name in import_names:
             try:
@@ -256,7 +254,8 @@ def _adapters() -> None:
             except ImportError:
                 pass
         status = "installed" if installed else "not installed"
-        print(f"  {transport:14s} SDK ({dist_name}): {status}")
+        label = dist_name or "external"
+        print(f"  {transport:14s} SDK ({label}): {status}")
 
     # Configured adapters from config
     print()

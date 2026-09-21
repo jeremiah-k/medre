@@ -9,6 +9,7 @@ import ast as _ast
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from medre.adapter_registry import adapter_sdk_packages, iter_adapter_specs
 from medre.runtime.architecture_ast import (
     extract_aliases,
     normalize_import_records_for_graph,
@@ -262,32 +263,21 @@ def render_dependency_graph_report(report: DependencyGraphReport) -> str:
     return "\n".join(lines)
 
 
+# Adapter SDK package names and per-transport allowances come from the same
+# built-in registry used by runtime assembly.  Architecture policy therefore
+# cannot silently drift when another built-in adapter is registered.
+_SDK_PACKAGES = adapter_sdk_packages()
+
 _CORE_FORBIDDEN = (
     "medre.runtime",
     "medre.adapters",
     "medre.cli",
-    "nio",
-    "meshtastic",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
+    *_SDK_PACKAGES,
 )
 
 _ROUTE_ENGINE_FORBIDDEN = (
     "medre.adapters",
-    "nio",
-    "meshtastic",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
+    *_SDK_PACKAGES,
     "medre.runtime.builder",
 )
 
@@ -296,54 +286,22 @@ _CONFIG_FORBIDDEN = (
     "medre.runtime.builder",
     "medre.runtime.route_engine",
     "medre.core.engine",
-    "nio",
-    "meshtastic",
-    "aiohttp",
-    "serial",
-    "serial_asyncio",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
+    *_SDK_PACKAGES,
 )
 
-# Forbidden prefixes for codec/renderer modules
 _CODEC_RENDERER_FORBIDDEN = (
-    "nio",
-    "meshtastic",
-    "aiohttp",
-    "bleak",
-    "serial",
-    "serial_asyncio",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
+    *_SDK_PACKAGES,
     "medre.runtime",
     "medre.core.engine",
     "medre.core.storage",
     "medre.cli",
 )
 
-# Canonical set of transport SDK package names — single source of truth.
-_SDK_PACKAGES = (
-    "nio",
-    "meshtastic",
-    "meshcore",
-    "RNS",
-    "lxmf",
-    "LXMF",
-    "aiohttp",
-    "bleak",
-    "serial",
-    "serial_asyncio",
-)
-
-# Import-line prefixes derived from _SDK_PACKAGES.
 _BANNED_SDK_IMPORT_PREFIXES = tuple(
-    s for sdk in _SDK_PACKAGES for s in (f"import {sdk}", f"from {sdk}")
+    prefix
+    for sdk in _SDK_PACKAGES
+    for prefix in (f"import {sdk}", f"from {sdk}")
 )
-
 
 @dataclass
 class BoundaryViolation:
@@ -402,17 +360,11 @@ class RouteAdapterBoundaryReport:
 
 # Per-transport allowed SDKs for session modules.
 SESSION_ALLOWED_SDKS: dict[str, tuple[str, ...]] = {
-    "matrix": ("nio", "aiohttp"),
-    "meshtastic": ("meshtastic", "serial", "serial_asyncio"),
-    "meshcore": ("meshcore", "bleak", "serial", "serial_asyncio"),
-    "lxmf": ("RNS", "LXMF", "lxmf"),
+    spec.transport: spec.sdk_import_roots for spec in iter_adapter_specs()
 }
 
 _FAKE_TO_TRANSPORT = {
-    "fake_matrix": "matrix",
-    "fake_meshtastic": "meshtastic",
-    "fake_meshcore": "meshcore",
-    "fake_lxmf": "lxmf",
+    f"fake_{spec.transport}": spec.transport for spec in iter_adapter_specs()
 }
 
 
@@ -477,14 +429,19 @@ def _collect_adapter_strings(
                 _collect_adapter_strings(key, lineno, results)
         for val in node.values:
             _collect_adapter_strings(val, lineno, results)
+    elif isinstance(node, _ast.Call):
+        for arg in node.args:
+            _collect_adapter_strings(arg, lineno, results)
+        for keyword in node.keywords:
+            _collect_adapter_strings(keyword.value, lineno, results)
 
 
 def extract_dynamic_adapter_imports(source: str) -> list[tuple[str, int, str]]:
     """Extract dynamic adapter module strings from builder source.
 
-    Parses AST for ``_AdapterFactory(module="medre.adapters....")`` calls,
-    ``_ADAPTER_RENDERER_SPECS`` list literals, ``importlib.import_module()``
-    calls, and ``__import__()`` calls.
+    Parses AST for legacy builder factories/renderer specs, registry-like
+    assignments containing ``medre.adapters.*`` symbol references, dynamic
+    ``importlib.import_module()`` calls, and ``__import__()`` calls.
 
     Alias-aware: recognizes aliased imports such as
     ``import importlib as il`` or ``from importlib import import_module as im``.
@@ -673,6 +630,32 @@ def build_route_adapter_boundary_report(
                     BoundaryViolation(
                         source="medre.runtime.builder",
                         target=f"<scan error: {builder_file}>",
+                        line=0,
+                        rule=f"dynamic scan error: {exc}",
+                    )
+                )
+
+    # --- Authoritative built-in adapter registry assembly refs ---
+    registry_info = graph.modules.get("medre.adapter_registry")
+    if registry_info and src_root is not None:
+        registry_file = src_root / registry_info.file
+        if registry_file.exists():
+            try:
+                source = registry_file.read_text(encoding="utf-8")
+                for target, line, reason in extract_dynamic_adapter_imports(source):
+                    allowed.append(
+                        BoundaryViolation(
+                            source="medre.adapter_registry",
+                            target=target,
+                            line=line,
+                            rule=reason,
+                        )
+                    )
+            except (SyntaxError, OSError) as exc:
+                scan_errors.append(
+                    BoundaryViolation(
+                        source="medre.adapter_registry",
+                        target=f"<scan error: {registry_file}>",
                         line=0,
                         rule=f"dynamic scan error: {exc}",
                     )
@@ -896,14 +879,46 @@ def build_route_adapter_boundary_report(
     # --- Runtime Assembly Points ---
     assembly: list[BoundaryViolation] = []
     for v in allowed:
+        rule = (
+            "allowed: built-in adapter registry declaration"
+            if v.source == "medre.adapter_registry"
+            else "allowed: RuntimeBuilder adapter assembly"
+        )
         assembly.append(
             BoundaryViolation(
                 source=v.source,
                 target=v.target,
                 line=v.line,
-                rule="allowed: RuntimeBuilder adapter assembly",
+                rule=rule,
             )
         )
+
+    # In the registry-driven model RuntimeBuilder no longer contains concrete
+    # adapter module strings, but it remains the single runtime executor of
+    # adapter assembly. Record that generic edge explicitly so reports retain
+    # the distinction between declarative registration and runtime assembly.
+    if builder_info is not None and not any(
+        v.source == "medre.runtime.builder" for v in assembly
+    ):
+        registry_edge = next(
+            (
+                edge
+                for edge in builder_info.imports
+                if edge.target == "medre.adapter_registry"
+                and not edge.is_type_checking
+            ),
+            None,
+        )
+        if registry_edge is not None:
+            assembly.append(
+                BoundaryViolation(
+                    source="medre.runtime.builder",
+                    target="medre.adapter_registry",
+                    line=registry_edge.line,
+                    rule="allowed: RuntimeBuilder registry-driven adapter assembly",
+                )
+            )
+
     for v in forbidden:
         assembly.append(
             BoundaryViolation(

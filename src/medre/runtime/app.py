@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from medre.adapter_registry import get_adapter_spec
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.health import (
@@ -2300,20 +2301,24 @@ class MedreApp:
         # SQLite parent directory (database_path.parent may not exist)
         dirs_to_create.append(self.paths.database_path.parent)
 
-        # Per-adapter state roots and transport-specific subdirs.
-        # Each enabled adapter gets {state}/adapters/{adapter_id}/.
-        # Matrix adapters additionally get {state}/adapters/{adapter_id}/matrix/store.
+        # Per-adapter state roots plus adapter-owned runtime directories.
+        # Generic lifecycle code does not know which transports need extra
+        # state paths; built-in specs expose an optional pure directory hook.
         for transport, adapter_id, rtc in self.config.adapters.all_configs():
             if not rtc.enabled:
                 continue
-            adapter_root = self.paths.adapter_state_dir(adapter_id)
-            dirs_to_create.append(adapter_root)
-            if transport == "matrix":
-                store = (
-                    self.paths.adapter_transport_state_dir(adapter_id, "matrix")
-                    / "store"
+            dirs_to_create.append(self.paths.adapter_state_dir(adapter_id))
+            spec = get_adapter_spec(transport)
+            if spec is None or spec.runtime_directories is None:
+                continue
+            directory_provider = spec.runtime_directories.load()
+            dirs_to_create.extend(
+                directory_provider(
+                    getattr(rtc, "config", None),
+                    adapter_id=adapter_id,
+                    paths=self.paths,
                 )
-                dirs_to_create.append(store)
+            )
 
         for d in dirs_to_create:
             d.mkdir(parents=True, exist_ok=True)

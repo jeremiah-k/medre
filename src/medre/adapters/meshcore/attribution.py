@@ -31,8 +31,11 @@ def is_meshcore_native(native_data: dict[str, Any]) -> bool:
 
 def project_meshcore_attribution(
     native_data: dict[str, Any],
+    *,
+    source_transport_id: str | None = None,
 ) -> ProjectionMap:
     """Project the current MeshCore native namespace into generic fields."""
+    del source_transport_id
     meshcore = meshcore_namespace(native_data)
     sender_id = _str(meshcore.get("pubkey_prefix")) or _str(meshcore.get("sender_id"))
     channel = _str(meshcore.get("channel"))

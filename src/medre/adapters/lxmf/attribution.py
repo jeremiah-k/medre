@@ -59,8 +59,11 @@ def normalize_source_hash(source_hash: Any) -> str | None:
 
 def project_lxmf_attribution(
     native_data: dict[str, Any],
+    *,
+    source_transport_id: str | None = None,
 ) -> dict[str, str | None]:
     """Project the current LXMF native namespace into generic attribution."""
+    del source_transport_id
     lxmf = lxmf_namespace(native_data)
     sender_id = normalize_source_hash(lxmf.get("source_hash"))
     display_name = _label_str(lxmf.get("display_name"))
