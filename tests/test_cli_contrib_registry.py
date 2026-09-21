@@ -98,7 +98,7 @@ def test_disallowed_toplevel_defined() -> None:
 
 def test_dispatch_contribution_rejects_parser_without_dispatch() -> None:
     """A visible adapter command cannot silently succeed without dispatch."""
-    args = types.SimpleNamespace(command="adapter", adapter_command="briar")
+    args = types.SimpleNamespace(command="adapter", adapter_command="sample")
     spec = types.SimpleNamespace(cli_dispatch=None)
     with mock.patch("medre.cli.contrib.get_adapter_spec", return_value=spec):
         with pytest.raises(RuntimeError, match="registered a parser.*no dispatch hook"):

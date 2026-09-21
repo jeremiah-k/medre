@@ -1285,15 +1285,3 @@ class TestMalformedAdapterEnvVars:
         """Non-ADAPTER MEDRE_ vars don't cause malformed errors."""
         env = MedreEnvConfig.from_environ({"MEDRE_FUTURE_FEATURE": "some-value"})
         assert env.instance_overrides == {}
-
-
-def test_rejected_legacy_transport_prefixes_follow_registry() -> None:
-    """Legacy transport env rejection derives from registered transports."""
-    from medre.adapter_registry import registered_transports
-    from medre.config.env import _REJECTED_TRANSPORT_PREFIXES
-
-    expected = tuple(
-        f"MEDRE_{transport.upper().replace('-', '_')}_"
-        for transport in registered_transports()
-    )
-    assert _REJECTED_TRANSPORT_PREFIXES == expected

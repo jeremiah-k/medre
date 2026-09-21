@@ -55,37 +55,44 @@ def test_registry_is_ordered_unique_and_matches_config_groups() -> None:
 
 
 def test_registry_rejects_duplicate_transport() -> None:
-    spec = _synthetic_spec("briar")
+    spec = _synthetic_spec("sample")
     with pytest.raises(ValueError, match="duplicate adapter transport"):
         AdapterTypeRegistry((spec, spec))
 
 
-def test_registry_accepts_future_adapter_without_core_model_change() -> None:
-    registry = AdapterTypeRegistry((_synthetic_spec("briar"),))
-    assert registry.transports() == ("briar",)
-    assert registry.require("briar").install_extra == "briar"
+def test_registered_transport_is_accepted_without_core_model_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = AdapterTypeRegistry((_synthetic_spec("sample"),))
+    monkeypatch.setattr("medre.config.model.registered_transports", registry.transports)
+
+    config = AdapterConfigSet(sample={})
+
+    assert registry.transports() == ("sample",)
+    assert registry.require("sample").install_extra == "sample"
+    assert config.groups() == (("sample", {}),)
 
 
 def test_registry_supports_sidecar_adapter_without_python_sdk() -> None:
     spec = replace(
-        _synthetic_spec("briar"),
+        _synthetic_spec("sample"),
         distribution=None,
         import_names=(),
         sdk_import_roots=(),
     )
     registry = AdapterTypeRegistry((spec,))
-    assert registry.require("briar").has_python_sdk is False
+    assert registry.require("sample").has_python_sdk is False
 
 
 def test_registry_requires_complete_cli_contribution_pair() -> None:
-    spec = replace(_synthetic_spec("briar"), cli_register=_symbol())
+    spec = replace(_synthetic_spec("sample"), cli_register=_symbol())
     with pytest.raises(ValueError, match="must declare both"):
         AdapterTypeRegistry((spec,))
 
 
 def test_registry_rejects_overlapping_support_fields() -> None:
     spec = replace(
-        _synthetic_spec("briar"),
+        _synthetic_spec("sample"),
         support_endpoint_fields=("base_url",),
         support_secret_fields=("base_url",),
     )
@@ -142,15 +149,27 @@ def test_architecture_sdk_allowances_derive_from_registry() -> None:
     }
 
 
-def test_registered_symbols_resolve_without_optional_sdk_imports() -> None:
+def test_registered_symbols_resolve() -> None:
     for spec in BUILTIN_ADAPTER_REGISTRY:
         assert spec.config.load() is not None
+        assert spec.adapter.load() is not None
         assert spec.fake_adapter.load() is not None
-        assert spec.renderer_factory is not None
-        assert spec.renderer_factory.load() is not None
         assert spec.native_namespace_reader.load() is not None
         assert spec.versioned_namespace_reader.load() is not None
         assert spec.attribution_projector.load() is not None
+
+        optional_refs = (
+            spec.runtime_config,
+            spec.renderer_factory,
+            spec.dependency_probe,
+            spec.runtime_config_preparer,
+            spec.runtime_directories,
+            spec.cli_register,
+            spec.cli_dispatch,
+        )
+        for ref in optional_refs:
+            if ref is not None:
+                assert ref.load() is not None
 
 
 def test_runtime_schema_transport_groups_match_registry() -> None:
