@@ -5,11 +5,15 @@ Covers:
 - _is_set_annotation return-False path (line 97)
 - list → tuple coercion in _coerce_adapter_kwargs (lines 71-72)
 - unknown adapter key rejection via _coerce_adapter_kwargs and via load_config
+- _is_int_keyed_dict and string→int dict-key coercion
+- RuntimeLimits boundary validation and upper-bound warnings
+- AdapterConfigSet registry-keyed collection contract
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +23,12 @@ from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
 from medre.config.model import (
     _coerce_adapter_kwargs,
+    _is_int_keyed_dict,
     _is_set_annotation,
     _is_tuple_annotation,
+    AdapterConfigSet,
+    GenericAdapterRuntimeConfig,
+    RuntimeLimits,
 )
 
 # ---------------------------------------------------------------------------
@@ -230,3 +238,123 @@ def test_removed_adapter_key_meshnet_name_rejected_via_load(tmp_path: Path) -> N
         load_config(str(p))
     msg = str(exc_info.value)
     assert "meshnet_name" in msg
+
+
+# ---------------------------------------------------------------------------
+# _is_int_keyed_dict and int-keyed dict coercion
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _FakeIntKeyedConfig:
+    """Minimal frozen dataclass with an int-keyed dict field."""
+
+    name: str = "test"
+    mapping: dict[int, str] = field(default_factory=dict)
+
+
+class TestIsIntKeyedDict:
+    """_is_int_keyed_dict identifies ``dict[int, ...]`` annotations."""
+
+    def test_int_keyed_dict(self) -> None:
+        assert _is_int_keyed_dict(dict[int, str]) is True
+
+    def test_str_keyed_dict_is_not_int_keyed(self) -> None:
+        assert _is_int_keyed_dict(dict[str, int]) is False
+
+    def test_optional_int_keyed_dict(self) -> None:
+        assert _is_int_keyed_dict(dict[int, str] | None) is True
+
+    def test_non_dict_hint_is_not_int_keyed(self) -> None:
+        assert _is_int_keyed_dict(list[str]) is False
+
+    def test_bare_dict_is_not_int_keyed(self) -> None:
+        assert _is_int_keyed_dict(dict) is False
+
+
+class TestCoerceAdapterKwargsIntKeyedDict:
+    """_coerce_adapter_kwargs converts string-keyed YAML dicts to int keys."""
+
+    def test_string_keys_coerced_to_int(self) -> None:
+        raw: dict[str, Any] = {"mapping": {"1": "relay", "2": "backup"}}
+        result = _coerce_adapter_kwargs(
+            _FakeIntKeyedConfig,
+            raw,
+            transport="test",
+            section_path="adapters.test.fake",
+        )
+        assert result["mapping"] == {1: "relay", 2: "backup"}
+
+    def test_non_int_keys_pass_through_for_validate(self) -> None:
+        """Non-numeric keys are passed through so validate() reports them."""
+        raw: dict[str, Any] = {"mapping": {"bad": "relay"}}
+        result = _coerce_adapter_kwargs(
+            _FakeIntKeyedConfig,
+            raw,
+            transport="test",
+            section_path="adapters.test.fake",
+        )
+        assert result["mapping"] == {"bad": "relay"}
+
+
+# ---------------------------------------------------------------------------
+# RuntimeLimits boundaries
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeLimitsBoundaries:
+    """RuntimeLimits.validate rejects non-positive limits and warns on
+    unreasonable upper bounds."""
+
+    def test_nonpositive_replay_events_rejected(self) -> None:
+        with pytest.raises(ConfigValidationError, match="max_inflight_replay_events"):
+            RuntimeLimits(max_inflight_replay_events=0).validate()
+
+    def test_upper_bound_limits_log_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger="medre.config.model"):
+            RuntimeLimits(
+                max_inflight_deliveries=10_001, max_inflight_replay_events=10_001
+            ).validate()
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("max_inflight_deliveries" in msg for msg in messages)
+        assert any("max_inflight_replay_events" in msg for msg in messages)
+
+
+# ---------------------------------------------------------------------------
+# AdapterConfigSet registry-keyed collection contract
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterConfigSetContract:
+    """AdapterConfigSet validates transport groups against the registry."""
+
+    def test_unknown_transport_group_rejected(self) -> None:
+        with pytest.raises(TypeError, match="unknown adapter transport group"):
+            AdapterConfigSet(sample={})
+
+    def test_group_supplied_twice_rejected(self) -> None:
+        with pytest.raises(TypeError, match="supplied twice"):
+            AdapterConfigSet(groups={"matrix": {}}, matrix={})
+
+    def test_unknown_attribute_raises_attribute_error(self) -> None:
+        config = AdapterConfigSet()
+        with pytest.raises(AttributeError):
+            config.bogus_transport  # noqa: B018 — attribute access is the point
+
+    def test_for_transport_unknown_lists_known(self) -> None:
+        with pytest.raises(KeyError, match="unknown adapter transport 'nope'"):
+            AdapterConfigSet().for_transport("nope")
+
+    def test_registered_transport_attr_returns_mapping(self) -> None:
+        config = AdapterConfigSet()
+        assert config.matrix == {}
+
+    def test_all_enabled_skips_disabled(self) -> None:
+        rtc = GenericAdapterRuntimeConfig(
+            adapter_id="m", enabled=False, config=None
+        )
+        config = AdapterConfigSet(matrix={"main": rtc})
+        assert config.all_enabled() == []
+        assert config.all_configs() == [("matrix", "m", rtc)]

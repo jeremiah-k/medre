@@ -60,6 +60,37 @@ def test_registry_rejects_duplicate_transport() -> None:
         AdapterTypeRegistry((spec, spec))
 
 
+def test_registry_rejects_invalid_transport_name() -> None:
+    spec = _synthetic_spec("Bad Transport")
+    with pytest.raises(ValueError, match="invalid adapter transport name"):
+        AdapterTypeRegistry((spec,))
+
+
+def test_registry_rejects_negative_detection_priority() -> None:
+    spec = replace(_synthetic_spec("sample"), native_detection_priority=-1)
+    with pytest.raises(ValueError, match="native_detection_priority must be >= 0"):
+        AdapterTypeRegistry((spec,))
+
+
+def test_registry_rejects_duplicate_endpoint_support_field() -> None:
+    spec = replace(
+        _synthetic_spec("sample"), support_endpoint_fields=("host", "host")
+    )
+    with pytest.raises(ValueError, match="duplicate support endpoint field"):
+        AdapterTypeRegistry((spec,))
+
+
+def test_registry_rejects_duplicate_secret_support_field() -> None:
+    spec = replace(_synthetic_spec("sample"), support_secret_fields=("pin", "pin"))
+    with pytest.raises(ValueError, match="duplicate support secret field"):
+        AdapterTypeRegistry((spec,))
+
+
+def test_require_unknown_transport_names_known_transports() -> None:
+    with pytest.raises(KeyError, match="unknown adapter transport 'nope'"):
+        BUILTIN_ADAPTER_REGISTRY.require("nope")
+
+
 def test_registered_transport_is_accepted_without_core_model_change(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

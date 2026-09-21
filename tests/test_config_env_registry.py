@@ -24,3 +24,11 @@ def test_registered_transport_legacy_env_prefix_is_rejected(transport: str) -> N
     prefix = f"MEDRE_{transport.upper().replace('-', '_')}_"
     with pytest.raises(ConfigValidationError, match="Unsupported transport env"):
         MedreEnvConfig.from_environ({f"{prefix}ENABLED": "1"})
+
+
+def test_transport_types_unknown_transport_raises() -> None:
+    """Env override resolution rejects unregistered transports explicitly."""
+    from medre.config.env import _transport_types
+
+    with pytest.raises(KeyError):
+        _transport_types("bogus")

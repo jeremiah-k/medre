@@ -432,6 +432,11 @@ class AdapterConfigSet:
     the historical ``AdapterConfigSet(matrix=..., meshtastic=...)`` spelling
     so existing callers keep working, while a newly registered transport can
     be supplied without editing this class.
+
+    Note that the private ``_groups`` field is the only dataclass field, so
+    ``dataclasses.asdict()`` on this type (or on a root :class:`RuntimeConfig`
+    containing one) exposes ``{"_groups": ...}`` rather than per-transport
+    keys. Serialize via :meth:`groups` instead.
     """
 
     _groups: dict[str, dict[str, AdapterRuntimeConfig]]
