@@ -73,9 +73,7 @@ def test_registry_rejects_negative_detection_priority() -> None:
 
 
 def test_registry_rejects_duplicate_endpoint_support_field() -> None:
-    spec = replace(
-        _synthetic_spec("sample"), support_endpoint_fields=("host", "host")
-    )
+    spec = replace(_synthetic_spec("sample"), support_endpoint_fields=("host", "host"))
     with pytest.raises(ValueError, match="duplicate support endpoint field"):
         AdapterTypeRegistry((spec,))
 

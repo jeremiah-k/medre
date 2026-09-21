@@ -31,9 +31,7 @@ def test_unknown_transport_is_not_installed() -> None:
 def test_transport_without_import_names_needs_no_sdk(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "medre.cli.transports.TRANSPORTS", [("sidecar", None, ())]
-    )
+    monkeypatch.setattr("medre.cli.transports.TRANSPORTS", [("sidecar", None, ())])
     assert is_transport_installed("sidecar") is True
 
 

@@ -56,6 +56,7 @@ def wrapper_free_config_file(tmp_path: Path) -> Path:
         "      adapter_kind: fake\n"
         "      homeserver: https://matrix.test\n"
         "      user_id: '@bot:test'\n"
+        "      access_token: test-token\n"
     )
     return p
 

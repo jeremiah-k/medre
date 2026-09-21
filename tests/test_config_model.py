@@ -22,13 +22,13 @@ import pytest
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
 from medre.config.model import (
+    AdapterConfigSet,
+    GenericAdapterRuntimeConfig,
+    RuntimeLimits,
     _coerce_adapter_kwargs,
     _is_int_keyed_dict,
     _is_set_annotation,
     _is_tuple_annotation,
-    AdapterConfigSet,
-    GenericAdapterRuntimeConfig,
-    RuntimeLimits,
 )
 
 # ---------------------------------------------------------------------------
@@ -352,9 +352,7 @@ class TestAdapterConfigSetContract:
         assert config.matrix == {}
 
     def test_all_enabled_skips_disabled(self) -> None:
-        rtc = GenericAdapterRuntimeConfig(
-            adapter_id="m", enabled=False, config=None
-        )
+        rtc = GenericAdapterRuntimeConfig(adapter_id="m", enabled=False, config=None)
         config = AdapterConfigSet(matrix={"main": rtc})
         assert config.all_enabled() == []
         assert config.all_configs() == [("matrix", "m", rtc)]
