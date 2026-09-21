@@ -47,7 +47,8 @@ the failed item; the bounded ``max_attempts`` prevents starvation.
 
 Queue bounds
 ------------
-The internal deque is intentionally unbounded. ``max_queue_size`` is enforced explicitly at enqueue time so existing accepted items are never silently evicted.
+The internal deque is intentionally unbounded. ``max_queue_size`` is enforced
+explicitly at enqueue time so existing accepted items are never silently evicted.
 When the queue is full, ``enqueue()`` raises
 :class:`~medre.adapters.meshtastic.errors.MeshtasticSendError` with
 ``transient=True`` instead of accepting the item.  The caller receives
@@ -170,6 +171,11 @@ class MeshtasticOutboundQueue:
     max_attempts:
         Maximum send attempts per item (first attempt + retries).
         Must be a positive ``int``.  Default: ``3``.
+    warning_threshold_pct:
+        Queue utilization percentage that enters advisory ``warning`` pressure.
+    critical_threshold_pct:
+        Queue utilization percentage that enters ``critical`` pressure. Must be
+        greater than ``warning_threshold_pct``.
     """
 
     def __init__(
@@ -177,6 +183,8 @@ class MeshtasticOutboundQueue:
         delay_between_messages: float = 0.5,
         max_queue_size: int | None = _DEFAULT_MAX_QUEUE_SIZE,
         max_attempts: int = 3,
+        warning_threshold_pct: float = 75.0,
+        critical_threshold_pct: float = 90.0,
     ) -> None:
         # Validate max_queue_size: None=unbounded, positive int=bounded.
         if max_queue_size is not None:
@@ -193,10 +201,28 @@ class MeshtasticOutboundQueue:
             raise ValueError("max_attempts must be an int")
         if max_attempts <= 0:
             raise ValueError("max_attempts must be > 0")
+        for name, value in (
+            ("warning_threshold_pct", warning_threshold_pct),
+            ("critical_threshold_pct", critical_threshold_pct),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{name} must be an int or float")
+            if not 0 < float(value) < 100:
+                raise ValueError(f"{name} must be > 0 and < 100")
+        if warning_threshold_pct >= critical_threshold_pct:
+            raise ValueError(
+                "warning_threshold_pct must be less than critical_threshold_pct"
+            )
         self._delay = delay_between_messages
         self._max_queue_size = max_queue_size
         self._max_attempts = max_attempts
+        self._warning_threshold_pct = float(warning_threshold_pct)
+        self._critical_threshold_pct = float(critical_threshold_pct)
         self._queue: deque[dict[str, Any]] = deque()
+        self._pressure_state: Literal[
+            "normal", "warning", "critical", "full"
+        ] = "normal"
+        self._peak_depth: int = 0
         self._last_send_time: float = 0.0
         self._total_sent: int = 0
         self._total_failed: int = 0
@@ -307,6 +333,8 @@ class MeshtasticOutboundQueue:
             }
         )
         self._total_enqueued += 1
+        self._peak_depth = max(self._peak_depth, len(self._queue))
+        self._refresh_pressure_state()
 
     async def dequeue(self) -> dict[str, Any] | None:
         """Dequeue the next payload, or ``None`` if the queue is empty.
@@ -320,7 +348,9 @@ class MeshtasticOutboundQueue:
         if not self._queue:
             return None
         self._total_dequeued += 1
-        return self._queue.popleft()
+        item = self._queue.popleft()
+        self._refresh_pressure_state()
+        return item
 
     async def process_one(
         self,
@@ -513,6 +543,8 @@ class MeshtasticOutboundQueue:
             item["_attempt"] = next_attempt
             self._queue.appendleft(item)
             self._total_requeued += 1
+            self._peak_depth = max(self._peak_depth, len(self._queue))
+            self._refresh_pressure_state()
             _logger.info(
                 "MeshtasticOutboundQueue: transient failure for "
                 "event_id=%s; front-requeue item (attempt %d/%d)",
@@ -563,6 +595,7 @@ class MeshtasticOutboundQueue:
         """
         items = list(self._queue)
         self._queue.clear()
+        self._refresh_pressure_state()
         return items
 
     @property
@@ -613,6 +646,50 @@ class MeshtasticOutboundQueue:
         """Total number of items dropped due to permanent send failure."""
         return self._total_permanent_failed
 
+    def _refresh_pressure_state(self) -> None:
+        """Update queue pressure state and log only state transitions."""
+        previous = self._pressure_state
+        max_sz = self._max_queue_size
+        if max_sz is None:
+            current: Literal["normal", "warning", "critical", "full"] = "normal"
+        else:
+            utilization = len(self._queue) / max_sz * 100.0
+            if len(self._queue) >= max_sz:
+                current = "full"
+            elif utilization >= self._critical_threshold_pct:
+                current = "critical"
+            elif utilization >= self._warning_threshold_pct:
+                current = "warning"
+            else:
+                current = "normal"
+        if current == previous:
+            return
+        self._pressure_state = current
+        if current in ("critical", "full"):
+            _logger.warning(
+                "MeshtasticOutboundQueue pressure %s (%d/%s)",
+                current,
+                len(self._queue),
+                max_sz,
+            )
+        elif current == "warning":
+            _logger.info(
+                "MeshtasticOutboundQueue pressure warning (%d/%s)",
+                len(self._queue),
+                max_sz,
+            )
+        else:
+            _logger.info(
+                "MeshtasticOutboundQueue pressure recovered to normal (%d/%s)",
+                len(self._queue),
+                max_sz,
+            )
+
+    @property
+    def pressure_state(self) -> Literal["normal", "warning", "critical", "full"]:
+        """Current queue pressure classification."""
+        return self._pressure_state
+
     @property
     def queue_health(self) -> dict[str, Any]:
         """Snapshot of the queue's operational state.
@@ -624,9 +701,10 @@ class MeshtasticOutboundQueue:
             ``total_enqueued``, ``total_dequeued``, ``total_rejected``,
             ``total_requeued``, ``total_exhausted``,
             ``total_permanent_failed``,
-            ``max_queue_size``, ``max_attempts``,
-            ``utilization_pct``, ``delay_between_messages``,
-            ``last_send_time``.
+            ``max_queue_size``, ``max_attempts``, ``utilization_pct``,
+            ``pressure_state``, ``warning_threshold_pct``,
+            ``critical_threshold_pct``, ``peak_depth``,
+            ``delay_between_messages``, ``last_send_time``.
         """
         max_sz = self._max_queue_size
         util = (
@@ -645,6 +723,10 @@ class MeshtasticOutboundQueue:
             "max_queue_size": max_sz,
             "max_attempts": self._max_attempts,
             "utilization_pct": util,
+            "pressure_state": self._pressure_state,
+            "warning_threshold_pct": self._warning_threshold_pct,
+            "critical_threshold_pct": self._critical_threshold_pct,
+            "peak_depth": self._peak_depth,
             "delay_between_messages": self._delay,
             "last_send_time": self._last_send_time,
         }

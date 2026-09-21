@@ -96,6 +96,28 @@ class MeshtasticConfig:
         exhausted the item is dropped and counted as exhausted.
         ``bool``, non-``int``, and ``<= 0`` values are invalid.
         Default: ``3``.
+    queue_max_size:
+        Maximum number of adapter-local outbound items accepted before
+        enqueue is rejected transiently. Default: ``1024``.
+    queue_warning_threshold_pct:
+        Queue-utilization percentage that enters advisory ``warning``
+        pressure. Default: ``75``.
+    queue_critical_threshold_pct:
+        Queue-utilization percentage that enters ``critical`` pressure and
+        degrades adapter health. Must be greater than the warning threshold.
+        Default: ``90``.
+    reconnect_backoff_initial_seconds:
+        Initial MEDRE session-level reconnect delay after a started adapter
+        loses transport. Default: ``1``.
+    reconnect_backoff_max_seconds:
+        Maximum MEDRE session-level reconnect delay. Reconnect attempts have no
+        finite count ceiling and continue until shutdown. Default: ``30``.
+    tcp_liveness_interval_seconds:
+        Interval between active TCP round-trip probes. ``0`` disables active
+        probing. Serial/BLE are unaffected. Default: ``60``.
+    tcp_liveness_timeout_seconds:
+        Maximum time to wait for a TCP liveness probe metadata response before
+        triggering session-level client recreation. Default: ``30``.
     outbound_mode:
         Controls whether outbound radio sends are enabled.
 
@@ -129,6 +151,13 @@ class MeshtasticConfig:
     mmrelay_compatibility: bool = False
     max_text_bytes: int = 227
     queue_send_max_attempts: int = 3
+    queue_max_size: int = 1024
+    queue_warning_threshold_pct: float = 75.0
+    queue_critical_threshold_pct: float = 90.0
+    reconnect_backoff_initial_seconds: float = 1.0
+    reconnect_backoff_max_seconds: float = 30.0
+    tcp_liveness_interval_seconds: float = 60.0
+    tcp_liveness_timeout_seconds: float = 30.0
     outbound_mode: Literal["enabled", "listen_only"] = "enabled"
 
     # Packet routing configuration (configurable classification policy)
@@ -214,6 +243,59 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 f"queue_send_max_attempts must be > 0, "
                 f"got {self.queue_send_max_attempts}"
+            )
+        if isinstance(self.queue_max_size, bool) or not isinstance(
+            self.queue_max_size, int
+        ):
+            raise MeshtasticConfigError("queue_max_size must be a positive int")
+        if self.queue_max_size <= 0:
+            raise MeshtasticConfigError(
+                f"queue_max_size must be > 0, got {self.queue_max_size}"
+            )
+        for field_name, value in (
+            ("queue_warning_threshold_pct", self.queue_warning_threshold_pct),
+            ("queue_critical_threshold_pct", self.queue_critical_threshold_pct),
+            (
+                "reconnect_backoff_initial_seconds",
+                self.reconnect_backoff_initial_seconds,
+            ),
+            ("reconnect_backoff_max_seconds", self.reconnect_backoff_max_seconds),
+            ("tcp_liveness_interval_seconds", self.tcp_liveness_interval_seconds),
+            ("tcp_liveness_timeout_seconds", self.tcp_liveness_timeout_seconds),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise MeshtasticConfigError(f"{field_name} must be an int or float")
+            if not math.isfinite(value):
+                raise MeshtasticConfigError(f"{field_name} must be finite")
+        if not 0 < self.queue_warning_threshold_pct < 100:
+            raise MeshtasticConfigError(
+                "queue_warning_threshold_pct must be > 0 and < 100"
+            )
+        if not 0 < self.queue_critical_threshold_pct < 100:
+            raise MeshtasticConfigError(
+                "queue_critical_threshold_pct must be > 0 and < 100"
+            )
+        if self.queue_warning_threshold_pct >= self.queue_critical_threshold_pct:
+            raise MeshtasticConfigError(
+                "queue_warning_threshold_pct must be less than "
+                "queue_critical_threshold_pct"
+            )
+        if self.reconnect_backoff_initial_seconds <= 0:
+            raise MeshtasticConfigError(
+                "reconnect_backoff_initial_seconds must be > 0"
+            )
+        if self.reconnect_backoff_max_seconds < self.reconnect_backoff_initial_seconds:
+            raise MeshtasticConfigError(
+                "reconnect_backoff_max_seconds must be >= "
+                "reconnect_backoff_initial_seconds"
+            )
+        if self.tcp_liveness_interval_seconds < 0:
+            raise MeshtasticConfigError(
+                "tcp_liveness_interval_seconds must be >= 0"
+            )
+        if self.tcp_liveness_timeout_seconds <= 0:
+            raise MeshtasticConfigError(
+                "tcp_liveness_timeout_seconds must be > 0"
             )
         if self.outbound_mode not in ("enabled", "listen_only"):
             raise MeshtasticConfigError(

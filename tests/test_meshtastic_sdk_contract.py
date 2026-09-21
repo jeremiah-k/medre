@@ -105,3 +105,49 @@ def test_pubsub_topics_and_close_contract_remain_visible_in_sdk_source() -> None
     assert callable(pub.unsubscribe)
     assert not inspect.iscoroutinefunction(pub.subscribe)
     assert not inspect.iscoroutinefunction(pub.unsubscribe)
+
+
+def test_liveness_probe_sdk_surfaces_are_frozen() -> None:
+    """Pin the mtjk admin-send and response-retirement seams used by TCP liveness."""
+    mesh_interface, _, _, _, _ = _load_sdk()
+    admin_pb2 = import_module("meshtastic.protobuf.admin_pb2")
+    node_module = import_module("meshtastic.node")
+    admin_transport = import_module(
+        "meshtastic.node_runtime.transport_runtime.admin"
+    )
+
+    callback = lambda _packet: None
+    send_admin = getattr(node_module.Node, "_send_admin", None)
+    assert callable(send_admin)
+    inspect.signature(send_admin).bind(
+        object(),
+        admin_pb2.AdminMessage(),
+        wantResponse=True,
+        onResponse=callback,
+    )
+    assert not inspect.iscoroutinefunction(send_admin)
+
+    # MEDRE intentionally uses Node._send_admin instead of raw sendData so the
+    # pinned fork continues to own admin-channel selection, PKI encryption,
+    # cached session-passkey attachment, and response matching.
+    transport_source = inspect.getsource(
+        admin_transport._NodeAdminTransportRuntime._send_admin
+    )
+    assert '"pkiEncrypted": True' in transport_source
+    assert "_resolve_admin_index" in transport_source
+    assert "adminSessionPassKey" in transport_source
+    assert "response_matcher" in transport_source
+
+    request = admin_pb2.AdminMessage()
+    request.get_device_metadata_request = True
+    assert request.get_device_metadata_request is True
+
+    interface_type = mesh_interface.MeshInterface
+    interface = interface_type(noProto=True)
+    try:
+        request_runtime = getattr(interface, "_request_wait_runtime", None)
+        drop_handler = getattr(request_runtime, "drop_response_handler", None)
+        assert callable(drop_handler)
+        drop_handler(0x1234)
+    finally:
+        interface.close()

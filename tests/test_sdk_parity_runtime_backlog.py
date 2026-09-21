@@ -90,80 +90,39 @@ def _make_matrix_config(**overrides: Any) -> MatrixConfig:
 
 
 # ===================================================================
-# P-01: Meshtastic - No periodic connection health verification
-# Gap type: Behavioral
+# P-01: Meshtastic - proactive TCP liveness (RESOLVED)
+# Gap type: Behavioral (RESOLVED)
 # ===================================================================
 
 
-class TestP01MeshtasticNoHealthCheck:
-    """Characterize P-01: MeshtasticSession lacks periodic health checks.
+class TestP01MeshtasticTcpLivenessResolved:
+    """Verify the active TCP liveness supervision contract is represented."""
 
-    The session has no liveness probe that detects silent TCP connection
-    drops (half-open state).  Only inbound packet reception updates
-    ``_last_packet_time``, and nothing reads that timestamp to detect
-    staleness.
-    """
+    def test_diagnostics_exposes_liveness_evidence(self) -> None:
+        field_names = {
+            f.name for f in dataclass_fields(meshtastic_session_mod.MeshtasticSessionDiagnostics)
+        }
+        assert {
+            "liveness_enabled",
+            "liveness_probe_successes",
+            "liveness_probe_failures",
+            "last_liveness_probe_time",
+            "last_liveness_success_time",
+            "last_liveness_error",
+        } <= field_names
 
-    def test_diagnostics_has_no_health_check_field(self) -> None:
-        """MeshtasticSessionDiagnostics does not expose health-check data."""
-        diag_cls = meshtastic_session_mod.MeshtasticSessionDiagnostics
-        field_names = {f.name for f in dataclass_fields(diag_cls)}
-        # Current state: no health_check_time, no health_check_interval,
-        # no liveness_probe field.
-        assert "health_check_time" not in field_names
-        assert "health_check_interval" not in field_names
-        assert "liveness_probe" not in field_names
-        # Diagnostic does expose last_packet_time (passive observation only).
-        assert "last_packet_time" in field_names
-
-    def test_session_has_no_health_check_task_slot(self) -> None:
-        """MeshtasticSession __slots__ lacks a periodic health-check task."""
-        slots = set(meshtastic_session_mod.MeshtasticSession.__slots__)
-        assert "_health_check_task" not in slots
-        assert "_health_check_interval" not in slots
-        # Has reconnect task (existing reconnect infrastructure).
-        assert "_reconnect_task" in slots
-
-    def test_config_has_no_health_check_interval(self) -> None:
-        """MeshtasticConfig does not define a health-check interval field."""
+    def test_config_exposes_tcp_liveness_policy(self) -> None:
         field_names = {f.name for f in dataclass_fields(MeshtasticConfig)}
-        assert "health_check_interval_seconds" not in field_names
-        assert "health_check_interval" not in field_names
+        assert "tcp_liveness_interval_seconds" in field_names
+        assert "tcp_liveness_timeout_seconds" in field_names
 
-    def test_subscribe_callbacks_subscribes_to_receive_and_connection_lost(
-        self,
-    ) -> None:
-        """_subscribe_callbacks subscribes to receive and connection.lost.
-
-        P-01 gap (no health probe) remains: the session relies
-        exclusively on inbound packets for liveness indication.
-        P-02 resolution: connection.lost is now subscribed for
-        automatic reconnect triggering.
-        """
-        source = inspect.getsource(
-            meshtastic_session_mod.MeshtasticSession._subscribe_callbacks,
-        )
-        subscribe_count = source.count("pub.subscribe(")
-        assert subscribe_count == 2, (
-            f"Expected 2 pub.subscribe calls (receive + connection.lost), "
-            f"found {subscribe_count}. "
-            "If a health-check subscription was added, update this test."
-        )
+    def test_session_owns_liveness_task_without_extra_pubsub_topic(self) -> None:
+        slots = set(meshtastic_session_mod.MeshtasticSession.__slots__)
+        assert "_liveness_task" in slots
+        source = inspect.getsource(meshtastic_session_mod.MeshtasticSession._subscribe_callbacks)
+        assert source.count("pub.subscribe(") == 2
         assert "meshtastic.receive" in source
         assert "meshtastic.connection.lost" in source
-
-    def test_backoff_cap_and_max_attempts_current_values(self) -> None:
-        """Document current reconnect constants for future parity comparison.
-
-        P-08 notes these are lower than reference (mmrelay caps at 300s,
-        retries indefinitely).  These tests lock the current values so
-        that any change is intentional and visible.
-        """
-        assert meshtastic_session_mod._BACKOFF_CAP == 30.0
-        assert meshtastic_session_mod._MAX_RECONNECT_ATTEMPTS == 10
-        assert meshtastic_session_mod._BACKOFF_BASE == 1.0
-        assert meshtastic_session_mod._BACKOFF_JITTER_FRACTION == 0.25
-
 
 # ===================================================================
 # P-02: Meshtastic - SDK connection-lost event subscription (RESOLVED)
@@ -714,124 +673,31 @@ class TestP07MatrixNoSessionWatchdogTask:
 
 
 # ===================================================================
-# P-08: Meshtastic - Reconnect backoff cap and max attempts
-# Gap type: Behavioral
-#
-# (Constants already tested in P-01; this section documents the gap
-#  classification and reference comparison.)
+# P-08/P-09: Meshtastic lifetime reconnect + queue pressure (RESOLVED)
+# Gap type: Behavioral/operational (RESOLVED)
 # ===================================================================
 
 
-class TestP08MeshtasticReconnectParameters:
-    """Document P-08: Reconnect parameters are more conservative than
-    reference (mmrelay: 300s cap, no attempt limit).
+class TestP08P09MeshtasticResilienceResolved:
+    """Verify the former reconnect-budget and queue-watermark gaps are closed."""
 
-    Current values: _BACKOFF_CAP=30.0, _MAX_RECONNECT_ATTEMPTS=10.
-    After 10 failed attempts (~5 min total), the session gives up
-    permanently.
-    """
+    def test_reconnect_policy_has_no_finite_attempt_ceiling(self) -> None:
+        source = inspect.getsource(meshtastic_session_mod.MeshtasticSession._reconnect_loop)
+        assert "_MAX_RECONNECT_ATTEMPTS" not in source
+        assert "while not self._stop_requested" in source
+        fields = {f.name for f in dataclass_fields(MeshtasticConfig)}
+        assert {
+            "reconnect_backoff_initial_seconds",
+            "reconnect_backoff_max_seconds",
+        } <= fields
 
-    def test_total_retry_budget_approximately_five_minutes(self) -> None:
-        """With exponential backoff 1..30s and 10 attempts, total budget
-        is approximately 300-500 seconds depending on jitter."""
-        cap = meshtastic_session_mod._BACKOFF_CAP
-        base = meshtastic_session_mod._BACKOFF_BASE
-        max_attempts = meshtastic_session_mod._MAX_RECONNECT_ATTEMPTS
-
-        total = 0.0
-        for i in range(1, max_attempts + 1):
-            delay = min(base * (2 ** (i - 1)), cap)
-            total += delay
-
-        # With base=1, cap=30, 10 attempts: 1+2+4+8+16+30+30+30+30+30 = 181s
-        # This is well below mmrelay's indefinite retry.
-        assert total < 300.0, (
-            f"Total retry budget {total:.0f}s exceeds expected range. "
-            "If backoff was adjusted for parity, update this test."
-        )
-
-    def test_session_gives_up_permanently_on_max_attempts(self) -> None:
-        """Reconnect loop compares against _MAX_RECONNECT_ATTEMPTS and
-        returns permanently when exceeded."""
-        source = inspect.getsource(
-            meshtastic_session_mod.MeshtasticSession._reconnect_loop,
-        )
-        # Must reference the constant for comparison.
-        assert "_MAX_RECONNECT_ATTEMPTS" in source, (
-            "_reconnect_loop does not reference _MAX_RECONNECT_ATTEMPTS. "
-            "If reconnect logic changed, update this test."
-        )
-        # Must have a giving-up branch: a comparison against the constant
-        # followed by return (not just continue/retry).
-        assert re.search(r"giving up", source, re.IGNORECASE), (
-            "_reconnect_loop does not log a 'giving up' message. "
-            "If reconnect logic changed, update this test."
-        )
-        # The giving-up branch must contain an explicit return (permanent exit).
-        giving_up_match = re.search(
-            r"giving up.*?\n(.*?)(?:return|continue|break)",
-            source,
-            re.IGNORECASE | re.DOTALL,
-        )
-        assert giving_up_match is not None and "return" in giving_up_match.group(0), (
-            "_reconnect_loop 'giving up' branch does not return permanently. "
-            "If reconnect logic changed, update this test."
-        )
-
-
-# ===================================================================
-# P-09: Meshtastic - Queue water-mark monitoring
-# Gap type: Declarative/capability
-# ===================================================================
-
-
-class TestP09MeshtasticQueueWatermarkMonitoring:
-    """Characterize P-09: No water-mark thresholds on outbound queue.
-
-    The queue tracks diagnostics (depth, max size, counters) but has
-    no high-water/critical-water mark thresholds to warn operators
-    before rejection.
-    """
-
-    def test_no_water_mark_constants_in_adapter(self) -> None:
-        """Meshtastic package has no water-mark threshold constants anywhere.
-
-        Scans all modules under ``medre.adapters.meshtastic`` using
-        ``pkgutil.walk_packages`` + ``importlib.import_module`` so that
-        water-mark constants in queue, session, or future modules are
-        caught - not just the adapter module.  Reports all offending
-        module names in the failure message.
-        """
-        import importlib
-        import pkgutil
-
-        import medre.adapters.meshtastic as mesh_pkg
-
-        forbidden = ("HIGH_WATER_MARK", "WATER_MARK", "water_mark")
-        offending: list[str] = []
-
-        for _importer, modname, _ispkg in pkgutil.walk_packages(
-            path=mesh_pkg.__path__,
-            prefix=mesh_pkg.__name__ + ".",
-        ):
-            try:
-                mod = importlib.import_module(modname)
-            except (ImportError, ModuleNotFoundError):
-                continue
-            try:
-                source = inspect.getsource(mod)
-            except (OSError, TypeError):
-                continue
-            for term in forbidden:
-                if term in source:
-                    offending.append(f"{modname} contains '{term}'")
-
-        assert not offending, (
-            "Water-mark constants found in meshtastic package: "
-            + "; ".join(offending)
-            + ". If water-mark monitoring was implemented, update this test."
-        )
-
+    def test_queue_pressure_policy_is_configurable(self) -> None:
+        fields = {f.name for f in dataclass_fields(MeshtasticConfig)}
+        assert {
+            "queue_max_size",
+            "queue_warning_threshold_pct",
+            "queue_critical_threshold_pct",
+        } <= fields
 
 # ===================================================================
 # P-10: MeshCore - appstart on reconnect (validation - no gap)

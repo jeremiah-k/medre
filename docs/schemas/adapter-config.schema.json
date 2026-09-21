@@ -179,6 +179,50 @@
           "minimum": 1,
           "description": "Maximum send attempts per queued item (first attempt + retries)."
         },
+        "queue_max_size": {
+          "type": "integer",
+          "default": 1024,
+          "minimum": 1,
+          "description": "Hard adapter-local outbound queue capacity."
+        },
+        "queue_warning_threshold_pct": {
+          "type": "number",
+          "default": 75.0,
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 100,
+          "description": "Queue utilization percentage that enters advisory warning pressure."
+        },
+        "queue_critical_threshold_pct": {
+          "type": "number",
+          "default": 90.0,
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 100,
+          "description": "Queue utilization percentage that enters critical pressure and degrades adapter health. Typed validation also requires this to exceed the warning threshold."
+        },
+        "reconnect_backoff_initial_seconds": {
+          "type": "number",
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "description": "Initial MEDRE session-level reconnect delay after a started adapter loses transport."
+        },
+        "reconnect_backoff_max_seconds": {
+          "type": "number",
+          "default": 30.0,
+          "exclusiveMinimum": 0,
+          "description": "Maximum MEDRE session-level reconnect delay. Typed validation requires this to be at least the initial delay."
+        },
+        "tcp_liveness_interval_seconds": {
+          "type": "number",
+          "default": 60.0,
+          "minimum": 0,
+          "description": "Interval between active TCP round-trip liveness probes; 0 disables active probing."
+        },
+        "tcp_liveness_timeout_seconds": {
+          "type": "number",
+          "default": 30.0,
+          "exclusiveMinimum": 0,
+          "description": "Maximum seconds to wait for the TCP liveness request metadata response before session-level recovery."
+        },
         "outbound_mode": {
           "type": "string",
           "enum": ["enabled", "listen_only"],

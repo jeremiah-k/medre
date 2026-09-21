@@ -422,6 +422,10 @@ class TestQueueHealthFields:
             "max_queue_size",
             "max_attempts",
             "utilization_pct",
+            "pressure_state",
+            "warning_threshold_pct",
+            "critical_threshold_pct",
+            "peak_depth",
             "delay_between_messages",
             "last_send_time",
         }

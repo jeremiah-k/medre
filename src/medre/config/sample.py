@@ -94,6 +94,13 @@ adapters:
       connection_type: fake
       origin_label: MyMesh
       # max_text_bytes: 227  # UTF-8 byte budget for final radio text (default 227)
+      # queue_max_size: 1024
+      # queue_warning_threshold_pct: 75.0
+      # queue_critical_threshold_pct: 90.0
+      # reconnect_backoff_initial_seconds: 1.0
+      # reconnect_backoff_max_seconds: 30.0
+      # tcp_liveness_interval_seconds: 60.0  # TCP only; 0 disables active probing
+      # tcp_liveness_timeout_seconds: 30.0
       # outbound_mode: enabled   # "enabled" (send) or "listen_only" (suppress outbound radio)
 
   # --- MeshCore adapter (fake, disabled by default) ---
