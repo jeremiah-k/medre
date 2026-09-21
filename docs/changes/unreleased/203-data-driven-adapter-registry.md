@@ -14,7 +14,11 @@
 - Moved Matrix-specific route/store preparation behind an adapter-owned runtime
   preparation hook and renderer constructor differences behind adapter-owned
   renderer factories, keeping generic runtime assembly free of transport
-  branches.
+  branches. Preparation is fail-closed preflight for **enabled** instances only:
+  a disabled Matrix adapter with an invalid `room_allowlist` (or otherwise
+  unpreparable configuration) now starts silently and is validated when it is
+  enabled, where the previous builder validated every configured instance at
+  startup.
 - Updated architecture enforcement and authoring/spec documentation to make the
   boundary explicit: this is a built-in adapter type registry, not dynamic
   third-party plugin loading.
