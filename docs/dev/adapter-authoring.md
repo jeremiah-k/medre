@@ -244,7 +244,7 @@ _capabilities = AdapterCapabilities(
 ## Step 4: Implement the Session
 
 The session manages the transport connection, callback wiring, reconnect
-logic, and send operations. All four existing adapters follow the same pattern:
+logic, and send operations. Built-in adapters follow the same lifecycle pattern:
 
 1. Construction with config
 2. `start()` -- establish connection, register callbacks
@@ -291,8 +291,9 @@ Never call `asyncio.create_task()` from a non-loop thread.
 ## Step 5: Write the Renderer
 
 The renderer converts canonical events into transport-specific payloads.
-Renderers live in `core/rendering/` and are selected by the delivery planner
-based on the target adapter.
+Transport renderers live inside their adapter packages and are registered with
+the shared rendering pipeline by the built-in adapter registry. The delivery
+planner selects them by target platform.
 
 The renderer produces a `RenderingResult`:
 
@@ -317,36 +318,80 @@ class MyRenderer:
 The adapter's `deliver()` method receives this `RenderingResult`, not the raw
 event. This separation means adapters never contain formatting logic.
 
-## Step 6: Register in Configuration
+## Step 6: Register the Built-In Adapter Type
 
-Add the adapter type to the configuration:
+MEDRE has one **declarative built-in adapter type registry** in
+`medre.adapter_registry`. It is assembly metadata, not a live adapter-instance
+container and not a third-party plugin loader. Generic config, environment,
+path, runtime, renderer, CLI-discovery, native-metadata dispatch, and
+architecture-report code consume this registry instead of maintaining their
+own transport lists.
+
+A built-in adapter normally contributes:
+
+- a config dataclass under `medre.config.adapters.<transport>`;
+- `adapter.py`, `codec.py`, `renderer.py`, and `session.py` under
+  `medre.adapters.<transport>`;
+- a fake adapter under `medre.adapters.fakes`;
+- current/versioned native-metadata namespace readers;
+- an attribution projector with the shared projector signature;
+- a renderer factory that adapts generic runtime-config mappings to the
+  adapter's renderer constructor;
+- optionally, a pure runtime-config preparation hook when the transport needs
+  derived state or route-driven preparation;
+- optionally, adapter-owned CLI registration/dispatch hooks and support-bundle
+  endpoint/secret field metadata; and
+- one `AdapterSpec` entry in `BUILTIN_ADAPTER_REGISTRY`.
+
+The spec stores `SymbolRef` values, so merely importing configuration or CLI
+discovery does **not** import optional SDK-backed adapter implementations. SDK
+ownership, package/distribution names, fake construction, renderer registration,
+CLI contribution hooks, support-bundle field classification, and native-metadata
+dispatch are all declared on the same spec. Adapter CLI contribution modules
+MUST remain SDK-free at import time; SDK-touching command implementations stay
+lazy behind their dispatch hook.
+
+Configuration is grouped by registered transport name and then adapter
+instance name. There is no `type` or arbitrary `class` field:
 
 ```yaml
 adapters:
-  my-transport-1:
-    type: my_transport # role: TRANSPORT (inferred)
-    connection:
-      type: tcp
-      host: "192.168.1.100"
-      port: 4000
-    channels:
-      0: "general"
-      1: "admin"
+  my_transport:
+    primary:
+      enabled: true
+      adapter_kind: real
+      host: "127.0.0.1"
 ```
 
-The `type` field maps to a Python class path resolved by the adapter registry.
-Built-in types resolve to `adapters/<type>/adapter.py`. Custom adapter types
-may specify a `class` field explicitly.
+For a future built-in such as Briar, the intended shape is therefore
+`adapters.briar.<instance>`. The config loader rejects groups that are not
+registered built-ins, so typos remain fail-closed.
 
-### Registration flow
+### Registration and assembly flow
 
-1. The runtime loads adapter configuration from YAML.
-2. For each adapter entry, it instantiates the adapter class with the config.
-3. The adapter constructs its `AdapterInfo`.
-4. The runtime calls `registry.register(info, adapter_instance)`.
-5. The runtime calls `adapter.start(context)` with a fresh `AdapterContext`.
-6. On shutdown, the runtime calls `adapter.stop(timeout)`, then
-   `registry.unregister(name)`.
+1. `BUILTIN_ADAPTER_REGISTRY` defines the built-in transport vocabulary and
+   lazy assembly hooks.
+2. The config loader resolves the registered config class and constructs a
+   transport-neutral runtime wrapper (existing adapters retain compatibility
+   wrapper subclasses).
+3. `RuntimeBuilder` looks up the `AdapterSpec`, runs its optional preparation
+   hook, and constructs either the registered fake or live adapter.
+4. The renderer factory and native-metadata/attribution readers are resolved
+   from that same spec; shared code contains no per-transport dispatch chain.
+5. `MedreApp` owns the resulting live adapter instances and their normal
+   `start()` / `stop()` lifecycle.
+
+Adding a built-in transport **MUST NOT** require adding another transport
+branch to the config loader, env layer, runtime builder, renderer dispatcher,
+native-metadata dispatcher, CLI transport inventory, or architecture SDK map.
+If a new adapter reveals a genuinely transport-specific behavior, keep that
+behavior adapter-owned behind a registered hook rather than expanding a
+shared `if transport == ...` chain.
+
+This mechanism is intentionally separate from `medre.plugins`. MEDRE does not
+currently support arbitrary third-party adapter class paths or runtime plugin
+discovery; adding such a system later should build on an explicit trust and
+packaging model rather than overloading YAML config.
 
 ## Step 7: Write Tests
 
