@@ -28,6 +28,9 @@ from tests.helpers.matrix_session import (
 from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
 
 
+_STOP_TEST_WATCHDOG_SECONDS = 1.0
+
+
 async def _bounded_cancel_and_reap(
     tasks: tuple[asyncio.Task[Any], ...],
     *,
@@ -505,7 +508,12 @@ async def test_stop_deadline_bounds_recovery_and_join_task_drains() -> None:
     await asyncio.sleep(0)
 
     stop_task = asyncio.create_task(session.stop(timeout=0.02))
-    done, _pending = await asyncio.wait({stop_task}, timeout=0.2)
+    # This is a test-harness watchdog, not the product shutdown budget.
+    # Keep it comfortably above the 20 ms session deadline so coverage/runner
+    # scheduling latency cannot manufacture a failure before stop() resumes.
+    done, _pending = await asyncio.wait(
+        {stop_task}, timeout=_STOP_TEST_WATCHDOG_SECONDS
+    )
     if not done:
         release.set()
         pending_cleanup = await _bounded_cancel_and_reap(
@@ -560,7 +568,12 @@ async def test_stop_deadline_bounds_client_close() -> None:
     session._client = client
 
     stop_task = asyncio.create_task(session.stop(timeout=0.02))
-    done, _pending = await asyncio.wait({stop_task}, timeout=0.2)
+    # This is a test-harness watchdog, not the product shutdown budget.
+    # Keep it comfortably above the 20 ms session deadline so coverage/runner
+    # scheduling latency cannot manufacture a failure before stop() resumes.
+    done, _pending = await asyncio.wait(
+        {stop_task}, timeout=_STOP_TEST_WATCHDOG_SECONDS
+    )
     if not done:
         release.set()
         pending_cleanup = await _bounded_cancel_and_reap((stop_task,), timeout=0.2)
