@@ -164,33 +164,32 @@ def _register_adapter_renderers(
     for spec in iter_adapter_specs():
         if spec.renderer_factory is None:
             continue
-        try:
-            factory = spec.renderer_factory.load()
-            renderer = factory(
-                runtime_configs=all_runtime_configs[spec.transport],
-                all_runtime_configs=all_runtime_configs,
-                source_attribution=source_attribution,
-            )
-        except ImportError as exc:
-            _logger.debug(
-                "Skipping renderer factory for %s (import failed: %s)",
-                spec.transport,
-                exc,
-            )
-            continue
+        # Renderer factories are part of MEDRE and architecture policy keeps
+        # them free of optional transport-SDK imports. An ImportError here is
+        # therefore an implementation defect, not an absent optional SDK; let
+        # it fail startup rather than silently falling back to TextRenderer.
+        factory = spec.renderer_factory.load()
+        renderer = factory(
+            runtime_configs=all_runtime_configs[spec.transport],
+            all_runtime_configs=all_runtime_configs,
+            source_attribution=source_attribution,
+        )
         if renderer is not None:
             pipeline.register(renderer, priority=50)
     return source_attribution
 
 
 def _dependency_available(spec: AdapterSpec) -> bool:
-    """Return whether the optional SDK dependency declared by *spec* exists."""
+    """Return whether the optional SDK dependency declared by *spec* exists.
+
+    The adapter-owned compatibility module is responsible for translating
+    genuine SDK absence into a false probe value. Import failures while
+    resolving the registered probe itself are MEDRE defects and must remain
+    visible instead of being mislabeled as an uninstalled optional SDK.
+    """
     if spec.dependency_probe is None:
         return True
-    try:
-        return bool(spec.dependency_probe.load())
-    except ImportError:
-        return False
+    return bool(spec.dependency_probe.load())
 
 
 def _build_fake_adapter(spec: AdapterSpec, adapter_id: str) -> AdapterContract:
@@ -293,6 +292,7 @@ class RuntimeBuilder:
         self._config = config
         self._paths = paths
         self._adapter_preparation_routes: tuple[Any, ...] = ()
+        self._prepared_adapter_configs: dict[tuple[str, str], Any] = {}
 
     def build(self) -> MedreApp:
         """Build and return a :class:`MedreApp`, ready for :meth:`MedreApp.start`.
@@ -399,6 +399,17 @@ class RuntimeBuilder:
         self._adapter_preparation_routes = tuple(
             build_runtime_routes(self._config.routes, adapter_platforms)
         )
+
+        # 10.2 Run adapter-owned configuration preparation as fail-closed
+        #      preflight. Preparation derives/validates configuration; it is
+        #      not an adapter construction attempt and therefore must not be
+        #      downgraded into a recoverable build failure. Running it before
+        #      fake/live dispatch also keeps fake runtimes faithful to the
+        #      same route-aware configuration contract.
+        self._prepared_adapter_configs = self._prepare_adapter_configs()
+
+        # 10.3 Construct adapters. Only construction/dependency failures are
+        #      isolated per adapter after configuration preflight succeeds.
         build_failures = self._build_adapters(adapters)
 
         if build_failures:
@@ -547,6 +558,63 @@ class RuntimeBuilder:
 
     # -- Adapter construction ----------------------------------------------------
 
+    def _prepare_adapter_config(
+        self,
+        spec: AdapterSpec,
+        adapter_id: str,
+        config: Any,
+    ) -> Any:
+        """Run one adapter-owned runtime-config preparation hook.
+
+        Preparation is configuration preflight, not adapter construction. A
+        failure therefore aborts the build rather than being recorded as a
+        recoverable :class:`AdapterBuildFailure`.
+        """
+        if spec.runtime_config_preparer is None:
+            return config
+        try:
+            prepare = spec.runtime_config_preparer.load()
+            return prepare(
+                config,
+                adapter_id=adapter_id,
+                paths=self._paths,
+                routes=self._adapter_preparation_routes,
+            )
+        except Exception as exc:
+            raise RuntimeConfigError(
+                f"Failed to prepare adapter {adapter_id!r} ({spec.transport}): {exc}"
+            ) from exc
+
+    def _prepare_adapter_configs(self) -> dict[tuple[str, str], Any]:
+        """Prepare configs for all enabled registered adapter instances.
+
+        Fake and real instances share this preflight so route-derived
+        validation is exercised consistently. Config-less fake adapters remain
+        valid and simply have no prepared config.
+        """
+        prepared: dict[tuple[str, str], Any] = {}
+        enabled = [
+            (transport, adapter_id, rtc)
+            for transport, adapter_id, rtc in self._config.adapters.all_configs()
+            if rtc.enabled
+        ]
+        enabled.sort(key=lambda item: (item[0], item[1]))
+        for transport, adapter_id, rtc in enabled:
+            spec = get_adapter_spec(transport)
+            if spec is None:
+                known = ", ".join(s.transport for s in iter_adapter_specs())
+                raise RuntimeConfigError(
+                    f"Unknown transport type {transport!r} for adapter "
+                    f"{adapter_id!r}. Known types: {known}"
+                )
+            config = getattr(rtc, "config", None)
+            if config is None:
+                continue
+            prepared[(transport, adapter_id)] = self._prepare_adapter_config(
+                spec, adapter_id, config
+            )
+        return prepared
+
     def _build_adapters(
         self, adapters: dict[str, AdapterContract]
     ) -> list[AdapterBuildFailure]:
@@ -619,29 +687,21 @@ class RuntimeBuilder:
                 f"{adapter_id!r}. Known types: {known}"
             )
 
+        key = (transport, adapter_id)
+        config = self._prepared_adapter_configs.get(key, getattr(rtc, "config", None))
+        if key not in self._prepared_adapter_configs and config is not None:
+            # Keep direct/private helper use coherent with normal build(), while
+            # build() itself always runs this hook earlier as fail-closed preflight.
+            config = self._prepare_adapter_config(spec, adapter_id, config)
+
         adapter_kind = getattr(rtc, "adapter_kind", "real")
         if adapter_kind == "fake":
             return _build_fake_adapter(spec, adapter_id)
 
-        config = rtc.config
         if config is None:
             raise RuntimeConfigError(
                 f"Adapter {adapter_id!r} ({transport}) is enabled but has no config"
             )
-
-        if spec.runtime_config_preparer is not None:
-            try:
-                prepare = spec.runtime_config_preparer.load()
-                config = prepare(
-                    config,
-                    adapter_id=adapter_id,
-                    paths=self._paths,
-                    routes=self._adapter_preparation_routes,
-                )
-            except Exception as exc:
-                raise RuntimeConfigError(
-                    f"Failed to prepare adapter {adapter_id!r} ({transport}): {exc}"
-                ) from exc
 
         try:
             adapter = _build_real_adapter(spec, config)

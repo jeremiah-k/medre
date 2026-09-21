@@ -926,15 +926,27 @@ registered.
 2. For each configured instance, the loader resolves the registered config
    class and constructs an `AdapterRuntimeConfig`-compatible wrapper.
 3. `RuntimeBuilder` resolves that transport's `AdapterSpec`.
-4. If a runtime-config preparation hook is registered, the builder invokes it
-   with generic paths and expanded route context. Transport-specific route or
-   state preparation **MUST** live behind that adapter-owned hook rather than a
-   shared transport branch.
-5. The builder constructs the registered fake adapter when
-   `adapter_kind: fake`; otherwise it checks the registered dependency probe
-   and constructs the live adapter.
+4. Before constructing any adapter, the builder runs every registered
+   runtime-config preparation hook for enabled instances that have adapter
+   configuration, using generic paths and expanded route context. Preparation is fail-closed configuration preflight:
+   it **MUST** run for both fake and live instances, and any preparation failure
+   **MUST** abort the build rather than being recorded as an isolated adapter
+   construction failure. Transport-specific route or state preparation **MUST**
+   live behind that adapter-owned hook rather than a shared transport branch.
+5. After configuration preflight succeeds, the builder constructs the
+   registered fake adapter when `adapter_kind: fake`; otherwise it checks the
+   registered dependency probe and constructs the live adapter. The adapter-owned
+   compatibility module **MUST** translate genuine optional-SDK absence into the
+   probe's false value; failure to import or resolve the registered probe itself
+   **MUST** remain a startup-visible implementation error. Construction or
+   dependency failures may then be isolated per adapter according to the runtime
+   degradation policy.
 6. The adapter-owned renderer factory is resolved from the same spec and
-   registers the transport renderer with the shared rendering pipeline.
+   registers the transport renderer with the shared rendering pipeline. Renderer
+   factories are MEDRE-owned assembly code and **MUST NOT** import optional
+   transport SDKs at import time. Import or construction failures from a
+   registered renderer factory **MUST** fail startup rather than silently falling
+   back to the generic text renderer.
 7. Shared native-metadata and attribution dispatch resolve adapter-owned
    readers/projectors through the same spec.
 8. `MedreApp.adapters` owns the resulting live instances and performs the
