@@ -8,10 +8,14 @@ requires. Operators had to create spaces/rooms/invites/power levels by hand.
 private encrypted room (encryption written in the creation `initial_state`,
 so the room is encrypted from its first event), links them with
 `m.space.child`/`m.space.parent`, invites the requested users to both, and
-pre-assigns admin power 100 before the invites take effect — so a join is
-immediately an admin, with no watcher loop. The encryption algorithm,
-power read-back, and parent/child linkage are verified from actual server
-state; invites are reported separately from joins. Requires completed
+pre-assigns admin power 100 and writes parent/child linkage before any
+invitation is sent — so a join is immediately an admin, with no watcher loop
+and no room-create invite race. Encryption, power, and linkage are verified
+before invitations become externally visible, and each requested user is
+invited exactly once. Power-level reads fail closed instead of synthesizing
+replacement state, so a transient homeserver read error cannot overwrite
+server-managed power fields. Invites are reported separately from joins.
+Requires completed
 `adapter matrix auth login` credentials; room/space IDs and permalinks are
 printed (IDs are not credentials).
 

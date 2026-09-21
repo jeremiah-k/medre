@@ -1887,14 +1887,14 @@ class MatrixSession:
         self._reconnecting = False
 
     @staticmethod
-    def _client_bound_tasks(client: Any) -> list[asyncio.Task[None]]:
+    def _client_bound_tasks(client: Any) -> list[asyncio.Task[Any]]:
         """Return running tasks whose coroutine is bound to *client*.
 
         Bound-method coroutines carry their owning instance in the frame
         locals as ``self``, which identifies the SDK's sync-loop request
         tasks without pinning coroutine or method names.
         """
-        found: list[asyncio.Task[None]] = []
+        found: list[asyncio.Task[Any]] = []
         current = asyncio.current_task()
         for task in asyncio.all_tasks():
             if task is current or task.done():
@@ -1903,6 +1903,14 @@ class MatrixSession:
             if frame is not None and frame.f_locals.get("self") is client:
                 found.append(task)
         return found
+
+    @staticmethod
+    def _consume_client_task_result(task: asyncio.Future[Any]) -> None:
+        """Retrieve a detached nio request task's terminal result."""
+        try:
+            task.exception()
+        except (asyncio.CancelledError, Exception):
+            pass
 
     async def _drain_orphaned_client_tasks(self, timeout: float) -> None:
         """Cancel and reap client-bound request tasks still in flight.
@@ -1920,8 +1928,24 @@ class MatrixSession:
         )
         for task in orphans:
             task.cancel()
-        _done, pending = await asyncio.wait(orphans, timeout=timeout)
+        try:
+            done, pending = await asyncio.wait(orphans, timeout=timeout)
+        except asyncio.CancelledError:
+            # stop() itself may be cancelled while an SDK request ignores its
+            # cancellation.  Preserve caller cancellation, but still arrange
+            # to retrieve any eventual exception from every detached request.
+            for task in orphans:
+                task.add_done_callback(self._consume_client_task_result)
+            raise
+
+        if done:
+            # ``asyncio.wait`` only observes completion; it does not retrieve
+            # task exceptions.  Gather the completed subset so shutdown never
+            # leaves "Task exception was never retrieved" warnings behind.
+            await asyncio.gather(*done, return_exceptions=True)
         if pending:
+            for task in pending:
+                task.add_done_callback(self._consume_client_task_result)
             self._logger.warning(
                 "Matrix session stop: %d client request task(s) still in "
                 "flight after %.1fs",

@@ -16,8 +16,10 @@ F1b, runs 5-7).
 (identifying them by bound-method frame locals, without pinning coroutine
 names) while the HTTP session is still open — aiohttp releases each
 connection through its normal cancellation path — and only then closes the
-client. Tasks that ignore cancellation within the stop timeout are logged
-as a warning instead of being silently abandoned.
+client. Completed request exceptions are retrieved during the drain, and tasks
+that ignore cancellation within the stop timeout receive a terminal-result
+callback before they are logged as stragglers, preventing late unobserved-task
+warnings. Cancellation of ``stop()`` itself is still propagated.
 
 Live proof against the real homeserver: runtime start/stop now completes
 with zero ResourceWarnings, zero remaining client sessions, and zero live

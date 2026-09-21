@@ -436,7 +436,7 @@ class TestSyncStateResilience:
 
         async def _keys_query(self) -> None:
             orphan_started.set()
-            await asyncio.sleep(3600)
+            await asyncio.Event().wait()
 
         # Bound like a real nio method so the coroutine carries the client
         # in its frame locals.
@@ -953,3 +953,61 @@ class TestOperationalDiagnostics:
         assert diag["transient_delivery_failures"] == 0
         assert diag["permanent_delivery_failures"] == 0
         assert diag["olm_loaded"] is False
+
+
+async def test_client_task_drain_consumes_late_exception() -> None:
+    """A cancellation-resistant nio request must not leak a late exception."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class _Client:
+        async def keys_query(self) -> None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                # Model an SDK request that needs extra cleanup and then fails.
+                await release.wait()
+                raise RuntimeError("late request cleanup failure")
+
+    client = _Client()
+    session = MatrixSession(make_matrix_config())
+    session._client = client  # exercise the shutdown seam without a network client
+
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+    contexts: list[dict[str, Any]] = []
+    loop.set_exception_handler(lambda _loop, context: contexts.append(context))
+    try:
+        task = asyncio.create_task(client.keys_query())
+        await started.wait()
+
+        # Zero timeout forces the cancellation-resistant request into the
+        # straggler path.  The result-consumer callback must own its eventual
+        # exception after this method returns.
+        await session._drain_orphaned_client_tasks(timeout=0.0)
+        assert not task.done()
+
+        release.set()
+        for _ in range(100):
+            if task.done():
+                break
+            await asyncio.sleep(0)
+        assert task.done()
+
+        # Let the done callback run before checking the loop's unhandled-task
+        # channel.  Do not await/inspect task.exception() here: doing so would
+        # make the test itself consume the result and mask the regression.
+        await asyncio.sleep(0)
+        assert getattr(task, "_log_traceback", True) is False, (
+            "straggler result was not retrieved by the shutdown callback"
+        )
+        leaked = [
+            context
+            for context in contexts
+            if "never retrieved" in str(context.get("message", "")).lower()
+        ]
+        assert leaked == []
+    finally:
+        loop.set_exception_handler(previous_handler)
+        session._client = None

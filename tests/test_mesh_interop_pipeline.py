@@ -49,6 +49,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.runtime.builder import SourceAttributionConfig
+from tests.helpers.async_utils import wait_until
 
 logger = logging.getLogger(__name__)
 
@@ -293,173 +294,187 @@ _EXPECTED_PREFIX = {
 }
 
 
-class TestMeshInteropPipeline:
-    """Six directed radio<->radio edges through codecs/renderers/routing."""
+# Six directed radio<->radio edges through codecs/renderers/routing.
 
-    @pytest.mark.parametrize("source", _SOURCES)
-    async def test_mesh_to_mesh_relayed_with_fidelity(
-        self, temp_storage: SQLiteStorage, source: str
-    ) -> None:
-        """One native packet relays to BOTH far meshes, once, faithfully."""
-        nonce = uuid.uuid4().hex[:8]
-        body = f"MESH-{source}-{nonce} ünïcode ✓\nline2"
-        harness = _MeshInteropHarness(temp_storage)
-        await harness.start()
-        try:
-            await harness.inject(source, body)
-            # Fanout is awaited inside handle_ingress; a short settle keeps
-            # this robust to future async-delivery scheduling.
-            await asyncio.sleep(0.2)
-
-            prefix = _EXPECTED_PREFIX[source]
-            for target in _FAR_TARGETS[source]:
-                bodies = harness.delivered_bodies(target)
-                matches = [b for b in bodies if body in b]
-                assert len(matches) == 1, (
-                    f"{source}->{target}: expected exactly one delivery "
-                    f"carrying the body, got {len(matches)} of {len(bodies)} "
-                    f"total: {bodies!r}"
-                )
-                assert matches[0].startswith(prefix), (
-                    f"{source}->{target}: attribution prefix {prefix!r} "
-                    f"missing from {matches[0]!r}"
-                )
-
-            # Source exclusion: the source transport never receives its
-            # own relay back through the pipeline.
-            assert harness.delivered_bodies(source) == [], (
-                f"{source} received its own relay back (fanout loop): "
-                f"{harness.delivered_bodies(source)!r}"
+@pytest.mark.parametrize("source", _SOURCES)
+async def test_mesh_to_mesh_relayed_with_fidelity(
+    temp_storage: SQLiteStorage, source: str
+) -> None:
+    """One native packet relays to BOTH far meshes, once, faithfully."""
+    nonce = uuid.uuid4().hex[:8]
+    body = f"MESH-{source}-{nonce} ünïcode ✓\nline2"
+    harness = _MeshInteropHarness(temp_storage)
+    await harness.start()
+    try:
+        await harness.inject(source, body)
+        targets = _FAR_TARGETS[source]
+        assert await wait_until(
+            lambda: all(
+                any(body in delivered for delivered in harness.delivered_bodies(target))
+                for target in targets
             )
-        finally:
-            await harness.stop()
+        ), f"{source}: timed out waiting for both far deliveries"
 
-    @pytest.mark.parametrize(
-        ("target", "expected_channel"),
-        [(MC_ADAPTER, 1), (LX_ADAPTER, LX_PEER_DEST)],
-    )
-    async def test_target_channel_mapping_from_meshtastic(
-        self, temp_storage: SQLiteStorage, target: str, expected_channel: str
-    ) -> None:
-        """The MT route's per-target channel keys the native send."""
-        harness = _MeshInteropHarness(temp_storage)
-        await harness.start()
-        try:
-            await harness.inject(MT_ADAPTER, "channel-map-probe")
-            await asyncio.sleep(0.2)
-            adapter = {MC_ADAPTER: harness.mc, LX_ADAPTER: harness.lx}[target]
-            deliveries = [r for r in adapter.delivered_payloads]
-            assert (
-                len(deliveries) == 1
-            ), f"expected one delivery at {target}, got {len(deliveries)}"
-            if target == MC_ADAPTER:
-                assert deliveries[0].payload["channel_index"] == expected_channel
-            else:
-                assert (
-                    deliveries[0].payload["destination_hash"] == expected_channel
-                ), "LXMF delivery must target the routed peer dest hash"
-        finally:
-            await harness.stop()
-
-    async def test_unmapped_source_channel_does_not_leak(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
-        """MT text on a channel with no route reaches no transport."""
-        harness = _MeshInteropHarness(temp_storage)
-        await harness.start()
-        try:
-            before = {aid: len(harness.delivered_bodies(aid)) for aid in _SOURCES}
-            await harness.mt.simulate_inbound(_mt_packet("wrong-channel", channel=2))
-            await asyncio.sleep(0.2)
-            after = {aid: len(harness.delivered_bodies(aid)) for aid in _SOURCES}
-            assert (
-                after == before
-            ), f"unmapped-channel MT packet leaked to routes: {before} -> {after}"
-        finally:
-            await harness.stop()
-
-    async def test_oversize_body_truncated_to_target_limit(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
-        """A body larger than the MC target's max_text_bytes is delivered
-        truncated to exactly the configured byte budget (prefix included)."""
-        harness = _MeshInteropHarness(temp_storage)
-        await harness.start()
-        try:
-            body = "O" * 400
-            await harness.inject(MT_ADAPTER, body)
-            await asyncio.sleep(0.2)
-            mc_texts = [t for t in harness.delivered_bodies(MC_ADAPTER) if "OOO" in t]
-            assert len(mc_texts) == 1, f"expected one MC delivery, got {mc_texts!r}"
-            text = mc_texts[0]
-            assert len(text.encode("utf-8")) == MC_MAX_BYTES, (
-                f"MC delivery must respect max_text_bytes={MC_MAX_BYTES}, "
-                f"got {len(text.encode('utf-8'))} bytes"
+        prefix = _EXPECTED_PREFIX[source]
+        for target in _FAR_TARGETS[source]:
+            bodies = harness.delivered_bodies(target)
+            matches = [b for b in bodies if body in b]
+            assert len(matches) == 1, (
+                f"{source}->{target}: expected exactly one delivery "
+                f"carrying the body, got {len(matches)} of {len(bodies)} "
+                f"total: {bodies!r}"
             )
-            assert text.startswith(_EXPECTED_PREFIX[MT_ADAPTER])
-        finally:
-            await harness.stop()
+            assert matches[0].startswith(prefix), (
+                f"{source}->{target}: attribution prefix {prefix!r} "
+                f"missing from {matches[0]!r}"
+            )
 
-    async def test_lxmf_delivery_embeds_medre_envelope(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
-        """MT->LX deliveries carry the MEDRE envelope fields so far-side
-        peers can reconstruct lineage (source adapter + transport id)."""
-        harness = _MeshInteropHarness(temp_storage)
-        await harness.start()
-        try:
-            await harness.inject(MC_ADAPTER, "envelope-probe")
-            await asyncio.sleep(0.2)
-            lx_deliveries = harness.lx.delivered_payloads
-            assert len(lx_deliveries) == 1
-            fields = dict(lx_deliveries[0].payload).get("fields")
-            assert (
-                isinstance(fields, dict) and fields
-            ), "LXMF delivery missing fields envelope"
-            # Field payloads are keyed by integer field id; find any medre
-            # envelope regardless of the id constant.
-            envelopes = [
-                v.get("medre")
-                for v in fields.values()
-                if isinstance(v, dict) and isinstance(v.get("medre"), dict)
-            ]
-            assert envelopes, f"no medre envelope in fields {fields!r}"
-            envelope = envelopes[0]
-            assert envelope.get("source_adapter") == MC_ADAPTER
-            assert envelope.get("source_transport_id") == "mcbpeer"
-        finally:
-            await harness.stop()
-
-    async def test_meshcore_wire_sender_name_flows_cross_mesh(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
-        """MC group texts carry the sender's node name on the wire.
-
-        The channel protocol has no sender identity, so the firmware
-        embeds "<name>: <text>" (user-observed live: MT relays showed the
-        sender while MC relays rendered an empty "{sender}").  The codec
-        lifts the wire name into the attribution label; far transports
-        must render it in a ``{sender}``-based prefix while the body
-        stays verbatim.
-        """
-        harness = _MeshInteropHarness(
-            temp_storage, prefix_template="{sender}/{origin_label}: "
+        # Source exclusion: the source transport never receives its
+        # own relay back through the pipeline.
+        assert harness.delivered_bodies(source) == [], (
+            f"{source} received its own relay back (fanout loop): "
+            f"{harness.delivered_bodies(source)!r}"
         )
-        await harness.start()
-        try:
-            body = "MEDRE-MC-B: wire-name ünïcode ✓\nline2"
-            await harness.mc.simulate_inbound(_mc_packet(body))
-            await asyncio.sleep(0.2)
-            for target in _FAR_TARGETS[MC_ADAPTER]:
-                bodies = harness.delivered_bodies(target)
-                matches = [b for b in bodies if body in b]
-                assert len(matches) == 1, (
-                    f"mc->{target}: expected the wire-named body once, "
-                    f"got {matches!r} of {bodies!r}"
-                )
-                assert matches[0].startswith("MEDRE-MC-B/mclab: "), (
-                    f"mc->{target}: wire sender name missing from prefix: "
-                    f"{matches[0]!r}"
-                )
-        finally:
-            await harness.stop()
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.parametrize(
+    ("target", "expected_channel"),
+    [(MC_ADAPTER, 1), (LX_ADAPTER, LX_PEER_DEST)],
+)
+async def test_target_channel_mapping_from_meshtastic(
+    temp_storage: SQLiteStorage, target: str, expected_channel: str
+) -> None:
+    """The MT route's per-target channel keys the native send."""
+    harness = _MeshInteropHarness(temp_storage)
+    await harness.start()
+    try:
+        await harness.inject(MT_ADAPTER, "channel-map-probe")
+        adapter = {MC_ADAPTER: harness.mc, LX_ADAPTER: harness.lx}[target]
+        assert await wait_until(lambda: len(adapter.delivered_payloads) >= 1)
+        deliveries = [r for r in adapter.delivered_payloads]
+        assert (
+            len(deliveries) == 1
+        ), f"expected one delivery at {target}, got {len(deliveries)}"
+        if target == MC_ADAPTER:
+            assert deliveries[0].payload["channel_index"] == expected_channel
+        else:
+            assert (
+                deliveries[0].payload["destination_hash"] == expected_channel
+            ), "LXMF delivery must target the routed peer dest hash"
+    finally:
+        await harness.stop()
+
+
+async def test_unmapped_source_channel_does_not_leak(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """MT text on a channel with no route reaches no transport."""
+    harness = _MeshInteropHarness(temp_storage)
+    await harness.start()
+    try:
+        before = {aid: len(harness.delivered_bodies(aid)) for aid in _SOURCES}
+        await harness.mt.simulate_inbound(_mt_packet("wrong-channel", channel=2))
+        after = {aid: len(harness.delivered_bodies(aid)) for aid in _SOURCES}
+        assert (
+            after == before
+        ), f"unmapped-channel MT packet leaked to routes: {before} -> {after}"
+    finally:
+        await harness.stop()
+
+
+async def test_oversize_body_truncated_to_target_limit(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A body larger than the MC target's max_text_bytes is delivered
+    truncated to exactly the configured byte budget (prefix included)."""
+    harness = _MeshInteropHarness(temp_storage)
+    await harness.start()
+    try:
+        body = "O" * 400
+        await harness.inject(MT_ADAPTER, body)
+        assert await wait_until(
+            lambda: any("OOO" in t for t in harness.delivered_bodies(MC_ADAPTER))
+        )
+        mc_texts = [t for t in harness.delivered_bodies(MC_ADAPTER) if "OOO" in t]
+        assert len(mc_texts) == 1, f"expected one MC delivery, got {mc_texts!r}"
+        text = mc_texts[0]
+        assert len(text.encode("utf-8")) == MC_MAX_BYTES, (
+            f"MC delivery must respect max_text_bytes={MC_MAX_BYTES}, "
+            f"got {len(text.encode('utf-8'))} bytes"
+        )
+        assert text.startswith(_EXPECTED_PREFIX[MT_ADAPTER])
+    finally:
+        await harness.stop()
+
+
+async def test_lxmf_delivery_embeds_medre_envelope(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """MT->LX deliveries carry the MEDRE envelope fields so far-side
+    peers can reconstruct lineage (source adapter + transport id)."""
+    harness = _MeshInteropHarness(temp_storage)
+    await harness.start()
+    try:
+        await harness.inject(MC_ADAPTER, "envelope-probe")
+        assert await wait_until(lambda: len(harness.lx.delivered_payloads) >= 1)
+        lx_deliveries = harness.lx.delivered_payloads
+        assert len(lx_deliveries) == 1
+        fields = dict(lx_deliveries[0].payload).get("fields")
+        assert (
+            isinstance(fields, dict) and fields
+        ), "LXMF delivery missing fields envelope"
+        # Field payloads are keyed by integer field id; find any medre
+        # envelope regardless of the id constant.
+        envelopes = [
+            v.get("medre")
+            for v in fields.values()
+            if isinstance(v, dict) and isinstance(v.get("medre"), dict)
+        ]
+        assert envelopes, f"no medre envelope in fields {fields!r}"
+        envelope = envelopes[0]
+        assert envelope.get("source_adapter") == MC_ADAPTER
+        assert envelope.get("source_transport_id") == "mcbpeer"
+    finally:
+        await harness.stop()
+
+
+async def test_meshcore_wire_sender_name_flows_cross_mesh(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """MC group texts carry the sender's node name on the wire.
+
+    The channel protocol has no sender identity, so the firmware
+    embeds "<name>: <text>" (user-observed live: MT relays showed the
+    sender while MC relays rendered an empty "{sender}").  The codec
+    lifts the wire name into the attribution label; far transports
+    must render it in a ``{sender}``-based prefix while the body
+    stays verbatim.
+    """
+    harness = _MeshInteropHarness(
+        temp_storage, prefix_template="{sender}/{origin_label}: "
+    )
+    await harness.start()
+    try:
+        body = "MEDRE-MC-B: wire-name ünïcode ✓\nline2"
+        await harness.mc.simulate_inbound(_mc_packet(body))
+        assert await wait_until(
+            lambda: all(
+                any(body in delivered for delivered in harness.delivered_bodies(target))
+                for target in _FAR_TARGETS[MC_ADAPTER]
+            )
+        )
+        for target in _FAR_TARGETS[MC_ADAPTER]:
+            bodies = harness.delivered_bodies(target)
+            matches = [b for b in bodies if body in b]
+            assert len(matches) == 1, (
+                f"mc->{target}: expected the wire-named body once, "
+                f"got {matches!r} of {bodies!r}"
+            )
+            assert matches[0].startswith("MEDRE-MC-B/mclab: "), (
+                f"mc->{target}: wire sender name missing from prefix: "
+                f"{matches[0]!r}"
+            )
+    finally:
+        await harness.stop()

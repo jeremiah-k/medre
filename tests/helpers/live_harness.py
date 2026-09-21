@@ -197,6 +197,20 @@ def assert_no_secret_leak(obj: object, secret_values: Iterable[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _consume_task_result(task: asyncio.Future[object]) -> None:
+    """Retrieve a detached task's terminal result without surfacing it.
+
+    ``bounded`` intentionally stops waiting at its own deadline.  A coroutine
+    that ignores cancellation can therefore finish later; retrieving its
+    result here prevents a late exception from becoming an unobserved-task
+    warning in an otherwise unrelated live test.
+    """
+    try:
+        task.exception()
+    except (asyncio.CancelledError, Exception):
+        pass
+
+
 async def bounded(coro: Awaitable[_T], timeout: float, label: str) -> _T:
     """Await *coro* with a hard timeout, raising a descriptive error.
 
@@ -222,9 +236,20 @@ async def bounded(coro: Awaitable[_T], timeout: float, label: str) -> _T:
             seconds.  The message includes *label* and *timeout*.
     """
     task = asyncio.ensure_future(coro)
-    done, _pending = await asyncio.wait({task}, timeout=timeout)
+    try:
+        done, _pending = await asyncio.wait({task}, timeout=timeout)
+    except asyncio.CancelledError:
+        # Caller cancellation must not detach the operation the caller was
+        # bounding.  Do not wait for cancellation-resistant SDK code here;
+        # cleanup remains hard-bounded and the callback consumes any eventual
+        # terminal exception.
+        task.cancel()
+        task.add_done_callback(_consume_task_result)
+        raise
+
     if not done:
         task.cancel()
+        task.add_done_callback(_consume_task_result)
         raise RuntimeError(f"Live test timed out after {timeout}s: {label}")
     return task.result()
 

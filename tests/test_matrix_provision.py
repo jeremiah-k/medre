@@ -220,7 +220,10 @@ async def test_provision_sequence_creates_invites_and_verifies() -> None:
     assert space_kwargs["visibility"].value == "private"
     assert space_kwargs["preset"].value == "private_chat"
     assert space_kwargs["federate"] is True
-    assert space_kwargs["invite"] == [USER]
+    assert "invite" not in space_kwargs, (
+        "room_create must not expose invitations before power/link state is ready"
+    )
+    assert "invite" not in room_kwargs
     # Encryption arrives with the room's first state, not after creation.
     assert room_kwargs["initial_state"] == [encryption_initial_state()]
     assert room_kwargs["topic"] == "smoke"
@@ -240,6 +243,19 @@ async def test_provision_sequence_creates_invites_and_verifies() -> None:
             if name == "room_invite" and kw["room_id"] == prefix_room_id
         )
         assert put_idx < invite_idx, "power preassignment must precede invites"
+
+    first_invite_idx = next(
+        i for i, (name, _kw) in enumerate(client.calls) if name == "room_invite"
+    )
+    linkage_indices = [
+        i
+        for i, (name, kw) in enumerate(client.calls)
+        if name == "room_put_state"
+        and kw["event_type"] in {"m.space.child", "m.space.parent"}
+    ]
+    assert linkage_indices and max(linkage_indices) < first_invite_idx, (
+        "space/room linkage must be written before invitations become visible"
+    )
 
     # The room's power put preserved the unrelated ban field.
     room_pl_put = next(
@@ -294,6 +310,39 @@ async def test_provision_rejects_malformed_user_id() -> None:
         )
 
 
+async def test_provision_rejects_duplicate_invites_before_creating_rooms() -> None:
+    client = _StubClient(BOT)
+    with pytest.raises(ValueError, match="duplicate user IDs"):
+        await provision_private_space_and_room(
+            client,
+            space_name="s",
+            room_name="r",
+            invite_user_ids=[USER, USER],
+        )
+    assert client.calls == []
+
+
+async def test_provision_fails_closed_when_power_state_read_fails() -> None:
+    from medre.adapters.matrix.errors import MatrixProvisionError
+
+    client = _StubClient(BOT)
+    client.scripted["room_get_state_event"] = [
+        _FakeError("temporary server failure", "M_UNKNOWN")
+    ]
+    with pytest.raises(MatrixProvisionError, match="power_levels read"):
+        await provision_private_space_and_room(
+            client,
+            space_name="s",
+            room_name="r",
+            invite_user_ids=[USER],
+        )
+    assert not any(name == "room_invite" for name, _ in client.calls)
+    assert not any(
+        name == "room_put_state" and kw["event_type"] == "m.room.power_levels"
+        for name, kw in client.calls
+    )
+
+
 async def test_provision_fails_on_create_error() -> None:
     from medre.adapters.matrix.errors import MatrixProvisionError
 
@@ -332,9 +381,9 @@ async def test_provision_fails_when_room_not_encrypted() -> None:
     client = _StubClient(BOT)
     ok_users = {"users": {BOT: 100, USER: 100}}
     client.scripted["room_get_state_event"] = [
-        _FakeError("not found", "M_NOT_FOUND"),  # space PL pre (absent → defaults)
+        _FakeResponse(content={"users": {BOT: 100}}),  # space PL pre
         _FakeResponse(content=dict(ok_users)),  # space PL read-back
-        _FakeError("not found", "M_NOT_FOUND"),  # room PL pre (absent → defaults)
+        _FakeResponse(content={"users": {BOT: 100}}),  # room PL pre
         _FakeResponse(content=dict(ok_users)),  # room PL read-back
         _FakeError("not found", "M_NOT_FOUND"),  # encryption read fails
     ]
@@ -345,6 +394,9 @@ async def test_provision_fails_when_room_not_encrypted() -> None:
             room_name="r",
             invite_user_ids=[USER],
         )
+    assert not any(name == "room_invite" for name, _ in client.calls), (
+        "users must not be invited when encryption verification fails"
+    )
 
 
 async def test_provision_fails_on_wrong_algorithm() -> None:
@@ -353,9 +405,9 @@ async def test_provision_fails_on_wrong_algorithm() -> None:
     client = _StubClient(BOT)
     ok_users = {"users": {BOT: 100, USER: 100}}
     client.scripted["room_get_state_event"] = [
-        _FakeError("not found", "M_NOT_FOUND"),  # space PL pre
+        _FakeResponse(content={"users": {BOT: 100}}),  # space PL pre
         _FakeResponse(content=dict(ok_users)),  # space PL read-back
-        _FakeError("not found", "M_NOT_FOUND"),  # room PL pre
+        _FakeResponse(content={"users": {BOT: 100}}),  # room PL pre
         _FakeResponse(content=dict(ok_users)),  # room PL read-back
         _FakeResponse(content={"algorithm": "m.unrelated.alg"}),
     ]
@@ -453,7 +505,6 @@ def test_pinned_nio_exposes_provisioning_contract() -> None:
         "topic",
         "preset",
         "federate",
-        "invite",
         "initial_state",
         "space",
     ):
@@ -469,7 +520,6 @@ def test_pinned_nio_exposes_provisioning_contract() -> None:
     assert "state_key" in get_params
 
     assert "user_id" in inspect.signature(nio.AsyncClient.room_invite).parameters
-    assert callable(nio.AsyncClient.joined_members)
 
     assert nio.RoomVisibility.private.value == "private"
     assert nio.RoomPreset.private_chat.value == "private_chat"

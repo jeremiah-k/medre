@@ -18,7 +18,7 @@ event; there is no unencrypted window to race against.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 __all__ = [
@@ -60,8 +60,6 @@ class _ProvisionClient(Protocol):
     ) -> Any: ...
 
     async def room_invite(self, room_id: str, user_id: str) -> Any: ...
-
-    async def joined_members(self, room_id: str) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -140,11 +138,25 @@ def _server_name_from_user_id(user_id: str) -> str:
 def _validate_inputs(
     invite_user_ids: Sequence[str], admin_power_user_ids: Sequence[str]
 ) -> None:
-    for user_id in (*invite_user_ids, *admin_power_user_ids):
-        if not user_id.startswith("@") or ":" not in user_id:
+    for label, values in (
+        ("invite_user_ids", invite_user_ids),
+        ("admin_power_user_ids", admin_power_user_ids),
+    ):
+        seen: set[str] = set()
+        duplicates: set[str] = set()
+        for user_id in values:
+            if not user_id.startswith("@") or ":" not in user_id:
+                raise ValueError(
+                    f"user ID {user_id!r} is not a fully-qualified MXID (@user:server)"
+                )
+            if user_id in seen:
+                duplicates.add(user_id)
+            seen.add(user_id)
+        if duplicates:
             raise ValueError(
-                f"user ID {user_id!r} is not a fully-qualified MXID (@user:server)"
+                f"{label} contains duplicate user IDs: {sorted(duplicates)}"
             )
+
     non_invited = set(admin_power_user_ids) - set(invite_user_ids)
     if non_invited:
         raise ValueError(
@@ -164,26 +176,29 @@ async def _raise_if_error(response: Any, action: str) -> None:
 
 
 async def _read_power_levels(client: _ProvisionClient, room_id: str) -> dict[str, Any]:
-    """Read the room's power-levels content; empty mapping when absent."""
+    """Read the room's power-levels content, failing closed on bad state."""
+    from medre.adapters.matrix.errors import MatrixProvisionError
+
     response = await client.room_get_state_event(room_id, "m.room.power_levels")
-    if type(response).__name__.endswith("Error"):
-        return {}
+    await _raise_if_error(response, f"power_levels read on {room_id}")
     content = getattr(response, "content", None)
-    return dict(content) if isinstance(content, Mapping) else {}
+    if not isinstance(content, Mapping):
+        raise MatrixProvisionError(
+            f"power_levels read on {room_id} returned no mapping content"
+        )
+    return dict(content)
 
 
 async def _provision_resource(
     client: _ProvisionClient,
     *,
     name: str,
-    bot_user_id: str,
-    invite_user_ids: Sequence[str],
     admin_grants: Mapping[str, int],
     space: bool,
     initial_state: Sequence[dict[str, Any]] = (),
     topic: str | None = None,
 ) -> ProvisionedResource:
-    """Create one room/space, preassign power before invites, then verify."""
+    """Create one room/space and persist verified power-level grants."""
     from nio import RoomPreset, RoomVisibility
 
     from medre.adapters.matrix.errors import MatrixProvisionError
@@ -196,7 +211,9 @@ async def _provision_resource(
         # private rooms still federate with matrix.org by default.
         "federate": True,
         "space": space,
-        "invite": list(invite_user_ids),
+        # Invitations are deliberately NOT part of room_create().  The
+        # operator contract pre-assigns power and links the space/room pair
+        # before any invited user can join.
         "initial_state": list(initial_state),
     }
     if topic is not None:
@@ -208,22 +225,28 @@ async def _provision_resource(
     if not room_id:
         raise MatrixProvisionError(f"room_create({name!r}) returned no room_id")
 
-    # Pre-assign admin power BEFORE the invites are processed so a later join
-    # is immediately an admin (no watcher loop).  Preserve all other fields.
+    # Pre-assign admin power before any explicit invitation is sent so a
+    # later join is immediately an admin (no watcher loop).  Preserve every
+    # unrelated server-managed field rather than synthesizing replacement
+    # power state when the read fails.
     current = await _read_power_levels(client, room_id)
+    current_users = current.get("users")
+    if current_users is not None and not isinstance(current_users, Mapping):
+        raise MatrixProvisionError(
+            f"power_levels read on {room_id} has non-mapping users field"
+        )
     merged = merge_power_level_users(current, dict(admin_grants))
     put = await client.room_put_state(room_id, "m.room.power_levels", merged)
     await _raise_if_error(put, f"power_levels put on {room_id}")
 
-    invited: list[str] = []
-    for target in invite_user_ids:
-        invite = await client.room_invite(room_id, target)
-        await _raise_if_error(invite, f"invite {target} to {room_id}")
-        invited.append(target)
-
     # Read back power state so the report reflects server truth, not intent.
     power_content = await _read_power_levels(client, room_id)
-    server_users = power_content.get("users") or {}
+    raw_server_users = power_content.get("users")
+    if raw_server_users is not None and not isinstance(raw_server_users, Mapping):
+        raise MatrixProvisionError(
+            f"power read-back on {room_id} has non-mapping users field"
+        )
+    server_users = raw_server_users or {}
     users_readback = {user: int(server_users.get(user, 0)) for user in admin_grants}
     for target, power in users_readback.items():
         if power != _ADMIN_POWER:
@@ -234,9 +257,21 @@ async def _provision_resource(
 
     return ProvisionedResource(
         room_id=room_id,
-        invited=tuple(invited),
+        invited=(),
         granted_power_levels=users_readback,
     )
+
+
+async def _invite_users(
+    client: _ProvisionClient, room_id: str, invite_user_ids: Sequence[str]
+) -> tuple[str, ...]:
+    """Invite each validated user exactly once and return successful targets."""
+    invited: list[str] = []
+    for target in invite_user_ids:
+        invite = await client.room_invite(room_id, target)
+        await _raise_if_error(invite, f"invite {target} to {room_id}")
+        invited.append(target)
+    return tuple(invited)
 
 
 async def _verify_encryption(client: _ProvisionClient, room_id: str) -> str:
@@ -276,14 +311,28 @@ async def _verify_linkage(
             f"space linkage incomplete: child={type(child).__name__} "
             f"parent={type(parent).__name__}"
         )
-    child_content = getattr(child, "content", None) or {}
-    parent_content = getattr(parent, "content", None) or {}
+    child_content = getattr(child, "content", None)
+    parent_content = getattr(parent, "content", None)
+    if not isinstance(child_content, Mapping) or not isinstance(
+        parent_content, Mapping
+    ):
+        raise MatrixProvisionError(
+            "space linkage state returned non-mapping content"
+        )
     child_via = child_content.get("via", [])
     parent_via = parent_content.get("via", [])
+    if not isinstance(child_via, Sequence) or isinstance(child_via, (str, bytes)):
+        raise MatrixProvisionError("space child linkage has invalid via field")
+    if not isinstance(parent_via, Sequence) or isinstance(parent_via, (str, bytes)):
+        raise MatrixProvisionError("space parent linkage has invalid via field")
     if server_name not in child_via or server_name not in parent_via:
         raise MatrixProvisionError(
             f"space linkage via-entries missing {server_name!r}: "
             f"child_via={child_via!r} parent_via={parent_via!r}"
+        )
+    if parent_content.get("canonical") is not True:
+        raise MatrixProvisionError(
+            "space parent linkage is not canonical as provisioned"
         )
     return True
 
@@ -300,9 +349,8 @@ async def provision_private_space_and_room(
     """Provision a private space + encrypted room pair and verify its state.
 
     Sequence: create space → create room (encryption in initial_state) →
-    preassign power levels on both → write parent/child linkage → invite on
-    both → verify encryption algorithm, power read-back, and linkage from
-    actual server state.
+    preassign and verify power levels on both → write parent/child linkage →
+    verify encryption/linkage from actual server state → invite on both.
 
     Raises :class:`~medre.adapters.matrix.errors.MatrixProvisionError` on any
     response error or verification mismatch.  Raises :class:`ValueError` on
@@ -325,16 +373,12 @@ async def provision_private_space_and_room(
     space_resource = await _provision_resource(
         client,
         name=space_name,
-        bot_user_id=bot_user_id,
-        invite_user_ids=invite_user_ids,
         admin_grants=grants,
         space=True,
     )
     room_resource = await _provision_resource(
         client,
         name=room_name,
-        bot_user_id=bot_user_id,
-        invite_user_ids=invite_user_ids,
         admin_grants=grants,
         space=False,
         initial_state=[encryption_initial_state()],
@@ -359,9 +403,26 @@ async def provision_private_space_and_room(
     if not isinstance(parent_put, RoomPutStateResponse):
         await _raise_if_error(parent_put, "space parent state put")
 
+    # Verify the safety-critical state before invitations become externally
+    # visible.  If the homeserver rejected/rewrote encryption or linkage,
+    # fail with private resources rather than inviting users into a malformed
+    # pair.
     algorithm = await _verify_encryption(client, room_resource.room_id)
     linkage = await _verify_linkage(
         client, space_resource.room_id, room_resource.room_id, server_name
+    )
+
+    # Only after both power-level writes, linkage writes, and verification
+    # succeeded do invitations become externally visible.  This keeps the
+    # documented ordering true and avoids room_create() racing an invited
+    # user's join.
+    space_resource = replace(
+        space_resource,
+        invited=await _invite_users(client, space_resource.room_id, invite_user_ids),
+    )
+    room_resource = replace(
+        room_resource,
+        invited=await _invite_users(client, room_resource.room_id, invite_user_ids),
     )
 
     return ProvisionReport(
