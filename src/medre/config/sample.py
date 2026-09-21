@@ -80,6 +80,9 @@ adapters:
       # harnesses that must override it pass an absolute path — there is no
       # {adapter_id} path placeholder.
       encryption_mode: plaintext
+      # sync_stale_timeout_seconds: 300.0  # 0 disables active stale-sync recovery
+      # megolm_key_request_rate_limit_per_minute: 30
+      # megolm_key_request_max_inflight: 4
       # When using E2EE:
       # encryption_mode: e2ee_required
 

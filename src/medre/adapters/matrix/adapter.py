@@ -70,12 +70,6 @@ _MAX_DELIVERY_RETRIES: int = 3
 _DELIVERY_BACKOFF_BASE: float = 0.5  # 500ms
 _DELIVERY_BACKOFF_JITTER: float = 0.25
 
-# Stale-sync watchdog: health_check reports "degraded" when the last
-# successful sync is older than this threshold (seconds).  Configurable
-# via module constant so tests can patch it without reaching into internals.
-_SYNC_STALE_THRESHOLD_SECONDS: float = 300.0
-
-
 class _NioRateLimitError(Exception):
     """Internal sentinel for nio rate-limit responses.
 
@@ -496,11 +490,15 @@ class MatrixAdapter(AdapterContract):
         # Uses a fakeable clock (``self._clock``) so tests can
         # control time without fixed sleeps.
         if health == "healthy" and self._session is not None:
-            last_sync = self._session.last_successful_sync
-            if last_sync is not None:
-                now = self._clock()
-                if (now - last_sync) > _SYNC_STALE_THRESHOLD_SECONDS:
-                    health = "degraded"
+            if self._session.reconnecting:
+                health = "degraded"
+            else:
+                last_sync = self._session.last_successful_sync
+                stale_timeout = float(self._config.sync_stale_timeout_seconds)
+                if last_sync is not None and stale_timeout > 0:
+                    now = self._clock()
+                    if (now - last_sync) > stale_timeout:
+                        health = "degraded"
 
         self._last_health = health
         return AdapterInfo(
@@ -964,10 +962,17 @@ class MatrixAdapter(AdapterContract):
                 "megolm_recovery_attempts": diag.megolm_recovery_attempts,
                 "megolm_recovery_successes": diag.megolm_recovery_successes,
                 "megolm_recovery_failures": diag.megolm_recovery_failures,
+                "megolm_recovery_rate_limited": diag.megolm_recovery_rate_limited,
+                "megolm_recovery_inflight_rejected": (
+                    diag.megolm_recovery_inflight_rejected
+                ),
+                "megolm_recovery_inflight": diag.megolm_recovery_inflight,
                 # Sync recovery
                 "sync_running": diag.sync_running,
                 "reconnecting": diag.reconnecting,
                 "reconnect_attempts": diag.reconnect_attempts,
+                "stale_sync_recoveries": diag.stale_sync_recoveries,
+                "last_stale_sync_at": diag.last_stale_sync_at,
                 "last_successful_sync": diag.last_successful_sync,
                 "checkpoint_owned_by_medre": diag.checkpoint_owned_by_medre,
                 "committed_checkpoint_present": diag.committed_checkpoint_present,
@@ -1040,10 +1045,15 @@ class MatrixAdapter(AdapterContract):
             "megolm_recovery_attempts": 0,
             "megolm_recovery_successes": 0,
             "megolm_recovery_failures": 0,
+            "megolm_recovery_rate_limited": 0,
+            "megolm_recovery_inflight_rejected": 0,
+            "megolm_recovery_inflight": 0,
             # Sync recovery
             "sync_running": False,
             "reconnecting": False,
             "reconnect_attempts": 0,
+            "stale_sync_recoveries": 0,
+            "last_stale_sync_at": None,
             "last_successful_sync": None,
             "checkpoint_owned_by_medre": bool(
                 self.ctx is not None

@@ -53,7 +53,26 @@
         "sync_timeout_ms": {
           "type": "integer",
           "default": 30000,
+          "minimum": 0,
           "description": "Timeout in milliseconds for long-polling sync requests."
+        },
+        "sync_stale_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 300.0,
+          "description": "Maximum seconds without durable sync progress before MEDRE recycles the current Matrix sync loop; 0 disables active stale-sync recovery."
+        },
+        "megolm_key_request_rate_limit_per_minute": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30,
+          "description": "Maximum outbound missing-room-key to-device request attempts per rolling minute."
+        },
+        "megolm_key_request_max_inflight": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4,
+          "description": "Maximum concurrent detached missing-room-key recovery tasks."
         },
         "encryption_mode": {
           "type": "string",
