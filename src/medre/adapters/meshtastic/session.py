@@ -2,7 +2,8 @@
 
 :class:`MeshtasticSession` owns the raw Meshtastic transport lifecycle:
 client construction, connection establishment, inbound-packet callback
-registration, bounded reconnection, and graceful teardown.
+registration, lifetime reconnection supervision, TCP liveness probing, and
+graceful teardown.
 
 The adapter delegates all client ownership to this session object.
 The session owns raw transport; the adapter owns semantic conversion.
@@ -13,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import math
 import random
 import threading
 import time
@@ -29,13 +31,13 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 
 _logger = logging.getLogger(__name__)
 
-# Maximum consecutive reconnect attempts before giving up.
-_MAX_RECONNECT_ATTEMPTS: int = 10
-
-# Exponential backoff base and cap (seconds).
-_BACKOFF_BASE: float = 1.0
-_BACKOFF_CAP: float = 30.0
+# Exponential reconnect jitter.  Backoff base/cap are adapter configuration.
 _BACKOFF_JITTER_FRACTION: float = 0.25
+
+# Delay before the first TCP liveness probe after startup.  This is deliberately
+# internal: operators configure the steady-state interval/timeout, while MEDRE
+# avoids probing during the SDK's initial configuration exchange.
+_LIVENESS_INITIAL_DELAY_SECONDS: float = 5.0
 
 # Maximum transient retry attempts for outbound send.
 _MAX_SEND_RETRIES: int = 3
@@ -86,6 +88,14 @@ class MeshtasticSessionDiagnostics:
     stale_receive_callbacks: int
     stale_disconnect_callbacks: int
     last_error: str | None
+    reconnect_total_attempts: int = 0
+    liveness_enabled: bool = False
+    liveness_probe_successes: int = 0
+    liveness_probe_failures: int = 0
+    liveness_consecutive_failures: int = 0
+    last_liveness_probe_time: float | None = None
+    last_liveness_success_time: float | None = None
+    last_liveness_error: str | None = None
 
 
 class MeshtasticSession:
@@ -93,7 +103,7 @@ class MeshtasticSession:
 
     Owns the raw client interface and manages its full lifecycle:
     creation, callback registration, inbound message forwarding,
-    bounded reconnection, and graceful teardown.
+    transport-specific liveness/recovery supervision, and graceful teardown.
 
     Parameters
     ----------
@@ -126,7 +136,9 @@ class MeshtasticSession:
         # Reconnect state
         "_reconnecting",
         "_reconnect_attempts",
+        "_reconnect_total_attempts",
         "_reconnect_task",
+        "_liveness_task",
         # Diagnostics
         "_last_packet_time",
         "_node_id",
@@ -135,6 +147,12 @@ class MeshtasticSession:
         "_permanent_delivery_failures",
         "_stale_receive_callbacks",
         "_stale_disconnect_callbacks",
+        "_liveness_probe_successes",
+        "_liveness_probe_failures",
+        "_liveness_consecutive_failures",
+        "_last_liveness_probe_time",
+        "_last_liveness_success_time",
+        "_last_liveness_error",
         "_last_error",
     )
 
@@ -162,7 +180,9 @@ class MeshtasticSession:
         # Reconnect state
         self._reconnecting: bool = False
         self._reconnect_attempts: int = 0
+        self._reconnect_total_attempts: int = 0
         self._reconnect_task: asyncio.Task | None = None
+        self._liveness_task: asyncio.Task | None = None
         # Diagnostics
         self._last_packet_time: float | None = None
         self._node_id: str | None = None
@@ -171,6 +191,12 @@ class MeshtasticSession:
         self._permanent_delivery_failures: int = 0
         self._stale_receive_callbacks: int = 0
         self._stale_disconnect_callbacks: int = 0
+        self._liveness_probe_successes: int = 0
+        self._liveness_probe_failures: int = 0
+        self._liveness_consecutive_failures: int = 0
+        self._last_liveness_probe_time: float | None = None
+        self._last_liveness_success_time: float | None = None
+        self._last_liveness_error: str | None = None
         self._last_error: str | None = None
 
     # -- Properties -----------------------------------------------------------
@@ -185,7 +211,8 @@ class MeshtasticSession:
         with self._client_state_lock:
             client = self._client
             started = self._started
-        if client is None or not started:
+            reconnecting = self._reconnecting
+        if client is None or not started or reconnecting:
             return False
         connected_event = getattr(client, "isConnected", None)
         is_set = getattr(connected_event, "is_set", None)
@@ -342,8 +369,15 @@ class MeshtasticSession:
 
         self._stop_requested = False
         self._reconnect_attempts = 0
+        self._reconnect_total_attempts = 0
         self._reconnecting = False
         self._last_error = None
+        self._liveness_probe_successes = 0
+        self._liveness_probe_failures = 0
+        self._liveness_consecutive_failures = 0
+        self._last_liveness_probe_time = None
+        self._last_liveness_success_time = None
+        self._last_liveness_error = None
         self._stale_receive_callbacks = 0
         self._stale_disconnect_callbacks = 0
         self._message_callback = message_callback
@@ -377,6 +411,11 @@ class MeshtasticSession:
                 raise
 
         self._started = True
+        if self._tcp_liveness_enabled:
+            self._liveness_task = asyncio.create_task(
+                self._liveness_loop(),
+                name=f"meshtastic-liveness:{self._adapter_id}",
+            )
         self._logger.info(
             "MeshtasticSession %s started (mode=%s)",
             self._adapter_id,
@@ -399,6 +438,17 @@ class MeshtasticSession:
         self._reconnecting = False
         # Reset reconnect counter so diagnostics are truthful after stop.
         self._reconnect_attempts = 0
+
+        # Cancel liveness before reconnect/client teardown so a probe cannot
+        # race shutdown and schedule fresh recovery work.
+        if self._liveness_task is not None:
+            if not self._liveness_task.done():
+                self._liveness_task.cancel()
+                try:
+                    await asyncio.wait_for(self._liveness_task, timeout=timeout)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            self._liveness_task = None
 
         # Cancel reconnect task if running
         if self._reconnect_task is not None:
@@ -690,6 +740,14 @@ class MeshtasticSession:
             connected=self.connected,
             reconnecting=self._reconnecting,
             reconnect_attempts=self._reconnect_attempts,
+            reconnect_total_attempts=self._reconnect_total_attempts,
+            liveness_enabled=self._tcp_liveness_enabled,
+            liveness_probe_successes=self._liveness_probe_successes,
+            liveness_probe_failures=self._liveness_probe_failures,
+            liveness_consecutive_failures=self._liveness_consecutive_failures,
+            last_liveness_probe_time=self._last_liveness_probe_time,
+            last_liveness_success_time=self._last_liveness_success_time,
+            last_liveness_error=self._last_liveness_error,
             last_packet_time=self._last_packet_time,
             node_id=self._node_id,
             channel_count=self._channel_count,
@@ -912,10 +970,15 @@ class MeshtasticSession:
             generation = self._connection_generation
         self.notify_connection_lost(expected_generation=generation)
 
-    def notify_connection_lost(self, *, expected_generation: int | None = None) -> None:
+    def notify_connection_lost(
+        self,
+        *,
+        expected_generation: int | None = None,
+        reason: str = "Connection lost",
+    ) -> None:
         """Called when a connection loss is detected.
 
-        Schedules the bounded reconnect loop on the session's event loop.
+        Schedules the lifetime reconnect loop on the session's event loop.
         Thread-safe: may be called from the SDK reader thread or from
         any async context.
         """
@@ -927,9 +990,11 @@ class MeshtasticSession:
             if self._stop_requested or self._reconnecting:
                 return
             self._node_id = None
-            self._last_error = "Connection lost"
+            self._last_error = reason
             loop = self._loop
-        self._logger.warning("MeshtasticSession %s connection lost", self._adapter_id)
+        self._logger.warning(
+            "MeshtasticSession %s connection lost: %s", self._adapter_id, reason
+        )
 
         # Schedule the reconnect task on the session's event loop.  Pass the
         # generation captured in the SDK thread and revalidate it on the loop so
@@ -968,106 +1033,326 @@ class MeshtasticSession:
             self._reconnecting = True
             self._reconnect_task = asyncio.ensure_future(self._reconnect_loop())
 
-    async def _reconnect_loop(self) -> None:
-        """Bounded exponential backoff reconnect loop.
+    @property
+    def _tcp_liveness_enabled(self) -> bool:
+        """Whether active TCP liveness probing is enabled for this session."""
+        return (
+            self._config.connection_type == "tcp"
+            and self._config.tcp_liveness_interval_seconds > 0
+        )
 
-        Backoff: 1s, 2s, 4s, 8s, 16s capped at 30s, with +-25% jitter.
-        Max 10 consecutive attempts.  On success, resets counters.
-        On max attempts, sets final connection failure and stops retrying.
+    async def _liveness_loop(self) -> None:
+        """Periodically prove TCP round-trip liveness and trigger recovery."""
+        initial_delay = min(
+            _LIVENESS_INITIAL_DELAY_SECONDS,
+            self._config.tcp_liveness_interval_seconds,
+        )
+        try:
+            if initial_delay > 0:
+                await asyncio.sleep(initial_delay)
+            while not self._stop_requested:
+                with self._client_state_lock:
+                    client = self._client
+                    generation = self._connection_generation
+                    reconnecting = self._reconnecting
+                if client is not None and not reconnecting:
+                    try:
+                        await self._probe_tcp_liveness(client, generation)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        if self.is_connection_generation_current(generation):
+                            self._liveness_probe_failures += 1
+                            self._liveness_consecutive_failures += 1
+                            self._last_liveness_error = str(exc)
+                            self.notify_connection_lost(
+                                expected_generation=generation,
+                                reason=f"TCP liveness probe failed: {exc}",
+                            )
+                    else:
+                        if self.is_connection_generation_current(generation):
+                            now = time.monotonic()
+                            self._liveness_probe_successes += 1
+                            self._liveness_consecutive_failures = 0
+                            self._last_liveness_success_time = now
+                            self._last_liveness_error = None
+                await asyncio.sleep(self._config.tcp_liveness_interval_seconds)
+        except asyncio.CancelledError:
+            if not self._stop_requested:
+                raise
+
+    async def _probe_tcp_liveness(self, client: Any, generation: int) -> None:
+        """Issue one bounded local metadata request through the active mtjk client.
+
+        ``isConnected`` and cached node state cannot distinguish a half-open TCP
+        connection.  This request requires an ACK/response from the local radio.
+        The request callback may run on an SDK thread, so completion is handed
+        back to the session event loop thread-safely.  A timed-out response
+        handler is explicitly retired through the audited mtjk request-runtime
+        seam to avoid accumulating callbacks.
+        """
+        if not self.is_connection_generation_current(generation):
+            return
+        from meshtastic.protobuf import admin_pb2
+
+        loop = asyncio.get_running_loop()
+        completed: asyncio.Future[None] = loop.create_future()
+        self._last_liveness_probe_time = time.monotonic()
+
+        def on_response(_packet: dict[str, Any]) -> None:
+            def resolve() -> None:
+                if not completed.done():
+                    completed.set_result(None)
+
+            try:
+                loop.call_soon_threadsafe(resolve)
+            except RuntimeError:
+                pass
+
+        local_node = getattr(client, "localNode", None)
+        send_admin = getattr(local_node, "_send_admin", None)
+        if not callable(send_admin):
+            raise MeshtasticConnectionError(
+                "Pinned mtjk localNode._send_admin liveness seam is unavailable"
+            )
+
+        request = admin_pb2.AdminMessage()
+        request.get_device_metadata_request = True
+
+        request_id_holder: dict[str, int | None] = {"id": None}
+        dropped = False
+
+        def retire_response_handler() -> None:
+            """Drop the registered handler exactly once, once we have its id."""
+            nonlocal dropped
+            request_id = request_id_holder["id"]
+            if dropped or not (isinstance(request_id, int) and request_id > 0):
+                return
+            request_runtime = getattr(client, "_request_wait_runtime", None)
+            drop_handler = getattr(request_runtime, "drop_response_handler", None)
+            if not callable(drop_handler):
+                return
+            dropped = True
+            try:
+                drop_handler(request_id)
+            except Exception:
+                self._logger.debug(
+                    "MeshtasticSession %s failed to retire liveness handler %s",
+                    self._adapter_id,
+                    request_id,
+                    exc_info=True,
+                )
+
+        async def _send_request() -> Any:
+            # Runs in a worker thread: the synchronous admin send must not
+            # stall the event loop for its whole duration.
+            packet = await asyncio.to_thread(
+                send_admin,
+                request,
+                wantResponse=True,
+                onResponse=on_response,
+            )
+            if packet is None:
+                raise MeshtasticConnectionError(
+                    "mtjk did not start the TCP liveness admin request"
+                )
+            request_id_holder["id"] = getattr(packet, "id", None)
+            return packet
+
+        # A shielded worker task: on timeout the send keeps running to
+        # completion, and its done callback retires the handler even though
+        # this coroutine already returned TimeoutError to the supervisor.
+        worker = asyncio.ensure_future(_send_request())
+        try:
+            # One deadline covers request initiation and response wait: a
+            # send that wedges must not defer recovery past the configured
+            # liveness timeout.
+            async with asyncio.timeout(self._config.tcp_liveness_timeout_seconds):
+                # Use mtjk's Node admin transport rather than raw MeshInterface.sendData.
+                # The Node seam owns admin-channel selection, PKI encryption, cached
+                # session-passkey attachment, and response matching.
+                await asyncio.shield(worker)
+                # The response handler must stay registered until the
+                # response resolves — retiring it here would orphan a
+                # healthy in-flight response and force a reconnect on every
+                # healthy probe.
+                await asyncio.shield(completed)
+        finally:
+            # Retire after the response resolves, or — when startup or the
+            # wait timed out and the worker is still finishing — retire via
+            # its done callback so the late packet id is still reaped.
+            if worker.done():
+                retire_response_handler()
+            else:
+                worker.add_done_callback(lambda _task: retire_response_handler())
+
+    async def _create_client_offloop(self) -> Any:
+        """Create the SDK client in a worker thread, off the event loop.
+
+        The constructor is a blocking SDK call (TCP/serial/BLE connect);
+        running it on the loop would stall queue processing, health checks,
+        and shutdown for its whole duration — once per lifetime retry.
+
+        If this await is cancelled while a constructor is still running, the
+        worker keeps going to completion and any client it produced is
+        disposed here instead of being adopted by a session that already
+        tore down.
+        """
+        created: dict[str, Any] = {}
+
+        def _build() -> Any:
+            client = self._create_client()
+            created["client"] = client
+            return client
+
+        worker = asyncio.ensure_future(asyncio.to_thread(_build))
+        try:
+            return await asyncio.shield(worker)
+        except asyncio.CancelledError:
+
+            def _dispose_late(task: asyncio.Future[Any]) -> None:
+                client = created.get("client")
+                if client is None:
+                    return
+                close_fn = getattr(client, "close", None)
+                if callable(close_fn):
+                    try:
+                        close_fn()
+                    except Exception:
+                        self._logger.debug(
+                            "MeshtasticSession %s disposed client created "
+                            "after cancellation",
+                            self._adapter_id,
+                            exc_info=True,
+                        )
+
+            worker.add_done_callback(_dispose_late)
+            raise
+
+    def _reconnect_delay(self, attempt: int) -> float:
+        """Return capped exponential backoff with jitter without exponent overflow."""
+        initial = self._config.reconnect_backoff_initial_seconds
+        cap = self._config.reconnect_backoff_max_seconds
+        if initial >= cap:
+            delay = cap
+        else:
+            # Once the exponent would exceed the cap there is no value in
+            # computing an ever-larger integer/float power.
+            max_doublings = max(0, int(math.ceil(math.log2(cap / initial))))
+            exponent = min(max(0, attempt - 1), max_doublings)
+            delay = min(initial * (2.0**exponent), cap)
+        jitter = delay * _BACKOFF_JITTER_FRACTION
+        return min(cap, max(0.0, delay + random.uniform(-jitter, jitter)))
+
+    async def _reconnect_loop(self) -> None:
+        """Reconnect until success or adapter shutdown using capped backoff.
+
+        Initial startup remains fail-fast.  Once an adapter has started,
+        transport downtime does not permanently retire supervision: MEDRE keeps
+        recreating the mtjk client for the lifetime of the session.
         """
         self._reconnecting = True
         self._reconnect_attempts = 0
-
         try:
+            # Detach the failed client before the first backoff interval.
+            # Otherwise ``connected`` can continue to reflect a stale SDK
+            # ``isConnected`` event and outbound work may target a client that
+            # supervision has already declared unhealthy.
+            old_client = self._invalidate_client()
+            self._unsubscribe_callbacks()
+            if old_client is not None:
+                try:
+                    close_fn = getattr(old_client, "close", None)
+                    if close_fn is not None:
+                        close_fn()
+                except Exception:
+                    self._logger.debug(
+                        "MeshtasticSession %s failed to close disconnected client",
+                        self._adapter_id,
+                        exc_info=True,
+                    )
+
             while not self._stop_requested:
                 self._reconnect_attempts += 1
-
-                if self._reconnect_attempts > _MAX_RECONNECT_ATTEMPTS:
-                    self._logger.error(
-                        "MeshtasticSession %s max reconnect attempts "
-                        "(%d) reached, giving up",
-                        self._adapter_id,
-                        _MAX_RECONNECT_ATTEMPTS,
-                    )
-                    self._last_error = (
-                        f"Max reconnect attempts ({_MAX_RECONNECT_ATTEMPTS}) " "reached"
-                    )
-                    self._reconnecting = False
-                    return
-
-                # Compute backoff with jitter
-                delay = min(
-                    _BACKOFF_BASE * (2 ** (self._reconnect_attempts - 1)),
-                    _BACKOFF_CAP,
-                )
-                jitter = delay * _BACKOFF_JITTER_FRACTION
-                actual_delay = max(0.0, delay + random.uniform(-jitter, jitter))
-
+                self._reconnect_total_attempts += 1
+                actual_delay = self._reconnect_delay(self._reconnect_attempts)
                 self._logger.warning(
-                    "MeshtasticSession %s reconnect attempt %d/%d " "in %.1fs",
+                    "MeshtasticSession %s reconnect attempt %d in %.1fs",
                     self._adapter_id,
                     self._reconnect_attempts,
-                    _MAX_RECONNECT_ATTEMPTS,
                     actual_delay,
                 )
-
                 try:
                     await asyncio.sleep(actual_delay)
                 except asyncio.CancelledError:
                     if self._stop_requested:
-                        self._reconnecting = False
                         return
                     raise
-
                 if self._stop_requested:
-                    self._reconnecting = False
                     return
-
-                # Attempt reconnect
                 try:
-                    # Invalidate ownership before closing the old client so
-                    # reader-thread callbacks cannot pass validation during the
-                    # replacement window.
-                    old_client = self._invalidate_client()
-                    self._unsubscribe_callbacks()
-                    if old_client is not None:
-                        try:
-                            close_fn = getattr(old_client, "close", None)
-                            if close_fn is not None:
-                                close_fn()
-                        except Exception:
-                            pass
-
-                    new_client = self._create_client()
+                    new_client = await self._create_client_offloop()
                     self._activate_client(new_client)
                     self._subscribe_callbacks()
                     self._refresh_node_id()
-
-                    # Reconnect success
+                    with self._client_state_lock:
+                        # Ownership passed to the fresh client. Release the
+                        # reconnecting state before this task exits: a
+                        # disconnect notification for this generation can
+                        # arrive from the SDK reader thread from here until
+                        # the finally block, and it must schedule a fresh
+                        # loop instead of being dropped as a duplicate — on
+                        # serial/BLE no liveness probe would ever re-detect
+                        # the loss.
+                        self._reconnecting = False
+                        if self._reconnect_task is asyncio.current_task():
+                            self._reconnect_task = None
                     self._logger.info(
-                        "MeshtasticSession %s reconnected after %d attempts",
+                        "MeshtasticSession %s reconnected after %d "
+                        "consecutive attempts",
                         self._adapter_id,
                         self._reconnect_attempts,
                     )
                     self._reconnect_attempts = 0
-                    self._reconnecting = False
                     self._last_error = None
                     return
                 except asyncio.CancelledError:
                     if self._stop_requested:
-                        self._reconnecting = False
                         return
                     raise
                 except Exception as exc:
+                    # A replacement may have been activated before callback
+                    # subscription or node refresh failed. Retire it now rather
+                    # than holding a partial client open through the next
+                    # backoff interval.
+                    failed_client = self._invalidate_client()
+                    self._unsubscribe_callbacks()
+                    with self._client_state_lock:
+                        # The retry loop stays live: re-arm the state that the
+                        # activation window released so liveness and notify
+                        # paths keep treating recovery as in progress.
+                        self._reconnecting = True
+                    if failed_client is not None:
+                        try:
+                            close_fn = getattr(failed_client, "close", None)
+                            if close_fn is not None:
+                                close_fn()
+                        except Exception:
+                            self._logger.debug(
+                                "MeshtasticSession %s failed to close partial "
+                                "reconnect client",
+                                self._adapter_id,
+                                exc_info=True,
+                            )
                     self._last_error = f"Reconnect failed: {exc}"
                     self._logger.warning(
-                        "MeshtasticSession %s reconnect attempt %d " "failed: %s",
+                        "MeshtasticSession %s reconnect attempt %d failed: %s",
                         self._adapter_id,
                         self._reconnect_attempts,
                         exc,
                     )
-                    # Continue loop for next attempt
         except asyncio.CancelledError:
-            pass
+            if not self._stop_requested:
+                raise
         finally:
             self._reconnecting = False

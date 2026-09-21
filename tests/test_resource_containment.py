@@ -213,11 +213,18 @@ class TestMeshtasticSessionResourceContainment:
 
         assert session._started is False
 
-    async def test_reconnect_budget_is_bounded(self) -> None:
-        """Reconnect attempts must not exceed _MAX_RECONNECT_ATTEMPTS."""
-        from medre.adapters.meshtastic.session import _MAX_RECONNECT_ATTEMPTS
-
-        assert _MAX_RECONNECT_ATTEMPTS == 10
+    async def test_reconnect_backoff_is_bounded_without_attempt_ceiling(self) -> None:
+        """Session recovery remains rate-bounded without permanently giving up."""
+        config = _meshtastic_config(connection_type="fake")
+        session = MeshtasticSession(config, "rc-test", "meshtastic")
+        assert config.reconnect_backoff_initial_seconds > 0
+        assert (
+            config.reconnect_backoff_max_seconds
+            >= config.reconnect_backoff_initial_seconds
+        )
+        session_module = __import__("medre.adapters.meshtastic.session", fromlist=["x"])
+        assert not hasattr(session_module, "_MAX_RECONNECT_ATTEMPTS")
+        assert session.diagnostics().reconnect_total_attempts == 0
 
     async def test_send_retry_budget_is_bounded(self) -> None:
         """Send retries must not exceed _MAX_SEND_RETRIES."""

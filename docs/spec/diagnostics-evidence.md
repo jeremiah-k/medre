@@ -55,7 +55,7 @@ Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics(
 | `health`                      | `str`         | One of the six health vocabulary strings (see § 5).                                     |
 | `mode`                        | `str`         | Transport mode: `"fake"`, `"tcp"`, `"serial"`, `"ble"`, or `"reticulum"` as applicable. |
 | `reconnecting`                | `bool`        | `true` when an active reconnect loop is in progress.                                    |
-| `reconnect_attempts`          | `int`         | Current reconnect attempt count, bounded to a maximum of 10.                            |
+| `reconnect_attempts`          | `int`         | Current consecutive reconnect attempt count; retry policy is transport-specific.        |
 | `last_error`                  | `str or None` | `str()` of the last exception encountered. `None` when no error has occurred.           |
 | `transient_delivery_failures` | `int`         | Cumulative count of transient delivery failures since adapter start.                    |
 | `permanent_delivery_failures` | `int`         | Cumulative count of permanent delivery failures since adapter start.                    |

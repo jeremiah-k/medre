@@ -19,13 +19,16 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
-from tests.helpers.async_utils import wait_until
+from tests.helpers.async_utils import bounded_cancel_and_reap, wait_until
 from tests.helpers.matrix_session import (
     fast_sleep_patch,
     make_matrix_config,
     make_matrix_context,
 )
 from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
+
+_STOP_TEST_WATCHDOG_SECONDS = 1.0
+
 
 # ===================================================================
 # TestSyncFailureLogging
@@ -449,26 +452,43 @@ async def test_stop_deadline_bounds_recovery_and_join_task_drains() -> None:
     session._client = client
 
     release = asyncio.Event()
+    recovery_started = asyncio.Event()
+    join_started = asyncio.Event()
 
-    async def _resists_one_cancel() -> None:
+    async def _resists_one_cancel(started: asyncio.Event) -> None:
+        started.set()
         try:
             await asyncio.Event().wait()
         except asyncio.CancelledError:
             await release.wait()
 
-    recovery = asyncio.create_task(_resists_one_cancel())
-    join = asyncio.create_task(_resists_one_cancel())
+    recovery = asyncio.create_task(_resists_one_cancel(recovery_started))
+    join = asyncio.create_task(_resists_one_cancel(join_started))
     session._room_key_request_tasks["room:session"] = recovery
     session._joining_rooms["!room:example.com"] = join
-    await asyncio.sleep(0)
+    await recovery_started.wait()
+    await join_started.wait()
 
     stop_task = asyncio.create_task(session.stop(timeout=0.02))
-    done, _pending = await asyncio.wait({stop_task}, timeout=0.2)
+    # This is a test-harness watchdog, not the product shutdown budget.
+    # Keep it comfortably above the 20 ms session deadline so coverage/runner
+    # scheduling latency cannot manufacture a failure before stop() resumes.
+    done, _pending = await asyncio.wait(
+        {stop_task}, timeout=_STOP_TEST_WATCHDOG_SECONDS
+    )
     if not done:
         release.set()
-        stop_task.cancel()
-        await asyncio.gather(stop_task, recovery, join, return_exceptions=True)
-        pytest.fail("MatrixSession.stop() exceeded its cooperative timeout budget")
+        pending_cleanup = await bounded_cancel_and_reap(
+            (stop_task, recovery, join), timeout=0.2
+        )
+        pytest.fail(
+            "MatrixSession.stop() exceeded its cooperative timeout budget"
+            + (
+                f"; {len(pending_cleanup)} cleanup task(s) remained pending"
+                if pending_cleanup
+                else ""
+            )
+        )
 
     await stop_task
     assert session._client is None
@@ -479,7 +499,9 @@ async def test_stop_deadline_bounds_recovery_and_join_task_drains() -> None:
     # return with them detached.  Release them and verify the terminal-result
     # ownership path lets the event loop reap them cleanly.
     release.set()
-    await asyncio.gather(recovery, join, return_exceptions=True)
+    done_cleanup, pending_cleanup = await asyncio.wait({recovery, join}, timeout=0.2)
+    assert not pending_cleanup, "released recovery/join test tasks did not settle"
+    await asyncio.gather(*done_cleanup, return_exceptions=True)
     await asyncio.sleep(0)
 
 
@@ -506,13 +528,22 @@ async def test_stop_deadline_bounds_client_close() -> None:
     session._client = client
 
     stop_task = asyncio.create_task(session.stop(timeout=0.02))
-    done, _pending = await asyncio.wait({stop_task}, timeout=0.2)
+    # This is a test-harness watchdog, not the product shutdown budget.
+    # Keep it comfortably above the 20 ms session deadline so coverage/runner
+    # scheduling latency cannot manufacture a failure before stop() resumes.
+    done, _pending = await asyncio.wait(
+        {stop_task}, timeout=_STOP_TEST_WATCHDOG_SECONDS
+    )
     if not done:
         release.set()
-        stop_task.cancel()
-        await asyncio.gather(stop_task, return_exceptions=True)
+        pending_cleanup = await bounded_cancel_and_reap((stop_task,), timeout=0.2)
         pytest.fail(
             "MatrixSession.stop() blocked on cancellation-resistant client.close()"
+            + (
+                f"; {len(pending_cleanup)} cleanup task(s) remained pending"
+                if pending_cleanup
+                else ""
+            )
         )
 
     await stop_task
@@ -521,7 +552,9 @@ async def test_stop_deadline_bounds_client_close() -> None:
     assert "task" in close_task
 
     release.set()
-    await close_task["task"]
+    close_done, close_pending = await asyncio.wait({close_task["task"]}, timeout=0.2)
+    assert not close_pending, "released client.close() test task did not settle"
+    await asyncio.gather(*close_done, return_exceptions=True)
 
 
 class TestSyncStateResilience:

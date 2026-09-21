@@ -312,38 +312,6 @@ class TestMeshtasticSessionUnit:
             await session.send({"text": "hello", "channel_index": 0})
         assert session.permanent_delivery_failures == 1
 
-    async def test_session_reconnect_loop_bounded(self) -> None:
-        """Reconnect loop stops after max attempts."""
-        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
-        session = MeshtasticSession(
-            config=config, adapter_id="mesh-1", platform="meshtastic"
-        )
-        session._started = True
-
-        # _create_client always fails
-        def always_fail(self):
-            raise ConnectionError("nope")
-
-        import medre.adapters.meshtastic.session as session_mod
-
-        original_create = session_mod.MeshtasticSession._create_client
-        session_mod.MeshtasticSession._create_client = always_fail
-
-        try:
-            # Use very short backoff for testing
-            session_mod._BACKOFF_BASE = 0.01
-            session_mod._BACKOFF_CAP = 0.01
-
-            await session._reconnect_loop()
-
-            assert session.reconnect_attempts > 0
-            assert session.reconnecting is False
-            assert session.last_error is not None
-        finally:
-            session_mod.MeshtasticSession._create_client = original_create
-            session_mod._BACKOFF_BASE = 1.0
-            session_mod._BACKOFF_CAP = 30.0
-
     async def test_session_message_callback(self) -> None:
         """Session forwards received packets to message callback."""
         config = make_meshtastic_config(connection_type="fake")

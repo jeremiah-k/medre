@@ -250,15 +250,20 @@ logic, and send operations. Built-in adapters follow the same lifecycle pattern:
 2. `start()` -- establish connection, register callbacks
 3. `stop()` -- clean up connections, cancel tasks
 4. `diagnostics()` -- return a snapshot of session state
-5. Reconnect with bounded exponential backoff (max 10 attempts)
+5. Apply the transport profile's recovery policy with bounded-rate backoff and explicit shutdown ownership
 
 ### Reconnect parameters
 
-| Parameter    | Typical value        |
-| ------------ | -------------------- |
-| Max attempts | 10                   |
-| Backoff cap  | 30s (60s for Matrix) |
-| Jitter       | +-25%                |
+Reconnect attempt budgets are transport-specific. Do not copy a finite attempt
+ceiling from another adapter into generic session code. A transport profile may
+use a finite budget or lifetime recovery, but retry cadence must remain bounded
+and shutdown must always terminate recovery promptly.
+
+| Parameter      | Typical guidance                               |
+| -------------- | ---------------------------------------------- |
+| Attempt budget | Transport-profile specific                     |
+| Backoff cap    | Transport-profile specific (commonly 30–60 s)  |
+| Jitter         | Commonly +-25% where exponential retry is used |
 
 ### Connection modes
 
@@ -440,7 +445,11 @@ async def test_session_reconnect_on_failure(fake_client):
     session = MySession(config)
     fake_client.next_connect_fails(3)  # Fail 3 times
     await session.start(ctx)
-    assert session.diagnostics().reconnect_attempts <= 10
+    # Prove recovery ran: attempts were made and the replacement client is live.
+    assert session.diagnostics().reconnect_total_attempts >= 1
+    assert session.client is not None
+    # Then assert the reconnect policy declared by this adapter's transport profile.
+    assert session.diagnostics().reconnecting is False
 ```
 
 ### Capability tests

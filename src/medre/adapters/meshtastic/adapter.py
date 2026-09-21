@@ -176,7 +176,10 @@ class MeshtasticAdapter(AdapterContract):
         self._classifier = MeshtasticPacketClassifier(config)
         self._queue = MeshtasticOutboundQueue(
             delay_between_messages=config.message_delay_seconds,
+            max_queue_size=config.queue_max_size,
             max_attempts=config.queue_send_max_attempts,
+            warning_threshold_pct=config.queue_warning_threshold_pct,
+            critical_threshold_pct=config.queue_critical_threshold_pct,
         )
         self.ctx: AdapterContext | None = None
         self._started: bool = False
@@ -344,7 +347,11 @@ class MeshtasticAdapter(AdapterContract):
         """
         if self._started and self._session is not None:
             if self._session.connected or self._config.connection_type == "fake":
-                health = "healthy"
+                health = (
+                    "degraded"
+                    if self._queue.pressure_state in ("critical", "full")
+                    else "healthy"
+                )
             elif self._session.reconnecting:
                 health = "degraded"
             else:
@@ -842,7 +849,15 @@ class MeshtasticAdapter(AdapterContract):
             "queue_total_permanent_failed": self._queue.total_permanent_failed,
             "queue_max_size": self._queue.max_queue_size,
             "queue_send_max_attempts": self._queue.max_attempts,
+            "queue_pressure_state": self._queue.pressure_state,
             "queue_utilization_pct": self._queue.queue_health["utilization_pct"],
+            "queue_warning_threshold_pct": self._queue.queue_health[
+                "warning_threshold_pct"
+            ],
+            "queue_critical_threshold_pct": self._queue.queue_health[
+                "critical_threshold_pct"
+            ],
+            "queue_peak_depth": self._queue.queue_health["peak_depth"],
             "queue_delay_between_messages": self._queue.delay_between_messages,
             "queue_last_send_time": self._queue.queue_health["last_send_time"],
             "drain_task_running": (drain_task is not None and not drain_task.done()),
@@ -881,6 +896,16 @@ class MeshtasticAdapter(AdapterContract):
                 "connected": session_diag.connected,
                 "reconnecting": session_diag.reconnecting,
                 "reconnect_attempts": session_diag.reconnect_attempts,
+                "reconnect_total_attempts": session_diag.reconnect_total_attempts,
+                "liveness_enabled": session_diag.liveness_enabled,
+                "liveness_probe_successes": session_diag.liveness_probe_successes,
+                "liveness_probe_failures": session_diag.liveness_probe_failures,
+                "liveness_consecutive_failures": (
+                    session_diag.liveness_consecutive_failures
+                ),
+                "last_liveness_probe_time": session_diag.last_liveness_probe_time,
+                "last_liveness_success_time": session_diag.last_liveness_success_time,
+                "last_liveness_error": session_diag.last_liveness_error,
                 "last_packet_time": session_diag.last_packet_time,
                 "node_id": session_diag.node_id,
                 "channel_count": session_diag.channel_count,
@@ -895,6 +920,14 @@ class MeshtasticAdapter(AdapterContract):
                 "connected": False,
                 "reconnecting": False,
                 "reconnect_attempts": 0,
+                "reconnect_total_attempts": 0,
+                "liveness_enabled": False,
+                "liveness_probe_successes": 0,
+                "liveness_probe_failures": 0,
+                "liveness_consecutive_failures": 0,
+                "last_liveness_probe_time": None,
+                "last_liveness_success_time": None,
+                "last_liveness_error": None,
                 "last_packet_time": None,
                 "node_id": None,
                 "channel_count": 0,
