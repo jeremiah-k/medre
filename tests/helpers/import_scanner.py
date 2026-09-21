@@ -7,28 +7,27 @@ from pathlib import Path
 
 from medre.adapter_registry import registered_transports
 
-ADAPTER_PREFIXES = tuple(
+ADAPTER_PREFIXES: tuple[str, ...] = tuple(
     f"medre.adapters.{transport}" for transport in registered_transports()
 )
 """Concrete packages for every registered built-in adapter transport."""
 
-ADAPTER_COMPAT_MODULES = tuple(f"{prefix}.compat" for prefix in ADAPTER_PREFIXES)
-"""Registered adapter compatibility modules allowed to own SDK imports."""
-
-ADAPTER_CONFIG_PREFIXES = tuple(
+ADAPTER_CONFIG_PREFIXES: tuple[str, ...] = tuple(
     f"medre.config.adapters.{transport}" for transport in registered_transports()
 )
 """Configuration package prefixes for every registered adapter transport."""
 
-ADAPTER_FAKE_PREFIXES = tuple(
+ADAPTER_FAKE_PREFIXES: tuple[str, ...] = tuple(
     f"medre.adapters.fakes.{transport}" for transport in registered_transports()
 )
 """Fake-adapter package prefixes for every registered adapter transport."""
 
-ADAPTER_FROM_IMPORT_PREFIXES = tuple(f"from {prefix}" for prefix in ADAPTER_PREFIXES)
+ADAPTER_FROM_IMPORT_PREFIXES: tuple[str, ...] = tuple(
+    f"from {prefix}" for prefix in ADAPTER_PREFIXES
+)
 """Source prefixes that import a concrete registered adapter package."""
 
-ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES = tuple(
+ADAPTER_RUNTIME_FROM_IMPORT_PREFIXES: tuple[str, ...] = tuple(
     f"from {prefix}.{suffix}"
     for prefix in ADAPTER_PREFIXES
     for suffix in ("adapter", "session", "codec", "queue")

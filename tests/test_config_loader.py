@@ -261,12 +261,6 @@ class TestLoadErrors:
         with pytest.raises(ConfigFileError, match="unexpected end of stream"):
             load_config(str(invalid_config_file))
 
-    def test_empty_file_raises_config_file_error(self, tmp_path: Path) -> None:
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text("")
-        with pytest.raises(ConfigFileError, match="empty"):
-            load_config(str(config_file))
-
     def test_missing_config_raises_not_found(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -278,6 +272,13 @@ class TestLoadErrors:
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
         with pytest.raises(ConfigNotFoundError):
             load_config(None)
+
+
+def test_empty_file_raises_config_file_error(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("")
+    with pytest.raises(ConfigFileError, match="empty"):
+        load_config(str(config_file))
 
 
 # ---------------------------------------------------------------------------
@@ -450,13 +451,6 @@ class TestPathPlaceholderExpansion:
         # The expanded path should start with the state_dir
         assert config.storage.path.startswith(str(paths.state_dir))
 
-    def test_adapter_store_path_expanded(self, multi_config_file: Path) -> None:
-        config, _, _ = load_config(str(multi_config_file))
-        alt = config.adapters.matrix["alt"]
-        assert alt.config is not None
-        assert alt.config.store_path is not None
-        assert "adapters/alt/matrix/store" in str(alt.config.store_path)
-
     def test_medre_home_placeholder(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -475,6 +469,16 @@ class TestPathPlaceholderExpansion:
         config, _, paths = load_config(str(cfg))
         assert config.storage.path is not None
         assert str(home / "state" / "mydb.sqlite") in config.storage.path
+
+
+def test_adapter_store_path_expanded(multi_config_file: Path) -> None:
+    config, _, paths = load_config(str(multi_config_file))
+    alt = config.adapters.matrix["alt"]
+    assert alt.config is not None
+    assert alt.config.store_path is not None
+    assert alt.config.store_path == str(
+        paths.state_dir / "adapters" / "alt" / "matrix" / "store"
+    )
 
 
 # ---------------------------------------------------------------------------
