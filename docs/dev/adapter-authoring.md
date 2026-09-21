@@ -363,9 +363,9 @@ adapters:
       host: "127.0.0.1"
 ```
 
-For a future built-in such as Briar, the intended shape is therefore
-`adapters.briar.<instance>`. The config loader rejects groups that are not
-registered built-ins, so typos remain fail-closed.
+Registered built-ins use the shape `adapters.<transport>.<instance>`. The
+config loader rejects groups that are not registered built-ins, so typos remain
+fail-closed.
 
 ### Registration and assembly flow
 
@@ -390,7 +390,7 @@ shared `if transport == ...` chain.
 
 This mechanism is intentionally separate from `medre.plugins`. MEDRE does not
 currently support arbitrary third-party adapter class paths or runtime plugin
-discovery; adding such a system later should build on an explicit trust and
+discovery. Supporting that boundary would require an explicit trust and
 packaging model rather than overloading YAML config.
 
 ## Step 7: Write Tests

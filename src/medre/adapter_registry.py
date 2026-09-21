@@ -61,7 +61,7 @@ class AdapterSpec:
 
     ``distribution`` and ``import_names`` describe an optional Python SDK when
     one exists. They may be empty for sidecar-backed adapters that use only a
-    MEDRE-owned client (for example, a future Briar Headless adapter).
+    MEDRE-owned client.
     """
 
     transport: str

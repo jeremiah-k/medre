@@ -311,7 +311,8 @@ class GenericAdapterRuntimeConfig:
     """Transport-neutral wrapper for one configured adapter instance.
 
     Concrete built-ins retain thin compatibility subclasses below, but the
-    loader can use this class directly for future adapters.  That keeps the
+    loader can use this class directly for registered adapters without a
+    compatibility wrapper.  That keeps the
     runtime wrapper shape stable without requiring :mod:`medre.config.model`
     changes whenever a new transport is registered.
     """
@@ -412,7 +413,8 @@ class LxmfRuntimeConfig(GenericAdapterRuntimeConfig):
         )
 
 
-# Future adapter registrations may use GenericAdapterRuntimeConfig directly.
+# Registered adapters without a dedicated compatibility wrapper use the
+# transport-neutral runtime config directly.
 AdapterRuntimeConfig = GenericAdapterRuntimeConfig
 
 

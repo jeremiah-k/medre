@@ -8,8 +8,9 @@
   consume that manifest instead of maintaining parallel transport lists.
 - Reworked `AdapterConfigSet` around registry-keyed transport groups while
   preserving existing `config.adapters.<transport>` access for current callers.
-  Future built-ins may use the transport-neutral runtime wrapper without adding
-  another field or union member to the root config model.
+  Registered built-ins without a compatibility wrapper use the transport-neutral
+  runtime wrapper without adding another field or union member to the root config
+  model.
 - Moved Matrix-specific route/store preparation behind an adapter-owned runtime
   preparation hook and renderer constructor differences behind adapter-owned
   renderer factories, keeping generic runtime assembly free of transport
