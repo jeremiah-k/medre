@@ -852,7 +852,9 @@ async def test_stop_hard_bounds_stale_bluez_helper() -> None:
             finished.set()
 
     with (
-        patch.object(session, "_disconnect_stale_ble_client", side_effect=_hung_cleanup),
+        patch.object(
+            session, "_disconnect_stale_ble_client", side_effect=_hung_cleanup
+        ),
         patch("medre.adapters.meshcore.session._SDK_LIFECYCLE_TIMEOUT", 0.02),
     ):
         await session.stop()

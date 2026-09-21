@@ -331,9 +331,7 @@ class _FarListeners:
             return [row.get("text") or "" for row in packets]
         if tag == "lx" and self._lx is not None:
             packets = self._lx.packets_until(
-                lambda rows: any(
-                    nonce in (row.get("content") or "") for row in rows
-                ),
+                lambda rows: any(nonce in (row.get("content") or "") for row in rows),
                 _CAPTURE_WINDOWS[tag],
             )
             return [row.get("content") or "" for row in packets]

@@ -32,7 +32,6 @@ from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.errors import RuntimeConfigError
 from medre.runtime.route_engine import (
     RouteValidationError,
-    build_runtime_routes,
     register_routes,
 )
 from tests.helpers.runtime_builder import (

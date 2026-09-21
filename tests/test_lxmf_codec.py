@@ -70,6 +70,7 @@ def test_decode_channel_id_is_peer_dest_hash() -> None:
     event = codec.decode(packet)
     assert event.source_channel_id == "ef" * 16
 
+
 def test_decoded_event_matches_bidirectional_reverse_route() -> None:
     """Ingress routes: an inbound packet matches the reverse direction
     of a bidirectional route whose ``dest_channel`` is the peer hash.
@@ -104,6 +105,7 @@ def test_decoded_event_matches_bidirectional_reverse_route() -> None:
     )
     router = Router(routes=[reverse, other_peer])
     assert router.match(event) == [reverse]
+
 
 class TestLxmfCodecDecode:
     """LxmfCodec decode behaviour."""
@@ -145,8 +147,6 @@ class TestLxmfCodecDecode:
         packet = _make_text_packet(source_hash="ef" * 16)
         event = codec.decode(packet)
         assert event.source_transport_id == "ef" * 16
-
-
 
 
 class TestLxmfCodecSourceNativeRef:

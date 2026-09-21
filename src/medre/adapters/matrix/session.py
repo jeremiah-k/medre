@@ -2014,23 +2014,17 @@ class MatrixSession:
                 await asyncio.sleep(0)
                 if not sync_task.done() and self._client is not None:
                     remaining = max(0.0, deadline - time.monotonic())
-                    await self._drain_orphaned_client_tasks(
-                        timeout=min(remaining, 5.0)
-                    )
+                    await self._drain_orphaned_client_tasks(timeout=min(remaining, 5.0))
 
                 if not sync_task.done():
                     remaining = max(0.0, deadline - time.monotonic())
-                    done, _pending = await asyncio.wait(
-                        {sync_task}, timeout=remaining
-                    )
+                    done, _pending = await asyncio.wait({sync_task}, timeout=remaining)
                     if not done:
                         self._logger.warning(
                             "Sync task did not stop within remaining %.1fs budget",
                             remaining,
                         )
-                        sync_task.add_done_callback(
-                            self._consume_client_task_result
-                        )
+                        sync_task.add_done_callback(self._consume_client_task_result)
             if sync_task.done():
                 self._consume_client_task_result(sync_task)
             self._sync_task = None

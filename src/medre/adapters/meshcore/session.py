@@ -88,7 +88,6 @@ On unexpected disconnect the session attempts bounded exponential backoff:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import importlib
 import logging
 import math

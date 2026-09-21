@@ -162,8 +162,6 @@ async def test_failing_cleanup_does_not_mask_primary(
     assert "cleanup after failed start also failed" in capsys.readouterr().out
 
 
-
-
 async def test_cancelled_cleanup_does_not_mask_primary(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

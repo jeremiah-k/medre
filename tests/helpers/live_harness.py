@@ -311,9 +311,7 @@ async def launch_bounded(
 
     if not start_settled:
         try:
-            done, _pending = await asyncio.wait(
-                {start_task}, timeout=stop_timeout
-            )
+            done, _pending = await asyncio.wait({start_task}, timeout=stop_timeout)
         except asyncio.CancelledError:
             start_task.add_done_callback(_consume_task_result)
             raise
@@ -350,8 +348,7 @@ async def launch_bounded(
             await bounded(app.stop(), stop_timeout, f"{label} start cleanup")
         except BaseException as cleanup_exc:  # pragma: no cover - live-only
             print(
-                f"{label}: cleanup after failed start also failed: "
-                f"{cleanup_exc!r}",
+                f"{label}: cleanup after failed start also failed: " f"{cleanup_exc!r}",
                 flush=True,
             )
 

@@ -32,9 +32,7 @@ def test_string_bidirectional_expands_both_directions() -> None:
     assert by_id["mx_bridge"].source.adapter == "main"
     assert {target.adapter for target in by_id["mx_bridge"].targets} == {"radio"}
     assert by_id["mx_bridge__rev_0"].source.adapter == "radio"
-    assert {target.adapter for target in by_id["mx_bridge__rev_0"].targets} == {
-        "main"
-    }
+    assert {target.adapter for target in by_id["mx_bridge__rev_0"].targets} == {"main"}
 
 
 def test_unknown_directionality_raises_loudly() -> None:

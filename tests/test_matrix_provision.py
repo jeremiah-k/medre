@@ -61,13 +61,16 @@ def test_preserves_unrelated_fields() -> None:
     # Original untouched.
     assert existing["users"] == {BOT: 100}
 
+
 def test_overrides_existing_grant() -> None:
     merged = merge_power_level_users({"users": {USER: 0}}, {USER: 100})
     assert merged["users"] == {USER: 100}
 
+
 def test_creates_users_map_when_absent() -> None:
     merged = merge_power_level_users({}, {USER: 100})
     assert merged["users"] == {USER: 100}
+
 
 def test_encryption_initial_state_shape() -> None:
     state = encryption_initial_state()
@@ -78,12 +81,14 @@ def test_encryption_initial_state_shape() -> None:
     }
     assert MEGOLM_ROOM_ALGORITHM == "m.megolm.v1.aes-sha2"
 
+
 def test_child_and_parent_content() -> None:
     assert space_child_content([SERVER]) == {"via": [SERVER]}
     assert space_parent_content([SERVER]) == {
         "via": [SERVER],
         "canonical": True,
     }
+
 
 # ---------------------------------------------------------------------------
 # Stub client exercising the provisioning sequence
@@ -450,10 +455,12 @@ def test_provision_parses_flags() -> None:
     assert args.invite == [USER]
     assert args.admin == [USER]
 
+
 def test_provision_requires_space_and_room_names() -> None:
     parser = _build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["adapter", "matrix", "provision", "--invite", USER])
+
 
 def test_provision_requires_invite() -> None:
     parser = _build_parser()
@@ -470,14 +477,16 @@ def test_provision_requires_invite() -> None:
             ]
         )
 
+
 def test_provision_help_mentions_invite_not_join(
-    capsys: pytest.CaptureFixture[str]
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     parser = _build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["adapter", "matrix", "provision", "--help"])
     out = capsys.readouterr().out
     assert "effective on join" in out
+
 
 # ---------------------------------------------------------------------------
 # Real pinned SDK contract (opt-in, matrix_sdk marker)

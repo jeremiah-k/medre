@@ -77,11 +77,13 @@ def test_decode_channel_extracts_wire_sender_name_as_label() -> None:
     # suite; only the attribution label is derived.
     assert event.payload["body"] == "MEDRE-MC-B: hello from b"
 
+
 def test_decode_channel_without_wire_name_keeps_label_none() -> None:
     """Texts that do not follow the "<name>: " convention stay None."""
     codec = MeshCoreCodec("meshcore-1", _make_config())
     event = codec.decode(_make_channel_packet(text="just talking"))
     assert _meshcore_data(event)["contact_label"] is None
+
 
 def test_decode_contact_dm_does_not_extract_wire_name() -> None:
     """DM packets carry real identity; the wire convention does not
@@ -91,6 +93,7 @@ def test_decode_contact_dm_does_not_extract_wire_name() -> None:
     event = codec.decode(packet)
     assert _meshcore_data(event)["contact_label"] is None
 
+
 def test_decode_explicit_contact_label_wins_over_wire_name() -> None:
     """A resolved known-contact label takes precedence over the
     wire-embedded name for channel packets."""
@@ -98,6 +101,7 @@ def test_decode_explicit_contact_label_wins_over_wire_name() -> None:
     packet = _make_channel_packet(text="MEDRE-MC-B: hello")
     event = codec.decode(packet, contact_label="Known Contact")
     assert _meshcore_data(event)["contact_label"] == "Known Contact"
+
 
 class TestMeshCoreCodecDecode:
     """MeshCoreCodec decode behaviour."""
@@ -140,10 +144,6 @@ class TestMeshCoreCodecDecode:
         packet = _make_contact_packet()
         event = codec.decode(packet)
         assert event.source_channel_id is None
-
-
-
-
 
     def test_decode_missing_text_graceful(self) -> None:
         codec = MeshCoreCodec("meshcore-1", _make_config())

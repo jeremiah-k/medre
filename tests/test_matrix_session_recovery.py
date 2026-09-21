@@ -412,9 +412,7 @@ async def test_stop_drains_client_bound_tasks_before_close(mock_nio) -> None:
         observation["pending_at_close"] = [
             t
             for t in asyncio.all_tasks()
-            if t is not asyncio.current_task()
-            and not t.done()
-            and _binds(t, client)
+            if t is not asyncio.current_task() and not t.done() and _binds(t, client)
         ]
         await real_close()
 
@@ -437,6 +435,7 @@ async def test_stop_drains_client_bound_tasks_before_close(mock_nio) -> None:
         await asyncio.sleep(0)
     leftovers = [t for t in asyncio.all_tasks() if _binds(t, client)]
     assert leftovers == [], f"client-bound task(s) survived stop: {leftovers}"
+
 
 class TestSyncStateResilience:
     """Hardened start/stop — no leaked tasks/exceptions/clients."""
@@ -493,7 +492,6 @@ class TestSyncStateResilience:
         assert session.sync_task_running is True
         assert session.reconnect_attempts == 0
         await session.stop()
-
 
     async def test_no_unobserved_exceptions(self, mock_nio) -> None:
         """Sync failure does not produce unobserved task exceptions."""

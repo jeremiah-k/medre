@@ -417,7 +417,12 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     _reject_unknown_keys(storage_data, _STORAGE_KNOWN_KEYS, section_path="storage")
     storage_path = storage_data.get("path")
     if storage_path:
-        storage_path = str(paths.expand_placeholder(storage_path))
+        try:
+            storage_path = str(paths.expand_placeholder(storage_path))
+        except MedrePathsError as exc:
+            raise ConfigFileError(
+                f"Invalid path placeholder in config field 'storage.path': {exc}"
+            ) from exc
     storage = StorageConfig(
         backend=storage_data.get("backend", "sqlite"),
         path=storage_path,
