@@ -7,6 +7,8 @@ import sys
 import types
 from unittest import mock
 
+import pytest
+
 from medre.cli.contrib import (
     ALLOWED_NAMESPACES,
     DISALLOWED_TOPLEVEL,
@@ -92,3 +94,12 @@ def test_disallowed_toplevel_defined() -> None:
     assert "matrix" in DISALLOWED_TOPLEVEL
     assert "meshtastic" in DISALLOWED_TOPLEVEL
     assert "lxmf" in DISALLOWED_TOPLEVEL
+
+
+def test_dispatch_contribution_rejects_parser_without_dispatch() -> None:
+    """A visible adapter command cannot silently succeed without dispatch."""
+    args = types.SimpleNamespace(command="adapter", adapter_command="briar")
+    spec = types.SimpleNamespace(cli_dispatch=None)
+    with mock.patch("medre.cli.contrib.get_adapter_spec", return_value=spec):
+        with pytest.raises(RuntimeError, match="registered a parser.*no dispatch hook"):
+            dispatch_contribution(args)

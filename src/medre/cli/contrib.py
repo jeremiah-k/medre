@@ -55,8 +55,13 @@ def dispatch_contribution(args: Any) -> None:
     if not isinstance(transport, str):
         return
     spec = get_adapter_spec(transport)
-    if spec is None or spec.cli_dispatch is None:
+    if spec is None:
         return
+    if spec.cli_dispatch is None:
+        raise RuntimeError(
+            f"Adapter CLI contributor for {transport!r} registered a parser "
+            "but no dispatch hook"
+        )
 
     dispatch = spec.cli_dispatch.load()
     handled = dispatch(args)

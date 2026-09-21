@@ -24,6 +24,20 @@ _SRC = Path(__file__).resolve().parents[1] / "src" / "medre"
 # ---------------------------------------------------------------------------
 
 
+def test_extracts_real_built_in_registry() -> None:
+    """Extract lazy adapter refs from the authoritative built-in registry."""
+    registry_file = _SRC / "adapter_registry.py"
+    if not registry_file.is_file():
+        pytest.skip("adapter_registry.py not found")
+    source = registry_file.read_text(encoding="utf-8")
+    results = extract_dynamic_adapter_imports(source)
+    modules = [r[0] for r in results]
+    assert len(modules) >= 8
+    assert "medre.adapters.matrix.adapter" in modules
+    assert "medre.adapters.matrix.renderer" in modules
+    assert "medre.adapters.lxmf.adapter" in modules
+
+
 class TestExtractDynamicAdapterImports:
     """Tests for extract_dynamic_adapter_imports()."""
 
@@ -53,19 +67,6 @@ class TestExtractDynamicAdapterImports:
         modules = [r[0] for r in results]
         assert "medre.adapters.matrix.renderer" in modules
         assert "medre.adapters.lxmf.renderer" in modules
-
-    def test_extracts_real_built_in_registry(self) -> None:
-        """Extracts lazy adapter refs from the authoritative built-in registry."""
-        registry_file = _SRC / "adapter_registry.py"
-        if not registry_file.is_file():
-            pytest.skip("adapter_registry.py not found")
-        source = registry_file.read_text(encoding="utf-8")
-        results = extract_dynamic_adapter_imports(source)
-        modules = [r[0] for r in results]
-        assert len(modules) >= 8
-        assert "medre.adapters.matrix.adapter" in modules
-        assert "medre.adapters.matrix.renderer" in modules
-        assert "medre.adapters.lxmf.adapter" in modules
 
     def test_returns_line_numbers(self) -> None:
         """Each result includes a line number."""

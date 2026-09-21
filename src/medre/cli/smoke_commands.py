@@ -16,7 +16,10 @@ def _transport_for_adapter(adapter_id: str, config: object) -> str:
     if not callable(groups):
         return "unknown"
     for transport, group in groups():
-        if adapter_id in group:
+        if any(
+            getattr(rtc, "adapter_id", key) == adapter_id
+            for key, rtc in group.items()
+        ):
             return transport
     return "unknown"
 

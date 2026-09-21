@@ -113,11 +113,9 @@ ROUTE_ENV_NAMES: frozenset[str] = frozenset()
 
 RETRY_ENV_PREFIX = "MEDRE_RETRY__"
 
-_REJECTED_TRANSPORT_PREFIXES: tuple[str, ...] = (
-    "MEDRE_MATRIX_",
-    "MEDRE_MESHTASTIC_",
-    "MEDRE_MESHCORE_",
-    "MEDRE_LXMF_",
+_REJECTED_TRANSPORT_PREFIXES: tuple[str, ...] = tuple(
+    f"MEDRE_{transport.upper().replace('-', '_')}_"
+    for transport in registered_transports()
 )
 
 # ---------------------------------------------------------------------------

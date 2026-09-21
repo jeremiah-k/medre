@@ -348,7 +348,7 @@ discovery does **not** import optional SDK-backed adapter implementations. SDK
 ownership, package/distribution names, fake construction, renderer registration,
 CLI contribution hooks, support-bundle field classification, and native-metadata
 dispatch are all declared on the same spec. Adapter CLI contribution modules
-MUST remain SDK-free at import time; SDK-touching command implementations stay
+must remain SDK-free at import time; SDK-touching command implementations stay
 lazy behind their dispatch hook.
 
 Configuration is grouped by registered transport name and then adapter
@@ -381,7 +381,7 @@ registered built-ins, so typos remain fail-closed.
 5. `MedreApp` owns the resulting live adapter instances and their normal
    `start()` / `stop()` lifecycle.
 
-Adding a built-in transport **MUST NOT** require adding another transport
+Adding a built-in transport **must not** require adding another transport
 branch to the config loader, env layer, runtime builder, renderer dispatcher,
 native-metadata dispatcher, CLI transport inventory, or architecture SDK map.
 If a new adapter reveals a genuinely transport-specific behavior, keep that

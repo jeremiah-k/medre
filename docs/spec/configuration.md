@@ -147,9 +147,11 @@ Each transport has its own sub-table under
 - `adapters.meshcore.<name>` → `MeshCoreConfig`
 - `adapters.lxmf.<name>` → `LxmfConfig`
 
-Each instance goes through a runtime wrapper (`MatrixRuntimeConfig`,
-`MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, `LxmfRuntimeConfig`)
-that consumes three wrapper-level fields before constructing the adapter
+Each instance goes through a runtime wrapper. `GenericAdapterRuntimeConfig` is
+the fallback for registered built-ins that do not declare a specialized wrapper.
+`MatrixRuntimeConfig`, `MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, and
+`LxmfRuntimeConfig` are compatibility subclasses for the current built-ins. The
+wrapper consumes three wrapper-level fields before constructing the adapter
 dataclass:
 
 | Wrapper field  | Type   | Default       | Description                                                                                                                                                                       |
@@ -502,8 +504,11 @@ by pure path resolution — only during runtime startup.
 
 ## 7. Adapter Config Wrapping
 
-Each adapter type has a runtime wrapper (`MatrixRuntimeConfig`,
-`MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, `LxmfRuntimeConfig`) that:
+Every registered adapter type is wrapped in an `AdapterRuntimeConfig`-compatible
+object. `GenericAdapterRuntimeConfig` is the default fallback when the registry
+does not declare a specialized runtime wrapper. `MatrixRuntimeConfig`,
+`MeshtasticRuntimeConfig`, `MeshCoreRuntimeConfig`, and `LxmfRuntimeConfig` are
+compatibility subclasses retained for the current built-ins. Each wrapper:
 
 1. Parses the YAML mapping for the instance
 2. Separates runtime fields (`enabled`, `adapter_id`) from adapter-specific fields

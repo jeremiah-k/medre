@@ -17,3 +17,14 @@
 - Updated architecture enforcement and authoring/spec documentation to make the
   boundary explicit: this is a built-in adapter type registry, not dynamic
   third-party plugin loading.
+- Hardened registry assembly after adversarial review: adapter-owned runtime
+  preparation now runs as fail-closed preflight for fake and live instances,
+  while registered renderer and dependency-probe resolution failures remain
+  startup-visible instead of silently falling back or masquerading as an
+  uninstalled optional SDK.
+- Fixed registry-driven CLI/smoke edge cases for incomplete contributor hooks
+  and configurations whose instance key differs from the runtime `adapter_id`;
+  legacy transport env-prefix rejection now derives from the registry too.
+- Updated Matrix route-preparation and LXMF import-isolation tests to exercise
+  the new adapter-owned seams instead of asserting removed RuntimeBuilder
+  internals or matching SDK names by substring.

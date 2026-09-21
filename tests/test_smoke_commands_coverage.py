@@ -211,3 +211,20 @@ async def test_run_session_human_output_ignores_flat_command_text_shape(
     output = capsys.readouterr().out
     assert "  Commands:" not in output
     assert "old-flat-shape" not in output
+
+
+def test_transport_lookup_matches_runtime_adapter_id_not_group_key() -> None:
+    """Smoke diagnostics label adapters by runtime ID when keys differ."""
+    from types import SimpleNamespace
+
+    from medre.cli.smoke_commands import _transport_for_adapter
+
+    adapters = SimpleNamespace(
+        groups=lambda: (
+            ("matrix", {"config-key": SimpleNamespace(adapter_id="runtime-id")}),
+        )
+    )
+    config = SimpleNamespace(adapters=adapters)
+
+    assert _transport_for_adapter("runtime-id", config) == "matrix"
+    assert _transport_for_adapter("config-key", config) == "unknown"
