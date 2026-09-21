@@ -277,7 +277,12 @@ async def _wait_for_receipt(app, nonce: str, target: str, timeout: float):
                     continue
                 latest = max(targeted, key=lambda r: r.sequence)
                 evidence[:] = [ev, targeted]
-                return latest.status in {"sent", "failed", "dead_lettered", "suppressed"}
+                return latest.status in {
+                    "sent",
+                    "failed",
+                    "dead_lettered",
+                    "suppressed",
+                }
         return False
 
     await wait_until(_probe, timeout=timeout, interval=0.5)
@@ -508,9 +513,9 @@ async def test_mesh_interop_restart_preserves_state(tmp_path: Path) -> None:
             )
             assert ev is not None and receipts, f"pre-restart {far_tag} leg missed"
             latest = max(receipts, key=lambda r: r.sequence)
-            assert latest.status == "sent", (
-                f"pre-restart {far_tag} receipt status {latest.status!r}"
-            )
+            assert (
+                latest.status == "sent"
+            ), f"pre-restart {far_tag} receipt status {latest.status!r}"
             pre_event_id = ev.event_id
             pre_receipt_sequences[far_tag] = {r.sequence for r in receipts}
     finally:
@@ -529,9 +534,9 @@ async def test_mesh_interop_restart_preserves_state(tmp_path: Path) -> None:
             )
             assert ev is not None and receipts, f"post-restart {far_tag} leg missed"
             latest = max(receipts, key=lambda r: r.sequence)
-            assert latest.status == "sent", (
-                f"post-restart {far_tag} receipt status {latest.status!r}"
-            )
+            assert (
+                latest.status == "sent"
+            ), f"post-restart {far_tag} receipt status {latest.status!r}"
 
         assert pre_event_id is not None
         replay_receipts = await app2.storage.list_receipts_for_event(pre_event_id)

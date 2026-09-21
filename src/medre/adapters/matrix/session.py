@@ -1153,9 +1153,9 @@ class MatrixSession:
             return False
 
         def _nonempty(value: object) -> bool:
-            return isinstance(
-                value, (dict, list, set, tuple, frozenset)
-            ) and bool(value)
+            return isinstance(value, (dict, list, set, tuple, frozenset)) and bool(
+                value
+            )
 
         return any(
             _nonempty(getattr(recovery, name, None))

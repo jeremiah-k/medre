@@ -231,7 +231,9 @@ async def test_cancellation_resistant_start_is_not_raced_by_stop(
     assert app.stop_during_start is False
 
 
-async def test_caller_cancellation_during_start_settle_retains_deferred_cleanup() -> None:
+async def test_caller_cancellation_during_start_settle_retains_deferred_cleanup() -> (
+    None
+):
     release = asyncio.Event()
     start_entered = asyncio.Event()
     cancellation_seen = asyncio.Event()

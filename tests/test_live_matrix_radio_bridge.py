@@ -364,7 +364,12 @@ async def _wait_for_receipt(app, nonce: str, target: str, timeout: float):
                     continue
                 evidence[:] = [ev, targeted]
                 latest = max(targeted, key=lambda r: r.sequence)
-                return latest.status in {"sent", "failed", "dead_lettered", "suppressed"}
+                return latest.status in {
+                    "sent",
+                    "failed",
+                    "dead_lettered",
+                    "suppressed",
+                }
         return False
 
     await wait_until(_probe, timeout=timeout, interval=0.5)
