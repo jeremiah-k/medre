@@ -27,7 +27,6 @@ from tests.helpers.matrix_session import (
 )
 from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
 
-
 _STOP_TEST_WATCHDOG_SECONDS = 1.0
 
 
@@ -71,6 +70,7 @@ async def test_bounded_cancel_and_reap_never_waits_for_resistant_task() -> None:
     done, still_pending = await asyncio.wait({task}, timeout=0.2)
     assert not still_pending
     await asyncio.gather(*done, return_exceptions=True)
+
 
 # ===================================================================
 # TestSyncFailureLogging
@@ -537,9 +537,7 @@ async def test_stop_deadline_bounds_recovery_and_join_task_drains() -> None:
     # return with them detached.  Release them and verify the terminal-result
     # ownership path lets the event loop reap them cleanly.
     release.set()
-    done_cleanup, pending_cleanup = await asyncio.wait(
-        {recovery, join}, timeout=0.2
-    )
+    done_cleanup, pending_cleanup = await asyncio.wait({recovery, join}, timeout=0.2)
     assert not pending_cleanup, "released recovery/join test tasks did not settle"
     await asyncio.gather(*done_cleanup, return_exceptions=True)
     await asyncio.sleep(0)
@@ -592,9 +590,7 @@ async def test_stop_deadline_bounds_client_close() -> None:
     assert "task" in close_task
 
     release.set()
-    close_done, close_pending = await asyncio.wait(
-        {close_task["task"]}, timeout=0.2
-    )
+    close_done, close_pending = await asyncio.wait({close_task["task"]}, timeout=0.2)
     assert not close_pending, "released client.close() test task did not settle"
     await asyncio.gather(*close_done, return_exceptions=True)
 

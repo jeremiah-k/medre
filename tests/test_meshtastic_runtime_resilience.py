@@ -186,7 +186,6 @@ async def test_disconnect_during_reconnect_exit_schedules_recovery(
         def debug(self, *_args: object, **_kwargs: object) -> None:
             pass
 
-
     session._logger = _ExitWindowLogger()  # type: ignore[assignment]
 
     await session._reconnect_loop()
