@@ -15,6 +15,10 @@ before invitations become externally visible, and each requested user is
 invited exactly once. Power-level reads fail closed instead of synthesizing
 replacement state, so a transient homeserver read error cannot overwrite
 server-managed power fields. Invites are reported separately from joins.
+Matrix cannot atomically roll back an already-created room or space; if a
+later provisioning step fails, `MatrixProvisionError` preserves the created
+IDs, completed steps, and any invitations already sent so an operator can
+reconcile the partial resources instead of blindly creating duplicates.
 Requires completed
 `adapter matrix auth login` credentials; room/space IDs and permalinks are
 printed (IDs are not credentials).

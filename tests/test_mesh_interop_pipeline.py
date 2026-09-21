@@ -426,7 +426,7 @@ async def test_oversize_body_truncated_to_target_limit(
 async def test_lxmf_delivery_embeds_medre_envelope(
     temp_storage: SQLiteStorage,
 ) -> None:
-    """MT->LX deliveries carry the MEDRE envelope fields so far-side
+    """MC->LX deliveries carry the MEDRE envelope fields so far-side
     peers can reconstruct lineage (source adapter + transport id)."""
     harness = _MeshInteropHarness(temp_storage)
     await harness.start()

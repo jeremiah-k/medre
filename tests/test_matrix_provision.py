@@ -362,6 +362,36 @@ async def test_provision_fails_on_create_error() -> None:
         )
 
 
+async def test_partial_failure_preserves_created_resources_for_reconciliation() -> None:
+    from medre.adapters.matrix.errors import MatrixProvisionError
+
+    client = _StubClient(BOT)
+    client.scripted["room_create"] = [
+        _FakeResponse(room_id=f"!space:{SERVER}"),
+        _FakeError("room create failed", "M_UNKNOWN"),
+    ]
+    client.scripted["room_get_state_event"] = [
+        _FakeResponse(content={"users": {BOT: 100}}),
+        _FakeResponse(content={"users": {BOT: 100}}),
+    ]
+
+    with pytest.raises(MatrixProvisionError, match="Reconcile these resources") as exc:
+        await provision_private_space_and_room(
+            client,
+            space_name="s",
+            room_name="r",
+            invite_user_ids=[USER],
+        )
+
+    error = exc.value
+    assert error.space_id == f"!space:{SERVER}"
+    assert error.room_id is None
+    assert error.completed_steps == ("space_created", "space_power_verified")
+    assert error.invited_space_user_ids == ()
+    assert error.invited_room_user_ids == ()
+    assert not any(name == "room_invite" for name, _ in client.calls)
+
+
 async def test_provision_fails_when_power_readback_missing() -> None:
     from medre.adapters.matrix.errors import MatrixProvisionError
 

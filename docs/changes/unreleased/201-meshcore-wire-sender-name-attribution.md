@@ -19,7 +19,9 @@ resolved, so `{sender}` renders the sender node name
 fidelity is pinned by the live pair suite), DMs are excluded (they carry
 real identity), and an explicitly resolved known-contact label still
 wins. The defended contract that an opaque pubkey prefix never becomes
-the sender label is unchanged.
+the sender label is unchanged. Malformed packets whose `text` field is not a
+string now fail through `MeshCoreCodecError` before classifier stripping or
+wire-name regex matching can leak an unrelated `AttributeError`/`TypeError`.
 
 The same release adds a device-free six-edge mesh interop regression
 suite (`tests/test_mesh_interop_pipeline.py`) covering MT<->MC<->LX

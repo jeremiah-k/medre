@@ -241,11 +241,21 @@ class LxmfPeerListener:
     def _read_packets(self) -> list[dict]:
         return read_jsonl(_SCRATCH_JSONL)
 
+    def _raise_if_crashed_without_evidence(self, packets: list[dict]) -> None:
+        proc = self._owner.proc
+        if not packets and proc is not None and proc.poll() not in (None, 0):
+            raise AssertionError(
+                f"native LXMF peer listener exited early ({proc.returncode})"
+            )
+
     def packets(self, timeout: float | None = None) -> list[dict]:
         """Return a snapshot, optionally waiting for the first packet."""
         if timeout is None:
-            return self._read_packets()
-        return poll_packets_until(self._read_packets, bool, timeout)
+            packets = self._read_packets()
+        else:
+            packets = poll_packets_until(self._read_packets, bool, timeout)
+        self._raise_if_crashed_without_evidence(packets)
+        return packets
 
     def packets_until(
         self,
@@ -253,7 +263,9 @@ class LxmfPeerListener:
         timeout: float,
     ) -> list[dict]:
         """Poll collected packets until ``predicate`` holds or timeout."""
-        return poll_packets_until(self._read_packets, predicate, timeout)
+        packets = poll_packets_until(self._read_packets, predicate, timeout)
+        self._raise_if_crashed_without_evidence(packets)
+        return packets
 
     def __exit__(self, *exc: object) -> None:
         self._owner.terminate()

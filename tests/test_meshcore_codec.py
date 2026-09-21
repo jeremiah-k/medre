@@ -103,6 +103,15 @@ def test_decode_explicit_contact_label_wins_over_wire_name() -> None:
     assert _meshcore_data(event)["contact_label"] == "Known Contact"
 
 
+@pytest.mark.parametrize("text", [1, 1.5, [], {}, object()])
+def test_decode_non_string_text_raises_codec_error(text: object) -> None:
+    codec = MeshCoreCodec("meshcore-1", _make_config())
+    packet = _make_contact_packet()
+    packet["text"] = text
+    with pytest.raises(MeshCoreCodecError, match="text.*string"):
+        codec.decode(packet)
+
+
 class TestMeshCoreCodecDecode:
     """MeshCoreCodec decode behaviour."""
 

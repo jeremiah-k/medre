@@ -38,5 +38,7 @@ stop ordering and passes now.
 
 Classic checkpoint acknowledgement no longer imports the optional Matrix SDK merely
 to classify the staged-token mismatch. MEDRE recognizes that specific protocol error
-from the raised exception contract, defers only that known recovery race, and leaves
-all unrelated acknowledgement failures fatal.
+from the raised exception contract, and defers it only when the pinned client's
+recovery state explicitly has active dispatches, pending gaps, or deferred dispatch
+errors. The same error text caused by missing staged state or a token mismatch remains
+fatal, so MEDRE never records a normal acknowledgement that nio did not accept.

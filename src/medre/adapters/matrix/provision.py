@@ -17,7 +17,8 @@ event; there is no unencrypted window to race against.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import asyncio
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any, Protocol
@@ -216,6 +217,7 @@ async def _provision_resource(
     space: bool,
     initial_state: Sequence[dict[str, Any]] = (),
     topic: str | None = None,
+    on_created: Callable[[str], None] | None = None,
 ) -> ProvisionedResource:
     """Create one room/space and persist verified power-level grants."""
     from medre.adapters.matrix.errors import MatrixProvisionError
@@ -241,6 +243,9 @@ async def _provision_resource(
     room_id = getattr(response, "room_id", None)
     if not room_id:
         raise MatrixProvisionError(f"room_create({name!r}) returned no room_id")
+    room_id = str(room_id)
+    if on_created is not None:
+        on_created(room_id)
 
     # Pre-assign admin power before any explicit invitation is sent so a
     # later join is immediately an admin (no watcher loop).  Preserve every
@@ -280,7 +285,11 @@ async def _provision_resource(
 
 
 async def _invite_users(
-    client: _ProvisionClient, room_id: str, invite_user_ids: Sequence[str]
+    client: _ProvisionClient,
+    room_id: str,
+    invite_user_ids: Sequence[str],
+    *,
+    on_invited: Callable[[str], None] | None = None,
 ) -> tuple[str, ...]:
     """Invite each validated user exactly once and return successful targets."""
     invited: list[str] = []
@@ -288,6 +297,8 @@ async def _invite_users(
         invite = await client.room_invite(room_id, target)
         await _raise_if_error(invite, f"invite {target} to {room_id}")
         invited.append(target)
+        if on_invited is not None:
+            on_invited(target)
     return tuple(invited)
 
 
@@ -368,9 +379,14 @@ async def provision_private_space_and_room(
     verify encryption/linkage from actual server state → invite on both.
 
     Raises :class:`~medre.adapters.matrix.errors.MatrixProvisionError` on any
-    response error or verification mismatch.  Raises :class:`ValueError` on
-    malformed user IDs or admins outside the invite set.
+    response error or verification mismatch.  When failure occurs after a
+    resource is created, the error preserves the created IDs and completed
+    steps so the partial operation can be reconciled rather than blindly
+    retried. Raises :class:`ValueError` on malformed user IDs or admins
+    outside the invite set.
     """
+    from medre.adapters.matrix.errors import MatrixProvisionError
+
     _validate_inputs(invite_user_ids, admin_power_user_ids)
 
     bot_user_id = getattr(client, "user_id", "")
@@ -378,63 +394,110 @@ async def provision_private_space_and_room(
         raise ValueError("client has no user_id — restore_login first")
     server_name = _server_name_from_user_id(bot_user_id)
 
-    # The creator holds power 100 by default; make it explicit in the grants.
     grants: dict[str, int] = {bot_user_id: _ADMIN_POWER}
     for admin in admin_power_user_ids:
         grants[admin] = _ADMIN_POWER
 
-    space_resource = await _provision_resource(
-        client,
-        name=space_name,
-        admin_grants=grants,
-        space=True,
-    )
-    room_resource = await _provision_resource(
-        client,
-        name=room_name,
-        admin_grants=grants,
-        space=False,
-        initial_state=[encryption_initial_state()],
-        topic=room_topic,
-    )
+    space_id: str | None = None
+    room_id: str | None = None
+    completed_steps: list[str] = []
+    space_invited: list[str] = []
+    room_invited: list[str] = []
 
-    # Link the pair from both directions.
-    child_put = await client.room_put_state(
-        space_resource.room_id,
-        "m.space.child",
-        space_child_content([server_name]),
-        state_key=room_resource.room_id,
-    )
-    await _raise_if_error(child_put, "space child state put")
-    parent_put = await client.room_put_state(
-        room_resource.room_id,
-        "m.space.parent",
-        space_parent_content([server_name]),
-        state_key=space_resource.room_id,
-    )
-    await _raise_if_error(parent_put, "space parent state put")
+    def _record_space(created_id: str) -> None:
+        nonlocal space_id
+        space_id = created_id
+        completed_steps.append("space_created")
 
-    # Verify the safety-critical state before invitations become externally
-    # visible.  If the homeserver rejected/rewrote encryption or linkage,
-    # fail with private resources rather than inviting users into a malformed
-    # pair.
-    algorithm = await _verify_encryption(client, room_resource.room_id)
-    linkage = await _verify_linkage(
-        client, space_resource.room_id, room_resource.room_id, server_name
-    )
+    def _record_room(created_id: str) -> None:
+        nonlocal room_id
+        room_id = created_id
+        completed_steps.append("room_created")
 
-    # Only after both power-level writes, linkage writes, and verification
-    # succeeded do invitations become externally visible.  This keeps the
-    # documented ordering true and avoids room_create() racing an invited
-    # user's join.
-    space_resource = replace(
-        space_resource,
-        invited=await _invite_users(client, space_resource.room_id, invite_user_ids),
-    )
-    room_resource = replace(
-        room_resource,
-        invited=await _invite_users(client, room_resource.room_id, invite_user_ids),
-    )
+    def _partial_error(exc: BaseException) -> MatrixProvisionError:
+        return MatrixProvisionError(
+            str(exc),
+            space_id=space_id,
+            room_id=room_id,
+            completed_steps=tuple(completed_steps),
+            invited_space_user_ids=tuple(space_invited),
+            invited_room_user_ids=tuple(room_invited),
+        )
+
+    try:
+        space_resource = await _provision_resource(
+            client,
+            name=space_name,
+            admin_grants=grants,
+            space=True,
+            on_created=_record_space,
+        )
+        completed_steps.append("space_power_verified")
+        room_resource = await _provision_resource(
+            client,
+            name=room_name,
+            admin_grants=grants,
+            space=False,
+            initial_state=[encryption_initial_state()],
+            topic=room_topic,
+            on_created=_record_room,
+        )
+        completed_steps.append("room_power_verified")
+
+        child_put = await client.room_put_state(
+            space_resource.room_id,
+            "m.space.child",
+            space_child_content([server_name]),
+            state_key=room_resource.room_id,
+        )
+        await _raise_if_error(child_put, "space child state put")
+        completed_steps.append("space_child_link_written")
+        parent_put = await client.room_put_state(
+            room_resource.room_id,
+            "m.space.parent",
+            space_parent_content([server_name]),
+            state_key=space_resource.room_id,
+        )
+        await _raise_if_error(parent_put, "space parent state put")
+        completed_steps.append("room_parent_link_written")
+
+        algorithm = await _verify_encryption(client, room_resource.room_id)
+        completed_steps.append("encryption_verified")
+        linkage = await _verify_linkage(
+            client, space_resource.room_id, room_resource.room_id, server_name
+        )
+        completed_steps.append("linkage_verified")
+
+        space_resource = replace(
+            space_resource,
+            invited=await _invite_users(
+                client,
+                space_resource.room_id,
+                invite_user_ids,
+                on_invited=space_invited.append,
+            ),
+        )
+        completed_steps.append("space_invites_completed")
+        room_resource = replace(
+            room_resource,
+            invited=await _invite_users(
+                client,
+                room_resource.room_id,
+                invite_user_ids,
+                on_invited=room_invited.append,
+            ),
+        )
+        completed_steps.append("room_invites_completed")
+    except asyncio.CancelledError:
+        raise
+    except MatrixProvisionError as exc:
+        if space_id is None and room_id is None:
+            raise
+        raise _partial_error(exc) from exc
+    except Exception as exc:
+        if space_id is None and room_id is None:
+            raise
+        raise _partial_error(exc) from exc
 
     return ProvisionReport(
         space=space_resource,

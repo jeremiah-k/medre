@@ -40,6 +40,21 @@ class _LifecycleApp(Protocol):
 
 _LifecycleT = TypeVar("_LifecycleT", bound=_LifecycleApp)
 
+# Strong references for cleanup tasks intentionally detached from a cancelled
+# live-test waiter.  The callback removes each task only after its terminal
+# result has been consumed.
+_BACKGROUND_CLEANUP_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _retain_background_cleanup(task: asyncio.Task[None]) -> None:
+    _BACKGROUND_CLEANUP_TASKS.add(task)
+
+    def _finished(done: asyncio.Task[None]) -> None:
+        _BACKGROUND_CLEANUP_TASKS.discard(done)
+        _consume_task_result(done)
+
+    task.add_done_callback(_finished)
+
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -309,39 +324,38 @@ async def launch_bounded(
             )
             start_task.cancel()
 
+    async def _stop_after_late_start() -> None:
+        await asyncio.gather(start_task, return_exceptions=True)
+        try:
+            await bounded(app.stop(), stop_timeout, f"{label} deferred start cleanup")
+        except BaseException as cleanup_exc:  # pragma: no cover - live-only
+            print(
+                f"{label}: deferred cleanup after failed start also "
+                f"failed: {cleanup_exc!r}",
+                flush=True,
+            )
+
+    def _schedule_deferred_cleanup() -> None:
+        start_task.add_done_callback(_consume_task_result)
+        _retain_background_cleanup(asyncio.create_task(_stop_after_late_start()))
+
     if not start_settled:
         try:
             done, _pending = await asyncio.wait({start_task}, timeout=stop_timeout)
         except asyncio.CancelledError:
-            start_task.add_done_callback(_consume_task_result)
+            _schedule_deferred_cleanup()
             raise
         start_settled = bool(done)
         if start_settled:
             _consume_task_result(start_task)
         else:
-            start_task.add_done_callback(_consume_task_result)
             print(
                 f"{label}: start task did not settle within {stop_timeout}s "
                 "after cancellation; deferring stop() until start settles to "
                 "avoid racing a still-mutating lifecycle",
                 flush=True,
             )
-
-            async def _stop_after_late_start() -> None:
-                await asyncio.gather(start_task, return_exceptions=True)
-                try:
-                    await bounded(
-                        app.stop(), stop_timeout, f"{label} deferred start cleanup"
-                    )
-                except BaseException as cleanup_exc:  # pragma: no cover - live-only
-                    print(
-                        f"{label}: deferred cleanup after failed start also "
-                        f"failed: {cleanup_exc!r}",
-                        flush=True,
-                    )
-
-            deferred_cleanup = asyncio.create_task(_stop_after_late_start())
-            deferred_cleanup.add_done_callback(_consume_task_result)
+            _schedule_deferred_cleanup()
 
     if start_settled:
         try:
@@ -486,7 +500,7 @@ RNS_RATCHETS_UNRAISABLE_FILTER = (
     "ignore:Exception ignored in.*ratchets:pytest.PytestUnraisableExceptionWarning"
 )
 AIOHTTP_TLS_SHUTDOWN_UNRAISABLE_FILTER = (
-    "ignore:Exception ignored in.*<socket\\.socket.*443"
+    "ignore:Exception ignored in.*<socket\\.socket.*laddr=\\([^)]*, 443\\)>"
     ":pytest.PytestUnraisableExceptionWarning"
 )
 SELECTOR_TRANSPORT_UNRAISABLE_FILTER = (

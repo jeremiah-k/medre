@@ -730,9 +730,8 @@ def _reject_env_placeholder(field: str, value: str) -> None:
         var = match.group(1)
         raise ConfigFileError(
             f"Unresolved environment placeholder in config field {field!r}: "
-            f"${{{var}}} is not expanded — set the {var} environment "
-            "variable (or a MEDRE_ADAPTER__* override) or provide the "
-            "value directly"
+            f"${{{var}}} is not expanded — replace it with a direct value "
+            "or use the applicable MEDRE_ADAPTER__* override"
         )
 
 

@@ -26,6 +26,7 @@ import time
 
 import pytest
 
+from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import bounded, launch_bounded
 
 
@@ -227,6 +228,59 @@ async def test_cancellation_resistant_start_is_not_raced_by_stop(
             break
         await asyncio.sleep(0)
     assert app.stop_calls == 1
+    assert app.stop_during_start is False
+
+
+async def test_caller_cancellation_during_start_settle_retains_deferred_cleanup() -> None:
+    release = asyncio.Event()
+    start_entered = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+
+    class _RudeStartApp:
+        def __init__(self) -> None:
+            self.start_active = False
+            self.stop_calls = 0
+            self.stop_during_start = False
+
+        async def start(self) -> None:
+            self.start_active = True
+            start_entered.set()
+            try:
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    cancellation_seen.set()
+                    await release.wait()
+            finally:
+                self.start_active = False
+
+        async def stop(self) -> None:
+            self.stop_calls += 1
+            self.stop_during_start = self.start_active
+
+    app = _RudeStartApp()
+    launch = asyncio.create_task(
+        launch_bounded(
+            lambda: app,
+            start_timeout=30.0,
+            stop_timeout=30.0,
+            label="cancelled-launch",
+        )
+    )
+
+    # First cancellation moves launch_bounded into its start-settlement wait;
+    # a second cancellation interrupts that wait. Cleanup must remain strongly
+    # owned and run only after the resistant start finally settles.
+    await asyncio.wait_for(start_entered.wait(), timeout=1.0)
+    launch.cancel()
+    await asyncio.wait_for(cancellation_seen.wait(), timeout=1.0)
+    asyncio.get_running_loop().call_soon(launch.cancel)
+    with pytest.raises(asyncio.CancelledError):
+        await launch
+
+    assert app.stop_calls == 0
+    release.set()
+    assert await wait_until(lambda: app.stop_calls == 1, timeout=1.0)
     assert app.stop_during_start is False
 
 

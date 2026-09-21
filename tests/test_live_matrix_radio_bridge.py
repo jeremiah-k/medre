@@ -37,15 +37,17 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import time
+import sys
 import uuid
 from pathlib import Path
 
 import pytest
 
+from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import (
     PINNED_SDK_UNRAISABLE_FILTERS,
     bounded,
+    launch_bounded,
 )
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _lx_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
@@ -284,31 +286,32 @@ def _build_runtime(db_path: Path, lx_storage: Path):
 
 
 async def _launch(db_path: Path, lx_storage: Path):
-    """Build and start the runtime, guaranteeing cleanup on failed start.
-
-    ``bounded`` cancellation of ``app.start()`` would otherwise abandon
-    already-started adapters holding exclusive radio endpoints (serial
-    flock, BLE central, RNode serial) — the next test would inherit a
-    leaked owner.  On any start failure the partially-started app is
-    stopped before the error propagates.
-    """
-    app = _build_runtime(db_path, lx_storage)
-    try:
-        await bounded(app.start(), 180.0, "matrix bridge runtime start")
-    except BaseException:
-        try:
-            await bounded(app.stop(), 45.0, "matrix bridge runtime start cleanup")
-        except Exception as cleanup_exc:  # pragma: no cover - live-only
-            print(
-                f"runtime cleanup after failed start also failed: {cleanup_exc!r}",
-                flush=True,
-            )
-        raise
-    return app
+    """Build and start the runtime with race-free bounded cleanup."""
+    return await launch_bounded(
+        lambda: _build_runtime(db_path, lx_storage),
+        start_timeout=180.0,
+        stop_timeout=45.0,
+        label="matrix bridge runtime",
+    )
 
 
 async def _stop(app):
     await bounded(app.stop(), 45.0, "matrix bridge runtime stop")
+
+
+async def _stop_preserving_primary(app) -> None:
+    """Stop without allowing teardown failure to replace active evidence."""
+    primary = sys.exc_info()[1]
+    try:
+        await _stop(app)
+    except BaseException as cleanup_exc:
+        if primary is None:
+            raise
+        print(
+            "matrix bridge runtime cleanup also failed while preserving "
+            f"primary {primary!r}: {cleanup_exc!r}",
+            flush=True,
+        )
 
 
 def _loopback_snapshot(app) -> dict[str, int]:
@@ -325,13 +328,14 @@ async def _wait_self_suppressed_at_least(
 ) -> int:
     """Bounded wait until the runtime's own sync loopback has been suppressed
     at least *count* times; returns the observed delta."""
-    deadline = time.monotonic() + timeout
     delta = 0
-    while time.monotonic() < deadline:
+
+    def _ready() -> bool:
+        nonlocal delta
         delta = _loopback_snapshot(app)["self_suppressed"] - baseline["self_suppressed"]
-        if delta >= count:
-            return delta
-        await asyncio.sleep(1.0)
+        return delta >= count
+
+    await wait_until(_ready, timeout=timeout, interval=1.0)
     return delta
 
 
@@ -347,19 +351,24 @@ async def _canonical_probe_count(app, nonce: str) -> int:
 
 async def _wait_for_receipt(app, nonce: str, target: str, timeout: float):
     """Poll canonical storage for the event carrying *nonce* and a receipt."""
-    deadline = time.monotonic() + timeout
-    receipts = []
-    while time.monotonic() < deadline:
+    evidence: list[object] = [None, []]
+
+    async def _probe() -> bool:
         ids = await app.storage.list_event_ids_page(after_event_id=None, limit=200)
         for eid in ids:
             ev = await app.storage.get(eid)
             if ev and nonce in (ev.payload or {}).get("body", ""):
                 receipts = await app.storage.list_receipts_for_event(eid)
                 targeted = [r for r in receipts if r.target_adapter == target]
-                if targeted:
-                    return ev, targeted
-        await asyncio.sleep(0.5)
-    return None, []
+                if not targeted:
+                    continue
+                evidence[:] = [ev, targeted]
+                latest = max(targeted, key=lambda r: r.sequence)
+                return latest.status in {"sent", "failed", "dead_lettered", "suppressed"}
+        return False
+
+    await wait_until(_probe, timeout=timeout, interval=0.5)
+    return evidence[0], evidence[1]
 
 
 @pytest.mark.live
@@ -487,7 +496,7 @@ async def test_radio_to_matrix_three_legs_relayed_encrypted(
         if degraded:
             print("DEGRADED-NOT-EXERCISED " + " | ".join(degraded), flush=True)
     finally:
-        await _stop(app)
+        await _stop_preserving_primary(app)
 
     if not ran_tags:
         pytest.xfail(
@@ -527,6 +536,8 @@ async def test_own_relayed_message_loopback_is_suppressed_not_relayed(
         ), "MT send not accepted"
         ev, receipts = await _wait_for_receipt(app, probe, "matrix", _RECEIPT_TIMEOUT)
         assert ev is not None and receipts, "relay never delivered"
+        latest = max(receipts, key=lambda r: r.sequence)
+        assert latest.status == "sent", f"matrix receipt status {latest.status!r}"
         assert await _canonical_probe_count(app, probe) == 1, (
             "relayed probe admitted more than once (duplicate ingress before "
             "the loopback even returned)"
@@ -563,7 +574,7 @@ async def test_own_relayed_message_loopback_is_suppressed_not_relayed(
             final["undecryptable"] == baseline["undecryptable"]
         ), "runtime undecryptable count moved (Megolm decryption health)"
     finally:
-        await _stop(app)
+        await _stop_preserving_primary(app)
 
 
 @pytest.mark.live
@@ -581,12 +592,14 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
         await asyncio.to_thread(_mt_peer, ["sendn", _MT_PEER, json.dumps([nonce1])], 60)
         ev, receipts = await _wait_for_receipt(app, nonce1, "matrix", _RECEIPT_TIMEOUT)
         assert ev is not None and receipts, "pre-restart leg never delivered"
+        latest = max(receipts, key=lambda r: r.sequence)
+        assert latest.status == "sent", f"pre-restart receipt {latest.status!r}"
     finally:
-        await _stop(app)
+        await _stop_preserving_primary(app)
 
     # Controlled stop/start: a fresh runtime is built from the SAME matrix
     # olm store and database.
-    app2 = await _launch(db_path, tmp_path / "lxmf_storage")
+    app2 = await _launch(db_path, tmp_path / "lxmf_storage_post")
     nonce2 = _nonce("RESTART-B")
     try:
         baseline = _loopback_snapshot(app2)
@@ -598,6 +611,8 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
         ), "post-restart MT send not accepted"
         ev, receipts = await _wait_for_receipt(app2, nonce2, "matrix", _RECEIPT_TIMEOUT)
         assert ev is not None and receipts, "post-restart leg never delivered"
+        latest = max(receipts, key=lambda r: r.sequence)
+        assert latest.status == "sent", f"post-restart receipt {latest.status!r}"
         # Fresh encrypted egress is live: the post-restart relay returns to
         # the runtime's own sync and is suppressed exactly like pre-restart.
         loopback_delta = await _wait_self_suppressed_at_least(app2, baseline, 1, 45.0)
@@ -623,4 +638,4 @@ async def test_restart_preserves_crypto_and_device_identity(tmp_path: Path) -> N
             f"{device_before!r} -> {device_after!r}"
         )
     finally:
-        await _stop(app2)
+        await _stop_preserving_primary(app2)

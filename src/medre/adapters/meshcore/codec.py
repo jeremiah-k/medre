@@ -72,9 +72,11 @@ class MeshCoreCodec(AdapterCodec):
         contact_label:
             Known-contact advertised name for the sender, resolved by
             the adapter from the session's local contacts store.  When
-            ``None`` (sender not a known contact), no label is injected
-            and the projection leaves ``source_sender_label`` as
-            ``None``.  Opaque pubkey prefixes are never passed here.
+            ``None`` for a channel text, the codec falls back to the
+            firmware wire-embedded sender name (``"<name>: <text>"``);
+            when no wire name is present, or for direct messages, no
+            label is injected. Opaque pubkey prefixes are never passed
+            here and are never derived.
         contact_short_label:
             Optional abbreviated contact label.  When ``None``, the
             projection derives a compact form from *contact_label*.
@@ -92,6 +94,13 @@ class MeshCoreCodec(AdapterCodec):
         if not isinstance(native_event, dict):
             raise MeshCoreCodecError(
                 f"packet must be a dict, got {type(native_event).__name__}"
+            )
+
+        raw_text = native_event.get("text")
+        if raw_text is not None and not isinstance(raw_text, str):
+            raise MeshCoreCodecError(
+                "packet text must be a string when present, got "
+                f"{type(raw_text).__name__}"
             )
 
         classification = self._classifier.classify(native_event)

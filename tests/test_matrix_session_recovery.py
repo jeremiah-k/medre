@@ -19,6 +19,7 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
+from tests.helpers.async_utils import wait_until
 from tests.helpers.matrix_session import (
     fast_sleep_patch,
     make_matrix_config,
@@ -422,9 +423,7 @@ async def test_stop_drains_client_bound_tasks_before_close(mock_nio) -> None:
     config = make_matrix_config()
     session = MatrixSession(config)
     await session.start()
-    for _ in range(100):
-        await asyncio.sleep(0)
-    assert orphan_started.is_set()
+    await asyncio.wait_for(orphan_started.wait(), timeout=1.0)
 
     await session.stop()
 
@@ -432,8 +431,10 @@ async def test_stop_drains_client_bound_tasks_before_close(mock_nio) -> None:
         "client.close() ran while client-bound request task(s) were "
         f"still in flight: {observation['pending_at_close']}"
     )
-    for _ in range(10):
-        await asyncio.sleep(0)
+    assert await wait_until(
+        lambda: not any(_binds(t, client) for t in asyncio.all_tasks()),
+        timeout=1.0,
+    )
     leftovers = [t for t in asyncio.all_tasks() if _binds(t, client)]
     assert leftovers == [], f"client-bound task(s) survived stop: {leftovers}"
 
@@ -1080,11 +1081,7 @@ async def test_client_task_drain_consumes_late_exception() -> None:
         assert not task.done()
 
         release.set()
-        for _ in range(100):
-            if task.done():
-                break
-            await asyncio.sleep(0)
-        assert task.done()
+        assert await wait_until(task.done, timeout=1.0)
 
         # Let the done callback run before checking the loop's unhandled-task
         # channel.  Do not await/inspect task.exception() here: doing so would

@@ -970,7 +970,7 @@ class RouteConfig:
     route_id: str
     source_adapters: tuple[str, ...]
     dest_adapters: tuple[str, ...]
-    directionality: RouteDirectionality = RouteDirectionality.SOURCE_TO_DEST
+    directionality: RouteDirectionality | str = RouteDirectionality.SOURCE_TO_DEST
     enabled: bool = True
     source_channel: str | None = None
     dest_channel: str | None = None

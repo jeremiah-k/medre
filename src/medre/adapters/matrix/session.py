@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib
+import inspect
 import json
 import logging
 import os
@@ -1139,6 +1140,29 @@ class MatrixSession:
         )
 
     @staticmethod
+    def _classic_ack_recovery_busy(client: Any) -> bool:
+        """Return whether pinned nio has explicit Classic recovery work pending.
+
+        The SDK uses the same LocalProtocolError text for several staged-state
+        mismatches. Only active recovery dispatches, real recovery gaps, or
+        deferred recovery callback errors are safe acknowledgement deferrals;
+        token/staged-state mismatches must still fail loudly.
+        """
+        recovery = getattr(client, "_recovery", None)
+        if recovery is None:
+            return False
+
+        def _nonempty(value: object) -> bool:
+            return isinstance(
+                value, (dict, list, set, tuple, frozenset)
+            ) and bool(value)
+
+        return any(
+            _nonempty(getattr(recovery, name, None))
+            for name in ("_active_dispatches", "gaps", "_deferred_dispatch_errors")
+        )
+
+    @staticmethod
     def _is_classic_ack_deferral_error(exc: BaseException) -> bool:
         """Return whether *exc* is nio's staged Classic-ack mismatch.
 
@@ -1184,7 +1208,10 @@ class MatrixSession:
                 client.acknowledge_classic_sync(next_batch)
                 self._classic_ack_deferrals = 0
             except Exception as exc:
-                if not self._is_classic_ack_deferral_error(exc):
+                if not (
+                    self._is_classic_ack_deferral_error(exc)
+                    and self._classic_ack_recovery_busy(client)
+                ):
                     raise
                 # Campaign F4 (run4): recovery dispatches (undecryptable-event
                 # room-key work) were still active when the acknowledgement
@@ -2106,33 +2133,46 @@ class MatrixSession:
 
         if self._client is not None:
             client = self._client
-            close_task = asyncio.create_task(client.close())
-            remaining = max(0.0, deadline - time.monotonic())
-            try:
-                done, pending = await asyncio.wait({close_task}, timeout=remaining)
-            except asyncio.CancelledError:
-                close_task.cancel()
-                close_task.add_done_callback(self._consume_task_result)
-                raise
-
-            if done:
+            close = getattr(client, "close", None)
+            if callable(close):
                 try:
-                    close_task.result()
-                except asyncio.CancelledError:
-                    pass
+                    close_result = close()
                 except Exception as exc:
                     self._logger.warning("Error closing client: %s", exc)
-            else:
-                close_task.cancel()
-                close_task.add_done_callback(self._consume_task_result)
-                self._logger.warning(
-                    "Matrix client close did not finish within the shared "
-                    "shutdown deadline"
-                )
+                    close_result = None
+                else:
+                    if not inspect.isawaitable(close_result):
+                        close_result = None
+                if inspect.isawaitable(close_result):
+                    close_task = asyncio.ensure_future(close_result)
+                    remaining = max(0.0, deadline - time.monotonic())
+                    try:
+                        done, _pending = await asyncio.wait(
+                            {close_task}, timeout=remaining
+                        )
+                    except asyncio.CancelledError:
+                        close_task.cancel()
+                        close_task.add_done_callback(self._consume_task_result)
+                        raise
+
+                    if done:
+                        try:
+                            close_task.result()
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as exc:
+                            self._logger.warning("Error closing client: %s", exc)
+                    else:
+                        close_task.cancel()
+                        close_task.add_done_callback(self._consume_task_result)
+                        self._logger.warning(
+                            "Matrix client close did not finish within the shared "
+                            "shutdown deadline"
+                        )
 
             # Yield to the event loop so a normally completed aiohttp close
             # can finish connector callbacks before the session drops its
-            # provider reference.  Cancellation-resistant close work retains
+            # provider reference. Cancellation-resistant close work retains
             # its own client reference through ``close_task`` until it settles.
             await asyncio.sleep(0)
             self._client = None

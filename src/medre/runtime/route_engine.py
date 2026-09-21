@@ -820,6 +820,14 @@ def _expand_all_routes(
                 f"{', '.join(d.value for d in RouteDirectionality)}"
             )
 
+        if rc.channel_room_map is not None and (
+            len(rc.source_adapters) != 1 or len(rc.dest_adapters) != 1
+        ):
+            raise RouteValidationError(
+                f"Route {rc.route_id!r}: channel_room_map requires exactly "
+                "one source adapter and one dest adapter"
+            )
+
         # ``RouteConfig.from_dict`` rejects these shapes during config
         # parsing, but direct/programmatic construction bypasses that parser.
         # Validate the runtime-semantic invariants here as a final boundary so

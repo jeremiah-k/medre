@@ -28,15 +28,18 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import time
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 
 import pytest
 
+from tests.helpers.async_utils import wait_until
 from tests.helpers.live_harness import (
     PINNED_SDK_UNRAISABLE_FILTERS,
     bounded,
+    launch_bounded,
 )
 from tests.helpers.lxmf_live_peer import delivery_dest_hash as _lx_dest_hash
 from tests.helpers.lxmf_live_peer import run_lxmf_peer as _lx_peer
@@ -231,40 +234,54 @@ def _build_runtime(db_path: Path, lx_storage: Path):
 
 
 async def _launch(db_path: Path, lx_storage: Path):
-    """Build and start the runtime, guaranteeing cleanup on failed start."""
-    app = _build_runtime(db_path, lx_storage)
-    try:
-        await bounded(app.start(), 180.0, "mesh interop runtime start")
-    except BaseException:
-        try:
-            await bounded(app.stop(), 45.0, "mesh interop runtime start cleanup")
-        except Exception as cleanup_exc:  # pragma: no cover - live-only
-            print(
-                f"runtime cleanup after failed start also failed: {cleanup_exc!r}",
-                flush=True,
-            )
-        raise
-    return app
+    """Build and start the runtime with race-free bounded cleanup."""
+    return await launch_bounded(
+        lambda: _build_runtime(db_path, lx_storage),
+        start_timeout=180.0,
+        stop_timeout=45.0,
+        label="mesh interop runtime",
+    )
 
 
 async def _stop(app):
     await bounded(app.stop(), 60.0, "mesh interop runtime stop")
 
 
+async def _stop_preserving_primary(app) -> None:
+    """Stop without allowing cleanup failure to replace an active failure."""
+    primary = sys.exc_info()[1]
+    try:
+        await _stop(app)
+    except BaseException as cleanup_exc:
+        if primary is None:
+            raise
+        print(
+            "mesh interop runtime cleanup also failed while preserving "
+            f"primary {primary!r}: {cleanup_exc!r}",
+            flush=True,
+        )
+
+
 async def _wait_for_receipt(app, nonce: str, target: str, timeout: float):
-    """Poll canonical storage for the event carrying *nonce* and a receipt."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    """Wait for a sent target receipt, retaining terminal failure evidence."""
+    evidence: list[object] = [None, []]
+
+    async def _probe() -> bool:
         ids = await app.storage.list_event_ids_page(after_event_id=None, limit=200)
         for eid in ids:
             ev = await app.storage.get(eid)
             if ev and nonce in (ev.payload or {}).get("body", ""):
                 receipts = await app.storage.list_receipts_for_event(eid)
                 targeted = [r for r in receipts if r.target_adapter == target]
-                if targeted:
-                    return ev, targeted
-        await asyncio.sleep(0.5)
-    return None, []
+                if not targeted:
+                    continue
+                latest = max(targeted, key=lambda r: r.sequence)
+                evidence[:] = [ev, targeted]
+                return latest.status in {"sent", "failed", "dead_lettered", "suppressed"}
+        return False
+
+    await wait_until(_probe, timeout=timeout, interval=0.5)
+    return evidence[0], evidence[1]
 
 
 _LEGS = ("mt", "mc", "lx")
@@ -285,8 +302,11 @@ class _FarListeners:
     def __enter__(self) -> "_FarListeners":
         # Listener lifetime must cover send + sequential receipt waits
         # (worst case 2 x _RECEIPT_TIMEOUT) before capture polling begins.
+        # Cover the longest source-peer send, both sequential receipt waits,
+        # and this listener's own capture poll. Context exit still terminates
+        # the child immediately once evidence is complete.
         windows = {
-            tag: _CAPTURE_WINDOWS[tag] + 2 * _RECEIPT_TIMEOUT + 30.0
+            tag: _CAPTURE_WINDOWS[tag] + 2 * _RECEIPT_TIMEOUT + 120.0 + 30.0
             for tag in self._far_tags
         }
         try:
@@ -423,17 +443,21 @@ async def test_mesh_to_mesh_six_edges_relayed_over_rf(tmp_path: Path) -> None:
 
                     # Far-side RF oracle: the nonce (or its key for the
                     # unicode LX body) lands on both far peers.
-                    for far_tag in _FAR_OF[tag]:
-                        texts = await asyncio.to_thread(
-                            far.captured_texts, far_tag, nonce
+                    far_tags = _FAR_OF[tag]
+                    captured = await asyncio.gather(
+                        *(
+                            asyncio.to_thread(far.captured_texts, far_tag, nonce)
+                            for far_tag in far_tags
                         )
+                    )
+                    for far_tag, texts in zip(far_tags, captured, strict=True):
                         if not any(nonce in t for t in texts):
                             failures.append(
                                 f"{tag}->{far_tag}: far peer never captured "
                                 f"{nonce!r} within {_CAPTURE_WINDOWS[far_tag]}s "
                                 "(transport receipt was 'sent')"
                             )
-            except AssertionError as exc:
+            except (AssertionError, subprocess.TimeoutExpired) as exc:
                 failures.append(f"{tag} leg: {exc}")
 
         for tag, nonce in nonces.items():
@@ -441,7 +465,7 @@ async def test_mesh_to_mesh_six_edges_relayed_over_rf(tmp_path: Path) -> None:
         if degraded:
             print("DEGRADED-NOT-EXERCISED " + " | ".join(degraded), flush=True)
     finally:
-        await _stop(app)
+        await _stop_preserving_primary(app)
 
     if not ran_tags:
         pytest.xfail(
@@ -469,6 +493,8 @@ async def test_mesh_interop_restart_preserves_state(tmp_path: Path) -> None:
 
     app = await _launch(db_path, tmp_path / "lxmf_storage")
     nonce1 = _nonce("RST-A")
+    pre_receipt_sequences: dict[str, set[int]] = {}
+    pre_event_id: str | None = None
     try:
         sent = await asyncio.to_thread(
             _mt_peer, ["sendn", _MT_PEER, json.dumps([nonce1])], 60
@@ -481,8 +507,14 @@ async def test_mesh_interop_restart_preserves_state(tmp_path: Path) -> None:
                 app, nonce1, _LEG_ADAPTER[far_tag], _RECEIPT_TIMEOUT
             )
             assert ev is not None and receipts, f"pre-restart {far_tag} leg missed"
+            latest = max(receipts, key=lambda r: r.sequence)
+            assert latest.status == "sent", (
+                f"pre-restart {far_tag} receipt status {latest.status!r}"
+            )
+            pre_event_id = ev.event_id
+            pre_receipt_sequences[far_tag] = {r.sequence for r in receipts}
     finally:
-        await _stop(app)
+        await _stop_preserving_primary(app)
 
     app2 = await _launch(db_path, tmp_path / "lxmf_storage")
     nonce2 = _nonce("RST-B")
@@ -496,6 +528,23 @@ async def test_mesh_interop_restart_preserves_state(tmp_path: Path) -> None:
                 app2, nonce2, _LEG_ADAPTER[far_tag], _RECEIPT_TIMEOUT
             )
             assert ev is not None and receipts, f"post-restart {far_tag} leg missed"
+            latest = max(receipts, key=lambda r: r.sequence)
+            assert latest.status == "sent", (
+                f"post-restart {far_tag} receipt status {latest.status!r}"
+            )
+
+        assert pre_event_id is not None
+        replay_receipts = await app2.storage.list_receipts_for_event(pre_event_id)
+        for far_tag, expected in pre_receipt_sequences.items():
+            observed = {
+                r.sequence
+                for r in replay_receipts
+                if r.target_adapter == _LEG_ADAPTER[far_tag]
+            }
+            assert observed == expected, (
+                f"pre-restart {far_tag} receipt sequence changed after restart: "
+                f"{expected!r} -> {observed!r}"
+            )
 
         ids = await app2.storage.list_event_ids_page(after_event_id=None, limit=300)
         counts = {nonce1: 0, nonce2: 0}
@@ -510,4 +559,4 @@ async def test_mesh_interop_restart_preserves_state(tmp_path: Path) -> None:
         assert counts[nonce1] == 1, "pre-restart nonce replayed after restart"
         assert counts[nonce2] == 1, "post-restart nonce admitted more than once"
     finally:
-        await _stop(app2)
+        await _stop_preserving_primary(app2)

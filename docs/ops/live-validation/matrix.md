@@ -73,6 +73,7 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 | `tests/integration/test_synapse_bridge_smoke.py`  | `docker`     | Full pipeline with real Matrix SDK                 |
 | `tests/integration/test_synapse_e2ee_smoke.py`    | `docker`     | E2EE encrypted room lifecycle                      |
 | `tests/test_matrix_e2ee_live.py`                  | `live`       | E2EE mode startup and encrypted-room operations    |
+| `tests/test_live_matrix_radio_bridge.py`          | `live`       | Matrix↔radio bridge, loopback suppression, restart |
 | `tests/test_matrix_sync_checkpoint_ownership.py`  | unit         | MEDRE-owned Classic cursor commit/ack ordering     |
 | `tests/test_matrix_durable_admission_boundary.py` | unit         | nio admission rejection and durable handoff        |
 | `tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract          |

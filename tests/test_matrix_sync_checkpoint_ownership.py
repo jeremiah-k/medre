@@ -23,6 +23,14 @@ class LocalProtocolError(Exception):
     """SDK-shaped test double for nio's local protocol error."""
 
 
+def _recovery_state(*, busy: bool) -> SimpleNamespace:
+    return SimpleNamespace(
+        _active_dispatches={object()} if busy else set(),
+        gaps={},
+        _deferred_dispatch_errors=[],
+    )
+
+
 def _durable_session(**overrides: object) -> MatrixSession:
     async def admit(_event: dict[str, object], _provenance: str) -> None:
         return None
@@ -276,6 +284,7 @@ async def test_ack_token_mismatch_defers_instead_of_killing_sync() -> None:
 
     session = _durable_session()
     client = MagicMock()
+    client._recovery = _recovery_state(busy=True)
     client.acknowledge_classic_sync.side_effect = _ack
     session._client = client
     response = SimpleNamespace(next_batch="s43", abandoned_rooms={})
@@ -293,18 +302,21 @@ async def test_deferred_classic_ack_recovers_on_next_response() -> None:
     calls: list[str] = []
     fail_first = True
 
+    session = _durable_session()
+    client = MagicMock()
+    client._recovery = _recovery_state(busy=True)
+
     def _ack(cursor: str) -> None:
         nonlocal fail_first
         calls.append(cursor)
         if fail_first:
             fail_first = False
+            client._recovery = _recovery_state(busy=False)
             raise LocalProtocolError(
                 "Classic Sync acknowledgement token does not match the "
                 "staged response."
             )
 
-    session = _durable_session()
-    client = MagicMock()
     client.acknowledge_classic_sync.side_effect = _ack
     session._client = client
 
@@ -317,6 +329,24 @@ async def test_deferred_classic_ack_recovers_on_next_response() -> None:
 
     assert calls == ["s43", "s44"]
     assert session._committed_sync_token == "s44"
+    assert session.diagnostics().classic_ack_deferrals == 0
+
+
+async def test_non_recovery_ack_mismatch_propagates() -> None:
+    session = _durable_session()
+    client = MagicMock()
+    client._recovery = _recovery_state(busy=False)
+    client.acknowledge_classic_sync.side_effect = LocalProtocolError(
+        "Classic Sync acknowledgement token does not match the staged response."
+    )
+    session._client = client
+
+    with pytest.raises(LocalProtocolError, match="staged response"):
+        await session._on_sync_response(
+            SimpleNamespace(next_batch="s43", abandoned_rooms={})
+        )
+
+    assert session._committed_sync_token is None
     assert session.diagnostics().classic_ack_deferrals == 0
 
 

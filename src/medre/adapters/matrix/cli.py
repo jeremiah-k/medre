@@ -395,7 +395,17 @@ async def _adapter_matrix_provision(args: object) -> None:
                 room_topic=room_topic,
             )
         finally:
-            await client.close()
+            primary = sys.exc_info()[1]
+            try:
+                await client.close()
+            except BaseException as close_exc:
+                if primary is None:
+                    raise
+                print(
+                    "Warning: Matrix client cleanup also failed while preserving "
+                    f"the provisioning error: {close_exc!r}",
+                    file=sys.stderr,
+                )
     except MatrixConnectionError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
