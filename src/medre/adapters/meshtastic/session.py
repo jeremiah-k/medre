@@ -211,7 +211,8 @@ class MeshtasticSession:
         with self._client_state_lock:
             client = self._client
             started = self._started
-        if client is None or not started:
+            reconnecting = self._reconnecting
+        if client is None or not started or reconnecting:
             return False
         connected_event = getattr(client, "isConnected", None)
         is_set = getattr(connected_event, "is_set", None)
@@ -1168,7 +1169,7 @@ class MeshtasticSession:
             exponent = min(max(0, attempt - 1), max_doublings)
             delay = min(initial * (2.0**exponent), cap)
         jitter = delay * _BACKOFF_JITTER_FRACTION
-        return max(0.0, delay + random.uniform(-jitter, jitter))
+        return min(cap, max(0.0, delay + random.uniform(-jitter, jitter)))
 
     async def _reconnect_loop(self) -> None:
         """Reconnect until success or adapter shutdown using capped backoff.
@@ -1180,6 +1181,24 @@ class MeshtasticSession:
         self._reconnecting = True
         self._reconnect_attempts = 0
         try:
+            # Detach the failed client before the first backoff interval.
+            # Otherwise ``connected`` can continue to reflect a stale SDK
+            # ``isConnected`` event and outbound work may target a client that
+            # supervision has already declared unhealthy.
+            old_client = self._invalidate_client()
+            self._unsubscribe_callbacks()
+            if old_client is not None:
+                try:
+                    close_fn = getattr(old_client, "close", None)
+                    if close_fn is not None:
+                        close_fn()
+                except Exception:
+                    self._logger.debug(
+                        "MeshtasticSession %s failed to close disconnected client",
+                        self._adapter_id,
+                        exc_info=True,
+                    )
+
             while not self._stop_requested:
                 self._reconnect_attempts += 1
                 self._reconnect_total_attempts += 1
@@ -1199,16 +1218,6 @@ class MeshtasticSession:
                 if self._stop_requested:
                     return
                 try:
-                    old_client = self._invalidate_client()
-                    self._unsubscribe_callbacks()
-                    if old_client is not None:
-                        try:
-                            close_fn = getattr(old_client, "close", None)
-                            if close_fn is not None:
-                                close_fn()
-                        except Exception:
-                            pass
-
                     new_client = self._create_client()
                     self._activate_client(new_client)
                     self._subscribe_callbacks()

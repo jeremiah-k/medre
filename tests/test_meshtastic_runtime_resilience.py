@@ -53,6 +53,53 @@ def test_reconnect_delay_caps_without_large_exponent(
     assert session._reconnect_delay(10_000) == 4.0
 
 
+def test_reconnect_delay_positive_jitter_never_exceeds_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    monkeypatch.setattr(
+        "medre.adapters.meshtastic.session.random.uniform",
+        lambda _a, upper: upper,
+    )
+
+    assert session._reconnect_delay(10_000) == 4.0
+
+
+async def test_reconnect_detaches_failed_client_before_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    session._started = True
+    session._loop = asyncio.get_running_loop()
+    closed: list[str] = []
+
+    class FailedClient:
+        isConnected = SimpleNamespace(is_set=lambda: True)
+
+        def close(self) -> None:
+            closed.append("failed")
+
+    session._activate_client(FailedClient())
+
+    async def observe_backoff(_delay: float) -> None:
+        assert session.client is None
+        assert session.connected is False
+        assert closed == ["failed"]
+        session._stop_requested = True
+
+    monkeypatch.setattr(
+        "medre.adapters.meshtastic.session.asyncio.sleep", observe_backoff
+    )
+    monkeypatch.setattr(
+        MeshtasticSession, "_reconnect_delay", lambda _self, _attempt: 1.0
+    )
+
+    await session._reconnect_loop()
+
+    assert session.reconnecting is False
+    assert session.client is None
+
+
 async def test_reconnect_continues_beyond_old_ten_attempt_ceiling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -121,6 +168,19 @@ async def test_reconnect_loop_stops_only_when_session_stop_requested(
     assert attempts == 12
     assert session.diagnostics().reconnect_total_attempts == 12
     assert session.reconnecting is False
+
+
+def test_connected_is_false_while_session_recovery_is_active() -> None:
+    session = _session()
+    session._started = True
+    session._activate_client(
+        SimpleNamespace(isConnected=SimpleNamespace(is_set=lambda: True))
+    )
+    assert session.connected is True
+
+    session._reconnecting = True
+
+    assert session.connected is False
 
 
 def test_tcp_liveness_enabled_only_for_tcp_with_positive_interval() -> None:
@@ -382,7 +442,7 @@ async def test_stop_cancels_liveness_supervisor() -> None:
     session = _session()
     session._started = True
     session._loop = asyncio.get_running_loop()
-    liveness_task = asyncio.create_task(asyncio.sleep(60))
+    liveness_task = asyncio.create_task(asyncio.Event().wait())
     session._liveness_task = liveness_task
 
     await session.stop(timeout=0.1)
