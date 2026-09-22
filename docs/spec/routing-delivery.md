@@ -582,7 +582,15 @@ A non-retryable failure discovered during a retry attempt is terminal immediatel
 
 ### 7.4 Retry Flow
 
-1. `deliver_to_target` records append-only attempt evidence. A retryable adapter failure produces a `failed` receipt with `failure_kind=ADAPTER_TRANSIENT` and `next_retry_at`; the corresponding outbox row is transitioned to `retry_wait`. `AdapterSendError` MAY carry a finite non-negative `retry_after_seconds` transport hint. When present, lifecycle scheduling MUST use the larger of the normal retry-policy backoff and that hint. The hint cannot shorten policy backoff, bypass retry exhaustion, or make a permanent failure retryable.
+1. `deliver_to_target` records append-only attempt evidence. A retryable adapter
+   failure produces a `failed` receipt with `failure_kind=ADAPTER_TRANSIENT` and
+   `next_retry_at`; the corresponding outbox row is transitioned to `retry_wait`.
+   `AdapterSendError` MAY carry a finite non-negative `retry_after_seconds`
+   transport hint. When present, lifecycle scheduling MUST use the larger of the
+   normal retry-policy backoff and that hint, clamped to a 30-day scheduling
+   maximum so an absurd hint cannot produce an unrepresentable timestamp. The
+   hint cannot shorten policy backoff, bypass retry exhaustion, or make a
+   permanent failure retryable.
 2. `RetryWorker` claims due outbox rows through `claim_due_outbox_items()`, loads the canonical event, reads the latest delivery status, and reconstructs the original delivery context from durable outbox metadata plus prior receipt evidence. Its direct storage surface is intentionally limited to claim/read operations; it does not inspect failure/dead-letter receipt chains or write durable lifecycle state directly. Reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, `target_identity`, `capability_level`, `delivery_strategy`, `capability_field`, `capability_reason`, and `deadline`. The route-decision keys are required durable state; missing or malformed values fail reconstruction and are abandoned rather than silently re-planned or defaulted.
 3. Before capacity acquisition or transport dispatch, the worker calls `DeliveryLifecycleService.reconcile_retry_claim()`. This preflight inspects only evidence attributable to `item.attempt_number + 1`. If a previous process persisted that attempt's receipt but failed before committing the matching outbox transition, lifecycle reconciliation repairs the outbox and the worker MUST skip transport dispatch. This makes lease reclaim safe after partial persistence and prevents duplicate sends of already accepted deliveries.
 4. Before capacity acquisition or transport dispatch, the worker checks startup target availability (LIVE scope). When startup classification recorded the row's target adapter as not started, the worker asks `DeliveryLifecycleService.defer_retry_outbox` to reschedule the row (`failure_kind=ADAPTER_TRANSIENT`, durable `adapter_unavailable_startup` marker on the outbox row). Because step 3 already reconciled persisted completion evidence, deferral cannot hide a terminal outcome from a prior attempt. `attempt_number` is unchanged — no transport attempt is consumed for a delivery that never ran — and the worker emits a truthful `retry_failed` event with `status=adapter_unavailable_startup`. Deferred rows stay durable and are re-claimed on later cycles; they are never dispatched into an adapter that did not complete startup and never exhausted as if an attempt had run. An adapter permanently disabled or removed from configuration keeps its durable work under the same rule; deferral is not an auto-heal.
@@ -623,7 +631,12 @@ Retry uses the `target_adapter`, `target_channel`, destination, and route-decisi
 
 ### 7.8 Backoff Formula
 
-Backoff: `delay = min(backoff_base * 2 ** (attempt - 1), max_delay_seconds)`, with optional jitter. `max_delay_seconds` caps only the policy-computed backoff. An authoritative finite non-negative adapter `retry_after_seconds` minimum MAY extend the effective retry delay beyond that cap; it MUST NOT shorten policy backoff, bypass retry exhaustion, or make a non-retryable failure retryable.
+Backoff: `delay = min(backoff_base * 2 ** (attempt - 1), max_delay_seconds)`, with
+optional jitter. `max_delay_seconds` caps only the policy-computed backoff. An
+authoritative finite non-negative adapter `retry_after_seconds` minimum MAY extend
+the effective retry delay beyond that cap, clamped to a 30-day scheduling maximum;
+it MUST NOT shorten policy backoff, bypass retry exhaustion, or make a
+non-retryable failure retryable.
 
 Exhaustion check: `attempt_number >= policy.max_attempts`.
 

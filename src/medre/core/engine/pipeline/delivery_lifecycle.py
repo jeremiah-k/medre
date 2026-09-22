@@ -205,6 +205,12 @@ class RetryAttemptFinalization:
 # ---------------------------------------------------------------------------
 
 
+# Scheduling upper bound for adapter retry hints.  Real transport windows are
+# seconds to minutes; the bound exists so a hostile or broken hint cannot
+# produce an unrepresentable (or effectively permanent) ``next_retry_at``.
+_MAX_RETRY_HINT_SECONDS: float = 2_592_000.0  # 30 days
+
+
 class DeliveryLifecycleService:
     """Owns delivery lifecycle decisions: retry, dead-letter, attempt
     progression, supplemental receipts, suppression receipts, and outbox
@@ -383,7 +389,9 @@ class DeliveryLifecycleService:
             Persistence-time timestamp used as the base for backoff.
         retry_after_seconds:
             Optional adapter-provided minimum delay.  For retryable failures,
-            the effective delay is the larger of policy backoff and this hint.
+            the effective delay is the larger of policy backoff and this hint,
+            clamped to ``_MAX_RETRY_HINT_SECONDS`` so an absurd hint cannot
+            produce an unrepresentable timestamp.
 
         Returns
         -------
@@ -400,7 +408,9 @@ class DeliveryLifecycleService:
             if not executor.is_exhausted(attempt_number):
                 backoff = executor.compute_backoff(attempt_number)
                 if retry_after_seconds is not None:
-                    hinted = timedelta(seconds=retry_after_seconds)
+                    hinted = timedelta(
+                        seconds=min(retry_after_seconds, _MAX_RETRY_HINT_SECONDS)
+                    )
                     if hinted > backoff:
                         backoff = hinted
                 return now + backoff

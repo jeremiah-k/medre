@@ -408,6 +408,24 @@ def test_retry_hint_does_not_bypass_exhaustion() -> None:
     assert result is None
 
 
+def test_retry_hint_is_clamped_to_scheduling_maximum() -> None:
+    lifecycle = _make_lifecycle()
+    policy = RetryPolicy(max_attempts=3, backoff_base=1.0, jitter=False)
+    plan = _make_plan(retry_policy=policy)
+    now = datetime.now(tz=timezone.utc)
+
+    result = lifecycle.compute_next_retry_at(
+        "failed",
+        DeliveryFailureKind.ADAPTER_TRANSIENT,
+        plan,
+        1,
+        now,
+        retry_after_seconds=1e20,
+    )
+
+    assert result == now + timedelta(days=30)
+
+
 def test_retry_hint_does_not_make_permanent_failure_retryable() -> None:
     lifecycle = _make_lifecycle()
     policy = RetryPolicy(max_attempts=3, backoff_base=1.0, jitter=False)

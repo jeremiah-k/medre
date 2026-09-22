@@ -11,5 +11,7 @@
   and durable outbox ownership model.
 - Matrix diagnostics add `outbound_rate_limit_events`,
   `outbound_cooldown_deferrals`, and `outbound_cooldown_remaining_seconds`.
+- Durable scheduling clamps the hint to a 30-day maximum so a hostile or broken
+  value cannot overflow the receipt timestamp or park a delivery permanently.
 - MEDRE still does not impose a guessed proactive Matrix send rate; backpressure is
   driven only by explicit homeserver feedback.

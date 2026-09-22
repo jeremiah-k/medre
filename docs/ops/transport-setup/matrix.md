@@ -371,7 +371,7 @@ adapter treats the room as unencrypted (fail-closed).
    persistent transport recovery still depends on the Matrix checkpoint contract.
 4. **Server-directed outbound backpressure, not proactive shaping.** When a
    homeserver returns `retry_after_ms`, MEDRE shares that cooldown across the Matrix
-   adapter and durable retries are scheduled no earlier than the larger of route
+   adapter and durable retries are scheduled no earlier than the larger of retry-policy
    backoff and the server hint. MEDRE still does not guess a fixed send rate before
    the homeserver supplies rate-limit feedback.
 5. **Single-room testing only.** Multi-room behavior has not been tested against a

@@ -835,6 +835,7 @@ def test_retry_after_ms_normalization_rejects_invalid_values() -> None:
     assert _retry_after_seconds_from_ms(float("inf")) is None
     assert _retry_after_seconds_from_ms(True) is None
     assert _retry_after_seconds_from_ms("1000") is None
+    assert _retry_after_seconds_from_ms(10**400) is None
 
 
 def test_adapter_send_error_rejects_invalid_retry_hints() -> None:

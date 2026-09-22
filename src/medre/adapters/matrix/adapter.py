@@ -99,7 +99,12 @@ def _retry_after_seconds_from_ms(value: Any) -> float | None:
     """Normalize a Matrix ``retry_after_ms`` value to non-negative seconds."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    numeric = float(value)
+    try:
+        numeric = float(value)
+    except (OverflowError, ValueError):
+        # A hostile or broken homeserver can send an arbitrarily large JSON
+        # integer; treat an unrepresentable window as absent.
+        return None
     if not math.isfinite(numeric) or numeric < 0:
         return None
     return numeric / 1000.0

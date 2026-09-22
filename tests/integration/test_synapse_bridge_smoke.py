@@ -76,6 +76,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
+from tests.helpers.async_utils import wait_until
 
 from .conftest import SynapseEnvironment
 from .synapse_helpers import INBOUND_FALLBACK as _INBOUND_FALLBACK
@@ -356,9 +357,14 @@ class TestSynapseBridgeSmoke:
             assert (
                 counters["inbound_accepted"] >= 1
             ), f"Expected inbound_accepted >= 1, got {counters['inbound_accepted']}"
-            assert counters["outbound_delivered"] >= 1, (
+            # The receipt above is persisted before the coordinator task
+            # resumes far enough to bump the accounting counter, so wait for
+            # the counter instead of sampling it at one instant.
+            assert await wait_until(
+                lambda: accounting.snapshot()["outbound_delivered"] >= 1
+            ), (
                 f"Expected outbound_delivered >= 1, "
-                f"got {counters['outbound_delivered']}"
+                f"got {accounting.snapshot()['outbound_delivered']}"
             )
 
             # 8. Adapter diagnostics counters reflect inbound processing.
