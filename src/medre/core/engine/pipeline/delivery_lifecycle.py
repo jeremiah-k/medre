@@ -365,6 +365,7 @@ class DeliveryLifecycleService:
         plan: DeliveryPlan,
         attempt_number: int,
         now: datetime,
+        retry_after_seconds: float | None = None,
     ) -> datetime | None:
         """Compute ``next_retry_at`` for retryable transient failures.
 
@@ -380,6 +381,9 @@ class DeliveryLifecycleService:
             The 1-indexed attempt number.
         now:
             Persistence-time timestamp used as the base for backoff.
+        retry_after_seconds:
+            Optional adapter-provided minimum delay.  For retryable failures,
+            the effective delay is the larger of policy backoff and this hint.
 
         Returns
         -------
@@ -395,6 +399,10 @@ class DeliveryLifecycleService:
             executor = RetryExecutor(plan.retry_policy)
             if not executor.is_exhausted(attempt_number):
                 backoff = executor.compute_backoff(attempt_number)
+                if retry_after_seconds is not None:
+                    hinted = timedelta(seconds=retry_after_seconds)
+                    if hinted > backoff:
+                        backoff = hinted
                 return now + backoff
         return None
 

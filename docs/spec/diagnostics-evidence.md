@@ -993,6 +993,7 @@ When retry is enabled (via `[retry] enabled = true` and per-route retry configur
 2. The `RetryWorker` claims due durable outbox rows via `claim_due_outbox_items()` and re-attempts delivery. Receipts are immutable attempt evidence, not scheduling authority.
 3. Each retry attempt appends a new receipt row with incremented `attempt_number` and `parent_receipt_id` linking to the previous attempt.
 4. When retries are exhausted, the final receipt has `status="dead_lettered"` with `next_retry_at=NULL`.
+5. A transient adapter may provide `retry_after_seconds`; the persisted `next_retry_at` uses the larger of policy backoff and that hint. The hint is scheduling input only and is not a separate durable authority.
 
 The retry chain is fully durable in SQLite. Operators can trace the complete retry history for any delivery by following `parent_receipt_id` links.
 

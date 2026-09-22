@@ -9,7 +9,7 @@ propagation on re-raised errors.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -685,3 +685,41 @@ class TestCancelledErrorPropagation:
 
         # No receipts — CancelledError bypasses receipt recording.
         assert len(storage.receipts) == 0
+
+
+async def test_adapter_retry_hint_persists_into_failed_receipt() -> None:
+    from dataclasses import replace
+
+    from medre.core.planning.delivery_plan import RetryPolicy
+
+    adapter = _FakeAdapter(
+        error=AdapterSendError(
+            "rate limited",
+            transient=True,
+            retry_after_seconds=17.0,
+        )
+    )
+    svc, storage = _make_service(adapters={"test_adapter": adapter})
+    event = _make_event()
+    route, plan = _make_route_and_plan()
+    plan = replace(
+        plan,
+        retry_policy=RetryPolicy(
+            max_attempts=3,
+            backoff_base=1.0,
+            max_delay_seconds=60.0,
+            jitter=False,
+        ),
+    )
+
+    before = datetime.now(tz=timezone.utc)
+    with pytest.raises(_AdapterDeliveryError) as exc_info:
+        await svc.deliver_to_target(event, route, plan)
+    after = datetime.now(tz=timezone.utc)
+
+    receipt = exc_info.value.receipt
+    assert receipt is not None
+    assert receipt.next_retry_at is not None
+    assert receipt.next_retry_at >= before + timedelta(seconds=17.0)
+    assert receipt.next_retry_at <= after + timedelta(seconds=17.0)
+    assert storage.receipts[-1] is receipt

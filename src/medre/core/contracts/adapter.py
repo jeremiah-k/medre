@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -60,12 +61,35 @@ class AdapterSendError(Exception):
     ----------
     transient:
         ``True`` if the error is retryable; ``False`` if permanent.
+    retry_after_seconds:
+        Optional minimum delay before the next durable retry attempt.
+        Adapters should use this for authoritative transport hints such as
+        server-directed rate-limit windows.  The core retry policy remains
+        authoritative and uses the larger of its normal backoff and this hint.
     """
 
     transient: bool
+    retry_after_seconds: float | None
 
-    def __init__(self, *args: object, transient: bool = True) -> None:
+    def __init__(
+        self,
+        *args: object,
+        transient: bool = True,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        if retry_after_seconds is not None:
+            if (
+                isinstance(retry_after_seconds, bool)
+                or not isinstance(retry_after_seconds, (int, float))
+                or not math.isfinite(retry_after_seconds)
+                or retry_after_seconds < 0
+            ):
+                raise ValueError(
+                    "retry_after_seconds must be a finite number >= 0 or None"
+                )
+            retry_after_seconds = float(retry_after_seconds)
         self.transient = transient
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(*args)
 
 

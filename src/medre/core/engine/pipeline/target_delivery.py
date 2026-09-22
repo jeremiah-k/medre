@@ -50,6 +50,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContract,
     AdapterDeliveryResult,
+    AdapterSendError,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
@@ -784,12 +785,18 @@ class TargetDeliveryService:
 
         # Compute next_retry_at for retryable transient failures.
         # Only set when the plan declares an explicit retry_policy.
+        _retry_after_seconds = (
+            delivery_exc.retry_after_seconds
+            if isinstance(delivery_exc, AdapterSendError)
+            else None
+        )
         _next_retry_at: datetime | None = self._lifecycle.compute_next_retry_at(
             status,
             _classified_failure_kind,
             plan,
             attempt_number,
             now_persist,
+            retry_after_seconds=_retry_after_seconds,
         )
 
         # Populate adapter_message_id only when delivery succeeded and
