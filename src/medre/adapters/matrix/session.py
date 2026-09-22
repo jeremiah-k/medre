@@ -35,6 +35,7 @@ import medre.adapters.matrix.compat as _compat_mod
 from medre.adapters.matrix.errors import (
     MATRIX_PERMANENT_ERRCODES,
     MatrixConnectionError,
+    is_nio_rate_limited_response,
 )
 from medre.adapters.matrix.identity import (
     MatrixCrossSigningDiagnostics,
@@ -76,6 +77,14 @@ class _StaleSyncError(RuntimeError):
 
 class _SyncRecycleFailed(RuntimeError):
     """Fail-closed signal: a stale sync loop could not be stopped safely."""
+
+
+class _RoomSendRateLimitIntercept(RuntimeError):
+    """Abort nio's provider-owned retry for one room-send rate limit."""
+
+    def __init__(self, response: Any) -> None:
+        self.response = response
+        super().__init__("Matrix room send rate-limited")
 
 
 def _is_retryable_sync_exception(exc: Exception) -> bool:
@@ -1228,6 +1237,21 @@ class MatrixSession:
             == "Classic Sync acknowledgement token does not match the staged response."
         )
 
+    async def _on_room_send_error_response(self, response: Any) -> None:
+        """Surface room-send rate limits before nio sleeps/retries.
+
+        mindroom-nio 0.40 owns 429 retries by default.  For ``RoomSendError``
+        rate limits, MEDRE needs the first response so the durable delivery
+        scheduler owns retry policy.  Raising from this filtered response
+        callback aborts nio's internal retry; :meth:`room_send` catches the
+        sentinel and returns the original response to the adapter.  A valid
+        ``retry_after_ms`` becomes a structured delay/cooldown later; missing or
+        invalid hints still surface as ordinary transient failures.
+        """
+        if not is_nio_rate_limited_response(response):
+            return
+        raise _RoomSendRateLimitIntercept(response)
+
     async def _on_sync_response(self, response: Any) -> None:
         """Commit MEDRE's Classic cursor, then acknowledge it to nio."""
         next_batch = getattr(response, "next_batch", None)
@@ -1402,6 +1426,11 @@ class MatrixSession:
         if sync_response_cls is not None:
             self._client.add_response_callback(
                 self._on_sync_response, sync_response_cls
+            )
+        room_send_error_cls = getattr(nio, "RoomSendError", None)
+        if room_send_error_cls is not None:
+            self._client.add_response_callback(
+                self._on_room_send_error_response, room_send_error_cls
             )
         await self._load_classic_checkpoint()
 
@@ -2445,13 +2474,16 @@ class MatrixSession:
         """
         if self._client is None:
             raise MatrixConnectionError("cannot send: client is not connected")
-        return await self._client.room_send(
-            room_id=room_id,
-            message_type=message_type,
-            content=content,
-            ignore_unverified_devices=ignore_unverified_devices,
-            tx_id=tx_id,
-        )
+        try:
+            return await self._client.room_send(
+                room_id=room_id,
+                message_type=message_type,
+                content=content,
+                ignore_unverified_devices=ignore_unverified_devices,
+                tx_id=tx_id,
+            )
+        except _RoomSendRateLimitIntercept as exc:
+            return exc.response
 
     # -- Diagnostics ----------------------------------------------------------
 

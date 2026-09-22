@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import math
 import random
 import time
 from types import MappingProxyType
@@ -26,6 +25,8 @@ from medre.adapters.matrix.errors import (
     MATRIX_PERMANENT_ERRCODES,
     MatrixConnectionError,
     MatrixSendError,
+    is_nio_rate_limited_response as _is_nio_rate_limited_response,
+    retry_after_seconds_from_ms as _retry_after_seconds_from_ms,
 )
 from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
@@ -41,6 +42,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
+    MAX_ADAPTER_RETRY_AFTER_SECONDS,
 )
 from medre.core.ingress import IngressProvenance
 from medre.core.rendering.renderer import RenderingResult
@@ -95,21 +97,6 @@ class _NioRateLimitError(Exception):
         self.retry_after_ms = retry_after_ms
 
 
-def _retry_after_seconds_from_ms(value: Any) -> float | None:
-    """Normalize a Matrix ``retry_after_ms`` value to non-negative seconds."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        numeric = float(value)
-    except (OverflowError, ValueError):
-        # A hostile or broken homeserver can send an arbitrarily large JSON
-        # integer; treat an unrepresentable window as absent.
-        return None
-    if not math.isfinite(numeric) or numeric < 0:
-        return None
-    return numeric / 1000.0
-
-
 def _is_transient_error(exc: BaseException) -> bool:
     """Classify an exception as transient (retry-able) or permanent.
 
@@ -156,27 +143,6 @@ def _is_transient_error(exc: BaseException) -> bool:
     if "aiohttp" in exc_module and "Error" in exc_name:
         return True
 
-    return False
-
-
-def _is_nio_rate_limited_response(response: Any) -> bool:
-    """Return True if a nio response indicates a rate-limit error.
-
-    Checks for ``M_LIMIT_EXCEEDED`` errcode or HTTP 429 status on
-    response objects that lack an ``event_id`` (i.e. nio ErrorResponse
-    or similar).  A parsed nio ``ErrorResponse`` stores the Matrix
-    errcode string in ``status_code`` and has no ``errcode`` attribute,
-    so both spellings are recognized.
-    """
-    # Already a success response
-    if hasattr(response, "event_id"):
-        return False
-    errcode = getattr(response, "errcode", None) or ""
-    if isinstance(errcode, str) and "M_LIMIT_EXCEEDED" in errcode.upper():
-        return True
-    status = getattr(response, "status_code", None)
-    if status == "M_LIMIT_EXCEEDED" or status == 429:
-        return True
     return False
 
 
@@ -548,7 +514,8 @@ class MatrixAdapter(AdapterContract):
         """Extend the shared outbound cooldown from a homeserver rate limit."""
         if retry_after_seconds is None or retry_after_seconds <= 0:
             return
-        deadline = self._clock() + retry_after_seconds
+        bounded = min(retry_after_seconds, MAX_ADAPTER_RETRY_AFTER_SECONDS)
+        deadline = self._clock() + bounded
         if deadline > self._outbound_cooldown_until:
             self._outbound_cooldown_until = deadline
 

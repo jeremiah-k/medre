@@ -77,7 +77,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
+from medre.core.contracts.adapter import (
+    MAX_ADAPTER_RETRY_AFTER_SECONDS,
+    OutboundNativeRefRecord,
+)
 from medre.core.engine.pipeline.delivery_state import (
     is_terminal_outbox_status as _is_terminal_outbox_status,
 )
@@ -203,12 +206,6 @@ class RetryAttemptFinalization:
 # ---------------------------------------------------------------------------
 # DeliveryLifecycleService
 # ---------------------------------------------------------------------------
-
-
-# Scheduling upper bound for adapter retry hints.  Real transport windows are
-# seconds to minutes; the bound exists so a hostile or broken hint cannot
-# produce an unrepresentable (or effectively permanent) ``next_retry_at``.
-_MAX_RETRY_HINT_SECONDS: float = 2_592_000.0  # 30 days
 
 
 class DeliveryLifecycleService:
@@ -409,7 +406,9 @@ class DeliveryLifecycleService:
                 backoff = executor.compute_backoff(attempt_number)
                 if retry_after_seconds is not None:
                     hinted = timedelta(
-                        seconds=min(retry_after_seconds, _MAX_RETRY_HINT_SECONDS)
+                        seconds=min(
+                            retry_after_seconds, MAX_ADAPTER_RETRY_AFTER_SECONDS
+                        )
                     )
                     if hinted > backoff:
                         backoff = hinted

@@ -40,6 +40,7 @@ from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterPermanentError,
     AdapterSendError,
+    MAX_ADAPTER_RETRY_AFTER_SECONDS,
 )
 from medre.core.rendering.renderer import RenderingResult
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
@@ -848,6 +849,8 @@ def test_adapter_send_error_rejects_invalid_retry_hints() -> None:
         AdapterSendError("bad", retry_after_seconds=True)
     with pytest.raises(ValueError, match="retry_after_seconds"):
         AdapterSendError("bad", retry_after_seconds="5")
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds=10**400)
 
 
 async def test_real_nio_error_response_shape_triggers_rate_limit_hint() -> None:
@@ -875,6 +878,30 @@ async def test_real_nio_error_response_shape_triggers_rate_limit_hint() -> None:
     assert adapter.diagnostics()["outbound_rate_limit_events"] == 1
 
 
+async def test_raw_http_429_without_parsed_errcode_is_transient_without_hint() -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    mock_client = MagicMock()
+    rate_limited = SimpleNamespace(
+        message="unknown error",
+        status_code=None,
+        retry_after_ms=None,
+        soft_logout=False,
+        transport_response=SimpleNamespace(status=429),
+    )
+    mock_client.room_send = AsyncMock(return_value=rate_limited)
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError) as exc_info:
+        await adapter.deliver(_make_result(event_id="evt-http-429"))
+
+    assert exc_info.value.transient is True
+    assert exc_info.value.retry_after_seconds is None
+    diagnostics = adapter.diagnostics()
+    assert diagnostics["outbound_rate_limit_events"] == 1
+    assert diagnostics["outbound_cooldown_remaining_seconds"] == 0.0
+
+
 async def test_cooldown_expires_and_allows_subsequent_delivery() -> None:
     config = _make_config()
     adapter = MatrixAdapter(config)
@@ -900,6 +927,22 @@ async def test_cooldown_expires_and_allows_subsequent_delivery() -> None:
     diagnostics = adapter.diagnostics()
     assert diagnostics["outbound_cooldown_deferrals"] == 0
     assert diagnostics["outbound_cooldown_remaining_seconds"] == 0.0
+
+
+def test_cooldown_caps_extreme_server_window() -> None:
+    adapter = MatrixAdapter(_make_config())
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    adapter._remember_outbound_cooldown(1e100)
+
+    with pytest.raises(AdapterSendError) as exc_info:
+        adapter._defer_for_outbound_cooldown()
+
+    assert exc_info.value.retry_after_seconds == MAX_ADAPTER_RETRY_AFTER_SECONDS
+    assert (
+        adapter.diagnostics()["outbound_cooldown_remaining_seconds"]
+        == MAX_ADAPTER_RETRY_AFTER_SECONDS
+    )
 
 
 async def test_cooldown_keeps_longest_server_window() -> None:

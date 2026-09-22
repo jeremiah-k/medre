@@ -46,6 +46,12 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+# Maximum transport-provided retry minimum accepted by built-in scheduling
+# and shared backpressure state.  This is a safety horizon, not a policy
+# backoff cap: shorter route/plan policy delays still apply normally.
+MAX_ADAPTER_RETRY_AFTER_SECONDS: float = 2_592_000.0  # 30 days
+
+
 class AdapterSendError(Exception):
     """Base error raised by adapters when delivery fails.
 
@@ -66,6 +72,8 @@ class AdapterSendError(Exception):
         Adapters should use this for authoritative transport hints such as
         server-directed rate-limit windows.  The core retry policy remains
         authoritative and uses the larger of its normal backoff and this hint.
+        Built-in scheduling/backpressure clamps effective hints to
+        :data:`MAX_ADAPTER_RETRY_AFTER_SECONDS`.
     """
 
     transient: bool
@@ -81,13 +89,21 @@ class AdapterSendError(Exception):
             if (
                 isinstance(retry_after_seconds, bool)
                 or not isinstance(retry_after_seconds, (int, float))
-                or not math.isfinite(retry_after_seconds)
-                or retry_after_seconds < 0
             ):
                 raise ValueError(
                     "retry_after_seconds must be a finite number >= 0 or None"
                 )
-            retry_after_seconds = float(retry_after_seconds)
+            try:
+                numeric_retry_after = float(retry_after_seconds)
+            except (OverflowError, ValueError) as exc:
+                raise ValueError(
+                    "retry_after_seconds must be a finite number >= 0 or None"
+                ) from exc
+            if not math.isfinite(numeric_retry_after) or numeric_retry_after < 0:
+                raise ValueError(
+                    "retry_after_seconds must be a finite number >= 0 or None"
+                )
+            retry_after_seconds = numeric_retry_after
         self.transient = transient
         self.retry_after_seconds = retry_after_seconds
         super().__init__(*args)
