@@ -18,7 +18,6 @@ undecryptable encrypted events are counted and logged but not forwarded.
 from __future__ import annotations
 
 import asyncio
-from collections import deque
 import hashlib
 import importlib
 import inspect
@@ -27,6 +26,7 @@ import logging
 import os
 import random
 import time
+from collections import deque
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, cast
@@ -1953,16 +1953,16 @@ class MatrixSession:
             while not task.done():
                 baseline = max(
                     started_at,
-                    self._last_successful_sync
-                    if self._last_successful_sync is not None
-                    else started_at,
+                    (
+                        self._last_successful_sync
+                        if self._last_successful_sync is not None
+                        else started_at
+                    ),
                 )
                 remaining = stale_timeout - (self._clock() - baseline)
                 if remaining > 0:
                     try:
-                        await asyncio.wait_for(
-                            asyncio.shield(task), timeout=remaining
-                        )
+                        await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
                         return
                     except TimeoutError:
                         if task.done():

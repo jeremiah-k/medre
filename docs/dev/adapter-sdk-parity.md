@@ -256,10 +256,10 @@ obligation.
   without checkpoint callbacks (test-only paths) still perform a full
   initial sync.
 - **Matrix runtime supervision — closed.** `MatrixSession` now actively
-  supervises durable Classic Sync progress.  A configurable stale-progress
+  supervises durable Classic Sync progress. A configurable stale-progress
   deadline recycles the current `sync_forever()` owner before the existing
   bounded outer restart path runs; MEDRE refuses to start a replacement loop
-  when the stale loop cannot be cancelled.  Missing-room-key recovery has an
+  when the stale loop cannot be cancelled. Missing-room-key recovery has an
   independent rolling request-attempt limit and a concurrent recovery-task
   cap, separate from the 60-second undecryptable warning dedup.
 - **LXMF outbound-tracking eviction detail.** The bounded outbound tracking

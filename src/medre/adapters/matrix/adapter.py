@@ -70,6 +70,7 @@ _MAX_DELIVERY_RETRIES: int = 3
 _DELIVERY_BACKOFF_BASE: float = 0.5  # 500ms
 _DELIVERY_BACKOFF_JITTER: float = 0.25
 
+
 class _NioRateLimitError(Exception):
     """Internal sentinel for nio rate-limit responses.
 

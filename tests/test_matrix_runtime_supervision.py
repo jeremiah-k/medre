@@ -19,7 +19,6 @@ from medre.config.adapters.errors import MatrixConfigError
 from medre.config.sample import generate_sample_config
 from tests.helpers.matrix_session import make_matrix_config
 
-
 _RUNTIME_DEFAULTS: dict[str, int | float] = {
     "sync_stale_timeout_seconds": 300.0,
     "megolm_key_request_rate_limit_per_minute": 30,
@@ -94,7 +93,9 @@ async def test_stale_sync_attempt_is_stopped_before_restart() -> None:
     async def _sync_forever(**_kwargs: object) -> None:
         await asyncio.Event().wait()
 
-    session._client = SimpleNamespace(sync_forever=_sync_forever, stop_sync_forever=stop)
+    session._client = SimpleNamespace(
+        sync_forever=_sync_forever, stop_sync_forever=stop
+    )
     with pytest.raises(_StaleSyncError):
         await asyncio.wait_for(session._run_sync_forever_attempt(), timeout=0.5)
 
@@ -243,6 +244,7 @@ def test_adapter_stopped_diagnostics_preserve_supervision_shape() -> None:
     assert diag["megolm_recovery_inflight_rejected"] == 0
     assert diag["megolm_recovery_inflight"] == 0
 
+
 async def test_sync_reconnect_jitter_never_exceeds_backoff_cap() -> None:
     from medre.adapters.matrix import session as session_module
 
@@ -276,6 +278,7 @@ async def test_sync_reconnect_jitter_never_exceeds_backoff_cap() -> None:
     ):
         with pytest.raises(asyncio.CancelledError):
             await session._sync_with_reconnect()
+
 
 async def test_warning_dedup_does_not_suppress_later_key_recovery() -> None:
     session = MatrixSession(

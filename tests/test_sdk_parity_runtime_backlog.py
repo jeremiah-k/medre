@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import re
 from dataclasses import fields as dataclass_fields
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -792,7 +791,9 @@ class TestP12MatrixKeyRequestRateLimitingResolved:
         assert "megolm_key_request_max_inflight" in field_names
 
     def test_recovery_attempts_reserve_network_capacity(self) -> None:
-        source = inspect.getsource(matrix_session_mod.MatrixSession._request_missing_room_key)
+        source = inspect.getsource(
+            matrix_session_mod.MatrixSession._request_missing_room_key
+        )
         assert "_reserve_room_key_request" in source
         assert "_room_key_request_attempts" in source
 
