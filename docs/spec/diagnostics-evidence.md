@@ -332,7 +332,7 @@ Each section follows the pattern `{"status": str, "error": str or None, "data": 
 | `route_validation`     | `"passed"`, `"partial"`, `"error"`              | Route eligibility validation results.                                        |
 | `diagnostics_snapshot` | `"passed"`, `"error"`                           | Build-time diagnostics snapshot (no runtime start).                          |
 | `live_health`          | `"passed"`, `"partial"`, `"skipped"`            | Live adapter health after `refresh_live_health()`. Skipped unless requested. |
-| `storage`              | `"passed"`, `"partial"`, `"error"`              | Storage backend evidence: receipts, incident summaries, outbox state.        |
+| `storage`              | `"passed"`, `"partial"`, `"error"`              | Storage backend evidence: receipts, post-handoff observations, incident summaries, outbox state. |
 | `recovery`             | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Startup recovery ownership diagnostics and ledger data.                      |
 
 Status computation:
@@ -350,6 +350,13 @@ The evidence bundle always includes these limitation statements:
 4. Fake adapters report synthetic health, not real transport connectivity.
 5. No sustained throughput, reconnection resilience, or load evidence.
 6. Global convergence (no `event_id`) queries are bounded at 10 000 receipts and 10 000 outbox rows per call. When either cap is reached the storage section status is `"partial"` and the data includes `convergence_truncated_warning`. Operators working with larger databases should use explicit pagination via `limit` and `offset` parameters on the underlying storage API.
+
+For event-scoped collection, `sections.storage.data` also includes
+`delivery_observations_for_event` and the storage-wide
+`delivery_observation_count`. Observation entries are append-only transport
+evidence tied to exact delivery attempts. They are shown in the unified event
+timeline as `entry_type="delivery_observation"` and do not replace or mutate
+delivery receipts.
 
 ## 8. Evidence Classification and Provenance Levels
 

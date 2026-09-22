@@ -228,6 +228,7 @@ class TestSchemaFiles:
 
     REQUIRED_SCHEMAS = [
         "canonical-event.schema.json",
+        "delivery-observation.schema.json",
         "delivery-receipt.schema.json",
         "delivery-result.schema.json",
         "diagnostics.schema.json",

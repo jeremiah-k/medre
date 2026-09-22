@@ -26,6 +26,13 @@ class _CountMixin:
             return int(row["cnt"])
         return 0
 
+    async def count_delivery_observations(self) -> int:
+        """Return the total number of post-handoff delivery observations."""
+        row = await self._read_one(
+            "SELECT COUNT(*) AS cnt FROM delivery_observations"
+        )
+        return int(row["cnt"]) if row is not None else 0
+
     async def count_receipts(self) -> int:
         """Return the total number of delivery receipt rows.
 

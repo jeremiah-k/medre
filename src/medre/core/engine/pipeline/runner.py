@@ -30,6 +30,7 @@ import msgspec
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContract,
+    OutboundDeliveryObservationRecord,
     OutboundNativeRefRecord,
 )
 from medre.core.engine.phases import PipelinePhase
@@ -1180,6 +1181,42 @@ class PipelineRunner:
                 "persistence: event_id=%s",
                 event_id,
             )
+
+    async def _record_delivery_observation(
+        self, record: OutboundDeliveryObservationRecord
+    ) -> None:
+        """Persist post-handoff adapter evidence without mutating lifecycle.
+
+        Adapter callbacks are fire-once side evidence: a terminal state the
+        SDK already emitted is not re-delivered, so the first persistence
+        attempt gets one immediate re-try after yielding the loop — enough for
+        transient storage contention such as an in-flight write on the
+        executor.  A failure on the re-try is logged rather than raised into
+        transport callback machinery and the observation is forfeited;
+        replaying the same callback elsewhere is safe because lifecycle
+        derives a deterministic observation ID.
+        """
+        for attempt in (1, 2):
+            try:
+                await self._lifecycle.record_delivery_observation(
+                    self._config.storage,
+                    record=record,
+                    now=datetime.now(tz=timezone.utc),
+                )
+                return
+            except Exception:
+                if attempt == 2:
+                    self._log.exception(
+                        "Failed to persist delivery observation: event_id=%s "
+                        "adapter=%s state=%s outbox_id=%s attempt=%s",
+                        record.event_id,
+                        record.adapter,
+                        record.state,
+                        record.outbox_id,
+                        record.attempt_number,
+                    )
+                else:
+                    await asyncio.sleep(0)
 
     async def _record_outbound_native_ref(
         self, record: OutboundNativeRefRecord

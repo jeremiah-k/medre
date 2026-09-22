@@ -20,7 +20,12 @@ from typing import Literal
 import msgspec
 from msgspec.structs import force_setattr
 
-from medre.core.events.delivery import DeliveryConfirmationLevel
+from medre.core.events.delivery import (
+    DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DELIVERY_OBSERVATION_STATE_VALUES,
+    DeliveryConfirmationLevel,
+    DeliveryObservationState,
+)
 from medre.core.events.metadata import EventMetadata, _FrozenDict
 
 # Re-export canonical constants from schema to avoid circular imports.
@@ -267,6 +272,55 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     created_at: datetime = msgspec.field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+
+class DeliveryObservation(msgspec.Struct, frozen=True):
+    """Append-only post-handoff transport evidence for one delivery attempt.
+
+    Observations are deliberately separate from :class:`DeliveryReceipt`.
+    Receipts record MEDRE lifecycle facts (queued/sent/failed); observations
+    record later facts emitted by a transport after a successful hand-off.
+    They never mutate receipt or outbox lifecycle state.
+    """
+
+    sequence: int = 0
+    observation_id: str = ""
+    event_id: str = ""
+    delivery_plan_id: str = ""
+    target_adapter: str = ""
+    target_channel: str | None = None
+    native_channel_id: str | None = None
+    outbox_id: str = ""
+    attempt_number: int = 1
+    adapter_message_id: str | None = None
+    state: DeliveryObservationState = "delivered"
+    confirmation_level: DeliveryConfirmationLevel = "unknown"
+    error: str | None = None
+    metadata: dict[str, object] = msgspec.field(default_factory=dict)
+    observed_at: datetime = msgspec.field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    def __post_init__(self) -> None:
+        if self.state not in DELIVERY_OBSERVATION_STATE_VALUES:
+            raise ValueError(f"invalid delivery observation state: {self.state!r}")
+        if self.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES:
+            raise ValueError(
+                f"invalid delivery confirmation level: {self.confirmation_level!r}"
+            )
+        if self.attempt_number < 1:
+            raise ValueError("delivery observation attempt_number must be >= 1")
+        if not self.observation_id:
+            raise ValueError("delivery observation observation_id must be non-empty")
+        if not self.event_id or not self.delivery_plan_id or not self.target_adapter:
+            raise ValueError(
+                "delivery observation requires event_id, delivery_plan_id, and "
+                "target_adapter"
+            )
+        if not self.outbox_id:
+            raise ValueError("delivery observation outbox_id must be non-empty")
+        if not isinstance(self.metadata, _FrozenDict):
+            force_setattr(self, "metadata", _FrozenDict(self.metadata))
 
 
 # ---------------------------------------------------------------------------

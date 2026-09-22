@@ -1,0 +1,22 @@
+{
+  "sequence": 1,
+  "observation_id": "obs-1d92a56d9f8a5eaaa39242b4a62dba52",
+  "event_id": "0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b",
+  "delivery_plan_id": "plan-001",
+  "target_adapter": "lxmf-main",
+  "target_channel": null,
+  "native_channel_id": "0123456789abcdef0123456789abcdef",
+  "outbox_id": "outbox-0191a2b3-c4d5-7e6f-8a9b-0c1d2e3f4a5b",
+  "attempt_number": 1,
+  "adapter_message_id": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "state": "delivered",
+  "confirmation_level": "unknown",
+  "error": null,
+  "metadata": {
+    "lxmf": {
+      "schema_version": 1,
+      "delivery_state": "delivered"
+    }
+  },
+  "observed_at": "2026-09-22T18:00:00Z"
+}

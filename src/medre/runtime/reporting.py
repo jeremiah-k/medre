@@ -1,7 +1,7 @@
-"""Centralised report-schema helpers for native-ref and delivery-receipt dicts.
+"""Centralised report-schema helpers for persisted delivery evidence.
 
-Provides two shared functions that construct canonical report dictionaries
-from :class:`NativeMessageRef` and :class:`DeliveryReceipt` structs.
+Provides shared functions that construct canonical report dictionaries from
+native refs, delivery receipts, and post-handoff delivery observations.
 All consumers (trace, evidence, smoke, orchestration) should use these
 helpers instead of building dicts manually to prevent schema drift.
 
@@ -22,8 +22,12 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.core.events.canonical import DeliveryReceipt, NativeMessageRef
-from medre.core.observability.sanitization import sanitize_error
+from medre.core.events.canonical import (
+    DeliveryObservation,
+    DeliveryReceipt,
+    NativeMessageRef,
+)
+from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 
 
 def native_ref_to_report_dict(
@@ -56,6 +60,37 @@ def native_ref_to_report_dict(
         # Short report aliases
         "channel": nref.native_channel_id or "",
         "native_id": nref.native_message_id,
+    }
+
+
+def delivery_observation_to_report_dict(
+    observation: DeliveryObservation,
+) -> dict[str, object]:
+    """Build the canonical report dict for one post-handoff observation.
+
+    ``observed_at`` and ``sequence`` are ordering fields owned by the timeline
+    or storage surface and are intentionally omitted from the nested data
+    payload.  All transport-native evidence remains explicit and separate from
+    MEDRE lifecycle receipt state.
+    """
+    return {
+        "observation_id": observation.observation_id,
+        "event_id": observation.event_id,
+        "delivery_plan_id": observation.delivery_plan_id,
+        "target_adapter": observation.target_adapter,
+        "target_channel": observation.target_channel,
+        "native_channel_id": observation.native_channel_id,
+        "outbox_id": observation.outbox_id,
+        "attempt_number": observation.attempt_number,
+        "adapter_message_id": observation.adapter_message_id,
+        "state": observation.state,
+        "confirmation_level": observation.confirmation_level,
+        "error": (
+            sanitize_error(observation.error)
+            if observation.error
+            else observation.error
+        ),
+        "metadata": sanitize_for_log(dict(observation.metadata)),
     }
 
 

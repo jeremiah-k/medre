@@ -13,6 +13,7 @@ import msgspec
 
 from medre.core.events import (
     CanonicalEvent,
+    DeliveryObservation,
     DeliveryReceipt,
     EventMetadata,
     EventRelation,
@@ -99,6 +100,27 @@ def _row_to_relation(row: dict[str, Any]) -> EventRelation:
         key=row["key"],
         fallback_text=row["fallback_text"],
         metadata=_decode_json(row["metadata"]),
+    )
+
+
+def _row_to_delivery_observation(row: dict[str, Any]) -> DeliveryObservation:
+    """Map a ``delivery_observations`` row to a delivery observation."""
+    return DeliveryObservation(
+        sequence=row["sequence"],
+        observation_id=row["observation_id"],
+        event_id=row["event_id"],
+        delivery_plan_id=row["delivery_plan_id"],
+        target_adapter=row["target_adapter"],
+        target_channel=row.get("target_channel"),
+        native_channel_id=row.get("native_channel_id"),
+        outbox_id=row["outbox_id"],
+        attempt_number=row["attempt_number"],
+        adapter_message_id=row.get("adapter_message_id"),
+        state=row["state"],  # type: ignore[arg-type]
+        confirmation_level=row.get("confirmation_level") or "unknown",
+        error=row.get("error"),
+        metadata=_decode_json(row.get("metadata") or "{}"),
+        observed_at=datetime.fromisoformat(row["observed_at"]),
     )
 
 

@@ -18,6 +18,7 @@ from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
 from medre.core.events import (
     CanonicalEvent,
+    DeliveryObservation,
     DeliveryReceipt,
     EventRelation,
     NativeMessageRef,
@@ -943,6 +944,33 @@ class StorageBackend(Protocol):
         """Persist the singleton projection startup/rebuild state."""
         ...
 
+    # -- Post-handoff delivery observations --------------------------------
+    # Authority: append/list.  Observations are immutable transport evidence
+    # tied to an exact durable delivery attempt.  They never mutate receipt
+    # or outbox lifecycle state.
+
+    async def append_delivery_observation(
+        self, observation: DeliveryObservation
+    ) -> bool:
+        """Append one observation, idempotent by ``observation_id``.
+
+        Returns ``True`` when a new row was created and ``False`` when the
+        deterministic observation ID already exists.
+        """
+        ...
+
+    async def list_delivery_observations_for_event(
+        self, event_id: str
+    ) -> list[DeliveryObservation]:
+        """Return post-handoff observations for an event in append order."""
+        ...
+
+    async def list_delivery_observations_for_outbox(
+        self, outbox_id: str
+    ) -> list[DeliveryObservation]:
+        """Return observations for an exact outbox item in append order."""
+        ...
+
     # -- Receipts -----------------------------------------------------------
     # Authority: append (append-only).  Delivery receipts are historical
     # delivery evidence — once appended they are never updated or deleted
@@ -1153,6 +1181,10 @@ class StorageBackend(Protocol):
 
     async def count_events(self) -> int:
         """Return the total number of persisted canonical events."""
+        ...
+
+    async def count_delivery_observations(self) -> int:
+        """Return the total number of post-handoff delivery observations."""
         ...
 
     async def count_receipts(self) -> int:

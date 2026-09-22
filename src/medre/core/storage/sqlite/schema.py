@@ -170,6 +170,27 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
 );
 
+CREATE TABLE IF NOT EXISTS delivery_observations (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT UNIQUE NOT NULL,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    delivery_plan_id TEXT NOT NULL,
+    target_adapter TEXT NOT NULL,
+    target_channel TEXT,
+    native_channel_id TEXT,
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL,
+    adapter_message_id TEXT,
+    state TEXT NOT NULL,
+    confirmation_level TEXT NOT NULL DEFAULT 'unknown',
+    error TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    observed_at TEXT NOT NULL,
+    CHECK (attempt_number >= 1),
+    CHECK (state IN ('delivered', 'failed', 'rejected', 'cancelled')),
+    CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
+);
+
 CREATE TABLE IF NOT EXISTS durable_ingress_work (
     event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
     provenance TEXT NOT NULL,
@@ -250,6 +271,10 @@ CREATE INDEX IF NOT EXISTS idx_outbox_event
     ON delivery_outbox(event_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_event_created
     ON delivery_outbox(event_id, created_at, outbox_id);
+CREATE INDEX IF NOT EXISTS idx_observations_event
+    ON delivery_observations(event_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_observations_outbox
+    ON delivery_observations(outbox_id, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_ingress_work_claim
     ON durable_ingress_work(status, lease_until, created_at);
 -- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
@@ -385,6 +410,25 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "created_at",
         }
     ),
+    "delivery_observations": frozenset(
+        {
+            "sequence",
+            "observation_id",
+            "event_id",
+            "delivery_plan_id",
+            "target_adapter",
+            "target_channel",
+            "native_channel_id",
+            "outbox_id",
+            "attempt_number",
+            "adapter_message_id",
+            "state",
+            "confirmation_level",
+            "error",
+            "metadata",
+            "observed_at",
+        }
+    ),
     "delivery_outbox": frozenset(
         {
             "outbox_id",
@@ -457,12 +501,39 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
         }
     ),
     "delivery_outbox": frozenset({("event_id", "canonical_events", "event_id")}),
+    "delivery_observations": frozenset(
+        {
+            ("event_id", "canonical_events", "event_id"),
+            ("outbox_id", "delivery_outbox", "outbox_id"),
+        }
+    ),
 }
 
 # Required table-level CHECK clauses.  Column/FK validation cannot detect an
 # existing pre-release table created without these invariants because
 # ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
 _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "delivery_observations": (
+        (
+            "CHECK (attempt_number >= 1)",
+            r"CHECK\s*\(\s*attempt_number\s*>=\s*1\s*\)",
+        ),
+        (
+            "CHECK (state IN ('delivered', 'failed', 'rejected', 'cancelled'))",
+            (
+                r"CHECK\s*\(\s*state\s+IN\s*\(\s*'delivered'\s*,\s*"
+                r"'failed'\s*,\s*'rejected'\s*,\s*'cancelled'\s*\)\s*\)"
+            ),
+        ),
+        (
+            "CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))",
+            (
+                r"CHECK\s*\(\s*confirmation_level\s+IN\s*\(\s*'unknown'\s*,\s*"
+                r"'local_queue'\s*,\s*'local_transport'\s*,\s*'remote_service'\s*,\s*"
+                r"'end_to_end'\s*\)\s*\)"
+            ),
+        ),
+    ),
     "conversation_projection_state": (
         ("CHECK (singleton_id = 1)", r"CHECK\s*\(\s*singleton_id\s*=\s*1\s*\)"),
         (

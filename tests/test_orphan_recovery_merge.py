@@ -567,6 +567,7 @@ class TestRuntimeAlignment:
             "event": event,
             "receipts": [],  # timeline receipts (DeliveryReceipt objects)
             "native_refs": [],
+            "delivery_observations": [],
             "timeline_entries": [],
         }
 
@@ -717,6 +718,9 @@ class _FakeTimelineStorage:
     async def count_receipts(self) -> int:
         return len(self._receipts)
 
+    async def count_delivery_observations(self) -> int:
+        return 0
+
     async def list_outbox_items_for_event(self, event_id: str) -> list[dict]:
         return self._outbox_items
 
@@ -740,6 +744,9 @@ class _FakeGlobalStorage:
 
     async def count_receipts(self) -> int:
         return len(self._all_receipts)
+
+    async def count_delivery_observations(self) -> int:
+        return 0
 
     async def list_all_receipts(self, limit: int = 10_000) -> list[dict]:
         return self._all_receipts

@@ -79,6 +79,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from medre.core.contracts.adapter import (
     MAX_ADAPTER_RETRY_AFTER_SECONDS,
+    OutboundDeliveryObservationRecord,
     OutboundNativeRefRecord,
 )
 from medre.core.engine.pipeline.delivery_state import (
@@ -88,7 +89,11 @@ from medre.core.engine.pipeline.delivery_state import (
     is_valid_queued_to_sent_transition as _is_valid_queued_to_sent_transition,
 )
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
-from medre.core.events.canonical import DeliveryReceipt, NativeMessageRef
+from medre.core.events.canonical import (
+    DeliveryObservation,
+    DeliveryReceipt,
+    NativeMessageRef,
+)
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryPlan,
@@ -119,6 +124,10 @@ class DeliveryLifecycleStorage(Protocol):
     """Storage surface required by :class:`DeliveryLifecycleService`."""
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None: ...
+
+    async def append_delivery_observation(
+        self, observation: DeliveryObservation
+    ) -> bool: ...
 
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]: ...
 
@@ -646,6 +655,127 @@ class DeliveryLifecycleService:
             record.adapter,
         )
         return candidates[-1]
+
+    # -- Post-handoff observations ------------------------------------------
+
+    async def record_delivery_observation(
+        self,
+        storage: DeliveryLifecycleStorage,
+        record: OutboundDeliveryObservationRecord,
+        now: datetime,
+    ) -> bool:
+        """Persist append-only transport evidence for one exact attempt.
+
+        Observations never reopen or rewrite the receipt/outbox lifecycle.
+        Exact ``outbox_id`` and ``attempt_number`` correlation is mandatory.
+        Only attempts still being handed off (``in_progress``/``queued``) or
+        already terminal ``sent`` may receive post-handoff evidence.  A late
+        callback from an attempt that has moved into retry/dead-letter/cancel
+        state is stale and is rejected.
+
+        Claim-window boundary: the outbox row's stored ``attempt_number``
+        advances when a retry attempt finalizes, not when the retry worker
+        claims the row.  Between claim and finalize the row still records the
+        prior attempt's number while the next attempt is being handed off, so
+        a callback carrying the prior number is admitted and a callback
+        carrying the live next-attempt number is rejected until finalize
+        stamps it.  Advancing the attempt identity at claim time is retry-
+        engine work; this method matches the row's durable state.
+
+        Returns ``True`` when a new observation row was appended.  Duplicate
+        notifications with the same deterministic observation identity return
+        ``False``.
+        """
+        if record.outbox_id is None or record.attempt_number is None:
+            self._log.warning(
+                "Rejecting uncorrelated delivery observation: event_id=%s "
+                "adapter=%s state=%s outbox_id=%s attempt=%s",
+                record.event_id,
+                record.adapter,
+                record.state,
+                record.outbox_id,
+                record.attempt_number,
+            )
+            return False
+
+        outbox = await storage.get_outbox_item(record.outbox_id)
+        if outbox is None:
+            self._log.warning(
+                "Rejecting delivery observation for missing outbox row: "
+                "outbox_id=%s event_id=%s adapter=%s",
+                record.outbox_id,
+                record.event_id,
+                record.adapter,
+            )
+            return False
+        if (
+            outbox.event_id != record.event_id
+            or outbox.target_adapter != record.adapter
+            or outbox.attempt_number != record.attempt_number
+        ):
+            self._log.warning(
+                "Rejecting stale/mismatched delivery observation: outbox_id=%s "
+                "record=(event=%s adapter=%s attempt=%s) "
+                "stored=(event=%s adapter=%s attempt=%s)",
+                record.outbox_id,
+                record.event_id,
+                record.adapter,
+                record.attempt_number,
+                outbox.event_id,
+                outbox.target_adapter,
+                outbox.attempt_number,
+            )
+            return False
+        if record.delivery_plan_id is not None and (
+            record.delivery_plan_id != outbox.delivery_plan_id
+        ):
+            self._log.warning(
+                "Rejecting delivery observation with plan mismatch: "
+                "outbox_id=%s record_plan=%s stored_plan=%s",
+                record.outbox_id,
+                record.delivery_plan_id,
+                outbox.delivery_plan_id,
+            )
+            return False
+        if outbox.status not in {"in_progress", "queued", "sent"}:
+            self._log.warning(
+                "Rejecting delivery observation for non-handoff outbox state: "
+                "outbox_id=%s status=%s attempt=%s state=%s",
+                record.outbox_id,
+                outbox.status,
+                record.attempt_number,
+                record.state,
+            )
+            return False
+
+        identity = "\x1f".join(
+            (
+                record.outbox_id,
+                str(record.attempt_number),
+                record.adapter,
+                record.native_message_id or "",
+                record.state,
+                record.confirmation_level,
+            )
+        )
+        observation_id = "obs-" + uuid.uuid5(uuid.NAMESPACE_URL, identity).hex
+        observation = DeliveryObservation(
+            observation_id=observation_id,
+            event_id=record.event_id,
+            delivery_plan_id=outbox.delivery_plan_id,
+            target_adapter=record.adapter,
+            target_channel=outbox.target_channel,
+            native_channel_id=record.native_channel_id,
+            outbox_id=outbox.outbox_id,
+            attempt_number=record.attempt_number,
+            adapter_message_id=record.native_message_id,
+            state=record.state,
+            confirmation_level=record.confirmation_level,
+            error=record.error,
+            metadata=dict(record.metadata),
+            observed_at=now,
+        )
+        return await storage.append_delivery_observation(observation)
 
     # -- Atomic queued->sent finalization ------------------------------------
 

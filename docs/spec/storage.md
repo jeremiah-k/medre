@@ -621,6 +621,59 @@ and MUST NOT be inferred from `status` alone.
 | `idx_receipts_event`  | `(event_id, sequence)`                                                         | Receipt lookups by event                        |
 | `idx_receipts_source` | `(source, replay_run_id)`                                                      | Filtering receipts by replay run                |
 
+### 4.4.1 delivery_observations
+
+```sql
+CREATE TABLE delivery_observations (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT UNIQUE NOT NULL,
+    event_id TEXT NOT NULL REFERENCES canonical_events(event_id),
+    delivery_plan_id TEXT NOT NULL,
+    target_adapter TEXT NOT NULL,
+    target_channel TEXT,
+    native_channel_id TEXT,
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    adapter_message_id TEXT,
+    state TEXT NOT NULL
+        CHECK (state IN ('delivered', 'failed', 'rejected', 'cancelled')),
+    confirmation_level TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (confirmation_level IN (
+            'unknown', 'local_queue', 'local_transport',
+            'remote_service', 'end_to_end'
+        )),
+    error TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    observed_at TEXT NOT NULL
+);
+```
+
+`delivery_observations` is an append-only evidence ledger for transport facts
+that arrive after a MEDRE delivery attempt has already been handed to an
+adapter. It is deliberately separate from `delivery_receipts` and
+`delivery_outbox`: appending an observation **MUST NOT** mutate either lifecycle
+surface.
+
+Core validates `outbox_id`, `attempt_number`, `event_id`, target adapter, and
+optional delivery-plan identity against the authoritative outbox row before
+persisting. SQLite revalidates the same attempt identity and admissible handoff
+state atomically in the conditional insert, so a concurrent retry/dead-letter
+transition cannot admit stale callback evidence. `target_channel` records
+MEDRE's route target while `native_channel_id` records the transport-native
+address supplied by the adapter; they are not required to be equal.
+
+`observation_id` is deterministic for idempotent callback replay. `sequence`
+provides append order within this table. `confirmation_level` is an evidence
+strength independent of provider `state`; a provider state named `delivered`
+does not by itself imply `end_to_end`.
+
+**Indexes:**
+
+| Index                     | Columns                                | Purpose                         |
+| ------------------------- | -------------------------------------- | ------------------------------- |
+| `idx_observations_event`  | `(event_id, sequence)`                 | Event evidence timeline         |
+| `idx_observations_outbox` | `(outbox_id, attempt_number, sequence)` | Exact delivery-attempt evidence |
+
 ### 4.5 delivery_status View
 
 ```sql
@@ -1341,9 +1394,9 @@ class StorageConfig:
 
 | Guarantee                | Requirement                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Atomic writes            | Multi-row lifecycle operations **MUST** commit atomically. Durable ingress couples event/native-ref/work creation; queued-send finalization couples outbound native ref/sent receipt/outbox transition; error-terminal outbox finalization couples the failed receipt and the guarded terminal transition (outbox identity, attempt, and non-terminal status revalidated in-transaction). Partial writes **MUST NOT** leave contradictory evidence. |
+| Atomic writes            | Multi-row lifecycle operations **MUST** commit atomically. Durable ingress couples event/native-ref/work creation; queued-send finalization couples outbound native ref/sent receipt/outbox transition; error-terminal outbox finalization couples the failed receipt and guarded terminal transition; delivery-observation append revalidates exact outbox attempt and admissible state in the same write statement. Partial writes **MUST NOT** leave contradictory evidence. |
 | Idempotent correlation   | Duplicate `(adapter, native_channel_id, native_message_id)` tuples **MUST NOT** create duplicate rows.                                                                                                                                                                                                                                                                                                                                              |
-| Ordered append           | `canonical_events` ordered by `timestamp ASC`. `delivery_receipts` ordered by `sequence` (monotonic).                                                                                                                                                                                                                                                                                                                                               |
+| Ordered append           | `canonical_events` ordered by `timestamp ASC`. `delivery_receipts` and `delivery_observations` ordered by their independent monotonic `sequence` columns.                                                                                                                                                                                                                                                                                           |
 | Receipt immutability     | Receipt rows are append-only. No `UPDATE` or `DELETE` on `delivery_receipts`. Capacity rejection creates a new receipt row.                                                                                                                                                                                                                                                                                                                         |
 | Conversation convergence | `conversation_membership` is rebuildable derived state. Equivalent relation/native-ref facts **MUST** converge to the same semantic projection independent of event arrival order or interrupted repair.                                                                                                                                                                                                                                            |
 | Evidence immutability    | Conversation repair **MUST NOT** rewrite `canonical_events`, `event_relations`, or `native_message_refs`.                                                                                                                                                                                                                                                                                                                                           |
@@ -1368,6 +1421,7 @@ This section states which code owns each table's rows, who may create/mutate/del
 | `conversation_projection_state` | `ConversationProjectionService` during startup                                                   | `ConversationProjectionService` during rebuild and clean shutdown | None                                          | Singleton operational marker     |
 | `native_message_refs`           | Core pipeline/runtime from adapter-reported native facts                                         | None (idempotent insert)                                          | None                                          | Forever                          |
 | `delivery_receipts`             | Pipeline delivery stage, RetryWorker, replay engine                                              | None (append-only)                                                | None                                          | Forever                          |
+| `delivery_observations`         | Core runtime from adapter-reported post-handoff transport facts                                  | None (append-only)                                                | None                                          | Forever                          |
 | `delivery_outbox`               | Pipeline planner (create), delivery workers (claim/transition)                                   | Delivery workers (non-terminal status transitions only)           | None (terminal rows become immutable history) | Forever                          |
 | `durable_ingress_work`          | Durable admission (create), ingress worker (claim/transition)                                    | Ingress worker (`pending`/`processing`/`completed`/`failed`)      | None                                          | Forever                          |
 | `adapter_checkpoints`           | Cursor-owning adapters through runtime-bound storage callbacks                                   | Cursor-owning adapters                                            | None                                          | Forever                          |
@@ -1393,27 +1447,42 @@ This section states which code owns each table's rows, who may create/mutate/del
    that transaction. A failed guard or failed insert MUST leave all three
    categories unchanged.
 
-6. **Recovery and orphan detection are bookkeeping, not lifecycle success.** The orphan query (Section 13.5) identifies events without receipts, but producing a receipt requires an actual delivery attempt. Recovery never fabricates a `sent` receipt or transitions an outbox row to terminal without a real delivery outcome.
+6. **`delivery_observations` are append-only post-handoff evidence.** Adapters
+   report asynchronous transport facts through the runtime callback; core
+   validates exact outbox-attempt correlation and owns persistence. Observation
+   rows never rewrite receipts or outbox state. Stale callbacks from attempts
+   that have moved to retry, dead-letter, cancellation, or abandonment are
+   rejected rather than attached to a newer attempt.
 
-7. **Evidence bundles and operator reports are derived views.** `medre evidence`, `medre inspect`, `medre trace`, and diagnostic snapshots query SQLite and present projections. They are not authoritative lifecycle state. If a report contradicts the receipt chain, the receipts are the authority.
+7. **Recovery and orphan detection are bookkeeping, not lifecycle success.**
+   The orphan query (Section 13.5) identifies events without receipts, but
+   producing a receipt requires an actual delivery attempt. Recovery never
+   fabricates a `sent` receipt or transitions an outbox row to terminal without
+   a real delivery outcome.
 
-8. **Durable ingress couples acceptance to recoverable work.** Canonical event,
+8. **Evidence bundles and operator reports are derived views.** `medre evidence`,
+   `medre inspect`, `medre trace`, and diagnostic snapshots query SQLite and
+   present projections. They are not authoritative lifecycle state. If a report
+   contradicts the receipt chain, the receipts are the authority for MEDRE
+   lifecycle; post-handoff observations remain independent transport evidence.
+
+9. **Durable ingress couples acceptance to recoverable work.** Canonical event,
    inbound native ref, and ingress-work creation occur in one transaction. Duplicate
    native admission resolves to the original canonical identity.
 
-9. **Application-owned adapter checkpoints never outrun durable admission.** A
+10. **Application-owned adapter checkpoints never outrun durable admission.** A
    checkpoint may advance before routing completes only because accepted routable
    events already have persistent ingress work; protocol-specific loss metadata is
    persisted with the cursor.
 
-10. **Schema metadata identifies the current prerelease shape.**
+11. **Schema metadata identifies the current prerelease shape.**
     `_medre_schema_meta` stores `schema_version = 1`. This version remains frozen
     until MEDRE reaches a release-tracked milestone. Column-shape validation
     (Section 10.2) catches prerelease drift without a version bump. No schema
     transformation or
     version-bump work is required now.
 
-11. **Adapters report facts; core records persistence.** Adapters surface canonical
+12. **Adapters report facts; core records persistence.** Adapters surface canonical
     events, adapter delivery facts, and native transport facts to the runtime. Core
     pipeline/runtime code records those facts through storage methods such as
     `append`, `store_native_ref`, and `append_receipt`. Adapters do not own lifecycle

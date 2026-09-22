@@ -40,6 +40,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import (
 from medre.core.engine.pipeline.target_delivery import TargetDeliveryService
 from medre.core.events.canonical import (
     CanonicalEvent,
+    DeliveryObservation,
     DeliveryReceipt,
     EventMetadata,
     NativeMessageRef,
@@ -65,11 +66,21 @@ class _MemoryStorage:
 
     def __init__(self) -> None:
         self._receipts: list[DeliveryReceipt] = []
+        self._observations: list[DeliveryObservation] = []
         self._native_refs: list[NativeMessageRef] = []
         self._outbox: dict[str, DeliveryOutboxItem] = {}
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         self._receipts.append(receipt)
+
+    async def append_delivery_observation(
+        self, observation: DeliveryObservation
+    ) -> bool:
+        for existing in self._observations:
+            if existing.observation_id == observation.observation_id:
+                return False
+        self._observations.append(observation)
+        return True
 
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
         return [r for r in self._receipts if r.event_id == event_id]

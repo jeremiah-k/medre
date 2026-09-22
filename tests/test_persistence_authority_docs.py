@@ -122,6 +122,7 @@ class TestStorageMDOwnershipSection:
         [
             "canonical_events",
             "delivery_receipts",
+            "delivery_observations",
             "native_message_refs",
             "delivery_outbox",
             "delivery_status",
@@ -137,6 +138,7 @@ class TestStorageMDOwnershipSection:
         [
             "canonical_events",
             "delivery_receipts",
+            "delivery_observations",
             "native_message_refs",
             "delivery_outbox",
         ],
@@ -144,6 +146,20 @@ class TestStorageMDOwnershipSection:
     def test_core_table_delete_authority_is_none(self, table: str) -> None:
         """Core tables have 'None' delete authority in storage.md ownership table."""
         content = _STORAGE_SPEC.read_text()
+        # Locate the ownership table header so the Deleter column is checked
+        # explicitly — a 'None' in another column must not satisfy the assert.
+        header = next(
+            (
+                line
+                for line in content.splitlines()
+                if "Table / category" in line and "Deleter" in line and "|" in line
+            ),
+            None,
+        )
+        assert header is not None, "storage.md must have an ownership table header"
+        columns = [cell.strip().lower() for cell in header.strip("|").split("|")]
+        delete_index = columns.index("deleter")
+
         # Find ownership table rows (markdown lines with pipes) mentioning this table
         matching_rows = [
             line for line in content.splitlines() if table in line and "|" in line
@@ -151,9 +167,14 @@ class TestStorageMDOwnershipSection:
         assert (
             matching_rows
         ), f"storage.md must have an ownership table row for {table!r}"
+
+        def _deleter_cell_states_none(row: str) -> bool:
+            cells = [cell.strip().lower() for cell in row.strip("|").split("|")]
+            return len(cells) > delete_index and cells[delete_index].startswith("none")
+
         # At least one matching row must state 'None' as delete authority
         assert any(
-            "none" in row.lower() for row in matching_rows
+            _deleter_cell_states_none(row) for row in matching_rows
         ), f"storage.md ownership row for {table} must state 'None' as delete authority"
 
     def test_append_only_guarantee_stated(self) -> None:

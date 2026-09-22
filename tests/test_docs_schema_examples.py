@@ -9,8 +9,9 @@ Asserts that:
      correct types.
   4. Schemas have not drifted from source (basic required-field
      name check against example payloads).
-  5. For stable source models, schema top-level properties match
-     the source dataclass / msgspec.Struct fields.
+
+Source-model property drift detection lives in
+``tests/test_docs_schema_drift.py``.
 """
 
 from __future__ import annotations
@@ -260,145 +261,6 @@ class TestSchemaExampleFieldDrift:
             f"{schema_path.name}: {sorted(extra)}. "
             f"Either update the schema or remove the extra fields."
         )
-
-
-# ===========================================================================
-# 4. Source drift detection for stable models
-# ===========================================================================
-
-
-class TestSourceDriftDetection:
-    """Verify schema top-level properties match source dataclass/struct fields
-    for stable models where the mapping is 1:1.
-
-    If a source model adds or renames a field without updating the schema,
-    the test fails.  Only models backed by concrete dataclasses or
-    msgspec.Struct types with a clear 1:1 mapping are checked; dict-shaped
-    schemas and oneOf schemas are excluded.
-    """
-
-    def test_canonical_event_schema_matches_source(self) -> None:
-        """canonical-event.schema.json properties must match CanonicalEvent fields."""
-        from medre.core.events.canonical import CanonicalEvent
-
-        schema = _load_json(_SCHEMAS_DIR / "canonical-event.schema.json")
-        schema_props = set(schema.get("properties", {}).keys())
-        source_fields = set(CanonicalEvent.__struct_fields__)
-        missing = source_fields - schema_props
-        assert (
-            not missing
-        ), f"CanonicalEvent fields missing from schema: {sorted(missing)}"
-        extra = schema_props - source_fields
-        assert (
-            not extra
-        ), f"Schema properties absent from CanonicalEvent: {sorted(extra)}"
-
-    def test_delivery_receipt_schema_matches_source(self) -> None:
-        """delivery-receipt.schema.json properties must match DeliveryReceipt fields."""
-        from medre.core.events.canonical import DeliveryReceipt
-
-        schema = _load_json(_SCHEMAS_DIR / "delivery-receipt.schema.json")
-        schema_props = set(schema.get("properties", {}).keys())
-        source_fields = set(DeliveryReceipt.__struct_fields__)
-        missing = source_fields - schema_props
-        assert (
-            not missing
-        ), f"DeliveryReceipt fields missing from schema: {sorted(missing)}"
-        extra = schema_props - source_fields
-        assert (
-            not extra
-        ), f"Schema properties absent from DeliveryReceipt: {sorted(extra)}"
-
-    def test_delivery_result_schema_matches_source(self) -> None:
-        """delivery-result.schema.json properties must match AdapterDeliveryResult fields."""
-        from dataclasses import fields as dc_fields
-
-        from medre.core.contracts.adapter import AdapterDeliveryResult
-
-        schema = _load_json(_SCHEMAS_DIR / "delivery-result.schema.json")
-        schema_props = set(schema.get("properties", {}).keys())
-        source_fields = {f.name for f in dc_fields(AdapterDeliveryResult)}
-        missing = source_fields - schema_props
-        assert (
-            not missing
-        ), f"AdapterDeliveryResult fields missing from schema: {sorted(missing)}"
-        extra = schema_props - source_fields
-        assert (
-            not extra
-        ), f"Schema properties absent from AdapterDeliveryResult: {sorted(extra)}"
-
-    def test_route_config_schema_matches_source(self) -> None:
-        """routing-config.schema.json RouteConfig arm must cover all
-        RouteConfig dataclass fields (source → schema drift detection).
-
-        This would have caught missing source_origin_label / dest_origin_label
-        documentation in the schema.
-        """
-        from dataclasses import fields as dc_fields
-
-        from medre.config.routes import RouteConfig
-
-        schema = _load_json(_SCHEMAS_DIR / "routing-config.schema.json")
-        route_arm = next(
-            (arm for arm in schema["oneOf"] if arm.get("title") == "RouteConfig"),
-            None,
-        )
-        assert (
-            route_arm is not None
-        ), "routing-config.schema.json missing RouteConfig arm"
-        schema_props = set(route_arm.get("properties", {}).keys())
-        source_fields = {f.name for f in dc_fields(RouteConfig)}
-        missing = source_fields - schema_props
-        assert not missing, (
-            f"RouteConfig fields missing from routing-config.schema.json: "
-            f"{sorted(missing)}"
-        )
-        # Reverse drift: schema → source. Catches phantom properties whose
-        # dataclass field was removed (e.g. MeshCore channel_mapping).
-        extra = schema_props - source_fields
-        assert not extra, (
-            f"routing-config.schema.json properties not in RouteConfig: "
-            f"{sorted(extra)}"
-        )
-
-    def test_adapter_config_schema_matches_source(self) -> None:
-        """adapter-config.schema.json each oneOf arm must cover all fields
-        from the corresponding source dataclass (source → schema drift).
-
-        This would have caught F-001 (missing Meshtastic packet-routing
-        fields) at the moment they were added to the dataclass.
-        """
-        from dataclasses import fields as dc_fields
-
-        from medre.config.adapters.lxmf import LxmfConfig
-        from medre.config.adapters.matrix import MatrixConfig
-        from medre.config.adapters.meshcore import MeshCoreConfig
-        from medre.config.adapters.meshtastic import MeshtasticConfig
-
-        schema = _load_json(_SCHEMAS_DIR / "adapter-config.schema.json")
-        arms = {arm["title"]: arm for arm in schema["oneOf"]}
-
-        checks = [
-            ("MatrixConfig", MatrixConfig),
-            ("MeshtasticConfig", MeshtasticConfig),
-            ("MeshCoreConfig", MeshCoreConfig),
-            ("LxmfConfig", LxmfConfig),
-        ]
-        for title, datacls in checks:
-            assert title in arms, f"Schema missing oneOf arm {title!r}"
-            schema_props = set(arms[title].get("properties", {}).keys())
-            source_fields = {f.name for f in dc_fields(datacls)}
-            missing = source_fields - schema_props
-            assert (
-                not missing
-            ), f"{title}: source fields missing from schema: {sorted(missing)}"
-            # Reverse drift: schema → source. Catches phantom properties
-            # whose dataclass field was removed (e.g. MeshCore
-            # channel_mapping / sync_timeout_ms).
-            extra = schema_props - source_fields
-            assert (
-                not extra
-            ), f"{title}: schema properties not in source dataclass: {sorted(extra)}"
 
 
 # ===========================================================================
