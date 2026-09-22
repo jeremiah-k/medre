@@ -6,10 +6,11 @@ operational experience with Matrix, `mindroom-nio`, Meshtastic, and the `mtjk` f
 Where that experience identifies transport behavior that also applies to MEDRE, MEDRE
 turns it into an explicit requirement at its own adapter boundaries.
 
-The reference snapshot audited for the requirements below is MMRelay commit
-`922de25b26a0e3e769b237f6ee9debe252cb0c91`. MEDRE remains responsible for its own
-canonical event model, durable ingress and delivery evidence, supervision, routing,
-and adapter lifecycle.
+The reference snapshot audited for the requirements below is MMRelay 1.4.0 commit
+`a81a28ea`. Its Matrix runtime pins the same `mindroom-nio==0.40.0` release as
+MEDRE, which makes its connection lifecycle directly useful behavioral evidence.
+MEDRE remains responsible for its own canonical event model, durable ingress and
+delivery evidence, supervision, routing, and adapter lifecycle.
 
 ## Interpretation Rules
 
@@ -47,7 +48,7 @@ keep the behavioral requirement stable even if either repository is later refact
 | Encrypted-room send            | MMRelay permits bot delivery to unverified peer devices                                                               | MEDRE keeps `ignore_unverified_devices=True` for encrypted sends while preserving own-device cross-signing                                                                                                    | Adopted peer-device compatibility policy             |
 | Undecryptable events           | `src/mmrelay/matrix/events.py::on_decryption_failure` treats failed Megolm decrypts as recoverable operational events | Live undecryptable events are counted and never forwarded as canonical messages; startup history and duplicate warnings remain suppressed                                                                     | Adopted at session boundary                          |
 | Missing-key requests           | MMRelay creates `MegolmEvent.as_key_request()` and retries bounded to-device delivery with timeout/backoff            | MEDRE detaches missing-key recovery from the sync callback, requests at most three times with a ten-second per-attempt timeout and 2 s/4 s backoff, propagates cancellation, and exposes secret-free counters | Adopted                                              |
-| Sync/reconnect                 | MMRelay has extensive initial-sync and reconnect handling                                                             | `mindroom-nio` owns request/sync parsing and recovery; MEDRE owns the committed Classic Sync cursor and durable ingress acknowledgement                                                                       | MEDRE stronger/different ownership                   |
+| Sync/reconnect                 | `src/mmrelay/main.py` restarts `sync_forever()` after transient timeout/client/connection/runtime failures until shutdown; `src/mmrelay/matrix/auth.py` sets `max_timeouts=0` so the application supervisor owns timeout retry | MEDRE likewise retries transient sync failures for the started adapter lifetime with capped backoff and `max_timeouts=0`; unexpected exception classes fail closed, and MEDRE additionally supervises durable progress rather than overlap an unkillable stale sync owner | Adopted connection behavior; stronger MEDRE safety/durability boundary |
 | Self-message suppression       | `on_room_message()` drops events from the relay account                                                               | Matrix events from MEDRE's configured user ID are dropped before canonical publication                                                                                                                        | Adopted                                              |
 | Native Matrix replies          | MMRelay preserves `m.in_reply_to` and reconstructs Matrix reply relations                                             | Matrix native IDs are represented by `NativeRef`; codec and renderer preserve `m.in_reply_to` without leaking Matrix semantics into core                                                                      | Adopted in MEDRE shape                               |
 
@@ -62,7 +63,7 @@ specialized Matrix contract, recovery, codec, renderer, and integration tests.
 | Stale packet callbacks       | `src/mmrelay/meshtastic/events.py` rejects packets whose callback interface is not the active client | A callback from a replaced interface must not update session state or publish ingress                                                              | Adopted                                                            |
 | Stale disconnect callbacks   | MMRelay ignores connection-loss events from an old interface after reconnect                         | Only the active client may trigger MEDRE reconnect; stale disconnects are counted and ignored                                                      | Adopted                                                            |
 | Radio health                 | MMRelay uses transport-specific liveness and active metadata probing                                 | If the pinned SDK exposes `isConnected`, MEDRE treats it as authoritative backup liveness and re-enters its existing reconnect boundary when false | Partially adopted; MMRelay's metadata-probe executor is not copied |
-| Reconnect ownership          | MMRelay serializes reconnect and suppresses duplicate triggers                                       | MEDRE retains its bounded session-owned reconnect loop and thread-safe scheduling                                                                  | Equivalent behavior, MEDRE ownership retained                      |
+| Reconnect ownership          | MMRelay serializes reconnect and suppresses duplicate triggers                                       | MEDRE retains its lifetime session-owned reconnect loop and thread-safe scheduling                                                                 | Equivalent behavior, MEDRE ownership retained                      |
 | Shutdown                     | MMRelay tears down subscriptions/client work so late callbacks cannot re-enter the relay             | MEDRE unsubscribes before client close, rejects post-stop callbacks, cancels reconnect work, and drains adapter-owned inbound/background work      | Adopted                                                            |
 | Native Meshtastic replies    | MMRelay sends structured replies using the radio packet ID                                           | MEDRE renders a Meshtastic `NativeRef.native_message_id` as `reply_id` while keeping the canonical relation transport-neutral                      | Adopted in MEDRE shape                                             |
 
