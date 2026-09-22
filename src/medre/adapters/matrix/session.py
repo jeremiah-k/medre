@@ -637,9 +637,10 @@ class MatrixSession:
         """Build the pinned mindroom-nio sync and peer-device trust policy.
 
         MEDRE owns durable Classic Sync checkpoints when storage callbacks are
-        available. Connection timeouts are not retried inside nio
-        (``max_timeouts=0``); they escape to MEDRE's single outer supervisor so
-        reconnect timing has one owner. Homeserver 429 handling remains SDK-owned.
+        available. Provider timeout retries are disabled (``max_timeouts=0``) so
+        timeouts surface promptly to MEDRE's owning application boundary: sync
+        supervision, delivery lifecycle, key-recovery loop, or startup failure
+        handling. Homeserver 429 handling remains SDK-owned.
         The pinned mindroom-nio provider exposes
         ``replace_rotated_device_keys`` and the installed-SDK contract requires
         it.  The defensive attribute/update guards remain intentional for
