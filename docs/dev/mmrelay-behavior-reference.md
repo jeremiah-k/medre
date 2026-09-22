@@ -7,7 +7,7 @@ Where that experience identifies transport behavior that also applies to MEDRE, 
 turns it into an explicit requirement at its own adapter boundaries.
 
 The reference snapshot audited for the requirements below is MMRelay 1.4.0 commit
-`a81a28ea`. Its Matrix runtime pins the same `mindroom-nio==0.40.0` release as
+`a81a28ea`. Its Matrix runtime pins the same mindroom-nio 0.40 provider line as
 MEDRE, which makes its connection lifecycle directly useful behavioral evidence.
 MEDRE remains responsible for its own canonical event model, durable ingress and
 delivery evidence, supervision, routing, and adapter lifecycle.

@@ -67,7 +67,7 @@ metadata, prefixed with `medre_`. Both projects use the same `txn_id`
 mechanism independently.
 
 **Matrix connection supervision.** MMRelay 1.4.0 and MEDRE both pin
-`mindroom-nio==0.40.0`. MMRelay runs `sync_forever()` under an application-level
+the same pinned mindroom-nio provider line as MEDRE (declared in `pyproject.toml`). MMRelay runs `sync_forever()` under an application-level
 loop that retries transient failures until shutdown and configures
 `max_timeouts=0` so timeout retry is not hidden inside nio. MEDRE adopts that
 connection-lifetime behavior while retaining its stronger durable Classic Sync
@@ -140,7 +140,7 @@ in adapter diagnostics. "Queued" does not mean "RF-delivered".
 
 ## mindroom-nio
 
-MEDRE currently pins `mindroom-nio==0.40.0`, the same provider release used by
+MEDRE currently pins the mindroom-nio 0.40 provider line (declared in `pyproject.toml`), the same provider release used by
 MMRelay 1.4.0. The 0.40 source audit confirms the runtime assumptions exercised
 by MEDRE's installed-SDK contract tests: `max_timeouts` controls transport timeout
 retries, `stop_sync_forever()` requests orderly loop exit, and application-owned
