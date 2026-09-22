@@ -243,6 +243,7 @@ async def assemble_storage_summary(storage: StorageBackend) -> dict[str, Any]:
 
     - **event_count**: total events.
     - **receipt_count**: total receipts.
+    - **delivery_observation_count**: total post-handoff observations.
     - **receipt_count_by_source**: ``{"live": int, "replay": int, "retry": int}``.
     - **native_ref_count**: total native message refs.
     - **replay_run_count**: distinct non-null ``replay_run_id`` values.

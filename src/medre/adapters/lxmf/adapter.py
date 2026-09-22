@@ -360,8 +360,9 @@ class LxmfAdapter(AdapterContract):
     async def stop(self, timeout: float = 5.0) -> None:
         """Disconnect from the LXMF router/node.
 
-        Idempotent: calling stop on an already-stopped adapter is a no-op.
-        Cancels all tracked background tasks before shutting down.
+        An already-stopped adapter only cleans up a lingering session.  Flushes
+        already-started observation writes before cancelling ordinary background
+        tasks and shutting down the session.
 
         The runtime stop helper grants this whole method one cooperative
         window of *timeout* seconds before it cancels the stop task, so the

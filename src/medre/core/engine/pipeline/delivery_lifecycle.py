@@ -127,7 +127,13 @@ class DeliveryLifecycleStorage(Protocol):
 
     async def append_delivery_observation(
         self, observation: DeliveryObservation
-    ) -> bool: ...
+    ) -> bool:
+        """Append evidence for an admissible outbox attempt if not already stored.
+
+        Return ``False`` for a duplicate ID or an outbox attempt that no
+        longer permits an observation; return ``True`` for a new row.
+        """
+        ...
 
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]: ...
 

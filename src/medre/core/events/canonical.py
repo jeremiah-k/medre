@@ -302,6 +302,11 @@ class DeliveryObservation(msgspec.Struct, frozen=True):
     )
 
     def __post_init__(self) -> None:
+        """Require valid observation fields and freeze the metadata mapping.
+
+        Raises ``ValueError`` for an invalid state or confirmation level,
+        missing required identity, or nonpositive attempt number.
+        """
         if self.state not in DELIVERY_OBSERVATION_STATE_VALUES:
             raise ValueError(f"invalid delivery observation state: {self.state!r}")
         if self.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES:

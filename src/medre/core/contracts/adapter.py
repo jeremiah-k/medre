@@ -566,6 +566,12 @@ class OutboundDeliveryObservationRecord:
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Validate observation values and freeze JSON-safe metadata.
+
+        Raises ``ValueError`` for an invalid state, confirmation level, or
+        supplied attempt number; raises ``TypeError`` for metadata that cannot
+        be serialized as JSON.
+        """
         if self.state not in DELIVERY_OBSERVATION_STATE_VALUES:
             raise ValueError(
                 f"unknown delivery observation state {self.state!r}; "

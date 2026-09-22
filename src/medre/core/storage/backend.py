@@ -955,7 +955,8 @@ class StorageBackend(Protocol):
         """Append one observation, idempotent by ``observation_id``.
 
         Returns ``True`` when a new row was created and ``False`` when the
-        deterministic observation ID already exists.
+        observation ID already exists or the outbox attempt is no longer
+        admissible.
         """
         ...
 
