@@ -1092,10 +1092,10 @@ Attempt correlation reads the outbox row's stored `attempt_number`, which
 advances when a retry attempt finalizes rather than when the retry worker
 claims the row. In the bounded window between a retry claim and its
 finalization the row still records the prior attempt's number: a callback
-carrying that prior number is admitted, and a callback carrying the live
-next-attempt number is deferred until finalization stamps it. Advancing the
-attempt identity at claim time is retry-engineering work outside the
-observation contract.
+carrying that prior number is admitted, while a callback carrying the live
+next-attempt number is rejected and lost if it arrives before finalization.
+The adapter does not replay terminal callbacks. Advancing the attempt
+identity at claim time requires a coordinated retry-engine change.
 
 LXMF is the first built-in producer. Its immediate receipt remains
 `sent/local_queue`; callback-emitted terminal LXMF states are persisted as

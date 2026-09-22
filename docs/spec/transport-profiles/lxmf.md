@@ -313,6 +313,9 @@ SDK callback is appended to `delivery_observations` for the exact outbox
 attempt; it does not rewrite the receipt or terminal outbox state. The
 `delivery_receipts` capability remains `False` because MEDRE does not model
 these provider callbacks as delivery receipts.
+The adapter captures the message hash and state at callback time before
+crossing from the SDK thread to the event loop; subsequent changes to the SDK
+message object do not change the observation.
 
 **Crash window.** Correlation between an in-flight LXMF message and its exact
 outbox attempt is process-local until a terminal callback is received. Once an
@@ -320,6 +323,8 @@ observation is appended it is durable, but a hard process crash after local
 handoff and before the terminal callback can lose that later provider fact.
 MEDRE does not reconstruct or invent a terminal state after restart when LXMF
 does not re-emit one. The original `sent/local_queue` receipt remains truthful.
+During a retry, a terminal callback for the new attempt can also be lost if it
+arrives before the outbox row advances its attempt number at finalization.
 
 MEDRE persists LXMF `delivered` as the provider state but keeps the observation
 `confirmation_level="unknown"`. It does not independently upgrade that state

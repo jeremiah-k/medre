@@ -1317,7 +1317,15 @@ class LxmfSession:
             return
 
         try:
-            loop.call_soon_threadsafe(self._apply_delivery_state_update, message)
+            # LXMessage is mutable. Snapshot the values reported by this SDK
+            # callback before its state can change again on the I/O thread.
+            msg_hash = self._extract_message_hash(message)
+            if msg_hash is None:
+                return
+            state = _map_delivery_state(getattr(message, "state", None))
+            loop.call_soon_threadsafe(
+                self._apply_delivery_state_snapshot, msg_hash, state
+            )
         except Exception as exc:
             self._logger.debug(
                 "LxmfSession %s: error scheduling delivery state update: %s",
@@ -1326,19 +1334,21 @@ class LxmfSession:
             )
 
     def _apply_delivery_state_update(self, message: Any) -> None:
-        """Apply a delivery state update to outbound tracking.
+        """Apply a message's current state to outbound tracking.
 
-        Runs on the asyncio loop thread (bridged via
-        ``call_soon_threadsafe`` from ``_on_delivery_state_update``).
+        Used when the caller already runs on the asyncio loop thread.
         """
+        msg_hash = self._extract_message_hash(message)
+        if msg_hash is None:
+            return
+        state = _map_delivery_state(getattr(message, "state", None))
+        self._apply_delivery_state_snapshot(msg_hash, state)
+
+    def _apply_delivery_state_snapshot(
+        self, msg_hash: str, new_state: LxmfDeliveryState
+    ) -> None:
+        """Apply immutable SDK callback values on the asyncio loop thread."""
         try:
-            msg_hash = self._extract_message_hash(message)
-            if msg_hash is None:
-                return
-
-            raw_state = getattr(message, "state", None)
-            new_state = _map_delivery_state(raw_state)
-
             delivery = self._outbound_deliveries.get(msg_hash)
             if delivery is not None:
                 old_state = delivery.state

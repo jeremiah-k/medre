@@ -55,7 +55,10 @@ async def test_lxmf_terminal_callback_preserves_exact_attempt_context() -> None:
         message = MagicMock()
         message.hash = message_hash
         message.state = LxmfDeliveryState.DELIVERED
-        adapter._session._apply_delivery_state_update(message)
+        adapter._session._on_delivery_state_update(message)
+        # The SDK message is mutable; the callback must retain the state it
+        # saw even if the SDK changes it before the event-loop bridge runs.
+        message.state = LxmfDeliveryState.FAILED
 
         await wait_until(lambda: callback.await_count == 1, timeout=1.0)
         record = callback.await_args.args[0]
@@ -397,7 +400,7 @@ async def test_lxmf_synchronous_sdk_callback_keeps_send_context(tmp_path) -> Non
                 "hello",
                 delivery_context=context,
             )
-            await asyncio.sleep(0)
+            assert await wait_until(lambda: callback.call_count == 1, timeout=1.0)
         finally:
             await session.stop()
 
@@ -464,7 +467,7 @@ async def test_lxmf_synchronous_sdk_failed_callback_keeps_send_context(
                 "hello",
                 delivery_context=context,
             )
-            await asyncio.sleep(0)
+            assert await wait_until(lambda: callback.call_count == 1, timeout=1.0)
         finally:
             await session.stop()
 

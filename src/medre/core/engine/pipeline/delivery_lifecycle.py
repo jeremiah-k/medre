@@ -677,10 +677,10 @@ class DeliveryLifecycleService:
         advances when a retry attempt finalizes, not when the retry worker
         claims the row.  Between claim and finalize the row still records the
         prior attempt's number while the next attempt is being handed off, so
-        a callback carrying the prior number is admitted and a callback
-        carrying the live next-attempt number is rejected until finalize
-        stamps it.  Advancing the attempt identity at claim time is retry-
-        engine work; this method matches the row's durable state.
+        a callback carrying the prior number is admitted. A callback carrying
+        the live next-attempt number is rejected and lost if it arrives before
+        finalization; the adapter does not replay terminal callbacks. Advancing
+        the attempt identity at claim time requires a retry-engine change.
 
         Returns ``True`` when a new observation row was appended.  Duplicate
         notifications with the same deterministic observation identity return
