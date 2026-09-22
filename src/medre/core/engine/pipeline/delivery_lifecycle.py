@@ -387,7 +387,8 @@ class DeliveryLifecycleService:
         retry_after_seconds:
             Optional adapter-provided minimum delay.  For retryable failures,
             the effective delay is the larger of policy backoff and this hint,
-            clamped to ``_MAX_RETRY_HINT_SECONDS`` so an absurd hint cannot
+            clamped to ``MAX_ADAPTER_RETRY_AFTER_SECONDS`` so an absurd hint
+            cannot
             produce an unrepresentable timestamp.
 
         Returns
