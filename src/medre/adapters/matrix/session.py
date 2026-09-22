@@ -79,8 +79,13 @@ class _SyncRecycleFailed(RuntimeError):
 
 
 def _is_retryable_sync_exception(exc: Exception) -> bool:
-    """Return whether an outer Matrix restart can reasonably recover *exc*."""
-    if isinstance(exc, (TimeoutError, OSError, RuntimeError, ValueError)):
+    """Return whether an outer Matrix restart can reasonably recover *exc*.
+
+    ValueError is deliberately absent: a malformed-response or contract
+    error is a bug, not a transient transport condition, and must reach
+    terminal supervision instead of retrying until shutdown.
+    """
+    if isinstance(exc, (TimeoutError, OSError, RuntimeError)):
         return True
     return any(
         cls.__name__ == "ClientError" and cls.__module__.startswith("aiohttp")

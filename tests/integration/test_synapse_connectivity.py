@@ -197,17 +197,18 @@ class TestSynapseConnectivity:
         adapter = MatrixAdapter(config)
 
         await adapter.start(ctx)
-        await _wait_until_healthy(adapter)
-        # Second start should be idempotent: the adapter stops the previous
-        # session and starts a fresh one, which re-enters the degraded-until-
-        # first-sync window, so readiness must be awaited again.
-        await adapter.start(ctx)
-        await _wait_until_healthy(adapter)
-        info = await adapter.health_check()
-        assert info.health == "healthy"
-
-        await adapter.stop()
-        # Second stop should be idempotent.
-        await adapter.stop()
+        try:
+            await _wait_until_healthy(adapter)
+            # Second start should be idempotent: the adapter stops the previous
+            # session and starts a fresh one, which re-enters the degraded-
+            # until-first-sync window, so readiness must be awaited again.
+            await adapter.start(ctx)
+            await _wait_until_healthy(adapter)
+            info = await adapter.health_check()
+            assert info.health == "healthy"
+        finally:
+            # Both stops must succeed; the second is idempotent.
+            await adapter.stop()
+            await adapter.stop()
         info = await adapter.health_check()
         assert info.health == "unknown"

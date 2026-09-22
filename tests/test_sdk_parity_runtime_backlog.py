@@ -621,22 +621,18 @@ class TestP06LxmfPeriodicAnnounceImplemented:
 # ===================================================================
 
 
-class TestP07MatrixStaleSyncSupervisionResolved:
-    """Verify the former passive-sync gap is closed by active supervision."""
+def test_p07_matrix_config_exposes_stale_sync_policy() -> None:
+    """MatrixConfig exposes the active stale-progress recovery policy."""
+    field_names = {f.name for f in dataclass_fields(MatrixConfig)}
+    assert "sync_stale_timeout_seconds" in field_names
 
-    @staticmethod
-    def test_matrix_config_exposes_stale_sync_policy() -> None:
-        """MatrixConfig exposes the active stale-progress recovery policy."""
-        field_names = {f.name for f in dataclass_fields(MatrixConfig)}
-        assert "sync_stale_timeout_seconds" in field_names
 
-    @staticmethod
-    def test_matrix_session_contains_active_sync_attempt_supervisor() -> None:
-        """MatrixSession owns active stale-progress recovery."""
-        source = inspect.getsource(matrix_session_mod.MatrixSession)
-        assert "_run_sync_forever_attempt" in source
-        assert "sync_stale_timeout_seconds" in source
-        assert "stop_sync_forever" in source
+def test_p07_matrix_session_contains_active_sync_attempt_supervisor() -> None:
+    """MatrixSession owns active stale-progress recovery."""
+    source = inspect.getsource(matrix_session_mod.MatrixSession)
+    assert "_run_sync_forever_attempt" in source
+    assert "sync_stale_timeout_seconds" in source
+    assert "stop_sync_forever" in source
 
 
 # ===================================================================
@@ -786,24 +782,20 @@ class TestP11LxmfEvictionLoggingLacksState:
 # ===================================================================
 
 
-class TestP12MatrixKeyRequestRateLimitingResolved:
-    """Verify the former unbounded key-request gap is closed by caps."""
+def test_p12_matrix_config_exposes_network_and_concurrency_limits() -> None:
+    """MatrixConfig exposes both missing-key recovery bounds."""
+    field_names = {f.name for f in dataclass_fields(MatrixConfig)}
+    assert "megolm_key_request_rate_limit_per_minute" in field_names
+    assert "megolm_key_request_max_inflight" in field_names
 
-    @staticmethod
-    def test_matrix_config_exposes_network_and_concurrency_limits() -> None:
-        """MatrixConfig exposes both missing-key recovery bounds."""
-        field_names = {f.name for f in dataclass_fields(MatrixConfig)}
-        assert "megolm_key_request_rate_limit_per_minute" in field_names
-        assert "megolm_key_request_max_inflight" in field_names
 
-    @staticmethod
-    def test_matrix_recovery_attempts_reserve_network_capacity() -> None:
-        """Each outbound recovery attempt reserves rolling network capacity."""
-        source = inspect.getsource(
-            matrix_session_mod.MatrixSession._request_missing_room_key
-        )
-        assert "_reserve_room_key_request" in source
-        assert "_room_key_request_attempts" in source
+def test_p12_matrix_recovery_attempts_reserve_network_capacity() -> None:
+    """Each outbound recovery attempt reserves rolling network capacity."""
+    source = inspect.getsource(
+        matrix_session_mod.MatrixSession._request_missing_room_key
+    )
+    assert "_reserve_room_key_request" in source
+    assert "_room_key_request_attempts" in source
 
 
 def test_p12_matrix_event_handler_bounds_concurrent_recovery() -> None:
@@ -958,16 +950,25 @@ class TestBacklogSummary:
 
         this_module = sys.modules[__name__]
         for item_id in behavioral_items:
-            # Class names follow pattern TestP{NN}... (e.g. TestP01MeshtasticNoHealthCheck).
-            prefix = f"Test{item_id.replace('-', '')}"
+            # Characterization coverage follows either the class pattern
+            # TestP{NN}... (e.g. TestP01MeshtasticNoHealthCheck) or the
+            # pytest function style test_p{nn}_... required for new tests.
+            number = item_id.replace("-", "")
+            class_prefix = f"Test{number}"
+            function_prefix = f"test_{number.lower()}_"
             found = any(
-                name.startswith(prefix)
+                name.startswith(class_prefix)
                 for name in dir(this_module)
                 if name.startswith("Test")
+            ) or any(
+                name.startswith(function_prefix)
+                for name in vars(this_module)
+                if name.startswith("test_")
             )
             assert found, (
-                f"Missing characterization test class with prefix {prefix} "
-                f"for behavioral gap {_BACKLOG_ITEMS[item_id]['gap']}"
+                f"Missing characterization tests with prefix {class_prefix} "
+                f"or {function_prefix} for behavioral gap "
+                f"{_BACKLOG_ITEMS[item_id]['gap']}"
             )
 
     def test_high_value_items_covered(self) -> None:
