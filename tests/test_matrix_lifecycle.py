@@ -558,21 +558,11 @@ class TestMatrixAdapterSyncFailure:
         # Stop the failed adapter.
         await adapter.stop()
 
-        # Restart with healthy sync.
-        mock_nio.AsyncClient.return_value.sync = _healthy_sync
-        # Need fresh client mock since stop() cleared _client.
-        client = MagicMock(name="mock_async_client_2")
-        client.logged_in = True
-        client.restore_login = MagicMock()
-        client.add_event_callback = MagicMock()
-        client.stop_sync_forever = MagicMock()
-        client.close = AsyncMock()
-        client.sync = _healthy_sync
-        client.room_send = AsyncMock()
-        # whoami() is called by _discover_device_id() during _start_plaintext().
-        _whoami_resp = MagicMock(name="whoami_response_2")
-        _whoami_resp.device_id = "DEVICE_TEST_ID"
-        client.whoami = AsyncMock(return_value=_whoami_resp)
+        # Restart with a fresh healthy client. Reuse the shared nio test-double
+        # builder so the replacement preserves the real SDK contract: in
+        # particular, sync_forever is a coroutine and response callbacks drive
+        # last_successful_sync.
+        client = _build_mock_nio_module().AsyncClient.return_value
         mock_nio.AsyncClient.return_value = client
 
         await adapter.start(_make_context())
