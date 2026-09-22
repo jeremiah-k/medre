@@ -7,6 +7,7 @@ to verify the configuration before passing it to :class:`MatrixAdapter`.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from typing import Literal
 
@@ -58,6 +59,15 @@ class MatrixConfig:
         test harnesses that need explicit control.
     sync_timeout_ms:
         Timeout in milliseconds for long-polling sync requests.
+    sync_stale_timeout_seconds:
+        Maximum seconds without durable Classic Sync progress before the
+        current sync loop is recycled. ``0`` disables active stale-sync
+        recovery.
+    megolm_key_request_rate_limit_per_minute:
+        Maximum missing-room-key to-device request attempts admitted in a
+        rolling minute, including retries.
+    megolm_key_request_max_inflight:
+        Maximum concurrent detached missing-room-key recovery tasks.
     encryption_mode:
         Encryption policy: ``"plaintext"`` (default), ``"e2ee_required"``,
         or ``"e2ee_optional"``.
@@ -80,6 +90,9 @@ class MatrixConfig:
     metadata_embedding_mode: MetadataEmbeddingMode = "safe"
     store_path: str | None = None
     sync_timeout_ms: int = 30000
+    sync_stale_timeout_seconds: float = 300.0
+    megolm_key_request_rate_limit_per_minute: int = 30
+    megolm_key_request_max_inflight: int = 4
     encryption_mode: str = "plaintext"
     require_encrypted_rooms: bool = False
     auto_join_rooms: tuple[str, ...] = ()
@@ -216,6 +229,45 @@ class MatrixConfig:
                 "require_encrypted_rooms=True is invalid with "
                 "encryption_mode='plaintext'"
             )
+
+        # --- Runtime supervision ---
+        if (
+            isinstance(self.sync_timeout_ms, bool)
+            or not isinstance(self.sync_timeout_ms, int)
+            or self.sync_timeout_ms < 0
+        ):
+            raise MatrixConfigError("sync_timeout_ms must be an int >= 0")
+
+        if isinstance(self.sync_stale_timeout_seconds, bool) or not isinstance(
+            self.sync_stale_timeout_seconds, (int, float)
+        ):
+            raise MatrixConfigError("sync_stale_timeout_seconds must be a number")
+        stale_timeout = float(self.sync_stale_timeout_seconds)
+        if not math.isfinite(stale_timeout) or stale_timeout < 0:
+            raise MatrixConfigError(
+                "sync_stale_timeout_seconds must be finite and >= 0"
+            )
+        if stale_timeout > 0:
+            # mindroom-nio permits a sync request to run up to 15 seconds past
+            # the requested long-poll timeout before its client-side timeout;
+            # with the sync timeout disabled the 15-second grace still applies
+            # as a floor so in-flight requests are not recycled mid-poll.
+            minimum = (self.sync_timeout_ms / 1000.0) + 15.0
+            if stale_timeout <= minimum:
+                raise MatrixConfigError(
+                    "sync_stale_timeout_seconds must exceed sync_timeout_ms/1000 "
+                    "+ 15 seconds so healthy long-poll requests are not recycled"
+                )
+
+        for name, value in (
+            (
+                "megolm_key_request_rate_limit_per_minute",
+                self.megolm_key_request_rate_limit_per_minute,
+            ),
+            ("megolm_key_request_max_inflight", self.megolm_key_request_max_inflight),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise MatrixConfigError(f"{name} must be a positive int")
 
         # --- origin_label ---
         if isinstance(self.origin_label, bool):

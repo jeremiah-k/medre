@@ -26,6 +26,7 @@ import logging
 import os
 import random
 import time
+from collections import deque
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, cast
@@ -49,9 +50,6 @@ _sleep = asyncio.sleep
 # Type alias for room encryption state tracking.
 RoomEncryptionState = Literal["unknown", "encrypted", "plaintext"]
 
-# Maximum consecutive sync failures before giving up.
-_MAX_RECONNECT_ATTEMPTS: int = 10
-
 # Exponential backoff base and cap (seconds).
 _BACKOFF_BASE: float = 1.0
 _BACKOFF_CAP: float = 60.0
@@ -62,13 +60,37 @@ _BACKOFF_JITTER_FRACTION: float = 0.25
 # homeserver exposes an extreme number of rooms.
 _MAX_ROOM_STATES: int = 10_000
 
-# Missing Megolm room-key recovery.  mindroom-nio handles transport-level
-# timeout retries, but homeserver/federation to-device failures can still
-# return error responses.  Keep this best-effort recovery bounded so one
-# undecryptable event never stalls the sync loop indefinitely.
+# Missing Megolm room-key recovery. MEDRE configures nio timeout retries to
+# escape immediately to the application boundary; this detached best-effort
+# path therefore owns its own short timeout/retry budget for to-device key
+# requests so one undecryptable event cannot run indefinitely.
 _ROOM_KEY_REQUEST_MAX_ATTEMPTS: int = 3
 _ROOM_KEY_REQUEST_BASE_DELAY_SECONDS: float = 2.0
 _ROOM_KEY_REQUEST_TIMEOUT_SECONDS: float = 10.0
+_SYNC_RECYCLE_CANCEL_TIMEOUT_SECONDS: float = 5.0
+
+
+class _StaleSyncError(RuntimeError):
+    """Internal signal that a sync loop made no progress before its deadline."""
+
+
+class _SyncRecycleFailed(RuntimeError):
+    """Fail-closed signal: a stale sync loop could not be stopped safely."""
+
+
+def _is_retryable_sync_exception(exc: Exception) -> bool:
+    """Return whether an outer Matrix restart can reasonably recover *exc*.
+
+    ValueError is deliberately absent: a malformed-response or contract
+    error is a bug, not a transient transport condition, and must reach
+    terminal supervision instead of retrying until shutdown.
+    """
+    if isinstance(exc, (TimeoutError, OSError, RuntimeError)):
+        return True
+    return any(
+        cls.__name__ == "ClientError" and cls.__module__.startswith("aiohttp")
+        for cls in type(exc).__mro__
+    )
 
 
 def _event_classes_by_name(nio_module: Any, *names: str) -> tuple[Any, ...]:
@@ -150,10 +172,15 @@ class MatrixSessionDiagnostics:
     megolm_recovery_attempts: int
     megolm_recovery_successes: int
     megolm_recovery_failures: int
+    megolm_recovery_rate_limited: int
+    megolm_recovery_inflight_rejected: int
+    megolm_recovery_inflight: int
     # Sync recovery diagnostics
     sync_running: bool
     reconnecting: bool
     reconnect_attempts: int
+    stale_sync_recoveries: int
+    last_stale_sync_at: float | None
     last_successful_sync: float | None
     checkpoint_owned_by_medre: bool
     committed_checkpoint_present: bool
@@ -206,6 +233,7 @@ class MatrixSession:
 
     __slots__ = (
         "_config",
+        "_clock",
         "_client",
         "_sync_task",
         "_sync_failure",
@@ -227,12 +255,17 @@ class MatrixSession:
         "_room_key_request_attempts",
         "_room_key_request_successes",
         "_room_key_request_failures",
+        "_room_key_request_rate_limited",
+        "_room_key_request_inflight_rejected",
+        "_room_key_request_window",
         "_room_key_request_tasks",
         "_last_crypto_error",
         # Sync recovery
         "_reconnect_attempts",
         "_reconnecting",
         "_last_reconnect_error",
+        "_stale_sync_recoveries",
+        "_last_stale_sync_at",
         "_last_successful_sync",
         "_stop_requested",
         # Crypto-store continuity
@@ -269,8 +302,10 @@ class MatrixSession:
         checkpoint_committer: Callable[..., Any] | None = None,
         logger: logging.Logger | None = None,
         auto_join_rooms: tuple[str, ...] = (),
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._config = config
+        self._clock = clock
         self._client: Any = None
         self._sync_task: asyncio.Task | None = None
         self._sync_failure: Exception | None = None
@@ -300,6 +335,9 @@ class MatrixSession:
         self._room_key_request_attempts: int = 0
         self._room_key_request_successes: int = 0
         self._room_key_request_failures: int = 0
+        self._room_key_request_rate_limited: int = 0
+        self._room_key_request_inflight_rejected: int = 0
+        self._room_key_request_window: deque[float] = deque()
         self._room_key_request_tasks: dict[str, asyncio.Task[None]] = {}
         # Consecutive Classic Sync acknowledgements deferred because nio
         # recovery work was still active at ack time (campaign F4).
@@ -308,6 +346,8 @@ class MatrixSession:
         self._reconnect_attempts: int = 0
         self._reconnecting: bool = False
         self._last_reconnect_error: str | None = None
+        self._stale_sync_recoveries: int = 0
+        self._last_stale_sync_at: float | None = None
         self._last_successful_sync: float | None = None
         self._stop_requested: bool = False
         # Crypto-store continuity
@@ -556,10 +596,16 @@ class MatrixSession:
         self._room_key_request_attempts = 0
         self._room_key_request_successes = 0
         self._room_key_request_failures = 0
+        self._room_key_request_rate_limited = 0
+        self._room_key_request_inflight_rejected = 0
+        self._room_key_request_window.clear()
+        self._room_key_request_tasks.clear()
         # Reset reconnect state
         self._reconnect_attempts = 0
         self._reconnecting = False
         self._last_reconnect_error = None
+        self._stale_sync_recoveries = 0
+        self._last_stale_sync_at = None
         self._last_successful_sync = None
         self._committed_sync_token = None
         self._recovered_event_count = 0
@@ -596,7 +642,11 @@ class MatrixSession:
         """Build the pinned mindroom-nio sync and peer-device trust policy.
 
         MEDRE owns durable Classic Sync checkpoints when storage callbacks are
-        available.  The pinned mindroom-nio provider exposes
+        available. Provider timeout retries are disabled (``max_timeouts=0``) so
+        timeouts surface promptly to MEDRE's owning application boundary: sync
+        supervision, delivery lifecycle, key-recovery loop, or startup failure
+        handling. Homeserver 429 handling remains SDK-owned.
+        The pinned mindroom-nio provider exposes
         ``replace_rotated_device_keys`` and the installed-SDK contract requires
         it.  The defensive attribute/update guards remain intentional for
         lightweight test doubles and provider configuration objects that may be
@@ -607,7 +657,7 @@ class MatrixSession:
         """
         config = nio_module.AsyncClientConfig(
             encryption_enabled=encryption_enabled,
-            max_timeouts=3,
+            max_timeouts=0,
             backfill_limited_timelines=self._durable_sync_enabled,
             store_sync_tokens=not self._durable_sync_enabled,
             backfill_persist_recovery=False,
@@ -1218,8 +1268,8 @@ class MatrixSession:
                 # ran, so nio rejects the token. The durable checkpoint is
                 # already committed — deferring the acknowledgement to a
                 # later quiet response is contract-correct, while letting the
-                # error propagate kills sync_forever and burns the reconnect
-                # budget. nio keeps the staged state bookkeeping-only until
+                # error propagate needlessly restarts the outer sync supervisor.
+                # nio keeps the staged state bookkeeping-only until
                 # the next successful acknowledgement.
                 self._classic_ack_deferrals += 1
                 self._logger.warning(
@@ -1253,7 +1303,7 @@ class MatrixSession:
             )
         self._initial_sync_done = True
         self._live_sync_started = True
-        self._last_successful_sync = time.monotonic()
+        self._last_successful_sync = self._clock()
         if self._reconnect_attempts:
             self._logger.info(
                 "Sync recovered after %d reconnect attempts", self._reconnect_attempts
@@ -1609,20 +1659,20 @@ class MatrixSession:
                 session_id_tag,
                 now - prev,
             )
-            return
-
-        self._logger.warning(
-            "Undecryptable MegolmEvent %s in room %s",
-            event_id,
-            room_id,
-        )
-        self._undecryptable_dedup[key] = now
+        else:
+            self._logger.warning(
+                "Undecryptable MegolmEvent %s in room %s",
+                event_id,
+                room_id,
+            )
+            self._undecryptable_dedup[key] = now
 
         # nio awaits async event callbacks while processing a sync response.
         # Missing-key recovery may spend tens of seconds in bounded network
         # retries, so detach it from the sync callback and track the task for
-        # deterministic shutdown.  The warning dedup key also prevents a second
-        # task for the same room/session during the dedup window.
+        # deterministic shutdown. Warning deduplication is intentionally only
+        # a logging policy: recovery admission is independently bounded by the
+        # per-session in-flight guard and rolling outbound request limiter.
         if self._stop_requested:
             # Refuse new recovery during shutdown so stop()'s cancel-and-drain
             # cannot miss a task created after its snapshot.
@@ -1635,6 +1685,25 @@ class MatrixSession:
             self._logger.debug(
                 "Skipping missing room-key request for event %s without a valid room ID",
                 event_id,
+            )
+            return
+        if key in self._room_key_request_tasks:
+            self._logger.debug(
+                "Skipping duplicate missing room-key recovery for %s: a recovery "
+                "for this room/session is still in flight",
+                event_id,
+            )
+            return
+        if (
+            len(self._room_key_request_tasks)
+            >= self._config.megolm_key_request_max_inflight
+        ):
+            self._room_key_request_inflight_rejected += 1
+            self._logger.debug(
+                "Skipping missing room-key recovery for %s: %d recovery task(s) "
+                "already in flight",
+                event_id,
+                len(self._room_key_request_tasks),
             )
             return
         task = asyncio.create_task(
@@ -1658,6 +1727,23 @@ class MatrixSession:
         """Forget a completed Megolm recovery task without removing a replacement."""
         if self._room_key_request_tasks.get(request_key) is task:
             self._room_key_request_tasks.pop(request_key, None)
+
+    def _reserve_room_key_request(self, now: float) -> bool:
+        """Reserve one outbound Megolm key request within the rolling minute.
+
+        Warning/log deduplication is deliberately independent from this
+        network-admission policy.  The limiter counts actual to-device request
+        attempts, including retries, rather than undecryptable-event warnings.
+        """
+        cutoff = now - 60.0
+        window = self._room_key_request_window
+        while window and window[0] <= cutoff:
+            window.popleft()
+        if len(window) >= self._config.megolm_key_request_rate_limit_per_minute:
+            self._room_key_request_rate_limited += 1
+            return False
+        window.append(now)
+        return True
 
     async def _request_missing_room_key(
         self,
@@ -1696,6 +1782,11 @@ class MatrixSession:
             return
 
         for attempt in range(_ROOM_KEY_REQUEST_MAX_ATTEMPTS):
+            if not self._reserve_room_key_request(self._clock()):
+                self._logger.debug(
+                    "Rate-limited missing room-key request for event %s", event_id
+                )
+                return
             self._room_key_request_attempts += 1
             retryable = False
             try:
@@ -1848,30 +1939,145 @@ class MatrixSession:
         except asyncio.CancelledError:
             return
 
-    async def _sync_with_reconnect(self) -> None:
-        """Supervise mindroom-nio ``sync_forever`` with bounded restarts.
+    async def _run_sync_forever_attempt(self) -> None:
+        """Run one nio sync loop under MEDRE's stale-progress deadline.
 
-        mindroom-nio owns Classic request retries, key sequencing, timeline
+        ``sync_forever`` remains the sole Matrix request/event loop.  MEDRE
+        observes only durable sync progress.  On staleness, the current loop is
+        stopped and cancelled before the outer supervisor may start another,
+        preventing overlapping nio sync owners.
+        """
+        client = self._client
+        if client is None:
+            raise RuntimeError("Matrix sync requested without a client")
+
+        task = asyncio.create_task(
+            client.sync_forever(
+                timeout=self._config.sync_timeout_ms,
+                since=self._committed_sync_token,
+                full_state=self._committed_sync_token is None,
+            )
+        )
+        stale_timeout = float(self._config.sync_stale_timeout_seconds)
+        started_at = self._clock()
+        try:
+            if stale_timeout <= 0:
+                await task
+                return
+
+            while not task.done():
+                baseline = max(
+                    started_at,
+                    (
+                        self._last_successful_sync
+                        if self._last_successful_sync is not None
+                        else started_at
+                    ),
+                )
+                remaining = stale_timeout - (self._clock() - baseline)
+                if remaining > 0:
+                    try:
+                        await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+                        return
+                    except TimeoutError:
+                        if task.done():
+                            await task
+                            return
+                        continue
+
+                now = self._clock()
+                self._last_stale_sync_at = now
+                self._logger.warning(
+                    "Matrix sync made no durable progress for %.1fs; recycling "
+                    "the current sync loop",
+                    now - baseline,
+                )
+                await self._recycle_stale_sync_task(task, client)
+                self._stale_sync_recoveries += 1
+                raise _StaleSyncError(
+                    f"Matrix sync stale for at least {stale_timeout:.1f}s"
+                )
+
+            await task
+        except asyncio.CancelledError:
+            if not task.done():
+                task.cancel()
+                task.add_done_callback(self._consume_task_result)
+            raise
+
+    async def _recycle_stale_sync_task(
+        self, task: asyncio.Task[Any], client: Any
+    ) -> None:
+        """Stop one stale nio sync owner without permitting overlap."""
+        stop_sync = getattr(client, "stop_sync_forever", None)
+        stop_error: Exception | None = None
+        if callable(stop_sync):
+            try:
+                stop_sync()
+            except Exception as exc:
+                stop_error = exc
+        task.cancel()
+        try:
+            done, _pending = await asyncio.wait(
+                {task}, timeout=_SYNC_RECYCLE_CANCEL_TIMEOUT_SECONDS
+            )
+        except asyncio.CancelledError:
+            task.add_done_callback(self._consume_task_result)
+            raise
+        if not done:
+            task.add_done_callback(self._consume_task_result)
+            raise _SyncRecycleFailed(
+                "stale sync loop ignored cancellation; refusing to start a "
+                "second sync loop on the same client"
+            ) from stop_error
+        self._consume_task_result(task)
+        if stop_error is not None:
+            self._logger.warning(
+                "Matrix stop_sync_forever failed, but sync task cancellation completed",
+                exc_info=stop_error,
+            )
+
+    async def _sync_with_reconnect(self) -> None:
+        """Supervise mindroom-nio ``sync_forever`` until shutdown.
+
+        mindroom-nio owns request execution, key sequencing, timeline
         parsing/decryption, limited-timeline recovery, and event provenance.
-        MEDRE owns process-level restart/liveness plus the committed cursor.
+        MEDRE owns timeout-level restart/liveness, capped reconnect backoff,
+        and the committed cursor. Transient failures retry for the lifetime of
+        the started adapter; an unsafe stale-owner recycle still fails closed.
         """
         while not self._stop_requested:
             try:
                 self._reconnecting = False
-                await self._client.sync_forever(
-                    timeout=self._config.sync_timeout_ms,
-                    since=self._committed_sync_token,
-                    full_state=self._committed_sync_token is None,
-                )
+                await self._run_sync_forever_attempt()
                 if self._stop_requested:
                     return
                 raise RuntimeError("Matrix sync_forever exited unexpectedly")
             except asyncio.CancelledError:
                 self._reconnecting = False
                 raise
+            except _SyncRecycleFailed as exc:
+                self._logger.error("Matrix stale-sync recycle failed: %s", exc)
+                self._sync_failure = exc
+                self._last_reconnect_error = str(exc)
+                self._reconnecting = False
+                return
             except Exception as exc:
                 if self._stop_requested:
+                    # Shutdown owns this transition.  A provider/request race
+                    # after stop was requested is not a terminal runtime
+                    # failure and must not poison post-stop diagnostics.
+                    self._reconnecting = False
+                    return
+
+                if not _is_retryable_sync_exception(exc):
+                    self._logger.error(
+                        "Matrix sync failed with non-retryable exception: %s",
+                        exc,
+                        exc_info=exc,
+                    )
                     self._sync_failure = exc
+                    self._last_reconnect_error = str(exc)
                     self._reconnecting = False
                     return
 
@@ -1895,27 +2101,25 @@ class MatrixSession:
 
                 self._reconnect_attempts += 1
                 self._last_reconnect_error = str(exc)
-                if self._reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
-                    self._logger.error(
-                        "Max sync reconnect attempts (%d) reached, giving up: %s",
-                        _MAX_RECONNECT_ATTEMPTS,
-                        exc,
-                    )
-                    self._sync_failure = exc
-                    self._reconnecting = False
-                    return
-
                 self._reconnecting = True
+                # Matrix is a long-lived relay transport.  Keep retrying until
+                # shutdown (matching MMRelay's proven daemon behavior) while
+                # capping both the delay and exponent so a long outage cannot
+                # overflow the backoff calculation.  A stale owner that cannot
+                # be terminated remains the separate fail-closed exception.
+                exponent = min(self._reconnect_attempts - 1, 16)
                 raw_delay = min(
-                    _BACKOFF_BASE * (2 ** (self._reconnect_attempts - 1)),
+                    _BACKOFF_BASE * (2**exponent),
                     _BACKOFF_CAP,
                 )
                 jitter = raw_delay * _BACKOFF_JITTER_FRACTION
-                delay = max(0.0, raw_delay + random.uniform(-jitter, jitter))
+                delay = min(
+                    _BACKOFF_CAP,
+                    max(0.0, raw_delay + random.uniform(-jitter, jitter)),
+                )
                 self._logger.warning(
-                    "Matrix sync failed (attempt %d/%d); retrying in %.1fs: %s",
+                    "Matrix sync failed (attempt %d); retrying in %.1fs: %s",
                     self._reconnect_attempts,
-                    _MAX_RECONNECT_ATTEMPTS,
                     delay,
                     exc,
                 )
@@ -2061,7 +2265,17 @@ class MatrixSession:
         if self._client is not None:
             stop_sync = getattr(self._client, "stop_sync_forever", None)
             if callable(stop_sync):
-                stop_sync()
+                try:
+                    stop_sync()
+                except Exception as exc:
+                    # The stop hint is advisory; task cancellation below is the
+                    # authoritative shutdown mechanism.  Never let a provider
+                    # hook failure skip cancellation, draining, or close.
+                    self._logger.warning(
+                        "Matrix stop_sync_forever failed during shutdown; "
+                        "continuing with task cancellation: %s",
+                        exc,
+                    )
 
         # Cancel detached Megolm recovery before closing the client.  A sync
         # callback can race the first snapshot, so drain in a loop; new recovery
@@ -2303,10 +2517,17 @@ class MatrixSession:
             megolm_recovery_attempts=self._room_key_request_attempts,
             megolm_recovery_successes=self._room_key_request_successes,
             megolm_recovery_failures=self._room_key_request_failures,
+            megolm_recovery_rate_limited=self._room_key_request_rate_limited,
+            megolm_recovery_inflight_rejected=(
+                self._room_key_request_inflight_rejected
+            ),
+            megolm_recovery_inflight=len(self._room_key_request_tasks),
             # Sync recovery
             sync_running=self.sync_running,
             reconnecting=self._reconnecting,
             reconnect_attempts=self._reconnect_attempts,
+            stale_sync_recoveries=self._stale_sync_recoveries,
+            last_stale_sync_at=self._last_stale_sync_at,
             last_successful_sync=self._last_successful_sync,
             checkpoint_owned_by_medre=self._durable_sync_enabled,
             committed_checkpoint_present=self._committed_sync_token is not None,

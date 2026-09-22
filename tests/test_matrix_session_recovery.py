@@ -57,15 +57,16 @@ class TestSyncFailureLogging:
                 await session.start()
                 for _ in range(100):
                     await asyncio.sleep(0)
-            assert session.last_sync_error is not None
-            assert isinstance(session.last_sync_error, RuntimeError)
+            assert session.last_sync_error is None
+            assert session.reconnect_attempts > 0
+            assert session._last_reconnect_error == "sync died"
 
             # Use a handler that captures records
             log_records: list[logging.LogRecord] = []
             handler = logging.Handler()
             handler.emit = lambda record: log_records.append(record)  # type: ignore[assignment]
             logger.addHandler(handler)
-            logger.setLevel(logging.ERROR)
+            logger.setLevel(logging.WARNING)
 
             # Create a new session with same pattern to capture log
             session2 = MatrixSession(config, logger=logger)
@@ -76,8 +77,8 @@ class TestSyncFailureLogging:
                     await asyncio.sleep(0)
 
             assert any(
-                "Max sync reconnect attempts" in rec.getMessage() for rec in log_records
-            ), f"Expected sync failure log; got: {[r.getMessage() for r in log_records]}"
+                "Matrix sync failed (attempt" in rec.getMessage() for rec in log_records
+            ), f"Expected sync retry log; got: {[r.getMessage() for r in log_records]}"
             logger.removeHandler(handler)
             await session2.stop()
         finally:
@@ -90,7 +91,7 @@ class TestSyncFailureLogging:
 
 
 class TestSyncRecovery:
-    """Automatic sync recovery with bounded reconnect/backoff."""
+    """Automatic sync recovery with continuous, capped reconnect/backoff."""
 
     async def test_reconnect_after_transient_failure(self, mock_nio) -> None:
         """sync fails 3 times then succeeds → reconnect happens."""
@@ -129,9 +130,10 @@ class TestSyncRecovery:
             finally:
                 await session.stop()
 
-    async def test_max_reconnect_attempts_reached(self, mock_nio) -> None:
-        """sync always fails → max attempts reached, _sync_failure set."""
-        import medre.adapters.matrix.session as sess_mod
+    async def test_reconnect_continues_past_legacy_attempt_ceiling(
+        self, mock_nio
+    ) -> None:
+        """Persistent failures keep retrying beyond the former ten-attempt cap."""
 
         async def _always_fail(*a: object, **kw: object) -> None:
             await asyncio.sleep(0)
@@ -145,14 +147,13 @@ class TestSyncRecovery:
         with fast_sleep_patch():
             try:
                 await session.start()
-                # Give the sync loop time to exhaust retries
-                for _ in range(100):
+                for _ in range(500):
+                    if session.reconnect_attempts > 10:
+                        break
                     await asyncio.sleep(0)
-                # Should have given up
-                assert session._sync_failure is not None
-                assert isinstance(session._sync_failure, ConnectionError)
-                assert session.reconnect_attempts >= sess_mod._MAX_RECONNECT_ATTEMPTS
-                assert session.reconnecting is False
+                assert session.reconnect_attempts > 10
+                assert session._sync_failure is None
+                assert session.sync_task_running is True
             finally:
                 await session.stop()
 
@@ -630,11 +631,12 @@ class TestSyncStateResilience:
                 await session.start()
                 for _ in range(100):
                     await asyncio.sleep(0)
-                # Failure is recorded, not leaked
-                assert session._sync_failure is not None
-                # The task is done
+                # Transient failure remains supervised rather than leaking or
+                # becoming a terminal session failure.
+                assert session._sync_failure is None
+                assert session.reconnect_attempts > 0
                 assert session._sync_task is not None
-                assert session._sync_task.done()
+                assert not session._sync_task.done()
             finally:
                 await session.stop()
 

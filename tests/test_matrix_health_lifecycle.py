@@ -8,7 +8,7 @@ Tests the following lifecycle rules:
 3. ``stop()`` clears the cached health back to ``None``.
 4. ``start()`` clears the cached health back to ``None``.
 5. ``health_check()`` reports ``"degraded"`` when last successful sync
-   is older than ``_SYNC_STALE_THRESHOLD_SECONDS`` (but ``None``,
+   is older than ``config.sync_stale_timeout_seconds`` (but ``None``,
    meaning no sync completed yet, does **not** trigger degraded).
 6. ``health_check()`` reports ``"healthy"`` when last successful sync
    is recent, or when it is ``None`` (first sync not yet completed).
@@ -33,10 +33,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from medre.adapters.matrix.adapter import (
-    _SYNC_STALE_THRESHOLD_SECONDS,
-    MatrixAdapter,
-)
+from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 
@@ -137,6 +134,7 @@ def _make_mock_session(
     session.connected = connected
     session.last_sync_error = last_sync_error
     session.last_successful_sync = last_successful_sync
+    session.reconnecting = False
     session.is_logged_in.return_value = logged_in
     return session
 
@@ -242,12 +240,41 @@ async def test_stale_sync_reports_degraded():
     now = _MONO_BASE + 100.0
     adapter._clock = lambda: now
     # Session is connected+logged_in, but last sync was long ago.
-    stale_time = now - _SYNC_STALE_THRESHOLD_SECONDS - 10.0
+    stale_time = now - config.sync_stale_timeout_seconds - 10.0
     adapter._session = _make_mock_session(
         connected=True,
         logged_in=True,
         last_successful_sync=stale_time,
     )
+    info = await adapter.health_check()
+    assert info.health == "degraded"
+
+
+async def test_disabled_stale_timeout_skips_staleness_degradation():
+    """sync_stale_timeout_seconds=0 also disables the health staleness bound."""
+    config = _make_config(sync_stale_timeout_seconds=0)
+    adapter = MatrixAdapter(config)
+    adapter._clock = lambda: _MONO_BASE + 100000.0
+    adapter._session = _make_mock_session(
+        connected=True,
+        logged_in=True,
+        last_successful_sync=_MONO_BASE,
+    )
+    info = await adapter.health_check()
+    assert info.health == "healthy"
+
+
+async def test_reconnecting_session_reports_degraded():
+    """Active session-level recovery is visible as degraded health."""
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    session = _make_mock_session(
+        connected=True,
+        logged_in=True,
+        last_successful_sync=_MONO_BASE,
+    )
+    session.reconnecting = True
+    adapter._session = session
     info = await adapter.health_check()
     assert info.health == "degraded"
 
@@ -268,14 +295,8 @@ async def test_fresh_sync_reports_healthy():
     assert info.health == "healthy"
 
 
-async def test_no_sync_yet_preserves_healthy():
-    """health_check preserves 'healthy' when last_successful_sync is None.
-
-    ``None`` means the first sync loop has not completed yet — the
-    adapter just started and is connected/logged-in, so it should not
-    be penalised as stale.  Only a real (non-None) timestamp older
-    than the threshold should trigger ``degraded``.
-    """
+async def test_no_sync_yet_reports_degraded():
+    """Authenticated Matrix is not healthy until one sync succeeds."""
     config = _make_config()
     adapter = MatrixAdapter(config)
     adapter._clock = lambda: _MONO_BASE
@@ -285,7 +306,7 @@ async def test_no_sync_yet_preserves_healthy():
         last_successful_sync=None,
     )
     info = await adapter.health_check()
-    assert info.health == "healthy"
+    assert info.health == "degraded"
 
 
 async def test_stale_does_not_override_failed():
@@ -336,7 +357,7 @@ async def test_fakeable_clock_controls_degradation():
     assert info.health == "healthy"
 
     # Advance clock past threshold → degraded
-    adapter._clock = lambda: sync_time + _SYNC_STALE_THRESHOLD_SECONDS + 1.0
+    adapter._clock = lambda: sync_time + config.sync_stale_timeout_seconds + 1.0
     info = await adapter.health_check()
     assert info.health == "degraded"
 
@@ -375,9 +396,14 @@ async def test_diagnostics_json_safe():
         megolm_recovery_attempts=0,
         megolm_recovery_successes=0,
         megolm_recovery_failures=0,
+        megolm_recovery_rate_limited=0,
+        megolm_recovery_inflight_rejected=0,
+        megolm_recovery_inflight=0,
         sync_running=True,
         reconnecting=False,
         reconnect_attempts=0,
+        stale_sync_recoveries=0,
+        last_stale_sync_at=None,
         classic_ack_deferrals=0,
         last_successful_sync=100.0,
         checkpoint_owned_by_medre=False,

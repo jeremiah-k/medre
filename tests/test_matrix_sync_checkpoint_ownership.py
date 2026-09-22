@@ -63,7 +63,7 @@ def test_durable_client_config_selects_application_owned_classic_state() -> None
 
     assert captured == {
         "encryption_enabled": False,
-        "max_timeouts": 3,
+        "max_timeouts": 0,
         "backfill_limited_timelines": True,
         "store_sync_tokens": False,
         "backfill_persist_recovery": False,
@@ -83,7 +83,7 @@ def test_classic_client_config_selects_nio_owned_classic_state() -> None:
 
     assert captured == {
         "encryption_enabled": False,
-        "max_timeouts": 3,
+        "max_timeouts": 0,
         "backfill_limited_timelines": False,
         "store_sync_tokens": True,
         "backfill_persist_recovery": False,
@@ -271,7 +271,7 @@ async def test_ack_token_mismatch_defers_instead_of_killing_sync() -> None:
     nio recovery dispatches (undecryptable-event room-key work) can still be
     active; `acknowledge_classic_sync` then raises LocalProtocolError. The
     exception used to propagate out of the response callback and kill
-    sync_forever, burning the reconnect budget. The durable checkpoint is
+    sync_forever, forcing an outer-supervisor restart. The durable checkpoint is
     already committed at that point — the acknowledgement must defer to a
     later quiet response, not crash the sync loop."""
     ack_calls: list[str] = []

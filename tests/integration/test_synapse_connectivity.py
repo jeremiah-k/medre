@@ -30,6 +30,7 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
+from tests.helpers.async_utils import wait_until
 
 from .conftest import SynapseEnvironment
 
@@ -81,6 +82,24 @@ def _make_context(adapter_id: str = "synapse-integration") -> AdapterContext:
 # ---------------------------------------------------------------------------
 
 
+async def _wait_until_healthy(adapter: MatrixAdapter, timeout: float = 15.0) -> None:
+    """Await first-sync readiness.
+
+    MatrixSession.start() starts the sync task and returns before the first
+    sync response is processed; the runtime contract reports ``degraded``
+    until one sync response succeeds. Tests must await readiness instead of
+    asserting health synchronously after start().
+    """
+
+    async def _healthy() -> bool:
+        info = await adapter.health_check()
+        return info.health == "healthy"
+
+    assert await wait_until(
+        _healthy, timeout=timeout
+    ), f"adapter did not reach healthy within {timeout}s"
+
+
 class TestSynapseConnectivity:
     """Connect MEDRE's MatrixAdapter to a Docker Synapse homeserver."""
 
@@ -95,6 +114,7 @@ class TestSynapseConnectivity:
 
         await adapter.start(ctx)
         try:
+            await _wait_until_healthy(adapter)
             info = await adapter.health_check()
             assert (
                 info.health == "healthy"
@@ -114,6 +134,7 @@ class TestSynapseConnectivity:
 
         await adapter.start(ctx)
         try:
+            await _wait_until_healthy(adapter)
             info = await adapter.health_check()
             assert info.health == "healthy", f"Expected healthy, got {info.health!r}"
         finally:
@@ -176,13 +197,18 @@ class TestSynapseConnectivity:
         adapter = MatrixAdapter(config)
 
         await adapter.start(ctx)
-        # Second start should be idempotent.
-        await adapter.start(ctx)
-        info = await adapter.health_check()
-        assert info.health == "healthy"
-
-        await adapter.stop()
-        # Second stop should be idempotent.
-        await adapter.stop()
+        try:
+            await _wait_until_healthy(adapter)
+            # Second start should be idempotent: the adapter stops the previous
+            # session and starts a fresh one, which re-enters the degraded-
+            # until-first-sync window, so readiness must be awaited again.
+            await adapter.start(ctx)
+            await _wait_until_healthy(adapter)
+            info = await adapter.health_check()
+            assert info.health == "healthy"
+        finally:
+            # Both stops must succeed; the second is idempotent.
+            await adapter.stop()
+            await adapter.stop()
         info = await adapter.health_check()
         assert info.health == "unknown"

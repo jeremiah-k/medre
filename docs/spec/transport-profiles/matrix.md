@@ -12,22 +12,25 @@ The adapter delegates all client lifecycle (creation, login, sync, teardown) to 
 
 ## Configuration Fields
 
-| Field                     | Type                                                   | Default       | Description                                                                     |
-| ------------------------- | ------------------------------------------------------ | ------------- | ------------------------------------------------------------------------------- |
-| `adapter_id`              | `str`                                                  | _(required)_  | Unique adapter instance identifier                                              |
-| `homeserver`              | `str`                                                  | _(required)_  | Matrix homeserver URL (`https://…` or `http://…`)                               |
-| `user_id`                 | `str`                                                  | _(required)_  | Fully-qualified Matrix user ID (must start with `@`)                            |
-| `device_id`               | `str \| None`                                          | `None`        | Internal — discovered via `whoami()` when needed                                |
-| `access_token`            | `str`                                                  | `""`          | Access token for authentication; sidecar fallback supported                     |
-| `room_allowlist`          | `set[str] \| None`                                     | `None`        | Optional set of room IDs to accept; `None` = all rooms                          |
-| `metadata_embedding_mode` | `str`                                                  | `"safe"`      | How metadata is embedded in messages                                            |
-| `store_path`              | `str \| None`                                          | `None`        | Internal — derived under `{state}/adapters/{id}/matrix/store`                   |
-| `sync_timeout_ms`         | `int`                                                  | `30000`       | Long-polling sync timeout in milliseconds                                       |
-| `encryption_mode`         | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                     |
-| `require_encrypted_rooms` | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`   |
-| `auto_join_rooms`         | `tuple[str, ...]`                                      | `()`          | Canonical room IDs (`!localpart:server`) to auto-join on startup and via invite |
-| `origin_label`            | `str`                                                  | `""`          | Platform-neutral operator-defined source label for relay prefixes               |
-| `relay_prefix`            | `str`                                                  | `""`          | Target-local prefix template for Matrix outbound body text (empty = no prefix)  |
+| Field                                      | Type                                                   | Default       | Description                                                                     |
+| ------------------------------------------ | ------------------------------------------------------ | ------------- | ------------------------------------------------------------------------------- |
+| `adapter_id`                               | `str`                                                  | _(required)_  | Unique adapter instance identifier                                              |
+| `homeserver`                               | `str`                                                  | _(required)_  | Matrix homeserver URL (`https://…` or `http://…`)                               |
+| `user_id`                                  | `str`                                                  | _(required)_  | Fully-qualified Matrix user ID (must start with `@`)                            |
+| `device_id`                                | `str \| None`                                          | `None`        | Internal — discovered via `whoami()` when needed                                |
+| `access_token`                             | `str`                                                  | `""`          | Access token for authentication; sidecar fallback supported                     |
+| `room_allowlist`                           | `set[str] \| None`                                     | `None`        | Optional set of room IDs to accept; `None` = all rooms                          |
+| `metadata_embedding_mode`                  | `str`                                                  | `"safe"`      | How metadata is embedded in messages                                            |
+| `store_path`                               | `str \| None`                                          | `None`        | Internal — derived under `{state}/adapters/{id}/matrix/store`                   |
+| `sync_timeout_ms`                          | `int`                                                  | `30000`       | Long-polling sync timeout in milliseconds                                       |
+| `sync_stale_timeout_seconds`               | `float`                                                | `300.0`       | Max durable-sync silence before active loop recycle; `0` disables watchdog      |
+| `megolm_key_request_rate_limit_per_minute` | `int`                                                  | `30`          | Max missing-room-key to-device attempts per rolling minute                      |
+| `megolm_key_request_max_inflight`          | `int`                                                  | `4`           | Max concurrent detached missing-room-key recovery tasks                         |
+| `encryption_mode`                          | `Literal["plaintext","e2ee_required","e2ee_optional"]` | `"plaintext"` | E2EE policy                                                                     |
+| `require_encrypted_rooms`                  | `bool`                                                 | `False`       | If `True`, reject plaintext rooms; invalid with `encryption_mode="plaintext"`   |
+| `auto_join_rooms`                          | `tuple[str, ...]`                                      | `()`          | Canonical room IDs (`!localpart:server`) to auto-join on startup and via invite |
+| `origin_label`                             | `str`                                                  | `""`          | Platform-neutral operator-defined source label for relay prefixes               |
+| `relay_prefix`                             | `str`                                                  | `""`          | Target-local prefix template for Matrix outbound body text (empty = no prefix)  |
 
 ---
 
@@ -223,17 +226,30 @@ The Matrix renderer (`MatrixRenderer`) produces:
 2. **Connecting** — `start()` creates `MatrixSession`, restores login, registers
    mindroom-nio admission/response callbacks, restores MEDRE's committed Classic
    Sync cursor, and starts the supervised sync task.
-3. **Syncing** — mindroom-nio owns Classic Sync iteration, bounded request retries,
-   key sequencing, decryption, limited-timeline recovery, and event provenance.
+3. **Syncing** — mindroom-nio owns Classic Sync iteration, request execution,
+   key sequencing, decryption, limited-timeline recovery, event provenance, and
+   homeserver-directed 429 handling. Provider timeout retries are disabled so a
+   timeout reaches MEDRE's owning boundary promptly; sync timeouts are handled by
+   the outer session supervisor.
 4. **Durable admission** — `LIVE` and `RECOVERED` timeline events are atomically
    admitted for routing; `HISTORY` is durably recorded with routing suppressed. An
    admission failure rejects the nio callback so the event remains replayable.
 5. **Checkpoint commit** — after a successful response has no unaccepted relevant
    events, MEDRE persists `next_batch` and recovery-abandonment metadata, then calls
    `acknowledge_classic_sync()`. nio does not persist the Classic cursor.
-6. **Reconnecting** — sync-loop failure resets uncommitted in-memory Classic state,
-   restores MEDRE's last committed cursor, and triggers bounded outer backoff
-   (1 s → 2 s → 4 s → … capped at 60 s, ±25 % jitter, max 10 attempts).
+6. **Supervising / reconnecting** — adapter health remains `degraded` until
+   the first successful sync response; authentication alone is not Matrix
+   readiness. `MatrixSession` then watches durable Classic Sync progress. If the
+   configured stale-progress deadline expires, MEDRE asks nio to stop the current
+   `sync_forever()` owner, cancels it, and verifies it terminated before the outer
+   recovery path may start another loop. Retryable sync-loop failures use the same
+   reset-to-committed-cursor path and continuous outer backoff (1 s → 2 s → 4 s →
+   … with ±25 % jitter and every delay clamped to 60 s) until recovery or adapter
+   shutdown. There is no finite transient-failure attempt ceiling. Unexpected
+   non-operational exception classes fail closed rather than being retried forever.
+   A stale loop that ignores cancellation, or a durable-state reset that cannot be
+   completed safely, also fails closed; MEDRE never overlaps two sync owners on one
+   client.
 7. **Stopped** — `stop(timeout)` asks nio to stop `sync_forever()`, cancels
    MEDRE-owned Megolm recovery and room-join tasks, drains nio client-bound request
    tasks, and closes the client under one shared absolute timeout budget. Tasks that
@@ -246,12 +262,14 @@ The Matrix renderer (`MatrixRenderer`) produces:
 MEDRE uses application-owned Classic Sync checkpointing when the adapter is created
 by the runtime with storage available. The pinned mindroom-nio client is configured with
 `backfill_limited_timelines=True`, `store_sync_tokens=False`,
-`backfill_persist_recovery=False`, and `max_timeouts=3`. This establishes one owner
+`backfill_persist_recovery=False`, and `max_timeouts=0`. This establishes one owner
 per concern:
 
-- mindroom-nio owns Matrix request retries, parsing/decryption, event ordering,
-  limited-timeline walking, and `LIVE`/`RECOVERED`/`HISTORY` provenance;
-- `MatrixSession` owns loop supervision, restart, and health;
+- mindroom-nio owns Matrix request execution, server-directed 429 handling,
+  parsing/decryption, event ordering, limited-timeline walking, and
+  `LIVE`/`RECOVERED`/`HISTORY` provenance;
+- `MatrixSession` owns timeout-level retry, loop supervision, continuous capped
+  restart backoff, and health;
 - MEDRE storage owns canonical admission, deduplication, pending ingress work, and
   the committed Classic cursor; and
 - MEDRE's core pipeline owns routing, outbox creation, and delivery retries.
@@ -307,10 +325,15 @@ provider's missing-room-key request in a tracked background task with at most th
 attempts and a ten-second per-attempt timeout. The nio sync callback MUST return without
 waiting for this recovery task. Retryable transport or explicit to-device failures use
 2 s then 4 s backoff; cancellation propagates, and permanent Matrix errcodes terminate
-recovery immediately. Startup-history events do not trigger recovery requests. Live
-undecryptable events are deduplicated for 60 seconds by the pair `(room_id, session_id)`;
-within that window MEDRE emits neither a duplicate warning nor a duplicate recovery task.
-Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
+recovery immediately. Startup-history events do not trigger recovery requests.
+
+Recovery admission has two independent bounds: `megolm_key_request_max_inflight` caps
+concurrent detached recovery tasks, while
+`megolm_key_request_rate_limit_per_minute` caps actual outbound to-device request
+attempts in a rolling minute, including retries. These are network-admission controls,
+not logging controls. Live undecryptable warnings are separately deduplicated for 60
+seconds by `(room_id, session_id)`; changing that warning window does not change the
+request limiter. Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 
 ---
 
@@ -318,54 +341,59 @@ Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 
 `adapter.diagnostics()` returns a dict (no secrets):
 
-| Key                                        | Type            | Description                                          |
-| ------------------------------------------ | --------------- | ---------------------------------------------------- |
-| `connected`                                | `bool`          | Session has active client                            |
-| `logged_in`                                | `bool`          | Client reports authenticated                         |
-| `sync_task_running`                        | `bool`          | Sync asyncio task alive                              |
-| `last_sync_error`                          | `str \| None`   | Last sync failure message                            |
-| `store_path_configured`                    | `bool`          | E2EE store path set                                  |
-| `device_id_configured`                     | `bool`          | Device ID known                                      |
-| `encryption_mode`                          | `str`           | Current E2EE mode                                    |
-| `crypto_enabled`                           | `bool`          | Crypto subsystem active                              |
-| `last_crypto_error`                        | `str \| None`   | Last crypto error                                    |
-| `encrypted_room_seen`                      | `bool`          | At least one encrypted room detected                 |
-| `undecryptable_event_count`                | `int`           | MegolmEvents that could not be decrypted             |
-| `megolm_recovery_attempts`                 | `int`           | Missing-room-key to-device send attempts             |
-| `megolm_recovery_successes`                | `int`           | Missing-room-key requests accepted by the provider   |
-| `megolm_recovery_failures`                 | `int`           | Terminal missing-room-key request failures           |
-| `sync_running`                             | `bool`          | Sync loop active                                     |
-| `reconnecting`                             | `bool`          | Reconnect backoff in progress                        |
-| `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                       |
-| `classic_ack_deferrals`                    | `int`           | Consecutive deferred Classic acknowledgements        |
-| `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                     |
-| `checkpoint_owned_by_medre`                | `bool`          | MEDRE owns the Classic Sync checkpoint               |
-| `committed_checkpoint_present`             | `bool`          | A committed Classic cursor has been restored/stored  |
-| `recovered_event_count`                    | `int`           | Recovered timeline events seen at admission          |
-| `history_event_count`                      | `int`           | Cold-history timeline events seen at admission       |
-| `recovery_abandoned_room_count`            | `int`           | Rooms with recorded unrecoverable history            |
-| `recovery_last_abandonment`                | `str \| None`   | Identifier-free room/cause-count abandonment summary |
-| `crypto_store_loaded`                      | `bool`          | Olm/store initialised                                |
-| `olm_loaded`                               | `bool`          | Olm subsystem loaded                                 |
-| `encrypted_room_count`                     | `int`           | Rooms tracked as encrypted                           |
-| `plaintext_room_count`                     | `int`           | Rooms tracked as plaintext                           |
-| `cross_signing_provider_supported`         | `bool`          | SDK exposes MEDRE's required cross-signing API       |
-| `cross_signing_local_identity_present`     | `bool`          | Persisted local own-device identity is available     |
-| `cross_signing_server_identity_present`    | `bool \| None`  | Homeserver exposes an own-account master identity    |
-| `cross_signing_current_device_self_signed` | `bool \| None`  | Current device has expected self-signing signature   |
-| `cross_signing_chain_status`               | `str`           | Secret-free server-visible identity-chain state      |
-| `cross_signing_repair_required`            | `bool`          | Safe bootstrap/repair remains                        |
-| `cross_signing_reset_required`             | `bool`          | Explicit authenticated identity recovery is required |
-| `cross_signing_last_failure_category`      | `str \| None`   | Secret-free reconciliation failure category          |
-| `transient_delivery_failures`              | `int`           | Transient outbound errors                            |
-| `permanent_delivery_failures`              | `int`           | Permanent outbound errors                            |
-| `inbound_published`                        | `int`           | Events published inbound                             |
-| `inbound_duplicate_admissions`             | `int`           | Duplicate durable admissions                         |
-| `inbound_suppressed_self`                  | `int`           | Self-message suppressions                            |
-| `inbound_suppressed_envelope`              | `int`           | MEDRE-origin loop hint suppressions                  |
-| `inbound_filtered_allowlist`               | `int`           | Room allowlist rejections                            |
-| `inbound_filtered_encryption_policy`       | `int`           | Events dropped by `require_encrypted_rooms` policy   |
-| `inbound_suppressed_startup`               | `int`           | Backlog events before first live sync                |
+| Key                                        | Type            | Description                                            |
+| ------------------------------------------ | --------------- | ------------------------------------------------------ |
+| `connected`                                | `bool`          | Session has active client                              |
+| `logged_in`                                | `bool`          | Client reports authenticated                           |
+| `sync_task_running`                        | `bool`          | Sync asyncio task alive                                |
+| `last_sync_error`                          | `str \| None`   | Last sync failure message                              |
+| `store_path_configured`                    | `bool`          | E2EE store path set                                    |
+| `device_id_configured`                     | `bool`          | Device ID known                                        |
+| `encryption_mode`                          | `str`           | Current E2EE mode                                      |
+| `crypto_enabled`                           | `bool`          | Crypto subsystem active                                |
+| `last_crypto_error`                        | `str \| None`   | Last crypto error                                      |
+| `encrypted_room_seen`                      | `bool`          | At least one encrypted room detected                   |
+| `undecryptable_event_count`                | `int`           | MegolmEvents that could not be decrypted               |
+| `megolm_recovery_attempts`                 | `int`           | Missing-room-key to-device send attempts               |
+| `megolm_recovery_successes`                | `int`           | Missing-room-key requests accepted by the provider     |
+| `megolm_recovery_failures`                 | `int`           | Terminal missing-room-key request failures             |
+| `megolm_recovery_rate_limited`             | `int`           | Outbound key-request attempts refused by rolling limit |
+| `megolm_recovery_inflight_rejected`        | `int`           | Recovery campaigns refused by max-in-flight cap        |
+| `megolm_recovery_inflight`                 | `int`           | Recovery tasks currently in flight                     |
+| `sync_running`                             | `bool`          | Sync loop active                                       |
+| `reconnecting`                             | `bool`          | Reconnect backoff in progress                          |
+| `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                         |
+| `stale_sync_recoveries`                    | `int`           | Sync loops successfully recycled after stale detection |
+| `last_stale_sync_at`                       | `float \| None` | Monotonic time of last stale-progress detection        |
+| `classic_ack_deferrals`                    | `int`           | Consecutive deferred Classic acknowledgements          |
+| `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                       |
+| `checkpoint_owned_by_medre`                | `bool`          | MEDRE owns the Classic Sync checkpoint                 |
+| `committed_checkpoint_present`             | `bool`          | A committed Classic cursor has been restored/stored    |
+| `recovered_event_count`                    | `int`           | Recovered timeline events seen at admission            |
+| `history_event_count`                      | `int`           | Cold-history timeline events seen at admission         |
+| `recovery_abandoned_room_count`            | `int`           | Rooms with recorded unrecoverable history              |
+| `recovery_last_abandonment`                | `str \| None`   | Identifier-free room/cause-count abandonment summary   |
+| `crypto_store_loaded`                      | `bool`          | Olm/store initialised                                  |
+| `olm_loaded`                               | `bool`          | Olm subsystem loaded                                   |
+| `encrypted_room_count`                     | `int`           | Rooms tracked as encrypted                             |
+| `plaintext_room_count`                     | `int`           | Rooms tracked as plaintext                             |
+| `cross_signing_provider_supported`         | `bool`          | SDK exposes MEDRE's required cross-signing API         |
+| `cross_signing_local_identity_present`     | `bool`          | Persisted local own-device identity is available       |
+| `cross_signing_server_identity_present`    | `bool \| None`  | Homeserver exposes an own-account master identity      |
+| `cross_signing_current_device_self_signed` | `bool \| None`  | Current device has expected self-signing signature     |
+| `cross_signing_chain_status`               | `str`           | Secret-free server-visible identity-chain state        |
+| `cross_signing_repair_required`            | `bool`          | Safe bootstrap/repair remains                          |
+| `cross_signing_reset_required`             | `bool`          | Explicit authenticated identity recovery is required   |
+| `cross_signing_last_failure_category`      | `str \| None`   | Secret-free reconciliation failure category            |
+| `transient_delivery_failures`              | `int`           | Transient outbound errors                              |
+| `permanent_delivery_failures`              | `int`           | Permanent outbound errors                              |
+| `inbound_published`                        | `int`           | Events published inbound                               |
+| `inbound_duplicate_admissions`             | `int`           | Duplicate durable admissions                           |
+| `inbound_suppressed_self`                  | `int`           | Self-message suppressions                              |
+| `inbound_suppressed_envelope`              | `int`           | MEDRE-origin loop hint suppressions                    |
+| `inbound_filtered_allowlist`               | `int`           | Room allowlist rejections                              |
+| `inbound_filtered_encryption_policy`       | `int`           | Events dropped by `require_encrypted_rooms` policy     |
+| `inbound_suppressed_startup`               | `int`           | Backlog events before first live sync                  |
 
 The delivery-failure and inbound counters reset to zero each time the adapter
 starts.

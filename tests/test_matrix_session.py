@@ -23,6 +23,7 @@ import asyncio
 import importlib
 import logging
 import sys
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -119,7 +120,7 @@ class TestMatrixSessionLifecycle:
         await session.stop()
         assert session.sync_task_running is False
 
-    async def test_session_sync_failure_recorded(self, mock_nio) -> None:
+    async def test_session_sync_failure_remains_supervised(self, mock_nio) -> None:
         async def _failing_sync(*a: object, **kw: object) -> None:
             await asyncio.sleep(0)
             raise RuntimeError("sync died")
@@ -142,8 +143,10 @@ class TestMatrixSessionLifecycle:
                 await session.start()
                 for _ in range(100):
                     await original_sleep(0)
-            assert session.last_sync_error is not None
-            assert isinstance(session.last_sync_error, RuntimeError)
+            assert session.last_sync_error is None
+            assert session.reconnect_attempts > 0
+            assert session._last_reconnect_error == "sync died"
+            assert session.sync_task_running is True
         finally:
             await session.stop()
 
@@ -470,6 +473,11 @@ class TestAdapterDelegatesToSession:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
+            # Authenticated-but-never-synced sessions report degraded; give
+            # the session a fresh successful sync so delegation classifies
+            # as healthy.
+            assert adapter._session is not None
+            adapter._session._last_successful_sync = time.monotonic()
             info = await adapter.health_check()
             assert info.health == "healthy"
         finally:

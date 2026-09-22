@@ -223,7 +223,7 @@ The runner:
 INFO  medre  Matrix runtime: config loaded for @bot:localhost
 INFO  medre  PipelineRunner started
 INFO  medre  MatrixAdapter matrix-alpha started
-INFO  medre  Initial diagnostics: {'status': 'healthy', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True}}
+INFO  medre  Initial diagnostics: {'status': 'degraded', 'details': {'connected': True, 'logged_in': True, 'sync_task_running': True}}
 INFO  medre  Matrix runtime running — awaiting shutdown signal
 ```
 
@@ -238,14 +238,14 @@ INFO  medre  Matrix runtime shut down cleanly
 
 ## Health States
 
-| State      | Meaning                                                                  |
-| ---------- | ------------------------------------------------------------------------ |
-| `unknown`  | Adapter has not started, or has been stopped                             |
-| `healthy`  | Client is connected, logged in, and sync is running                      |
-| `degraded` | Sync is running but actively reconnecting after a transient failure      |
-| `failed`   | Sync task has crashed permanently, or client exists but is not logged in |
+| State      | Meaning                                                                    |
+| ---------- | -------------------------------------------------------------------------- |
+| `unknown`  | Adapter has not started, or has been stopped                               |
+| `healthy`  | Client is connected, logged in, and at least one sync has succeeded        |
+| `degraded` | Awaiting first sync, actively reconnecting, or beyond the stale-sync bound |
+| `failed`   | Sync task has crashed permanently, or client exists but is not logged in   |
 
-When the adapter is in `degraded` state, it is actively attempting to restore the sync connection with exponential backoff. Once reconnection succeeds, the state returns to `healthy`. If the reconnect budget is exhausted, the state transitions to `failed` and requires manual restart.
+Immediately after authentication, health remains `degraded` until the first successful sync establishes Matrix progress. During a later transient outage, `degraded` means the adapter is actively attempting to restore the sync connection with capped exponential backoff. Transient sync failures keep retrying until reconnection succeeds or the adapter is stopped. The state becomes `failed` only when MEDRE cannot safely continue (for example, a stale sync owner refuses cancellation or durable sync state cannot be reset safely), or when the client is no longer logged in.
 
 ## E2EE text validation
 
@@ -358,8 +358,10 @@ adapter treats the room as unencrypted (fail-closed).
 
 ## Known Limitations
 
-1. **Bounded auto-reconnect.** The adapter reconnects on transient failures with
-   exponential backoff up to a maximum. Budget exhaustion requires manual restart.
+1. **Continuous auto-reconnect for transient sync failures.** The adapter retries
+   for the lifetime of the started adapter with exponential backoff capped at 60 s.
+   Authentication/configuration problems still require operator action, and MEDRE
+   fails closed if a stale sync owner cannot be terminated safely.
 2. **Shutdown is bounded, not lossless before durable admission.** Once an event
    crosses MEDRE's durable ingress boundary it remains pending across restart, but
    transport work cancelled before canonicalization/admission still depends on
@@ -380,17 +382,19 @@ adapter treats the room as unencrypted (fail-closed).
 
 ## Troubleshooting
 
-| Symptom                                      | Likely cause                                        | Fix                                                                                                      |
-| -------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `M_UNKNOWN_TOKEN` on startup                 | Expired or invalid access token                     | Generate a new token via login API or Element                                                            |
-| `M_FORBIDDEN Invalid username/password`      | Wrong credentials                                   | Verify user ID and password encoding                                                                     |
-| Adapter enters `failed` state                | Permanent sync error or exhausted reconnect budget  | Check logs, fix underlying cause, restart                                                                |
-| No inbound events received                   | Room not in allowlist                               | Add room ID to `MATRIX_ROOM_ALLOWLIST`                                                                   |
-| Self-messages not suppressed                 | sender mismatch                                     | Verify `MATRIX_USER_ID` matches bot's MXID exactly                                                       |
-| `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied      | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                 |
-| `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees    | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow |
-| `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                         |
-| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                       | `pip install -e ".[matrix-e2e]"`                                                                         |
+| Symptom                                      | Likely cause                                                                                                          | Fix                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `M_UNKNOWN_TOKEN` on startup                 | Expired or invalid access token                                                                                       | Generate a new token via login API or Element                                                                                                                                                                                                                                                    |
+| `M_FORBIDDEN Invalid username/password`      | Wrong credentials                                                                                                     | Verify user ID and password encoding                                                                                                                                                                                                                                                             |
+| Adapter enters `failed` state                | Unsafe stale-sync recycle, durable sync-state reset failure, lost login state, or another fail-closed lifecycle error | Check logs, fix the underlying cause, then restart                                                                                                                                                                                                                                               |
+| Repeated `stale_sync_recoveries`             | Homeserver/network sync loop is not making durable progress                                                           | Check homeserver reachability and sync latency; tune `sync_stale_timeout_seconds` only after confirming normal long-poll timing (a positive value must exceed `sync_timeout_ms/1000 + 15`, or 15 seconds flat when the sync timeout is disabled, so healthy long-poll requests are not recycled) |
+| Rising `megolm_recovery_rate_limited`        | Missing-room-key recovery is exceeding the configured network request budget                                          | Investigate crypto/key availability; avoid raising the limit until the undecryptable-event source is understood                                                                                                                                                                                  |
+| No inbound events received                   | Room not in allowlist                                                                                                 | Add room ID to `MATRIX_ROOM_ALLOWLIST`                                                                                                                                                                                                                                                           |
+| Self-messages not suppressed                 | sender mismatch                                                                                                       | Verify `MATRIX_USER_ID` matches bot's MXID exactly                                                                                                                                                                                                                                               |
+| `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied                                                                        | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                                                                                                                                                                                                         |
+| `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees                                                                      | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow                                                                                                                                                                                         |
+| `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established                                                                   | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                                                                                                                                                                                                                 |
+| `ENCRYPTION_ENABLED=False` in diagnostics    | `.[matrix-e2e]` not installed                                                                                         | `pip install -e ".[matrix-e2e]"`                                                                                                                                                                                                                                                                 |
 
 ## Classic Sync durability and recovery
 

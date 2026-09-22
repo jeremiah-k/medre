@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import re
 from dataclasses import fields as dataclass_fields
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -292,7 +291,7 @@ class TestP03MatrixSyncTokenOwnership:
                 kwargs = config_call.kwargs
                 assert kwargs == {
                     "encryption_enabled": True,
-                    "max_timeouts": 3,
+                    "max_timeouts": 0,
                     "backfill_limited_timelines": False,
                     "store_sync_tokens": True,
                     "backfill_persist_recovery": False,
@@ -617,65 +616,23 @@ class TestP06LxmfPeriodicAnnounceImplemented:
 
 
 # ===================================================================
-# P-07: Matrix - No session-level sync watchdog task
-# Gap type: Behavioral
+# P-07: Matrix - proactive stale-sync supervision (RESOLVED)
+# Gap type: Behavioral (RESOLVED)
 # ===================================================================
 
 
-class TestP07MatrixNoSessionWatchdogTask:
-    """Characterize P-07: MatrixSession has no dedicated watchdog task.
+def test_p07_matrix_config_exposes_stale_sync_policy() -> None:
+    """MatrixConfig exposes the active stale-progress recovery policy."""
+    field_names = {f.name for f in dataclass_fields(MatrixConfig)}
+    assert "sync_stale_timeout_seconds" in field_names
 
-    ``MatrixAdapter.health_check()`` now provides partial stale-sync
-    detection (reports ``'degraded'`` when last successful sync exceeds
-    ``_SYNC_STALE_THRESHOLD_SECONDS``).  The remaining gap is sync token
-    persistence (P-03) - the watchdog detects the symptom but the root
-    cause (full initial sync on restart) is unresolved.
-    """
 
-    def test_no_watchdog_task_in_session_slots(self) -> None:
-        """MatrixSession has no watchdog-related slots.
-
-        Stale-sync detection lives in
-        ``MatrixAdapter.health_check()``, not in the session.
-        """
-        slots = set(matrix_session_mod.MatrixSession.__slots__)
-        assert "_watchdog_task" not in slots
-        assert "_sync_liveness_task" not in slots
-        assert "_sync_watchdog_task" not in slots
-
-    def test_last_successful_sync_is_passive_diagnostic(self) -> None:
-        """``_last_successful_sync`` is set on sync success but never read
-        for liveness decisions within the session.
-
-        The adapter-level ``health_check()`` reads it via the session
-        property for stale-sync detection - this is external to the
-        session.
-
-        Positively flags conditional/operational uses (if, comparisons,
-        staleness/watchdog/restart/warn/error/raise patterns) rather than
-        excluding many benign lines.
-        """
-        source = inspect.getsource(matrix_session_mod.MatrixSession)
-        # Patterns that indicate _last_successful_sync is read for an
-        # operational decision, not just recorded or exposed as diagnostic.
-        operational_re = re.compile(
-            r"\b(if|elif)\b.*_last_successful_sync"
-            r"|_last_successful_sync\s*(==|!=|<|>|<=|>=|is\b|is not\b)"
-            r"|_last_successful_sync.*\b(warn|error|raise|restart|watchdog|staleness|stale)\b",
-        )
-        operational_lines = [
-            line.strip()
-            for line in source.splitlines()
-            if "_last_successful_sync" in line
-            and not line.strip().startswith("#")
-            and operational_re.search(line)
-        ]
-        # No operational reads - only assignment and diagnostic output.
-        assert len(operational_lines) == 0, (
-            f"_last_successful_sync used in operational context: "
-            f"{operational_lines}. "
-            "If a watchdog was added, update this test."
-        )
+def test_p07_matrix_session_contains_active_sync_attempt_supervisor() -> None:
+    """MatrixSession owns active stale-progress recovery."""
+    source = inspect.getsource(matrix_session_mod.MatrixSession)
+    assert "_run_sync_forever_attempt" in source
+    assert "sync_stale_timeout_seconds" in source
+    assert "stop_sync_forever" in source
 
 
 # ===================================================================
@@ -820,51 +777,32 @@ class TestP11LxmfEvictionLoggingLacksState:
 
 
 # ===================================================================
-# P-12: Matrix - E2EE key request rate limiting
-# Gap type: Behavioral
+# P-12: Matrix - E2EE key request rate limiting (RESOLVED)
+# Gap type: Behavioral (RESOLVED)
 # ===================================================================
 
 
-class TestP12MatrixKeyRequestRateLimiting:
-    """Characterize P-12: Key requests are sent inline without rate limiting.
+def test_p12_matrix_config_exposes_network_and_concurrency_limits() -> None:
+    """MatrixConfig exposes both missing-key recovery bounds."""
+    field_names = {f.name for f in dataclass_fields(MatrixConfig)}
+    assert "megolm_key_request_rate_limit_per_minute" in field_names
+    assert "megolm_key_request_max_inflight" in field_names
 
-    The dedup window gates logging, not the actual key request send.
-    A burst of undecryptable events triggers a burst of key requests.
-    """
 
-    def test_key_request_in_megolm_handler(self) -> None:
-        """Undecryptable event handler sends key request inline without
-        rate limiting, throttling, or sleep gating around as_key_request."""
-        source_text = inspect.getsource(matrix_session_mod.MatrixSession)
-        assert "as_key_request" in source_text, (
-            "as_key_request not found in MatrixSession source; "
-            "characterization test must be updated if the source path changed"
-        )
-        # Verify no rate-limit/throttle/queue/sleep gating around key
-        # requests.  Check lines within a window around as_key_request
-        # for gating patterns.
-        gating_re = re.compile(
-            r"rate.?limit|throttl|sleep|queue|Semaphore|cooldown|backoff",
-            re.IGNORECASE,
-        )
-        lines = source_text.splitlines()
-        gated_lines: list[str] = []
-        for i, line in enumerate(lines):
-            if "as_key_request" not in line:
-                continue
-            # Inspect a window around the key request (5 lines before, 5 after).
-            window = lines[max(0, i - 5) : i + 6]
-            for wline in window:
-                stripped = wline.strip()
-                if stripped.startswith("#"):
-                    continue
-                if gating_re.search(wline) and wline not in gated_lines:
-                    gated_lines.append(stripped)
-        assert len(gated_lines) == 0, (
-            f"Rate-limit/throttle gating found near as_key_request: "
-            f"{gated_lines}. "
-            "If key request rate limiting was implemented, update this test."
-        )
+def test_p12_matrix_recovery_attempts_reserve_network_capacity() -> None:
+    """Each outbound recovery attempt reserves rolling network capacity."""
+    source = inspect.getsource(
+        matrix_session_mod.MatrixSession._request_missing_room_key
+    )
+    assert "_reserve_room_key_request" in source
+    assert "_room_key_request_attempts" in source
+
+
+def test_p12_matrix_event_handler_bounds_concurrent_recovery() -> None:
+    """The event handler enforces the concurrent recovery-task cap."""
+    source = inspect.getsource(matrix_session_mod.MatrixSession._on_megolm_event)
+    assert "megolm_key_request_max_inflight" in source
+    assert "_room_key_request_tasks" in source
 
 
 # ===================================================================
@@ -913,7 +851,7 @@ _BACKLOG_ITEMS: dict[str, dict[str, str]] = {
     },
     "P-07": {
         "adapter": "Matrix",
-        "gap": "No session-level sync watchdog task (adapter has partial stale-sync detection)",
+        "gap": "Proactive stale-sync supervision (resolved)",
         "type": "Behavioral",
         "value": "Medium",
     },
@@ -943,7 +881,7 @@ _BACKLOG_ITEMS: dict[str, dict[str, str]] = {
     },
     "P-12": {
         "adapter": "Matrix",
-        "gap": "E2EE key request rate limiting",
+        "gap": "E2EE key request rate limiting (resolved)",
         "type": "Behavioral",
         "value": "Low",
     },
@@ -1012,16 +950,25 @@ class TestBacklogSummary:
 
         this_module = sys.modules[__name__]
         for item_id in behavioral_items:
-            # Class names follow pattern TestP{NN}... (e.g. TestP01MeshtasticNoHealthCheck).
-            prefix = f"Test{item_id.replace('-', '')}"
+            # Characterization coverage follows either the class pattern
+            # TestP{NN}... (e.g. TestP01MeshtasticNoHealthCheck) or the
+            # pytest function style test_p{nn}_... required for new tests.
+            number = item_id.replace("-", "")
+            class_prefix = f"Test{number}"
+            function_prefix = f"test_{number.lower()}_"
             found = any(
-                name.startswith(prefix)
+                name.startswith(class_prefix)
                 for name in dir(this_module)
                 if name.startswith("Test")
+            ) or any(
+                name.startswith(function_prefix)
+                for name in vars(this_module)
+                if name.startswith("test_")
             )
             assert found, (
-                f"Missing characterization test class with prefix {prefix} "
-                f"for behavioral gap {_BACKLOG_ITEMS[item_id]['gap']}"
+                f"Missing characterization tests with prefix {class_prefix} "
+                f"or {function_prefix} for behavioral gap "
+                f"{_BACKLOG_ITEMS[item_id]['gap']}"
             )
 
     def test_high_value_items_covered(self) -> None:

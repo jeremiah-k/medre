@@ -141,12 +141,13 @@ class TestMatrixSessionResourceContainment:
         session._room_states = {}
         assert len(session._room_states) == 0
 
-    async def test_reconnect_budget_is_bounded(self) -> None:
-        """Reconnect attempts must not exceed _MAX_RECONNECT_ATTEMPTS."""
-        from medre.adapters.matrix.session import _MAX_RECONNECT_ATTEMPTS
+    async def test_reconnect_backoff_is_bounded_without_attempt_ceiling(self) -> None:
+        """Matrix recovery remains rate-bounded without permanently giving up."""
+        from medre.adapters.matrix import session as session_module
 
-        assert _MAX_RECONNECT_ATTEMPTS == 10
-        assert _MAX_RECONNECT_ATTEMPTS > 0
+        assert not hasattr(session_module, "_MAX_RECONNECT_ATTEMPTS")
+        assert session_module._BACKOFF_BASE > 0
+        assert session_module._BACKOFF_CAP >= session_module._BACKOFF_BASE
 
     async def test_diagnostics_never_exposes_token(self) -> None:
         """Diagnostics snapshot must not contain access_token or secrets."""
