@@ -30,7 +30,9 @@ class TestClaimDueItems:
         assert c.locked_at is not None
         assert c.lease_until is not None
 
-    async def test_claim_respects_limit(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_claim_respects_limit(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         for i in range(5):
             item = _make_outbox_item(delivery_plan_id=f"plan-climit-{i}")
             await outbox_temp_storage.create_outbox_item(item)
@@ -81,14 +83,18 @@ class TestClaimDueItems:
         assert len(claimed2) == 1
         assert claimed2[0].worker_id == "worker-2"
 
-    async def test_claim_skips_sent_items(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_claim_skips_sent_items(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         # Reach "sent" via pending → claim → mark_sent (Pattern A).
         item = _make_outbox_item(delivery_plan_id="plan-sent-skip")
         await outbox_temp_storage.create_outbox_item(item)
         await outbox_temp_storage.claim_due_outbox_items(
             now="2026-01-01T00:00:00", worker_id="w1", lease_seconds=30, limit=10
         )
-        await outbox_temp_storage.mark_outbox_sent(item.outbox_id, receipt_id="rcpt-sent")
+        await outbox_temp_storage.mark_outbox_sent(
+            item.outbox_id, receipt_id="rcpt-sent"
+        )
 
         pending_item = _make_outbox_item(delivery_plan_id="plan-pending-claim")
         await outbox_temp_storage.create_outbox_item(pending_item)
@@ -176,7 +182,9 @@ class TestReleaseClaim:
         # The pipeline must set a new next_attempt_at when re-scheduling.
         assert released.next_attempt_at is None
 
-    async def test_release_wrong_worker_noop(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_release_wrong_worker_noop(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         item = _make_outbox_item(delivery_plan_id="plan-release-wrong")
         await outbox_temp_storage.create_outbox_item(item)
         claimed = await outbox_temp_storage.claim_due_outbox_items(

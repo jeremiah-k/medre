@@ -17,12 +17,12 @@ import pytest
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
-
-from .conftest import _make_lifecycle, _make_receipt
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
 )
+
+from .conftest import _make_lifecycle, _make_receipt
 
 # ===================================================================
 # Supplemental queued→sent receipt — happy paths
@@ -124,7 +124,7 @@ class TestSameChannelRetryLineageRegression:
                 plan_id="plan-r",
                 attempt_number=1,
                 outbox_id="obox-retry-multi",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -136,7 +136,7 @@ class TestSameChannelRetryLineageRegression:
                 plan_id="plan-r",
                 attempt_number=2,
                 outbox_id="obox-retry-multi",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation (attempt 2).
@@ -192,7 +192,7 @@ class TestSameChannelRetryLineageRegression:
                 adapter="m",
                 channel="0",
                 plan_id="plan-bx",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -202,7 +202,7 @@ class TestSameChannelRetryLineageRegression:
                 adapter="m",
                 channel="1",
                 plan_id="plan-bx",
-            )
+            ),
         )
 
         record = OutboundNativeRefRecord(
@@ -329,7 +329,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="mesh",
                 channel="0",
                 plan_id="plan-a",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -340,7 +340,7 @@ class TestDeterministicPlanIdCorrelation:
                 channel="0",
                 plan_id="plan-b",
                 outbox_id="obox-plan-b",
-            )
+            ),
         )
 
         # Create matching outbox item for plan-b.
@@ -406,7 +406,7 @@ class TestDeterministicPlanIdCorrelation:
                 channel="0",
                 plan_id="plan-a2",
                 outbox_id="obox-a2",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -417,7 +417,7 @@ class TestDeterministicPlanIdCorrelation:
                 channel="0",
                 plan_id="plan-b2",
                 outbox_id="obox-b2",
-            )
+            ),
         )
 
         # Create matching outbox items for both plans.
@@ -511,7 +511,7 @@ class TestDeterministicPlanIdCorrelation:
                 plan_id="plan-retry",
                 attempt_number=1,
                 outbox_id="obox-retry-latest",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -523,7 +523,7 @@ class TestDeterministicPlanIdCorrelation:
                 plan_id="plan-retry",
                 attempt_number=2,
                 outbox_id="obox-retry-latest",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation (attempt 2).
@@ -577,7 +577,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="0",
                 plan_id="plan-x",
-            )
+            ),
         )
 
         # Record with a different plan_id that doesn't match.
@@ -614,7 +614,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="0",
                 plan_id="plan-multi",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -624,7 +624,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="1",
                 plan_id="plan-multi",
-            )
+            ),
         )
 
         # Same plan but no channel → ambiguous.
@@ -663,7 +663,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="0",
                 plan_id="plan-real-a",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -673,7 +673,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="0",
                 plan_id="plan-real-b",
-            )
+            ),
         )
 
         # Record with a plan_id that matches NONE of the queued receipts.
@@ -712,7 +712,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="0",
                 plan_id="plan-1",
-            )
+            ),
         )
 
         record = OutboundNativeRefRecord(
@@ -751,7 +751,7 @@ class TestDeterministicPlanIdCorrelation:
                 channel="0",
                 plan_id="plan-warn",
                 event_id="evt-warn",
-            )
+            ),
         )
 
         record = OutboundNativeRefRecord(
@@ -797,7 +797,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-ob",
-            )
+            ),
         )
 
         # Create a matching outbox item, then transition to "queued" (Pattern C).
@@ -849,7 +849,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="0",
                 plan_id="plan-other",
-            )
+            ),
         )
 
         record = OutboundNativeRefRecord(
@@ -887,7 +887,7 @@ class TestDeterministicPlanIdCorrelation:
                 channel="0",
                 plan_id="plan-match",
                 outbox_id="obox-match",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation.
@@ -943,7 +943,7 @@ class TestDeterministicPlanIdCorrelation:
                 adapter="m",
                 channel="0",
                 plan_id="plan-ch",
-            )
+            ),
         )
 
         record = OutboundNativeRefRecord(
@@ -990,7 +990,7 @@ class TestDeliveryStateTransitionGuard:
                 adapter="m",
                 channel="0",
                 plan_id="plan-f",
-            )
+            ),
         )
 
         record = OutboundNativeRefRecord(
@@ -1088,7 +1088,7 @@ class TestAppendQueuedToSentEdgeCases:
                 channel="0",
                 plan_id="plan-nom",
                 outbox_id="obox-different",
-            )
+            ),
         )
 
         # Outbox item matching the record's outbox_id.
@@ -1148,7 +1148,7 @@ class TestAppendQueuedToSentEdgeCases:
                 plan_id="plan-atm",
                 attempt_number=1,
                 outbox_id="obox-atm",
-            )
+            ),
         )
 
         # Outbox item now on attempt_number=2 (retry happened).
@@ -1188,9 +1188,7 @@ class TestAppendQueuedToSentEdgeCases:
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
-        assert not [
-            r for r in all_receipts if r.adapter_message_id == "pkt-atm"
-        ]
+        assert not [r for r in all_receipts if r.adapter_message_id == "pkt-atm"]
 
     async def test_invalid_status_transition_skips_supplemental(
         self,
@@ -1218,7 +1216,7 @@ class TestAppendQueuedToSentEdgeCases:
                 channel="0",
                 plan_id="plan-inv",
                 outbox_id="obox-inv",
-            )
+            ),
         )
 
         outbox_item = DeliveryOutboxItem(

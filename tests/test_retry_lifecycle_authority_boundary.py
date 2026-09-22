@@ -8,13 +8,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parents[1]
 _RETRY = _REPO / "src" / "medre" / "runtime" / "retry.py"
 _LIFECYCLE = (
-    _REPO
-    / "src"
-    / "medre"
-    / "core"
-    / "engine"
-    / "pipeline"
-    / "delivery_lifecycle.py"
+    _REPO / "src" / "medre" / "core" / "engine" / "pipeline" / "delivery_lifecycle.py"
 )
 
 _ALLOWED_WORKER_STORAGE_CALLS = frozenset(
@@ -73,7 +67,9 @@ def test_retry_worker_direct_storage_surface_is_read_claim_only() -> None:
         if name.startswith(("mark_", "append_", "create_", "finalize_", "release_"))
     }
 
-    assert not mutations, f"worker calls storage mutations directly: {sorted(mutations)}"
+    assert (
+        not mutations
+    ), f"worker calls storage mutations directly: {sorted(mutations)}"
     assert calls == _ALLOWED_WORKER_STORAGE_CALLS
 
 
@@ -122,8 +118,7 @@ def test_retry_claim_reconciliation_precedes_transport_dispatch() -> None:
     target = next(
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.AsyncFunctionDef)
-        and node.name == "_retry_outbox_item"
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_retry_outbox_item"
     )
     reconcile_lines = [
         node.lineno

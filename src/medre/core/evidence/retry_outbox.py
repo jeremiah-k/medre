@@ -37,9 +37,7 @@ from medre.core.engine.pipeline.delivery_state import (
 from medre.core.engine.pipeline.delivery_state import (
     RECEIPT_STATUSES as _RECEIPT_STATUSES,
 )
-from medre.core.engine.pipeline.delivery_state import (
-    TERMINAL_OUTBOX_STATUSES,
-)
+from medre.core.engine.pipeline.delivery_state import TERMINAL_OUTBOX_STATUSES
 from medre.core.evidence.failure_taxonomy import (
     derive_failure_kind_detail,
     resolve_taxon,

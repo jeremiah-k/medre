@@ -74,7 +74,9 @@ async def test_empty_final_drain_snapshot_does_not_persist_abandonment(
         await app.stop()
 
     assert persist_calls == 0
-    assert not any("in-flight abandoned" in record.getMessage() for record in caplog.records)
+    assert not any(
+        "in-flight abandoned" in record.getMessage() for record in caplog.records
+    )
 
 
 async def test_projection_repair_failure_prevents_clean_shutdown_marker(

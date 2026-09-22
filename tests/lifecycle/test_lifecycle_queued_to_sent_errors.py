@@ -13,13 +13,13 @@ import pytest
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
-
-from .conftest import _make_lifecycle, _make_receipt
 from tests.helpers.storage_outbox import (
     admit_event,
     append_receipt_with_parent,
     create_outbox_item_with_parent,
 )
+
+from .conftest import _make_lifecycle, _make_receipt
 
 # ===================================================================
 # finalize_queued_delivery — error paths
@@ -66,7 +66,7 @@ class TestAppendQueuedToSentErrorPaths:
             temp_storage,
             _make_receipt(
                 receipt_id="rcpt-ch", status="queued", adapter="m", channel="0"
-            )
+            ),
         )
         record = OutboundNativeRefRecord(
             event_id="evt-001",

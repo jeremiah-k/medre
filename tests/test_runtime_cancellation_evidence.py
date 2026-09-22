@@ -178,9 +178,7 @@ class TestDrainAbandonedEvidencePersistence:
         verify_storage = SQLiteStorage(db_path)
         try:
             await verify_storage.initialize()
-            projection_state = (
-                await verify_storage.get_conversation_projection_state()
-            )
+            projection_state = await verify_storage.get_conversation_projection_state()
             assert projection_state is not None
             assert projection_state.status == "dirty"
             receipts = await verify_storage.list_receipts_for_event(event.event_id)

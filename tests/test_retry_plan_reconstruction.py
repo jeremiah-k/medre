@@ -23,9 +23,7 @@ from medre.core.planning.delivery_plan import (
     delivery_target_identity,
 )
 from medre.core.routing.models import Route, RouteTarget
-
 from tests.helpers.retry_plan import make_retry_outbox as _make_outbox
-
 
 # ---------------------------------------------------------------------------
 # Helpers

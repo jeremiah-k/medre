@@ -96,9 +96,7 @@ def test_workflow_matches_compose(label: str, repo: str, env: str) -> None:
 
 
 @pytest.mark.parametrize(("label", "repo", "env"), _IMAGES)
-def test_conftest_default_tag_matches_compose(
-    label: str, repo: str, env: str
-) -> None:
+def test_conftest_default_tag_matches_compose(label: str, repo: str, env: str) -> None:
     """conftest fallback default carries the compose tag.
 
     Digest is intentionally omitted here: this default fires only for local
@@ -113,9 +111,9 @@ def test_conftest_default_tag_matches_compose(
     )
     assert matches, f"no {env} fallback default found in conftest"
     drifted = [value for value in matches if value != tag]
-    assert not drifted, (
-        f"conftest {label} tag drifted: compose is {tag}, conftest is {drifted}"
-    )
+    assert (
+        not drifted
+    ), f"conftest {label} tag drifted: compose is {tag}, conftest is {drifted}"
 
 
 @pytest.mark.parametrize(("label", "repo", "env"), _IMAGES)
@@ -146,9 +144,7 @@ def test_artifacts_defaults_tag_matches_compose(
 
 
 @pytest.mark.parametrize(("label", "repo", "env"), _IMAGES)
-def test_run_script_comment_matches_compose(
-    label: str, repo: str, env: str
-) -> None:
+def test_run_script_comment_matches_compose(label: str, repo: str, env: str) -> None:
     """The runner script's documented default carries the compose tag."""
     tag, _digest = _compose_ref(repo)
     match = re.search(
@@ -157,6 +153,5 @@ def test_run_script_comment_matches_compose(
     )
     assert match is not None, f"{env} default comment not found in script"
     assert match.group(1) == tag, (
-        f"script {label} tag drifted: compose is {tag}, "
-        f"script is {match.group(1)}"
+        f"script {label} tag drifted: compose is {tag}, " f"script is {match.group(1)}"
     )

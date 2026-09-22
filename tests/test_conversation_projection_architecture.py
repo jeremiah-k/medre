@@ -7,7 +7,6 @@ import re
 from collections import Counter
 from pathlib import Path
 
-
 _ROOT = Path(__file__).resolve().parents[1]
 _APP = _ROOT / "src/medre/runtime/app.py"
 _STORAGE = _ROOT / "src/medre/core/storage/sqlite"
@@ -16,14 +15,18 @@ _STORAGE = _ROOT / "src/medre/core/storage/sqlite"
 def test_runtime_rebuilds_projection_before_pipeline_and_adapters_start() -> None:
     source = _APP.read_text(encoding="utf-8")
     initialize = source.index("await self.storage.initialize()")
-    rebuild = source.index("await self.pipeline_runner.rebuild_conversation_projection()")
+    rebuild = source.index(
+        "await self.pipeline_runner.rebuild_conversation_projection()"
+    )
     pipeline_start = source.index("await self.pipeline_runner.start()")
     adapter_start = source.index("await adapter.start(ctx)")
 
     assert initialize < rebuild < pipeline_start < adapter_start
 
 
-def test_runtime_marks_projection_clean_after_pipeline_stop_before_storage_close() -> None:
+def test_runtime_marks_projection_clean_after_pipeline_stop_before_storage_close() -> (
+    None
+):
     tree = ast.parse(_APP.read_text(encoding="utf-8"))
     stop = next(
         member

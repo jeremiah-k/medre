@@ -122,7 +122,9 @@ class TestStaleQueuedReclaim:
         assert matched[0].status == "in_progress"
         assert matched[0].worker_id == "worker-2"
 
-    async def test_fresh_queued_not_claimed(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_fresh_queued_not_claimed(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         """A queued row whose updated_at is within the grace period
         should NOT be claimed."""
         now_claim = "2026-01-01T01:00:00"

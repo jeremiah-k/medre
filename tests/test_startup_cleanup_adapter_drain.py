@@ -214,6 +214,7 @@ class TestStartupCleanupDrainSites:
         # Bound the shutdown timeout so the test does not wait for the
         # default 10 s deadline on the second adapter's stuck stop().
         with _set_shutdown_timeout(app, 0.2):
+
             async def _run_with_external_cancel() -> None:
                 task = asyncio.create_task(app._cleanup_started_adapters())
                 # Prove the first adapter's stop() has started before

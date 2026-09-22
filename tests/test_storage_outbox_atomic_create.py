@@ -72,7 +72,9 @@ class TestAtomicCreateOutboxItem:
             limit=10,
         )
         assert len(claimed) == 1
-        await outbox_temp_storage.mark_outbox_sent(created1.outbox_id, receipt_id="rcpt-1")
+        await outbox_temp_storage.mark_outbox_sent(
+            created1.outbox_id, receipt_id="rcpt-1"
+        )
         # Item is now terminal.  Re-create with same key tuple.
         item2 = _make_outbox_item(
             delivery_plan_id="plan-term-rtn",

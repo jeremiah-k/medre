@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import pytest
 
-from tests.helpers.storage_outbox import admit_event
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     RetryPolicy,
 )
 from medre.core.storage.backend import StorageBackend
+from tests.helpers.storage_outbox import admit_event
 
 from .conftest import _make_lifecycle, _make_plan
 

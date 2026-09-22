@@ -63,10 +63,13 @@ async def test_failed_atomic_admission_rolls_back_canonical_event(tmp_path) -> N
             )
             is None
         )
-        assert await storage._read_one(
-            "SELECT event_id FROM durable_ingress_work WHERE event_id = ?",
-            (second.event_id,),
-        ) is None
+        assert (
+            await storage._read_one(
+                "SELECT event_id FROM durable_ingress_work WHERE event_id = ?",
+                (second.event_id,),
+            )
+            is None
+        )
     finally:
         await storage.close()
 
@@ -100,7 +103,9 @@ async def test_admitted_pending_work_survives_process_restart(tmp_path) -> None:
         await reopened.close()
 
 
-async def test_expired_processing_lease_is_reclaimed_after_worker_crash(tmp_path) -> None:
+async def test_expired_processing_lease_is_reclaimed_after_worker_crash(
+    tmp_path,
+) -> None:
     path = str(tmp_path / "medre.db")
     storage = SQLiteStorage(path)
     await storage.initialize()
@@ -130,14 +135,14 @@ async def test_expired_processing_lease_is_reclaimed_after_worker_crash(tmp_path
         await reopened.close()
 
 
-async def test_redecoded_native_event_after_restart_keeps_original_identity(tmp_path) -> None:
+async def test_redecoded_native_event_after_restart_keeps_original_identity(
+    tmp_path,
+) -> None:
     path = str(tmp_path / "medre.db")
     storage = SQLiteStorage(path)
     await storage.initialize()
     original = _event("evt-original", "$same")
-    await storage.admit_ingress(
-        original, _ref(original.event_id, "$same"), "recovered"
-    )
+    await storage.admit_ingress(original, _ref(original.event_id, "$same"), "recovered")
     await storage.close()
 
     reopened = SQLiteStorage(path)

@@ -13,9 +13,9 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 from .conftest import _make_lifecycle, _make_receipt
-from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 # ===================================================================
 # Outbox finalization — status transitions

@@ -223,9 +223,7 @@ class _IngressMixin:
         params = (adapter_id, stream, cursor, metadata_json, now)
         db = self._require_db()
         try:
-            await self._run_in_thread(
-                sync_upsert_checkpoint, db, self._lock, params
-            )
+            await self._run_in_thread(sync_upsert_checkpoint, db, self._lock, params)
         except sqlite3.Error as exc:
             raise StorageError(f"Checkpoint write failed: {exc}") from exc
 

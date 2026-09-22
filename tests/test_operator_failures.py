@@ -38,12 +38,12 @@ from pathlib import Path
 import pytest
 
 from medre.config.env import (
-    _is_secret_field,
     EnvProvenance,
     MedreEnvConfig,
     _coerce_bool,
     _coerce_float,
     _coerce_int,
+    _is_secret_field,
 )
 from medre.config.errors import (
     ConfigFileError,

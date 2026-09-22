@@ -10,9 +10,7 @@ SELECT event_id FROM native_message_refs
 WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
 """
 
-SELECT_CANONICAL_EVENT_ID = (
-    "SELECT event_id FROM canonical_events WHERE event_id = ?"
-)
+SELECT_CANONICAL_EVENT_ID = "SELECT event_id FROM canonical_events WHERE event_id = ?"
 
 SELECT_INGRESS_WORK_STATE = (
     "SELECT provenance, status FROM durable_ingress_work WHERE event_id = ?"
@@ -40,6 +38,7 @@ SET status='processing', attempts=attempts+1,
     locked_at=?, lease_until=?, worker_id=?, updated_at=?
 WHERE event_id=?
 """
+
 
 def claimed_ingress_row(
     row: Sequence[Any], *, now_iso: str, lease_until: str, worker_id: str

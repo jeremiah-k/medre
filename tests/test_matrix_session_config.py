@@ -13,7 +13,6 @@ from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.errors import MatrixConfigError
 from tests.helpers.matrix_session import make_matrix_config
 
-
 # ===================================================================
 # TestMatrixConfigEncryption
 # ===================================================================
@@ -144,9 +143,7 @@ class TestE2EEDefaultDerivation:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_e2ee_required_without_store_path_raises(
-        self, mock_nio
-    ) -> None:
+    async def test_e2ee_required_without_store_path_raises(self, mock_nio) -> None:
         """e2ee_required without store_path raises — no tempdir fallback."""
         import medre.adapters.matrix.compat as compat
 
@@ -165,9 +162,7 @@ class TestE2EEDefaultDerivation:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_e2ee_required_uses_configured_store_when_set(
-        self, mock_nio
-    ) -> None:
+    async def test_e2ee_required_uses_configured_store_when_set(self, mock_nio) -> None:
         """When store_path is explicitly configured, it is used as-is."""
         import medre.adapters.matrix.compat as compat
 
@@ -281,9 +276,7 @@ class TestE2EEDependencyDetection:
 class TestBlocker3ClientConfigFailure:
     """Blocker 3: ClientConfig(encryption_enabled=True) failure handling."""
 
-    async def test_client_config_succeeds_crypto_enabled(
-        self, mock_nio
-    ) -> None:
+    async def test_client_config_succeeds_crypto_enabled(self, mock_nio) -> None:
         """ClientConfig succeeds → crypto_enabled=True."""
         import medre.adapters.matrix.compat as compat
 
@@ -304,9 +297,7 @@ class TestBlocker3ClientConfigFailure:
         finally:
             compat.HAS_E2EE = original
 
-    async def test_client_config_raises_matrix_connection_error(
-        self, mock_nio
-    ) -> None:
+    async def test_client_config_raises_matrix_connection_error(self, mock_nio) -> None:
         """ClientConfig raises → MatrixConnectionError raised, crypto_enabled stays False."""
         import medre.adapters.matrix.compat as compat
 
@@ -327,9 +318,7 @@ class TestBlocker3ClientConfigFailure:
             compat.HAS_E2EE = original
             mock_nio.AsyncClientConfig.side_effect = None
 
-    async def test_client_closed_on_config_failure(
-        self, mock_nio
-    ) -> None:
+    async def test_client_closed_on_config_failure(self, mock_nio) -> None:
         """If AsyncClient was created but ClientConfig fails, client is closed."""
         import medre.adapters.matrix.compat as compat
 

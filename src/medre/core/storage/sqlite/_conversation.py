@@ -79,13 +79,11 @@ class _ConversationMixin:
         self,
     ) -> ConversationProjectionState | None:
         """Return the singleton projection startup/rebuild state."""
-        row = await self._read_one(
-            """
+        row = await self._read_one("""
             SELECT projection_revision, status, last_event_id
             FROM conversation_projection_state
             WHERE singleton_id = 1
-            """
-        )
+            """)
         if row is None:
             return None
         return ConversationProjectionState(

@@ -382,8 +382,7 @@ async def test_schema_check_validator_rejects_unconstrained_table_definition(
         table = str(params[0])
         if table != "conversation_membership":
             return {"sql": _current_table_definition(table)}
-        return {
-            "sql": """
+        return {"sql": """
                 CREATE TABLE conversation_membership (
                     event_id TEXT PRIMARY KEY,
                     depth INTEGER NOT NULL,
@@ -391,8 +390,7 @@ async def test_schema_check_validator_rejects_unconstrained_table_definition(
                     root_event_id TEXT NOT NULL,
                     resolution_state TEXT NOT NULL
                 )
-            """
-        }
+            """}
 
     monkeypatch.setattr(storage, "_read_one", _unconstrained_definition)
 
@@ -433,9 +431,7 @@ async def test_schema_check_validator_ignores_quoted_constraint_text(
         + "\n)"
     )
 
-    async def _definition(
-        sql: str, params: tuple[object, ...] = ()
-    ) -> dict[str, str]:
+    async def _definition(sql: str, params: tuple[object, ...] = ()) -> dict[str, str]:
         assert "sqlite_master" in sql
         table = str(params[0])
         if table == "conversation_projection_state":

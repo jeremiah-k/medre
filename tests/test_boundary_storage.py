@@ -13,9 +13,7 @@ import re
 from pathlib import Path
 
 from tests.helpers.ast_imports import all_imports as _all_imports_new
-from tests.helpers.ast_imports import (
-    import_matches,
-)
+from tests.helpers.ast_imports import import_matches
 from tests.helpers.ast_imports import runtime_scope_imports as _runtime_scope_new
 from tests.helpers.import_scanner import (
     scan_multiple_dirs_for_plain_imports,

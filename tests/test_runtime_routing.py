@@ -1300,7 +1300,6 @@ class TestChannelRoomMapEndToEnd:
             )
         )
 
-
         # Build a Matrix reply event targeting the prior event.
         rel = EventRelation(
             relation_type="reply",
@@ -1393,7 +1392,6 @@ class TestChannelRoomMapEndToEnd:
                 direction="outbound",
             )
         )
-
 
         rel = EventRelation(
             relation_type="reply",

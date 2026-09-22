@@ -15,9 +15,9 @@ from medre.core.events import EventRelation
 from medre.core.storage.sqlite.serde import _encode_json, _now_iso, _row_to_relation
 from medre.core.storage.sqlite.statements import (
     _INSERT_RELATION,
-    _SELECT_RELATIONS,
     _SELECT_RELATION_SOURCES,
     _SELECT_RELATION_SOURCES_FOR_NATIVE_REF,
+    _SELECT_RELATIONS,
 )
 
 

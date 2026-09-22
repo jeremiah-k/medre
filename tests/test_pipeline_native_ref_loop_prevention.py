@@ -11,10 +11,9 @@ using fake adapters and SQLiteStorage.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 import pytest
-
-from datetime import datetime, timezone
 
 from medre.core.contracts.adapter import AdapterDeliveryResult
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
@@ -827,9 +826,7 @@ class TestReplayUsesStoredNativeRefsConsistently:
         """Native refs are durable — repeated lookups yield the same result."""
         # Admit the parent event so the FK on native_message_refs.event_id
         # is satisfied (PRAGMA foreign_keys=ON is now enforced).
-        await temp_storage.append(
-            _make_event_with_native_ref(event_id="dur-001")
-        )
+        await temp_storage.append(_make_event_with_native_ref(event_id="dur-001"))
         nref = NativeMessageRef(
             id="nref-dur-001",
             event_id="dur-001",
@@ -1079,9 +1076,7 @@ class TestRelationMappingWithNativeRefs:
         channels exist for the same adapter (Meshtastic multi-channel)."""
         # Admit the prior event so the FK on native_message_refs.event_id
         # is satisfied (PRAGMA foreign_keys=ON is now enforced).
-        await temp_storage.append(
-            _make_event_with_native_ref(event_id="prior-ch-001")
-        )
+        await temp_storage.append(_make_event_with_native_ref(event_id="prior-ch-001"))
         # Two outbound refs for the same event/adapter but different channels
         await temp_storage.store_native_ref(
             NativeMessageRef(

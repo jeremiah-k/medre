@@ -141,9 +141,7 @@ async def test_startup_read_is_bounded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A stalled storage read times out instead of blocking startup."""
-    monkeypatch.setattr(
-        retry_module, "_STARTUP_EVIDENCE_TIMEOUT_SECONDS", 0.05
-    )
+    monkeypatch.setattr(retry_module, "_STARTUP_EVIDENCE_TIMEOUT_SECONDS", 0.05)
     buf = EventBuffer(clock=_fixed_clock)
     worker = _make_worker(event_buffer=buf)
     read_entered = asyncio.Event()
@@ -203,14 +201,10 @@ async def test_concurrent_start_creates_single_worker() -> None:
         assert not second_start.done()
         assert worker._task is None
         release_read.set()
-        await asyncio.wait_for(
-            asyncio.gather(first_start, second_start), timeout=1.0
-        )
+        await asyncio.wait_for(asyncio.gather(first_start, second_start), timeout=1.0)
 
         started_events = [
-            event
-            for event in buf
-            if event.event_type == RuntimeEventType.RETRY_STARTED
+            event for event in buf if event.event_type == RuntimeEventType.RETRY_STARTED
         ]
         assert len(started_events) == 1
         assert startup_capture.await_count == 1
@@ -249,21 +243,15 @@ async def test_stop_during_startup_waits_for_startup_to_finish() -> None:
     try:
         assert not stop_task.done()
         release_read.set()
-        await asyncio.wait_for(
-            asyncio.gather(start_task, stop_task), timeout=1.0
-        )
+        await asyncio.wait_for(asyncio.gather(start_task, stop_task), timeout=1.0)
     finally:
         release_read.set()
         await asyncio.gather(start_task, stop_task, return_exceptions=True)
 
     assert worker._task is None
     assert worker.state.running is False
-    assert any(
-        event.event_type == RuntimeEventType.RETRY_STARTED for event in buf
-    )
-    assert any(
-        event.event_type == RuntimeEventType.RETRY_STOPPED for event in buf
-    )
+    assert any(event.event_type == RuntimeEventType.RETRY_STARTED for event in buf)
+    assert any(event.event_type == RuntimeEventType.RETRY_STOPPED for event in buf)
 
 
 class TestRetryWorkerEventBufferWiring:
