@@ -1067,6 +1067,41 @@ receipt. Meshtastic initially emits `queued/local_queue`. When its queue worker
 obtains a real packet send result, the correlated supplemental receipt becomes
 `sent/local_transport`. The original receipt is never mutated.
 
+### 13.3.1 Post-Handoff Delivery Observations
+
+Some transports produce meaningful facts only after MEDRE has already handed
+an attempt to the local transport. Those facts **MUST NOT** rewrite the
+delivery receipt or reopen terminal outbox state. Adapters MAY instead report
+an `OutboundDeliveryObservationRecord` through the runtime-supplied
+`record_delivery_observation` callback.
+
+Core **MUST** validate the observation against the exact durable attempt using
+`outbox_id`, `attempt_number`, `event_id`, and target adapter before appending
+it to `delivery_observations`. A callback for a stale retry attempt, a missing
+outbox row, or an attempt that has already moved to retry/dead-letter/cancelled
+state **MUST** be rejected. Route target fields and transport-native addressing
+are evidence fields, not universal correlation keys.
+
+Observations are append-only. Their state vocabulary is `delivered`, `failed`,
+`rejected`, or `cancelled`. `confirmation_level` remains independent from the
+provider state and **MUST NOT** be upgraded merely because a provider calls a
+state `delivered`. Duplicate callbacks with the same deterministic observation
+identity are idempotent.
+
+Attempt correlation reads the outbox row's stored `attempt_number`, which
+advances when a retry attempt finalizes rather than when the retry worker
+claims the row. In the bounded window between a retry claim and its
+finalization the row still records the prior attempt's number: a callback
+carrying that prior number is admitted, and a callback carrying the live
+next-attempt number is deferred until finalization stamps it. Advancing the
+attempt identity at claim time is retry-engineering work outside the
+observation contract.
+
+LXMF is the first built-in producer. Its immediate receipt remains
+`sent/local_queue`; callback-emitted terminal LXMF states are persisted as
+observations for the same outbox attempt. This preserves the distinction
+between MEDRE lifecycle truth and later transport evidence.
+
 ### 13.4 Native Message ID Requirements
 
 `native_message_id` and `native_channel_id` on `AdapterDeliveryResult`

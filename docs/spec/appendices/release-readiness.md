@@ -29,7 +29,7 @@ commitment.
 | Storage native refs                 | live-validated     | synthetic-tested        | synthetic-tested            | synthetic-tested            |
 | Evidence bundle                     | live-validated     | synthetic-tested        | synthetic-tested            | synthetic-tested            |
 | Delivery reliability                | synthetic-tested   | synthetic-tested        | designed                    | designed                    |
-| Delivery evidence (unified inspect) | synthetic-tested   | synthetic-tested        | not started                 | not started                 |
+| Delivery evidence (unified inspect) | synthetic-tested   | synthetic-tested        | not started                 | synthetic-tested            |
 | Run-session path                    | live-validated     | not started             | not started                 | not started                 |
 | Operator runbook                    | live-validated     | opt-in live exists      | designed                    | designed                    |
 | Live validation recorded            | live-validated     | not started             | not started                 | not started                 |
@@ -116,7 +116,7 @@ not external network behavior, federation, or real-world rate limits.
 - [x] Record current-tree execution of local-integration harness
 - [ ] Live validation against Reticulum network
 - [ ] Multi-hop delivery testing
-- [ ] Delivery state progression observation
+- [x] Durable callback-emitted terminal delivery observation
 
 ## 5. Authority Domains
 

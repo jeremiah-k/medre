@@ -112,6 +112,24 @@ Reticulum and LXMF use background daemon threads, not asyncio. The `LxmfSession`
 
 `LxmfSession.send_text()` creates an `LXMessage`, registers delivery state callbacks, and calls `router.handle_outbound(lxm)`. It returns `(native_message_id, initial_state)` immediately — typically `OUTBOUND` or `SENDING`, not `DELIVERED`. Actual delivery happens asynchronously.
 
+MEDRE persists callback-emitted terminal LXMF states as **post-handoff delivery
+observations** tied to the exact durable outbox attempt. The pinned SDK emits
+successful delivery through its delivery callback and some failures through a
+separate failed callback; MEDRE registers both and does not invent terminal
+states the SDK did not report. These observations appear in `medre trace`,
+`medre inspect`, and evidence bundles. They do not rewrite the original
+`sent/local_queue` receipt or reopen terminal outbox state.
+
+Treat the persisted state as the LXMF provider's report, not as a stronger
+MEDRE proof claim. In particular, an LXMF `delivered` observation currently
+keeps `confirmation_level="unknown"`; MEDRE does not promote it to
+`end_to_end` automatically.
+
+The callback correlation needed to create an observation is process-local until
+the observation is persisted. A hard crash after LXMRouter handoff but before a
+terminal callback may therefore leave only the original `sent/local_queue`
+receipt. MEDRE does not fabricate a terminal state during restart recovery.
+
 Outbound retry is bounded: 3 retries with short linear backoff. After exhaustion, the send raises `LxmfSendError`, which the adapter normalizes to `AdapterSendError`.
 
 ### Reticulum Singleton

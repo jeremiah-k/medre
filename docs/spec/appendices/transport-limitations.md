@@ -218,8 +218,9 @@ mechanisms:
 5. **`RenderingContext.capability_policy` is reserved and unpopulated.** No
    production code path currently sets this field.
 6. **`delivery_receipts` semantics differ by transport.** Matrix declares
-   `delivery_receipts=true`, meaning homeserver ACK only. LXMF tracks
-   deliveries asynchronously through its own state model but does not wire
-   MEDRE-level delivery receipts (declared `false`). Neither implies
+   `delivery_receipts=true`, meaning homeserver ACK only. LXMF still declares
+   `delivery_receipts=false`: its initial receipt proves local LXMRouter handoff,
+   while later callback-emitted terminal provider states are persisted
+   separately as post-handoff delivery observations. Neither mechanism implies
    end-to-end recipient acknowledgement; evidence levels are normative in
    [routing-delivery.md](../routing-delivery.md) §13.

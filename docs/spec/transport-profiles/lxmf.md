@@ -278,7 +278,14 @@ implementation authority. Flat LXMF event metadata is not an alternate shape.
 
 **Delivery state model (tracked per outbound message):**
 
-`AdapterDeliveryResult.delivery_status` is `"sent"` for all LXMF deliveries, meaning the message was handed to the local LXMRouter. This does **not** mean confirmed delivery to the recipient. The actual LXMF delivery state is reported in `metadata["lxmf"]["delivery_state"]`.
+`AdapterDeliveryResult.delivery_status` is `"sent"` for all LXMF deliveries,
+meaning the message was handed to the local LXMRouter. This does **not** mean
+confirmed delivery to the recipient. `metadata["lxmf"]["delivery_state"]` is
+the **initial** state observed at local handoff (typically `outbound` or
+`generating`), not the final provider state. Terminal states (`delivered`,
+`failed`, `rejected`, `cancelled`) arrive later through SDK callbacks and are
+persisted as post-handoff evidence in `delivery_observations`; operators
+should not search receipt metadata for the final transport state.
 
 | State        | Meaning                             |
 | ------------ | ----------------------------------- |
@@ -286,15 +293,38 @@ implementation authority. Flat LXMF event metadata is not an alternate shape.
 | `outbound`   | Queued for delivery                 |
 | `sending`    | Actively transmitting               |
 | `sent`       | Sent to network (not yet confirmed) |
-| `delivered`  | Confirmed delivered to recipient    |
+| `delivered`  | LXMF reports delivery completion    |
 | `failed`     | Permanent delivery failure          |
 | `rejected`   | Rejected by recipient               |
 | `cancelled`  | Cancelled by sender                 |
 | `unmapped`   | Unrecognised state from SDK         |
 
-State transitions are tracked via `_on_delivery_state_update` callbacks from `LXMRouter`. Terminal states (`delivered`, `failed`, `rejected`, `cancelled`) remove the message from tracking.
+Callback-emitted delivery updates are tracked via `_on_delivery_state_update`.
+The pinned LXMF SDK exposes successful delivery/progression through the message
+delivery callback and exposes some failures through a separate failed callback;
+MEDRE registers both. A terminal state is reported to core only when the SDK
+actually emits a callback carrying that state. MEDRE does not poll private SDK
+state or infer unreported `rejected`/`cancelled` transitions.
 
-**Delivery state is session-local observability only.** The LXMF adapter tracks SDK delivery state transitions for diagnostics and logging, but does not append durable MEDRE delivery receipts or update outbox lifecycle state from terminal states. `delivery_receipts` is `False` because confirmed recipient delivery is not yet persisted into the MEDRE receipt/outbox lifecycle. The `AdapterDeliveryResult.delivery_status` of `"sent"` means local handoff to `LXMRouter` only — not confirmed recipient delivery.
+**Delivery state is durable evidence, not lifecycle authority.** The LXMF
+adapter still returns `delivery_status="sent"` with `confirmation_level` of
+`local_queue` when the local `LXMRouter` accepts the message. A later terminal
+SDK callback is appended to `delivery_observations` for the exact outbox
+attempt; it does not rewrite the receipt or terminal outbox state. The
+`delivery_receipts` capability remains `False` because MEDRE does not model
+these provider callbacks as delivery receipts.
+
+**Crash window.** Correlation between an in-flight LXMF message and its exact
+outbox attempt is process-local until a terminal callback is received. Once an
+observation is appended it is durable, but a hard process crash after local
+handoff and before the terminal callback can lose that later provider fact.
+MEDRE does not reconstruct or invent a terminal state after restart when LXMF
+does not re-emit one. The original `sent/local_queue` receipt remains truthful.
+
+MEDRE persists LXMF `delivered` as the provider state but keeps the observation
+`confirmation_level="unknown"`. It does not independently upgrade that state
+to `end_to_end`; provider terminology and MEDRE evidence strength are separate
+claims.
 
 **Outbound delivery tracking is bounded** — capped at 1000 entries with FIFO eviction to prevent unbounded growth.
 

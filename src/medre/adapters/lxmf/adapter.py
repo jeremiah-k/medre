@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -66,7 +67,9 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
+    OutboundDeliveryObservationRecord,
 )
+from medre.core.events.delivery import DELIVERY_OBSERVATION_STATE_VALUES
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.supervision.diagnostic_contract import PENDING_DELIVERY_COUNT
 
@@ -94,6 +97,17 @@ _LXMF_CAPABILITIES = AdapterCapabilities(
 
 # Maximum entries in the inbound dedup OrderedDict (LRU eviction).
 _DEDUP_MAX_SIZE = 1024
+
+
+@dataclass(frozen=True)
+class _LxmfDeliveryObservationContext:
+    """Opaque core-correlation facts carried through the LXMF session."""
+
+    event_id: str
+    delivery_plan_id: str | None
+    outbox_id: str | None
+    attempt_number: int | None
+    native_channel_id: str | None
 
 
 class LxmfAdapter(AdapterContract):
@@ -150,6 +164,7 @@ class LxmfAdapter(AdapterContract):
         self.ctx: AdapterContext | None = None
         self._started: bool = False
         self._background_tasks: set[asyncio.Task] = set()
+        self._observation_tasks: set[asyncio.Task] = set()
 
         # Cached health string from last health_check() call.
         self._last_health: str | None = None
@@ -348,6 +363,16 @@ class LxmfAdapter(AdapterContract):
         Idempotent: calling stop on an already-stopped adapter is a no-op.
         Cancels all tracked background tasks before shutting down.
 
+        The runtime stop helper grants this whole method one cooperative
+        window of *timeout* seconds before it cancels the stop task, so the
+        drains and the session shutdown share a single deadline: the
+        observation drain is bounded to a quarter of the budget per phase
+        (wait and post-cancellation cleanup), the background drain gets half
+        of what remains, and the session teardown — which releases the
+        LXMRouter, its atexit handler, and Reticulum destination
+        registrations — keeps the rest so a blocked evidence write cannot
+        starve SDK teardown.
+
         Parameters
         ----------
         timeout:
@@ -361,18 +386,29 @@ class LxmfAdapter(AdapterContract):
             return
 
         # Gate callbacks immediately — prevents race between drain completing
-        # and session.stop() unsubscribing.
+        # and session.stop() unsubscribing.  First let delivery-state updates
+        # that SDK threads already bridged onto this loop run and spawn their
+        # observation tasks; closing the gate before that pass would silently
+        # drop terminal states that arrived just before stop was scheduled.
+        await asyncio.sleep(0)
         self._started = False
         self._start_time = None
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None
 
-        # Cancel all tracked background tasks and drain them.
-        await self._drain_background_tasks(timeout)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
 
-        # Stop the session (which tears down SDK objects).
-        await self._session.stop(timeout=timeout)
+        # Post-handoff evidence that was already reported before the stop gate
+        # gets a bounded chance to commit.  Ordinary background work keeps the
+        # existing cancel-first shutdown behavior.
+        await self._drain_observation_tasks(timeout * 0.25)
+        await self._drain_background_tasks(max(0.0, (deadline - loop.time()) * 0.5))
+
+        # Stop the session (which tears down SDK objects) with whatever
+        # budget remains.
+        await self._session.stop(timeout=max(0.0, deadline - loop.time()))
 
         self._inbound_dedup.clear()
         if self.ctx is not None:
@@ -487,8 +523,32 @@ class LxmfAdapter(AdapterContract):
 
     # -- Background task management -----------------------------------------
 
+    async def _drain_observation_tasks(self, timeout: float = 5.0) -> None:
+        """Boundedly flush already-started post-handoff evidence writes.
+
+        New delivery-state callbacks are gated before this method runs.  Tasks
+        that were already scheduled get a chance to finish because cancelling
+        them immediately could discard a provider fact that MEDRE had already
+        accepted for durable persistence.  A task that exceeds *timeout* is
+        cancelled so adapter shutdown still converges, and the post-cancellation
+        grace is bounded with ``asyncio.wait``, which returns at its deadline
+        even when a task suppresses ``CancelledError`` — awaiting the cancelled
+        tasks through ``wait_for`` instead would let a cancellation-resistant
+        write hold the stop deadline open.
+        """
+        tasks = list(self._observation_tasks)
+        if not tasks:
+            return
+        done, pending = await asyncio.wait(tasks, timeout=max(0.0, timeout))
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.wait(pending, timeout=max(0.0, timeout))
+        self._observation_tasks.difference_update(done)
+        self._observation_tasks.difference_update(pending)
+
     async def _drain_background_tasks(self, timeout: float = 5.0) -> None:
-        """Cancel and await all tracked background tasks.
+        """Cancel and await all tracked ordinary background tasks.
 
         Parameters
         ----------
@@ -527,8 +587,9 @@ class LxmfAdapter(AdapterContract):
         LXMRouter (local acceptance).  This does **not** mean the
         message was confirmed delivered to the recipient.  LXMF
         delivery is asynchronous and multi-hop; the actual delivery
-        state transitions are tracked per-message in the session and
-        reflected in the ``metadata["lxmf"]["delivery_state"]`` field.
+        state transitions are tracked per-message in the session.  The
+        result metadata records only the initial state; later terminal states
+        are reported separately as post-handoff delivery observations.
 
         Parameters
         ----------
@@ -575,6 +636,13 @@ class LxmfAdapter(AdapterContract):
         if not content and not title:
             return None
 
+        delivery_context = _LxmfDeliveryObservationContext(
+            event_id=result.event_id,
+            delivery_plan_id=result.delivery_plan_id,
+            outbox_id=result.outbox_id,
+            attempt_number=result.attempt_number,
+            native_channel_id=(str(destination_hash) if destination_hash else None),
+        )
         try:
             native_id, delivery_state = await self._session.send_text(
                 destination_hash=str(destination_hash),
@@ -582,6 +650,7 @@ class LxmfAdapter(AdapterContract):
                 title=str(title),
                 delivery_method=(str(delivery_method) if delivery_method else None),
                 fields=fields if isinstance(fields, dict) else None,
+                delivery_context=delivery_context,
             )
         except asyncio.CancelledError:
             raise
@@ -719,21 +788,18 @@ class LxmfAdapter(AdapterContract):
                     self.adapter_id,
                 )
 
-    def _on_delivery_state(self, message_hash: str, state: str) -> None:
-        """Handle terminal delivery state notifications from the session.
+    def _on_delivery_state(
+        self,
+        message_hash: str,
+        state: str,
+        delivery_context: object | None,
+    ) -> None:
+        """Report terminal LXMF delivery state as append-only evidence.
 
-        Invoked on the asyncio loop when an outbound delivery reaches a
-        terminal state (``delivered``, ``failed``, ``rejected``, or
-        ``cancelled``).  Session-local observability only — logs the
-        state transition for diagnostics.  Does not append durable MEDRE
-        delivery receipts or update outbox lifecycle state.
-
-        Parameters
-        ----------
-        message_hash:
-            Hex-encoded LXMF message hash.
-        state:
-            Lowercase terminal state string.
+        The session passes through an opaque correlation object captured at
+        send initiation, so terminal callbacks are tied to the exact durable
+        attempt without a post-send lookup race.  Core remains lifecycle
+        authority: this callback never rewrites a receipt or outbox row.
         """
         if not self._started:
             return
@@ -744,6 +810,66 @@ class LxmfAdapter(AdapterContract):
                 message_hash[:16],
                 state,
             )
+
+        callback = self.ctx.record_delivery_observation if self.ctx else None
+        if callback is None or not isinstance(
+            delivery_context, _LxmfDeliveryObservationContext
+        ):
+            return
+        if state not in DELIVERY_OBSERVATION_STATE_VALUES:
+            return
+
+        error = None
+        if state != "delivered":
+            error = f"LXMF reported terminal delivery state {state}"
+        record = OutboundDeliveryObservationRecord(
+            event_id=delivery_context.event_id,
+            adapter=self.adapter_id,
+            state=state,  # type: ignore[arg-type]
+            outbox_id=delivery_context.outbox_id,
+            attempt_number=delivery_context.attempt_number,
+            delivery_plan_id=delivery_context.delivery_plan_id,
+            native_channel_id=delivery_context.native_channel_id,
+            native_message_id=message_hash,
+            confirmation_level="unknown",
+            error=error,
+            metadata={
+                "lxmf": {
+                    "schema_version": LXMF_NATIVE_SCHEMA_VERSION,
+                    "delivery_state": state,
+                }
+            },
+        )
+        task = asyncio.create_task(self._record_delivery_observation(callback, record))
+        task.add_done_callback(self._observation_tasks.discard)
+        self._observation_tasks.add(task)
+
+    async def _record_delivery_observation(
+        self,
+        callback: Any,
+        record: OutboundDeliveryObservationRecord,
+    ) -> None:
+        """Report post-handoff evidence without leaking callback failures.
+
+        The runtime callback already contains persistence failures, but adapter
+        contexts are also constructed directly by tests and embedders.  Keep
+        this background-task boundary self-contained so an external callback
+        exception cannot become an un-retrieved task failure.
+        """
+        try:
+            await callback(record)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if self.ctx is not None:
+                self.ctx.logger.exception(
+                    "LxmfAdapter %s: failed to record delivery observation "
+                    "for outbox_id=%s attempt=%s state=%s",
+                    self.adapter_id,
+                    record.outbox_id,
+                    record.attempt_number,
+                    record.state,
+                )
 
     async def simulate_inbound(self, packet: dict[str, Any]) -> None:
         """Simulate an inbound LXMF message payload for testing.
