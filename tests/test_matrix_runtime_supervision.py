@@ -358,7 +358,8 @@ async def test_shutdown_race_does_not_record_terminal_sync_failure() -> None:
     """A sync exception after stop is requested belongs to normal shutdown."""
     session = MatrixSession(make_matrix_config())
 
-    async def _fail_after_stop_request() -> None:
+    async def _fail_after_stop_request(self) -> None:
+        # Patched onto the class, so the supervisor passes the instance.
         session._stop_requested = True
         raise RuntimeError("request closed during shutdown")
 

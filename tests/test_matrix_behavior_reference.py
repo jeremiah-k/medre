@@ -473,9 +473,7 @@ async def test_stop_drains_recovery_task_registered_after_cancel_snapshot() -> N
     )
 
     # First recovery task exists before stop().
-    await session._on_megolm_event(
-        SimpleNamespace(room_id="!room:example.test"), event
-    )
+    await session._on_megolm_event(SimpleNamespace(room_id="!room:example.test"), event)
     await started.wait()
 
     async def _late_callback() -> None:
@@ -497,9 +495,9 @@ async def test_stop_drains_recovery_task_registered_after_cancel_snapshot() -> N
     await late
 
     assert cancelled.is_set(), "in-flight recovery task was not cancelled"
-    assert not session._room_key_request_tasks, (
-        "recovery registry not fully drained at stop"
-    )
+    assert (
+        not session._room_key_request_tasks
+    ), "recovery registry not fully drained at stop"
 
 
 async def test_no_new_recovery_task_is_created_while_stopping() -> None:
@@ -522,9 +520,7 @@ async def test_no_new_recovery_task_is_created_while_stopping() -> None:
         as_key_request=MagicMock(return_value={"request": "missing-key"}),
     )
 
-    await session._on_megolm_event(
-        SimpleNamespace(room_id="!room:example.test"), event
-    )
+    await session._on_megolm_event(SimpleNamespace(room_id="!room:example.test"), event)
 
     to_device.assert_not_awaited()
     event.as_key_request.assert_not_called()

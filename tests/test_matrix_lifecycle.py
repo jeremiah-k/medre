@@ -461,6 +461,7 @@ class TestMatrixAdapterSyncFailure:
         mock_nio.AsyncClient.return_value.sync = _flaky_sync
         original_sleep = asyncio.sleep
         try:
+
             async def _fast_sleep(delay):
                 if delay <= 0:
                     await original_sleep(0)

@@ -130,8 +130,11 @@ class TestSyncRecovery:
             finally:
                 await session.stop()
 
-    async def test_reconnect_continues_past_legacy_attempt_ceiling(self, mock_nio) -> None:
+    async def test_reconnect_continues_past_legacy_attempt_ceiling(
+        self, mock_nio
+    ) -> None:
         """Persistent failures keep retrying beyond the former ten-attempt cap."""
+
         async def _always_fail(*a: object, **kw: object) -> None:
             await asyncio.sleep(0)
             raise ConnectionError("persistent failure")

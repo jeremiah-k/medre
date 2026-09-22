@@ -23,6 +23,7 @@ import asyncio
 import importlib
 import logging
 import sys
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -472,6 +473,11 @@ class TestAdapterDelegatesToSession:
         adapter = MatrixAdapter(config)
         try:
             await adapter.start(make_matrix_context())
+            # Authenticated-but-never-synced sessions report degraded; give
+            # the session a fresh successful sync so delegation classifies
+            # as healthy.
+            assert adapter._session is not None
+            adapter._session._last_successful_sync = time.monotonic()
             info = await adapter.health_check()
             assert info.health == "healthy"
         finally:
