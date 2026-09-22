@@ -842,3 +842,59 @@ def test_adapter_send_error_rejects_invalid_retry_hints() -> None:
         AdapterSendError("bad", retry_after_seconds=-1)
     with pytest.raises(ValueError, match="retry_after_seconds"):
         AdapterSendError("bad", retry_after_seconds=float("inf"))
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds=True)
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds="5")
+
+
+async def test_cooldown_expires_and_allows_subsequent_delivery() -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    mock_client = MagicMock()
+    rate_limited = MagicMock()
+    del rate_limited.event_id
+    rate_limited.errcode = "M_LIMIT_EXCEEDED"
+    rate_limited.retry_after_ms = 5000
+    delivered = _make_send_response("$evt-delivered:session")
+    mock_client.room_send = AsyncMock(side_effect=[rate_limited, delivered])
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError):
+        await adapter.deliver(_make_result(event_id="evt-cool-1"))
+
+    now[0] += 6.0
+    delivery = await adapter.deliver(_make_result(event_id="evt-cool-2"))
+
+    assert delivery is not None
+    assert delivery.native_message_id == "$evt-delivered:session"
+    diagnostics = adapter.diagnostics()
+    assert diagnostics["outbound_cooldown_deferrals"] == 0
+    assert diagnostics["outbound_cooldown_remaining_seconds"] == 0.0
+
+
+async def test_cooldown_keeps_longest_server_window() -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    mock_client = MagicMock()
+    rate_limited = MagicMock()
+    del rate_limited.event_id
+    rate_limited.errcode = "M_LIMIT_EXCEEDED"
+    rate_limited.retry_after_ms = 3000
+    mock_client.room_send = AsyncMock(return_value=rate_limited)
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError) as first_error:
+        await adapter.deliver(_make_result(event_id="evt-win-1"))
+    assert first_error.value.retry_after_seconds == 3.0
+
+    adapter._remember_outbound_cooldown(9.0)
+    with pytest.raises(AdapterSendError) as second_error:
+        await adapter.deliver(_make_result(event_id="evt-win-2"))
+
+    assert second_error.value.retry_after_seconds == 9.0
+    assert adapter.diagnostics()["outbound_cooldown_remaining_seconds"] == 9.0
