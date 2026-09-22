@@ -110,8 +110,10 @@ def test_router_identity_and_lookup_surfaces_match_session_usage() -> None:
 
 
 def test_lxmessage_delivery_states_support_medre_mapping() -> None:
-    """The named integer states MEDRE maps dynamically remain distinct."""
+    """The named states and callbacks MEDRE uses remain available."""
     lxmf, _ = _load_sdks()
+    assert callable(getattr(lxmf.LXMessage, "register_delivery_callback", None))
+    assert callable(getattr(lxmf.LXMessage, "register_failed_callback", None))
     names = (
         "GENERATING",
         "OUTBOUND",

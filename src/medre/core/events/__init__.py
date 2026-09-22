@@ -26,6 +26,7 @@ Package-level imports
 
 from medre.core.events.canonical import (
     CanonicalEvent,
+    DeliveryObservation,
     DeliveryReceipt,
     EventRecordKind,
     EventRelation,
@@ -34,7 +35,9 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.delivery import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DELIVERY_OBSERVATION_STATE_VALUES,
     DeliveryConfirmationLevel,
+    DeliveryObservationState,
 )
 from medre.core.events.kinds import (
     KNOWN_KINDS,
@@ -62,6 +65,7 @@ from medre.core.events.schema import (
 __all__ = [
     # canonical
     "CanonicalEvent",
+    "DeliveryObservation",
     "DeliveryReceipt",
     "EventRecordKind",
     "EventRelation",
@@ -69,7 +73,9 @@ __all__ = [
     "NativeRef",
     # delivery
     "DELIVERY_CONFIRMATION_LEVEL_VALUES",
+    "DELIVERY_OBSERVATION_STATE_VALUES",
     "DeliveryConfirmationLevel",
+    "DeliveryObservationState",
     # kinds
     "EventKind",
     "KNOWN_KINDS",

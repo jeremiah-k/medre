@@ -838,7 +838,12 @@ generating -> outbound -> sending -> sent -> delivered
                                           -> cancelled
 ```
 
-State progression happens asynchronously via callbacks registered on the LXMRouter. The initial state reported in `AdapterDeliveryResult.metadata` is typically `"outbound"`.
+LXMF progresses delivery asynchronously inside the SDK. MEDRE registers the
+per-message delivery callback and, where exposed by the pinned SDK, the separate
+failed callback. Not every internal LXMF state transition emits a callback, so
+MEDRE MUST persist only states the SDK actually reports; it MUST NOT poll private
+SDK state or synthesize an unreported terminal transition. The initial state
+reported in `AdapterDeliveryResult.metadata` is typically `"outbound"`.
 
 ### 17.3 Delayed Native Ref Recording
 
@@ -858,9 +863,47 @@ class OutboundNativeRefRecord:
 
 The `native_message_id` field **MUST** be a non-empty string from the external platform. The adapter **MUST NOT** fabricate IDs.
 
-### 17.4 Callback Isolation
+### 17.4 Post-Handoff Delivery Observations
 
-The adapter is not notified of retry decisions, receipt recording, or failure classification. It does not receive a callback after `deliver()` returns. This isolation is intentional: the adapter's job is to attempt delivery and report the outcome. The pipeline's job is to decide what happens next.
+Adapters with asynchronous transport completion MAY report later transport
+facts through the optional `record_delivery_observation` callback in
+`AdapterContext`. This callback is evidence-only. It **MUST NOT** be used to
+request retries, mutate receipts, or change outbox lifecycle state.
+
+```python
+@dataclass(frozen=True)
+class OutboundDeliveryObservationRecord:
+    event_id: str
+    adapter: str
+    state: Literal["delivered", "failed", "rejected", "cancelled"]
+    outbox_id: str | None = None
+    attempt_number: int | None = None
+    delivery_plan_id: str | None = None
+    native_channel_id: str | None = None
+    native_message_id: str | None = None
+    confirmation_level: DeliveryConfirmationLevel = "unknown"
+    error: str | None = None
+    metadata: Mapping[str, object] = field(default_factory=dict)
+```
+
+`outbox_id` and `attempt_number` are mandatory correlation facts for durable
+persistence. The transport session MAY carry them as opaque caller-owned
+context, but it **MUST NOT** interpret or mutate core lifecycle identity.
+
+Core validates the observation against the authoritative outbox row and
+appends it to the delivery-observation ledger. The adapter never writes storage
+directly. A terminal transport observation therefore cannot retroactively turn
+a locally successful MEDRE handoff into a failed receipt, and a later
+`delivered` observation cannot rewrite a receipt into a stronger lifecycle
+state.
+
+### 17.5 Callback Isolation
+
+The adapter is not notified of retry decisions, receipt recording, or failure
+classification. Post-handoff callbacks flow in only the opposite direction:
+the adapter reports transport facts and receives no lifecycle decision back.
+This isolation is intentional: the adapter attempts transport work and reports
+facts; the pipeline decides what happens next.
 
 ---
 
@@ -891,8 +934,9 @@ Every row in the following table is a hard boundary. Violations indicate a desig
 | Pipeline orchestration (routing, delivery planning, receipt tracking) | Runtime                 | None; adapters **MUST NOT** bypass |
 | Event authority, correlation, and lineage storage                     | Storage                 | Read via storage API               |
 | Retry/backoff computation (stateless)                                 | Runtime (RetryExecutor) | Record on receipts                 |
-| Retry scheduling (timed re-attempt)                                   | Reserved for future     | Not yet implemented                |
+| Retry scheduling (timed re-attempt)                                   | Runtime (RetryWorker)   | Storage persists due time/leases   |
 | Native message reference persistence                                  | Storage                 | Read via storage API               |
+| Post-handoff delivery observation persistence                         | Core runtime + storage  | Adapter reports facts only         |
 
 ---
 

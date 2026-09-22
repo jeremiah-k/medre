@@ -38,6 +38,7 @@ from medre.core.engine.pipeline.runner import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (
     CanonicalEvent,
+    DeliveryObservation,
     DeliveryReceipt,
     EventRelation,
     NativeMessageRef,
@@ -76,6 +77,7 @@ class _FakeStorage:
         self._events: dict[str, CanonicalEvent] = {}
         self._native_refs: dict[str, NativeMessageRef] = {}
         self._receipts: list[DeliveryReceipt] = []
+        self._observations: list[DeliveryObservation] = []
         self._native_ref_index: dict[tuple[str, str | None, str], str] = {}
         self._outbox: dict[str, DeliveryOutboxItem] = {}
         self._conversation_memberships: dict[str, ConversationMembership] = {}
@@ -143,6 +145,15 @@ class _FakeStorage:
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         self._receipts.append(receipt)
+
+    async def append_delivery_observation(
+        self, observation: DeliveryObservation
+    ) -> bool:
+        for existing in self._observations:
+            if existing.observation_id == observation.observation_id:
+                return False
+        self._observations.append(observation)
+        return True
 
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
         return [r for r in self._receipts if r.event_id == event_id]

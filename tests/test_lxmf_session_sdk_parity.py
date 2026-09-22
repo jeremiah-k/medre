@@ -432,7 +432,7 @@ class TestDeliveryStateCallback:
 
         session._apply_delivery_state_update(message)
 
-        callback.assert_called_once_with(msg_hash, "delivered")
+        callback.assert_called_once_with(msg_hash, "delivered", None)
         await session.stop()
 
     async def test_callback_invoked_on_failed(self) -> None:
@@ -457,7 +457,7 @@ class TestDeliveryStateCallback:
 
         session._apply_delivery_state_update(message)
 
-        callback.assert_called_once_with(msg_hash, "failed")
+        callback.assert_called_once_with(msg_hash, "failed", None)
         await session.stop()
 
     async def test_callback_invoked_on_rejected(self) -> None:
@@ -482,7 +482,7 @@ class TestDeliveryStateCallback:
 
         session._apply_delivery_state_update(message)
 
-        callback.assert_called_once_with(msg_hash, "rejected")
+        callback.assert_called_once_with(msg_hash, "rejected", None)
         await session.stop()
 
     async def test_callback_invoked_on_cancelled(self) -> None:
@@ -507,7 +507,7 @@ class TestDeliveryStateCallback:
 
         session._apply_delivery_state_update(message)
 
-        callback.assert_called_once_with(msg_hash, "cancelled")
+        callback.assert_called_once_with(msg_hash, "cancelled", None)
         await session.stop()
 
     async def test_no_callback_for_intermediate_states(self) -> None:
@@ -581,8 +581,10 @@ class TestDeliveryStateCallback:
             destination_hash="88" * 16,
         )
 
-        captured_args: list[tuple[str, str]] = []
-        session.set_delivery_state_callback(lambda h, s: captured_args.append((h, s)))
+        captured_args: list[tuple[str, str, object | None]] = []
+        session.set_delivery_state_callback(
+            lambda h, s, c: captured_args.append((h, s, c))
+        )
 
         message = MagicMock()
         message.hash = bytes.fromhex(msg_hash)
@@ -591,7 +593,7 @@ class TestDeliveryStateCallback:
         session._apply_delivery_state_update(message)
 
         assert len(captured_args) == 1
-        assert captured_args[0] == (msg_hash, "delivered")
+        assert captured_args[0] == (msg_hash, "delivered", None)
         await session.stop()
 
     async def test_callback_exception_does_not_crash(
@@ -609,7 +611,7 @@ class TestDeliveryStateCallback:
             destination_hash="aa" * 16,
         )
 
-        def _bad_callback(h: str, s: str) -> None:
+        def _bad_callback(h: str, s: str, context: object | None) -> None:
             raise RuntimeError("boom")
 
         session.set_delivery_state_callback(_bad_callback)

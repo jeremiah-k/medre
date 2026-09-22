@@ -50,6 +50,7 @@ from medre.core.storage.sqlite._delivery_finalize import _DeliveryFinalizationMi
 from medre.core.storage.sqlite._event import _EventMixin
 from medre.core.storage.sqlite._ingress import _IngressMixin
 from medre.core.storage.sqlite._native_ref import _NativeRefMixin
+from medre.core.storage.sqlite._observation import _ObservationMixin
 from medre.core.storage.sqlite._outbox import _OutboxMixin
 from medre.core.storage.sqlite._receipt import _ReceiptMixin
 from medre.core.storage.sqlite._recovery_query import _RecoveryQueryMixin
@@ -621,6 +622,7 @@ class SQLiteStorage(
     _RelationMixin,
     _ConversationMixin,
     _ReceiptMixin,
+    _ObservationMixin,
     _OutboxMixin,
     _DeliveryFinalizationMixin,
     _RecoveryQueryMixin,

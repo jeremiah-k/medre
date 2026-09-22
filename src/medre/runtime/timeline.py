@@ -17,6 +17,7 @@ from typing import Any
 
 from medre.core.events import (
     CanonicalEvent,
+    DeliveryObservation,
     DeliveryReceipt,
     NativeMessageRef,
 )
@@ -40,6 +41,11 @@ ORDERING_GUARANTEES: dict[str, dict[str, str]] = {
         "order": "sequence ASC",
         "deterministic": "true",
         "note": "Autoincrement PK guarantees global insertion order.",
+    },
+    "delivery_observations": {
+        "order": "sequence ASC",
+        "deterministic": "true",
+        "note": "Append-only per-table sequence orders post-handoff evidence.",
     },
     "native_refs": {
         "order": "created_at ASC, id ASC",
@@ -79,7 +85,8 @@ async def assemble_event_timeline(
     Returns ``None`` when the event does not exist in storage.
 
     **Persistence boundary:** Reads from ``canonical_events``, ``delivery_receipts``,
-    ``native_message_refs``, and ``event_relations`` storage tables (all read-only).
+    ``delivery_observations``, ``native_message_refs``, and ``event_relations``
+    storage tables (all read-only).
     Never writes to storage.  Source classification (live/replay/retry/mixed)
     and replay-run grouping are derived on demand from receipt rows.
 
@@ -89,6 +96,8 @@ async def assemble_event_timeline(
     - **receipts**: ``list[DeliveryReceipt]`` ordered by ``sequence ASC``.
     - **native_refs**: ``list[NativeMessageRef]`` ordered by
       ``created_at ASC, id ASC``.
+    - **delivery_observations**: ``list[DeliveryObservation]`` ordered by
+      ``sequence ASC``.
     - **relations**: ``list[EventRelation]`` ordered by ``id ASC``.
     - **replay_runs**: ``dict[str, list[DeliveryReceipt]]`` grouping
       ``replay_run_id`` → receipts belonging to that run.
@@ -108,6 +117,9 @@ async def assemble_event_timeline(
     )
     native_refs: list[NativeMessageRef] = await storage.list_native_refs_for_event(
         event_id
+    )
+    observations: list[DeliveryObservation] = (
+        await storage.list_delivery_observations_for_event(event_id)
     )
     relations = await storage.list_relations(event_id)
 
@@ -142,12 +154,14 @@ async def assemble_event_timeline(
         receipts,
         native_refs,
         relations,
+        observations,
     )
 
     return {
         "event": event,
         "receipts": receipts,
         "native_refs": native_refs,
+        "delivery_observations": observations,
         "relations": relations,
         "replay_runs": replay_runs,
         "source": source,
@@ -236,6 +250,7 @@ async def assemble_storage_summary(storage: StorageBackend) -> dict[str, Any]:
     """
     event_count = await storage.count_events()
     receipt_count = await storage.count_receipts()
+    observation_count = await storage.count_delivery_observations()
 
     # Receipt count by source (live vs replay vs retry).
     receipt_by_source: dict[str, int] = {
@@ -253,6 +268,7 @@ async def assemble_storage_summary(storage: StorageBackend) -> dict[str, Any]:
     return {
         "event_count": event_count,
         "receipt_count": receipt_count,
+        "delivery_observation_count": observation_count,
         "receipt_count_by_source": receipt_by_source,
         "native_ref_count": native_ref_count,
         "replay_run_count": replay_run_count,

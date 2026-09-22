@@ -166,7 +166,7 @@ async def test_lxmf_adapter_drops_delivery_state_callback_after_stop(
 
     caplog.clear()
     with caplog.at_level(logging.INFO):
-        adapter._on_delivery_state("ab" * 16, "delivered")
+        adapter._on_delivery_state("ab" * 16, "delivered", None)
 
     assert all(
         "delivery" not in record.getMessage().lower() for record in caplog.records

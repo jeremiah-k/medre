@@ -501,8 +501,9 @@ What loop prevention does not cover:
 
 ## Persistence and Crash Semantics
 
-Canonical events, delivery receipts, native refs, and the delivery outbox
-persist in local SQLite (`{state}/medre.sqlite`); Matrix E2EE keys and LXMF
+Canonical events, delivery receipts, post-handoff delivery observations, native
+refs, and the delivery outbox persist in local SQLite
+(`{state}/medre.sqlite`); Matrix E2EE keys and LXMF
 identities persist under `{state}/adapters/`. In-flight deliveries without an
 outbox row are lost on termination. Non-terminal outbox rows survive restart;
 `pending`/`retry_wait` work is claimable when due, expired `in_progress` work and

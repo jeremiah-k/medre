@@ -167,10 +167,13 @@ _MAX_OUTBOUND_DELIVERIES: int = 1000
 # Both sync and async callables are accepted.
 MessageCallback = Callable[[dict[str, Any]], Any]
 
-# Callback invoked when a delivery reaches a terminal state
-# (DELIVERED, FAILED, REJECTED, CANCELLED).  Receives the
-# message hash (hex string) and the terminal state value string.
-DeliveryStateCallback = Callable[[str, str], None]
+# Callback invoked when an SDK callback reports a mapped terminal state
+# (DELIVERED, FAILED, REJECTED, CANCELLED).  The pinned LXMF SDK exposes
+# delivery and failure callbacks but does not notify every internal state
+# transition.  Receives the message hash (hex string), terminal state value
+# string, and the opaque caller-owned delivery context captured at send
+# initiation.
+DeliveryStateCallback = Callable[[str, str, object | None], None]
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +376,7 @@ class _OutboundDelivery:
     native_message_id: str | None
     state: LxmfDeliveryState
     destination_hash: str
+    delivery_context: object | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_state_change: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
@@ -558,10 +562,11 @@ class LxmfSession:
         Parameters
         ----------
         callback:
-            ``callback(message_hash: str, state: str)`` where
-            *message_hash* is the hex-encoded LXMF message hash and
-            *state* is the lowercase state value string (e.g.
-            ``"delivered"``, ``"failed"``).  Pass ``None`` to clear.
+            ``callback(message_hash, state, delivery_context)`` where
+            *message_hash* is the hex-encoded LXMF message hash, *state* is
+            the lowercase terminal state, and *delivery_context* is the
+            opaque object supplied to :meth:`send_text`.  The session never
+            inspects the context.  Pass ``None`` to clear.
         """
         self._delivery_state_callback = callback
 
@@ -770,6 +775,7 @@ class LxmfSession:
         title: str = "",
         delivery_method: str | None = None,
         fields: dict[int, Any] | None = None,
+        delivery_context: object | None = None,
     ) -> tuple[str | None, LxmfDeliveryState]:
         """Send a text message via the LXMF router.
 
@@ -792,6 +798,9 @@ class LxmfSession:
             Override for delivery method.  ``None`` uses config default.
         fields:
             Optional LXMF fields dict.
+        delivery_context:
+            Opaque caller-owned correlation object retained with outbound
+            tracking and returned unchanged on terminal delivery callbacks.
 
         Returns
         -------
@@ -819,6 +828,7 @@ class LxmfSession:
                     native_message_id=fake_id,
                     state=state,
                     destination_hash=destination_hash,
+                    delivery_context=delivery_context,
                 ),
             )
             return fake_id, state
@@ -829,6 +839,7 @@ class LxmfSession:
             title=title,
             delivery_method=delivery_method,
             fields=fields,
+            delivery_context=delivery_context,
         )
 
     # ------------------------------------------------------------------
@@ -1306,7 +1317,15 @@ class LxmfSession:
             return
 
         try:
-            loop.call_soon_threadsafe(self._apply_delivery_state_update, message)
+            # LXMessage is mutable. Snapshot the values reported by this SDK
+            # callback before its state can change again on the I/O thread.
+            msg_hash = self._extract_message_hash(message)
+            if msg_hash is None:
+                return
+            state = _map_delivery_state(getattr(message, "state", None))
+            loop.call_soon_threadsafe(
+                self._apply_delivery_state_snapshot, msg_hash, state
+            )
         except Exception as exc:
             self._logger.debug(
                 "LxmfSession %s: error scheduling delivery state update: %s",
@@ -1315,19 +1334,21 @@ class LxmfSession:
             )
 
     def _apply_delivery_state_update(self, message: Any) -> None:
-        """Apply a delivery state update to outbound tracking.
+        """Apply a message's current state to outbound tracking.
 
-        Runs on the asyncio loop thread (bridged via
-        ``call_soon_threadsafe`` from ``_on_delivery_state_update``).
+        Used when the caller already runs on the asyncio loop thread.
         """
+        msg_hash = self._extract_message_hash(message)
+        if msg_hash is None:
+            return
+        state = _map_delivery_state(getattr(message, "state", None))
+        self._apply_delivery_state_snapshot(msg_hash, state)
+
+    def _apply_delivery_state_snapshot(
+        self, msg_hash: str, new_state: LxmfDeliveryState
+    ) -> None:
+        """Apply immutable SDK callback values on the asyncio loop thread."""
         try:
-            msg_hash = self._extract_message_hash(message)
-            if msg_hash is None:
-                return
-
-            raw_state = getattr(message, "state", None)
-            new_state = _map_delivery_state(raw_state)
-
             delivery = self._outbound_deliveries.get(msg_hash)
             if delivery is not None:
                 old_state = delivery.state
@@ -1363,7 +1384,7 @@ class LxmfSession:
                     cb = self._delivery_state_callback
                     if cb is not None:
                         try:
-                            cb(msg_hash, new_state.value)
+                            cb(msg_hash, new_state.value, delivery.delivery_context)
                         except Exception:
                             self._logger.debug(
                                 "LxmfSession %s: error in delivery state "
@@ -1569,6 +1590,7 @@ class LxmfSession:
         title: str = "",
         delivery_method: str | None = None,
         fields: dict[int, Any] | None = None,
+        delivery_context: object | None = None,
     ) -> tuple[str | None, LxmfDeliveryState]:
         """Send via the real LXMF router with bounded retry."""
         if self._router is None:
@@ -1656,8 +1678,14 @@ class LxmfSession:
                         desired_method=method_const,
                     )
 
-                    # Attach delivery state callback if supported.
+                    # LXMF exposes success/progression and failure callbacks
+                    # separately.  Register both when available so MEDRE sees
+                    # only provider-emitted facts; do not infer terminal states
+                    # by polling private SDK state.
                     lxm.register_delivery_callback(self._on_delivery_state_update)
+                    failed_callback = getattr(lxm, "register_failed_callback", None)
+                    if callable(failed_callback):
+                        failed_callback(self._on_delivery_state_update)
 
                     # Extract message hash BEFORE sending (if available).
                     native_id = self._extract_message_hash(lxm)
@@ -1679,6 +1707,7 @@ class LxmfSession:
                                 native_message_id=native_id,
                                 state=initial_state,
                                 destination_hash=destination_hash,
+                                delivery_context=delivery_context,
                             ),
                         )
 

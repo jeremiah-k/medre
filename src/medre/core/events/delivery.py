@@ -17,3 +17,17 @@ DELIVERY_CONFIRMATION_LEVEL_VALUES: frozenset[str] = frozenset(
     get_args(DeliveryConfirmationLevel)
 )
 """Runtime values accepted for :data:`DeliveryConfirmationLevel`."""
+
+
+DeliveryObservationState = Literal[
+    "delivered",
+    "failed",
+    "rejected",
+    "cancelled",
+]
+"""Terminal transport observation reported after MEDRE hand-off."""
+
+DELIVERY_OBSERVATION_STATE_VALUES: frozenset[str] = frozenset(
+    get_args(DeliveryObservationState)
+)
+"""Runtime values accepted for :data:`DeliveryObservationState`."""

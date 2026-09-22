@@ -22,11 +22,13 @@ import msgspec
 
 from medre.core.events import (
     CanonicalEvent,
+    DeliveryObservation,
     DeliveryReceipt,
     EventRelation,
     NativeMessageRef,
 )
 from medre.runtime.reporting import (
+    delivery_observation_to_report_dict,
     delivery_receipt_to_report_dict,
     native_ref_to_report_dict,
 )
@@ -96,6 +98,7 @@ def assemble_event_timeline(
     receipts: list[DeliveryReceipt],
     native_refs: list[NativeMessageRef],
     relations: list[EventRelation],
+    observations: list[DeliveryObservation] | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble a chronological timeline for a single event.
 
@@ -114,6 +117,9 @@ def assemble_event_timeline(
         Native message refs materialised for this event.
     relations:
         Event relations attached to this event.
+    observations:
+        Append-only post-handoff transport observations for exact delivery
+        attempts.  These are evidence only and do not alter receipt state.
 
     Returns
     -------
@@ -210,6 +216,20 @@ def assemble_event_timeline(
                     **receipt_data,
                     "replay_run_id": receipt.replay_run_id,
                 },
+            )
+        )
+
+    # Post-handoff delivery observations — later transport evidence.
+    # Use a high ordinal namespace so an observation and receipt with the exact
+    # same timestamp still order deterministically without pretending their
+    # independent SQLite sequences share one global counter.
+    for observation in observations or []:
+        entries.append(
+            _timeline_entry(
+                timestamp=observation.observed_at,
+                ordinal=1_000_000_000 + observation.sequence,
+                entry_type="delivery_observation",
+                data=delivery_observation_to_report_dict(observation),
             )
         )
 

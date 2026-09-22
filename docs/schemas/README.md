@@ -11,6 +11,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | `canonical-event.schema.json`            | `CanonicalEvent` (`src/medre/core/events/canonical.py`)         | Core event record flowing through the pipeline                              |
 | `canonical-event.schema.yaml`            | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document |
 | `delivery-receipt.schema.json`           | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
+| `delivery-observation.schema.json`       | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                 |
 | `delivery-result.schema.json`            | `AdapterDeliveryResult` (`src/medre/core/contracts/adapter.py`) | Per-adapter delivery outcome                                                |
 | `runtime-snapshot.schema.json`           | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                        |
 | `diagnostics.schema.json`                | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                |
@@ -33,6 +34,7 @@ against these schemas.
 | `examples/meshtastic-native-metadata-example.json` | Meshtastic native metadata payload |
 | `examples/meshcore-native-metadata-example.json`   | MeshCore native metadata payload   |
 | `examples/lxmf-native-metadata-example.json`       | LXMF native metadata payload       |
+| `examples/delivery-observation-example.json`       | Post-handoff delivery observation  |
 
 ## Generation
 
@@ -41,7 +43,7 @@ When a source model or versioned adapter shape changes, update the corresponding
 schema and run the schema validation tests:
 
 ```bash
-python -m pytest tests/test_docs_schema_examples.py -q
+python -m pytest tests/test_docs_schema_examples.py tests/test_docs_schema_drift.py -q
 ```
 
 ## Drift Detection
@@ -51,9 +53,10 @@ fields align with example payloads. When example payloads or schemas change,
 update both in the same commit.
 
 For stable source models (`CanonicalEvent`, `DeliveryReceipt`,
-`AdapterDeliveryResult`), tests also compare top-level schema properties
-against source dataclass fields. If a source model adds or renames a field
-without updating the schema, the test fails.
+`DeliveryObservation`, `AdapterDeliveryResult`), tests also compare top-level
+schema properties against source dataclass fields. If a source model adds or
+renames a field without updating the schema, the test fails. These
+source-drift tests live in `tests/test_docs_schema_drift.py`.
 
 For built-in transport-native metadata,
 `tests/test_prerelease_contract_guards.py` compares the source schema-version

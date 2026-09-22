@@ -248,18 +248,21 @@ medre trace replay <run_id> --storage-path /path/to/medre.db
 
 ### Timeline Entry Types
 
-| Entry type   | What it shows                                                          |
-| ------------ | ---------------------------------------------------------------------- |
-| `event`      | Canonical event (kind, source adapter, timestamp)                      |
-| `native_ref` | Native transport references (Matrix event IDs, Meshtastic message IDs) |
-| `receipt`    | Delivery receipts (status, target adapter, attempt count)              |
-| `relation`   | Relations to other events (replies, reactions)                         |
+| Entry type             | What it shows                                                          |
+| ---------------------- | ---------------------------------------------------------------------- |
+| `event`                | Canonical event (kind, source adapter, timestamp)                      |
+| `native_ref`           | Native transport references (Matrix event IDs, Meshtastic message IDs) |
+| `receipt`              | MEDRE delivery lifecycle (status, target adapter, attempt count)       |
+| `delivery_observation` | Later transport facts tied to one exact durable delivery attempt       |
+| `relation`             | Relations to other events (replies, reactions)                         |
 
 ### Interpreting Timeline Gaps
 
 - **No routing phase**: Event had no matching routes. Check route config.
 - **No delivery phase**: No receipt exists. Runtime may have crashed mid-delivery, or delivery was never attempted. Loop prevention, capacity exceeded, and shutdown rejection produce `suppressed` receipts — those appear as a delivery phase.
 - **Multiple delivery phases, same target**: Retry chain. Check `attempt_number` and `parent_receipt_id`.
+- **Post-handoff observation after `sent`**: A transport reported a later fact;
+  it does not rewrite the receipt or reopen the outbox lifecycle.
 - **Multiple delivery phases, different targets**: Fan-out.
 - **Both `live` and `replay` phases**: Event was originally delivered and later re-delivered via replay. Use `source` field to distinguish.
 

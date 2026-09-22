@@ -33,7 +33,9 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.delivery import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DELIVERY_OBSERVATION_STATE_VALUES,
     DeliveryConfirmationLevel,
+    DeliveryObservationState,
 )
 
 if TYPE_CHECKING:
@@ -346,6 +348,37 @@ class AdapterInfo:
     health: str = "unknown"
 
 
+def _freeze_json_safe_metadata(
+    metadata: Mapping[str, object],
+    *,
+    owner: str,
+) -> MappingProxyType[str, object]:
+    """Return a read-only, verified JSON-safe copy of *metadata*.
+
+    Recursively unwraps nested ``MappingProxyType`` values to plain dicts so
+    ``json.dumps`` can serialise the structure — ``dict()`` alone only copies
+    the top level, and nested proxy values would still trip the encoder.
+    Raises ``TypeError`` naming *owner* when any value is not JSON-safe, so
+    both callback records enforce identical metadata rules.
+    """
+
+    def _unwrap(obj: object) -> object:
+        if isinstance(obj, MappingProxyType):
+            obj = dict(obj)
+        if isinstance(obj, Mapping):
+            return {k: _unwrap(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return type(obj)(_unwrap(v) for v in obj)
+        return obj
+
+    frozen = _unwrap(metadata)
+    try:
+        json.dumps(frozen)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"{owner}.metadata must contain only JSON-safe values") from exc
+    return MappingProxyType(frozen)
+
+
 @dataclass(frozen=True)
 class OutboundNativeRefRecord:
     """Immutable record describing a delayed outbound native reference.
@@ -444,27 +477,11 @@ class OutboundNativeRefRecord:
                 "delivery confirmation level"
             )
 
-        # Recursively unwrap any nested MappingProxyType to plain dicts
-        # so that ``json.dumps`` can serialise the structure. ``dict()``
-        # alone only copies the top level; nested MappingProxyType values
-        # would still trip the encoder.
-        def _unwrap(obj: object) -> object:
-            if isinstance(obj, MappingProxyType):
-                obj = dict(obj)
-            if isinstance(obj, Mapping):
-                return {k: _unwrap(v) for k, v in obj.items()}
-            if isinstance(obj, (list, tuple)):
-                return type(obj)(_unwrap(v) for v in obj)
-            return obj
-
-        frozen = _unwrap(self.metadata)
-        try:
-            json.dumps(frozen)
-        except (TypeError, ValueError) as exc:
-            raise TypeError(
-                "OutboundNativeRefRecord.metadata must contain only JSON-safe values"
-            ) from exc
-        object.__setattr__(self, "metadata", MappingProxyType(frozen))
+        object.__setattr__(
+            self,
+            "metadata",
+            _freeze_json_safe_metadata(self.metadata, owner="OutboundNativeRefRecord"),
+        )
 
 
 @dataclass(frozen=True)
@@ -526,6 +543,53 @@ class QueueTerminalRecord:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class OutboundDeliveryObservationRecord:
+    """Transport fact emitted after MEDRE has handed off a delivery attempt.
+
+    This callback contract is intentionally separate from queue completion.
+    It records later transport evidence without giving adapters authority to
+    rewrite receipts or terminal outbox state.  Core validates exact
+    ``outbox_id`` + ``attempt_number`` correlation before persisting it.
+    """
+
+    event_id: str
+    adapter: str
+    state: DeliveryObservationState
+    outbox_id: str | None = None
+    attempt_number: int | None = None
+    delivery_plan_id: str | None = None
+    native_channel_id: str | None = None
+    native_message_id: str | None = None
+    confirmation_level: DeliveryConfirmationLevel = "unknown"
+    error: str | None = None
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.state not in DELIVERY_OBSERVATION_STATE_VALUES:
+            raise ValueError(
+                f"unknown delivery observation state {self.state!r}; "
+                f"expected one of {sorted(DELIVERY_OBSERVATION_STATE_VALUES)}"
+            )
+        if not isinstance(self.confirmation_level, str) or (
+            self.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES
+        ):
+            raise ValueError(
+                "OutboundDeliveryObservationRecord.confirmation_level must be "
+                "a valid delivery confirmation level"
+            )
+        if self.attempt_number is not None and self.attempt_number < 1:
+            raise ValueError("attempt_number must be >= 1 when provided")
+
+        object.__setattr__(
+            self,
+            "metadata",
+            _freeze_json_safe_metadata(
+                self.metadata, owner="OutboundDeliveryObservationRecord"
+            ),
+        )
+
+
 @dataclass
 class AdapterContext:
     """Runtime context injected into an adapter on start-up.
@@ -575,6 +639,11 @@ class AdapterContext:
         (exhausted, permanent failure, cancelled, or abandoned) without
         producing a native message ID.  When ``None``, terminal outcomes
         are silently discarded (e.g. in test or standalone mode).
+    record_delivery_observation:
+        Optional async callback for post-handoff transport evidence via
+        :class:`OutboundDeliveryObservationRecord`.  The callback is
+        append-only evidence; it never grants the adapter authority to mutate
+        receipt or outbox lifecycle state.
     """
 
     adapter_id: str
@@ -593,6 +662,9 @@ class AdapterContext:
     ) = None
     record_outbound_terminal: (
         Callable[[QueueTerminalRecord], Awaitable[None]] | None
+    ) = None
+    record_delivery_observation: (
+        Callable[[OutboundDeliveryObservationRecord], Awaitable[None]] | None
     ) = None
 
 
@@ -907,5 +979,6 @@ __all__ = [
     "AdapterRole",
     "AdapterSendError",
     "OutboundNativeRefRecord",
+    "OutboundDeliveryObservationRecord",
     "QueueTerminalRecord",
 ]

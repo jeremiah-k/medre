@@ -46,6 +46,8 @@ def _empty_storage_data(db_path: str, *, db_exists: bool) -> dict[str, Any]:
         "incident_summary": None,
         "native_refs_for_event": None,
         "receipt_count": None,
+        "delivery_observation_count": None,
+        "delivery_observations_for_event": None,
         "replay_run_receipts": None,
         "timeline": None,
         "replay_timeline": None,
@@ -71,8 +73,9 @@ async def _collect_storage_data_from_backend(
     shape as the ``storage`` section in the evidence bundle.
 
     **Persistence boundary:** All data is read from storage tables
-    (``canonical_events``, ``delivery_receipts``, ``native_message_refs``,
-    ``delivery_outbox``) via read-only queries.  Derived fields
+    (``canonical_events``, ``delivery_receipts``, ``delivery_observations``,
+    ``native_message_refs``, ``delivery_outbox``) via read-only queries.  Derived
+    fields
     (delivery outcome ledger, retry outbox summary, convergence summary,
     orphan report, lifecycle convergence report) are computed on demand
     and are not persisted.  This function never writes to storage.
@@ -88,6 +91,7 @@ async def _collect_storage_data_from_backend(
         # Counts.
         data["event_count"] = await storage.count_events()
         data["receipt_count"] = await storage.count_receipts()
+        data["delivery_observation_count"] = await storage.count_delivery_observations()
 
         # Optional event lookup.
         if event_id is not None:
@@ -103,6 +107,7 @@ async def _collect_storage_data_from_backend(
                 event = tl_result["event"]
                 receipts = tl_result["receipts"]
                 native_refs = tl_result["native_refs"]
+                observations = tl_result["delivery_observations"]
 
                 data["event"] = _json.loads(msgspec.json.encode(event))
                 data["native_refs_for_event"] = [
@@ -113,6 +118,18 @@ async def _collect_storage_data_from_backend(
                     for r in native_refs
                 ]
 
+                from medre.runtime.reporting import (
+                    delivery_observation_to_report_dict as _observation_to_report,
+                )
+
+                data["delivery_observations_for_event"] = [
+                    {
+                        **_observation_to_report(o),
+                        "sequence": o.sequence,
+                        "observed_at": o.observed_at.isoformat(),
+                    }
+                    for o in observations
+                ]
                 data["timeline"] = tl_result["timeline_entries"]
 
                 # --- Load outbox items for this event (if backend supports) ---

@@ -478,10 +478,10 @@ class TestIdentityEncryption:
 
 def test_lxmf_delivery_receipts_false_despite_sdk_delivery_state() -> None:
     """LXMF SDK has a 9-state delivery model (outbound → sent → delivered, etc.)
-    but the adapter does not wire these states back through the MEDRE delivery
-    receipt system.  delivery_state appears in metadata["lxmf"] only, not as
-    MEDRE-level delivery receipts.  This test documents that the flag is
-    deliberately False.  Deliberate underclaim."""
+    but MEDRE keeps those asynchronous terminal facts in the separate
+    delivery-observation ledger rather than rewriting delivery receipts.
+    This test documents that the receipt capability remains deliberately
+    False even though durable post-handoff observation evidence exists."""
     fake_caps = _get_fake_caps("lxmf")
     assert fake_caps.delivery_receipts is False
     json_caps = _load_json_caps("lxmf")

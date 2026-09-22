@@ -945,6 +945,7 @@ class MedreApp:
                         shutdown_event=self.shutdown_event,
                         record_outbound_native_ref=self.pipeline_runner._record_outbound_native_ref,
                         record_outbound_terminal=self.pipeline_runner._outbox_manager.record_terminal,
+                        record_delivery_observation=self.pipeline_runner._record_delivery_observation,
                     )
                     await adapter.start(ctx)
                     elapsed = _monotonic_ms() - t0

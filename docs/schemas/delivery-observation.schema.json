@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://medre.dev/schemas/delivery-observation.schema.json",
+  "title": "DeliveryObservation",
+  "description": "Append-only post-handoff transport evidence tied to one exact durable delivery attempt. Observations do not mutate receipt or outbox lifecycle state.",
+  "type": "object",
+  "properties": {
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Monotonic append sequence within the delivery_observations table."
+    },
+    "observation_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Deterministic idempotency identifier for this transport observation."
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Canonical event associated with the delivery attempt."
+    },
+    "delivery_plan_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Authoritative delivery-plan identity from the correlated outbox row."
+    },
+    "target_adapter": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Adapter instance that emitted the transport observation."
+    },
+    "target_channel": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "MEDRE route target channel from the correlated outbox row."
+    },
+    "native_channel_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Transport-native channel or address reported by the adapter; not a lifecycle correlation key."
+    },
+    "outbox_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Durable outbox identity for the exact delivery attempt."
+    },
+    "attempt_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-indexed delivery attempt number."
+    },
+    "adapter_message_id": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Native message identifier associated with the observation, when available."
+    },
+    "state": {
+      "type": "string",
+      "enum": ["delivered", "failed", "rejected", "cancelled"],
+      "description": "Terminal transport state reported after MEDRE handoff."
+    },
+    "confirmation_level": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "local_queue",
+        "local_transport",
+        "remote_service",
+        "end_to_end"
+      ],
+      "default": "unknown",
+      "description": "Evidence strength independent from provider state terminology."
+    },
+    "error": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Human-readable terminal error context when applicable."
+    },
+    "metadata": {
+      "type": "object",
+      "default": {},
+      "description": "Secret-free JSON-safe transport metadata."
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp when core received the transport observation."
+    }
+  },
+  "required": [
+    "sequence",
+    "observation_id",
+    "event_id",
+    "delivery_plan_id",
+    "target_adapter",
+    "target_channel",
+    "native_channel_id",
+    "outbox_id",
+    "attempt_number",
+    "adapter_message_id",
+    "state",
+    "confirmation_level",
+    "error",
+    "metadata",
+    "observed_at"
+  ],
+  "additionalProperties": false
+}
