@@ -1298,10 +1298,9 @@ class LxmfSession:
     def _on_delivery_state_update(self, message: Any) -> None:
         """Handle delivery state updates for outbound messages.
 
-        **Thread-safety**: LXMRouter invokes this callback on a
-        Reticulum I/O thread.  State mutation is bridged onto the
-        captured asyncio loop via ``call_soon_threadsafe`` to avoid
-        concurrent mutation from the Reticulum and asyncio threads.
+        SDK callbacks may arrive on a Reticulum I/O thread or synchronously
+        during a send.  Their state is captured and applied on the asyncio
+        loop so outbound tracking is not mutated from the I/O thread.
         """
         if self._stop_requested or not self._started:
             return
@@ -1347,7 +1346,11 @@ class LxmfSession:
     def _apply_delivery_state_snapshot(
         self, msg_hash: str, new_state: LxmfDeliveryState
     ) -> None:
-        """Apply immutable SDK callback values on the asyncio loop thread."""
+        """Update outbound tracking and notify the adapter of terminal states.
+
+        Terminal updates remove the message from tracking after notification.
+        Callback exceptions are contained rather than propagated to the SDK.
+        """
         try:
             delivery = self._outbound_deliveries.get(msg_hash)
             if delivery is not None:

@@ -62,7 +62,7 @@ async def test_room_send_rate_limit_without_usable_hint_still_surfaces() -> None
             retry_after_ms=retry_after_ms,
         )
 
-        async def room_send(**_kwargs: object) -> object:
+        async def room_send(response=response, **_kwargs: object) -> object:
             await session._on_room_send_error_response(response)
             raise AssertionError("provider retry should have been interrupted")
 

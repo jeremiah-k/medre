@@ -102,8 +102,8 @@ def assemble_event_timeline(
 ) -> list[dict[str, Any]]:
     """Assemble a chronological timeline for a single event.
 
-    Combines the event itself, its delivery receipts, native message
-    refs, and relations into a single sorted timeline.  Entries are
+    Combines the event itself, its delivery receipts, post-handoff
+    observations, native message refs, and relations.  Entries are
     ordered by ``(timestamp, ordinal)`` and capped at
     ``_MAX_TIMELINE_ENTRIES``.
 
