@@ -164,7 +164,9 @@ def _is_nio_rate_limited_response(response: Any) -> bool:
 
     Checks for ``M_LIMIT_EXCEEDED`` errcode or HTTP 429 status on
     response objects that lack an ``event_id`` (i.e. nio ErrorResponse
-    or similar).
+    or similar).  A parsed nio ``ErrorResponse`` stores the Matrix
+    errcode string in ``status_code`` and has no ``errcode`` attribute,
+    so both spellings are recognized.
     """
     # Already a success response
     if hasattr(response, "event_id"):
@@ -173,7 +175,7 @@ def _is_nio_rate_limited_response(response: Any) -> bool:
     if isinstance(errcode, str) and "M_LIMIT_EXCEEDED" in errcode.upper():
         return True
     status = getattr(response, "status_code", None)
-    if status == 429:
+    if status == "M_LIMIT_EXCEEDED" or status == 429:
         return True
     return False
 

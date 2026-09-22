@@ -366,6 +366,7 @@ class TestSynapseBridgeSmoke:
                 f"Expected outbound_delivered >= 1, "
                 f"got {accounting.snapshot()['outbound_delivered']}"
             )
+            counters = accounting.snapshot()
 
             # 8. Adapter diagnostics counters reflect inbound processing.
             assert matrix_adapter._inbound_published >= 1

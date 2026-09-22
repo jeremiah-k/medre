@@ -21,6 +21,7 @@ import asyncio
 import hashlib
 import logging
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -847,6 +848,31 @@ def test_adapter_send_error_rejects_invalid_retry_hints() -> None:
         AdapterSendError("bad", retry_after_seconds=True)
     with pytest.raises(ValueError, match="retry_after_seconds"):
         AdapterSendError("bad", retry_after_seconds="5")
+
+
+async def test_real_nio_error_response_shape_triggers_rate_limit_hint() -> None:
+    """A parsed nio ErrorResponse stores the errcode string in status_code
+    and has no errcode attribute (nio 0.40 responses.py)."""
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    mock_client = MagicMock()
+    rate_limited = SimpleNamespace(
+        message="Too many requests",
+        status_code="M_LIMIT_EXCEEDED",
+        retry_after_ms=4000,
+        soft_logout=False,
+    )
+    mock_client.room_send = AsyncMock(return_value=rate_limited)
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError) as exc_info:
+        await adapter.deliver(_make_result(event_id="evt-nio-shape"))
+
+    assert exc_info.value.transient is True
+    assert exc_info.value.retry_after_seconds == 4.0
+    assert adapter.diagnostics()["outbound_rate_limit_events"] == 1
 
 
 async def test_cooldown_expires_and_allows_subsequent_delivery() -> None:
