@@ -473,17 +473,28 @@ threads to inline fallback text.
 ## Outbound Rate-Limit Coordination
 
 Matrix delivery keeps durable retry scheduling in the core lifecycle. When the
-homeserver returns `M_LIMIT_EXCEEDED` / HTTP 429 with `retry_after_ms`, the
-adapter converts that value into the generic `AdapterSendError.retry_after_seconds`
-hint and records a shared monotonic cooldown for the adapter instance. While that
-window is active, sibling deliveries fail fast without calling `room_send`; their
-retry hint is the remaining cooldown. The durable receipt/outbox scheduler then
-uses `max(policy_backoff, retry_after_seconds)` for `next_retry_at`.
+homeserver returns a recognizable room-send `M_LIMIT_EXCEEDED` / HTTP 429, the
+session intercepts that `RoomSendError` through mindroom-nio's filtered
+response-callback boundary before the SDK sleeps/retries it. The response is then
+classified by the adapter as a transient delivery failure.
 
-This is server-directed backpressure, not a second retry engine. The adapter does
-not sleep through the cooldown, does not consume additional Matrix transaction IDs,
-and does not override route retry limits. A rate-limit response without a valid
-`retry_after_ms` remains a normal transient failure with no shared cooldown hint.
+If the response carries a valid `retry_after_ms`, the adapter converts it into the
+generic `AdapterSendError.retry_after_seconds` hint. A positive value also extends
+a shared monotonic cooldown for the adapter instance. While that window is active,
+sibling deliveries fail fast without calling `room_send`; their retry hint is the
+remaining cooldown.
+The durable receipt/outbox scheduler uses
+`max(policy_backoff, retry_after_seconds)` for `next_retry_at`. Missing or invalid
+`retry_after_ms` values remain ordinary transient failures and do not create a
+shared cooldown.
+
+This is server-directed backpressure, not a second retry engine. MEDRE does not
+change mindroom-nio's client-global 429 policy because that policy also covers sync,
+join, and key-management requests; the interception is filtered to room-send error
+responses. The adapter does not sleep through a MEDRE-owned cooldown, does not
+consume additional Matrix transaction IDs, and does not override route retry limits.
+Both the in-memory shared cooldown and durable hint scheduling are bounded to 30 days
+so a hostile or broken value cannot park delivery indefinitely.
 
 ## Known Limitations
 
