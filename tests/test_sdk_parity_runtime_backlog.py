@@ -291,7 +291,7 @@ class TestP03MatrixSyncTokenOwnership:
                 kwargs = config_call.kwargs
                 assert kwargs == {
                     "encryption_enabled": True,
-                    "max_timeouts": 3,
+                    "max_timeouts": 0,
                     "backfill_limited_timelines": False,
                     "store_sync_tokens": True,
                     "backfill_persist_recovery": False,

@@ -483,20 +483,20 @@ class MatrixAdapter(AdapterContract):
         else:
             health = "failed"
 
-        # Stale-sync watchdog: downgrade "healthy" to "degraded" when
-        # the last successful sync is older than the threshold.
-        # ``None`` (no sync completed yet) is intentionally *not*
-        # treated as stale — the adapter just started and has not had
-        # a chance to complete its first sync loop iteration.
-        # Uses a fakeable clock (``self._clock``) so tests can
-        # control time without fixed sleeps.
+        # Sync readiness/watchdog: authentication alone is not enough to
+        # declare the transport healthy.  Until one sync response succeeds,
+        # report degraded; MMRelay likewise withholds runtime readiness until
+        # its initial Matrix sync path completes.  After first progress, the
+        # configured stale bound and active reconnect state govern degradation.
+        # Uses a fakeable clock (``self._clock``) so tests can control time
+        # without fixed sleeps.
         if health == "healthy" and self._session is not None:
-            if self._session.reconnecting:
+            last_sync = self._session.last_successful_sync
+            if self._session.reconnecting or last_sync is None:
                 health = "degraded"
             else:
-                last_sync = self._session.last_successful_sync
                 stale_timeout = float(self._config.sync_stale_timeout_seconds)
-                if last_sync is not None and stale_timeout > 0:
+                if stale_timeout > 0:
                     now = self._clock()
                     if (now - last_sync) > stale_timeout:
                         health = "degraded"

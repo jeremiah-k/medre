@@ -281,14 +281,8 @@ async def test_fresh_sync_reports_healthy():
     assert info.health == "healthy"
 
 
-async def test_no_sync_yet_preserves_healthy():
-    """health_check preserves 'healthy' when last_successful_sync is None.
-
-    ``None`` means the first sync loop has not completed yet — the
-    adapter just started and is connected/logged-in, so it should not
-    be penalised as stale.  Only a real (non-None) timestamp older
-    than the threshold should trigger ``degraded``.
-    """
+async def test_no_sync_yet_reports_degraded():
+    """Authenticated Matrix is not healthy until one sync succeeds."""
     config = _make_config()
     adapter = MatrixAdapter(config)
     adapter._clock = lambda: _MONO_BASE
@@ -298,7 +292,7 @@ async def test_no_sync_yet_preserves_healthy():
         last_successful_sync=None,
     )
     info = await adapter.health_check()
-    assert info.health == "healthy"
+    assert info.health == "degraded"
 
 
 async def test_stale_does_not_override_failed():

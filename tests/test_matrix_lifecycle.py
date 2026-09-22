@@ -15,9 +15,9 @@ The file contains 21 tests across 6 classes:
   - ``TestMatrixAdapterHealthCheck`` (4 tests): health_check() state mapping.
   - ``TestMatrixAdapterRestart`` (1 test): full start-stop-start cycle.
   - ``TestMatrixAdapterLifecycleEdgeCases`` (2 tests): failure edge cases.
-  - ``TestMatrixAdapterSyncFailure`` (5 tests): sync raises — exception
-    is recorded by _run_sync(), health_check() reports failed, stop() is clean
-    after failure, restart recovers healthy state.
+  - ``TestMatrixAdapterSyncFailure`` (5 tests): transient sync failures remain
+    supervised, health is degraded while reconnecting, stop() is clean during
+    backoff, and restart recovers healthy state.
 
 See also:
   - test_matrix_adapter.py  — FakeMatrixAdapter tests, _on_room_message
@@ -437,137 +437,141 @@ class TestMatrixAdapterLifecycleEdgeCases:
 
 
 class TestMatrixAdapterSyncFailure:
-    """Sync task failure is observed and recorded by _run_sync().
+    """Transient sync failures remain supervised until shutdown.
 
-    With the reconnect loop, sync must fail 10 consecutive times
-    before _sync_failure is set. Tests mock asyncio.sleep to skip backoff.
+    Matrix is a long-lived relay transport. Ordinary connection failures keep
+    retrying with capped backoff instead of exhausting a finite attempt budget.
+    Terminal ``_sync_failure`` is reserved for fail-closed supervision errors.
     """
 
-    async def test_sync_raises_is_recorded(self, mock_nio):
-        """_run_sync records the exception when sync raises."""
+    async def test_transient_failures_retry_past_legacy_ceiling(self, mock_nio):
+        """More than ten transient failures recover without terminal failure."""
         config = _make_config()
         adapter = MatrixAdapter(config)
+        calls = 0
 
-        # Replace the mock's sync with one that always raises.
-        async def _failing_sync(*args, **kwargs):
+        async def _flaky_sync(*args, **kwargs):
+            nonlocal calls
+            calls += 1
             await asyncio.sleep(0)
-            raise RuntimeError("sync lost connection")
+            if calls <= 12:
+                raise RuntimeError("sync lost connection")
+            return SimpleNamespace(next_batch=f"batch-{calls}")
 
-        mock_nio.AsyncClient.return_value.sync = _failing_sync
-
-        # Mock sleep to skip backoff delays
+        mock_nio.AsyncClient.return_value.sync = _flaky_sync
         original_sleep = asyncio.sleep
-
-        async def _fast_sleep(delay):
-            if delay <= 0:
-                await original_sleep(0)
-
         try:
-            with patch("asyncio.sleep", side_effect=_fast_sleep):
-                await adapter.start(_make_context())
-                for _ in range(100):
+            async def _fast_sleep(delay):
+                if delay <= 0:
                     await original_sleep(0)
 
-            # Verify _run_sync caught the exception after max retries.
-            assert adapter._sync_failure is not None
-            assert isinstance(adapter._sync_failure, RuntimeError)
+            with patch("asyncio.sleep", side_effect=_fast_sleep):
+                await adapter.start(_make_context())
+                for _ in range(400):
+                    if (
+                        adapter._session is not None
+                        and adapter._session.last_successful_sync is not None
+                    ):
+                        break
+                    await original_sleep(0)
+
+            assert calls > 12
+            assert adapter._sync_failure is None
+            assert adapter._session is not None
+            assert adapter._session.last_successful_sync is not None
         finally:
             await adapter.stop()
 
-    async def test_health_failed_after_sync_failure(self, mock_nio):
-        """health_check() returns 'failed' after sync raises."""
+    async def test_health_degraded_during_transient_sync_failure(self, mock_nio):
+        """health_check() reports degraded while the supervisor backs off."""
         config = _make_config()
         adapter = MatrixAdapter(config)
+        original_sleep = asyncio.sleep
+        backoff_started = asyncio.Event()
+        hold_backoff = asyncio.Event()
 
         async def _failing_sync(*args, **kwargs):
             await asyncio.sleep(0)
             raise RuntimeError("sync disconnected")
 
-        mock_nio.AsyncClient.return_value.sync = _failing_sync
-
-        original_sleep = asyncio.sleep
-
-        async def _fast_sleep(delay):
+        async def _controlled_sleep(delay):
             if delay <= 0:
                 await original_sleep(0)
+                return
+            backoff_started.set()
+            await hold_backoff.wait()
 
-        try:
-            with patch("asyncio.sleep", side_effect=_fast_sleep):
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
+        with patch("asyncio.sleep", side_effect=_controlled_sleep):
+            try:
                 await adapter.start(_make_context())
-                for _ in range(100):
-                    await original_sleep(0)
+                await asyncio.wait_for(backoff_started.wait(), timeout=1.0)
+                info = await adapter.health_check()
+                assert info.health == "degraded"
+                assert info.platform == "matrix"
+                assert adapter._sync_failure is None
+            finally:
+                await adapter.stop()
 
-            info = await adapter.health_check()
-            assert info.health == "failed"
-            assert info.platform == "matrix"
-        finally:
-            await adapter.stop()
-
-    async def test_stop_after_sync_failure_clean(self, mock_nio):
-        """stop() after a sync task failure is clean and idempotent."""
+    async def test_stop_during_sync_backoff_is_clean(self, mock_nio):
+        """stop() during reconnect backoff is clean and idempotent."""
         config = _make_config()
         adapter = MatrixAdapter(config)
+        original_sleep = asyncio.sleep
+        backoff_started = asyncio.Event()
+        hold_backoff = asyncio.Event()
 
         async def _failing_sync(*args, **kwargs):
             await asyncio.sleep(0)
             raise RuntimeError("sync died")
 
-        mock_nio.AsyncClient.return_value.sync = _failing_sync
-
-        original_sleep = asyncio.sleep
-
-        async def _fast_sleep(delay):
+        async def _controlled_sleep(delay):
             if delay <= 0:
                 await original_sleep(0)
+                return
+            backoff_started.set()
+            await hold_backoff.wait()
 
-        with patch("asyncio.sleep", side_effect=_fast_sleep):
+        mock_nio.AsyncClient.return_value.sync = _failing_sync
+        with patch("asyncio.sleep", side_effect=_controlled_sleep):
             await adapter.start(_make_context())
-            for _ in range(100):
-                await original_sleep(0)
+            await asyncio.wait_for(backoff_started.wait(), timeout=1.0)
+            await adapter.stop()
 
-        # stop() should handle the already-failed task cleanly
-        await adapter.stop()
         assert adapter._session is None
-        # Double-stop must still be idempotent
         await adapter.stop()
 
     async def test_restart_recovers_health(self, mock_nio):
-        """After sync failure, stop() + start() with healthy sync recovers health."""
+        """Stopping during a transient outage allows a healthy restart."""
         config = _make_config()
         adapter = MatrixAdapter(config)
+        original_sleep = asyncio.sleep
+        backoff_started = asyncio.Event()
+        hold_backoff = asyncio.Event()
 
-        # First start: fail the sync.
         async def _failing_sync(*args, **kwargs):
             await asyncio.sleep(0)
             raise RuntimeError("sync failed")
 
-        original_sleep = asyncio.sleep
-
-        async def _fast_sleep(delay):
+        async def _controlled_sleep(delay):
             if delay <= 0:
                 await original_sleep(0)
+                return
+            backoff_started.set()
+            await hold_backoff.wait()
 
         mock_nio.AsyncClient.return_value.sync = _failing_sync
-        with patch("asyncio.sleep", side_effect=_fast_sleep):
+        with patch("asyncio.sleep", side_effect=_controlled_sleep):
             await adapter.start(_make_context())
-            for _ in range(100):
-                await original_sleep(0)
-        info = await adapter.health_check()
-        assert info.health == "failed"
+            await asyncio.wait_for(backoff_started.wait(), timeout=1.0)
+            info = await adapter.health_check()
+            assert info.health == "degraded"
+            await adapter.stop()
 
-        # Stop the failed adapter.
-        await adapter.stop()
-
-        # Restart with a fresh healthy client. Reuse the shared nio test-double
-        # builder so the replacement preserves the real SDK contract: in
-        # particular, sync_forever is a coroutine and response callbacks drive
-        # last_successful_sync.
         client = _build_mock_nio_module().AsyncClient.return_value
         mock_nio.AsyncClient.return_value = client
 
         await adapter.start(_make_context())
-        # Wait for the background sync task to complete its first
-        # iteration and set last_successful_sync.
         await wait_until(
             lambda: adapter._session is not None
             and adapter._session.last_successful_sync is not None,

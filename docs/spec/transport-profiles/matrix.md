@@ -226,22 +226,30 @@ The Matrix renderer (`MatrixRenderer`) produces:
 2. **Connecting** — `start()` creates `MatrixSession`, restores login, registers
    mindroom-nio admission/response callbacks, restores MEDRE's committed Classic
    Sync cursor, and starts the supervised sync task.
-3. **Syncing** — mindroom-nio owns Classic Sync iteration, bounded request retries,
-   key sequencing, decryption, limited-timeline recovery, and event provenance.
+3. **Syncing** — mindroom-nio owns Classic Sync iteration, request execution,
+   key sequencing, decryption, limited-timeline recovery, event provenance, and
+   homeserver-directed 429 handling. Provider timeout retries are disabled so a
+   timeout reaches MEDRE's owning boundary promptly; sync timeouts are handled by
+   the outer session supervisor.
 4. **Durable admission** — `LIVE` and `RECOVERED` timeline events are atomically
    admitted for routing; `HISTORY` is durably recorded with routing suppressed. An
    admission failure rejects the nio callback so the event remains replayable.
 5. **Checkpoint commit** — after a successful response has no unaccepted relevant
    events, MEDRE persists `next_batch` and recovery-abandonment metadata, then calls
    `acknowledge_classic_sync()`. nio does not persist the Classic cursor.
-6. **Supervising / reconnecting** — `MatrixSession` watches durable Classic
-   Sync progress. If the configured stale-progress deadline expires, MEDRE asks
-   nio to stop the current `sync_forever()` owner, cancels it, and verifies it
-   terminated before the existing bounded outer recovery path may start another
-   loop. Ordinary sync-loop failures use the same reset-to-committed-cursor
-   path and bounded outer backoff (1 s → 2 s → 4 s → … with ±25 %
-   jitter and the final delay clamped to 60 s, max 10 attempts). A stale loop that ignores cancellation fails
-   closed; MEDRE never overlaps two sync owners on one client.
+6. **Supervising / reconnecting** — adapter health remains `degraded` until
+   the first successful sync response; authentication alone is not Matrix
+   readiness. `MatrixSession` then watches durable Classic Sync progress. If the
+   configured stale-progress deadline expires, MEDRE asks nio to stop the current
+   `sync_forever()` owner, cancels it, and verifies it terminated before the outer
+   recovery path may start another loop. Retryable sync-loop failures use the same
+   reset-to-committed-cursor path and continuous outer backoff (1 s → 2 s → 4 s →
+   … with ±25 % jitter and every delay clamped to 60 s) until recovery or adapter
+   shutdown. There is no finite transient-failure attempt ceiling. Unexpected
+   non-operational exception classes fail closed rather than being retried forever.
+   A stale loop that ignores cancellation, or a durable-state reset that cannot be
+   completed safely, also fails closed; MEDRE never overlaps two sync owners on one
+   client.
 7. **Stopped** — `stop(timeout)` asks nio to stop `sync_forever()`, cancels
    MEDRE-owned Megolm recovery and room-join tasks, drains nio client-bound request
    tasks, and closes the client under one shared absolute timeout budget. Tasks that
@@ -254,12 +262,14 @@ The Matrix renderer (`MatrixRenderer`) produces:
 MEDRE uses application-owned Classic Sync checkpointing when the adapter is created
 by the runtime with storage available. The pinned mindroom-nio client is configured with
 `backfill_limited_timelines=True`, `store_sync_tokens=False`,
-`backfill_persist_recovery=False`, and `max_timeouts=3`. This establishes one owner
+`backfill_persist_recovery=False`, and `max_timeouts=0`. This establishes one owner
 per concern:
 
-- mindroom-nio owns Matrix request retries, parsing/decryption, event ordering,
-  limited-timeline walking, and `LIVE`/`RECOVERED`/`HISTORY` provenance;
-- `MatrixSession` owns loop supervision, restart, and health;
+- mindroom-nio owns Matrix request execution, server-directed 429 handling,
+  parsing/decryption, event ordering, limited-timeline walking, and
+  `LIVE`/`RECOVERED`/`HISTORY` provenance;
+- `MatrixSession` owns timeout-level retry, loop supervision, continuous capped
+  restart backoff, and health;
 - MEDRE storage owns canonical admission, deduplication, pending ingress work, and
   the committed Classic cursor; and
 - MEDRE's core pipeline owns routing, outbox creation, and delivery retries.

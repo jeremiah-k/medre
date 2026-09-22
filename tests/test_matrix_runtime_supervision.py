@@ -308,7 +308,7 @@ async def test_sync_reconnect_jitter_never_exceeds_backoff_cap() -> None:
 
     session = MatrixSession(make_matrix_config())
     session._client = SimpleNamespace()
-    session._reconnect_attempts = 6  # next attempt reaches the 60s raw cap
+    session._reconnect_attempts = 100_000  # long outages must not overflow backoff
 
     async def _stop_after_observing_delay(delay: float) -> None:
         assert delay == session_module._BACKOFF_CAP
@@ -336,6 +336,63 @@ async def test_sync_reconnect_jitter_never_exceeds_backoff_cap() -> None:
     ):
         with pytest.raises(asyncio.CancelledError):
             await session._sync_with_reconnect()
+
+
+async def test_non_retryable_sync_exception_fails_closed_without_reconnect() -> None:
+    """Unexpected programming/contract errors must not retry forever."""
+    session = MatrixSession(make_matrix_config())
+
+    with patch.object(
+        MatrixSession,
+        "_run_sync_forever_attempt",
+        new=AsyncMock(side_effect=TypeError("bad callback contract")),
+    ):
+        await session._sync_with_reconnect()
+
+    assert isinstance(session.last_sync_error, TypeError)
+    assert session.reconnect_attempts == 0
+    assert session.reconnecting is False
+
+
+async def test_shutdown_race_does_not_record_terminal_sync_failure() -> None:
+    """A sync exception after stop is requested belongs to normal shutdown."""
+    session = MatrixSession(make_matrix_config())
+
+    async def _fail_after_stop_request() -> None:
+        session._stop_requested = True
+        raise RuntimeError("request closed during shutdown")
+
+    with patch.object(
+        MatrixSession,
+        "_run_sync_forever_attempt",
+        new=_fail_after_stop_request,
+    ):
+        await session._sync_with_reconnect()
+
+    assert session.last_sync_error is None
+    assert session.reconnect_attempts == 0
+    assert session.reconnecting is False
+
+
+async def test_stop_continues_cleanup_when_provider_stop_hook_raises() -> None:
+    """A provider stop hint failure cannot skip cancellation/close cleanup."""
+    session = MatrixSession(make_matrix_config())
+    client = SimpleNamespace(
+        stop_sync_forever=MagicMock(side_effect=RuntimeError("stop failed")),
+        close=AsyncMock(),
+        logged_in=True,
+        olm=None,
+        store=None,
+    )
+    session._client = client
+    session._closed = False
+
+    await session.stop(timeout=0.2)
+
+    client.stop_sync_forever.assert_called_once_with()
+    client.close.assert_awaited_once_with()
+    assert session.closed is True
+    assert session._client is None
 
 
 async def test_warning_dedup_does_not_suppress_later_key_recovery() -> None:

@@ -50,9 +50,6 @@ _sleep = asyncio.sleep
 # Type alias for room encryption state tracking.
 RoomEncryptionState = Literal["unknown", "encrypted", "plaintext"]
 
-# Maximum consecutive sync failures before giving up.
-_MAX_RECONNECT_ATTEMPTS: int = 10
-
 # Exponential backoff base and cap (seconds).
 _BACKOFF_BASE: float = 1.0
 _BACKOFF_CAP: float = 60.0
@@ -63,10 +60,10 @@ _BACKOFF_JITTER_FRACTION: float = 0.25
 # homeserver exposes an extreme number of rooms.
 _MAX_ROOM_STATES: int = 10_000
 
-# Missing Megolm room-key recovery.  mindroom-nio handles transport-level
-# timeout retries, but homeserver/federation to-device failures can still
-# return error responses.  Keep this best-effort recovery bounded so one
-# undecryptable event never stalls the sync loop indefinitely.
+# Missing Megolm room-key recovery. MEDRE configures nio timeout retries to
+# escape immediately to the application boundary; this detached best-effort
+# path therefore owns its own short timeout/retry budget for to-device key
+# requests so one undecryptable event cannot run indefinitely.
 _ROOM_KEY_REQUEST_MAX_ATTEMPTS: int = 3
 _ROOM_KEY_REQUEST_BASE_DELAY_SECONDS: float = 2.0
 _ROOM_KEY_REQUEST_TIMEOUT_SECONDS: float = 10.0
@@ -79,6 +76,16 @@ class _StaleSyncError(RuntimeError):
 
 class _SyncRecycleFailed(RuntimeError):
     """Fail-closed signal: a stale sync loop could not be stopped safely."""
+
+
+def _is_retryable_sync_exception(exc: Exception) -> bool:
+    """Return whether an outer Matrix restart can reasonably recover *exc*."""
+    if isinstance(exc, (TimeoutError, OSError, RuntimeError, ValueError)):
+        return True
+    return any(
+        cls.__name__ == "ClientError" and cls.__module__.startswith("aiohttp")
+        for cls in type(exc).__mro__
+    )
 
 
 def _event_classes_by_name(nio_module: Any, *names: str) -> tuple[Any, ...]:
@@ -630,7 +637,10 @@ class MatrixSession:
         """Build the pinned mindroom-nio sync and peer-device trust policy.
 
         MEDRE owns durable Classic Sync checkpoints when storage callbacks are
-        available.  The pinned mindroom-nio provider exposes
+        available. Connection timeouts are not retried inside nio
+        (``max_timeouts=0``); they escape to MEDRE's single outer supervisor so
+        reconnect timing has one owner. Homeserver 429 handling remains SDK-owned.
+        The pinned mindroom-nio provider exposes
         ``replace_rotated_device_keys`` and the installed-SDK contract requires
         it.  The defensive attribute/update guards remain intentional for
         lightweight test doubles and provider configuration objects that may be
@@ -641,7 +651,7 @@ class MatrixSession:
         """
         config = nio_module.AsyncClientConfig(
             encryption_enabled=encryption_enabled,
-            max_timeouts=3,
+            max_timeouts=0,
             backfill_limited_timelines=self._durable_sync_enabled,
             store_sync_tokens=not self._durable_sync_enabled,
             backfill_persist_recovery=False,
@@ -1252,8 +1262,8 @@ class MatrixSession:
                 # ran, so nio rejects the token. The durable checkpoint is
                 # already committed — deferring the acknowledgement to a
                 # later quiet response is contract-correct, while letting the
-                # error propagate kills sync_forever and burns the reconnect
-                # budget. nio keeps the staged state bookkeeping-only until
+                # error propagate needlessly restarts the outer sync supervisor.
+                # nio keeps the staged state bookkeeping-only until
                 # the next successful acknowledgement.
                 self._classic_ack_deferrals += 1
                 self._logger.warning(
@@ -2022,11 +2032,13 @@ class MatrixSession:
             )
 
     async def _sync_with_reconnect(self) -> None:
-        """Supervise mindroom-nio ``sync_forever`` with bounded restarts.
+        """Supervise mindroom-nio ``sync_forever`` until shutdown.
 
-        mindroom-nio owns Classic request retries, key sequencing, timeline
+        mindroom-nio owns request execution, key sequencing, timeline
         parsing/decryption, limited-timeline recovery, and event provenance.
-        MEDRE owns process-level restart/liveness plus the committed cursor.
+        MEDRE owns timeout-level restart/liveness, capped reconnect backoff,
+        and the committed cursor. Transient failures retry for the lifetime of
+        the started adapter; an unsafe stale-owner recycle still fails closed.
         """
         while not self._stop_requested:
             try:
@@ -2046,7 +2058,20 @@ class MatrixSession:
                 return
             except Exception as exc:
                 if self._stop_requested:
+                    # Shutdown owns this transition.  A provider/request race
+                    # after stop was requested is not a terminal runtime
+                    # failure and must not poison post-stop diagnostics.
+                    self._reconnecting = False
+                    return
+
+                if not _is_retryable_sync_exception(exc):
+                    self._logger.error(
+                        "Matrix sync failed with non-retryable exception: %s",
+                        exc,
+                        exc_info=exc,
+                    )
                     self._sync_failure = exc
+                    self._last_reconnect_error = str(exc)
                     self._reconnecting = False
                     return
 
@@ -2070,19 +2095,15 @@ class MatrixSession:
 
                 self._reconnect_attempts += 1
                 self._last_reconnect_error = str(exc)
-                if self._reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
-                    self._logger.error(
-                        "Max sync reconnect attempts (%d) reached, giving up: %s",
-                        _MAX_RECONNECT_ATTEMPTS,
-                        exc,
-                    )
-                    self._sync_failure = exc
-                    self._reconnecting = False
-                    return
-
                 self._reconnecting = True
+                # Matrix is a long-lived relay transport.  Keep retrying until
+                # shutdown (matching MMRelay's proven daemon behavior) while
+                # capping both the delay and exponent so a long outage cannot
+                # overflow the backoff calculation.  A stale owner that cannot
+                # be terminated remains the separate fail-closed exception.
+                exponent = min(self._reconnect_attempts - 1, 16)
                 raw_delay = min(
-                    _BACKOFF_BASE * (2 ** (self._reconnect_attempts - 1)),
+                    _BACKOFF_BASE * (2**exponent),
                     _BACKOFF_CAP,
                 )
                 jitter = raw_delay * _BACKOFF_JITTER_FRACTION
@@ -2091,9 +2112,8 @@ class MatrixSession:
                     max(0.0, raw_delay + random.uniform(-jitter, jitter)),
                 )
                 self._logger.warning(
-                    "Matrix sync failed (attempt %d/%d); retrying in %.1fs: %s",
+                    "Matrix sync failed (attempt %d); retrying in %.1fs: %s",
                     self._reconnect_attempts,
-                    _MAX_RECONNECT_ATTEMPTS,
                     delay,
                     exc,
                 )
@@ -2239,7 +2259,17 @@ class MatrixSession:
         if self._client is not None:
             stop_sync = getattr(self._client, "stop_sync_forever", None)
             if callable(stop_sync):
-                stop_sync()
+                try:
+                    stop_sync()
+                except Exception as exc:
+                    # The stop hint is advisory; task cancellation below is the
+                    # authoritative shutdown mechanism.  Never let a provider
+                    # hook failure skip cancellation, draining, or close.
+                    self._logger.warning(
+                        "Matrix stop_sync_forever failed during shutdown; "
+                        "continuing with task cancellation: %s",
+                        exc,
+                    )
 
         # Cancel detached Megolm recovery before closing the client.  A sync
         # callback can race the first snapshot, so drain in a loop; new recovery

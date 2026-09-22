@@ -135,7 +135,8 @@ async def test_encrypted_client_policy_combines_peer_recovery_and_medre_checkpoi
     )
 
     assert client_config.replace_rotated_device_keys is True
-    assert captured["max_timeouts"] == 3
+    assert captured["max_timeouts"] == 0
+    assert "max_limit_exceeded" not in captured
     assert captured["backfill_limited_timelines"] is True
     assert captured["store_sync_tokens"] is False
     assert captured["backfill_persist_recovery"] is False
