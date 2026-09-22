@@ -24,7 +24,9 @@ async def test_session_registers_room_send_rate_limit_interceptor(mock_nio) -> N
         await session.stop()
 
 
-async def test_room_send_surfaces_first_explicit_rate_limit_before_provider_retry() -> None:
+async def test_room_send_surfaces_first_explicit_rate_limit_before_provider_retry() -> (
+    None
+):
     session = MatrixSession(make_matrix_config())
     response = SimpleNamespace(
         status_code="M_LIMIT_EXCEEDED",

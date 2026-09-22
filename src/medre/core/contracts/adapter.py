@@ -86,9 +86,8 @@ class AdapterSendError(Exception):
         retry_after_seconds: float | None = None,
     ) -> None:
         if retry_after_seconds is not None:
-            if (
-                isinstance(retry_after_seconds, bool)
-                or not isinstance(retry_after_seconds, (int, float))
+            if isinstance(retry_after_seconds, bool) or not isinstance(
+                retry_after_seconds, (int, float)
             ):
                 raise ValueError(
                     "retry_after_seconds must be a finite number >= 0 or None"

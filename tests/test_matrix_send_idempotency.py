@@ -37,10 +37,10 @@ from medre.adapters.matrix.adapter import (
 )
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
+    MAX_ADAPTER_RETRY_AFTER_SECONDS,
     AdapterContext,
     AdapterPermanentError,
     AdapterSendError,
-    MAX_ADAPTER_RETRY_AFTER_SECONDS,
 )
 from medre.core.rendering.renderer import RenderingResult
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session

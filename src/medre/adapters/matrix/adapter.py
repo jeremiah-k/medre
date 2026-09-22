@@ -25,7 +25,11 @@ from medre.adapters.matrix.errors import (
     MATRIX_PERMANENT_ERRCODES,
     MatrixConnectionError,
     MatrixSendError,
+)
+from medre.adapters.matrix.errors import (
     is_nio_rate_limited_response as _is_nio_rate_limited_response,
+)
+from medre.adapters.matrix.errors import (
     retry_after_seconds_from_ms as _retry_after_seconds_from_ms,
 )
 from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
@@ -34,6 +38,7 @@ from medre.adapters.matrix.relations import MatrixRelationHandler
 from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
+    MAX_ADAPTER_RETRY_AFTER_SECONDS,
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
@@ -42,7 +47,6 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    MAX_ADAPTER_RETRY_AFTER_SECONDS,
 )
 from medre.core.ingress import IngressProvenance
 from medre.core.rendering.renderer import RenderingResult
