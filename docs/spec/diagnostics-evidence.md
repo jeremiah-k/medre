@@ -326,14 +326,14 @@ The dual-location pattern exists for operator convenience — the top-level keys
 
 Each section follows the pattern `{"status": str, "error": str or None, "data": Any or None}`.
 
-| Section                | Statuses                                        | Semantics                                                                    |
-| ---------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------- |
-| `config_summary`       | `"passed"`, `"error"`                           | Loaded config metadata, adapter counts, route counts.                        |
-| `route_validation`     | `"passed"`, `"partial"`, `"error"`              | Route eligibility validation results.                                        |
-| `diagnostics_snapshot` | `"passed"`, `"error"`                           | Build-time diagnostics snapshot (no runtime start).                          |
-| `live_health`          | `"passed"`, `"partial"`, `"skipped"`            | Live adapter health after `refresh_live_health()`. Skipped unless requested. |
+| Section                | Statuses                                        | Semantics                                                                                        |
+| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `config_summary`       | `"passed"`, `"error"`                           | Loaded config metadata, adapter counts, route counts.                                            |
+| `route_validation`     | `"passed"`, `"partial"`, `"error"`              | Route eligibility validation results.                                                            |
+| `diagnostics_snapshot` | `"passed"`, `"error"`                           | Build-time diagnostics snapshot (no runtime start).                                              |
+| `live_health`          | `"passed"`, `"partial"`, `"skipped"`            | Live adapter health after `refresh_live_health()`. Skipped unless requested.                     |
 | `storage`              | `"passed"`, `"partial"`, `"error"`              | Storage backend evidence: receipts, post-handoff observations, incident summaries, outbox state. |
-| `recovery`             | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Startup recovery ownership diagnostics and ledger data.                      |
+| `recovery`             | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Startup recovery ownership diagnostics and ledger data.                                          |
 
 Status computation:
 

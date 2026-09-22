@@ -91,9 +91,7 @@ async def _collect_storage_data_from_backend(
         # Counts.
         data["event_count"] = await storage.count_events()
         data["receipt_count"] = await storage.count_receipts()
-        data["delivery_observation_count"] = (
-            await storage.count_delivery_observations()
-        )
+        data["delivery_observation_count"] = await storage.count_delivery_observations()
 
         # Optional event lookup.
         if event_id is not None:

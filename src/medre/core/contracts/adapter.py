@@ -375,9 +375,7 @@ def _freeze_json_safe_metadata(
     try:
         json.dumps(frozen)
     except (TypeError, ValueError) as exc:
-        raise TypeError(
-            f"{owner}.metadata must contain only JSON-safe values"
-        ) from exc
+        raise TypeError(f"{owner}.metadata must contain only JSON-safe values") from exc
     return MappingProxyType(frozen)
 
 
@@ -482,9 +480,7 @@ class OutboundNativeRefRecord:
         object.__setattr__(
             self,
             "metadata",
-            _freeze_json_safe_metadata(
-                self.metadata, owner="OutboundNativeRefRecord"
-            ),
+            _freeze_json_safe_metadata(self.metadata, owner="OutboundNativeRefRecord"),
         )
 
 

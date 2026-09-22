@@ -934,9 +934,9 @@ Every row in the following table is a hard boundary. Violations indicate a desig
 | Pipeline orchestration (routing, delivery planning, receipt tracking) | Runtime                 | None; adapters **MUST NOT** bypass |
 | Event authority, correlation, and lineage storage                     | Storage                 | Read via storage API               |
 | Retry/backoff computation (stateless)                                 | Runtime (RetryExecutor) | Record on receipts                 |
-| Retry scheduling (timed re-attempt)                                   | Runtime (RetryWorker)   | Storage persists due time/leases    |
+| Retry scheduling (timed re-attempt)                                   | Runtime (RetryWorker)   | Storage persists due time/leases   |
 | Native message reference persistence                                  | Storage                 | Read via storage API               |
-| Post-handoff delivery observation persistence                          | Core runtime + storage  | Adapter reports facts only         |
+| Post-handoff delivery observation persistence                         | Core runtime + storage  | Adapter reports facts only         |
 
 ---
 

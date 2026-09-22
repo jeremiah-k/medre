@@ -404,7 +404,9 @@ async def test_lxmf_synchronous_sdk_callback_keeps_send_context(tmp_path) -> Non
     callback.assert_called_once_with(native_id, "delivered", context)
 
 
-async def test_lxmf_synchronous_sdk_failed_callback_keeps_send_context(tmp_path) -> None:
+async def test_lxmf_synchronous_sdk_failed_callback_keeps_send_context(
+    tmp_path,
+) -> None:
     config = LxmfConfig(
         adapter_id="lxmf-observation-failure-race",
         connection_type="reticulum",

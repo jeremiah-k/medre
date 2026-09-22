@@ -34,7 +34,7 @@ against these schemas.
 | `examples/meshtastic-native-metadata-example.json` | Meshtastic native metadata payload |
 | `examples/meshcore-native-metadata-example.json`   | MeshCore native metadata payload   |
 | `examples/lxmf-native-metadata-example.json`       | LXMF native metadata payload       |
-| `examples/delivery-observation-example.json`       | Post-handoff delivery observation |
+| `examples/delivery-observation-example.json`       | Post-handoff delivery observation  |
 
 ## Generation
 
