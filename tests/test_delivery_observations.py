@@ -21,6 +21,9 @@ def _event(event_id: str = "evt-observation-1") -> CanonicalEvent:
         source_adapter="source",
         source_transport_id="node",
         source_channel_id="chan",
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
         payload={"body": "hello"},
         metadata=EventMetadata(),
     )
@@ -81,12 +84,8 @@ async def test_observation_persists_idempotently_for_exact_sent_attempt(
     lifecycle = DeliveryLifecycleService()
     now = datetime.now(timezone.utc)
 
-    assert await lifecycle.record_delivery_observation(
-        temp_storage, _record(), now
-    )
-    assert not await lifecycle.record_delivery_observation(
-        temp_storage, _record(), now
-    )
+    assert await lifecycle.record_delivery_observation(temp_storage, _record(), now)
+    assert not await lifecycle.record_delivery_observation(temp_storage, _record(), now)
 
     observations = await temp_storage.list_delivery_observations_for_outbox(
         item.outbox_id
@@ -316,8 +315,7 @@ async def test_storage_evidence_surfaces_observation_count_and_event_rows(
     assert len(data["delivery_observations_for_event"]) == 1
     assert data["delivery_observations_for_event"][0]["state"] == "delivered"
     assert any(
-        entry["entry_type"] == "delivery_observation"
-        for entry in data["timeline"]
+        entry["entry_type"] == "delivery_observation" for entry in data["timeline"]
     )
 
 
