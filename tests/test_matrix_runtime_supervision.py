@@ -130,6 +130,64 @@ async def test_stale_sync_recycle_fails_closed_when_inner_loop_ignores_cancel() 
         await asyncio.wait_for(task, timeout=0.5)
 
 
+async def test_stale_sync_stop_error_still_cancels_sync_owner() -> None:
+    session = MatrixSession(make_matrix_config())
+    started = asyncio.Event()
+
+    async def _wait_forever() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(_wait_forever())
+    await started.wait()
+    stop = MagicMock(side_effect=RuntimeError("stop failed"))
+    client = SimpleNamespace(stop_sync_forever=stop)
+
+    await session._recycle_stale_sync_task(task, client)
+
+    stop.assert_called_once()
+    assert task.cancelled()
+
+
+async def test_failed_stale_recycle_does_not_count_completed_recovery() -> None:
+    config = make_matrix_config(sync_timeout_ms=0, sync_stale_timeout_seconds=0.001)
+    ticks = iter((100.0, 100.0, 101.0, 101.0))
+    session = MatrixSession(config, clock=lambda: next(ticks))
+    release = asyncio.Event()
+    started = asyncio.Event()
+    inner_tasks: list[asyncio.Task[None]] = []
+
+    async def _resists_cancel(**_kwargs: object) -> None:
+        task = asyncio.current_task()
+        assert task is not None
+        inner_tasks.append(task)
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    session._client = SimpleNamespace(
+        sync_forever=_resists_cancel,
+        stop_sync_forever=MagicMock(),
+    )
+    try:
+        with patch(
+            "medre.adapters.matrix.session._SYNC_RECYCLE_CANCEL_TIMEOUT_SECONDS", 0.01
+        ):
+            with pytest.raises(_SyncRecycleFailed):
+                await asyncio.wait_for(session._run_sync_forever_attempt(), timeout=0.5)
+        assert started.is_set()
+        assert session._stale_sync_recoveries == 0
+        assert session._last_stale_sync_at == 101.0
+    finally:
+        release.set()
+        if inner_tasks:
+            await asyncio.wait_for(
+                asyncio.gather(*inner_tasks, return_exceptions=True), timeout=0.5
+            )
+
+
 def test_megolm_rate_limit_is_independent_from_warning_dedup() -> None:
     session = MatrixSession(
         make_matrix_config(megolm_key_request_rate_limit_per_minute=2)
@@ -196,7 +254,7 @@ async def test_megolm_same_session_recovery_cannot_replace_tracked_task() -> Non
     try:
         await session._on_megolm_event(room, event)
         assert session._room_key_request_tasks[key] is pending
-        assert session._room_key_request_inflight_rejected == 1
+        assert session._room_key_request_inflight_rejected == 0
         session._client.to_device.assert_not_awaited()
     finally:
         pending.cancel()

@@ -106,8 +106,8 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 | `megolm_recovery_rate_limited`      | `int`           | Missing-room-key attempts refused by the rolling network limit |
 | `megolm_recovery_inflight_rejected` | `int`           | Recovery campaigns refused by the concurrent-task cap          |
 | `megolm_recovery_inflight`          | `int`           | Missing-room-key recovery tasks currently in flight            |
-| `stale_sync_recoveries`             | `int`           | Matrix sync loops recycled after stale-progress detection      |
-| `last_stale_sync_at`                | `float or None` | Monotonic time of the most recent stale-sync recycle           |
+| `stale_sync_recoveries`             | `int`           | Matrix sync loops successfully recycled after stale detection  |
+| `last_stale_sync_at`                | `float or None` | Monotonic time of the most recent stale-progress detection      |
 | `sync_running`                      | `bool`          | Sync loop state                                                |
 | `last_successful_sync`              | `float or None` | Monotonic time of last successful sync                         |
 | `crypto_store_loaded`               | `bool`          | Crypto database loaded (olm and store both present)            |

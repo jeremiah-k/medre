@@ -1672,7 +1672,6 @@ class MatrixSession:
             )
             return
         if key in self._room_key_request_tasks:
-            self._room_key_request_inflight_rejected += 1
             self._logger.debug(
                 "Skipping duplicate missing room-key recovery for %s: a recovery "
                 "for this room/session is still in flight",
@@ -1971,7 +1970,6 @@ class MatrixSession:
                         continue
 
                 now = self._clock()
-                self._stale_sync_recoveries += 1
                 self._last_stale_sync_at = now
                 self._logger.warning(
                     "Matrix sync made no durable progress for %.1fs; recycling "
@@ -1979,6 +1977,7 @@ class MatrixSession:
                     now - baseline,
                 )
                 await self._recycle_stale_sync_task(task, client)
+                self._stale_sync_recoveries += 1
                 raise _StaleSyncError(
                     f"Matrix sync stale for at least {stale_timeout:.1f}s"
                 )
@@ -1995,8 +1994,12 @@ class MatrixSession:
     ) -> None:
         """Stop one stale nio sync owner without permitting overlap."""
         stop_sync = getattr(client, "stop_sync_forever", None)
+        stop_error: Exception | None = None
         if callable(stop_sync):
-            stop_sync()
+            try:
+                stop_sync()
+            except Exception as exc:
+                stop_error = exc
         task.cancel()
         try:
             done, _pending = await asyncio.wait(
@@ -2010,8 +2013,13 @@ class MatrixSession:
             raise _SyncRecycleFailed(
                 "stale sync loop ignored cancellation; refusing to start a "
                 "second sync loop on the same client"
-            )
+            ) from stop_error
         self._consume_task_result(task)
+        if stop_error is not None:
+            self._logger.warning(
+                "Matrix stop_sync_forever failed, but sync task cancellation completed",
+                exc_info=stop_error,
+            )
 
     async def _sync_with_reconnect(self) -> None:
         """Supervise mindroom-nio ``sync_forever`` with bounded restarts.

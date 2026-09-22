@@ -353,7 +353,7 @@ request limiter. Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `sync_running`                             | `bool`          | Sync loop active                                       |
 | `reconnecting`                             | `bool`          | Reconnect backoff in progress                          |
 | `reconnect_attempts`                       | `int`           | Consecutive reconnect attempts                         |
-| `stale_sync_recoveries`                    | `int`           | Sync loops recycled after stale-progress detection     |
+| `stale_sync_recoveries`                    | `int`           | Sync loops successfully recycled after stale detection |
 | `last_stale_sync_at`                       | `float \| None` | Monotonic time of last stale-progress detection        |
 | `classic_ack_deferrals`                    | `int`           | Consecutive deferred Classic acknowledgements          |
 | `last_successful_sync`                     | `float \| None` | Monotonic time of last good sync                       |
