@@ -369,9 +369,11 @@ adapter treats the room as unencrypted (fail-closed).
 3. **Durable ingress is internal, not a Matrix-side queue.** Canonical events, native
    refs, and pending work are committed before normal `publish_inbound()` returns;
    persistent transport recovery still depends on the Matrix checkpoint contract.
-4. **No adaptive outbound rate controller.** Homeserver rate-limit responses are
-   classified and retried where policy permits, but MEDRE does not yet shape Matrix
-   sends proactively.
+4. **Server-directed outbound backpressure, not proactive shaping.** When a
+   homeserver returns `retry_after_ms`, MEDRE shares that cooldown across the Matrix
+   adapter and durable retries are scheduled no earlier than the larger of route
+   backoff and the server hint. MEDRE still does not guess a fixed send rate before
+   the homeserver supplies rate-limit feedback.
 5. **Single-room testing only.** Multi-room behavior has not been tested against a
    real homeserver.
 6. **Reconnect does not recover from permanent auth failures.** Revoked/expired

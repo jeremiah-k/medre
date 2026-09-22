@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import random
 import time
 from types import MappingProxyType
@@ -92,6 +93,16 @@ class _NioRateLimitError(Exception):
     def __init__(self, message: str, *, retry_after_ms: int | None = None) -> None:
         super().__init__(message)
         self.retry_after_ms = retry_after_ms
+
+
+def _retry_after_seconds_from_ms(value: Any) -> float | None:
+    """Normalize a Matrix ``retry_after_ms`` value to non-negative seconds."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    numeric = float(value)
+    if not math.isfinite(numeric) or numeric < 0:
+        return None
+    return numeric / 1000.0
 
 
 def _is_transient_error(exc: BaseException) -> bool:
@@ -235,9 +246,12 @@ class MatrixAdapter(AdapterContract):
         "_envelope_handler",
         "_started",
         "ctx",
-        # Delivery retry stats
+        # Delivery retry / rate-limit stats
         "_transient_delivery_failures",
         "_permanent_delivery_failures",
+        "_outbound_cooldown_until",
+        "_outbound_rate_limit_events",
+        "_outbound_cooldown_deferrals",
         # Inbound diagnostics counters
         "_inbound_published",
         "_inbound_duplicate_admissions",
@@ -270,9 +284,12 @@ class MatrixAdapter(AdapterContract):
         self._envelope_handler = MatrixMetadataEnvelope
         self._started: bool = False
         self.ctx: AdapterContext | None = None
-        # Delivery retry stats
+        # Delivery retry / server-directed cooldown stats
         self._transient_delivery_failures: int = 0
         self._permanent_delivery_failures: int = 0
+        self._outbound_cooldown_until: float = 0.0
+        self._outbound_rate_limit_events: int = 0
+        self._outbound_cooldown_deferrals: int = 0
         # Inbound diagnostics counters
         self._inbound_published: int = 0
         self._inbound_duplicate_admissions: int = 0
@@ -317,9 +334,12 @@ class MatrixAdapter(AdapterContract):
         # never reports a stale health string from a previous session.
         self._last_health = None
 
-        # Reset delivery stats on start
+        # Reset delivery / rate-limit stats on start
         self._transient_delivery_failures = 0
         self._permanent_delivery_failures = 0
+        self._outbound_cooldown_until = 0.0
+        self._outbound_rate_limit_events = 0
+        self._outbound_cooldown_deferrals = 0
         # Inbound diagnostics — reset on start
         self._inbound_published = 0
         self._inbound_duplicate_admissions = 0
@@ -513,6 +533,31 @@ class MatrixAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
+    def _outbound_cooldown_remaining(self) -> float:
+        """Return remaining server-directed outbound cooldown in seconds."""
+        return max(0.0, self._outbound_cooldown_until - self._clock())
+
+    def _remember_outbound_cooldown(self, retry_after_seconds: float | None) -> None:
+        """Extend the shared outbound cooldown from a homeserver rate limit."""
+        if retry_after_seconds is None or retry_after_seconds <= 0:
+            return
+        deadline = self._clock() + retry_after_seconds
+        if deadline > self._outbound_cooldown_until:
+            self._outbound_cooldown_until = deadline
+
+    def _defer_for_outbound_cooldown(self) -> None:
+        """Fail fast with a retry hint while a shared Matrix cooldown is active."""
+        remaining = self._outbound_cooldown_remaining()
+        if remaining <= 0:
+            return
+        self._outbound_cooldown_deferrals += 1
+        self._transient_delivery_failures += 1
+        raise AdapterSendError(
+            "Matrix outbound cooldown active after homeserver rate limit",
+            transient=True,
+            retry_after_seconds=remaining,
+        )
+
     def _check_encrypted_room_safety(self, room_id: str) -> None:
         """Enforce the configured room-encryption send policy for *room_id*.
 
@@ -685,6 +730,7 @@ class MatrixAdapter(AdapterContract):
         last_exc: BaseException | None = None
         for attempt in range(_MAX_DELIVERY_RETRIES):
             try:
+                self._defer_for_outbound_cooldown()
                 response = await self._session.room_send(
                     room_id=room_id,
                     message_type=message_type,
@@ -748,15 +794,21 @@ class MatrixAdapter(AdapterContract):
                 self._permanent_delivery_failures += 1
                 raise
             except _NioRateLimitError as exc:
-                # Rate-limit (M_LIMIT_EXCEEDED / HTTP 429) — do NOT sleep.
-                # Raise transient error immediately so the pipeline's retry
-                # worker can honour retry_after_ms and schedule backoff.
+                # Rate-limit (M_LIMIT_EXCEEDED / HTTP 429) — do NOT sleep here.
+                # Record the server-directed window for sibling deliveries and
+                # surface a structured retry hint so the durable retry lifecycle
+                # schedules this delivery no earlier than the homeserver allows.
                 self._transient_delivery_failures += 1
+                self._outbound_rate_limit_events += 1
+                retry_after_seconds = _retry_after_seconds_from_ms(exc.retry_after_ms)
+                self._remember_outbound_cooldown(retry_after_seconds)
                 retry_msg = str(exc)
                 if exc.retry_after_ms is not None:
                     retry_msg = f"{retry_msg} (retry_after_ms={exc.retry_after_ms})"
                 raise AdapterSendError(
-                    f"Matrix rate-limited: {retry_msg}", transient=True
+                    f"Matrix rate-limited: {retry_msg}",
+                    transient=True,
+                    retry_after_seconds=retry_after_seconds,
                 ) from exc
             except asyncio.CancelledError:
                 # CancelledError must propagate — never swallow task cancellation.
@@ -1014,9 +1066,14 @@ class MatrixAdapter(AdapterContract):
                 # Room counts (no room IDs)
                 "encrypted_room_count": diag.encrypted_room_count,
                 "plaintext_room_count": diag.plaintext_room_count,
-                # Delivery stats
+                # Delivery / server-directed rate-limit stats
                 "transient_delivery_failures": self._transient_delivery_failures,
                 "permanent_delivery_failures": self._permanent_delivery_failures,
+                "outbound_rate_limit_events": self._outbound_rate_limit_events,
+                "outbound_cooldown_deferrals": self._outbound_cooldown_deferrals,
+                "outbound_cooldown_remaining_seconds": (
+                    self._outbound_cooldown_remaining()
+                ),
                 # Inbound diagnostics counters
                 "inbound_published": self._inbound_published,
                 "inbound_duplicate_admissions": self._inbound_duplicate_admissions,
@@ -1090,9 +1147,14 @@ class MatrixAdapter(AdapterContract):
             # Room counts
             "encrypted_room_count": 0,
             "plaintext_room_count": 0,
-            # Delivery stats
+            # Delivery / server-directed rate-limit stats
             "transient_delivery_failures": self._transient_delivery_failures,
             "permanent_delivery_failures": self._permanent_delivery_failures,
+            "outbound_rate_limit_events": self._outbound_rate_limit_events,
+            "outbound_cooldown_deferrals": self._outbound_cooldown_deferrals,
+            "outbound_cooldown_remaining_seconds": (
+                self._outbound_cooldown_remaining()
+            ),
             # Inbound diagnostics counters
             "inbound_published": self._inbound_published,
             "inbound_duplicate_admissions": self._inbound_duplicate_admissions,

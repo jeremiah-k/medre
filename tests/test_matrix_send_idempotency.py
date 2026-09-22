@@ -794,3 +794,51 @@ class TestMetadataJsonSafe:
         # These are on the delivery result directly
         assert delivery.native_message_id is not None
         assert delivery.native_channel_id is not None
+
+
+async def test_rate_limit_sets_structured_retry_hint_and_shared_cooldown() -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    mock_client = MagicMock()
+    response = MagicMock()
+    del response.event_id
+    response.errcode = "M_LIMIT_EXCEEDED"
+    response.retry_after_ms = 9000
+    mock_client.room_send = AsyncMock(return_value=response)
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError) as first_error:
+        await adapter.deliver(_make_result(event_id="evt-rate-1"))
+
+    assert first_error.value.retry_after_seconds == 9.0
+    assert adapter.diagnostics()["outbound_rate_limit_events"] == 1
+    assert adapter.diagnostics()["outbound_cooldown_remaining_seconds"] == 9.0
+
+    mock_client.room_send.reset_mock()
+    with pytest.raises(AdapterSendError) as deferred_error:
+        await adapter.deliver(_make_result(event_id="evt-rate-2"))
+
+    assert deferred_error.value.retry_after_seconds == 9.0
+    mock_client.room_send.assert_not_awaited()
+    assert adapter.diagnostics()["outbound_cooldown_deferrals"] == 1
+
+
+def test_retry_after_ms_normalization_rejects_invalid_values() -> None:
+    from medre.adapters.matrix.adapter import _retry_after_seconds_from_ms
+
+    assert _retry_after_seconds_from_ms(2500) == 2.5
+    assert _retry_after_seconds_from_ms(0) == 0.0
+    assert _retry_after_seconds_from_ms(-1) is None
+    assert _retry_after_seconds_from_ms(float("nan")) is None
+    assert _retry_after_seconds_from_ms(float("inf")) is None
+    assert _retry_after_seconds_from_ms(True) is None
+    assert _retry_after_seconds_from_ms("1000") is None
+
+
+def test_adapter_send_error_rejects_invalid_retry_hints() -> None:
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds=-1)
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds=float("inf"))
