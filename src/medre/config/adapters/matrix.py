@@ -247,9 +247,11 @@ class MatrixConfig:
             raise MatrixConfigError(
                 "sync_stale_timeout_seconds must be finite and >= 0"
             )
-        if stale_timeout > 0 and self.sync_timeout_ms > 0:
+        if stale_timeout > 0:
             # mindroom-nio permits a sync request to run up to 15 seconds past
-            # the requested long-poll timeout before its client-side timeout.
+            # the requested long-poll timeout before its client-side timeout;
+            # with the sync timeout disabled the 15-second grace still applies
+            # as a floor so in-flight requests are not recycled mid-poll.
             minimum = (self.sync_timeout_ms / 1000.0) + 15.0
             if stale_timeout <= minimum:
                 raise MatrixConfigError(

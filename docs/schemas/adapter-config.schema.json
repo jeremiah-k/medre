@@ -60,7 +60,7 @@
           "type": "number",
           "minimum": 0,
           "default": 300.0,
-          "description": "Maximum seconds without durable sync progress before MEDRE recycles the current Matrix sync loop; 0 disables active stale-sync recovery. Typed validation requires a positive value to exceed sync_timeout_ms/1000 + 15 seconds."
+          "description": "Maximum seconds without durable sync progress before MEDRE recycles the current Matrix sync loop; 0 disables active stale-sync recovery. Typed validation requires a positive value to exceed sync_timeout_ms/1000 + 15 seconds; with the sync timeout disabled this floor is 15 seconds."
         },
         "megolm_key_request_rate_limit_per_minute": {
           "type": "integer",

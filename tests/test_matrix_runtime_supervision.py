@@ -68,6 +68,10 @@ def test_runtime_supervision_defaults_validate() -> None:
             {"sync_timeout_ms": 30_000, "sync_stale_timeout_seconds": 45.0},
             "must exceed",
         ),
+        (
+            {"sync_timeout_ms": 0, "sync_stale_timeout_seconds": 15.0},
+            "must exceed",
+        ),
         ({"megolm_key_request_rate_limit_per_minute": 0}, "rate_limit"),
         ({"megolm_key_request_max_inflight": 0}, "max_inflight"),
     ],
@@ -82,6 +86,13 @@ def test_runtime_supervision_invalid_values_rejected(
 def test_zero_stale_timeout_explicitly_disables_active_recovery() -> None:
     config = make_matrix_config(sync_stale_timeout_seconds=0).validate()
     assert config.sync_stale_timeout_seconds == 0
+
+
+def test_disabled_sync_timeout_still_enforces_stale_floor() -> None:
+    config = make_matrix_config(
+        sync_timeout_ms=0, sync_stale_timeout_seconds=15.5
+    ).validate()
+    assert config.sync_stale_timeout_seconds == 15.5
 
 
 async def test_stale_sync_attempt_is_stopped_before_restart() -> None:
