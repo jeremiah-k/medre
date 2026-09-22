@@ -98,9 +98,7 @@ class TestObservabilityFacadeRemoved:
         import medre.core.observability.sanitization  # noqa: F401
 
         with pytest.raises(ImportError):
-            from medre.observability import (  # type: ignore[import-not-found]
-                sanitize_error,  # noqa: F401
-            )
+            import medre.observability.sanitize_error  # type: ignore[import-not-found,unused-import]  # noqa: F401
 
 
 class TestConfigFacadeRemoved:

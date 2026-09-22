@@ -78,18 +78,18 @@ Evidence stored in the SQLite database (receipts, outbox items, native refs) is 
 
 ## 6. Capability Status Definitions
 
-| Status                     | Meaning                                                                                                               |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `not started`              | No implementation exists. No tests. No code.                                                                          |
-| `designed`                 | There is a spec, contract, or design document. No working code yet.                                                   |
-| `implemented-not-executed` | Working harness exists, but no current-tree execution evidence is recorded.                                          |
-| `synthetic-tested`         | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
-| `conformance-tested`       | Tested against the current codebase with deterministic fixtures. Reproducible for the same Git tree.                     |
-| `docker-validated`         | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
-| `local-integration-validated` | Tested against a deterministic local endpoint/process with the pinned real SDK. Not external network or hardware. |
-| `opt-in live test exists`  | A test harness exists, gated by environment variables. Not yet run against a real transport with recorded results.    |
-| `live-validated`           | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
-| `blocked`                  | A known blocker prevents progress.                                                                                    |
+| Status                        | Meaning                                                                                                               |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `not started`                 | No implementation exists. No tests. No code.                                                                          |
+| `designed`                    | There is a spec, contract, or design document. No working code yet.                                                   |
+| `implemented-not-executed`    | Working harness exists, but no current-tree execution evidence is recorded.                                           |
+| `synthetic-tested`            | Works with fake/mock adapters. Unit tests pass. No real network traffic. Proves pipeline wiring, not SDK integration. |
+| `conformance-tested`          | Tested against the current codebase with deterministic fixtures. Reproducible for the same Git tree.                  |
+| `docker-validated`            | Tested against a local Docker container with real SDK dependencies. Not external network or hardware.                 |
+| `local-integration-validated` | Tested against a deterministic local endpoint/process with the pinned real SDK. Not external network or hardware.     |
+| `opt-in live test exists`     | A test harness exists, gated by environment variables. Not yet run against a real transport with recorded results.    |
+| `live-validated`              | Tested against a real transport (`live_service` or `hardware` tier) with results recorded in the repository.          |
+| `blocked`                     | A known blocker prevents progress.                                                                                    |
 
 ## 7. Policy
 
@@ -102,21 +102,21 @@ been tested and confirmed, it says so.
 The following pipeline behaviours have synthetic-tier test coverage (fake
 adapters, deterministic tests) now covered:
 
-| Behaviour                                              | Test module(s)                                                                 | Tier      |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------ | --------- |
-| Deterministic plan IDs via `stable_delivery_plan_id`   | `test_pipeline_live_replay_parity.py`                                          | synthetic |
-| Live/replay plan parity (plan_id, strategy, caps)      | `test_pipeline_live_replay_parity.py`                                          | synthetic |
-| Live/replay receipt parity (status, failure, evidence) | `test_pipeline_live_replay_parity.py`                                          | synthetic |
-| Repeated replay produces identical plan IDs            | `test_pipeline_live_replay_parity.py`                                          | synthetic |
-| Capability skip does not call adapter send             | `test_pipeline_suppression_no_send.py`                                         | synthetic |
-| Loop suppression does not call adapter send            | `test_pipeline_suppression_no_send.py`                                         | synthetic |
-| Suppressed receipts distinct from failed sends         | `test_pipeline_suppression_no_send.py`                                         | synthetic |
-| Suppressed deliveries do not create retryable outbox work         | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py` | synthetic |
-| Retry reconstruction preserves plan/route/target       | `test_receipt_lineage_retry_parity.py`                                         | synthetic |
-| Retry attempts append evidence, not overwrite          | `test_receipt_lineage_retry_parity.py`                                         | synthetic |
-| Retry exhaustion produces dead_lettered evidence       | `test_receipt_lineage_retry_parity.py`                                         | synthetic |
-| Native refs persisted and used in replay               | `test_pipeline_native_ref_loop_prevention.py`                                  | synthetic |
-| Loop suppression evidence includes all fields          | `test_pipeline_native_ref_loop_prevention.py`                                  | synthetic |
-| Operator diagnostics cover all pipeline stages         | `test_evidence_operator_diagnostics.py`                                        | synthetic |
+| Behaviour                                                 | Test module(s)                                                                 | Tier      |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------ | --------- |
+| Deterministic plan IDs via `stable_delivery_plan_id`      | `test_pipeline_live_replay_parity.py`                                          | synthetic |
+| Live/replay plan parity (plan_id, strategy, caps)         | `test_pipeline_live_replay_parity.py`                                          | synthetic |
+| Live/replay receipt parity (status, failure, evidence)    | `test_pipeline_live_replay_parity.py`                                          | synthetic |
+| Repeated replay produces identical plan IDs               | `test_pipeline_live_replay_parity.py`                                          | synthetic |
+| Capability skip does not call adapter send                | `test_pipeline_suppression_no_send.py`                                         | synthetic |
+| Loop suppression does not call adapter send               | `test_pipeline_suppression_no_send.py`                                         | synthetic |
+| Suppressed receipts distinct from failed sends            | `test_pipeline_suppression_no_send.py`                                         | synthetic |
+| Suppressed deliveries do not create retryable outbox work | `test_pipeline_suppression_no_send.py`, `test_receipt_lineage_retry_parity.py` | synthetic |
+| Retry reconstruction preserves plan/route/target          | `test_receipt_lineage_retry_parity.py`                                         | synthetic |
+| Retry attempts append evidence, not overwrite             | `test_receipt_lineage_retry_parity.py`                                         | synthetic |
+| Retry exhaustion produces dead_lettered evidence          | `test_receipt_lineage_retry_parity.py`                                         | synthetic |
+| Native refs persisted and used in replay                  | `test_pipeline_native_ref_loop_prevention.py`                                  | synthetic |
+| Loop suppression evidence includes all fields             | `test_pipeline_native_ref_loop_prevention.py`                                  | synthetic |
+| Operator diagnostics cover all pipeline stages            | `test_evidence_operator_diagnostics.py`                                        | synthetic |
 
 None of these behaviours have `live_service` or `hardware` tier validation.

@@ -14,7 +14,6 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
 
-
 def _event(event_id: str, native_id: str) -> CanonicalEvent:
     event = make_storage_event(event_id=event_id, source_adapter="matrix")
     return msgspec.structs.replace(

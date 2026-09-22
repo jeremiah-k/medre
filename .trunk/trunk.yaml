@@ -27,7 +27,7 @@ lint:
     - black@26.5.1
     - checkov@3.3.19
     - isort@9.0.1
-    - renovate@44.103.6
+    - renovate@44.107.0
     - ruff@0.16.8
     - shellcheck@0.11.0
     - shfmt@3.14.1

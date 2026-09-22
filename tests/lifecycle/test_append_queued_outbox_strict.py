@@ -140,7 +140,9 @@ class TestFieldMismatchRejected:
             now=now,
         )
 
-        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event(
+            "__outbox_default__"
+        )
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
@@ -177,7 +179,9 @@ class TestFieldMismatchRejected:
             now=now,
         )
 
-        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event(
+            "__outbox_default__"
+        )
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
@@ -214,7 +218,9 @@ class TestFieldMismatchRejected:
             now=now,
         )
 
-        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event(
+            "__outbox_default__"
+        )
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
@@ -252,7 +258,9 @@ class TestFieldMismatchRejected:
             now=now,
         )
 
-        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event(
+            "__outbox_default__"
+        )
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
@@ -314,7 +322,9 @@ class TestExactOutboxSelection:
             now=now,
         )
 
-        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event(
+            "__outbox_default__"
+        )
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-second"
@@ -371,7 +381,9 @@ class TestExactCallbackHappyPath:
             now=now,
         )
 
-        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event(
+            "__outbox_default__"
+        )
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-valid-q"
@@ -429,7 +441,9 @@ class TestExactCallbackHappyPath:
             now=now,
         )
 
-        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event(
+            "__outbox_default__"
+        )
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-dup-q"
@@ -462,7 +476,9 @@ class TestMissingAttemptNumberRejected:
             now=now,
         )
 
-        all_receipts = await outbox_temp_storage.list_receipts_for_event("__outbox_default__")
+        all_receipts = await outbox_temp_storage.list_receipts_for_event(
+            "__outbox_default__"
+        )
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
@@ -471,7 +487,9 @@ class TestMissingAttemptNumberRejected:
         outbox_temp_storage: StorageBackend,
     ) -> None:
         """Callback with outbox_id but attempt_number=None → outbox stays queued."""
-        await _setup_outbox_and_receipt(outbox_temp_storage, outbox_id="obox-no-attempt")
+        await _setup_outbox_and_receipt(
+            outbox_temp_storage, outbox_id="obox-no-attempt"
+        )
         record = OutboundNativeRefRecord(
             event_id="__outbox_default__",
             adapter="mesh-1",
@@ -500,7 +518,9 @@ class TestMissingAttemptNumberRejected:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Callback with missing attempt_number produces a warning log."""
-        await _setup_outbox_and_receipt(outbox_temp_storage, outbox_id="obox-warn-attempt")
+        await _setup_outbox_and_receipt(
+            outbox_temp_storage, outbox_id="obox-warn-attempt"
+        )
         record = OutboundNativeRefRecord(
             event_id="__outbox_default__",
             adapter="mesh-1",

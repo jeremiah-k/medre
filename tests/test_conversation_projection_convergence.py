@@ -20,7 +20,6 @@ from medre.core.storage.backend import (
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
-
 _TS = datetime(2026, 8, 22, 12, 0, tzinfo=UTC)
 
 
@@ -141,7 +140,9 @@ class _MemoryProjectionStorage:
         self.event_id_pages.append((after_event_id, limit))
         event_ids = sorted(self.events)
         if after_event_id is not None:
-            event_ids = [event_id for event_id in event_ids if event_id > after_event_id]
+            event_ids = [
+                event_id for event_id in event_ids if event_id > after_event_id
+            ]
         return event_ids[:limit]
 
     async def resolve_native_ref(
@@ -153,9 +154,7 @@ class _MemoryProjectionStorage:
         del adapter, native_channel_id, native_message_id
         return None
 
-    async def list_native_refs_for_event(
-        self, event_id: str
-    ) -> list[NativeMessageRef]:
+    async def list_native_refs_for_event(self, event_id: str) -> list[NativeMessageRef]:
         del event_id
         return []
 
@@ -233,9 +232,7 @@ async def test_child_before_parent_and_parent_before_child_converge() -> None:
         await parent_first.append(child)
         await parent_service.repair_after_event_available("child")
 
-        child_first_membership = await child_first.get_conversation_membership(
-            "child"
-        )
+        child_first_membership = await child_first.get_conversation_membership("child")
         parent_first_membership = await parent_first.get_conversation_membership(
             "child"
         )
@@ -551,9 +548,7 @@ async def test_concurrent_repairs_cannot_leave_older_projection_last() -> None:
 
     # The canonical parent fact arrives while the older child repair is paused.
     storage.events["parent"] = _event("parent")
-    parent_repair = asyncio.create_task(
-        service.repair_after_event_available("parent")
-    )
+    parent_repair = asyncio.create_task(service.repair_after_event_available("parent"))
 
     release_unresolved_write.set()
     await asyncio.gather(child_repair, parent_repair)

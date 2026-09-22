@@ -7,7 +7,6 @@ Uses mocked nio SDK — no live Matrix connection required.
 No Docker, no live transports, no SDK dependencies required.
 """
 
-
 from __future__ import annotations
 
 from datetime import datetime, timezone

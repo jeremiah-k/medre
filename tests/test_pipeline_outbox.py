@@ -552,7 +552,9 @@ class TestOutboxShutdownBehavior:
 class TestLeaseRenewal:
     """Live delivery leases should be renewable and prevent reclaim."""
 
-    async def test_renew_outbox_lease_method(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_renew_outbox_lease_method(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         """renew_outbox_lease should extend the lease on an in_progress item."""
         from datetime import datetime, timedelta, timezone
 
@@ -632,7 +634,9 @@ class TestLeaseRenewal:
         await outbox_temp_storage.claim_due_outbox_items(
             now=now.isoformat(), worker_id="w1", lease_seconds=30, limit=10
         )
-        await outbox_temp_storage.mark_outbox_sent("obox-sent-001", receipt_id="rcpt-sent")
+        await outbox_temp_storage.mark_outbox_sent(
+            "obox-sent-001", receipt_id="rcpt-sent"
+        )
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
         result = await outbox_temp_storage.renew_outbox_lease(
@@ -728,7 +732,9 @@ class TestLeaseRenewal:
         await outbox_temp_storage.create_outbox_item(item)
 
         # Transition to queued.
-        await outbox_temp_storage.mark_outbox_queued("obox-renew-queued", receipt_id="rcpt-q")
+        await outbox_temp_storage.mark_outbox_queued(
+            "obox-renew-queued", receipt_id="rcpt-q"
+        )
 
         new_lease = (now + timedelta(seconds=1800)).isoformat()
         result = await outbox_temp_storage.renew_outbox_lease(
@@ -959,7 +965,9 @@ class TestTargetedOutboxLookupRegression:
         await runner._record_outbound_native_ref(record)
 
         # -- 5. Assert: target outbox item is now "sent" -------------------
-        updated_target = await outbox_temp_storage.get_outbox_item("obox-target-regression")
+        updated_target = await outbox_temp_storage.get_outbox_item(
+            "obox-target-regression"
+        )
         assert updated_target is not None, "Target outbox item should exist"
         assert (
             updated_target.status == "sent"

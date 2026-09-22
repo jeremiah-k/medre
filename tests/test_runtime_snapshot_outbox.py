@@ -102,7 +102,7 @@ class TestStorageBackedOutboxRefresh:
                         target_adapter="adapter_refresh",
                         attempt_number=1,
                         status="pending",
-                    )
+                    ),
                 )
             app = make_fake_app(storage=storage)
             snap_before = build_runtime_snapshot(app, snapshot_scope="build")
@@ -153,7 +153,7 @@ class TestStorageRefreshAuthoritativeOverWorkerCache:
                         target_adapter="adapter_auth",
                         attempt_number=1,
                         status="pending",
-                    )
+                    ),
                 )
             for i in range(3):
                 created = await create_outbox_item_with_parent(
@@ -166,7 +166,7 @@ class TestStorageRefreshAuthoritativeOverWorkerCache:
                         target_adapter="adapter_auth",
                         attempt_number=2,
                         status="in_progress",
-                    )
+                    ),
                 )
                 await storage.mark_outbox_retry_wait(
                     created.outbox_id,

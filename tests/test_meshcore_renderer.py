@@ -22,10 +22,7 @@ from tests.helpers.native_metadata import (
     lxmf_native_data,
 )
 from tests.helpers.native_metadata import matrix_native_data as _matrix_native
-from tests.helpers.native_metadata import (
-    meshcore_native_data,
-    meshtastic_native_data,
-)
+from tests.helpers.native_metadata import meshcore_native_data, meshtastic_native_data
 
 
 def _make_config(

@@ -155,7 +155,9 @@ class TestReceiptTerminalStates:
 class TestReceiptAppendOnlyInvariant:
     """Receipts are append-only: once persisted, rows are never changed."""
 
-    async def test_append_only_invariant(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_append_only_invariant(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         """Create several receipts, then append more, and verify all
         original receipts are unchanged by comparing stored fields."""
         original_receipts = [

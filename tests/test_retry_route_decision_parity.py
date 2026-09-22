@@ -20,9 +20,7 @@ from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
 from medre.core.events.canonical import DeliveryReceipt
-
 from tests.helpers.retry_plan import make_retry_outbox as _make_outbox
-
 
 # ---------------------------------------------------------------------------
 # Helpers

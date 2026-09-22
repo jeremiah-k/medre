@@ -21,9 +21,7 @@ from medre.core.storage.sqlite.schema import _SCHEMA
 
 
 class _RollbackFailingConnection:
-    def execute(
-        self, _sql: str, _params: tuple[object, ...] = ()
-    ) -> sqlite3.Cursor:
+    def execute(self, _sql: str, _params: tuple[object, ...] = ()) -> sqlite3.Cursor:
         raise sqlite3.OperationalError("execute failed")
 
     def rollback(self) -> None:
@@ -101,12 +99,12 @@ def _admit(
         db,
         lock,
         event_ops=_event_ops(event_id),
-        native_identity=("matrix-main", "!room", native_id)
-        if native_id is not None
-        else None,
-        native_insert=_native_insert(event_id, native_id)
-        if native_id is not None
-        else None,
+        native_identity=(
+            ("matrix-main", "!room", native_id) if native_id is not None else None
+        ),
+        native_insert=(
+            _native_insert(event_id, native_id) if native_id is not None else None
+        ),
         event_id=event_id,
         provenance="live",
         work_status="pending",
@@ -270,14 +268,17 @@ def test_sync_claim_ingress_work_claims_pending_and_expired_only(
     assert [row["attempts"] for row in claimed] == [3, 1]
     assert all(row["status"] == "processing" for row in claimed)
     assert all(row["worker_id"] == "worker-new" for row in claimed)
-    assert sync_claim_ingress_work(
-        ingress_db,
-        lock,
-        now_iso="2026-08-18T23:00:01+00:00",
-        lease_until="2026-08-18T23:00:31+00:00",
-        worker_id="worker-other",
-        limit=5,
-    ) == []
+    assert (
+        sync_claim_ingress_work(
+            ingress_db,
+            lock,
+            now_iso="2026-08-18T23:00:01+00:00",
+            lease_until="2026-08-18T23:00:31+00:00",
+            worker_id="worker-other",
+            limit=5,
+        )
+        == []
+    )
 
 
 def test_sync_claim_ingress_work_rolls_back_driver_error(
@@ -309,18 +310,24 @@ def test_sync_write_rowcount_reports_matches_and_rolls_back_errors(
     )
     ingress_db.commit()
 
-    assert sync_write_rowcount(
-        ingress_db,
-        lock,
-        "UPDATE canonical_events SET event_id=? WHERE event_id=?",
-        ("evt-2", "evt-1"),
-    ) == 1
-    assert sync_write_rowcount(
-        ingress_db,
-        lock,
-        "UPDATE canonical_events SET event_id=? WHERE event_id=?",
-        ("evt-3", "missing"),
-    ) == 0
+    assert (
+        sync_write_rowcount(
+            ingress_db,
+            lock,
+            "UPDATE canonical_events SET event_id=? WHERE event_id=?",
+            ("evt-2", "evt-1"),
+        )
+        == 1
+    )
+    assert (
+        sync_write_rowcount(
+            ingress_db,
+            lock,
+            "UPDATE canonical_events SET event_id=? WHERE event_id=?",
+            ("evt-3", "missing"),
+        )
+        == 0
+    )
     with pytest.raises(sqlite3.OperationalError):
         sync_write_rowcount(ingress_db, lock, "UPDATE missing_table SET value=1")
     assert ingress_db.in_transaction is False
@@ -330,12 +337,18 @@ def test_schema_shape_inspection_covers_unstamped_and_stamped_databases(
     tmp_path: Path,
 ) -> None:
     missing_path = tmp_path / "missing.db"
-    assert sync_find_schema_shape_mismatch(
-        str(missing_path), {"durable_ingress_work": frozenset({"status"})}
-    ) is None
-    assert sync_find_schema_shape_mismatch(
-        ":memory:", {"durable_ingress_work": frozenset({"status"})}
-    ) is None
+    assert (
+        sync_find_schema_shape_mismatch(
+            str(missing_path), {"durable_ingress_work": frozenset({"status"})}
+        )
+        is None
+    )
+    assert (
+        sync_find_schema_shape_mismatch(
+            ":memory:", {"durable_ingress_work": frozenset({"status"})}
+        )
+        is None
+    )
 
     db_path = tmp_path / "shape.db"
     db = sqlite3.connect(db_path)

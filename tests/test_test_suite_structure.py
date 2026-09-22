@@ -138,9 +138,7 @@ def _is_pytest_mark_chain(node: ast.Attribute) -> bool:
     return False
 
 
-def _decorators_refer_to_marker(
-    decorators: list[ast.expr], names: set[str]
-) -> bool:
+def _decorators_refer_to_marker(decorators: list[ast.expr], names: set[str]) -> bool:
     """Return True if any decorator in *decorators* references one of *names*.
 
     Walks decorator chains so that ``@pytest.mark.skipif(...)`` decorating
@@ -192,9 +190,7 @@ def _module_has_marker(tree: ast.Module, names: set[str]) -> bool:
                 return False
             target = _resolve_name(name, extra_aliases or {})
             if target is not None:
-                return _value_resolves_marker(
-                    target, extra_aliases, visiting | {name}
-                )
+                return _value_resolves_marker(target, extra_aliases, visiting | {name})
         return False
 
     for node in tree.body:
@@ -383,7 +379,6 @@ def test_no_fixed_sleeps_project_wide() -> None:
     )
 
 
-
 def test_fixed_sleep_detector_accepts_keyword_delay_form() -> None:
     """``asyncio.sleep(delay=N)`` is a fixed sleep and must be detected."""
     import ast
@@ -434,12 +429,9 @@ def test_alias_cycles_terminate() -> None:
     """Cyclic alias chains resolve to False instead of recursing forever."""
     import ast
 
-    tree = ast.parse(
-        "a = []\n"
-        "b = a\n"
-        "pytestmark = b\n"
-    )
+    tree = ast.parse("a = []\n" "b = a\n" "pytestmark = b\n")
     assert _module_has_marker(tree, {"live"}) is False
+
 
 # ===================================================================
 # Check 4 — no broad type: ignore / pyright: ignore in helpers

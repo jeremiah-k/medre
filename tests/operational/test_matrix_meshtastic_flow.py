@@ -324,7 +324,9 @@ async def test_fake_storage_preserves_none_and_empty_native_channels() -> None:
     assert await storage.resolve_native_ref("mesh", "", "pkt-shared") == "evt-empty"
 
 
-async def test_fake_storage_finalization_preserves_missing_native_channel_identity() -> None:
+async def test_fake_storage_finalization_preserves_missing_native_channel_identity() -> (
+    None
+):
     storage = _FakeStorage()
     await storage.store_native_ref(
         NativeMessageRef(

@@ -6,10 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from medre.adapters._native_metadata import (
-    current_namespace as _current_namespace,
-    versioned_namespace as _versioned_namespace,
-)
+from medre.adapters._native_metadata import current_namespace as _current_namespace
+from medre.adapters._native_metadata import versioned_namespace as _versioned_namespace
 
 MESHTASTIC_NATIVE_NAMESPACE = "meshtastic"
 MESHTASTIC_NATIVE_SCHEMA_VERSION = 1

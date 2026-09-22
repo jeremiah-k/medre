@@ -48,7 +48,9 @@ class TestDelegationIntegration:
         # Admit the parent event so the FK on delivery_receipts.event_id
         # is satisfied (PRAGMA foreign_keys=ON is now enforced).
         from datetime import datetime, timezone
+
         from medre.core.events import CanonicalEvent, EventMetadata
+
         await temp_storage.append(
             CanonicalEvent(
                 event_id="evt-s",
@@ -95,6 +97,7 @@ class TestDelegationIntegration:
         # and delivery_outbox.event_id are satisfied
         # (PRAGMA foreign_keys=ON is now enforced).
         from medre.core.events import CanonicalEvent, EventMetadata
+
         await temp_storage.append(
             CanonicalEvent(
                 event_id="evt-001",

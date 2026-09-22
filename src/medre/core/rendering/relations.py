@@ -44,9 +44,7 @@ def degrade_relations_inline(event: CanonicalEvent, text: str) -> str:
     for rel in event.relations:
         # Abbreviate target_event_id to match text_helpers convention.
         raw_eid = rel.target_event_id
-        abbreviated_eid = (
-            f"{raw_eid[:8]}…" if raw_eid and len(raw_eid) > 8 else raw_eid
-        )
+        abbreviated_eid = f"{raw_eid[:8]}…" if raw_eid and len(raw_eid) > 8 else raw_eid
         target = (
             rel.fallback_text
             or abbreviated_eid
@@ -62,8 +60,16 @@ def degrade_relations_inline(event: CanonicalEvent, text: str) -> str:
         elif rel.relation_type == "reaction":
             emoji = (
                 (rel.key.strip() if rel.key else None)
-                or (str(event.payload.get("key")).strip() if event.payload.get("key") else None)
-                or (str(event.payload.get("emoji")).strip() if event.payload.get("emoji") else None)
+                or (
+                    str(event.payload.get("key")).strip()
+                    if event.payload.get("key")
+                    else None
+                )
+                or (
+                    str(event.payload.get("emoji")).strip()
+                    if event.payload.get("emoji")
+                    else None
+                )
                 or "∟"
             )
             parts.append(f"[reaction {emoji} to: {target}]")

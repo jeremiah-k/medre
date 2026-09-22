@@ -26,10 +26,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
-from tests.helpers.storage_outbox import (
-    append_receipt_with_parent,
-    create_outbox_item_with_parent,
-)
 from medre.adapters.meshtastic.queue import (
     MeshtasticOutboundQueue,
     QueueDeliveryResult,
@@ -44,6 +40,10 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.storage_outbox import (
+    append_receipt_with_parent,
+    create_outbox_item_with_parent,
+)
 
 # ===================================================================
 # Local helpers (replicated from lifecycle conftest — file must be
@@ -164,7 +164,7 @@ class TestStaleCallbackRejection:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-dl",
-            )
+            ),
         )
 
         # Create and transition outbox to dead_lettered.
@@ -228,7 +228,7 @@ class TestStaleCallbackRejection:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-sent",
-            )
+            ),
         )
 
         outbox_item = DeliveryOutboxItem(
@@ -282,7 +282,7 @@ class TestStaleCallbackRejection:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-cancel",
-            )
+            ),
         )
 
         outbox_item = DeliveryOutboxItem(
@@ -336,7 +336,7 @@ class TestStaleCallbackRejection:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-abandon",
-            )
+            ),
         )
 
         outbox_item = DeliveryOutboxItem(
@@ -404,7 +404,7 @@ class TestStaleCallbackAfterRetryReclaim:
                 channel="0",
                 plan_id="plan-retry-a",
                 event_id="evt-retry",
-            )
+            ),
         )
         outbox_a = DeliveryOutboxItem(
             outbox_id="obox-a",
@@ -439,7 +439,7 @@ class TestStaleCallbackAfterRetryReclaim:
                 plan_id="plan-retry-b",
                 event_id="evt-retry",
                 outbox_id="obox-b",
-            )
+            ),
         )
         outbox_b = DeliveryOutboxItem(
             outbox_id="obox-b",
@@ -667,7 +667,7 @@ class TestExactOutboxIdCorrelation:
                 channel="0",
                 plan_id="plan-exact",
                 outbox_id="obox-exact",
-            )
+            ),
         )
 
         # Create and transition outbox item to "queued".
@@ -730,7 +730,7 @@ class TestExactOutboxIdCorrelation:
                 channel="0",
                 plan_id="plan-a",
                 outbox_id="obox-plan-a",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -740,7 +740,7 @@ class TestExactOutboxIdCorrelation:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-b",
-            )
+            ),
         )
 
         # Create outbox item for plan-a only.
@@ -802,7 +802,7 @@ class TestExactOutboxIdCorrelation:
                 adapter="mesh-1",
                 channel="0",
                 plan_id="plan-missing",
-            )
+            ),
         )
 
         record = OutboundNativeRefRecord(
@@ -856,7 +856,7 @@ class TestDuplicateCallbackIdempotent:
                 channel="0",
                 plan_id="plan-dup",
                 outbox_id="obox-dup",
-            )
+            ),
         )
 
         outbox_item = DeliveryOutboxItem(
@@ -930,7 +930,7 @@ class TestDuplicateCallbackIdempotent:
                 plan_id="plan-dup2",
                 event_id="evt-002",
                 outbox_id="obox-dup2",
-            )
+            ),
         )
 
         outbox_item = DeliveryOutboxItem(

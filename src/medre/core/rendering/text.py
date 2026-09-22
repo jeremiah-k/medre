@@ -30,9 +30,8 @@ from medre.core.rendering.renderer import (
 )
 from medre.core.rendering.text_helpers import (
     extract_relation_text,
-    truncate_text as _shared_truncate_text,
 )
-
+from medre.core.rendering.text_helpers import truncate_text as _shared_truncate_text
 
 #: Mapping from relation type to the canonical :data:`FallbackApplied` value.
 _RELATION_FALLBACK_MAP: dict[str, FallbackApplied] = {

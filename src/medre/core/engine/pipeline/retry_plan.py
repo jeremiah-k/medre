@@ -40,7 +40,6 @@ from medre.core.planning.delivery_plan import (
 from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
 
-
 #: Valid capability-level values matching
 #: :data:`~medre.core.rendering.renderer.CapabilityLevel`.
 _VALID_CAPABILITY_LEVELS: frozenset[str] = frozenset(
@@ -197,9 +196,7 @@ def reconstruct_retry_delivery_plan(
     # must reproduce the original planning decision; malformed durable state
     # is rejected instead of being guessed into a different strategy.
     if item.metadata is None:
-        raise ValueError(
-            f"Retry outbox item {item.outbox_id} is missing metadata"
-        )
+        raise ValueError(f"Retry outbox item {item.outbox_id} is missing metadata")
     _meta = item.metadata
     required_keys = {
         "capability_level",
@@ -216,9 +213,7 @@ def reconstruct_retry_delivery_plan(
         )
 
     _capability_level_raw = _meta["capability_level"]
-    if _capability_level_raw is not None and not isinstance(
-        _capability_level_raw, str
-    ):
+    if _capability_level_raw is not None and not isinstance(_capability_level_raw, str):
         raise ValueError(
             f"Retry outbox item {item.outbox_id} has non-string "
             f"capability_level={_capability_level_raw!r}"

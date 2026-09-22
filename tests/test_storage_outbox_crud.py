@@ -23,7 +23,9 @@ from tests.helpers.storage_outbox import make_outbox_item as _make_outbox_item
 class TestCreateAndGet:
     """create_outbox_item() then get_outbox_item() must return an equivalent item."""
 
-    async def test_create_and_get_round_trip(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_create_and_get_round_trip(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         item = _make_outbox_item()
         created = await outbox_temp_storage.create_outbox_item(item)
         assert created.outbox_id == item.outbox_id
@@ -175,7 +177,9 @@ class TestIdempotentCreate:
             limit=10,
         )
         assert len(claimed) == 1
-        await outbox_temp_storage.mark_outbox_sent(created1.outbox_id, receipt_id="rcpt-1")
+        await outbox_temp_storage.mark_outbox_sent(
+            created1.outbox_id, receipt_id="rcpt-1"
+        )
 
         item2 = _make_outbox_item(
             delivery_plan_id="plan-recreate-sent",
@@ -221,13 +225,17 @@ class TestListOutboxItems:
             created_sent.outbox_id, receipt_id="rcpt-sent"
         )
 
-        pendings = await outbox_temp_storage.list_outbox_items(status_filter=["pending"])
+        pendings = await outbox_temp_storage.list_outbox_items(
+            status_filter=["pending"]
+        )
         assert all(i.status == "pending" for i in pendings)
 
         sents = await outbox_temp_storage.list_outbox_items(status_filter=["sent"])
         assert all(i.status == "sent" for i in sents)
 
-    async def test_list_limit_and_offset(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_list_limit_and_offset(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         ids = []
         for i in range(5):
             item = _make_outbox_item(delivery_plan_id=f"plan-limit-{i}")

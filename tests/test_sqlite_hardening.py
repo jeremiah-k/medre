@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from medre.core.storage.backend import EventFilter
 import medre.core.storage.sqlite.storage as sqlite_storage_module
+from medre.core.storage.backend import EventFilter
 from medre.core.storage.sqlite.query import _build_query_sql
 from medre.core.storage.sqlite.serde import _row_to_outbox_item, _row_to_relation
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -181,7 +181,6 @@ class TestExecutorLifecycle:
         s._db = None
         await s.close()
 
-
     async def test_close_repeated_cancellation_keeps_closed_state(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -235,7 +234,9 @@ class TestExecutorLifecycle:
 
         task.cancel()
         release.set()
-        with pytest.raises(RuntimeError, match="simulated db close failure") as exc_info:
+        with pytest.raises(
+            RuntimeError, match="simulated db close failure"
+        ) as exc_info:
             await task
 
         assert isinstance(exc_info.value.__cause__, asyncio.CancelledError)

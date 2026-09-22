@@ -139,12 +139,16 @@ class TestStatusTransitions:
 
     async def test_mark_abandoned(self, outbox_temp_storage: SQLiteStorage) -> None:
         oid = await self._create_and_claim(outbox_temp_storage, "plan-ts-abandon")
-        await outbox_temp_storage.mark_outbox_abandoned(oid, error_summary="Drain timeout")
+        await outbox_temp_storage.mark_outbox_abandoned(
+            oid, error_summary="Drain timeout"
+        )
         item = await outbox_temp_storage.get_outbox_item(oid)
         assert item is not None
         assert item.status == "abandoned"
 
-    async def test_terminal_no_regression(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_terminal_no_regression(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         """Once sent, subsequent mark calls should be no-ops."""
         oid = await self._create_and_claim(outbox_temp_storage, "plan-ts-noregress")
         await outbox_temp_storage.mark_outbox_sent(oid)
@@ -200,7 +204,9 @@ class TestStatusTransitionGuards:
         assert item is not None
         assert item.status == "retry_wait"
 
-    async def test_queued_can_be_marked_sent(self, outbox_temp_storage: SQLiteStorage) -> None:
+    async def test_queued_can_be_marked_sent(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
         """in_progress -> queued -> sent should work."""
         oid = await _create_in_progress(outbox_temp_storage, "plan-guard-q2s")
         await outbox_temp_storage.mark_outbox_queued(oid, receipt_id="rcpt-q2s")
@@ -269,7 +275,9 @@ class TestStatusTransitionGuards:
             if terminal == "sent":
                 await outbox_temp_storage.mark_outbox_sent(oid)
             elif terminal == "dead_lettered":
-                await outbox_temp_storage.mark_outbox_dead_lettered(oid, failure_kind="test")
+                await outbox_temp_storage.mark_outbox_dead_lettered(
+                    oid, failure_kind="test"
+                )
             elif terminal == "cancelled":
                 await outbox_temp_storage.mark_outbox_cancelled(oid)
             elif terminal == "abandoned":

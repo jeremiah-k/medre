@@ -26,8 +26,8 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.relation_enricher import RelationEnricher
 from medre.core.routing import Router
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.storage_outbox import admit_event
 from tests.helpers.pipeline import make_pipeline_config_for_pipeline
+from tests.helpers.storage_outbox import admit_event
 
 # ---------------------------------------------------------------------------
 # Helpers

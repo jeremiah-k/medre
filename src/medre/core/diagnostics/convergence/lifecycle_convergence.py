@@ -23,7 +23,6 @@ from .lifecycle_checks import (
     _check_stalled_delivery_plans,
     _check_target_mismatches,
 )
-
 from .types import OrphanFinding
 
 __all__ = [

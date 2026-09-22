@@ -13,8 +13,8 @@ import pytest
 
 from medre.adapters.fakes.meshcore import FakeMeshCoreAdapter
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
-from medre.adapters.meshcore.event_shape import MESHCORE_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshcore.errors import MeshCoreConnectionError
+from medre.adapters.meshcore.event_shape import MESHCORE_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshcore.session import MeshCoreSession
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import (

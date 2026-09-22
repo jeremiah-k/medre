@@ -97,7 +97,9 @@ async def test_projection_rebuild_failure_closes_storage_before_pipeline_start(
     app.storage.close = _track_storage_close  # type: ignore[assignment]
     adapter.start = _track_adapter_start  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeStartupError, match="Failed to rebuild conversation projection"):
+    with pytest.raises(
+        RuntimeStartupError, match="Failed to rebuild conversation projection"
+    ):
         await app.start()
 
     assert storage_close_called

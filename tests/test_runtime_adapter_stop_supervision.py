@@ -409,9 +409,7 @@ class TestAdapterStopTimeoutSupervision:
                 resistant.release()
                 # Wait for the retained stop task's done callback to
                 # remove it from _abandoned_adapter_stop_tasks.
-                await wait_until(
-                    lambda: not app._abandoned_adapter_stop_tasks
-                )
+                await wait_until(lambda: not app._abandoned_adapter_stop_tasks)
                 # Close storage so the SQLite connection is not leaked
                 # into subsequent tests' warnings.catch_warnings() context.
                 if app.storage is not None and not app.storage._closed:
@@ -472,9 +470,7 @@ class TestAdapterStopTimeoutSupervision:
                 # Release the adapter so the task can finish.
                 resistant.release()
                 # Give the done callback a chance to run.
-                await wait_until(
-                    lambda: not app._abandoned_adapter_stop_tasks
-                )
+                await wait_until(lambda: not app._abandoned_adapter_stop_tasks)
                 # Close storage so the SQLite connection is not leaked
                 # into subsequent tests' warnings.catch_warnings() context.
                 if app.storage is not None and not app.storage._closed:

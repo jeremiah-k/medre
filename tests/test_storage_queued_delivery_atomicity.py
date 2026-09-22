@@ -12,7 +12,6 @@ from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import admit_event, append_receipt_with_parent
 
-
 EVENT_ID = "evt-atomic-finalize"
 OUTBOX_ID = "obox-atomic-finalize"
 PLAN_ID = "plan-atomic-finalize"
@@ -224,8 +223,7 @@ async def test_finalize_queued_delivery_receipt_failure_rolls_back_all_tables(
         )
 
     assert (
-        await temp_storage.resolve_native_ref(ADAPTER, CHANNEL, "pkt-rollback")
-        is None
+        await temp_storage.resolve_native_ref(ADAPTER, CHANNEL, "pkt-rollback") is None
     )
     outbox = await temp_storage.get_outbox_item(OUTBOX_ID)
     assert outbox is not None

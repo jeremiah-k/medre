@@ -225,6 +225,7 @@ class ConversationGraphAuthority:
             return None
         return await get_fn(event_id)
 
+
 @dataclass(frozen=True)
 class ConversationRepairResult:
     """Result of reconciling one event against current relation facts."""
@@ -626,9 +627,7 @@ class ConversationProjectionService:
                 current, event_cache=event_cache, get_fn=get_fn
             )
             if event is None:
-                raise ValueError(
-                    f"cannot project missing canonical event: {current!r}"
-                )
+                raise ValueError(f"cannot project missing canonical event: {current!r}")
 
             parent_id, relation_type, has_dependency = await self._select_parent(
                 event, event_cache=event_cache, get_fn=get_fn
@@ -665,9 +664,7 @@ class ConversationProjectionService:
                     f"{parent_id!r} for {node_id!r}"
                 )
             state = (
-                "unresolved"
-                if parent.resolution_state == "unresolved"
-                else "resolved"
+                "unresolved" if parent.resolution_state == "unresolved" else "resolved"
             )
             cache[node_id] = ConversationMembership(
                 event_id=node_id,

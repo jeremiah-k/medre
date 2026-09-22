@@ -611,8 +611,7 @@ class TestMeshtasticAdapterTaskScheduling:
         # Wait for the event AND the task's done-callback removing it from
         # _background_tasks — publication and cleanup land on different turns.
         await wait_until(
-            lambda: len(inbound_collector.events) == 1
-            and not adapter._background_tasks
+            lambda: len(inbound_collector.events) == 1 and not adapter._background_tasks
         )
 
         assert len(inbound_collector.events) == 1

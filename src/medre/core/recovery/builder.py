@@ -112,9 +112,7 @@ _CLASSIFICATION_TO_OWNERSHIP: dict[str, str] = {
 #: Default stale-queued grace period; mirrors the storage-layer
 #: :data:`~medre.core.storage.sqlite.constants.STALE_QUEUED_GRACE_SECONDS`
 #: so recovery classification and outbox reclaim use a single source of truth.
-_DEFAULT_STALE_QUEUED_GRACE: timedelta = timedelta(
-    seconds=STALE_QUEUED_GRACE_SECONDS
-)
+_DEFAULT_STALE_QUEUED_GRACE: timedelta = timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
 
 
 def build_startup_recovery_ledger(

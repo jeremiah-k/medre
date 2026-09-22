@@ -160,6 +160,7 @@ def test_removed_route_key_meshnet_name_rejected() -> None:
     assert "meshnet_name" in msg
     assert exc_info.value.section_path == "routes.migrate"
 
+
 def test_direct_route_config_rejects_bare_channel_room_map_entry() -> None:
     """Direct construction enforces the normalized structured map shape."""
     with pytest.raises(ConfigValidationError, match="structured entry with required"):

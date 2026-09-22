@@ -70,10 +70,7 @@ from medre.core.planning.delivery_plan import (
     DeliveryPlan,
 )
 from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
-from medre.core.rendering.renderer import (
-    DeliveryStrategyMethod,
-    RenderingPipeline,
-)
+from medre.core.rendering.renderer import DeliveryStrategyMethod, RenderingPipeline
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import StorageBackend
 

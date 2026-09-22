@@ -186,7 +186,7 @@ class TestSupplementalReceiptChannelCorrelation:
                 route_id="route-x",
                 status="queued",
                 created_at=now,
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -199,7 +199,7 @@ class TestSupplementalReceiptChannelCorrelation:
                 route_id="route-y",
                 status="queued",
                 created_at=now,
-            )
+            ),
         )
 
         runner = PipelineRunner(
@@ -255,11 +255,12 @@ class TestSupplementalReceiptChannelCorrelation:
                 status="queued",
                 created_at=now,
                 outbox_id="obox-single",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation.
-        await create_outbox_item_with_parent(temp_storage,
+        await create_outbox_item_with_parent(
+            temp_storage,
             DeliveryOutboxItem(
                 outbox_id="obox-single",
                 event_id=event_id,
@@ -268,7 +269,7 @@ class TestSupplementalReceiptChannelCorrelation:
                 target_adapter="mesh-1",
                 target_channel="0",
                 status="in_progress",
-            )
+            ),
         )
         await temp_storage.mark_outbox_queued("obox-single")
 
@@ -334,7 +335,7 @@ class TestSupplementalReceiptChannelCorrelation:
                 attempt_number=1,
                 created_at=now - timedelta(minutes=5),
                 outbox_id="obox-retry",
-            )
+            ),
         )
         await append_receipt_with_parent(
             temp_storage,
@@ -349,7 +350,7 @@ class TestSupplementalReceiptChannelCorrelation:
                 attempt_number=2,
                 created_at=now,
                 outbox_id="obox-retry",
-            )
+            ),
         )
 
         # Create matching outbox item for exact correlation (attempt 2 = most recent).

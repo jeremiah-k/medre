@@ -320,9 +320,7 @@ class TestMatrixConfigMetadataEmbeddingMode:
             access_token="s3cret",
             metadata_embedding_mode="sfae",
         )
-        with pytest.raises(
-            MatrixConfigError, match="metadata_embedding_mode"
-        ):
+        with pytest.raises(MatrixConfigError, match="metadata_embedding_mode"):
             config.validate()
 
     def test_uppercase_variant_rejected(self) -> None:
@@ -334,9 +332,7 @@ class TestMatrixConfigMetadataEmbeddingMode:
             access_token="s3cret",
             metadata_embedding_mode="SAFE",
         )
-        with pytest.raises(
-            MatrixConfigError, match="metadata_embedding_mode"
-        ):
+        with pytest.raises(MatrixConfigError, match="metadata_embedding_mode"):
             config.validate()
 
 

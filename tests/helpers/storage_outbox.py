@@ -37,7 +37,6 @@ from medre.core.events import (
 )
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 
-
 SENTINEL_EVENT_ID: str = "__outbox_default__"
 
 
@@ -66,8 +65,6 @@ def make_outbox_item(
         status=status,
         next_attempt_at=next_attempt_at,
     )
-
-
 
 
 async def admit_event(storage: StorageBackend, event_id: str) -> None:
