@@ -619,7 +619,7 @@ Retry uses the `target_adapter`, `target_channel`, destination, and route-decisi
 | Persistence failure     | No durable outcome is claimed unless the lifecycle transition commits; reclaimed rows reconcile persisted attempt evidence before transport    |
 | Opt-in                  | Requires explicit retry policy/global worker enablement; no automatic retry without it                                                         |
 | Frozen context          | Retry reconstructs target, policy, and planning metadata from durable prior evidence                                                           |
-| Transport retry hint    | Optional `AdapterSendError.retry_after_seconds` is a minimum delay; effective scheduling uses `max(policy_backoff, retry_after_seconds)`        |
+| Transport retry hint    | Optional `AdapterSendError.retry_after_seconds` is a minimum delay; effective scheduling uses `max(policy_backoff, retry_after_seconds)`       |
 
 ### 7.8 Backoff Formula
 

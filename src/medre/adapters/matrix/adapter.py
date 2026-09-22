@@ -721,6 +721,12 @@ class MatrixAdapter(AdapterContract):
         else:
             message_type = "m.room.message"
 
+        # Fail fast while a shared server-directed cooldown is active: one
+        # gate per delivery, outside the in-adapter retry loop, so the
+        # structured retry hint propagates to the durable scheduler instead
+        # of being misclassified by the generic retry handler below.
+        self._defer_for_outbound_cooldown()
+
         # Compute a deterministic transaction ID once before the retry
         # loop so all retry attempts reuse the same txn_id.  This allows
         # the Matrix homeserver to deduplicate retries.
@@ -730,7 +736,6 @@ class MatrixAdapter(AdapterContract):
         last_exc: BaseException | None = None
         for attempt in range(_MAX_DELIVERY_RETRIES):
             try:
-                self._defer_for_outbound_cooldown()
                 response = await self._session.room_send(
                     room_id=room_id,
                     message_type=message_type,

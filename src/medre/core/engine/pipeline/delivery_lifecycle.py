@@ -74,7 +74,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord

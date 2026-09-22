@@ -387,9 +387,9 @@ request limiter. Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `cross_signing_last_failure_category`      | `str \| None`   | Secret-free reconciliation failure category            |
 | `transient_delivery_failures`              | `int`           | Transient outbound errors                              |
 | `permanent_delivery_failures`              | `int`           | Permanent outbound errors                              |
-| `outbound_rate_limit_events`                | `int`           | Homeserver rate-limit responses observed               |
-| `outbound_cooldown_deferrals`               | `int`           | Sends deferred locally during a shared cooldown        |
-| `outbound_cooldown_remaining_seconds`       | `float`         | Remaining server-directed outbound cooldown            |
+| `outbound_rate_limit_events`               | `int`           | Homeserver rate-limit responses observed               |
+| `outbound_cooldown_deferrals`              | `int`           | Sends deferred locally during a shared cooldown        |
+| `outbound_cooldown_remaining_seconds`      | `float`         | Remaining server-directed outbound cooldown            |
 | `inbound_published`                        | `int`           | Events published inbound                               |
 | `inbound_duplicate_admissions`             | `int`           | Duplicate durable admissions                           |
 | `inbound_suppressed_self`                  | `int`           | Self-message suppressions                              |
