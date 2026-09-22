@@ -639,6 +639,8 @@ class TestMatrixDeliveryNioResponseHardening:
         """Pipeline retry of the same RenderingResult reuses Matrix tx_id."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
+        now = [100.0]
+        adapter._clock = lambda: now[0]
 
         rate_limited = SimpleNamespace(
             errcode="M_LIMIT_EXCEEDED",
@@ -666,6 +668,9 @@ class TestMatrixDeliveryNioResponseHardening:
         assert exc_info.value.transient is True
         first_tx_id = mock_client.room_send.call_args.kwargs["tx_id"]
 
+        # Past the server-directed cooldown window from the 429 above, the
+        # pipeline-level retry is dispatched again with the same txn_id.
+        now[0] += 0.5
         delivery = await adapter.deliver(result)
         second_tx_id = mock_client.room_send.call_args.kwargs["tx_id"]
 

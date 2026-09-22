@@ -21,6 +21,7 @@ import asyncio
 import hashlib
 import logging
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -36,6 +37,7 @@ from medre.adapters.matrix.adapter import (
 )
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
+    MAX_ADAPTER_RETRY_AFTER_SECONDS,
     AdapterContext,
     AdapterPermanentError,
     AdapterSendError,
@@ -794,3 +796,175 @@ class TestMetadataJsonSafe:
         # These are on the delivery result directly
         assert delivery.native_message_id is not None
         assert delivery.native_channel_id is not None
+
+
+async def test_rate_limit_sets_structured_retry_hint_and_shared_cooldown() -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    mock_client = MagicMock()
+    response = MagicMock()
+    del response.event_id
+    response.errcode = "M_LIMIT_EXCEEDED"
+    response.retry_after_ms = 9000
+    mock_client.room_send = AsyncMock(return_value=response)
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError) as first_error:
+        await adapter.deliver(_make_result(event_id="evt-rate-1"))
+
+    assert first_error.value.retry_after_seconds == 9.0
+    assert adapter.diagnostics()["outbound_rate_limit_events"] == 1
+    assert adapter.diagnostics()["outbound_cooldown_remaining_seconds"] == 9.0
+
+    mock_client.room_send.reset_mock()
+    with pytest.raises(AdapterSendError) as deferred_error:
+        await adapter.deliver(_make_result(event_id="evt-rate-2"))
+
+    assert deferred_error.value.retry_after_seconds == 9.0
+    mock_client.room_send.assert_not_awaited()
+    assert adapter.diagnostics()["outbound_cooldown_deferrals"] == 1
+
+
+def test_retry_after_ms_normalization_rejects_invalid_values() -> None:
+    from medre.adapters.matrix.adapter import _retry_after_seconds_from_ms
+
+    assert _retry_after_seconds_from_ms(2500) == 2.5
+    assert _retry_after_seconds_from_ms(0) == 0.0
+    assert _retry_after_seconds_from_ms(-1) is None
+    assert _retry_after_seconds_from_ms(float("nan")) is None
+    assert _retry_after_seconds_from_ms(float("inf")) is None
+    assert _retry_after_seconds_from_ms(True) is None
+    assert _retry_after_seconds_from_ms("1000") is None
+    assert _retry_after_seconds_from_ms(10**400) is None
+
+
+def test_adapter_send_error_rejects_invalid_retry_hints() -> None:
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds=-1)
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds=float("inf"))
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds=True)
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds="5")
+    with pytest.raises(ValueError, match="retry_after_seconds"):
+        AdapterSendError("bad", retry_after_seconds=10**400)
+
+
+async def test_real_nio_error_response_shape_triggers_rate_limit_hint() -> None:
+    """A parsed nio ErrorResponse stores the errcode string in status_code
+    and has no errcode attribute (nio 0.40 responses.py)."""
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    mock_client = MagicMock()
+    rate_limited = SimpleNamespace(
+        message="Too many requests",
+        status_code="M_LIMIT_EXCEEDED",
+        retry_after_ms=4000,
+        soft_logout=False,
+    )
+    mock_client.room_send = AsyncMock(return_value=rate_limited)
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError) as exc_info:
+        await adapter.deliver(_make_result(event_id="evt-nio-shape"))
+
+    assert exc_info.value.transient is True
+    assert exc_info.value.retry_after_seconds == 4.0
+    assert adapter.diagnostics()["outbound_rate_limit_events"] == 1
+
+
+async def test_raw_http_429_without_parsed_errcode_is_transient_without_hint() -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    mock_client = MagicMock()
+    rate_limited = SimpleNamespace(
+        message="unknown error",
+        status_code=None,
+        retry_after_ms=None,
+        soft_logout=False,
+        transport_response=SimpleNamespace(status=429),
+    )
+    mock_client.room_send = AsyncMock(return_value=rate_limited)
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError) as exc_info:
+        await adapter.deliver(_make_result(event_id="evt-http-429"))
+
+    assert exc_info.value.transient is True
+    assert exc_info.value.retry_after_seconds is None
+    diagnostics = adapter.diagnostics()
+    assert diagnostics["outbound_rate_limit_events"] == 1
+    assert diagnostics["outbound_cooldown_remaining_seconds"] == 0.0
+
+
+async def test_cooldown_expires_and_allows_subsequent_delivery() -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    mock_client = MagicMock()
+    rate_limited = MagicMock()
+    del rate_limited.event_id
+    rate_limited.errcode = "M_LIMIT_EXCEEDED"
+    rate_limited.retry_after_ms = 5000
+    delivered = _make_send_response("$evt-delivered:session")
+    mock_client.room_send = AsyncMock(side_effect=[rate_limited, delivered])
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError):
+        await adapter.deliver(_make_result(event_id="evt-cool-1"))
+
+    now[0] += 6.0
+    delivery = await adapter.deliver(_make_result(event_id="evt-cool-2"))
+
+    assert delivery is not None
+    assert delivery.native_message_id == "$evt-delivered:session"
+    diagnostics = adapter.diagnostics()
+    assert diagnostics["outbound_cooldown_deferrals"] == 0
+    assert diagnostics["outbound_cooldown_remaining_seconds"] == 0.0
+
+
+def test_cooldown_caps_extreme_server_window() -> None:
+    adapter = MatrixAdapter(_make_config())
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    adapter._remember_outbound_cooldown(1e100)
+
+    with pytest.raises(AdapterSendError) as exc_info:
+        adapter._defer_for_outbound_cooldown()
+
+    assert exc_info.value.retry_after_seconds == MAX_ADAPTER_RETRY_AFTER_SECONDS
+    assert (
+        adapter.diagnostics()["outbound_cooldown_remaining_seconds"]
+        == MAX_ADAPTER_RETRY_AFTER_SECONDS
+    )
+
+
+async def test_cooldown_keeps_longest_server_window() -> None:
+    config = _make_config()
+    adapter = MatrixAdapter(config)
+    now = [100.0]
+    adapter._clock = lambda: now[0]
+    mock_client = MagicMock()
+    rate_limited = MagicMock()
+    del rate_limited.event_id
+    rate_limited.errcode = "M_LIMIT_EXCEEDED"
+    rate_limited.retry_after_ms = 3000
+    mock_client.room_send = AsyncMock(return_value=rate_limited)
+    _wire_mock_session(adapter, mock_client, config=config)
+
+    with pytest.raises(AdapterSendError) as first_error:
+        await adapter.deliver(_make_result(event_id="evt-win-1"))
+    assert first_error.value.retry_after_seconds == 3.0
+
+    adapter._remember_outbound_cooldown(9.0)
+    with pytest.raises(AdapterSendError) as second_error:
+        await adapter.deliver(_make_result(event_id="evt-win-2"))
+
+    assert second_error.value.retry_after_seconds == 9.0
+    assert adapter.diagnostics()["outbound_cooldown_remaining_seconds"] == 9.0

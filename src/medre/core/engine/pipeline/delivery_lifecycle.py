@@ -74,10 +74,13 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
+from medre.core.contracts.adapter import (
+    MAX_ADAPTER_RETRY_AFTER_SECONDS,
+    OutboundNativeRefRecord,
+)
 from medre.core.engine.pipeline.delivery_state import (
     is_terminal_outbox_status as _is_terminal_outbox_status,
 )
@@ -365,6 +368,7 @@ class DeliveryLifecycleService:
         plan: DeliveryPlan,
         attempt_number: int,
         now: datetime,
+        retry_after_seconds: float | None = None,
     ) -> datetime | None:
         """Compute ``next_retry_at`` for retryable transient failures.
 
@@ -380,6 +384,12 @@ class DeliveryLifecycleService:
             The 1-indexed attempt number.
         now:
             Persistence-time timestamp used as the base for backoff.
+        retry_after_seconds:
+            Optional adapter-provided minimum delay.  For retryable failures,
+            the effective delay is the larger of policy backoff and this hint,
+            clamped to ``MAX_ADAPTER_RETRY_AFTER_SECONDS`` so an absurd hint
+            cannot
+            produce an unrepresentable timestamp.
 
         Returns
         -------
@@ -395,6 +405,14 @@ class DeliveryLifecycleService:
             executor = RetryExecutor(plan.retry_policy)
             if not executor.is_exhausted(attempt_number):
                 backoff = executor.compute_backoff(attempt_number)
+                if retry_after_seconds is not None:
+                    hinted = timedelta(
+                        seconds=min(
+                            retry_after_seconds, MAX_ADAPTER_RETRY_AFTER_SECONDS
+                        )
+                    )
+                    if hinted > backoff:
+                        backoff = hinted
                 return now + backoff
         return None
 

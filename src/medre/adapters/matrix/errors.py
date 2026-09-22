@@ -15,6 +15,9 @@ Hierarchy::
 
 from __future__ import annotations
 
+import math
+from typing import Any
+
 MATRIX_PERMANENT_ERRCODES: frozenset[str] = frozenset(
     {
         "M_FORBIDDEN",
@@ -34,6 +37,35 @@ MATRIX_PERMANENT_ERRCODES: frozenset[str] = frozenset(
 # overload), so classifying it as unconditionally permanent terminates
 # bounded recovery on recoverable failures. Treating it as transient is
 # safe: retries are capped by the retry policy / room-key request budget.
+
+
+def retry_after_seconds_from_ms(value: Any) -> float | None:
+    """Normalize a Matrix ``retry_after_ms`` value to non-negative seconds."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        numeric = float(value)
+    except (OverflowError, ValueError):
+        return None
+    if not math.isfinite(numeric) or numeric < 0:
+        return None
+    return numeric / 1000.0
+
+
+def is_nio_rate_limited_response(response: Any) -> bool:
+    """Return whether a nio response represents Matrix rate limiting."""
+    if hasattr(response, "event_id"):
+        return False
+    errcode = getattr(response, "errcode", None) or ""
+    if isinstance(errcode, str) and errcode.upper() == "M_LIMIT_EXCEEDED":
+        return True
+    status = getattr(response, "status_code", None)
+    if isinstance(status, str) and status.upper() == "M_LIMIT_EXCEEDED":
+        return True
+    if status == 429:
+        return True
+    transport_response = getattr(response, "transport_response", None)
+    return getattr(transport_response, "status", None) == 429
 
 
 class MatrixError(Exception):

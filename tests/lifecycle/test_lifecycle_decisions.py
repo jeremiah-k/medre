@@ -7,7 +7,7 @@ No I/O — all tests are synchronous and need no storage fixture.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from medre.core.contracts.adapter import (
     AdapterPermanentError,
@@ -347,3 +347,98 @@ class TestIsTerminalOutboxStatus:
 
     def test_queued_is_not_terminal(self) -> None:
         assert DeliveryLifecycleService.is_terminal_outbox_status("queued") is False
+
+
+def test_retry_hint_extends_policy_backoff() -> None:
+    lifecycle = _make_lifecycle()
+    policy = RetryPolicy(
+        max_attempts=3,
+        backoff_base=1.0,
+        max_delay_seconds=5.0,
+        jitter=False,
+    )
+    plan = _make_plan(retry_policy=policy)
+    now = datetime.now(tz=timezone.utc)
+
+    result = lifecycle.compute_next_retry_at(
+        "failed",
+        DeliveryFailureKind.ADAPTER_TRANSIENT,
+        plan,
+        1,
+        now,
+        retry_after_seconds=12.5,
+    )
+
+    assert result == now + timedelta(seconds=12.5)
+
+
+def test_retry_hint_never_shortens_policy_backoff() -> None:
+    lifecycle = _make_lifecycle()
+    policy = RetryPolicy(max_attempts=3, backoff_base=8.0, jitter=False)
+    plan = _make_plan(retry_policy=policy)
+    now = datetime.now(tz=timezone.utc)
+
+    result = lifecycle.compute_next_retry_at(
+        "failed",
+        DeliveryFailureKind.ADAPTER_TRANSIENT,
+        plan,
+        1,
+        now,
+        retry_after_seconds=2.0,
+    )
+
+    assert result == now + timedelta(seconds=8.0)
+
+
+def test_retry_hint_does_not_bypass_exhaustion() -> None:
+    lifecycle = _make_lifecycle()
+    policy = RetryPolicy(max_attempts=1, backoff_base=1.0, jitter=False)
+    plan = _make_plan(retry_policy=policy)
+    now = datetime.now(tz=timezone.utc)
+
+    result = lifecycle.compute_next_retry_at(
+        "failed",
+        DeliveryFailureKind.ADAPTER_TRANSIENT,
+        plan,
+        1,
+        now,
+        retry_after_seconds=99.0,
+    )
+
+    assert result is None
+
+
+def test_retry_hint_is_clamped_to_scheduling_maximum() -> None:
+    lifecycle = _make_lifecycle()
+    policy = RetryPolicy(max_attempts=3, backoff_base=1.0, jitter=False)
+    plan = _make_plan(retry_policy=policy)
+    now = datetime.now(tz=timezone.utc)
+
+    result = lifecycle.compute_next_retry_at(
+        "failed",
+        DeliveryFailureKind.ADAPTER_TRANSIENT,
+        plan,
+        1,
+        now,
+        retry_after_seconds=1e20,
+    )
+
+    assert result == now + timedelta(days=30)
+
+
+def test_retry_hint_does_not_make_permanent_failure_retryable() -> None:
+    lifecycle = _make_lifecycle()
+    policy = RetryPolicy(max_attempts=3, backoff_base=1.0, jitter=False)
+    plan = _make_plan(retry_policy=policy)
+    now = datetime.now(tz=timezone.utc)
+
+    result = lifecycle.compute_next_retry_at(
+        "failed",
+        DeliveryFailureKind.ADAPTER_PERMANENT,
+        plan,
+        1,
+        now,
+        retry_after_seconds=99.0,
+    )
+
+    assert result is None

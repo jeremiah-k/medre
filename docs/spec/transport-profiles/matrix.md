@@ -387,6 +387,9 @@ request limiter. Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `cross_signing_last_failure_category`      | `str \| None`   | Secret-free reconciliation failure category            |
 | `transient_delivery_failures`              | `int`           | Transient outbound errors                              |
 | `permanent_delivery_failures`              | `int`           | Permanent outbound errors                              |
+| `outbound_rate_limit_events`               | `int`           | Homeserver rate-limit responses observed               |
+| `outbound_cooldown_deferrals`              | `int`           | Sends deferred locally during a shared cooldown        |
+| `outbound_cooldown_remaining_seconds`      | `float`         | Remaining server-directed outbound cooldown            |
 | `inbound_published`                        | `int`           | Events published inbound                               |
 | `inbound_duplicate_admissions`             | `int`           | Duplicate durable admissions                           |
 | `inbound_suppressed_self`                  | `int`           | Self-message suppressions                              |
@@ -466,6 +469,32 @@ threads to inline fallback text.
 **Payload requirement:** The Matrix renderer produces Matrix-native payloads (`m.room.message` with msgtype/body/`m.relates_to`). The adapter transports these payloads via `room_send` without modification.
 
 ---
+
+## Outbound Rate-Limit Coordination
+
+Matrix delivery keeps durable retry scheduling in the core lifecycle. When the
+homeserver returns a recognizable room-send `M_LIMIT_EXCEEDED` / HTTP 429, the
+session intercepts that `RoomSendError` through mindroom-nio's filtered
+response-callback boundary before the SDK sleeps/retries it. The response is then
+classified by the adapter as a transient delivery failure.
+
+If the response carries a valid `retry_after_ms`, the adapter converts it into the
+generic `AdapterSendError.retry_after_seconds` hint. A positive value also extends
+a shared monotonic cooldown for the adapter instance. While that window is active,
+sibling deliveries fail fast without calling `room_send`; their retry hint is the
+remaining cooldown.
+The durable receipt/outbox scheduler uses
+`max(policy_backoff, retry_after_seconds)` for `next_retry_at`. Missing or invalid
+`retry_after_ms` values remain ordinary transient failures and do not create a
+shared cooldown.
+
+This is server-directed backpressure, not a second retry engine. MEDRE does not
+change mindroom-nio's client-global 429 policy because that policy also covers sync,
+join, and key-management requests; the interception is filtered to room-send error
+responses. The adapter does not sleep through a MEDRE-owned cooldown, does not
+consume additional Matrix transaction IDs, and does not override route retry limits.
+Both the in-memory shared cooldown and durable hint scheduling are bounded to 30 days
+so a hostile or broken value cannot park delivery indefinitely.
 
 ## Known Limitations
 
