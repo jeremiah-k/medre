@@ -17,6 +17,7 @@ from medre.adapters.matrix.session import (
 )
 from medre.config.adapters.errors import MatrixConfigError
 from medre.config.sample import generate_sample_config
+from tests.helpers.async_utils import wait_until
 from tests.helpers.matrix_session import make_matrix_config
 
 _RUNTIME_DEFAULTS: dict[str, int | float] = {
@@ -72,6 +73,8 @@ def test_runtime_supervision_defaults_validate() -> None:
             {"sync_timeout_ms": 0, "sync_stale_timeout_seconds": 15.0},
             "must exceed",
         ),
+        ({"sync_stale_timeout_seconds": True}, "sync_stale_timeout_seconds"),
+        ({"sync_stale_timeout_seconds": "300"}, "sync_stale_timeout_seconds"),
         ({"megolm_key_request_rate_limit_per_minute": 0}, "rate_limit"),
         ({"megolm_key_request_max_inflight": 0}, "max_inflight"),
     ],
@@ -199,6 +202,138 @@ async def test_failed_stale_recycle_does_not_count_completed_recovery() -> None:
             )
 
 
+async def test_zero_stale_timeout_awaits_sync_without_watchdog() -> None:
+    session = MatrixSession(make_matrix_config(sync_stale_timeout_seconds=0))
+
+    async def _quick_sync(**_kwargs: object) -> None:
+        return None
+
+    session._client = SimpleNamespace(sync_forever=_quick_sync)
+
+    await asyncio.wait_for(session._run_sync_forever_attempt(), timeout=0.5)
+
+    assert session._stale_sync_recoveries == 0
+    assert session._last_stale_sync_at is None
+
+
+async def test_watchdog_awaits_task_completed_during_timeout_race(monkeypatch) -> None:
+    session = MatrixSession(
+        make_matrix_config(sync_stale_timeout_seconds=300.0), clock=lambda: 100.0
+    )
+    completed = asyncio.Event()
+
+    async def _completing_sync(**_kwargs: object) -> None:
+        await asyncio.sleep(0)
+        completed.set()
+
+    session._client = SimpleNamespace(sync_forever=_completing_sync)
+
+    async def _racy_wait_for(_fut: object, timeout: float) -> None:
+        await asyncio.sleep(0)
+        raise TimeoutError
+
+    monkeypatch.setattr(asyncio, "wait_for", _racy_wait_for)
+    attempt = asyncio.create_task(session._run_sync_forever_attempt())
+    await asyncio.wait({attempt}, timeout=1.0)
+
+    assert attempt.done() and not attempt.cancelled()
+    assert attempt.exception() is None
+    assert completed.is_set()
+    assert session._stale_sync_recoveries == 0
+    assert session._last_stale_sync_at is None
+
+
+async def test_recycle_completes_without_provider_stop_hook() -> None:
+    session = MatrixSession(make_matrix_config())
+    started = asyncio.Event()
+
+    async def _wait_forever() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(_wait_forever())
+    await started.wait()
+    try:
+        await asyncio.wait_for(
+            session._recycle_stale_sync_task(task, SimpleNamespace()), timeout=0.5
+        )
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    assert task.cancelled()
+
+
+async def test_recycle_cancellation_propagates_and_consumes_inner_task() -> None:
+    session = MatrixSession(make_matrix_config())
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _resists_cancel() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    task = asyncio.create_task(_resists_cancel())
+    await started.wait()
+    recycler = asyncio.create_task(
+        session._recycle_stale_sync_task(
+            task, SimpleNamespace(stop_sync_forever=MagicMock())
+        )
+    )
+    try:
+        assert await wait_until(lambda: task.cancelling() >= 1)
+        recycler.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await recycler
+        assert recycler.cancelled()
+    finally:
+        release.set()
+        await asyncio.gather(task, recycler, return_exceptions=True)
+
+
+async def test_sync_supervision_fails_closed_when_recycle_fails() -> None:
+    config = make_matrix_config(sync_timeout_ms=0, sync_stale_timeout_seconds=0.001)
+    ticks = iter((100.0, 100.0, 101.0, 101.0))
+    session = MatrixSession(config, clock=lambda: next(ticks))
+    release = asyncio.Event()
+    started = asyncio.Event()
+    attempts: list[int] = []
+
+    async def _resists_cancel(**_kwargs: object) -> None:
+        attempts.append(1)
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    session._client = SimpleNamespace(
+        sync_forever=_resists_cancel,
+        stop_sync_forever=MagicMock(),
+    )
+    try:
+        with patch(
+            "medre.adapters.matrix.session._SYNC_RECYCLE_CANCEL_TIMEOUT_SECONDS", 0.01
+        ):
+            supervisor = asyncio.create_task(session._run_sync())
+            await started.wait()
+            await asyncio.wait({supervisor}, timeout=1.0)
+        assert supervisor.done() and not supervisor.cancelled()
+        assert supervisor.exception() is None
+        assert isinstance(session._sync_failure, _SyncRecycleFailed)
+        assert session._last_reconnect_error is not None
+        assert session._reconnecting is False
+        assert len(attempts) == 1
+    finally:
+        release.set()
+        if not supervisor.done():
+            supervisor.cancel()
+        await asyncio.gather(supervisor, return_exceptions=True)
+
+
 def test_megolm_rate_limit_is_independent_from_warning_dedup() -> None:
     session = MatrixSession(
         make_matrix_config(megolm_key_request_rate_limit_per_minute=2)
@@ -209,6 +344,20 @@ def test_megolm_rate_limit_is_independent_from_warning_dedup() -> None:
     assert session._reserve_room_key_request(1002.0) is False
     assert session._room_key_request_rate_limited == 1
     assert "!room:test:session" in session._undecryptable_dedup
+
+
+def test_megolm_rate_limit_window_evicts_aged_entries() -> None:
+    session = MatrixSession(
+        make_matrix_config(megolm_key_request_rate_limit_per_minute=2)
+    )
+    assert session._reserve_room_key_request(1000.0) is True
+    assert session._reserve_room_key_request(1030.0) is True
+    assert session._reserve_room_key_request(1040.0) is False
+    assert session._room_key_request_rate_limited == 1
+    assert session._reserve_room_key_request(1059.999) is False
+    assert session._room_key_request_rate_limited == 2
+    assert session._reserve_room_key_request(1060.0) is True
+    assert len(session._room_key_request_window) == 2
 
 
 async def test_megolm_retry_attempts_consume_network_rate_limit() -> None:

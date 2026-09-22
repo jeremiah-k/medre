@@ -250,6 +250,20 @@ async def test_stale_sync_reports_degraded():
     assert info.health == "degraded"
 
 
+async def test_disabled_stale_timeout_skips_staleness_degradation():
+    """sync_stale_timeout_seconds=0 also disables the health staleness bound."""
+    config = _make_config(sync_stale_timeout_seconds=0)
+    adapter = MatrixAdapter(config)
+    adapter._clock = lambda: _MONO_BASE + 100000.0
+    adapter._session = _make_mock_session(
+        connected=True,
+        logged_in=True,
+        last_successful_sync=_MONO_BASE,
+    )
+    info = await adapter.health_check()
+    assert info.health == "healthy"
+
+
 async def test_reconnecting_session_reports_degraded():
     """Active session-level recovery is visible as degraded health."""
     config = _make_config()
