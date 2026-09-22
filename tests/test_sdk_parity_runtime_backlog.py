@@ -621,18 +621,18 @@ class TestP06LxmfPeriodicAnnounceImplemented:
 # ===================================================================
 
 
-class TestP07MatrixStaleSyncSupervisionResolved:
-    """MatrixSession now owns active stale-progress recovery."""
+def test_p07_matrix_config_exposes_stale_sync_policy() -> None:
+    """MatrixConfig exposes the active stale-progress recovery policy."""
+    field_names = {f.name for f in dataclass_fields(MatrixConfig)}
+    assert "sync_stale_timeout_seconds" in field_names
 
-    def test_config_exposes_stale_sync_policy(self) -> None:
-        field_names = {f.name for f in dataclass_fields(MatrixConfig)}
-        assert "sync_stale_timeout_seconds" in field_names
 
-    def test_session_contains_active_sync_attempt_supervisor(self) -> None:
-        source = inspect.getsource(matrix_session_mod.MatrixSession)
-        assert "_run_sync_forever_attempt" in source
-        assert "sync_stale_timeout_seconds" in source
-        assert "stop_sync_forever" in source
+def test_p07_matrix_session_contains_active_sync_attempt_supervisor() -> None:
+    """MatrixSession owns active stale-progress recovery."""
+    source = inspect.getsource(matrix_session_mod.MatrixSession)
+    assert "_run_sync_forever_attempt" in source
+    assert "sync_stale_timeout_seconds" in source
+    assert "stop_sync_forever" in source
 
 
 # ===================================================================
@@ -782,25 +782,27 @@ class TestP11LxmfEvictionLoggingLacksState:
 # ===================================================================
 
 
-class TestP12MatrixKeyRequestRateLimitingResolved:
-    """MatrixSession independently bounds outbound missing-key recovery."""
+def test_p12_matrix_config_exposes_network_and_concurrency_limits() -> None:
+    """MatrixConfig exposes both missing-key recovery bounds."""
+    field_names = {f.name for f in dataclass_fields(MatrixConfig)}
+    assert "megolm_key_request_rate_limit_per_minute" in field_names
+    assert "megolm_key_request_max_inflight" in field_names
 
-    def test_config_exposes_network_and_concurrency_limits(self) -> None:
-        field_names = {f.name for f in dataclass_fields(MatrixConfig)}
-        assert "megolm_key_request_rate_limit_per_minute" in field_names
-        assert "megolm_key_request_max_inflight" in field_names
 
-    def test_recovery_attempts_reserve_network_capacity(self) -> None:
-        source = inspect.getsource(
-            matrix_session_mod.MatrixSession._request_missing_room_key
-        )
-        assert "_reserve_room_key_request" in source
-        assert "_room_key_request_attempts" in source
+def test_p12_matrix_recovery_attempts_reserve_network_capacity() -> None:
+    """Each outbound recovery attempt reserves rolling network capacity."""
+    source = inspect.getsource(
+        matrix_session_mod.MatrixSession._request_missing_room_key
+    )
+    assert "_reserve_room_key_request" in source
+    assert "_room_key_request_attempts" in source
 
-    def test_event_handler_bounds_concurrent_recovery(self) -> None:
-        source = inspect.getsource(matrix_session_mod.MatrixSession._on_megolm_event)
-        assert "megolm_key_request_max_inflight" in source
-        assert "_room_key_request_tasks" in source
+
+def test_p12_matrix_event_handler_bounds_concurrent_recovery() -> None:
+    """The event handler enforces the concurrent recovery-task cap."""
+    source = inspect.getsource(matrix_session_mod.MatrixSession._on_megolm_event)
+    assert "megolm_key_request_max_inflight" in source
+    assert "_room_key_request_tasks" in source
 
 
 # ===================================================================
