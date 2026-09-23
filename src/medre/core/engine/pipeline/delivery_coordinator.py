@@ -673,6 +673,12 @@ class DeliveryCoordinator:
         outbox_ctx: OutboxContext,
         inflight_key: str | None,
     ) -> DeliveryOutcome:
+        """Deliver while retaining the outbox claim, then finalize its outcome.
+
+        Cancels lease renewal and attempts outbox finalization even if target
+        delivery raises. A rejected finalization leaves any appended receipt
+        as historical evidence rather than current outbox state.
+        """
         renewal_task = self._outbox_manager.start_lease_renewal(outbox_ctx)
         result: _ExecutionResult | None = None
         if inflight_key is not None:
@@ -720,6 +726,13 @@ class DeliveryCoordinator:
         replay_receipts: list[DeliveryReceipt],
         outbox_ctx: OutboxContext,
     ) -> _ExecutionResult:
+        """Return the delivery outcome and receipts needed for finalization.
+
+        Adapter and renderer failures become classified outcomes; a linked
+        terminal lifecycle receipt is kept separate from the failed attempt
+        receipt. Cancellation propagates rather than becoming a failure
+        outcome.
+        """
         status: Literal["success", "queued", "transient_failure", "permanent_failure"]
         try:
             if self._runtime_accounting is not None:

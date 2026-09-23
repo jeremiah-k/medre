@@ -153,7 +153,13 @@ class DeliveryLifecycleStorage(Protocol):
         target_adapter: str,
         *,
         event_id: str | None = None,
-    ) -> list[DeliveryReceipt]: ...
+    ) -> list[DeliveryReceipt]:
+        """List plan receipts, optionally restricted to one event.
+
+        Plan IDs can recur across events; lifecycle callers should supply
+        ``event_id`` to avoid mixing their receipt lineages.
+        """
+        ...
 
     async def finalize_queued_delivery(
         self,
@@ -171,14 +177,26 @@ class DeliveryLifecycleStorage(Protocol):
         outbox_id: str,
         worker_id: str,
         from_attempt: int,
-    ) -> int | None: ...
+    ) -> int | None:
+        """Reserve the next attempt for the current claim owner.
+
+        Return its number, or ``None`` if the row is no longer owned,
+        in progress, or eligible for a new reservation. A failed
+        reservation must not proceed to transport dispatch.
+        """
+        ...
 
     async def renew_outbox_lease(
         self,
         outbox_id: str,
         worker_id: str,
         lease_until: str,
-    ) -> bool: ...
+    ) -> bool:
+        """Extend the owned in-progress row's lease to ``lease_until``.
+
+        Return ``False`` if the claim is no longer held by ``worker_id``.
+        """
+        ...
 
     async def mark_outbox_sent(
         self,
@@ -186,7 +204,12 @@ class DeliveryLifecycleStorage(Protocol):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
-    ) -> bool: ...
+    ) -> bool:
+        """Commit a sent outcome if the supplied attempt and owner still match.
+
+        Return ``False`` when the guarded transition did not commit.
+        """
+        ...
 
     async def mark_outbox_queued(
         self,
@@ -194,7 +217,12 @@ class DeliveryLifecycleStorage(Protocol):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
-    ) -> bool: ...
+    ) -> bool:
+        """Commit queue acceptance if the supplied attempt and owner still match.
+
+        Return ``False`` when the guarded transition did not commit.
+        """
+        ...
 
     async def mark_outbox_retry_wait(
         self,
@@ -206,7 +234,12 @@ class DeliveryLifecycleStorage(Protocol):
         error_summary: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
-    ) -> bool: ...
+    ) -> bool:
+        """Schedule the next attempt if the supplied attempt and owner match.
+
+        Return ``False`` when the guarded transition did not commit.
+        """
+        ...
 
     async def mark_outbox_dead_lettered(
         self,
@@ -217,7 +250,12 @@ class DeliveryLifecycleStorage(Protocol):
         error_summary: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
-    ) -> bool: ...
+    ) -> bool:
+        """Commit terminal failure if the supplied attempt and owner match.
+
+        Return ``False`` when the guarded transition did not commit.
+        """
+        ...
 
     async def mark_outbox_abandoned(
         self,
@@ -225,7 +263,12 @@ class DeliveryLifecycleStorage(Protocol):
         error_summary: str | None = None,
         receipt_id: str | None = None,
         expected_worker_id: str | None = None,
-    ) -> bool: ...
+    ) -> bool:
+        """Abandon the row only while its optional claim owner still matches.
+
+        Return ``False`` when the guarded transition did not commit.
+        """
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -770,9 +813,9 @@ class DeliveryLifecycleService:
         stale the moment the reservation is durably recorded.  The storage
         append revalidates the same rule atomically.
 
-        Returns ``True`` when a new observation row was appended.  Duplicate
-        notifications with the same deterministic observation identity return
-        ``False``.
+        Returns ``True`` when a new observation row was appended.  Missing or
+        mismatched correlation, stale attempts, ineligible outbox states, and
+        duplicate notifications return ``False``.
         """
         if record.outbox_id is None or record.attempt_number is None:
             self._log.warning(
@@ -1536,10 +1579,10 @@ class DeliveryLifecycleService:
     ) -> bool:
         """Extend the dispatch lease on a row this worker still owns.
 
-        The retry worker renews while its reserved dispatch runs so a slow
-        transport cannot outlive the claim lease; process death lets the
-        lease expire, which is the recovery path claim reconciliation
-        expects.  Returns ``False`` when the claim is no longer owned.
+        ``lease_seconds`` is measured from the current UTC time. The retry
+        worker calls this during dispatch; process death allows the lease to
+        expire for claim reconciliation. Returns ``False`` if this worker no
+        longer owns the row or the row is no longer in progress.
         """
         if item.worker_id is None:
             return False
@@ -1773,7 +1816,13 @@ class DeliveryLifecycleService:
         item: DeliveryOutboxItem,
         receipt: DeliveryReceipt,
     ) -> bool:
-        """Persist a retry result and report whether it represents success."""
+        """Commit a queued, sent, or suppressed retry receipt to the outbox.
+
+        Return ``True`` for queued or sent, and ``False`` for suppressed
+        (which abandons the row). Raise :class:`RetryAttemptCommitRejected`
+        if the guarded transition fails, or :class:`ValueError` for another
+        receipt status.
+        """
         if receipt.status == "queued":
             committed = await storage.mark_outbox_queued(
                 item.outbox_id,
@@ -1953,6 +2002,14 @@ class DeliveryLifecycleService:
             appended ``dead_lettered`` receipt here so the outbox's committed
             ``receipt_id`` points at terminal evidence while the delivery
             outcome can still expose the primary failed attempt.
+
+        Returns
+        -------
+        bool | None
+            ``True`` if the transition committed, ``False`` if it was rejected
+            or persistence failed, or ``None`` when there was no outbox to
+            finalize or no transition was applicable. Persistence errors are
+            caught and converted to ``False`` rather than raised.
         """
         if outbox_id is None or not outbox_created:
             return None
