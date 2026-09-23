@@ -1323,7 +1323,9 @@ async def test_retry_worker_does_not_report_superseded_success_transition(
     assert "retry_failed" not in event_types
 
 
-async def test_unstamped_queued_transition_consumes_live_reservation(temp_storage) -> None:
+async def test_unstamped_queued_transition_consumes_live_reservation(
+    temp_storage,
+) -> None:
     """Leaving in_progress without an explicit attempt finalizes the reservation."""
     event = await _seed_event(temp_storage, "evt-reserved-queued-implicit")
     item = await _seed_outbox(

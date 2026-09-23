@@ -331,11 +331,14 @@ async def test_release_claim_consumes_live_reservation(
         limit=10,
     )
     assert len(claimed) == 1
-    assert await outbox_temp_storage.reserve_outbox_attempt(
-        created.outbox_id,
-        "worker-reserved",
-        1,
-    ) == 2
+    assert (
+        await outbox_temp_storage.reserve_outbox_attempt(
+            created.outbox_id,
+            "worker-reserved",
+            1,
+        )
+        == 2
+    )
 
     await outbox_temp_storage.release_outbox_claim(
         created.outbox_id,

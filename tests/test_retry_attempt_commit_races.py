@@ -352,7 +352,9 @@ async def test_retry_suppression_commits_receipt_pointer() -> None:
     )
 
 
-async def test_lifecycle_reconciles_cancelled_lifecycle_receipt_after_cas_loss() -> None:
+async def test_lifecycle_reconciles_cancelled_lifecycle_receipt_after_cas_loss() -> (
+    None
+):
     lifecycle = DeliveryLifecycleService()
     storage = MagicMock()
     storage.get_outbox_item = AsyncMock(
@@ -397,7 +399,9 @@ async def test_lifecycle_reconciles_cancelled_lifecycle_receipt_after_cas_loss()
     )
 
 
-async def test_lifecycle_reconciles_abandoned_lifecycle_receipt_after_cas_loss() -> None:
+async def test_lifecycle_reconciles_abandoned_lifecycle_receipt_after_cas_loss() -> (
+    None
+):
     lifecycle = DeliveryLifecycleService()
     storage = MagicMock()
     storage.get_outbox_item = AsyncMock(

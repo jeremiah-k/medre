@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from medre.core.storage.sqlite._recovery_query import (
-    _NO_LATER_RECEIPT,
     _SELECT_UNRESOLVED_DELIVERIES,
     _SELECT_UNRESOLVED_DELIVERIES_SINCE,
 )
@@ -22,18 +21,22 @@ def test_lineage_index_matches_current_outcome_grouping() -> None:
     assert definition.rstrip().endswith("sequence);")
 
 
-def test_recovery_scan_uses_latest_receipt_existence_check() -> None:
-    """Paging filters candidates instead of re-aggregating all lineages."""
+def test_recovery_scan_consumes_authority_projection() -> None:
+    """The scan pages over the delivery_status authority projection.
+
+    Current-receipt ordering cannot drift into a second correlated-SQL
+    definition here: the view already applies the generation-aware rule.
+    """
     sql = _SELECT_UNRESOLVED_DELIVERIES
 
-    assert "NOT EXISTS" in sql
-    assert "newer.event_id = dr.event_id" in _NO_LATER_RECEIPT
-    assert "newer.delivery_plan_id = dr.delivery_plan_id" in _NO_LATER_RECEIPT
-    assert "newer.target_adapter = dr.target_adapter" in _NO_LATER_RECEIPT
-    assert "COALESCE(newer.target_channel, '')" in _NO_LATER_RECEIPT
-    assert "newer.sequence > dr.sequence" in _NO_LATER_RECEIPT
+    assert "FROM delivery_status dr" in sql
+    assert "NOT EXISTS" not in sql
     assert "GROUP BY" not in sql
-    assert "replay_run_id" not in _NO_LATER_RECEIPT
+    assert "OFFSET" not in sql
+    # replay_run_id is a selected provenance column, never a lineage
+    # predicate.
+    where_clause = sql.split(" WHERE ", 1)[1] if " WHERE " in sql else ""
+    assert "replay_run_id" not in where_clause
 
 
 def test_since_scope_filters_the_same_event_lineage() -> None:
@@ -42,5 +45,6 @@ def test_since_scope_filters_the_same_event_lineage() -> None:
 
     assert "JOIN canonical_events ce ON ce.event_id = dr.event_id" in sql
     assert "ce.timestamp >= ?" in sql
-    assert "NOT EXISTS" in sql
-    assert "replay_run_id" not in _NO_LATER_RECEIPT
+    assert "FROM delivery_status dr" in sql
+    where_clause = sql.split(" WHERE ", 1)[1] if " WHERE " in sql else ""
+    assert "replay_run_id" not in where_clause

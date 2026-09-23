@@ -12,6 +12,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 import pytest
+from msgspec.structs import force_setattr
 
 from medre.core.events import (
     CanonicalEvent,
@@ -1450,7 +1451,7 @@ class TestUnknownReceiptStatusRejected:
             target_adapter="adapter_no",
             status="sent",
         )
-        object.__setattr__(receipt, "status", "totally_invalid")
+        force_setattr(receipt, "status", "totally_invalid")
 
         with pytest.raises(ValueError, match="Unknown receipt status"):
             await temp_storage.append_receipt(receipt)
@@ -1476,7 +1477,7 @@ class TestUnknownReceiptStatusRejected:
             target_adapter="adapter_no",
             status="sent",
         )
-        object.__setattr__(receipt, "receipt_kind", "bogus")
+        force_setattr(receipt, "receipt_kind", "bogus")
 
         with pytest.raises(ValueError, match="Unknown receipt kind"):
             await temp_storage.append_receipt(receipt)
