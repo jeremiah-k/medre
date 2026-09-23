@@ -791,6 +791,7 @@ class TestEvidenceBundleSchemaNewFields:
             "severity_counts": {"safe": 1, "degraded": 0, "inconsistent": 0},
             "targets": [
                 {
+                    "event_id": "evt-1",
                     "delivery_plan_id": "plan-1",
                     "target_adapter": "matrix",
                     "target_channel": "!room:example.com",
@@ -844,6 +845,7 @@ class TestEvidenceBundleSchemaNewFields:
             "severity_counts": {"safe": 0, "degraded": 0, "inconsistent": 0},
             "targets": [
                 {
+                    "event_id": "evt-1",
                     "delivery_plan_id": "plan-1",
                     "target_adapter": "matrix",
                     "target_channel": None,

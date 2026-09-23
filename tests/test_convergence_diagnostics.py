@@ -60,7 +60,8 @@ def _receipt(
     sequence: int = 0,
     source: str = "live",
     created_at: datetime | None = None,
-    parent_receipt_id: str | None = None,
+    parent_receipt_id: str | None = "rcpt-001",
+    outbox_id: str | None = None,
 ) -> dict:
     """Build a receipt dict (duck-typed input)."""
     return {
@@ -76,6 +77,7 @@ def _receipt(
         "source": source,
         "created_at": created_at or _TS,
         "parent_receipt_id": parent_receipt_id,
+        "outbox_id": outbox_id,
     }
 
 
@@ -89,6 +91,7 @@ def _outbox(
     route_id: str = "route-1",
     status: str = "pending",
     attempt_number: int = 1,
+    receipt_id: str | None = None,
 ) -> dict:
     """Build an outbox item dict (duck-typed input)."""
     return {
@@ -100,6 +103,7 @@ def _outbox(
         "route_id": route_id,
         "status": status,
         "attempt_number": attempt_number,
+        "receipt_id": receipt_id,
     }
 
 
@@ -321,7 +325,7 @@ class TestDeterminism:
             _receipt(receipt_id="r-1", attempt_number=1, status="failed"),
             _receipt(receipt_id="r-2", attempt_number=2, status="sent"),
         ]
-        outbox = [_outbox(status="sent")]
+        outbox = [_outbox(status="sent", receipt_id="r-2")]
         s1 = build_convergence_summary(receipts=receipts, outbox_items=outbox)
         s2 = build_convergence_summary(receipts=receipts, outbox_items=outbox)
         assert s1.total_targets == s2.total_targets
@@ -455,6 +459,94 @@ class TestSourceSeparation:
         assert summary.total_targets == 2
 
 
+class TestOutboxReceiptAuthority:
+    def test_late_historical_receipt_does_not_replace_committed_outcome(self) -> None:
+        summary = build_convergence_summary(
+            receipts=[
+                _receipt(
+                    receipt_id="r-current",
+                    status="sent",
+                    sequence=1,
+                    outbox_id="ob-001",
+                ),
+                _receipt(
+                    receipt_id="r-late-stale",
+                    status="failed",
+                    sequence=2,
+                    outbox_id="ob-001",
+                ),
+            ],
+            outbox_items=[
+                _outbox(status="sent", receipt_id="r-current"),
+            ],
+        )
+
+        target = summary.targets[0]
+        assert target.latest_receipt_id == "r-current"
+        assert target.latest_receipt_status == "sent"
+        assert target.severity == "safe"
+
+    def test_all_outbox_generations_contribute_committed_receipt_authority(
+        self,
+    ) -> None:
+        summary = build_convergence_summary(
+            receipts=[
+                _receipt(
+                    receipt_id="r-live-current",
+                    status="sent",
+                    sequence=1,
+                    attempt_number=1,
+                    outbox_id="ob-live",
+                ),
+            ],
+            outbox_items=[
+                _outbox(
+                    outbox_id="ob-live",
+                    status="sent",
+                    attempt_number=1,
+                    receipt_id="r-live-current",
+                ),
+                _outbox(
+                    outbox_id="ob-replay",
+                    status="in_progress",
+                    attempt_number=2,
+                    receipt_id=None,
+                ),
+            ],
+        )
+
+        target = summary.targets[0]
+        assert target.latest_receipt_id == "r-live-current"
+        assert target.latest_receipt_status == "sent"
+
+    def test_outboxless_later_receipt_can_supersede_committed_outbox_receipt(
+        self,
+    ) -> None:
+        summary = build_convergence_summary(
+            receipts=[
+                _receipt(
+                    receipt_id="r-outbox-current",
+                    status="sent",
+                    sequence=1,
+                    outbox_id="ob-001",
+                ),
+                _receipt(
+                    receipt_id="r-outboxless-later",
+                    status="failed",
+                    sequence=2,
+                    outbox_id=None,
+                ),
+            ],
+            outbox_items=[
+                _outbox(status="sent", receipt_id="r-outbox-current"),
+            ],
+        )
+
+        target = summary.targets[0]
+        assert target.latest_receipt_id == "r-outboxless-later"
+        assert target.latest_receipt_status == "failed"
+
+
 # ===================================================================
 # 7. JSON safety
 # ===================================================================
@@ -486,12 +578,14 @@ class TestJsonSafety:
                     delivery_plan_id="dp-safe",
                     target_channel="ch-safe",
                     status="sent",
+                    receipt_id="r-safe",
                 ),
                 _outbox(
                     outbox_id="ob-inc",
                     delivery_plan_id="dp-inc",
                     target_channel="ch-inc",
                     status="pending",
+                    receipt_id="r-inc",
                 ),
             ],
         )
@@ -768,16 +862,19 @@ class TestAggregation:
                     delivery_plan_id="dp-safe",
                     target_channel="ch-safe",
                     status="sent",
+                    receipt_id="r-safe",
                 ),
                 _outbox(
                     delivery_plan_id="dp-deg",
                     target_channel="ch-deg",
                     status="pending",
+                    receipt_id="r-deg",
                 ),
                 _outbox(
                     delivery_plan_id="dp-inc",
                     target_channel="ch-inc",
                     status="pending",
+                    receipt_id="r-inc",
                 ),
             ],
         )
@@ -838,6 +935,7 @@ class TestMultipleTargets:
                     target_adapter="a1",
                     target_channel="c1",
                     status="sent",
+                    receipt_id="r-1",
                 ),
                 _outbox(
                     outbox_id="ob-2",
@@ -845,6 +943,7 @@ class TestMultipleTargets:
                     target_adapter="a2",
                     target_channel="c2",
                     status="pending",
+                    receipt_id="r-2",
                 ),
                 _outbox(
                     outbox_id="ob-3",
@@ -852,6 +951,7 @@ class TestMultipleTargets:
                     target_adapter="a3",
                     target_channel="c3",
                     status="pending",
+                    receipt_id="r-3",
                 ),
             ],
         )
@@ -860,6 +960,40 @@ class TestMultipleTargets:
         assert results["dp-1"] == "safe"
         assert results["dp-2"] == "degraded"
         assert results["dp-3"] == "inconsistent"
+
+    def test_same_plan_target_across_events_remains_separate(self) -> None:
+        """Global convergence never collapses identical target keys across events."""
+        summary = build_convergence_summary(
+            receipts=[
+                _receipt(
+                    receipt_id="r-event-a",
+                    event_id="event-a",
+                    delivery_plan_id="shared-plan",
+                    target_adapter="matrix",
+                    target_channel="room",
+                    status="sent",
+                    sequence=1,
+                ),
+                _receipt(
+                    receipt_id="r-event-b",
+                    event_id="event-b",
+                    delivery_plan_id="shared-plan",
+                    target_adapter="matrix",
+                    target_channel="room",
+                    status="failed",
+                    sequence=2,
+                ),
+            ]
+        )
+
+        assert summary.total_targets == 2
+        current_by_event = {
+            target.event_id: target.latest_receipt_id for target in summary.targets
+        }
+        assert current_by_event == {
+            "event-a": "r-event-a",
+            "event-b": "r-event-b",
+        }
 
 
 # ===================================================================

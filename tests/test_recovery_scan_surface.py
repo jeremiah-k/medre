@@ -718,6 +718,8 @@ def test_outbox_enriches_disposition_without_inventing_success(tmp_path: Path) -
             # Outbox lifecycle contract: create as pending, claim it
             # (pending -> in_progress), then reach retry_wait via the
             # dedicated transition (only in_progress may enter retry_wait).
+            # The transition commits the failed receipt's pointer, exactly
+            # like production retry finalization.
             item = await storage.create_outbox_item(
                 DeliveryOutboxItem(
                     outbox_id="ob-1",
@@ -731,8 +733,52 @@ def test_outbox_enriches_disposition_without_inventing_success(tmp_path: Path) -
                 (_T0 + timedelta(seconds=1)).isoformat(), "worker-proof"
             )
             assert [c.outbox_id for c in claimed] == [item.outbox_id]
+            await storage.append_receipt(
+                _receipt(
+                    "evt-1",
+                    receipt_id="r1",
+                    status="failed",
+                    outbox_id=item.outbox_id,
+                )
+            )
             await storage.mark_outbox_retry_wait(
-                item.outbox_id, "2026-06-01T12:05:00+00:00"
+                item.outbox_id,
+                "2026-06-01T12:05:00+00:00",
+                receipt_id="r1",
+            )
+        finally:
+            await storage.close()
+
+    asyncio.run(_seed_with_outbox())
+
+    report = _run_cli_json("recover", "--storage-path", str(db), "--json")
+    row = report["unresolved"][0]
+    assert row["outbox_status"] == "retry_wait"
+    assert row["outbox_next_attempt_at"] == "2026-06-01T12:05:00+00:00"
+    assert row["disposition"] == "retry_scheduled"
+    # Enrichment is not acceptance: the row is still unresolved/failed.
+    assert row["status"] == "failed"
+
+
+def test_pointerless_failed_receipt_is_not_current(tmp_path: Path) -> None:
+    """An outbox-backed failed receipt whose outbox row never committed its
+    pointer stays historical under the receipt-authority model: append order
+    alone cannot make it the delivery's current unresolved status."""
+    db = tmp_path / "outbox-unpointed.db"
+
+    async def _seed_with_outbox() -> None:
+        storage = SQLiteStorage(str(db))
+        try:
+            await storage.initialize()
+            await storage.append(_event("evt-1", at=_T0))
+            item = await storage.create_outbox_item(
+                DeliveryOutboxItem(
+                    outbox_id="ob-1",
+                    event_id="evt-1",
+                    route_id="route-1",
+                    delivery_plan_id="plan-1",
+                    target_adapter="meshtastic.radio",
+                )
             )
             await storage.append_receipt(
                 _receipt(
@@ -748,12 +794,7 @@ def test_outbox_enriches_disposition_without_inventing_success(tmp_path: Path) -
     asyncio.run(_seed_with_outbox())
 
     report = _run_cli_json("recover", "--storage-path", str(db), "--json")
-    row = report["unresolved"][0]
-    assert row["outbox_status"] == "retry_wait"
-    assert row["outbox_next_attempt_at"] == "2026-06-01T12:05:00+00:00"
-    assert row["disposition"] == "retry_scheduled"
-    # Enrichment is not acceptance: the row is still unresolved/failed.
-    assert row["status"] == "failed"
+    assert report["unresolved"] == []
 
 
 def test_event_recovery_rejects_scan_only_options() -> None:

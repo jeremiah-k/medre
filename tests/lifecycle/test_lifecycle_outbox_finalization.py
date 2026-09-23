@@ -107,6 +107,112 @@ class TestFinalizeOutboxOutcome:
         assert updated is not None
         assert updated.status == "queued"
 
+    async def test_exhausted_failure_points_to_terminal_receipt(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Retry exhaustion commits the linked dead-letter receipt as current."""
+        lifecycle = _make_lifecycle()
+        item = DeliveryOutboxItem(
+            outbox_id="obox-terminal-receipt",
+            event_id="evt-terminal-receipt",
+            route_id="route-terminal-receipt",
+            delivery_plan_id="plan-terminal-receipt",
+            target_adapter="test_adapter",
+            status="in_progress",
+        )
+        await create_outbox_item_with_parent(temp_storage, item)
+        failed = _make_receipt(
+            receipt_id="rcpt-failed-primary",
+            status="failed",
+            event_id=item.event_id,
+            plan_id=item.delivery_plan_id,
+            adapter=item.target_adapter,
+            outbox_id=item.outbox_id,
+        )
+        dead_lettered = _make_receipt(
+            receipt_id="rcpt-dead-terminal",
+            status="dead_lettered",
+            attempt_number=2,
+            event_id=item.event_id,
+            plan_id=item.delivery_plan_id,
+            adapter=item.target_adapter,
+            parent_receipt_id=failed.receipt_id,
+            outbox_id=item.outbox_id,
+        )
+        await temp_storage.append_receipt(failed)
+        await temp_storage.append_receipt(dead_lettered)
+
+        committed = await lifecycle.finalize_outbox_outcome(
+            temp_storage,
+            item.outbox_id,
+            True,
+            failed,
+            DeliveryFailureKind.ADAPTER_TRANSIENT,
+            "ConnectionError: exhausted",
+            RetryPolicy(max_attempts=1),
+            lifecycle_receipt=dead_lettered,
+        )
+
+        assert committed is True
+        updated = await temp_storage.get_outbox_item(item.outbox_id)
+        assert updated is not None
+        assert updated.status == "dead_lettered"
+        assert updated.receipt_id == dead_lettered.receipt_id
+
+    async def test_exhausted_failure_rejects_unlinked_terminal_receipt(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """A dead-letter receipt from another lineage cannot become authority."""
+        lifecycle = _make_lifecycle()
+        item = DeliveryOutboxItem(
+            outbox_id="obox-terminal-mismatch",
+            event_id="evt-terminal-mismatch",
+            route_id="route-terminal-mismatch",
+            delivery_plan_id="plan-terminal-mismatch",
+            target_adapter="test_adapter",
+            status="in_progress",
+        )
+        await create_outbox_item_with_parent(temp_storage, item)
+        failed = _make_receipt(
+            receipt_id="rcpt-failed-mismatch",
+            status="failed",
+            event_id=item.event_id,
+            plan_id=item.delivery_plan_id,
+            adapter=item.target_adapter,
+            outbox_id=item.outbox_id,
+        )
+        unrelated = _make_receipt(
+            receipt_id="rcpt-dead-unrelated",
+            status="dead_lettered",
+            attempt_number=2,
+            event_id=item.event_id,
+            plan_id=item.delivery_plan_id,
+            adapter=item.target_adapter,
+            parent_receipt_id="rcpt-some-other-parent",
+            outbox_id=item.outbox_id,
+        )
+        await temp_storage.append_receipt(failed)
+        await temp_storage.append_receipt(unrelated)
+
+        committed = await lifecycle.finalize_outbox_outcome(
+            temp_storage,
+            item.outbox_id,
+            True,
+            failed,
+            DeliveryFailureKind.ADAPTER_TRANSIENT,
+            "ConnectionError: exhausted",
+            RetryPolicy(max_attempts=1),
+            lifecycle_receipt=unrelated,
+        )
+
+        assert committed is False
+        updated = await temp_storage.get_outbox_item(item.outbox_id)
+        assert updated is not None
+        assert updated.status == "in_progress"
+        assert updated.receipt_id is None
+
     async def test_permanent_failure_marks_dead_lettered(
         self,
         temp_storage: StorageBackend,
@@ -429,3 +535,50 @@ class TestFinalizeOutboxNoReceiptExhausted:
         updated = await temp_storage.get_outbox_item("obox-no-rcpt-ex")
         assert updated is not None
         assert updated.status == "dead_lettered"
+
+
+async def test_pipeline_worker_fence_rejects_late_finalization_after_reclaim(
+    temp_storage: StorageBackend,
+) -> None:
+    lifecycle = _make_lifecycle()
+    item = DeliveryOutboxItem(
+        outbox_id="obox-pipeline-fence",
+        event_id="evt-pipeline-fence",
+        route_id="route-pipeline-fence",
+        delivery_plan_id="plan-pipeline-fence",
+        target_adapter="test_adapter",
+        attempt_number=1,
+        status="in_progress",
+        worker_id="pipeline-old",
+        locked_at="2026-01-01T00:00:00+00:00",
+        lease_until="2026-01-01T00:00:01+00:00",
+    )
+    await create_outbox_item_with_parent(temp_storage, item)
+    claimed = await temp_storage.claim_due_outbox_items(
+        now="2026-01-01T00:01:00+00:00",
+        worker_id="retry-new",
+        lease_seconds=30,
+        limit=10,
+    )
+    assert [row.outbox_id for row in claimed] == [item.outbox_id]
+    assert (
+        await temp_storage.reserve_outbox_attempt(item.outbox_id, "retry-new", 1) == 2
+    )
+
+    await lifecycle.finalize_outbox_outcome(
+        temp_storage,
+        item.outbox_id,
+        True,
+        _make_receipt(status="sent", event_id=item.event_id),
+        None,
+        None,
+        None,
+        expected_worker_id="pipeline-old",
+    )
+
+    current = await temp_storage.get_outbox_item(item.outbox_id)
+    assert current is not None
+    assert current.status == "in_progress"
+    assert current.worker_id == "retry-new"
+    assert current.attempt_number == 1
+    assert current.active_attempt == 2

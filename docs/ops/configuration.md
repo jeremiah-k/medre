@@ -1126,7 +1126,7 @@ medre replay --mode MODE --config PATH [--event ID] [--json]
 
 medre recover --storage-path PATH [--event ID] [--since TS] [--limit N] [--cursor TOKEN] [--json]
     Specialized recovery classification. Without --event, scans for
-    currently-unresolved deliveries (latest receipt of each delivery
+    currently-unresolved deliveries (current lifecycle-authoritative receipt of each delivery
     lineage is failed/dead_lettered) in bounded, keyset-paginated pages.
     --since bounds the canonical event timestamp (inclusive; ISO-8601
     with an explicit UTC offset). Read-only; replay previewing belongs to

@@ -352,3 +352,42 @@ class TestDeliveryStatusByChannel:
             ("plan-dup", "adapter_dup"),
         )
         assert len(view_rows) == 1
+
+    async def test_delivery_status_view_keeps_events_separate(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """The SQL projection keeps colliding plan/target identities event-scoped."""
+        for event_id, receipt_id, status in (
+            ("evt-view-a", "rcpt-view-a", "failed"),
+            ("evt-view-b", "rcpt-view-b", "sent"),
+        ):
+            await temp_storage.append(make_storage_event(event_id=event_id))
+            await temp_storage.append_receipt(
+                DeliveryReceipt(
+                    receipt_id=receipt_id,
+                    event_id=event_id,
+                    delivery_plan_id="plan-view-shared",
+                    target_adapter="adapter_view",
+                    target_channel="channel-view",
+                    status=status,  # type: ignore[arg-type]
+                )
+            )
+
+        rows = await temp_storage._read_all(
+            """
+            SELECT event_id, receipt_id, status
+            FROM delivery_status
+            WHERE delivery_plan_id = ?
+              AND target_adapter = ?
+              AND target_channel = ?
+            ORDER BY event_id
+            """,
+            ("plan-view-shared", "adapter_view", "channel-view"),
+        )
+
+        assert [
+            (row["event_id"], row["receipt_id"], row["status"]) for row in rows
+        ] == [
+            ("evt-view-a", "rcpt-view-a", "failed"),
+            ("evt-view-b", "rcpt-view-b", "sent"),
+        ]

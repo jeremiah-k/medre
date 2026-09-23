@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptCommitRejected
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from tests.helpers.storage_outbox import create_outbox_item_with_parent
@@ -46,20 +47,36 @@ class _FailingTransitionStorage:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._delegate, name)
 
-    async def mark_outbox_retry_wait(self, *args: Any, **kwargs: Any) -> None:
+    async def mark_outbox_retry_wait(self, *args: Any, **kwargs: Any) -> bool:
         if self._fail_method == "mark_outbox_retry_wait":
             raise RuntimeError("injected retry-wait persistence failure")
-        await self._delegate.mark_outbox_retry_wait(*args, **kwargs)
+        return await self._delegate.mark_outbox_retry_wait(*args, **kwargs)
 
-    async def mark_outbox_dead_lettered(self, *args: Any, **kwargs: Any) -> None:
+    async def mark_outbox_dead_lettered(self, *args: Any, **kwargs: Any) -> bool:
         if self._fail_method == "mark_outbox_dead_lettered":
             raise RuntimeError("injected dead-letter persistence failure")
-        await self._delegate.mark_outbox_dead_lettered(*args, **kwargs)
+        return await self._delegate.mark_outbox_dead_lettered(*args, **kwargs)
 
-    async def mark_outbox_sent(self, *args: Any, **kwargs: Any) -> None:
+    async def mark_outbox_sent(self, *args: Any, **kwargs: Any) -> bool:
         if self._fail_method == "mark_outbox_sent":
             raise RuntimeError("injected sent persistence failure")
-        await self._delegate.mark_outbox_sent(*args, **kwargs)
+        return await self._delegate.mark_outbox_sent(*args, **kwargs)
+
+
+class _RejectingTransitionStorage:
+    """Delegate reads while simulating a guarded transition CAS miss."""
+
+    def __init__(self, delegate: StorageBackend, reject_method: str) -> None:
+        self._delegate = delegate
+        self._reject_method = reject_method
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._delegate, name)
+
+    async def mark_outbox_sent(self, *args: Any, **kwargs: Any) -> bool:
+        if self._reject_method == "mark_outbox_sent":
+            return False
+        return await self._delegate.mark_outbox_sent(*args, **kwargs)
 
 
 async def test_abandon_retry_outbox_is_lifecycle_owned(
@@ -79,6 +96,25 @@ async def test_abandon_retry_outbox_is_lifecycle_owned(
     assert updated is not None
     assert updated.status == "abandoned"
     assert updated.error_summary == "Reconstruction failure"
+
+
+async def test_retry_success_rejects_guarded_storage_noop(
+    temp_storage: StorageBackend,
+) -> None:
+    lifecycle = _make_lifecycle()
+    item = _retry_item(outbox_id="obox-stale-success", event_id="evt-stale-success")
+    item = DeliveryOutboxItem(**{**item.__dict__, "worker_id": "retry-worker-stale"})
+    receipt = _make_receipt(
+        receipt_id="rcpt-stale-success",
+        event_id=item.event_id,
+        status="sent",
+        attempt_number=2,
+        outbox_id=item.outbox_id,
+    )
+    storage = _RejectingTransitionStorage(temp_storage, "mark_outbox_sent")
+
+    with pytest.raises(RetryAttemptCommitRejected):
+        await lifecycle.finalize_retry_success(storage, item, receipt)
 
 
 async def test_defer_retry_outbox_computes_and_persists_backoff(
@@ -240,6 +276,7 @@ async def test_retry_claim_reconciliation_dead_letters_malformed_failure_kind(
         failure_kind="adapter_permanent",
         error_summary="Retry delivery failed",
         attempt_number=2,
+        expected_worker_id=None,
     )
 
 
@@ -293,6 +330,7 @@ async def test_retry_claim_reconciliation_preserves_dead_letter_failure_kind() -
         failure_kind="adapter_permanent",
         error_summary=None,
         attempt_number=2,
+        expected_worker_id=None,
     )
 
 

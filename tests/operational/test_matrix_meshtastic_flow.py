@@ -61,6 +61,7 @@ from medre.core.storage.backend import (
     StorageError,
 )
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
+from tests.helpers.storage_outbox import apply_guarded_outbox_transition
 
 # ---------------------------------------------------------------------------
 # Local fakes / helpers
@@ -159,13 +160,18 @@ class _FakeStorage:
         return [r for r in self._receipts if r.event_id == event_id]
 
     async def list_receipts_for_plan(
-        self, delivery_plan_id: str, target_adapter: str
+        self,
+        delivery_plan_id: str,
+        target_adapter: str,
+        *,
+        event_id: str | None = None,
     ) -> list[DeliveryReceipt]:
         return [
             receipt
             for receipt in self._receipts
             if receipt.delivery_plan_id == delivery_plan_id
             and receipt.target_adapter == target_adapter
+            and (event_id is None or receipt.event_id == event_id)
         ]
 
     async def query_receipts(self, **kwargs: Any) -> list[DeliveryReceipt]:
@@ -192,25 +198,73 @@ class _FakeStorage:
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
         return self._outbox.get(outbox_id)
 
+    async def reserve_outbox_attempt(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        from_attempt: int,
+    ) -> int | None:
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status != "in_progress"
+            or item.worker_id != worker_id
+            or item.active_attempt is not None
+            or item.attempt_number != from_attempt
+        ):
+            return None
+        object.__setattr__(item, "active_attempt", from_attempt + 1)
+        return from_attempt + 1
+
+    async def renew_outbox_lease(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        lease_until: str,
+    ) -> bool:
+        item = self._outbox.get(outbox_id)
+        if item is None or item.status != "in_progress" or item.worker_id != worker_id:
+            return False
+        object.__setattr__(item, "lease_until", lease_until)
+        return True
+
     async def mark_outbox_queued(
         self,
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None:
-            object.__setattr__(item, "status", "queued")
+        if item is None:
+            return False
+        return apply_guarded_outbox_transition(
+            item,
+            "queued",
+            allowed_from=("in_progress",),
+            attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
+        )
 
     async def mark_outbox_sent(
         self,
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None:
-            object.__setattr__(item, "status", "sent")
+        if item is None:
+            return False
+        return apply_guarded_outbox_transition(
+            item,
+            "sent",
+            allowed_from=("in_progress", "queued"),
+            attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
+        )
 
     async def mark_outbox_retry_wait(
         self,
@@ -221,10 +275,23 @@ class _FakeStorage:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None:
-            object.__setattr__(item, "status", "retry_wait")
+        if item is None:
+            return False
+        return apply_guarded_outbox_transition(
+            item,
+            "retry_wait",
+            allowed_from=("in_progress",),
+            attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
+            failure_kind_detail=failure_kind_detail,
+            error_summary=error_summary,
+            next_attempt_at=next_attempt_at,
+        )
 
     async def mark_outbox_dead_lettered(
         self,
@@ -234,28 +301,56 @@ class _FakeStorage:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None:
-            object.__setattr__(item, "status", "dead_lettered")
+        if item is None:
+            return False
+        return apply_guarded_outbox_transition(
+            item,
+            "dead_lettered",
+            allowed_from=("in_progress", "retry_wait"),
+            attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
+            failure_kind_detail=failure_kind_detail,
+            error_summary=error_summary,
+        )
 
     async def mark_outbox_cancelled(
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None:
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None:
-            object.__setattr__(item, "status", "cancelled")
+        if item is None:
+            return False
+        return apply_guarded_outbox_transition(
+            item,
+            "cancelled",
+            allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            error_summary=error_summary,
+        )
 
     async def mark_outbox_abandoned(
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None:
+        receipt_id: str | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None:
-            object.__setattr__(item, "status", "abandoned")
+        if item is None:
+            return False
+        return apply_guarded_outbox_transition(
+            item,
+            "abandoned",
+            allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            receipt_id=receipt_id,
+            expected_worker_id=expected_worker_id,
+            error_summary=error_summary,
+        )
 
     async def finalize_queued_delivery(
         self,
@@ -268,10 +363,16 @@ class _FakeStorage:
         """In-memory mirror of the atomic storage contract: guarded outbox
         transition plus native ref plus sent receipt, or nothing."""
         item = self._outbox.get(outbox_id)
+        if item is None:
+            return False
+        effective_attempt = (
+            item.active_attempt
+            if item.active_attempt is not None
+            else item.attempt_number
+        )
         if (
-            item is None
-            or item.status not in ("queued", "in_progress")
-            or item.attempt_number != attempt_number
+            item.status not in ("queued", "in_progress")
+            or effective_attempt != attempt_number
             or item.event_id != native_ref.event_id
             or receipt.event_id != item.event_id
             or receipt.outbox_id != outbox_id
@@ -297,6 +398,11 @@ class _FakeStorage:
         await self.append_receipt(receipt)
         object.__setattr__(item, "status", "sent")
         object.__setattr__(item, "receipt_id", receipt.receipt_id)
+        object.__setattr__(item, "attempt_number", attempt_number)
+        object.__setattr__(item, "active_attempt", None)
+        object.__setattr__(item, "locked_at", None)
+        object.__setattr__(item, "lease_until", None)
+        object.__setattr__(item, "worker_id", None)
         return True
 
 

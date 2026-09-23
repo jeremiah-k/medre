@@ -90,7 +90,8 @@ class OutboxManager:
         **Replay attempt identity rule.**  When *source* is ``"replay"``,
         the method queries existing outbox rows for the same event and
         computes ``max(attempt_number) + 1`` across rows sharing the same
-        delivery identity (delivery_plan_id, target_adapter, target_channel).
+        event-scoped delivery identity (event_id, delivery_plan_id,
+        target_adapter, target_channel).
         This guarantees replay never reclaims or mutates live rows (which
         have lower attempt numbers).  The same ownership check applies to
         ALL sources — if the freshly-created replay row comes back terminal,
@@ -296,7 +297,9 @@ class OutboxManager:
         failure_kind_val: DeliveryFailureKind | None,
         error: str | None,
         retry_policy: RetryPolicy | None,
-    ) -> None:
+        *,
+        lifecycle_receipt: DeliveryReceipt | None = None,
+    ) -> bool | None:
         """Update the outbox item status based on the delivery outcome.
 
         Thin wrapper that delegates to
@@ -305,7 +308,7 @@ class OutboxManager:
         See :meth:`DeliveryLifecycleService.finalize_outbox_outcome`
         for full documentation.
         """
-        await self._lifecycle.finalize_outbox_outcome(
+        return await self._lifecycle.finalize_outbox_outcome(
             self._storage,
             outbox_id=ctx.outbox_id,
             outbox_created=ctx.created,
@@ -313,6 +316,8 @@ class OutboxManager:
             failure_kind_val=failure_kind_val,
             error=error,
             retry_policy=retry_policy,
+            expected_worker_id=ctx.pipeline_worker or None,
+            lifecycle_receipt=lifecycle_receipt,
         )
 
     # -- Terminal outcome recording --
@@ -469,13 +474,14 @@ class OutboxManager:
                         record.outcome,
                     )
                     return
-                if record.attempt_number != existing_item.attempt_number:
+                effective_attempt = self._lifecycle.effective_attempt(existing_item)
+                if record.attempt_number != effective_attempt:
                     self._log.warning(
                         "Terminal outcome rejected: outbox_id=%s has "
-                        "attempt_number=%d but record has %d; "
+                        "effective attempt_number=%d but record has %d; "
                         "adapter=%s outcome=%s",
                         record.outbox_id,
-                        existing_item.attempt_number,
+                        effective_attempt,
                         record.attempt_number,
                         record.adapter,
                         record.outcome,
@@ -511,8 +517,10 @@ class OutboxManager:
 
             # The validated outbox row is authoritative for the attempt
             # number; validation above guarantees the row exists and that
-            # the record's attempt_number matches it.
-            _attempt_number: int = existing_item.attempt_number
+            # the record's attempt_number matches its effective attempt
+            # (a reserved in-flight attempt during handoff, otherwise the
+            # stored number).
+            _attempt_number: int = effective_attempt
 
             # Recover queued-receipt lineage: look up the queued receipt
             # for the same (outbox_id, attempt_number) to inherit its

@@ -989,8 +989,15 @@ class TestRetryWorkerReconstruction:
             failure_kind="adapter_transient",
             error_summary="Retry scheduled",
         )
-        retry_wait_item = await temp_storage.get_outbox_item(created.outbox_id)
-        assert retry_wait_item is not None
+        # Claim the due row the way a real retry cycle does — the dispatch
+        # gate reserves the attempt identity on rows this worker owns.
+        claimed_rows = await temp_storage.claim_due_outbox_items(
+            now=now.isoformat(),
+            worker_id="retry-worker-test",
+        )
+        retry_wait_item = next(
+            row for row in claimed_rows if row.outbox_id == created.outbox_id
+        )
 
         # -- Create a failed receipt for lineage ------------------------------
         receipt = DeliveryReceipt(

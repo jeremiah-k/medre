@@ -7,13 +7,12 @@ receipts, or transition outbox status.
 
 Current-outcome rule (shared with the storage query surface and the
 ``delivery_status`` authority): a delivery is *currently unresolved* when
-the latest receipt of that logical delivery — ``(event, delivery plan,
-target adapter, target channel)`` — has status ``failed`` or
-``dead_lettered``.  Retries and executed replays append attempts to the
-same delivery, so a later ``sent``/``queued`` receipt from any of them
-supersedes an earlier failure; successes of a different channel, plan, or
-event never hide it.  Superseded failures stay visible as *historical*
-evidence for audit drilldown.
+its lifecycle-authoritative receipt has status ``failed`` or
+``dead_lettered``.  For outbox-backed delivery the outbox ``receipt_id`` is
+the current-state pointer; append order remains historical evidence only.
+Outbox-less lineages continue to use durable append order.  Superseded or
+stale-worker failures stay visible as *historical* evidence for audit
+drilldown.
 
 The only write-like behaviour is printing to stdout/stderr.  All storage
 access uses ``_open_readonly_storage``.
@@ -57,13 +56,12 @@ from .transport_constants import RADIO_TRANSPORTS
 
 #: Machine- and human-shared definition of what the scan/runbook reports.
 _OUTCOME_DEFINITION = (
-    "A delivery is unresolved when the latest receipt of that logical "
-    "delivery (event, delivery plan, target adapter, target channel) has "
-    "status failed or dead_lettered. Retries and executed replays append "
-    "attempts to the same delivery, so a later sent or queued receipt "
-    "from any of them supersedes the earlier failure; successes of a "
-    "different target, channel, plan, or event never hide it, and dry-run "
-    "replays (which record no receipts) change nothing."
+    "A delivery is unresolved when its lifecycle-authoritative receipt for "
+    "the logical delivery (event, delivery plan, target adapter, target "
+    "channel) has status failed or dead_lettered. Outbox-backed delivery "
+    "uses the outbox receipt_id pointer; outbox-less delivery uses durable "
+    "append order. Later stale-worker receipts remain historical evidence, "
+    "and dry-run replays (which record no receipts) change nothing."
 )
 
 _REPLAY_CONFIG_NOTE = (
@@ -116,6 +114,28 @@ async def _build_event_recovery_runbook(
     receipts = tl_result["receipts"]
     native_refs = tl_result["native_refs"]
 
+    # Committed outbox receipt pointers, scoped to THIS event.  Plan IDs are
+    # not unique across events, so the event-less storage-level
+    # delivery_status lookup cannot disambiguate them; the runbook applies
+    # the same lifecycle-authority rule (an outbox-backed receipt is current
+    # only when its outbox row names it) over the event's own receipts.
+    outbox_items: list[Any] = []
+    try:
+        outbox_items = list(await storage.list_outbox_items_for_event(event_id))
+    except Exception:
+        outbox_items = []
+    committed_by_key: dict[tuple[str, str, str], set[str]] = {}
+    for outbox_row in outbox_items:
+        row_key = (
+            getattr(outbox_row, "delivery_plan_id", None) or "",
+            getattr(outbox_row, "target_adapter", None) or "",
+            getattr(outbox_row, "target_channel", None) or "",
+        )
+        ids = committed_by_key.setdefault(row_key, set())
+        row_receipt_id = getattr(outbox_row, "receipt_id", None)
+        if row_receipt_id:
+            ids.add(str(row_receipt_id))
+
     # Identify currently-failed lineages and classify by failure_kind.
     classification: dict[str, list[dict[str, Any]]] = {
         "retryable": [],
@@ -126,44 +146,70 @@ async def _build_event_recovery_runbook(
     failed_targets: list[dict[str, Any]] = []
     historical_failures: list[dict[str, Any]] = []
 
-    for lineage_receipts in (
-        group for _key, group in resolve_delivery_outcomes(receipts)
-    ):
-        current = lineage_receipts[-1]
-        is_current_failure = current.status in ("failed", "dead_lettered")
+    for key, lineage_receipts in resolve_delivery_outcomes(receipts):
+        committed = committed_by_key.get(key)
+        eligible = (
+            lineage_receipts
+            if committed is None
+            else [
+                r
+                for r in lineage_receipts
+                if not getattr(r, "outbox_id", None) or r.receipt_id in committed
+            ]
+        )
+        current = eligible[-1] if eligible else None
+        is_current_failure = current is not None and current.status in (
+            "failed",
+            "dead_lettered",
+        )
 
-        # Historical (superseded) failures of this lineage: failed or
-        # dead_lettered receipts that a later receipt in the same lineage
-        # replaced.  When the lineage is still failing, earlier attempts
-        # are part of the current failure's chain (timeline keeps them),
-        # not superseded history.
-        if not is_current_failure:
-            for r in lineage_receipts[:-1]:
-                if r.status not in ("failed", "dead_lettered"):
-                    continue
-                hist: dict[str, Any] = {
-                    "target_adapter": r.target_adapter,
-                    "status": r.status,
-                    "attempt_number": r.attempt_number,
-                    "receipt_id": r.receipt_id,
-                    "delivery_plan_id": getattr(r, "delivery_plan_id", None),
-                    "attempt_source": attempt_source_label(
-                        getattr(r, "source", "live"),
-                        getattr(r, "replay_run_id", None),
-                    ),
-                    "superseded_by": {
+        # Historical failures are immutable receipts that are no longer the
+        # lifecycle-authoritative receipt.  This includes a stale worker's
+        # receipt appended *after* the current outcome when its guarded outbox
+        # transition was rejected.
+        current_sequence = current.sequence if current is not None else None
+        for r in lineage_receipts:
+            if r.status not in ("failed", "dead_lettered"):
+                continue
+            if current is not None and r.receipt_id == current.receipt_id:
+                continue
+            if (
+                is_current_failure
+                and current_sequence is not None
+                and r.sequence <= current_sequence
+            ):
+                # Earlier failed attempts are part of the active failure's
+                # lineage, not superseded history.  A later failure can only
+                # be historical here (for example, a stale owner whose
+                # guarded outbox transition was rejected).
+                continue
+            hist: dict[str, Any] = {
+                "target_adapter": r.target_adapter,
+                "status": r.status,
+                "attempt_number": r.attempt_number,
+                "receipt_id": r.receipt_id,
+                "delivery_plan_id": getattr(r, "delivery_plan_id", None),
+                "attempt_source": attempt_source_label(
+                    getattr(r, "source", "live"),
+                    getattr(r, "replay_run_id", None),
+                ),
+                "superseded_by": (
+                    {
                         "receipt_id": current.receipt_id,
                         "status": current.status,
-                    },
-                }
-                if getattr(r, "target_channel", None):
-                    hist["target_channel"] = r.target_channel
-                error_msg_hist = getattr(r, "error", None)
-                if error_msg_hist:
-                    hist["error"] = sanitize_error(error_msg_hist)
-                historical_failures.append(hist)
+                    }
+                    if current is not None
+                    else None
+                ),
+            }
+            if getattr(r, "target_channel", None):
+                hist["target_channel"] = r.target_channel
+            error_msg_hist = getattr(r, "error", None)
+            if error_msg_hist:
+                hist["error"] = sanitize_error(error_msg_hist)
+            historical_failures.append(hist)
 
-        if not is_current_failure:
+        if not is_current_failure or current is None:
             continue
 
         r = current

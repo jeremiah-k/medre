@@ -14,9 +14,11 @@ from typing import Any, Iterable
 from .helpers import (
     _TERMINAL_OUTBOX,
     _TERMINAL_RECEIPT,
+    _build_committed_receipt_ids_by_key,
+    _current_receipt_for_target,
     _get,
-    _latest_receipt_for_target,
     _target_key,
+    _TargetKey,
 )
 from .types import (
     KIND_RECLAIMED_THEN_ORPHANED,
@@ -78,12 +80,13 @@ def build_recovery_convergence_findings(
 
     # Materialize generators once — outbox_items may be a one-shot generator.
     outbox_list = list(outbox_items)
+    committed_receipt_ids = _build_committed_receipt_ids_by_key(outbox_list)
 
     # Normalized recovery actions — populated when recovery_ledger is present.
     actions_list: list[Any] = []
 
     # Index outbox items by target key and by outbox_id.
-    outbox_by_target: dict[tuple[str, str, str | None], list[Any]] = {}
+    outbox_by_target: dict[_TargetKey, list[Any]] = {}
     outbox_by_id: dict[str, Any] = {}
     for item in outbox_list:
         key = _target_key(item)
@@ -93,14 +96,14 @@ def build_recovery_convergence_findings(
             outbox_by_id[str(oid)] = item
 
     # Index receipts by target key.
-    receipts_by_target: dict[tuple[str, str, str | None], list[Any]] = {}
+    receipts_by_target: dict[_TargetKey, list[Any]] = {}
     for rec in receipts:
         key = _target_key(rec)
         receipts_by_target.setdefault(key, []).append(rec)
 
     # -- Recovered but not progressed ---------------------------------------
     # An outbox item was reclaimed (its recovery action says so) but
-    # its latest receipt hasn't changed status since the previous
+    # its current receipt hasn't changed status since the previous
     # shutdown.  This means recovery claimed ownership but the item
     # hasn't actually progressed.
     if recovery_ledger is not None:
@@ -133,7 +136,7 @@ def build_recovery_convergence_findings(
                 action_run_ids.setdefault(outbox_id, []).append(run_id)
 
             # recovered_not_progressed: item was reclaimed/recoverable
-            # but its latest receipt is still the same (non-terminal, non-progressed).
+            # but its current receipt is still the same (non-terminal, non-progressed).
             # Only compare when the outbox prior_status has a valid receipt
             # equivalent — comparing outbox "pending" to receipt "pending"
             # would be a vocabulary-mismatch false positive.
@@ -143,8 +146,10 @@ def build_recovery_convergence_findings(
                     item = outbox_by_id.get(outbox_id)
                     if item is not None:
                         target_key = _target_key(item)
-                        latest = _latest_receipt_for_target(
-                            receipts_by_target, target_key
+                        latest = _current_receipt_for_target(
+                            receipts_by_target,
+                            target_key,
+                            committed_receipt_ids.get(target_key),
                         )
                         if latest is not None:
                             latest_status = str(_get(latest, "status", ""))
@@ -167,7 +172,7 @@ def build_recovery_convergence_findings(
                                         record_type="outbox",
                                         details=(
                                             f"Outbox item {outbox_id!r} ({prior_status}) "
-                                            f"was recovered but latest receipt is still "
+                                            f"was recovered but current receipt is still "
                                             f"{latest_status!r} — no progress since shutdown"
                                         ),
                                         extra={
@@ -207,7 +212,7 @@ def build_recovery_convergence_findings(
                 )
 
         # -- Reclaimed then terminal ------------------------------------------
-        # Outbox item is terminal but latest receipt is non-terminal, AND the
+        # Outbox item is terminal but current receipt is non-terminal, AND the
         # item was actually present in the recovery ledger with a
         # recovered/reclaimed action.  Without this gate, any terminal outbox
         # item with a non-terminal receipt would fire regardless of recovery.
@@ -227,7 +232,11 @@ def build_recovery_convergence_findings(
                 if oid not in recovered_outbox_ids_terminal:
                     continue
                 target_key = _target_key(item)
-                latest = _latest_receipt_for_target(receipts_by_target, target_key)
+                latest = _current_receipt_for_target(
+                    receipts_by_target,
+                    target_key,
+                    committed_receipt_ids.get(target_key),
+                )
                 if latest is not None:
                     latest_status = str(_get(latest, "status", "")).lower()
                     if latest_status not in _TERMINAL_RECEIPT:
@@ -242,7 +251,7 @@ def build_recovery_convergence_findings(
                                 record_type="outbox",
                                 details=(
                                     f"Outbox item {oid!r} is terminal ({status}) but "
-                                    f"latest receipt is non-terminal ({latest_status}) — "
+                                    f"current receipt is non-terminal ({latest_status}) — "
                                     f"terminal outbox with non-terminal receipt"
                                 ),
                                 extra={

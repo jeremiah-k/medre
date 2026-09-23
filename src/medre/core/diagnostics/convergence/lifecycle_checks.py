@@ -16,10 +16,10 @@ from .helpers import (
 )
 from .helpers import _TERMINAL_RECEIPT as _TERMINAL_RECEIPT_FOR_MISMATCH
 from .helpers import (
+    _current_receipt_for_target,
     _ensure_aware,
     _get,
     _parse_iso_timestamp,
-    _pick_latest_receipt_safe,
     _safe_record_id,
     _target_key,
     _TargetKey,
@@ -83,26 +83,28 @@ def _check_target_mismatches(
     outbox_by_key: dict[_TargetKey, Any],
     receipts_by_key: dict[_TargetKey, list[Any]],
     all_keys: list[_TargetKey],
+    committed_receipt_ids: dict[_TargetKey, set[str]],
 ) -> list[OrphanFinding]:
     """Detect terminal/non-terminal and status mismatches between outbox and receipt."""
     findings: list[OrphanFinding] = []
 
     for key in all_keys:
         obx = outbox_by_key.get(key)
-        recs = receipts_by_key.get(key, [])
-        latest_rec = _pick_latest_receipt_safe(recs)
+        current_rec = _current_receipt_for_target(
+            receipts_by_key, key, committed_receipt_ids.get(key)
+        )
 
         has_outbox = obx is not None
-        has_receipt = latest_rec is not None
+        has_receipt = current_rec is not None
 
         if not (has_outbox and has_receipt):
             continue
 
         outbox_status = str(_get(obx, "status", "") or "").lower()
-        receipt_status = str(_get(latest_rec, "status", "") or "").lower()
+        receipt_status = str(_get(current_rec, "status", "") or "").lower()
 
         outbox_id = _safe_record_id(_get(obx, "outbox_id"))
-        receipt_id = _safe_record_id(_get(latest_rec, "receipt_id"))
+        receipt_id = _safe_record_id(_get(current_rec, "receipt_id"))
 
         receipt_is_terminal = receipt_status in _TERMINAL_RECEIPT_FOR_MISMATCH
         outbox_is_terminal = outbox_status in _TERMINAL_OUTBOX

@@ -196,6 +196,7 @@ class _ExecutionResult:
 
     outcome: DeliveryOutcome
     receipt: DeliveryReceipt | None
+    lifecycle_receipt: DeliveryReceipt | None
     failure_kind: DeliveryFailureKind | None
     error: str | None
 
@@ -672,6 +673,12 @@ class DeliveryCoordinator:
         outbox_ctx: OutboxContext,
         inflight_key: str | None,
     ) -> DeliveryOutcome:
+        """Deliver while retaining the outbox claim, then finalize its outcome.
+
+        Cancels lease renewal and attempts outbox finalization even if target
+        delivery raises. A rejected finalization leaves any appended receipt
+        as historical evidence rather than current outbox state.
+        """
         renewal_task = self._outbox_manager.start_lease_renewal(outbox_ctx)
         result: _ExecutionResult | None = None
         if inflight_key is not None:
@@ -694,13 +701,24 @@ class DeliveryCoordinator:
             # caller's outer finally still releases capacity if finalization
             # itself raises, so persistence faults cannot leak runtime slots.
             await OutboxManager.cancel_renewal(renewal_task)
-            await self._outbox_manager.finalize_outcome(
+            committed = await self._outbox_manager.finalize_outcome(
                 outbox_ctx,
                 result.receipt if result is not None else None,
                 result.failure_kind if result is not None else None,
                 result.error if result is not None else None,
                 ctx.plan.retry_policy,
+                lifecycle_receipt=(
+                    result.lifecycle_receipt if result is not None else None
+                ),
             )
+            if committed is False and result is not None and result.receipt is not None:
+                self._log.warning(
+                    "Delivery receipt %s was appended but its outbox transition "
+                    "did not commit for outbox %s; retaining the receipt as "
+                    "historical evidence only",
+                    result.receipt.receipt_id,
+                    outbox_ctx.outbox_id,
+                )
 
     async def _invoke_target(
         self,
@@ -708,6 +726,13 @@ class DeliveryCoordinator:
         replay_receipts: list[DeliveryReceipt],
         outbox_ctx: OutboxContext,
     ) -> _ExecutionResult:
+        """Return the delivery outcome and receipts needed for finalization.
+
+        Adapter and renderer failures become classified outcomes; a linked
+        terminal lifecycle receipt is kept separate from the failed attempt
+        receipt. Cancellation propagates rather than becoming a failure
+        outcome.
+        """
         status: Literal["success", "queued", "transient_failure", "permanent_failure"]
         try:
             if self._runtime_accounting is not None:
@@ -736,7 +761,7 @@ class DeliveryCoordinator:
                 status=status,
                 receipt=receipt,
             )
-            return _ExecutionResult(outcome, receipt, None, None)
+            return _ExecutionResult(outcome, receipt, None, None, None)
         except _AdapterDeliveryError as exc:
             self._diagnostician.record_adapter_failure(
                 ctx.event.event_id,
@@ -759,6 +784,7 @@ class DeliveryCoordinator:
                 else "permanent_failure"
             )
             receipt = await self._persisted_receipt(exc.receipt)
+            lifecycle_receipt = await self._persisted_receipt(exc.lifecycle_receipt)
             outcome = self._build_outcome(
                 ctx,
                 status=status,
@@ -766,7 +792,13 @@ class DeliveryCoordinator:
                 receipt=receipt,
                 error=exc.error,
             )
-            return _ExecutionResult(outcome, receipt, failure_kind, exc.error)
+            return _ExecutionResult(
+                outcome,
+                receipt,
+                lifecycle_receipt,
+                failure_kind,
+                exc.error,
+            )
         except _RendererDeliveryError as exc:
             failure_kind = (
                 exc.failure_kind
@@ -782,7 +814,7 @@ class DeliveryCoordinator:
                 receipt=receipt,
                 error=exc.error,
             )
-            return _ExecutionResult(outcome, receipt, failure_kind, exc.error)
+            return _ExecutionResult(outcome, receipt, None, failure_kind, exc.error)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -808,7 +840,7 @@ class DeliveryCoordinator:
                 failure_kind=failure_kind,
                 error=error,
             )
-            return _ExecutionResult(outcome, None, failure_kind, error)
+            return _ExecutionResult(outcome, None, None, failure_kind, error)
 
     def _latest_matching_receipt(
         self,

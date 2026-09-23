@@ -70,6 +70,8 @@ class DeliveryTargetConvergence:
 
     Attributes
     ----------
+    event_id:
+        Canonical event grouping key.  Empty string when absent.
     delivery_plan_id:
         Grouping key component.  Empty string when absent.
     target_adapter:
@@ -80,12 +82,13 @@ class DeliveryTargetConvergence:
         Status of the outbox item for this target, or ``None`` if no
         outbox item exists.
     latest_receipt_status:
-        Status of the latest (highest authority) receipt, or ``None``
-        if no receipt exists.
+        Status of the current lifecycle-authoritative receipt, or ``None``.
+        The field name is retained for compatibility.
     latest_receipt_id:
-        Receipt ID of the latest receipt, or ``None``.
+        Receipt ID of the current lifecycle-authoritative receipt, or ``None``.
     latest_attempt_number:
-        Attempt number from the latest receipt, or ``None``.
+        Attempt number from the current lifecycle-authoritative receipt, or
+        ``None``.
     severity:
         Convergence severity classification.
     warnings:
@@ -94,6 +97,7 @@ class DeliveryTargetConvergence:
         Outbox item ID, or ``None``.
     """
 
+    event_id: str
     delivery_plan_id: str
     target_adapter: str
     target_channel: str | None
@@ -297,11 +301,11 @@ KIND_CROSS_EVENT_PARENT = "cross_event_parent"
 #: Retry-source receipt with missing or empty ``delivery_plan_id``.
 KIND_MISSING_DELIVERY_PLAN_ID = "missing_delivery_plan_id"
 
-#: Dead-lettered outbox item whose latest receipt is non-terminal,
+#: Dead-lettered outbox item whose current receipt is non-terminal,
 #: suggesting the item may still be retryable.
 KIND_DEAD_LETTERED_RETRYABLE_MISMATCH = "dead_lettered_retryable_mismatch"
 
-#: Outbox item reclaimed at startup but latest receipt hasn't
+#: Outbox item reclaimed at startup but current receipt hasn't
 #: progressed since the previous shutdown.
 KIND_RECOVERED_NOT_PROGRESSED = "recovered_not_progressed"
 
@@ -310,7 +314,7 @@ KIND_RECOVERED_NOT_PROGRESSED = "recovered_not_progressed"
 KIND_REPEATEDLY_RECLAIMED = "repeatedly_reclaimed"
 
 #: Outbox item reclaimed at startup but has reached a terminal
-#: outbox status while its latest receipt is non-terminal.
+#: outbox status while its current receipt is non-terminal.
 KIND_RECLAIMED_THEN_TERMINAL = "reclaimed_then_terminal"
 
 #: Outbox item reclaimed at startup but its ``event_id`` is absent
@@ -325,11 +329,11 @@ KIND_RECLAIMED_THEN_ORPHANED = "reclaimed_then_orphaned"
 #: normal delivery flow without being a terminal/non-terminal mismatch.
 KIND_RECEIPT_OUTBOX_MISMATCH = "receipt_outbox_mismatch"
 
-#: Latest receipt is terminal (``sent``, ``suppressed``, ``dead_lettered``)
+#: Current receipt is terminal (``sent``, ``suppressed``, ``dead_lettered``)
 #: but the outbox for the same target is still in a non-terminal state.
 KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX = "terminal_receipt_nonterminal_outbox"
 
-#: Outbox has reached a terminal status but the latest receipt for the
+#: Outbox has reached a terminal status but the current receipt for the
 #: same target is still non-terminal.
 KIND_TERMINAL_OUTBOX_NONTERMINAL_RECEIPT = "terminal_outbox_nonterminal_receipt"
 

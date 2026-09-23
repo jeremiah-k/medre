@@ -8,6 +8,7 @@ Authority surface:
   - list_all_outbox_items:      **list/get** (read-only).
   - list_outbox_items_for_event: **list/get** (read-only).
   - claim_due_outbox_items:     **claim** (atomic).
+  - reserve_outbox_attempt:     **claim** (atomic attempt-identity reservation).
   - mark_outbox_sent:           **mark** (terminal transition, in_progress|queued -> sent).
   - mark_outbox_queued:         **mark** (non-terminal, in_progress -> queued).
   - mark_outbox_retry_wait:     **mark** (non-terminal, in_progress -> retry_wait).
@@ -108,10 +109,11 @@ class _OutboxMixin:
 
         select_sql = (
             "SELECT outbox_id, status FROM delivery_outbox"
-            " WHERE delivery_plan_id = ? AND target_adapter = ?"
+            " WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?"
             " AND target_channel IS ? AND attempt_number = ?"
         )
         select_params = (
+            item.event_id,
             item.delivery_plan_id,
             item.target_adapter,
             item.target_channel or None,
@@ -121,11 +123,12 @@ class _OutboxMixin:
             "INSERT INTO delivery_outbox"
             " (outbox_id, event_id, route_id, delivery_plan_id,"
             "  target_adapter, target_channel, target_address,"
-            "  attempt_number, status, failure_kind, failure_kind_detail,"
-            "  next_attempt_at, created_at, updated_at, last_attempt_at,"
-            "  locked_at, lease_until, worker_id, payload_hash,"
-            "  receipt_id, parent_receipt_id, error_summary, metadata)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "  attempt_number, active_attempt, status, failure_kind,"
+            "  failure_kind_detail, next_attempt_at, created_at, updated_at,"
+            "  last_attempt_at, locked_at, lease_until, worker_id,"
+            "  payload_hash, receipt_id, parent_receipt_id, error_summary,"
+            "  metadata)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         insert_params = (
             item.outbox_id,
@@ -136,6 +139,7 @@ class _OutboxMixin:
             item.target_channel or None,
             item.target_address,
             item.attempt_number,
+            item.active_attempt,
             effective_status,
             item.failure_kind,
             item.failure_kind_detail,
@@ -212,13 +216,18 @@ class _OutboxMixin:
                     if existing["status"] in reclaimable:
                         # Re-claim: update status, worker, and lease.
                         # Clear next_attempt_at since the item is no
-                        # longer waiting for a scheduled retry.
+                        # longer waiting for a scheduled retry.  A
+                        # reservation on a claimable row is stale by
+                        # invariant (finalization clears it before the
+                        # retry_wait transition); clear it so the next
+                        # dispatch can reserve cleanly.
                         db.execute(
                             """UPDATE delivery_outbox
                                SET status = ?, worker_id = ?,
                                    locked_at = ?, lease_until = ?,
                                    updated_at = ?,
-                                   next_attempt_at = NULL
+                                   next_attempt_at = NULL,
+                                   active_attempt = NULL
                                WHERE outbox_id = ?""",
                             (
                                 reclaim_status,
@@ -450,6 +459,41 @@ class _OutboxMixin:
         )
         return [_row_to_outbox_item(r) for r in final_rows]
 
+    async def reserve_outbox_attempt(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        from_attempt: int,
+    ) -> int | None:
+        """Durably reserve the next attempt on a row this worker claimed.
+
+        Authority: **claim** (atomic attempt-identity reservation).  The
+        conditional ``UPDATE`` commits ``active_attempt = from_attempt + 1``
+        only when the row is ``in_progress``, owned by *worker_id*, carries
+        no reservation yet, and still stores ``attempt_number ==
+        from_attempt``.  Any concurrent reclaim, lease theft, or competing
+        reservation makes the guard fail and nothing is written.
+
+        Returns the reserved attempt number, or ``None`` when the guard
+        failed — the caller must not invoke the transport in that case.
+        """
+        now = _now_iso()
+        rowcount = await self._write_rowcount(
+            """UPDATE delivery_outbox
+               SET active_attempt = attempt_number + 1,
+                   last_attempt_at = ?,
+                   updated_at = ?
+               WHERE outbox_id = ?
+                 AND worker_id = ?
+                 AND status = 'in_progress'
+                 AND active_attempt IS NULL
+                 AND attempt_number = ?""",
+            (now, now, outbox_id, worker_id, from_attempt),
+        )
+        if rowcount == 1:
+            return from_attempt + 1
+        return None
+
     async def _update_outbox_status(
         self,
         outbox_id: str,
@@ -462,7 +506,8 @@ class _OutboxMixin:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         next_attempt_at: str | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Shared helper for status transitions.
 
         Authority: **mark** (internal transition helper).  Only updates
@@ -471,8 +516,19 @@ class _OutboxMixin:
         provided, an additional ``AND status IN (...)`` guard is added so
         the transition is only valid from the listed source statuses.
 
+        Explicit attempt commits are monotonic: a live reservation must
+        match exactly, while an unreserved row may only preserve or advance
+        the finalized attempt number.  *expected_worker_id* optionally
+        fences a transition to the current claim owner.
+
+        Returns ``True`` only if the transition committed. Returns ``False``
+        for a terminal row, a disallowed source status, or a mismatched
+        attempt or owner. A terminal transition without an explicit attempt
+        consumes any active reservation.
+
         Raises :class:`ValueError` if *new_status* is not a known
-        outbox status (not in ``OUTBOX_STATUSES``).
+        outbox status (not in ``OUTBOX_STATUSES``), or if ``retry_wait``
+        has no ``next_attempt_at``.
         """
         if new_status not in OUTBOX_STATUSES:
             raise ValueError(
@@ -487,8 +543,18 @@ class _OutboxMixin:
             sets.append("receipt_id = ?")
             params.append(receipt_id)
         if attempt_number is not None:
+            # Committing an outcome at an explicit attempt number is the
+            # finalization of a reserved (or directly stamped) attempt:
+            # the reservation is consumed by the same transition.
             sets.append("attempt_number = ?")
             params.append(attempt_number)
+            sets.append("active_attempt = NULL")
+        elif new_status in TERMINAL_OUTBOX_STATUSES:
+            # Terminal rows never keep a live reservation.  When a dispatch
+            # was in flight (abandonment, cancellation, suppression), the
+            # reserved attempt is the one that ran — record it as final.
+            sets.append("attempt_number = COALESCE(active_attempt, attempt_number)")
+            sets.append("active_attempt = NULL")
         if failure_kind is not None:
             sets.append("failure_kind = ?")
             params.append(failure_kind)
@@ -537,6 +603,18 @@ class _OutboxMixin:
         ]
         params.append(outbox_id)
         params.extend(TERMINAL_OUTBOX_STATUSES)
+        if attempt_number is not None:
+            # Fence explicit attempt identity in both reservation states.
+            # A live reservation must match exactly; once no reservation is
+            # live, a stale older attempt must not regress finalized lineage.
+            where_clauses.append(
+                "((active_attempt IS NULL AND attempt_number <= ?) "
+                "OR active_attempt = ?)"
+            )
+            params.extend((attempt_number, attempt_number))
+        if expected_worker_id is not None:
+            where_clauses.append("worker_id = ?")
+            params.append(expected_worker_id)
         if allowed_from is not None:
             holders = ",".join("?" for _ in allowed_from)
             where_clauses.append(f"status IN ({holders})")
@@ -544,23 +622,25 @@ class _OutboxMixin:
 
         set_clause = ", ".join(sets)
         where_sql = " AND ".join(where_clauses)
-        await self._write(
+        rowcount = await self._write_rowcount(
             f"UPDATE delivery_outbox SET {set_clause} WHERE {where_sql}",  # nosec: set_clause contains only hardcoded column names, values via ? params
             tuple(params),
         )
+        return rowcount == 1
 
     async def mark_outbox_sent(
         self,
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
         Authority: **mark** (terminal transition).  Only transitions from
         ``in_progress`` or ``queued``.
         """
-        await self._update_outbox_status(
+        return await self._update_outbox_status(
             outbox_id,
             "sent",
             allowed_from=(
@@ -569,6 +649,7 @@ class _OutboxMixin:
             ),  # transition guard — intentionally literal
             receipt_id=receipt_id,
             attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
         )
 
     async def mark_outbox_queued(
@@ -576,18 +657,20 @@ class _OutboxMixin:
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
 
         Authority: **mark** (non-terminal transition).  Only transitions
         from ``in_progress``.
         """
-        await self._update_outbox_status(
+        return await self._update_outbox_status(
             outbox_id,
             "queued",
             allowed_from=("in_progress",),  # transition guard — intentionally literal
             receipt_id=receipt_id,
             attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
         )
 
     async def mark_outbox_retry_wait(
@@ -599,14 +682,15 @@ class _OutboxMixin:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
         Authority: **mark** (non-terminal transition).  Sets
         ``next_attempt_at`` for the next scheduled attempt.  Only
         transitions from ``in_progress``.
         """
-        await self._update_outbox_status(
+        return await self._update_outbox_status(
             outbox_id,
             "retry_wait",
             allowed_from=("in_progress",),  # transition guard — intentionally literal
@@ -616,6 +700,7 @@ class _OutboxMixin:
             failure_kind_detail=failure_kind_detail,
             error_summary=error_summary,
             next_attempt_at=next_attempt_at,
+            expected_worker_id=expected_worker_id,
         )
 
     async def mark_outbox_dead_lettered(
@@ -626,7 +711,8 @@ class _OutboxMixin:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
         Authority: **mark** (terminal transition).  Only transitions from
@@ -634,7 +720,7 @@ class _OutboxMixin:
         provided, it is persisted on the outbox row so the terminal state
         records the final attempt count.
         """
-        await self._update_outbox_status(
+        return await self._update_outbox_status(
             outbox_id,
             "dead_lettered",
             allowed_from=(
@@ -646,19 +732,20 @@ class _OutboxMixin:
             failure_kind=failure_kind,
             failure_kind_detail=failure_kind_detail,
             error_summary=error_summary,
+            expected_worker_id=expected_worker_id,
         )
 
     async def mark_outbox_cancelled(
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None:
+    ) -> bool:
         """Mark an outbox item as ``cancelled`` (terminal).
 
         Authority: **mark** (terminal transition).  May be called from
         ``pending``, ``in_progress``, ``retry_wait``, or ``queued``.
         """
-        await self._update_outbox_status(
+        return await self._update_outbox_status(
             outbox_id,
             "cancelled",
             allowed_from=(
@@ -674,13 +761,15 @@ class _OutboxMixin:
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None:
+        receipt_id: str | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
 
         Authority: **mark** (terminal transition).  May be called from
         ``pending``, ``in_progress``, ``retry_wait``, or ``queued``.
         """
-        await self._update_outbox_status(
+        return await self._update_outbox_status(
             outbox_id,
             "abandoned",
             allowed_from=(
@@ -689,7 +778,9 @@ class _OutboxMixin:
                 "retry_wait",
                 "queued",
             ),  # transition guard — intentionally literal
+            receipt_id=receipt_id,
             error_summary=error_summary,
+            expected_worker_id=expected_worker_id,
         )
 
     async def renew_outbox_lease(

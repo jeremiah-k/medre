@@ -71,10 +71,12 @@ medre recover --storage-path /tmp/medre-incident.db --since 2026-09-18T00:00:00+
 medre recover --storage-path /tmp/medre-incident.db --cursor <TOKEN>
 ```
 
-A delivery is listed when the **latest receipt of that logical delivery**
+A delivery is listed when its **current lifecycle-authoritative receipt**
 — one `(event, delivery plan, target adapter, target channel)` identity —
-has status `failed` or `dead_lettered`. Retries and executed replays
-append attempts to the same delivery, so:
+has status `failed` or `dead_lettered`. For outbox-backed attempts, receipts
+are eligible only when their outbox row points at that `receipt_id`;
+outbox-less receipts remain eligible by append order. Retries and executed
+replays append attempts to the same delivery, so:
 
 - a successful retry **or executed replay** supersedes that delivery's
   earlier failure (it moves to `historical_failures` in the per-event
@@ -82,7 +84,7 @@ append attempts to the same delivery, so:
   delivery's current failed attempt;
 - a success on another target/channel/plan/event never hides the failure
   (`replay_run_id` is provenance, not a partition);
-- `queued` as the latest receipt means a new attempt is in flight, not a
+- `queued` as the current receipt means a new attempt is in flight, not a
   failure;
 - dry-run replays record no receipts and change nothing.
 

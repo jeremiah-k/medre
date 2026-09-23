@@ -63,6 +63,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 _FINALIZE_QUEUED_OUTBOX_SENT = """
 UPDATE delivery_outbox
 SET status = 'sent',
+    attempt_number = COALESCE(active_attempt, attempt_number),
+    active_attempt = NULL,
     failure_kind = NULL,
     failure_kind_detail = NULL,
     next_attempt_at = NULL,
@@ -74,13 +76,15 @@ SET status = 'sent',
     receipt_id = ?,
     error_summary = NULL
 WHERE outbox_id = ?
-  AND attempt_number = ?
+  AND ? = COALESCE(active_attempt, attempt_number)
   AND status IN ('queued', 'in_progress')
 """
 
 _FINALIZE_OUTBOX_TERMINAL = """
 UPDATE delivery_outbox
 SET status = ?,
+    attempt_number = COALESCE(active_attempt, attempt_number),
+    active_attempt = NULL,
     failure_kind = ?,
     failure_kind_detail = NULL,
     next_attempt_at = NULL,
@@ -93,7 +97,7 @@ SET status = ?,
 WHERE outbox_id = ?
   AND event_id = ?
   AND target_adapter = ?
-  AND attempt_number = ?
+  AND ? = COALESCE(active_attempt, attempt_number)
   AND status IN ('queued', 'in_progress')
 """
 
@@ -130,16 +134,48 @@ WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
 """
 
 _DELIVERY_RECEIPT_LATEST_BY_CHANNEL = """
-SELECT * FROM delivery_receipts
-WHERE delivery_plan_id = ? AND target_adapter = ?
-  AND target_channel IS ?
-ORDER BY sequence DESC
+SELECT r.* FROM delivery_receipts r
+WHERE r.delivery_plan_id = ? AND r.target_adapter = ?
+  AND r.target_channel IS ?
+  AND (
+      r.outbox_id IS NULL
+      OR EXISTS (
+          SELECT 1
+          FROM delivery_outbox o
+          WHERE o.outbox_id = r.outbox_id
+            AND o.receipt_id = r.receipt_id
+      )
+  )
+ORDER BY r.sequence DESC
+LIMIT 1
+"""
+
+_DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL = """
+SELECT r.* FROM delivery_receipts r
+WHERE r.event_id = ? AND r.delivery_plan_id = ? AND r.target_adapter = ?
+  AND r.target_channel IS ?
+  AND (
+      r.outbox_id IS NULL
+      OR EXISTS (
+          SELECT 1
+          FROM delivery_outbox o
+          WHERE o.outbox_id = r.outbox_id
+            AND o.receipt_id = r.receipt_id
+      )
+  )
+ORDER BY r.sequence DESC
 LIMIT 1
 """
 
 _SELECT_RECEIPTS_FOR_PLAN = """
 SELECT * FROM delivery_receipts
 WHERE delivery_plan_id = ? AND target_adapter = ?
+ORDER BY attempt_number ASC, sequence ASC
+"""
+
+_SELECT_RECEIPTS_FOR_EVENT_PLAN = """
+SELECT * FROM delivery_receipts
+WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?
 ORDER BY attempt_number ASC, sequence ASC
 """
 

@@ -24,10 +24,12 @@ from medre.core.events import DELIVERY_CONFIRMATION_LEVEL_VALUES, DeliveryReceip
 from medre.core.storage.sqlite.serde import _row_to_receipt
 from medre.core.storage.sqlite.statements import (
     _DELIVERY_RECEIPT_LATEST_BY_CHANNEL,
+    _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL,
     _INSERT_RECEIPT,
     _SELECT_ALL_RECEIPTS,
     _SELECT_RECEIPTS_BY_REPLAY_RUN,
     _SELECT_RECEIPTS_FOR_EVENT,
+    _SELECT_RECEIPTS_FOR_EVENT_PLAN,
     _SELECT_RECEIPTS_FOR_PLAN,
 )
 
@@ -91,8 +93,11 @@ class _ReceiptMixin:
 
         Authority: **append** (append-only).  Receipts are append-only:
         every call creates a new row.  Existing receipt rows are never
-        updated or deleted.  The ``delivery_status``
-        view projects the latest receipt as a ``MAX(sequence)`` aggregation.
+        updated or deleted.  Current-status projections distinguish append
+        history from lifecycle authority: an outbox-backed receipt is current
+        only when the outbox row points at its ``receipt_id``.  A receipt whose
+        guarded outbox transition lost a race remains durable historical
+        evidence.
 
         Empty-string ``target_channel`` values are normalised to ``None``
         (SQL NULL) before insertion.  The ``delivery_status`` view uses
@@ -109,13 +114,19 @@ class _ReceiptMixin:
         delivery_plan_id: str,
         target_adapter: str,
         target_channel: str | None = None,
+        *,
+        event_id: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter / channel triple.
+        """Return the current receipt for a delivery target, optionally event-scoped.
 
-        Authority: **list/get** (read-only).  Queries the ``delivery_receipts`` base table directly (rather than
-        the ``delivery_status`` view) so that NULL and empty-string channel
-        values are handled robustly without relying on the view's
-        ``COALESCE(target_channel, '')`` grouping.
+        Authority: **list/get** (read-only).  Queries the ``delivery_receipts``
+        base table directly (rather than the ``delivery_status`` view) so that
+        NULL and empty-string channel values are handled robustly without
+        relying on the view's ``COALESCE(target_channel, '')`` grouping.
+        Outbox-backed receipts are eligible only when the matching outbox row
+        names their ``receipt_id`` as the committed lifecycle outcome.  This
+        keeps a late receipt from a stale worker as history instead of letting
+        append order overwrite current delivery status.
 
         Parameters
         ----------
@@ -129,35 +140,55 @@ class _ReceiptMixin:
             ``None`` (default), only receipts with a NULL (no-channel)
             target are returned.  Passing ``None`` does **not** query
             across all channels.
+        event_id:
+            Canonical event to scope the lookup to. Runtime lifecycle callers
+            that know the event MUST pass it because plan IDs are not globally
+            unique across events. ``None`` preserves the legacy unscoped
+            projection for callers that intentionally aggregate across events.
 
         Returns
         -------
         DeliveryReceipt | None
-            The latest-matching receipt, or ``None`` when no receipt exists
+            The current matching receipt, or ``None`` when no committed receipt exists
             for the given combination.
         """
-        row = await self._read_one(
-            _DELIVERY_RECEIPT_LATEST_BY_CHANNEL,
-            (delivery_plan_id, target_adapter, target_channel or None),
-        )
+        if event_id is None:
+            sql = _DELIVERY_RECEIPT_LATEST_BY_CHANNEL
+            params = (delivery_plan_id, target_adapter, target_channel or None)
+        else:
+            sql = _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL
+            params = (
+                event_id,
+                delivery_plan_id,
+                target_adapter,
+                target_channel or None,
+            )
+        row = await self._read_one(sql, params)
         return _row_to_receipt(row) if row else None
 
     async def list_receipts_for_plan(
         self,
         delivery_plan_id: str,
         target_adapter: str,
+        *,
+        event_id: str | None = None,
     ) -> list[DeliveryReceipt]:
         """Return all receipts for a delivery plan / adapter pair in
         attempt order.
 
-        Authority: **list/get** (read-only).  Receipts are ordered by ``attempt_number`` ascending (then
-        ``sequence`` as tiebreaker) so callers can walk the full
-        receipt lineage from first attempt to last.
+        Authority: **list/get** (read-only). Receipts are ordered by
+        ``attempt_number`` ascending (then ``sequence`` as tiebreaker) so
+        callers can walk the full receipt lineage from first attempt to last.
+        Lifecycle callers SHOULD pass ``event_id`` because plan IDs are not
+        globally unique across events.
         """
-        rows = await self._read_all(
-            _SELECT_RECEIPTS_FOR_PLAN,
-            (delivery_plan_id, target_adapter),
-        )
+        if event_id is None:
+            sql = _SELECT_RECEIPTS_FOR_PLAN
+            params = (delivery_plan_id, target_adapter)
+        else:
+            sql = _SELECT_RECEIPTS_FOR_EVENT_PLAN
+            params = (event_id, delivery_plan_id, target_adapter)
+        rows = await self._read_all(sql, params)
         return [_row_to_receipt(r) for r in rows]
 
     async def list_receipts_by_replay_run(
@@ -225,6 +256,14 @@ class _ReceiptMixin:
                AND r.next_retry_at IS NOT NULL
                AND r.next_retry_at <= ?
                AND r.attempt_number < ?
+               AND (
+                   r.outbox_id IS NULL
+                   OR EXISTS (
+                       SELECT 1 FROM delivery_outbox o
+                       WHERE o.outbox_id = r.outbox_id
+                         AND o.receipt_id = r.receipt_id
+                   )
+               )
                AND NOT EXISTS (
                    SELECT 1 FROM delivery_receipts child
                    WHERE child.parent_receipt_id = r.receipt_id
@@ -248,6 +287,14 @@ class _ReceiptMixin:
                AND r.next_retry_at IS NOT NULL
                AND r.next_retry_at <= ?
                AND r.attempt_number < ?
+               AND (
+                   r.outbox_id IS NULL
+                   OR EXISTS (
+                       SELECT 1 FROM delivery_outbox o
+                       WHERE o.outbox_id = r.outbox_id
+                         AND o.receipt_id = r.receipt_id
+                   )
+               )
                AND NOT EXISTS (
                    SELECT 1 FROM delivery_receipts child
                    WHERE child.parent_receipt_id = r.receipt_id

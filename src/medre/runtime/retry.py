@@ -46,7 +46,10 @@ if TYPE_CHECKING:
     from medre.runtime.events import EventBuffer
 
 from medre.config.model import RetryConfig
-from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
+from medre.core.engine.pipeline.delivery_lifecycle import (
+    RetryAttemptCommitRejected,
+    RetryAttemptFinalization,
+)
 from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
@@ -88,7 +91,16 @@ class RetryWorkerStorage(Protocol):
         delivery_plan_id: str,
         target_adapter: str,
         target_channel: str | None = None,
-    ) -> DeliveryReceipt | None: ...
+        *,
+        event_id: str | None = None,
+    ) -> DeliveryReceipt | None:
+        """Return current delivery status for one target, optionally event-scoped.
+
+        Retry callers should pass ``event_id`` because plan IDs can recur
+        across events. ``None`` for ``target_channel`` selects the no-channel
+        target, not every channel.
+        """
+        ...
 
 
 if TYPE_CHECKING:
@@ -354,6 +366,18 @@ class RetryWorker:
             },
         )
 
+    @staticmethod
+    def _log_superseded_transition(
+        item: DeliveryOutboxItem,
+        error: RetryAttemptCommitRejected,
+    ) -> None:
+        """Log a fenced stale write without inventing a durable outcome."""
+        _logger.warning(
+            "RetryWorker: superseded transition ignored for outbox %s: %s",
+            item.outbox_id,
+            error,
+        )
+
     def _record_retry_finalization(
         self,
         item: DeliveryOutboxItem,
@@ -406,7 +430,12 @@ class RetryWorker:
             )
             return
 
-        if finalization.outcome in {"retry_wait", "suppressed"}:
+        if finalization.outcome in {
+            "retry_wait",
+            "suppressed",
+            "cancelled",
+            "abandoned",
+        }:
             self.state.failed += 1
             self._emit(
                 "retry_failed",
@@ -869,8 +898,8 @@ class RetryWorker:
         """Retry delivery for a single due outbox item.
 
         Uses the outbox item's metadata to reconstruct the delivery
-        context, finds the latest receipt for lineage, and re-attempts
-        delivery through the pipeline.
+        context, finds the lifecycle-authoritative receipt for lineage, and
+        re-attempts delivery through the pipeline.
         """
         event = await self._storage.get(item.event_id)
         if event is None:
@@ -879,17 +908,21 @@ class RetryWorker:
                 item.event_id,
                 item.outbox_id,
             )
-            await self._lifecycle.abandon_retry_outbox(
-                self._lifecycle_storage,
-                item,
-                error_summary="Event not found in storage",
-            )
+            try:
+                await self._lifecycle.abandon_retry_outbox(
+                    self._lifecycle_storage,
+                    item,
+                    error_summary="Event not found in storage",
+                )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
             return
 
         previous_receipt = await self._storage.delivery_status(
             item.delivery_plan_id,
             item.target_adapter,
             item.target_channel,
+            event_id=item.event_id,
         )
 
         # Reconstruct the delivery context (route + plan + retry policy)
@@ -909,11 +942,14 @@ class RetryWorker:
             )
             self.state.processed += 1
             self.state.failed += 1
-            await self._lifecycle.abandon_retry_outbox(
-                self._lifecycle_storage,
-                item,
-                error_summary="Reconstruction failure",
-            )
+            try:
+                await self._lifecycle.abandon_retry_outbox(
+                    self._lifecycle_storage,
+                    item,
+                    error_summary="Reconstruction failure",
+                )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
             return
 
         # A worker can reclaim an expired ``in_progress`` row after a prior
@@ -927,6 +963,10 @@ class RetryWorker:
                 item,
                 retry_context.retry_policy,
             )
+        except RetryAttemptCommitRejected as stale:
+            self.state.processed += 1
+            self._log_superseded_transition(item, stale)
+            return
         except Exception as lifecycle_exc:
             self.state.processed += 1
             _logger.exception(
@@ -973,6 +1013,9 @@ class RetryWorker:
                         "complete runtime startup"
                     ),
                 )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
+                return
             except Exception as lifecycle_exc:
                 _logger.exception(
                     "RetryWorker: failed to defer outbox %s for unavailable "
@@ -1037,6 +1080,9 @@ class RetryWorker:
                             failure_kind="capacity_rejection",
                             attempt_number=item.attempt_number,
                         )
+                    except RetryAttemptCommitRejected as stale:
+                        self._log_superseded_transition(item, stale)
+                        return
                     except Exception:
                         _logger.exception(
                             "RetryWorker: failed to backoff outbox %s on capacity rejection",
@@ -1078,6 +1124,9 @@ class RetryWorker:
                         failure_kind="capacity_error",
                         attempt_number=item.attempt_number,
                     )
+                except RetryAttemptCommitRejected as stale:
+                    self._log_superseded_transition(item, stale)
+                    return
                 except Exception:
                     _logger.exception(
                         "RetryWorker: failed to backoff outbox %s on capacity error",
@@ -1086,7 +1135,82 @@ class RetryWorker:
                 return
             capacity_acquired = True
 
+        renewal_task: asyncio.Task | None = None
+
         try:
+            # Dispatch-begin boundary: durably reserve the next attempt
+            # identity before invoking the transport.  From this commit
+            # onward, callbacks carrying the reserved number are live for
+            # the whole handoff and callbacks for earlier attempts are
+            # stale.  A failed reservation means the row is no longer owned
+            # by this worker — never invoke the transport on a lost claim.
+            try:
+                reserved_attempt = await self._lifecycle.reserve_retry_attempt(
+                    self._lifecycle_storage,
+                    item,
+                )
+            except Exception as lifecycle_exc:
+                self.state.processed += 1
+                _logger.exception(
+                    "RetryWorker: failed to reserve attempt for outbox %s",
+                    item.outbox_id,
+                )
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=item.attempt_number + 1,
+                )
+                return
+
+            if reserved_attempt is None:
+                self.state.processed += 1
+                _logger.warning(
+                    "RetryWorker: lost claim on outbox %s before dispatch; "
+                    "attempt reservation failed without consuming transport",
+                    item.outbox_id,
+                )
+                return
+
+            # Keep the claim lease alive for as long as this dispatch runs.
+            # Without renewal, a transport call outliving the claim lease
+            # invites a reclaim that clears the reservation and re-dispatches
+            # under the same attempt identity while this worker is still in
+            # the transport.  The first renewal is awaited synchronously so
+            # the dispatch starts on a fresh lease — the claim gates above
+            # can consume most of the original one — and transport is
+            # aborted when that renewal loses the claim.  Process death
+            # still expires the lease, and claim reconciliation recovers
+            # the reservation from there.
+            try:
+                initial_renewal = await self._lifecycle.renew_retry_lease(
+                    self._lifecycle_storage,
+                    item,
+                    lease_seconds=int(self._interval * 1.5) or 30,
+                )
+            except Exception as lifecycle_exc:
+                self.state.processed += 1
+                _logger.exception(
+                    "RetryWorker: failed to renew dispatch lease for outbox %s",
+                    item.outbox_id,
+                )
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=reserved_attempt,
+                )
+                return
+
+            if not initial_renewal:
+                self.state.processed += 1
+                _logger.warning(
+                    "RetryWorker: lost claim on outbox %s at dispatch lease "
+                    "renewal; transport not invoked",
+                    item.outbox_id,
+                )
+                return
+
+            renewal_task = asyncio.create_task(self._renew_dispatch_lease(item))
+
             route = retry_context.route
             plan = retry_context.plan
 
@@ -1098,7 +1222,7 @@ class RetryWorker:
                     "retry_receipt_id": None,
                     "event_id": item.event_id,
                     "target_adapter": item.target_adapter,
-                    "attempt_number": item.attempt_number,
+                    "attempt_number": reserved_attempt,
                 },
             )
 
@@ -1110,6 +1234,7 @@ class RetryWorker:
                 source="retry",
                 replay_run_id=None,
                 outbox_id=item.outbox_id,
+                reserved_attempt_number=reserved_attempt,
             )
         except asyncio.CancelledError:
             raise
@@ -1121,7 +1246,10 @@ class RetryWorker:
                     item,
                     retry_context.retry_policy,
                     error=exc,
+                    attempt_number=reserved_attempt,
                 )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
             except Exception as lifecycle_exc:
                 _logger.exception(
                     "RetryWorker: failed to reconcile retry lifecycle for outbox %s",
@@ -1130,7 +1258,7 @@ class RetryWorker:
                 self._record_lifecycle_persistence_error(
                     item,
                     lifecycle_exc,
-                    attempt_number=item.attempt_number + 1,
+                    attempt_number=reserved_attempt,
                 )
             else:
                 self._record_retry_finalization(
@@ -1162,6 +1290,36 @@ class RetryWorker:
                     finalization,
                     error_summary=result_receipt.error,
                 )
+            except RetryAttemptCommitRejected as stale:
+                try:
+                    reconciled = (
+                        await self._lifecycle.reconcile_retry_success_commit_rejection(
+                            self._lifecycle_storage,
+                            item,
+                            result_receipt,
+                        )
+                    )
+                except Exception as lifecycle_exc:
+                    _logger.exception(
+                        "RetryWorker: failed to reconcile rejected success "
+                        "transition for outbox %s",
+                        item.outbox_id,
+                    )
+                    self._record_lifecycle_persistence_error(
+                        item,
+                        lifecycle_exc,
+                        attempt_number=result_receipt.attempt_number,
+                    )
+                else:
+                    if reconciled is None:
+                        self._log_superseded_transition(item, stale)
+                    else:
+                        self._record_retry_finalization(
+                            item,
+                            reconciled,
+                            error_summary=result_receipt.error,
+                            reconciled=True,
+                        )
             except Exception as lifecycle_exc:
                 _logger.exception(
                     "RetryWorker: failed to update outbox %s after successful delivery",
@@ -1173,5 +1331,41 @@ class RetryWorker:
                     attempt_number=result_receipt.attempt_number,
                 )
         finally:
+            if renewal_task is not None:
+                renewal_task.cancel()
+                try:
+                    await renewal_task
+                except asyncio.CancelledError:
+                    pass
             if capacity_acquired and self._capacity is not None:
                 await self._capacity.release_delivery()
+
+    async def _renew_dispatch_lease(self, item: DeliveryOutboxItem) -> None:
+        """Extend the claimed row's lease while its reserved dispatch runs.
+
+        Renews periodically during dispatch. Renewal errors are retried on
+        the next cycle; a lost claim stops renewal. Attempt and
+        worker fences determine whether finalization can still commit.
+        """
+        interval = max(0.05, self._interval * 0.5)
+        lease_seconds = int(self._interval * 1.5) or 30
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                renewed = await self._lifecycle.renew_retry_lease(
+                    self._lifecycle_storage,
+                    item,
+                    lease_seconds=lease_seconds,
+                )
+            except Exception:
+                _logger.debug(
+                    "RetryWorker: transient error renewing dispatch lease "
+                    "for outbox %s; will retry on next cycle",
+                    item.outbox_id,
+                    exc_info=True,
+                )
+                continue
+            if not renewed:
+                # Claim lost (reclaim or finalization by another path);
+                # stop renewing — the fences own what may still commit.
+                return

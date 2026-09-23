@@ -27,14 +27,15 @@ INSERT INTO delivery_observations (
 )
 SELECT
     ?, o.event_id, o.delivery_plan_id, o.target_adapter,
-    o.target_channel, ?, o.outbox_id, o.attempt_number, ?,
+    o.target_channel, ?, o.outbox_id,
+    COALESCE(o.active_attempt, o.attempt_number), ?,
     ?, ?, ?, ?, ?
 FROM delivery_outbox AS o
 WHERE o.outbox_id = ?
   AND o.event_id = ?
   AND o.delivery_plan_id = ?
   AND o.target_adapter = ?
-  AND o.attempt_number = ?
+  AND ? = COALESCE(o.active_attempt, o.attempt_number)
   AND o.status IN ('in_progress', 'queued', 'sent')
 ON CONFLICT(observation_id) DO NOTHING
 """

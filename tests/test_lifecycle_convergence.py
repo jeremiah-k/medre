@@ -45,6 +45,7 @@ def _outbox(
     attempt_number: int = 1,
     next_attempt_at: str | None = None,
     updated_at: str | None = None,
+    receipt_id: str | None = "r-1",
 ) -> dict:
     d: dict = {
         "outbox_id": outbox_id,
@@ -54,6 +55,7 @@ def _outbox(
         "target_channel": target_channel,
         "attempt_number": attempt_number,
         "event_id": "ev-1",
+        "receipt_id": receipt_id,
     }
     if next_attempt_at is not None:
         d["next_attempt_at"] = next_attempt_at

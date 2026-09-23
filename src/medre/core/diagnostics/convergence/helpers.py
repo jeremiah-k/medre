@@ -25,12 +25,12 @@ __all__ = [
     "_NON_TERMINAL_RECEIPT",
     "_TERMINAL_OUTBOX",
     "_NON_TERMINAL_OUTBOX",
-    "_latest_receipt_for_target",
+    "_current_receipt_for_target",
+    "_build_committed_receipt_ids_by_key",
     "_build_outbox_by_key",
     "_parse_iso_timestamp",
     "_ensure_aware",
     "_safe_record_id",
-    "_pick_latest_receipt_safe",
 ]
 
 
@@ -85,8 +85,8 @@ def _to_iso(value: Any) -> str | None:
 # Group key construction
 # ---------------------------------------------------------------------------
 
-_TargetKey = tuple[str, str, str | None]
-"""``(delivery_plan_id, target_adapter, target_channel)``."""
+_TargetKey = tuple[str, str, str, str | None]
+"""``(event_id, delivery_plan_id, target_adapter, target_channel)``."""
 
 
 def _target_key(obj: Any) -> _TargetKey:
@@ -96,10 +96,11 @@ def _target_key(obj: Any) -> _TargetKey:
     ``target_adapter``; ``None`` is preserved for ``target_channel`` to
     distinguish "absent" from "empty string".
     """
+    event_id = _get(obj, "event_id") or ""
     plan_id = _get(obj, "delivery_plan_id") or ""
     adapter = _get(obj, "target_adapter") or ""
     channel = _get(obj, "target_channel")
-    return (plan_id, adapter, channel)
+    return (event_id, plan_id, adapter, channel)
 
 
 # ---------------------------------------------------------------------------
@@ -183,13 +184,50 @@ def _pick_latest_receipt(receipts: list[Any]) -> Any | None:
     return min(receipts, key=_receipt_sort_key)
 
 
-def _latest_receipt_for_target(
+def _build_committed_receipt_ids_by_key(
+    outbox_items: list[Any],
+) -> dict[_TargetKey, set[str]]:
+    """Return committed outbox receipt IDs grouped by target key.
+
+    Every outbox generation contributes its current ``receipt_id``.  Keys are
+    retained even when no generation has committed a receipt yet so callers can
+    distinguish an outbox-backed target from a receipt-only target.
+    """
+    result: dict[_TargetKey, set[str]] = {}
+    for item in outbox_items:
+        key = _target_key(item)
+        ids = result.setdefault(key, set())
+        receipt_id = _get(item, "receipt_id")
+        if receipt_id:
+            ids.add(str(receipt_id))
+    return result
+
+
+def _current_receipt_for_target(
     receipts_by_key: dict[_TargetKey, list[Any]],
     key: _TargetKey,
+    committed_receipt_ids: set[str] | None,
 ) -> Any | None:
-    """Select the latest receipt for a target key (reuses ranking logic)."""
+    """Select the lifecycle-authoritative receipt for one target.
+
+    ``None`` means the target has no outbox rows, so durable append order is
+    authoritative.  When outbox rows exist, an eligible receipt is either
+    outbox-less or explicitly named by one of those rows' committed
+    ``receipt_id`` pointers.  The latest eligible receipt wins.  This mirrors
+    SQLite ``delivery_status`` across multiple outbox generations and prevents
+    a late receipt whose guarded outbox transition was rejected from becoming
+    current merely because it has the largest append sequence.
+    """
     recs = receipts_by_key.get(key, [])
-    return _pick_latest_receipt(recs)
+    if committed_receipt_ids is None:
+        return _pick_latest_receipt(recs)
+    eligible = [
+        rec
+        for rec in recs
+        if not _get(rec, "outbox_id")
+        or str(_get(rec, "receipt_id") or "") in committed_receipt_ids
+    ]
+    return _pick_latest_receipt(eligible)
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +259,7 @@ def _build_outbox_by_key(
 ) -> dict[_TargetKey, Any]:
     """Index outbox items by target key, keeping the highest-authority item.
 
-    When multiple outbox items share the same ``(delivery_plan_id,
+    When multiple outbox items share the same ``(event_id, delivery_plan_id,
     target_adapter, target_channel)`` key, the one with the higher
     ``attempt_number`` wins.  Ties are broken by ``outbox_id``
     (lexicographically largest wins).
@@ -295,15 +333,3 @@ def _safe_record_id(*candidates: Any) -> str:
         if s and s != "None":
             return s
     return ""
-
-
-# ---------------------------------------------------------------------------
-# Safe latest-receipt selection
-# ---------------------------------------------------------------------------
-
-
-def _pick_latest_receipt_safe(receipts: list[Any]) -> Any | None:
-    """Select the latest receipt from a list, handling empty lists."""
-    if not receipts:
-        return None
-    return _pick_latest_receipt(receipts)

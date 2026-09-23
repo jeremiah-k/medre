@@ -88,15 +88,15 @@ are drawn from the vocabularies above.
 The following are derived from authoritative vocabularies at query or report
 time. They do not introduce new states:
 
-| Derived artifact                                        | Source                                                   | Defined in                                               |
-| ------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------- |
-| `delivery_status` SQL view                              | Latest receipt per `(delivery_plan_id, target_adapter)`  | [routing-delivery.md](routing-delivery.md) §9            |
-| Convergence severity (`safe`/`degraded`/`inconsistent`) | Cross-reference of outbox + receipt statuses             | [diagnostics-evidence.md](diagnostics-evidence.md) §21   |
-| Recovery ownership statuses                             | Classification of outbox items at startup                | [diagnostics-evidence.md](diagnostics-evidence.md) §22   |
-| Health vocabulary (`healthy`/`degraded`/etc.)           | Adapter diagnostics projection                           | [diagnostics-evidence.md](diagnostics-evidence.md) §5    |
-| Report dict enrichment fields                           | Parsed from receipt `error` and `rendering_evidence`     | [diagnostics-evidence.md](diagnostics-evidence.md) §17.2 |
-| Delivery outcome ledger                                 | Grouped projection over receipts and outbox              | [diagnostics-evidence.md](diagnostics-evidence.md) §19   |
-| Lifecycle convergence findings                          | Detection-only analysis of receipt/outbox contradictions | [diagnostics-evidence.md](diagnostics-evidence.md) §23   |
+| Derived artifact                                        | Source                                                        | Defined in                                               |
+| ------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------- |
+| `delivery_status` SQL view                              | Latest authoritative receipt per event-scoped delivery target | [routing-delivery.md](routing-delivery.md) §9            |
+| Convergence severity (`safe`/`degraded`/`inconsistent`) | Cross-reference of outbox + receipt statuses                  | [diagnostics-evidence.md](diagnostics-evidence.md) §21   |
+| Recovery ownership statuses                             | Classification of outbox items at startup                     | [diagnostics-evidence.md](diagnostics-evidence.md) §22   |
+| Health vocabulary (`healthy`/`degraded`/etc.)           | Adapter diagnostics projection                                | [diagnostics-evidence.md](diagnostics-evidence.md) §5    |
+| Report dict enrichment fields                           | Parsed from receipt `error` and `rendering_evidence`          | [diagnostics-evidence.md](diagnostics-evidence.md) §17.2 |
+| Delivery outcome ledger                                 | Grouped projection over receipts and outbox                   | [diagnostics-evidence.md](diagnostics-evidence.md) §19   |
+| Lifecycle convergence findings                          | Detection-only analysis of receipt/outbox contradictions      | [diagnostics-evidence.md](diagnostics-evidence.md) §23   |
 
 ### 2.3 Closure Constraint
 
@@ -175,11 +175,87 @@ outbox row is no longer finalizable, or any insert fails, none of those writes
 may commit. The unavoidable external-send-to-database boundary remains an
 ambiguity boundary; MEDRE does not claim exactly-once transport delivery.
 
+### 3.4.1 Attempt Identity Reservation
+
+Attempt identity for callbacks is durably reserved when dispatch begins, not
+when the retry worker claims the row. The outbox row carries a nullable
+`active_attempt` column: when set, it is the in-flight attempt; when null,
+the row's `attempt_number` is the live identity and also the last finalized
+attempt.
+
+- The retry worker reserves `attempt_number + 1` via a guarded storage
+  update immediately before invoking the transport, after claim
+  reconciliation and after the adapter-availability and capacity gates. A
+  deferral before dispatch (unavailable adapter, capacity rejection)
+  therefore consumes no attempt and leaves no reservation.
+- The reservation is guarded on the claiming worker owning the `in_progress`
+  row with no existing reservation. A worker that lost its claim (lease
+  theft or reclaim) cannot reserve and MUST NOT invoke the transport.
+- While the reserved dispatch runs, the worker renews the claimed row's
+  lease: one awaited renewal immediately after the reservation — aborting
+  transport when the claim is already lost and starting the dispatch on a
+  fresh lease — then periodic renewal at half the poll interval for the
+  claim's lease duration. A live worker's slow transport therefore does not
+  outlive its claim; lease expiry during a dispatch implies worker death or
+  a renewal/storage failure, and the fences below remain the authority for
+  anything a superseded worker still commits.
+- From the reservation commit onward, every callback validator — queued
+  delivery finalization, queue terminal reporting, and post-handoff
+  observations — admits the reserved attempt number and rejects earlier
+  attempts.
+- Finalization consumes the reservation atomically with its outcome
+  transition: `attempt_number` advances to the reserved attempt and
+  `active_attempt` clears in the same guarded statement. Explicit-attempt
+  commits are fenced in both reservation states: a live reservation must
+  match exactly, and an unreserved row rejects any explicit attempt lower
+  than its already-finalized `attempt_number`. Retry-worker transitions are
+  also fenced to the current claim owner. Live-pipeline finalization is
+  likewise fenced to the pipeline worker that owns the row, so a pipeline
+  result returning after lease expiry cannot clear or overwrite a retry worker
+  that reclaimed the row. A worker finalizing after its lease expired therefore
+  cannot consume another worker's reservation, release its claim, or regress
+  finalized attempt identity. A rejected guard is reported to lifecycle code as
+  an uncommitted transition; runtime observability MUST NOT project it as
+  durable success, retry, or dead-letter state. Terminal
+  transitions that pass no attempt number (abandonment, cancellation)
+  consume a live reservation too, recording the reserved attempt as
+  final.
+- A dispatch stamps the reserved number onto the rendered result and every
+  receipt it produces, so adapter callbacks echo exactly the identity the
+  outbox will admit. Receipt lineage (`parent_receipt_id`) is independent
+  and still derives from the previous receipt.
+
+Claim reconciliation uses the reservation as the discriminator for crash
+recovery: a claimed row with a live reservation and persisted receipt evidence
+for that attempt commits the missing outbox transition (the transport is not
+invoked again). A reservation without receipt evidence is ambiguous: the prior
+process may have died before transport invocation, or the transport may have
+accepted the send while receipt persistence was lost. Recovery therefore
+**consumes** the reserved identity as an `adapter_transient` failed attempt and
+moves the row to `retry_wait`, or `dead_lettered` when the retry budget is
+exhausted. A later dispatch reserves a strictly newer number. Reserved attempt
+identities are never reused.
+
+A queue terminal callback can win a narrow race after a retry dispatch returns
+a `queued` receipt but before the retry worker commits its own queued outbox
+transition. If that CAS is rejected, lifecycle MAY re-read the authoritative
+outbox row and project an already-committed outcome only when the row is
+terminal at the exact same attempt number with no live reservation. This is
+unambiguous because reserved attempt identities are never reused for another
+dispatch. A different attempt or a still-reserved row remains superseded and
+MUST NOT be reclassified by runtime code.
+
 ### 3.5 Stale Callback Protection
 
 A stale callback is a delayed adapter callback that arrives after the outbox
 item it refers to has been reclaimed by a retry or reached a terminal state.
 Stale callbacks MUST NOT finalize a different delivery attempt.
+
+Attempt correlation in every callback path compares against the outbox row's
+effective attempt — `active_attempt` while a dispatch reservation is live,
+otherwise the stored `attempt_number` — so a superseded attempt becomes
+stale the moment the next dispatch reserves its identity, and the reserved
+attempt stays admissible for the whole handoff.
 
 When `finalize_queued_delivery` receives a callback with an `outbox_id`
 whose outbox item has a status other than `queued` or `in_progress`, the
@@ -215,11 +291,23 @@ pipeline decides lifecycle transitions.
 
 Every delivery attempt produces a new `DeliveryReceipt` row. Existing receipt
 rows MUST NOT be updated or deleted after creation. The `DeliveryReceipt`
-dataclass is `frozen=True`. Current delivery status is derived by reading the
-latest receipt for a delivery chain, not by mutation.
+dataclass is `frozen=True`. Append order is historical evidence, not sufficient
+current-state authority for outbox-backed delivery: the receipt becomes current
+only when its guarded outbox transition commits and the outbox row points to its
+`receipt_id`. A receipt appended by a stale worker after losing that transition
+remains historical evidence. Outbox-less delivery continues to use latest
+append order.
 
-Receipts are the authoritative evidence trail for audit, diagnostics, and
-operator inspection. See [state-machines.md](state-machines.md) §1.4.
+Receipts remain the authoritative immutable evidence trail for audit,
+diagnostics, and operator inspection; the outbox pointer selects which receipt
+is the current lifecycle projection. When one live attempt appends both a
+primary `failed` receipt and its linked retry-exhaustion `dead_lettered`
+receipt, the delivery outcome MAY retain the primary failed receipt as the
+attempt result, but the guarded outbox `dead_lettered` transition MUST point at
+the linked terminal receipt. This keeps attempt evidence distinct from mutable
+lifecycle authority and prevents a terminal outbox from projecting the
+preceding non-terminal failure as current. See
+[state-machines.md](state-machines.md) §1.4.
 
 ### 4.2 Outbox Is Mutable Operational State
 

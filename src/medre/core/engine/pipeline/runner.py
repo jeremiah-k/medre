@@ -1533,6 +1533,7 @@ class PipelineRunner:
             Callable[[str], Awaitable[list[NativeMessageRef]]] | None
         ) = None,
         outbox_id: str | None = None,
+        reserved_attempt_number: int | None = None,
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
 
@@ -1566,6 +1567,7 @@ class PipelineRunner:
             source=source,
             replay_run_id=replay_run_id,
             outbox_id=outbox_id,
+            reserved_attempt_number=reserved_attempt_number,
         )
 
     # -- Internal helpers --------------------------------------------------

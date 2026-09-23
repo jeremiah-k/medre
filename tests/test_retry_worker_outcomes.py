@@ -730,12 +730,15 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
         target_adapter="target_a",
         attempt_number=1,
         status="in_progress",
+        worker_id="retry-worker-test",
     )
     storage = MagicMock()
     storage.get = AsyncMock(return_value=object())
     storage.delivery_status = AsyncMock(return_value=None)
     storage.list_receipts_for_plan = AsyncMock(return_value=[])
-    storage.mark_outbox_abandoned = AsyncMock()
+    storage.reserve_outbox_attempt = AsyncMock(return_value=2)
+    storage.renew_outbox_lease = AsyncMock(return_value=True)
+    storage.mark_outbox_abandoned = AsyncMock(return_value=True)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(
         return_value=DeliveryReceipt(
@@ -769,12 +772,20 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
 
     await worker._retry_outbox_item(item)
 
+    storage.delivery_status.assert_awaited_once_with(
+        item.delivery_plan_id,
+        item.target_adapter,
+        item.target_channel,
+        event_id=item.event_id,
+    )
     assert worker.state.processed == 1
     assert worker.state.succeeded == 0
     assert worker.state.failed == 1
     storage.mark_outbox_abandoned.assert_awaited_once_with(
         item.outbox_id,
         error_summary="capability_suppressed",
+        receipt_id="rcpt-suppressed",
+        expected_worker_id=item.worker_id,
     )
     assert not any(
         call.args and call.args[0] == "retry_succeeded" for call in emit.call_args_list
@@ -1033,6 +1044,7 @@ async def test_retry_worker_retry_wait_event_includes_exception_type(
         target_adapter="target_a",
         attempt_number=1,
         status="in_progress",
+        worker_id="retry-worker-test",
     )
     storage = MagicMock()
     storage.get = AsyncMock(return_value=object())
@@ -1040,6 +1052,8 @@ async def test_retry_worker_retry_wait_event_includes_exception_type(
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(side_effect=ConnectionError())
     lifecycle = MagicMock()
+    lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
+    lifecycle.renew_retry_lease = AsyncMock(return_value=True)
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
     lifecycle.finalize_retry_attempt_error = AsyncMock(
         return_value=RetryAttemptFinalization(
@@ -1095,6 +1109,7 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
         target_adapter="target_a",
         attempt_number=1,
         status="in_progress",
+        worker_id="retry-worker-test",
     )
     storage = MagicMock()
     storage.get = AsyncMock(return_value=object())
@@ -1104,6 +1119,8 @@ async def test_retry_worker_reports_retry_finalization_persistence_failure(
         side_effect=ConnectionError("transport down")
     )
     lifecycle = MagicMock()
+    lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
+    lifecycle.renew_retry_lease = AsyncMock(return_value=True)
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
     lifecycle.finalize_retry_attempt_error = AsyncMock(
         side_effect=RuntimeError("injected outbox write failure")
@@ -1160,6 +1177,7 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
         target_adapter="target_a",
         attempt_number=1,
         status="in_progress",
+        worker_id="retry-worker-test",
     )
     sent = DeliveryReceipt(
         receipt_id="rcpt-success-2",
@@ -1177,6 +1195,8 @@ async def test_retry_worker_reports_success_transition_persistence_failure(
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(return_value=sent)
     lifecycle = MagicMock()
+    lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
+    lifecycle.renew_retry_lease = AsyncMock(return_value=True)
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
     lifecycle.finalize_retry_success = AsyncMock(
         side_effect=RuntimeError("injected sent transition failure")

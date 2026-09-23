@@ -81,6 +81,9 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
         target_channel=channel,
         attempt_number=2,
         status="in_progress",
+        # The dispatch gate reserves the attempt identity only on rows the
+        # worker owns; seed the row as an owned claim like a real cycle.
+        worker_id="retry-worker-cycle",
         metadata={
             "destination_kind": "matrix_room",
             "destination_hash": "deadbeef",
@@ -128,7 +131,8 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
             captured["route"] = route
             captured["plan"] = plan
             captured["kwargs"] = kwargs
-            # Return a fake "sent" receipt so the worker succeeds
+            # Return a fake "sent" receipt for the reserved attempt so the
+            # worker succeeds and the finalization fence accepts the commit.
             return DeliveryReceipt(
                 sequence=2,
                 receipt_id=f"recon-rcpt-{uuid.uuid4().hex[:8]}",
@@ -138,7 +142,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
                 target_channel=channel,
                 route_id=route_id,
                 status="sent",
-                attempt_number=2,
+                attempt_number=int(kwargs["reserved_attempt_number"]),  # type: ignore[arg-type]
                 parent_receipt_id=receipt.receipt_id,
                 source="retry",
                 created_at=datetime.now(timezone.utc),
@@ -214,6 +218,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
         assert prev_rcpt is not None
         assert prev_rcpt.receipt_id == receipt.receipt_id
         assert captured["kwargs"]["source"] == "retry"
+        assert captured["kwargs"]["reserved_attempt_number"] == 3
 
         # Worker state reflects success
         assert worker.state.succeeded == 1

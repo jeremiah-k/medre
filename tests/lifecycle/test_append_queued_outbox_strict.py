@@ -295,7 +295,7 @@ class TestExactOutboxSelection:
 
         # Second outbox + receipt, same plan/channel, different outbox_id
         # (attempt 2 — retry).  Uses different attempt_number to satisfy
-        # the outbox UNIQUE(plan_id, adapter, channel, attempt) constraint.
+        # the event-scoped outbox UNIQUE(event, plan_id, adapter, channel, attempt) constraint.
         await _setup_outbox_and_receipt(
             outbox_temp_storage,
             outbox_id="obox-second",
