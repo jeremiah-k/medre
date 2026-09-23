@@ -114,6 +114,7 @@ class TestRetryShutdown:
                 datetime.now(timezone.utc) - timedelta(seconds=1)
             ).isoformat(),
             receipt_id="rcpt-fail-001",
+            worker_id="retry-worker-cycle",
             metadata={
                 "capability_level": None,
                 "delivery_strategy": "direct",
@@ -127,6 +128,7 @@ class TestRetryShutdown:
         storage.delivery_status = AsyncMock(return_value=None)
         storage.list_receipts_for_plan = AsyncMock(return_value=[])
         storage.count_outbox_by_status = AsyncMock(return_value={})
+        storage.reserve_outbox_attempt = AsyncMock(return_value=2)
         storage.mark_outbox_sent = AsyncMock(return_value=None)
         storage.mark_outbox_queued = AsyncMock(return_value=None)
 

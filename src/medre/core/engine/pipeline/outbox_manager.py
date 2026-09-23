@@ -469,13 +469,21 @@ class OutboxManager:
                         record.outcome,
                     )
                     return
-                if record.attempt_number != existing_item.attempt_number:
+                if record.attempt_number != (
+                    existing_item.active_attempt
+                    if existing_item.active_attempt is not None
+                    else existing_item.attempt_number
+                ):
                     self._log.warning(
                         "Terminal outcome rejected: outbox_id=%s has "
-                        "attempt_number=%d but record has %d; "
+                        "effective attempt_number=%d but record has %d; "
                         "adapter=%s outcome=%s",
                         record.outbox_id,
-                        existing_item.attempt_number,
+                        (
+                            existing_item.active_attempt
+                            if existing_item.active_attempt is not None
+                            else existing_item.attempt_number
+                        ),
                         record.attempt_number,
                         record.adapter,
                         record.outcome,
@@ -511,8 +519,14 @@ class OutboxManager:
 
             # The validated outbox row is authoritative for the attempt
             # number; validation above guarantees the row exists and that
-            # the record's attempt_number matches it.
-            _attempt_number: int = existing_item.attempt_number
+            # the record's attempt_number matches its effective attempt
+            # (a reserved in-flight attempt during handoff, otherwise the
+            # stored number).
+            _attempt_number: int = (
+                existing_item.active_attempt
+                if existing_item.active_attempt is not None
+                else existing_item.attempt_number
+            )
 
             # Recover queued-receipt lineage: look up the queued receipt
             # for the same (outbox_id, attempt_number) to inherit its

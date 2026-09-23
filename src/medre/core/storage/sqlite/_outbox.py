@@ -8,6 +8,8 @@ Authority surface:
   - list_all_outbox_items:      **list/get** (read-only).
   - list_outbox_items_for_event: **list/get** (read-only).
   - claim_due_outbox_items:     **claim** (atomic).
+  - reserve_outbox_attempt:     **claim** (atomic attempt-identity reservation).
+  - clear_outbox_attempt_reservation: **update** (reservation release only).
   - mark_outbox_sent:           **mark** (terminal transition, in_progress|queued -> sent).
   - mark_outbox_queued:         **mark** (non-terminal, in_progress -> queued).
   - mark_outbox_retry_wait:     **mark** (non-terminal, in_progress -> retry_wait).
@@ -121,11 +123,12 @@ class _OutboxMixin:
             "INSERT INTO delivery_outbox"
             " (outbox_id, event_id, route_id, delivery_plan_id,"
             "  target_adapter, target_channel, target_address,"
-            "  attempt_number, status, failure_kind, failure_kind_detail,"
-            "  next_attempt_at, created_at, updated_at, last_attempt_at,"
-            "  locked_at, lease_until, worker_id, payload_hash,"
-            "  receipt_id, parent_receipt_id, error_summary, metadata)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "  attempt_number, active_attempt, status, failure_kind,"
+            "  failure_kind_detail, next_attempt_at, created_at, updated_at,"
+            "  last_attempt_at, locked_at, lease_until, worker_id,"
+            "  payload_hash, receipt_id, parent_receipt_id, error_summary,"
+            "  metadata)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         insert_params = (
             item.outbox_id,
@@ -136,6 +139,7 @@ class _OutboxMixin:
             item.target_channel or None,
             item.target_address,
             item.attempt_number,
+            item.active_attempt,
             effective_status,
             item.failure_kind,
             item.failure_kind_detail,
@@ -212,13 +216,18 @@ class _OutboxMixin:
                     if existing["status"] in reclaimable:
                         # Re-claim: update status, worker, and lease.
                         # Clear next_attempt_at since the item is no
-                        # longer waiting for a scheduled retry.
+                        # longer waiting for a scheduled retry.  A
+                        # reservation on a claimable row is stale by
+                        # invariant (finalization clears it before the
+                        # retry_wait transition); clear it so the next
+                        # dispatch can reserve cleanly.
                         db.execute(
                             """UPDATE delivery_outbox
                                SET status = ?, worker_id = ?,
                                    locked_at = ?, lease_until = ?,
                                    updated_at = ?,
-                                   next_attempt_at = NULL
+                                   next_attempt_at = NULL,
+                                   active_attempt = NULL
                                WHERE outbox_id = ?""",
                             (
                                 reclaim_status,
@@ -450,6 +459,69 @@ class _OutboxMixin:
         )
         return [_row_to_outbox_item(r) for r in final_rows]
 
+    async def reserve_outbox_attempt(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        from_attempt: int,
+    ) -> int | None:
+        """Durably reserve the next attempt on a row this worker claimed.
+
+        Authority: **claim** (atomic attempt-identity reservation).  The
+        conditional ``UPDATE`` commits ``active_attempt = from_attempt + 1``
+        only when the row is ``in_progress``, owned by *worker_id*, carries
+        no reservation yet, and still stores ``attempt_number ==
+        from_attempt``.  Any concurrent reclaim, lease theft, or competing
+        reservation makes the guard fail and nothing is written.
+
+        Returns the reserved attempt number, or ``None`` when the guard
+        failed — the caller must not invoke the transport in that case.
+        """
+        now = _now_iso()
+        rowcount = await self._write_rowcount(
+            """UPDATE delivery_outbox
+               SET active_attempt = attempt_number + 1,
+                   last_attempt_at = ?,
+                   updated_at = ?
+               WHERE outbox_id = ?
+                 AND worker_id = ?
+                 AND status = 'in_progress'
+                 AND active_attempt IS NULL
+                 AND attempt_number = ?""",
+            (now, now, outbox_id, worker_id, from_attempt),
+        )
+        if rowcount == 1:
+            return from_attempt + 1
+        return None
+
+    async def clear_outbox_attempt_reservation(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        active_attempt: int,
+    ) -> bool:
+        """Clear a stale attempt reservation on a row this worker claimed.
+
+        Authority: **update** (reservation release only, no status
+        change).  Claim reconciliation uses this when a prior worker
+        reserved an attempt but persisted no evidence for it: releasing
+        the number lets the re-dispatch reserve the same identity again.
+        The guard requires the exact reserved number so a concurrent
+        finalization (which clears the reservation as part of committing
+        its transition) makes this a no-op.
+        """
+        rowcount = await self._write_rowcount(
+            """UPDATE delivery_outbox
+               SET active_attempt = NULL,
+                   updated_at = ?
+               WHERE outbox_id = ?
+                 AND worker_id = ?
+                 AND status = 'in_progress'
+                 AND active_attempt = ?""",
+            (_now_iso(), outbox_id, worker_id, active_attempt),
+        )
+        return rowcount == 1
+
     async def _update_outbox_status(
         self,
         outbox_id: str,
@@ -487,8 +559,12 @@ class _OutboxMixin:
             sets.append("receipt_id = ?")
             params.append(receipt_id)
         if attempt_number is not None:
+            # Committing an outcome at an explicit attempt number is the
+            # finalization of a reserved (or directly stamped) attempt:
+            # the reservation is consumed by the same transition.
             sets.append("attempt_number = ?")
             params.append(attempt_number)
+            sets.append("active_attempt = NULL")
         if failure_kind is not None:
             sets.append("failure_kind = ?")
             params.append(failure_kind)

@@ -236,6 +236,27 @@ every transition method.
 > §2.3 is a human-readable rendering that must be kept in sync when
 > transitions are added or changed.
 
+#### Attempt Identity Reservation
+
+Alongside the status machine, each outbox row carries an attempt-identity
+sub-state (`active_attempt`): `null` when the stored `attempt_number` is the
+live identity, or the reserved number of an in-flight dispatch. Reservation
+and consumption are storage-guarded updates, not status transitions:
+
+- `reserve_outbox_attempt()` sets `active_attempt = attempt_number + 1` on an
+  `in_progress` row owned by the reserving worker with no existing
+  reservation. This happens at dispatch begin, after the reconciliation,
+  adapter-availability, and capacity gates.
+- `clear_outbox_attempt_reservation()` releases a reservation that has no
+  persisted evidence (crash between reservation and transport evidence);
+  the same number is re-reserved by the recovering dispatch.
+- Every finalization that passes an explicit attempt number consumes the
+  reservation atomically: `attempt_number` advances to the reserved value
+  and `active_attempt` clears within the guarded transition.
+
+Callbacks correlate against `COALESCE(active_attempt, attempt_number)`; see
+[delivery-lifecycle.md](delivery-lifecycle.md) §3.4.1.
+
 #### Stale Queued Reclaim
 
 The `queued` → `in_progress` transition is a **reclaim** path, not a direct

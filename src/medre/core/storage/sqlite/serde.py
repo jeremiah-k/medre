@@ -197,6 +197,7 @@ def _row_to_outbox_item(row: dict[str, Any]) -> DeliveryOutboxItem:
         target_channel=row.get("target_channel"),
         target_address=row.get("target_address"),
         attempt_number=row.get("attempt_number", 1),
+        active_attempt=row.get("active_attempt"),
         status=row.get("status", "pending"),
         failure_kind=row.get("failure_kind"),
         failure_kind_detail=row.get("failure_kind_detail"),

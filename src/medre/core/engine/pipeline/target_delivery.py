@@ -319,6 +319,7 @@ class TargetDeliveryService:
         source: str = "live",
         replay_run_id: str | None = None,
         outbox_id: str | None = None,
+        reserved_attempt_number: int | None = None,
     ) -> DeliveryReceipt:
         """Deliver one target inside a structured correlation scope."""
         receipt_id = f"rcpt-{uuid.uuid4()}"
@@ -344,6 +345,7 @@ class TargetDeliveryService:
                 source=source,
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
+                reserved_attempt_number=reserved_attempt_number,
                 _receipt_id=receipt_id,
             )
 
@@ -358,6 +360,7 @@ class TargetDeliveryService:
         source: str = "live",
         replay_run_id: str | None = None,
         outbox_id: str | None = None,
+        reserved_attempt_number: int | None = None,
         _receipt_id: str | None = None,
     ) -> DeliveryReceipt:
         """Deliver *event* to a single target adapter and record the receipt.
@@ -403,6 +406,17 @@ class TargetDeliveryService:
             queue-based adapters can propagate it through their queue for
             exact callback correlation.  ``None`` when no outbox item was
             created.
+        reserved_attempt_number:
+            The durably reserved attempt identity for this dispatch, from
+            the outbox reservation committed at dispatch-begin.  When
+            provided it overrides the receipt-lineage attempt number for
+            everything stamped onto this dispatch (the rendered result and
+            every receipt it produces) so adapter callbacks echo the exact
+            identity the outbox will admit.  Receipt lineage
+            (``parent_receipt_id``) is still derived from
+            *previous_receipt*.  ``None`` for live/replay first dispatches,
+            where the outbox row's creation attempt is already the live
+            identity.
 
         Returns
         -------
@@ -413,10 +427,15 @@ class TargetDeliveryService:
         adapter_id = target.adapter
         receipt_id = _receipt_id or f"rcpt-{uuid.uuid4()}"
 
-        # Compute attempt number and parent receipt for lineage.
+        # Compute attempt number and parent receipt for lineage.  A reserved
+        # attempt identity is authoritative over the lineage computation:
+        # the outbox reservation is what callback validators compare
+        # against, so the dispatch must carry exactly that number.
         attempt_number, parent_receipt_id = self._lifecycle.compute_attempt_context(
             previous_receipt
         )
+        if reserved_attempt_number is not None:
+            attempt_number = reserved_attempt_number
 
         adapter = self._adapters.get(adapter_id) if adapter_id else None
 

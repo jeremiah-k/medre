@@ -528,7 +528,17 @@ class DeliveryOutboxItem:
         identifier rather than a full address — the full address is reconstructed
         from the route + plan context when needed.
     attempt_number:
-        1-indexed attempt counter.
+        1-indexed attempt counter.  While ``active_attempt`` is set this is
+        the last *finalized* attempt; the in-flight attempt is
+        ``active_attempt``.
+    active_attempt:
+        The durably reserved in-flight attempt for this row, or ``None``.
+        Retry dispatch reserves ``attempt_number + 1`` before invoking the
+        transport; adapter callbacks carrying this number are admissible
+        for the whole handoff, while callbacks for earlier attempts are
+        stale.  Finalization commits the outcome at this number
+        (advancing ``attempt_number`` and clearing the reservation) in one
+        guarded storage transition.
     status:
         Current outbox status.
     failure_kind:
@@ -571,6 +581,7 @@ class DeliveryOutboxItem:
     target_channel: str | None = None
     target_address: str | None = None
     attempt_number: int = 1
+    active_attempt: int | None = None
     status: str = "pending"
     failure_kind: str | None = None
     failure_kind_detail: str | None = None
@@ -1462,6 +1473,41 @@ class StorageBackend(Protocol):
 
         Used for in-flight items lost at drain timeout.  No-op if already
         terminal.
+        """
+        ...
+
+    async def reserve_outbox_attempt(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        from_attempt: int,
+    ) -> int | None:
+        """Durably reserve the next delivery attempt on a claimed row.
+
+        Authority: **claim** (atomic attempt-identity reservation).  The
+        conditional ``UPDATE`` sets ``active_attempt = from_attempt + 1``
+        only when the row is ``in_progress``, owned by *worker_id*, has no
+        existing reservation, and still stores ``attempt_number ==
+        from_attempt``.  Returns the reserved attempt number, or ``None``
+        when the guard failed (lost claim, lease theft, or a competing
+        reservation) — the caller must not invoke the transport.
+        """
+        ...
+
+    async def clear_outbox_attempt_reservation(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        active_attempt: int,
+    ) -> bool:
+        """Clear a stale attempt reservation on a claimed row.
+
+        Authority: **update** (reservation release only, no status
+        change).  Succeeds only when the row is ``in_progress``, owned by
+        *worker_id*, and its reservation is exactly *active_attempt*.
+        Used by claim reconciliation when a prior worker reserved an
+        attempt but persisted no evidence for it, so the same number can
+        be re-reserved by the re-dispatch.
         """
         ...
 

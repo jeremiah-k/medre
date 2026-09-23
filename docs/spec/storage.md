@@ -822,6 +822,7 @@ CREATE TABLE delivery_outbox (
     target_channel   TEXT,
     target_address   TEXT,
     attempt_number   INTEGER NOT NULL DEFAULT 1,
+    active_attempt   INTEGER,
     status          TEXT NOT NULL DEFAULT 'pending',
     failure_kind    TEXT,
     failure_kind_detail TEXT,
@@ -840,6 +841,14 @@ CREATE TABLE delivery_outbox (
     UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
 );
 ```
+
+`attempt_number` is the last finalized attempt for the row. `active_attempt`
+is the durably reserved in-flight attempt: the retry worker sets it to
+`attempt_number + 1` immediately before invoking the transport (a guarded
+update tied to the claiming worker), and every callback validator compares
+against `COALESCE(active_attempt, attempt_number)`. Finalization advances
+`attempt_number` to the reserved value and clears the reservation in the same
+guarded transition.
 
 **Statuses:**
 

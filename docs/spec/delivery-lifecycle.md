@@ -175,11 +175,52 @@ outbox row is no longer finalizable, or any insert fails, none of those writes
 may commit. The unavoidable external-send-to-database boundary remains an
 ambiguity boundary; MEDRE does not claim exactly-once transport delivery.
 
+### 3.4.1 Attempt Identity Reservation
+
+Attempt identity for callbacks is durably reserved when dispatch begins, not
+when the retry worker claims the row. The outbox row carries a nullable
+`active_attempt` column: when set, it is the in-flight attempt; when null,
+the row's `attempt_number` is the live identity and also the last finalized
+attempt.
+
+- The retry worker reserves `attempt_number + 1` via a guarded storage
+  update immediately before invoking the transport, after claim
+  reconciliation and after the adapter-availability and capacity gates. A
+  deferral before dispatch (unavailable adapter, capacity rejection)
+  therefore consumes no attempt and leaves no reservation.
+- The reservation is guarded on the claiming worker owning the `in_progress`
+  row with no existing reservation. A worker that lost its claim (lease
+  theft or reclaim) cannot reserve and MUST NOT invoke the transport.
+- From the reservation commit onward, every callback validator — queued
+  delivery finalization, queue terminal reporting, and post-handoff
+  observations — admits the reserved attempt number and rejects earlier
+  attempts.
+- Finalization consumes the reservation atomically with its outcome
+  transition: `attempt_number` advances to the reserved attempt and
+  `active_attempt` clears in the same guarded statement.
+- A dispatch stamps the reserved number onto the rendered result and every
+  receipt it produces, so adapter callbacks echo exactly the identity the
+  outbox will admit. Receipt lineage (`parent_receipt_id`) is independent
+  and still derives from the previous receipt.
+
+Claim reconciliation uses the reservation as the discriminator for crash
+recovery: a claimed row with a live reservation and persisted receipt
+evidence for that attempt commits the missing outbox transition (the
+transport is not invoked again); a reservation without evidence means the
+dispatch never produced durable state, so the reservation is released and
+the re-dispatch reserves the same number again.
+
 ### 3.5 Stale Callback Protection
 
 A stale callback is a delayed adapter callback that arrives after the outbox
 item it refers to has been reclaimed by a retry or reached a terminal state.
 Stale callbacks MUST NOT finalize a different delivery attempt.
+
+Attempt correlation in every callback path compares against the outbox row's
+effective attempt — `active_attempt` while a dispatch reservation is live,
+otherwise the stored `attempt_number` — so a superseded attempt becomes
+stale the moment the next dispatch reserves its identity, and the reserved
+attempt stays admissible for the whole handoff.
 
 When `finalize_queued_delivery` receives a callback with an `outbox_id`
 whose outbox item has a status other than `queued` or `in_progress`, the

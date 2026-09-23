@@ -192,6 +192,41 @@ class _FakeStorage:
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
         return self._outbox.get(outbox_id)
 
+    async def reserve_outbox_attempt(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        from_attempt: int,
+    ) -> int | None:
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status != "in_progress"
+            or item.worker_id != worker_id
+            or item.active_attempt is not None
+            or item.attempt_number != from_attempt
+        ):
+            return None
+        object.__setattr__(item, "active_attempt", from_attempt + 1)
+        return from_attempt + 1
+
+    async def clear_outbox_attempt_reservation(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        active_attempt: int,
+    ) -> bool:
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status != "in_progress"
+            or item.worker_id != worker_id
+            or item.active_attempt != active_attempt
+        ):
+            return False
+        object.__setattr__(item, "active_attempt", None)
+        return True
+
     async def mark_outbox_queued(
         self,
         outbox_id: str,
@@ -201,6 +236,9 @@ class _FakeStorage:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "queued")
+            if attempt_number is not None:
+                object.__setattr__(item, "attempt_number", attempt_number)
+                object.__setattr__(item, "active_attempt", None)
 
     async def mark_outbox_sent(
         self,
@@ -211,6 +249,9 @@ class _FakeStorage:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "sent")
+            if attempt_number is not None:
+                object.__setattr__(item, "attempt_number", attempt_number)
+                object.__setattr__(item, "active_attempt", None)
 
     async def mark_outbox_retry_wait(
         self,
@@ -225,6 +266,9 @@ class _FakeStorage:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "retry_wait")
+            if attempt_number is not None:
+                object.__setattr__(item, "attempt_number", attempt_number)
+                object.__setattr__(item, "active_attempt", None)
 
     async def mark_outbox_dead_lettered(
         self,
@@ -238,6 +282,9 @@ class _FakeStorage:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "dead_lettered")
+            if attempt_number is not None:
+                object.__setattr__(item, "attempt_number", attempt_number)
+                object.__setattr__(item, "active_attempt", None)
 
     async def mark_outbox_cancelled(
         self,
@@ -268,10 +315,16 @@ class _FakeStorage:
         """In-memory mirror of the atomic storage contract: guarded outbox
         transition plus native ref plus sent receipt, or nothing."""
         item = self._outbox.get(outbox_id)
+        if item is None:
+            return False
+        effective_attempt = (
+            item.active_attempt
+            if item.active_attempt is not None
+            else item.attempt_number
+        )
         if (
-            item is None
-            or item.status not in ("queued", "in_progress")
-            or item.attempt_number != attempt_number
+            item.status not in ("queued", "in_progress")
+            or effective_attempt != attempt_number
             or item.event_id != native_ref.event_id
             or receipt.event_id != item.event_id
             or receipt.outbox_id != outbox_id
@@ -297,6 +350,8 @@ class _FakeStorage:
         await self.append_receipt(receipt)
         object.__setattr__(item, "status", "sent")
         object.__setattr__(item, "receipt_id", receipt.receipt_id)
+        object.__setattr__(item, "attempt_number", attempt_number)
+        object.__setattr__(item, "active_attempt", None)
         return True
 
 

@@ -1088,14 +1088,18 @@ provider state and **MUST NOT** be upgraded merely because a provider calls a
 state `delivered`. Duplicate callbacks with the same deterministic observation
 identity are idempotent.
 
-Attempt correlation reads the outbox row's stored `attempt_number`, which
-advances when a retry attempt finalizes rather than when the retry worker
-claims the row. In the bounded window between a retry claim and its
-finalization the row still records the prior attempt's number: a callback
-carrying that prior number is admitted, while a callback carrying the live
-next-attempt number is rejected and lost if it arrives before finalization.
-The adapter does not replay terminal callbacks. Advancing the attempt
-identity at claim time requires a coordinated retry-engine change.
+Attempt correlation reads the outbox row's effective attempt: the durable
+`active_attempt` reservation while one is in flight, otherwise the row's
+stored `attempt_number`. The retry worker reserves the next attempt identity
+in storage immediately before invoking the transport — after the
+reconciliation, adapter-availability, and capacity gates, so a deferred row
+consumes no attempt. From that reservation commit onward, a callback carrying
+the reserved number is live for the entire handoff (including before the
+outbox transition commits), while a callback carrying any earlier attempt
+number is stale and rejected. Finalization consumes the reservation and
+advances the stored `attempt_number` atomically with the outcome transition,
+so after completion old-attempt callbacks stay rejected and the completed
+attempt's later evidence stays admissible while the row is `sent`.
 
 LXMF is the first built-in producer. Its immediate receipt remains
 `sent/local_queue`; callback-emitted terminal LXMF states are persisted as

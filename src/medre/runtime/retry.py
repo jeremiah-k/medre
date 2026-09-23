@@ -1087,6 +1087,38 @@ class RetryWorker:
             capacity_acquired = True
 
         try:
+            # Dispatch-begin boundary: durably reserve the next attempt
+            # identity before invoking the transport.  From this commit
+            # onward, callbacks carrying the reserved number are live for
+            # the whole handoff and callbacks for earlier attempts are
+            # stale.  A failed reservation means the row is no longer owned
+            # by this worker — never invoke the transport on a lost claim.
+            try:
+                reserved_attempt = await self._lifecycle.reserve_retry_attempt(
+                    self._lifecycle_storage,
+                    item,
+                )
+            except Exception as lifecycle_exc:
+                _logger.exception(
+                    "RetryWorker: failed to reserve attempt for outbox %s",
+                    item.outbox_id,
+                )
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=item.attempt_number + 1,
+                )
+                return
+
+            if reserved_attempt is None:
+                self.state.processed += 1
+                _logger.warning(
+                    "RetryWorker: lost claim on outbox %s before dispatch; "
+                    "attempt reservation failed without consuming transport",
+                    item.outbox_id,
+                )
+                return
+
             route = retry_context.route
             plan = retry_context.plan
 
@@ -1098,7 +1130,7 @@ class RetryWorker:
                     "retry_receipt_id": None,
                     "event_id": item.event_id,
                     "target_adapter": item.target_adapter,
-                    "attempt_number": item.attempt_number,
+                    "attempt_number": reserved_attempt,
                 },
             )
 
@@ -1110,6 +1142,7 @@ class RetryWorker:
                 source="retry",
                 replay_run_id=None,
                 outbox_id=item.outbox_id,
+                reserved_attempt_number=reserved_attempt,
             )
         except asyncio.CancelledError:
             raise
@@ -1121,6 +1154,7 @@ class RetryWorker:
                     item,
                     retry_context.retry_policy,
                     error=exc,
+                    attempt_number=reserved_attempt,
                 )
             except Exception as lifecycle_exc:
                 _logger.exception(
@@ -1130,7 +1164,7 @@ class RetryWorker:
                 self._record_lifecycle_persistence_error(
                     item,
                     lifecycle_exc,
-                    attempt_number=item.attempt_number + 1,
+                    attempt_number=reserved_attempt,
                 )
             else:
                 self._record_retry_finalization(

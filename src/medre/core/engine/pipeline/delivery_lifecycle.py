@@ -154,6 +154,20 @@ class DeliveryLifecycleStorage(Protocol):
 
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None: ...
 
+    async def reserve_outbox_attempt(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        from_attempt: int,
+    ) -> int | None: ...
+
+    async def clear_outbox_attempt_reservation(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        active_attempt: int,
+    ) -> bool: ...
+
     async def mark_outbox_sent(
         self,
         outbox_id: str,
@@ -242,7 +256,23 @@ class DeliveryLifecycleService:
     def __init__(self, *, logger: logging.Logger | None = None) -> None:
         self._log: logging.Logger = logger or _logger
 
-    # -- Attempt context ----------------------------------------------------
+    # -- Attempt identity ----------------------------------------------------
+
+    @staticmethod
+    def effective_attempt(outbox: DeliveryOutboxItem) -> int:
+        """Return the attempt callbacks must carry for *outbox*.
+
+        A durably reserved in-flight attempt (``active_attempt``) is the
+        live attempt identity from the moment dispatch reserves it until
+        finalization consumes it; before reservation and after
+        finalization the row's ``attempt_number`` is the live identity.
+        Every callback validator compares against this value.
+        """
+        return (
+            outbox.active_attempt
+            if outbox.active_attempt is not None
+            else outbox.attempt_number
+        )
 
     @staticmethod
     def compute_attempt_context(
@@ -679,14 +709,13 @@ class DeliveryLifecycleService:
         callback from an attempt that has moved into retry/dead-letter/cancel
         state is stale and is rejected.
 
-        Claim-window boundary: the outbox row's stored ``attempt_number``
-        advances when a retry attempt finalizes, not when the retry worker
-        claims the row.  Between claim and finalize the row still records the
-        prior attempt's number while the next attempt is being handed off, so
-        a callback carrying the prior number is admitted. A callback carrying
-        the live next-attempt number is rejected and lost if it arrives before
-        finalization; the adapter does not replay terminal callbacks. Advancing
-        the attempt identity at claim time requires a retry-engine change.
+        Attempt identity follows the durable reservation: the retry worker
+        reserves the next attempt before invoking the transport, so a
+        callback carrying the reserved (live) attempt number is admissible
+        for the entire handoff — including before the outbox transition
+        commits — while a callback carrying any earlier attempt number is
+        stale the moment the reservation is durably recorded.  The storage
+        append revalidates the same rule atomically.
 
         Returns ``True`` when a new observation row was appended.  Duplicate
         notifications with the same deterministic observation identity return
@@ -717,12 +746,12 @@ class DeliveryLifecycleService:
         if (
             outbox.event_id != record.event_id
             or outbox.target_adapter != record.adapter
-            or outbox.attempt_number != record.attempt_number
+            or self.effective_attempt(outbox) != record.attempt_number
         ):
             self._log.warning(
                 "Rejecting stale/mismatched delivery observation: outbox_id=%s "
                 "record=(event=%s adapter=%s attempt=%s) "
-                "stored=(event=%s adapter=%s attempt=%s)",
+                "stored=(event=%s adapter=%s attempt=%s active_attempt=%s)",
                 record.outbox_id,
                 record.event_id,
                 record.adapter,
@@ -730,6 +759,7 @@ class DeliveryLifecycleService:
                 outbox.event_id,
                 outbox.target_adapter,
                 outbox.attempt_number,
+                outbox.active_attempt,
             )
             return False
         if record.delivery_plan_id is not None and (
@@ -805,9 +835,11 @@ class DeliveryLifecycleService:
           else (terminal, stale-reclaimed), the callback is rejected as
           stale and the method logs a warning and returns.
         - The outbox item's ``event_id`` must match *record.event_id*.
-        - The outbox item's ``attempt_number`` must match the queued
+        - The outbox item's effective attempt — a reserved
+          ``active_attempt`` while an attempt is being handed off,
+          otherwise its stored ``attempt_number`` — must match the queued
           receipt's ``attempt_number``.  A mismatch indicates a stale
-          callback from a prior attempt.
+          callback from a superseded attempt.
         - The queued receipt is found by exact ``outbox_id`` match among
           queued receipts after the outbox row has been validated.
           ``delivery_plan_id`` and ``native_channel_id`` are validation
@@ -960,14 +992,17 @@ class DeliveryLifecycleService:
                     record.adapter,
                 )
                 return
-            if record.attempt_number != outbox_item.attempt_number:
+            if record.attempt_number != self.effective_attempt(outbox_item):
                 self._log.warning(
                     "attempt_number mismatch: outbox_id=%s callback "
-                    "attempt=%d but outbox attempt=%d for event_id=%s; "
+                    "attempt=%d but outbox effective attempt=%d "
+                    "(stored=%d active=%s) for event_id=%s; "
                     "skipping supplemental receipt",
                     record.outbox_id,
                     record.attempt_number,
+                    self.effective_attempt(outbox_item),
                     outbox_item.attempt_number,
+                    outbox_item.active_attempt,
                     record.event_id,
                 )
                 return
@@ -1015,14 +1050,14 @@ class DeliveryLifecycleService:
             # Enforce attempt_number correlation: the outbox item and the
             # selected queued receipt must agree on the attempt number.
             # A mismatch indicates a stale callback from a prior attempt.
-            if outbox_item.attempt_number != queued_receipt.attempt_number:
+            if self.effective_attempt(outbox_item) != queued_receipt.attempt_number:
                 self._log.warning(
                     "Attempt number mismatch: outbox_id=%s has "
-                    "attempt_number=%d but queued receipt %s has "
+                    "effective attempt=%d but queued receipt %s has "
                     "attempt_number=%d for event_id=%s adapter=%s; "
                     "stale callback from a prior attempt — rejecting",
                     record.outbox_id,
-                    outbox_item.attempt_number,
+                    self.effective_attempt(outbox_item),
                     queued_receipt.receipt_id,
                     queued_receipt.attempt_number,
                     record.event_id,
@@ -1257,6 +1292,24 @@ class DeliveryLifecycleService:
             return current[-1]
         return None
 
+    @staticmethod
+    def _resolve_retry_attempt(
+        item: DeliveryOutboxItem,
+        attempt_number: int | None,
+    ) -> int:
+        """Resolve the retry attempt a finalization commits.
+
+        *attempt_number* is authoritative when the caller reserved it
+        (the dispatch-begin reservation).  Otherwise a reservation still
+        durable on the row is the live attempt, and only an unreserved row
+        falls back to the lineage rule ``stored attempt + 1``.
+        """
+        if attempt_number is not None:
+            return attempt_number
+        if item.active_attempt is not None:
+            return item.active_attempt
+        return item.attempt_number + 1
+
     async def _finalize_retry_evidence(
         self,
         storage: DeliveryLifecycleStorage,
@@ -1266,10 +1319,11 @@ class DeliveryLifecycleService:
         evidence: DeliveryReceipt | None,
         unpersisted_failure_kind: DeliveryFailureKind | None,
         unpersisted_error_summary: str | None,
+        attempt_number: int | None = None,
         now: datetime | None = None,
     ) -> RetryAttemptFinalization:
         """Commit the outbox state implied by one retry attempt's evidence."""
-        attempt_number = item.attempt_number + 1
+        attempt_number = self._resolve_retry_attempt(item, attempt_number)
 
         if evidence is not None and evidence.status in {"queued", "sent", "suppressed"}:
             accepted = await self.finalize_retry_success(storage, item, evidence)
@@ -1365,6 +1419,33 @@ class DeliveryLifecycleService:
             next_retry_at=next_attempt_at,
         )
 
+    async def reserve_retry_attempt(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+    ) -> int | None:
+        """Durably reserve the next attempt on a row this worker claimed.
+
+        This is the dispatch-begin boundary for attempt identity.  Once the
+        reservation commits, callbacks carrying the reserved number are
+        live for the entire handoff — including before the outbox
+        transition commits — while callbacks carrying any earlier attempt
+        number are stale.  The reservation is consumed atomically by the
+        finalization that commits the attempt's outcome.
+
+        Returns the reserved attempt number, or ``None`` when the row is
+        no longer owned by this worker (lost claim, lease theft, or a
+        competing reservation); the caller MUST NOT invoke the transport
+        in that case.
+        """
+        if item.worker_id is None:
+            return None
+        return await storage.reserve_outbox_attempt(
+            item.outbox_id,
+            item.worker_id,
+            item.attempt_number,
+        )
+
     async def reconcile_retry_claim(
         self,
         storage: DeliveryLifecycleStorage,
@@ -1373,22 +1454,64 @@ class DeliveryLifecycleService:
         *,
         now: datetime | None = None,
     ) -> RetryAttemptFinalization | None:
-        """Repair a claimed outbox row from already-persisted next-attempt evidence.
+        """Repair a claimed outbox row from already-persisted attempt evidence.
 
         This preflight closes the partial-persistence window where target
         delivery appended receipt evidence but the corresponding outbox
-        transition failed.  If evidence for ``item.attempt_number + 1``
-        already exists, the lifecycle authority commits the missing outbox
-        transition and the caller MUST NOT invoke the transport again.
+        transition failed.  Two cases exist:
 
-        ``None`` means no uncommitted next-attempt evidence exists and normal
+        * The claimed row carries a durable attempt reservation
+          (``active_attempt``): evidence for exactly that attempt means a
+          prior worker dispatched it and crashed before finalization —
+          commit the missing transition and return it; the caller MUST NOT
+          invoke the transport again.  A reservation without evidence means
+          the dispatch never produced durable state — release the number so
+          the re-dispatch reserves the same identity again, and return
+          ``None``.
+        * No reservation: check for next-attempt evidence at
+          ``item.attempt_number + 1`` defensively (a superseded engine
+          generation may have persisted evidence without the reservation
+          discipline) and commit it the same way.
+
+        ``None`` means no uncommitted attempt evidence exists and normal
         retry delivery may proceed.
         """
-        attempt_number = item.attempt_number + 1
         receipts = await storage.list_receipts_for_plan(
             item.delivery_plan_id,
             item.target_adapter,
         )
+        if item.active_attempt is not None:
+            evidence = self._retry_attempt_evidence(receipts, item, item.active_attempt)
+            if evidence is not None:
+                return await self._finalize_retry_evidence(
+                    storage,
+                    item,
+                    retry_policy,
+                    evidence=evidence,
+                    unpersisted_failure_kind=None,
+                    unpersisted_error_summary=None,
+                    attempt_number=item.active_attempt,
+                    now=now,
+                )
+            cleared = await storage.clear_outbox_attempt_reservation(
+                item.outbox_id,
+                item.worker_id or "",
+                item.active_attempt,
+            )
+            if not cleared:
+                # A competing transition consumed the reservation between
+                # the claim and this preflight.  The dispatch gate's own
+                # reservation CAS remains the authority: proceeding is safe
+                # because a lost row cannot be re-reserved by this worker.
+                self._log.warning(
+                    "Failed to release stale attempt reservation %d for "
+                    "outbox %s; a competing transition likely consumed it",
+                    item.active_attempt,
+                    item.outbox_id,
+                )
+            return None
+
+        attempt_number = item.attempt_number + 1
         evidence = self._retry_attempt_evidence(receipts, item, attempt_number)
         if evidence is None:
             return None
@@ -1400,6 +1523,7 @@ class DeliveryLifecycleService:
             evidence=evidence,
             unpersisted_failure_kind=None,
             unpersisted_error_summary=None,
+            attempt_number=attempt_number,
             now=now,
         )
 
@@ -1410,6 +1534,7 @@ class DeliveryLifecycleService:
         retry_policy: RetryPolicy,
         *,
         error: Exception,
+        attempt_number: int | None = None,
         now: datetime | None = None,
     ) -> RetryAttemptFinalization:
         """Reconcile durable evidence after a retry delivery raises.
@@ -1421,18 +1546,22 @@ class DeliveryLifecycleService:
         terminates non-retryable failures immediately, and otherwise commits
         the retry-wait transition.
 
+        *attempt_number* is the reserved attempt the dispatch ran under;
+        when omitted the row's durable reservation (or the lineage rule)
+        resolves it.
+
         Storage errors are intentionally not swallowed.  If evidence lookup
         or the selected outbox transition cannot be persisted, the worker must
         not report a lifecycle state that storage did not commit; the claimed
         row remains recoverable through its lease-expiry path, and claim
         reconciliation will repair persisted attempt evidence before resend.
         """
-        attempt_number = item.attempt_number + 1
+        resolved_attempt = self._resolve_retry_attempt(item, attempt_number)
         receipts = await storage.list_receipts_for_plan(
             item.delivery_plan_id,
             item.target_adapter,
         )
-        evidence = self._retry_attempt_evidence(receipts, item, attempt_number)
+        evidence = self._retry_attempt_evidence(receipts, item, resolved_attempt)
         failure_kind = self._classify_retry_exception(error)
         error_summary = f"{type(error).__name__}: {error}"
         return await self._finalize_retry_evidence(
@@ -1442,6 +1571,7 @@ class DeliveryLifecycleService:
             evidence=evidence,
             unpersisted_failure_kind=failure_kind,
             unpersisted_error_summary=error_summary,
+            attempt_number=resolved_attempt,
             now=now,
         )
 

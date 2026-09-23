@@ -61,6 +61,13 @@ from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 # ---------------------------------------------------------------------------
 
 
+def _effective_attempt(item: DeliveryOutboxItem) -> int:
+    """Mirror the storage-layer effective-attempt rule for the fake."""
+    return (
+        item.active_attempt if item.active_attempt is not None else item.attempt_number
+    )
+
+
 class _MemoryStorage:
     """Minimal in-memory storage for delivery lifecycle conformance tests."""
 
@@ -116,7 +123,7 @@ class _MemoryStorage:
         if (
             item is None
             or item.status not in {"queued", "in_progress"}
-            or item.attempt_number != attempt_number
+            or _effective_attempt(item) != attempt_number
         ):
             return False
 
@@ -148,6 +155,8 @@ class _MemoryStorage:
         self._receipts.append(receipt)
         object.__setattr__(item, "status", "sent")
         object.__setattr__(item, "receipt_id", receipt.receipt_id)
+        object.__setattr__(item, "attempt_number", attempt_number)
+        object.__setattr__(item, "active_attempt", None)
         return True
 
     # -- Outbox stubs for queued→sent correlation tests --
@@ -159,6 +168,41 @@ class _MemoryStorage:
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None:
         return self._outbox.get(outbox_id)
 
+    async def reserve_outbox_attempt(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        from_attempt: int,
+    ) -> int | None:
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status != "in_progress"
+            or item.worker_id != worker_id
+            or item.active_attempt is not None
+            or item.attempt_number != from_attempt
+        ):
+            return None
+        object.__setattr__(item, "active_attempt", from_attempt + 1)
+        return from_attempt + 1
+
+    async def clear_outbox_attempt_reservation(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        active_attempt: int,
+    ) -> bool:
+        item = self._outbox.get(outbox_id)
+        if (
+            item is None
+            or item.status != "in_progress"
+            or item.worker_id != worker_id
+            or item.active_attempt != active_attempt
+        ):
+            return False
+        object.__setattr__(item, "active_attempt", None)
+        return True
+
     async def mark_outbox_queued(
         self,
         outbox_id: str,
@@ -167,9 +211,12 @@ class _MemoryStorage:
     ) -> None:
         item = self._outbox.get(outbox_id)
         if item is not None and (
-            attempt_number is None or item.attempt_number == attempt_number
+            attempt_number is None or _effective_attempt(item) == attempt_number
         ):
             object.__setattr__(item, "status", "queued")
+            if attempt_number is not None:
+                object.__setattr__(item, "attempt_number", attempt_number)
+                object.__setattr__(item, "active_attempt", None)
 
     async def mark_outbox_sent(
         self,
@@ -179,9 +226,12 @@ class _MemoryStorage:
     ) -> None:
         item = self._outbox.get(outbox_id)
         if item is not None and (
-            attempt_number is None or item.attempt_number == attempt_number
+            attempt_number is None or _effective_attempt(item) == attempt_number
         ):
             object.__setattr__(item, "status", "sent")
+            if attempt_number is not None:
+                object.__setattr__(item, "attempt_number", attempt_number)
+                object.__setattr__(item, "active_attempt", None)
 
     async def mark_outbox_retry_wait(
         self,
@@ -195,9 +245,12 @@ class _MemoryStorage:
     ) -> None:
         item = self._outbox.get(outbox_id)
         if item is not None and (
-            attempt_number is None or item.attempt_number == attempt_number
+            attempt_number is None or _effective_attempt(item) == attempt_number
         ):
             object.__setattr__(item, "status", "retry_wait")
+            if attempt_number is not None:
+                object.__setattr__(item, "attempt_number", attempt_number)
+                object.__setattr__(item, "active_attempt", None)
 
     async def mark_outbox_dead_lettered(
         self,
@@ -210,9 +263,12 @@ class _MemoryStorage:
     ) -> None:
         item = self._outbox.get(outbox_id)
         if item is not None and (
-            attempt_number is None or item.attempt_number == attempt_number
+            attempt_number is None or _effective_attempt(item) == attempt_number
         ):
             object.__setattr__(item, "status", "dead_lettered")
+            if attempt_number is not None:
+                object.__setattr__(item, "attempt_number", attempt_number)
+                object.__setattr__(item, "active_attempt", None)
 
     async def mark_outbox_abandoned(
         self,

@@ -63,6 +63,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 _FINALIZE_QUEUED_OUTBOX_SENT = """
 UPDATE delivery_outbox
 SET status = 'sent',
+    attempt_number = COALESCE(active_attempt, attempt_number),
+    active_attempt = NULL,
     failure_kind = NULL,
     failure_kind_detail = NULL,
     next_attempt_at = NULL,
@@ -74,13 +76,15 @@ SET status = 'sent',
     receipt_id = ?,
     error_summary = NULL
 WHERE outbox_id = ?
-  AND attempt_number = ?
+  AND ? = COALESCE(active_attempt, attempt_number)
   AND status IN ('queued', 'in_progress')
 """
 
 _FINALIZE_OUTBOX_TERMINAL = """
 UPDATE delivery_outbox
 SET status = ?,
+    attempt_number = COALESCE(active_attempt, attempt_number),
+    active_attempt = NULL,
     failure_kind = ?,
     failure_kind_detail = NULL,
     next_attempt_at = NULL,
@@ -93,7 +97,7 @@ SET status = ?,
 WHERE outbox_id = ?
   AND event_id = ?
   AND target_adapter = ?
-  AND attempt_number = ?
+  AND ? = COALESCE(active_attempt, attempt_number)
   AND status IN ('queued', 'in_progress')
 """
 
