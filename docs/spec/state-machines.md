@@ -246,10 +246,13 @@ and consumption are storage-guarded updates, not status transitions:
 - `reserve_outbox_attempt()` sets `active_attempt = attempt_number + 1` on an
   `in_progress` row owned by the reserving worker with no existing
   reservation. This happens at dispatch begin, after the reconciliation,
-  adapter-availability, and capacity gates.
+  adapter-availability, and capacity gates. The worker then renews the
+  claim lease for as long as the dispatch runs, so a live worker's slow
+  transport does not outlive its claim; lease expiry mid-dispatch implies
+  worker death or a renewal failure.
 - `clear_outbox_attempt_reservation()` releases a reservation that has no
-  persisted evidence (crash between reservation and transport evidence);
-  the same number is re-reserved by the recovering dispatch.
+  persisted evidence (worker died between reservation and transport
+  evidence); the same number is re-reserved by the recovering dispatch.
 - Every finalization that passes an explicit attempt number consumes the
   reservation atomically: `attempt_number` advances to the reserved value
   and `active_attempt` clears within the guarded transition. The write is

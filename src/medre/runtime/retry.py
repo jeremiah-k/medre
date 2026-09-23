@@ -1120,6 +1120,8 @@ class RetryWorker:
                 return
             capacity_acquired = True
 
+        renewal_task: asyncio.Task | None = None
+
         try:
             # Dispatch-begin boundary: durably reserve the next attempt
             # identity before invoking the transport.  From this commit
@@ -1153,6 +1155,14 @@ class RetryWorker:
                     item.outbox_id,
                 )
                 return
+
+            # Keep the claim lease alive for as long as this dispatch runs.
+            # Without renewal, a transport call outliving the claim lease
+            # invites a reclaim that clears the reservation and re-dispatches
+            # under the same attempt identity while this worker is still in
+            # the transport.  Process death still expires the lease, and
+            # claim reconciliation recovers the reservation from there.
+            renewal_task = asyncio.create_task(self._renew_dispatch_lease(item))
 
             route = retry_context.route
             plan = retry_context.plan
@@ -1246,5 +1256,44 @@ class RetryWorker:
                     attempt_number=result_receipt.attempt_number,
                 )
         finally:
+            if renewal_task is not None:
+                renewal_task.cancel()
+                try:
+                    await renewal_task
+                except asyncio.CancelledError:
+                    pass
             if capacity_acquired and self._capacity is not None:
                 await self._capacity.release_delivery()
+
+    async def _renew_dispatch_lease(self, item: DeliveryOutboxItem) -> None:
+        """Extend the claimed row's lease while its reserved dispatch runs.
+
+        Renewal runs at half the poll interval and extends the lease by the
+        same duration the claim acquired (``interval * 1.5``), so a live
+        worker's dispatch never outlives its claim.  When a renewal reports
+        the claim lost, the loop stops: the attempt and worker fences on
+        finalization remain the authority for anything this worker still
+        commits after that point.
+        """
+        interval = max(0.05, self._interval * 0.5)
+        lease_seconds = int(self._interval * 1.5) or 30
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                renewed = await self._lifecycle.renew_retry_lease(
+                    self._lifecycle_storage,
+                    item,
+                    lease_seconds=lease_seconds,
+                )
+            except Exception:
+                _logger.debug(
+                    "RetryWorker: transient error renewing dispatch lease "
+                    "for outbox %s; will retry on next cycle",
+                    item.outbox_id,
+                    exc_info=True,
+                )
+                continue
+            if not renewed:
+                # Claim lost (reclaim or finalization by another path);
+                # stop renewing — the fences own what may still commit.
+                return

@@ -32,15 +32,23 @@
   persistence and outbox finalization), while a reservation without evidence
   is released so the re-dispatch reserves the same number again. The
   defensive next-attempt evidence check for unreserved rows remains.
+- The worker renews the claimed row's lease for as long as its reserved
+  dispatch runs (renewal at half the poll interval, extending the claim's
+  lease duration), so a live worker's slow transport cannot outlive its
+  claim and invite a reclaim that re-dispatches under the same attempt
+  identity. Process death, a storage outage, or a failed renewal still
+  expires the lease — that is the recovery path claim reconciliation
+  expects, and the fences below remain the authority for anything a
+  superseded worker still commits.
 - Explicit-attempt finalizations are fenced in both reservation states: a
   live reservation must match exactly, while an unreserved row rejects any
   explicit attempt older than its finalized `attempt_number`. Retry-worker
   transitions also require the current claim `worker_id`, and guarded storage
   mutations report whether they committed so a rejected stale worker cannot
   emit false durable success/retry/dead-letter evidence. This covers a worker
-  returning after lease expiry whether the newer attempt is still reserved or
-  has already finalized (the retry worker performs no lease renewal during
-  dispatch, so mid-dispatch expiry is a real path). Terminal transitions that
+  returning after lease expiry (mid-dispatch expiry remains reachable through
+  renewal failure or worker death) whether the newer attempt is still
+  reserved or has already finalized. Terminal transitions that
   pass no attempt number (abandonment, cancellation of an in-flight dispatch)
   consume a live reservation and record the reserved attempt as the row's
   final one.

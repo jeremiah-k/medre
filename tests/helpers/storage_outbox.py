@@ -116,3 +116,66 @@ async def store_native_ref_with_parent(
     """Admit the referenced event, then persist the native reference."""
     await admit_event(storage, ref.event_id)
     await storage.store_native_ref(ref)
+
+
+def apply_guarded_outbox_transition(
+    item: DeliveryOutboxItem,
+    new_status: str,
+    *,
+    allowed_from: tuple[str, ...] | None = None,
+    attempt_number: int | None = None,
+    expected_worker_id: str | None = None,
+) -> bool:
+    """In-memory mirror of ``SQLiteStorage._update_outbox_status`` guards.
+
+    Test fakes use this so their ``mark_outbox_*`` methods honour the same
+    contract as the SQLite backend: terminal rows are immutable,
+    ``allowed_from`` source statuses are enforced, ``expected_worker_id``
+    fences the transition to the current claim owner, and explicit attempt
+    commits follow the monotonic reservation fence — a live reservation
+    must match exactly, while an unreserved row may only preserve or
+    advance its finalized attempt number.  Claim metadata (``worker_id``,
+    ``locked_at``, ``lease_until``) is cleared on the transitions that
+    release the claim in SQLite.  Returns ``True`` only when the transition
+    committed.
+    """
+    from medre.core.engine.pipeline.delivery_state import (
+        TERMINAL_OUTBOX_STATUSES,
+    )
+
+    if item.status in TERMINAL_OUTBOX_STATUSES:
+        return False
+    if allowed_from is not None and item.status not in allowed_from:
+        return False
+    if expected_worker_id is not None and item.worker_id != expected_worker_id:
+        return False
+    if attempt_number is not None and not (
+        (item.active_attempt is None and item.attempt_number <= attempt_number)
+        or item.active_attempt == attempt_number
+    ):
+        return False
+
+    object.__setattr__(item, "status", new_status)
+    if attempt_number is not None:
+        object.__setattr__(item, "attempt_number", attempt_number)
+        object.__setattr__(item, "active_attempt", None)
+    elif new_status in TERMINAL_OUTBOX_STATUSES:
+        object.__setattr__(
+            item,
+            "attempt_number",
+            (
+                item.active_attempt
+                if item.active_attempt is not None
+                else item.attempt_number
+            ),
+        )
+        object.__setattr__(item, "active_attempt", None)
+    if new_status in ("queued", "sent"):
+        object.__setattr__(item, "failure_kind", None)
+        object.__setattr__(item, "failure_kind_detail", None)
+        object.__setattr__(item, "error_summary", None)
+    if new_status in TERMINAL_OUTBOX_STATUSES or new_status in ("queued", "retry_wait"):
+        object.__setattr__(item, "locked_at", None)
+        object.__setattr__(item, "lease_until", None)
+        object.__setattr__(item, "worker_id", None)
+    return True

@@ -737,7 +737,7 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     storage.delivery_status = AsyncMock(return_value=None)
     storage.list_receipts_for_plan = AsyncMock(return_value=[])
     storage.reserve_outbox_attempt = AsyncMock(return_value=2)
-    storage.mark_outbox_abandoned = AsyncMock()
+    storage.mark_outbox_abandoned = AsyncMock(return_value=True)
     pipeline = MagicMock()
     pipeline.deliver_to_target = AsyncMock(
         return_value=DeliveryReceipt(

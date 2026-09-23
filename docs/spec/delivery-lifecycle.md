@@ -191,6 +191,12 @@ attempt.
 - The reservation is guarded on the claiming worker owning the `in_progress`
   row with no existing reservation. A worker that lost its claim (lease
   theft or reclaim) cannot reserve and MUST NOT invoke the transport.
+- While the reserved dispatch runs, the worker renews the claimed row's
+  lease (at half the poll interval, extending the claim's lease duration).
+  A live worker's slow transport therefore does not outlive its claim; lease
+  expiry during a dispatch implies worker death or a renewal/storage failure,
+  and the fences below remain the authority for anything a superseded worker
+  still commits.
 - From the reservation commit onward, every callback validator — queued
   delivery finalization, queue terminal reporting, and post-handoff
   observations — admits the reserved attempt number and rejects earlier
@@ -218,8 +224,11 @@ Claim reconciliation uses the reservation as the discriminator for crash
 recovery: a claimed row with a live reservation and persisted receipt
 evidence for that attempt commits the missing outbox transition (the
 transport is not invoked again); a reservation without evidence means the
-dispatch never produced durable state, so the reservation is released and
-the re-dispatch reserves the same number again.
+dispatch never produced durable state — the worker renews its lease while it
+is alive, so an evidence-less reservation on a reclaimed row implies worker
+death or a storage outage, not a dispatch still inside the transport — so
+the reservation is released and the re-dispatch reserves the same number
+again.
 
 ### 3.5 Stale Callback Protection
 

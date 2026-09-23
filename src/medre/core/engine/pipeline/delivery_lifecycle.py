@@ -168,6 +168,13 @@ class DeliveryLifecycleStorage(Protocol):
         active_attempt: int,
     ) -> bool: ...
 
+    async def renew_outbox_lease(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        lease_until: str,
+    ) -> bool: ...
+
     async def mark_outbox_sent(
         self,
         outbox_id: str,
@@ -1507,6 +1514,31 @@ class DeliveryLifecycleService:
             item.attempt_number,
         )
 
+    async def renew_retry_lease(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        *,
+        lease_seconds: int,
+    ) -> bool:
+        """Extend the dispatch lease on a row this worker still owns.
+
+        The retry worker renews while its reserved dispatch runs so a slow
+        transport cannot outlive the claim lease; process death lets the
+        lease expire, which is the recovery path claim reconciliation
+        expects.  Returns ``False`` when the claim is no longer owned.
+        """
+        if item.worker_id is None:
+            return False
+        lease_until = (
+            datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
+        ).isoformat()
+        return await storage.renew_outbox_lease(
+            item.outbox_id,
+            item.worker_id,
+            lease_until,
+        )
+
     async def reconcile_retry_claim(
         self,
         storage: DeliveryLifecycleStorage,
@@ -1523,11 +1555,14 @@ class DeliveryLifecycleService:
 
         * The claimed row carries a durable attempt reservation
           (``active_attempt``): evidence for exactly that attempt means a
-          prior worker dispatched it and crashed before finalization —
+          prior worker dispatched it and died before finalization —
           commit the missing transition and return it; the caller MUST NOT
           invoke the transport again.  A reservation without evidence means
-          the dispatch never produced durable state — release the number so
-          the re-dispatch reserves the same identity again, and return
+          the dispatch never produced durable state — the worker renews its
+          lease while it is alive, so an evidence-less reservation on a
+          reclaimed row implies worker death (or a storage outage), not a
+          dispatch still in the transport.  Release the number so the
+          re-dispatch reserves the same identity again, and return
           ``None``.
         * No reservation: check for next-attempt evidence at
           ``item.attempt_number + 1`` defensively (a superseded engine

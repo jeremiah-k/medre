@@ -10,6 +10,7 @@ a deferral before dispatch consumes no attempt.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -896,6 +897,96 @@ async def test_worker_never_invokes_transport_on_lost_claim(
     deliver.assert_not_awaited()
     receipts = await temp_storage.list_receipts_for_event(event.event_id)
     assert len(receipts) == 1  # only the seeded attempt-1 failure
+
+
+async def test_dispatch_lease_is_renewed_while_transport_runs(temp_storage) -> None:
+    """A live worker's dispatch must not outlive its claim lease."""
+    from tests.helpers.async_utils import wait_until
+
+    event = await _seed_event(temp_storage, "evt-lease-renew")
+    item = await _seed_outbox(
+        temp_storage, outbox_id="obox-lease-renew", event_id=event.event_id
+    )
+    claimed = [
+        row for row in await _claim_due(temp_storage) if row.outbox_id == item.outbox_id
+    ][0]
+    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+
+    worker = RetryWorker(
+        storage=temp_storage,
+        pipeline=MagicMock(),
+        capacity_controller=None,
+        enabled=True,
+        interval_seconds=0.2,
+    )
+    worker._emit = MagicMock()  # type: ignore[method-assign]
+
+    initial_row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert initial_row is not None
+    initial_lease = initial_row.lease_until
+    assert initial_lease is not None
+
+    async def _lease_advanced() -> bool:
+        row = await temp_storage.get_outbox_item(item.outbox_id)
+        return row is not None and (row.lease_until or "") > initial_lease
+
+    renewal = asyncio.create_task(worker._renew_dispatch_lease(claimed))
+    try:
+        assert await wait_until(_lease_advanced, timeout=2.0)
+    finally:
+        renewal.cancel()
+        try:
+            await renewal
+        except asyncio.CancelledError:
+            pass
+
+
+async def test_worker_cancels_dispatch_lease_renewal_on_completion(
+    temp_storage, monkeypatch
+) -> None:
+    """The renewal task never outlives the dispatch it protects."""
+    event = await _seed_event(temp_storage, "evt-renew-cancel")
+    item = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-renew-cancel",
+        event_id=event.event_id,
+        status="retry_wait",
+    )
+    await _append_receipt(
+        temp_storage,
+        outbox_id=item.outbox_id,
+        event_id=event.event_id,
+        status="failed",
+        attempt_number=1,
+    )
+    claimed = [
+        row for row in await _claim_due(temp_storage) if row.outbox_id == item.outbox_id
+    ][0]
+
+    deliver = AsyncMock(side_effect=ConnectionError("transport down"))
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=5),
+        ),
+    )
+    worker = _worker_with_stub_pipeline(temp_storage, deliver)
+
+    recorded: dict[str, object] = {}
+
+    async def _recording_renew(item_arg):
+        recorded["task"] = asyncio.current_task()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(worker, "_renew_dispatch_lease", _recording_renew)
+    await worker._retry_outbox_item(claimed)
+
+    renewal_task = recorded.get("task")
+    assert isinstance(renewal_task, asyncio.Task), "dispatch must start renewal"
+    assert renewal_task.done() and renewal_task.cancelled()
 
 
 # ---------------------------------------------------------------------------

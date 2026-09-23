@@ -55,6 +55,7 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from tests.helpers.storage_outbox import apply_guarded_outbox_transition
 
 # ---------------------------------------------------------------------------
 # In-memory storage for receipt inspection
@@ -203,6 +204,18 @@ class _MemoryStorage:
         object.__setattr__(item, "active_attempt", None)
         return True
 
+    async def renew_outbox_lease(
+        self,
+        outbox_id: str,
+        worker_id: str,
+        lease_until: str,
+    ) -> bool:
+        item = self._outbox.get(outbox_id)
+        if item is None or item.status != "in_progress" or item.worker_id != worker_id:
+            return False
+        object.__setattr__(item, "lease_until", lease_until)
+        return True
+
     async def mark_outbox_queued(
         self,
         outbox_id: str,
@@ -211,20 +224,15 @@ class _MemoryStorage:
         expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is None or (
-            expected_worker_id is not None and item.worker_id != expected_worker_id
-        ):
+        if item is None:
             return False
-        if attempt_number is not None and not (
-            (item.active_attempt is None and item.attempt_number <= attempt_number)
-            or item.active_attempt == attempt_number
-        ):
-            return False
-        object.__setattr__(item, "status", "queued")
-        if attempt_number is not None:
-            object.__setattr__(item, "attempt_number", attempt_number)
-            object.__setattr__(item, "active_attempt", None)
-        return True
+        return apply_guarded_outbox_transition(
+            item,
+            "queued",
+            allowed_from=("in_progress",),
+            attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
+        )
 
     async def mark_outbox_sent(
         self,
@@ -234,20 +242,15 @@ class _MemoryStorage:
         expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is None or (
-            expected_worker_id is not None and item.worker_id != expected_worker_id
-        ):
+        if item is None:
             return False
-        if attempt_number is not None and not (
-            (item.active_attempt is None and item.attempt_number <= attempt_number)
-            or item.active_attempt == attempt_number
-        ):
-            return False
-        object.__setattr__(item, "status", "sent")
-        if attempt_number is not None:
-            object.__setattr__(item, "attempt_number", attempt_number)
-            object.__setattr__(item, "active_attempt", None)
-        return True
+        return apply_guarded_outbox_transition(
+            item,
+            "sent",
+            allowed_from=("in_progress", "queued"),
+            attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
+        )
 
     async def mark_outbox_retry_wait(
         self,
@@ -261,20 +264,18 @@ class _MemoryStorage:
         expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is None or (
-            expected_worker_id is not None and item.worker_id != expected_worker_id
-        ):
+        if item is None:
             return False
-        if attempt_number is not None and not (
-            (item.active_attempt is None and item.attempt_number <= attempt_number)
-            or item.active_attempt == attempt_number
-        ):
-            return False
-        object.__setattr__(item, "status", "retry_wait")
-        if attempt_number is not None:
-            object.__setattr__(item, "attempt_number", attempt_number)
-            object.__setattr__(item, "active_attempt", None)
-        return True
+        committed = apply_guarded_outbox_transition(
+            item,
+            "retry_wait",
+            allowed_from=("in_progress",),
+            attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
+        )
+        if committed:
+            object.__setattr__(item, "next_attempt_at", next_attempt_at)
+        return committed
 
     async def mark_outbox_dead_lettered(
         self,
@@ -287,20 +288,20 @@ class _MemoryStorage:
         expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is None or (
-            expected_worker_id is not None and item.worker_id != expected_worker_id
-        ):
+        if item is None:
             return False
-        if attempt_number is not None and not (
-            (item.active_attempt is None and item.attempt_number <= attempt_number)
-            or item.active_attempt == attempt_number
-        ):
-            return False
-        object.__setattr__(item, "status", "dead_lettered")
-        if attempt_number is not None:
-            object.__setattr__(item, "attempt_number", attempt_number)
-            object.__setattr__(item, "active_attempt", None)
-        return True
+        committed = apply_guarded_outbox_transition(
+            item,
+            "dead_lettered",
+            allowed_from=("in_progress", "retry_wait"),
+            attempt_number=attempt_number,
+            expected_worker_id=expected_worker_id,
+        )
+        if committed:
+            object.__setattr__(item, "receipt_id", receipt_id)
+            object.__setattr__(item, "failure_kind", failure_kind)
+            object.__setattr__(item, "error_summary", error_summary)
+        return committed
 
     async def mark_outbox_abandoned(
         self,
@@ -309,15 +310,17 @@ class _MemoryStorage:
         expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is None or (
-            expected_worker_id is not None and item.worker_id != expected_worker_id
-        ):
+        if item is None:
             return False
-        object.__setattr__(item, "status", "abandoned")
-        object.__setattr__(item, "attempt_number", _effective_attempt(item))
-        object.__setattr__(item, "active_attempt", None)
-        object.__setattr__(item, "error_summary", error_summary)
-        return True
+        committed = apply_guarded_outbox_transition(
+            item,
+            "abandoned",
+            allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            expected_worker_id=expected_worker_id,
+        )
+        if committed:
+            object.__setattr__(item, "error_summary", error_summary)
+        return committed
 
     # -- Required by abstract protocol but unused in these tests --
 

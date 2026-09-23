@@ -129,8 +129,8 @@ class TestRetryShutdown:
         storage.list_receipts_for_plan = AsyncMock(return_value=[])
         storage.count_outbox_by_status = AsyncMock(return_value={})
         storage.reserve_outbox_attempt = AsyncMock(return_value=2)
-        storage.mark_outbox_sent = AsyncMock(return_value=None)
-        storage.mark_outbox_queued = AsyncMock(return_value=None)
+        storage.mark_outbox_sent = AsyncMock(return_value=True)
+        storage.mark_outbox_queued = AsyncMock(return_value=True)
 
         pipeline = MagicMock()
         pipeline.deliver_to_target = _slow_deliver
