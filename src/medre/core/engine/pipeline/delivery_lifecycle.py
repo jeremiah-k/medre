@@ -154,12 +154,11 @@ class DeliveryLifecycleStorage(Protocol):
         delivery_plan_id: str,
         target_adapter: str,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> list[DeliveryReceipt]:
-        """List plan receipts, optionally restricted to one event.
+        """List one event's plan receipts.
 
-        Plan IDs can recur across events; lifecycle callers should supply
-        ``event_id`` to avoid mixing their receipt lineages.
+        Plan IDs can recur across events, so event scope is mandatory.
         """
         ...
 

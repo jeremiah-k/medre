@@ -200,11 +200,13 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     Attributes
     ----------
     sequence:
-        Storage-assigned monotonically increasing append sequence.  It orders
-        immutable receipt history.  Current lifecycle outcome first filters
-        for authoritative receipts (committed outbox pointers plus outbox-less
-        receipts), then uses append sequence to select the latest eligible row;
-        attempt numbers describe lineage, not append recency.
+        Storage-assigned monotonically increasing append sequence. It orders
+        immutable history within an authority class. Outbox-less evidence keeps
+        append-order authority. Among committed outbox-backed generations,
+        mutable outbox ``attempt_number`` selects the newest dispatch generation
+        before receipt append sequence breaks ties; receipt claims never rank
+        generations. This prevents a late older callback from regressing current
+        lifecycle authority.
     receipt_id:
         Unique identifier for this receipt record.
     event_id:

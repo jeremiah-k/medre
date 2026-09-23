@@ -429,6 +429,40 @@ def test_later_append_supersedes_higher_attempt_number_in_current_outcome() -> N
     ]
 
 
+def test_historical_delivery_grouping_is_event_scoped() -> None:
+    receipts = [
+        _receipt(
+            "evt-a",
+            receipt_id="shared-a",
+            plan="shared-plan",
+            adapter="matrix",
+            channel="room",
+            status="sent",
+            attempt=1,
+            sequence=1,
+        ),
+        _receipt(
+            "evt-b",
+            receipt_id="shared-b",
+            plan="shared-plan",
+            adapter="matrix",
+            channel="room",
+            status="sent",
+            attempt=1,
+            sequence=2,
+        ),
+    ]
+
+    resolved = resolve_delivery_outcomes(receipts)
+
+    assert len(resolved) == 2
+    assert {key[0] for key, _history in resolved} == {"evt-a", "evt-b"}
+    assert {history[0].receipt_id for _key, history in resolved} == {
+        "shared-a",
+        "shared-b",
+    }
+
+
 def test_retry_chain_latest_attempt_is_the_current_outcome(tmp_path: Path) -> None:
     db = tmp_path / "retry-chain.db"
     _seed(

@@ -419,16 +419,13 @@ def decode_page_cursor(cursor: str) -> int:
     return after
 
 
-def delivery_lineage_key(receipt: DeliveryReceipt) -> tuple[str, str, str]:
+def delivery_lineage_key(receipt: DeliveryReceipt) -> tuple[str, str, str, str]:
     """Return the logical delivery-identity key of *receipt*.
 
-    ``(delivery_plan_id, target_adapter, normalized target_channel)``.
-    ``event_id`` is intentionally not part of the key — callers already
-    scope by event — but plan IDs are not guaranteed unique across
-    events, so SQL-side grouping includes ``event_id`` (see
-    :meth:`StorageBackend.query_unresolved_deliveries`).  ``None`` and
-    empty-string channels normalize to ``""`` so they never split one
-    logical delivery into two lineages.
+    ``(event_id, delivery_plan_id, target_adapter, normalized target_channel)``.
+    Event scope is part of the identity because plan IDs are not globally
+    unique. ``None`` and empty-string channels normalize to ``""`` so they
+    never split one logical delivery into two lineages.
 
     Retry **and executed-replay** receipts share the key with the live
     delivery they re-attempt: the replay lifecycle continues the same
@@ -441,6 +438,7 @@ def delivery_lineage_key(receipt: DeliveryReceipt) -> tuple[str, str, str]:
     to partition one delivery.
     """
     return (
+        getattr(receipt, "event_id", "") or "",
         getattr(receipt, "delivery_plan_id", "") or "",
         getattr(receipt, "target_adapter", "") or "",
         getattr(receipt, "target_channel", None) or "",
@@ -461,7 +459,7 @@ def attempt_source_label(source: str | None, replay_run_id: str | None) -> str:
 
 def resolve_delivery_outcomes(
     receipts: list[DeliveryReceipt],
-) -> list[tuple[tuple[str, str, str], list[DeliveryReceipt]]]:
+) -> list[tuple[tuple[str, str, str, str], list[DeliveryReceipt]]]:
     """Group *receipts* into logical deliveries in durable append order.
 
     This helper is historical grouping only.  Each returned entry is
@@ -473,7 +471,7 @@ def resolve_delivery_outcomes(
     losing the guarded outbox transition; that receipt remains history but is
     not current lifecycle state.
     """
-    grouped: dict[tuple[str, str, str], list[DeliveryReceipt]] = {}
+    grouped: dict[tuple[str, str, str, str], list[DeliveryReceipt]] = {}
     for receipt in receipts:
         grouped.setdefault(delivery_lineage_key(receipt), []).append(receipt)
     return [
@@ -1062,15 +1060,15 @@ class StorageBackend(Protocol):
         target_adapter: str,
         target_channel: str | None = None,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> DeliveryReceipt | None:
-        """Return the current receipt for a delivery target, optionally event-scoped.
+        """Return the event-scoped current receipt for a delivery target.
 
-        Authority: **list/get** (read-only).  For outbox-backed delivery, the
-        outbox row's committed ``receipt_id`` is current-state authority; a
-        later receipt whose guarded outbox transition was rejected remains
-        immutable historical evidence.  Outbox-less lineages retain durable
-        append order as their projection rule.
+        Authority: **list/get** (read-only). For outbox-backed delivery, exact
+        ``(outbox_id, receipt_id)`` pointer equality selects eligible evidence
+        and the outbox row's finalized attempt ranks committed generations. A
+        stale or older-generation receipt remains immutable historical evidence.
+        Outbox-less lineages retain durable append order as their projection rule.
 
         Parameters
         ----------
@@ -1085,14 +1083,14 @@ class StorageBackend(Protocol):
             target are returned.  Passing ``None`` does **not** query
             across all channels.
         event_id:
-            Optional canonical-event scope. Lifecycle callers that know the
-            event MUST supply it because plan IDs are not globally unique.
+            Canonical-event scope. It is mandatory because plan IDs are not
+            globally unique.
 
         Returns
         -------
         DeliveryReceipt | None
-            The latest-matching receipt, or ``None`` when no receipt exists
-            for the given combination.
+            The lifecycle-authoritative receipt, or ``None`` when no eligible
+            receipt exists for the given event-scoped identity.
         """
         ...
 
@@ -1101,13 +1099,12 @@ class StorageBackend(Protocol):
         delivery_plan_id: str,
         target_adapter: str,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> list[DeliveryReceipt]:
-        """Return receipts for a delivery plan / adapter in attempt order.
+        """Return event-scoped receipts for a plan / adapter in attempt order.
 
-        Lifecycle callers SHOULD supply ``event_id`` because plan IDs are not
-        globally unique across events. ``None`` preserves the unscoped
-        historical-query surface.
+        ``event_id`` is mandatory because plan IDs are not globally unique and
+        no delivery-lineage query may merge evidence from different events.
 
         Authority: **list/get** (read-only).  Receipts are ordered by
         ``attempt_number`` ascending so callers can walk the full receipt

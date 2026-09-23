@@ -105,6 +105,25 @@ def test_resolver_keeps_all_outbox_generations_authoritative() -> None:
     assert current["receipt_id"] == "gen-2"
 
 
+
+
+def test_newer_generation_outranks_late_append_from_older_generation() -> None:
+    receipts = [
+        _receipt("gen-2", sequence=2, outbox_id="obox-2", attempt=2),
+        _receipt("gen-1-late", sequence=99, outbox_id="obox-1", attempt=1),
+    ]
+    resolver = DeliveryAuthorityResolver(
+        receipts,
+        [
+            _outbox("obox-1", receipt_id="gen-1-late", attempt=1),
+            _outbox("obox-2", receipt_id="gen-2", attempt=2),
+        ],
+    )
+
+    current = resolver.current(delivery_identity(receipts[0]))
+    assert current is not None
+    assert current["receipt_id"] == "gen-2"
+
 def test_outboxless_receipt_remains_eligible_with_outbox_generations() -> None:
     receipts = [
         _receipt("committed", sequence=1, outbox_id="obox-1"),
@@ -214,3 +233,86 @@ async def test_sqlite_delivery_status_matches_shared_resolver(
     assert projected is not None
     assert resolved.receipt_id == "auth-gen-2"
     assert projected.receipt_id == resolved.receipt_id
+async def test_sqlite_newer_generation_outranks_late_committed_older_generation(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event_id = "evt-authority-sql-generation"
+    plan_id = "plan-authority-sql-generation"
+    await admit_event(temp_storage, event_id)
+
+    older = DeliveryOutboxItem(
+        outbox_id="obox-auth-old",
+        event_id=event_id,
+        route_id="route-old",
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        attempt_number=1,
+        status="in_progress",
+    )
+    newer = DeliveryOutboxItem(
+        outbox_id="obox-auth-new",
+        event_id=event_id,
+        route_id="route-new",
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        attempt_number=2,
+        status="in_progress",
+    )
+    await temp_storage.create_outbox_item(older)
+    await temp_storage.create_outbox_item(newer)
+
+    newer_receipt = DeliveryReceipt(
+        receipt_id="auth-newer-generation",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        route_id="route-new",
+        status="sent",
+        outbox_id=newer.outbox_id,
+        attempt_number=2,
+    )
+    older_late_receipt = DeliveryReceipt(
+        receipt_id="auth-older-generation-late",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        route_id="route-old",
+        status="sent",
+        outbox_id=older.outbox_id,
+        attempt_number=1,
+    )
+    # Commit the newer generation's evidence first, then append and commit an
+    # older generation later. Append order must not regress lifecycle authority.
+    await temp_storage.append_receipt(newer_receipt)
+    await temp_storage.append_receipt(older_late_receipt)
+    assert await temp_storage.mark_outbox_sent(
+        newer.outbox_id,
+        receipt_id=newer_receipt.receipt_id,
+        attempt_number=2,
+    )
+    assert await temp_storage.mark_outbox_sent(
+        older.outbox_id,
+        receipt_id=older_late_receipt.receipt_id,
+        attempt_number=1,
+    )
+
+    stored_receipts = await temp_storage.list_receipts_for_event(event_id)
+    stored_outbox = await temp_storage.list_outbox_items_for_event(event_id)
+    resolver = DeliveryAuthorityResolver(stored_receipts, stored_outbox)
+    identity = DeliveryIdentity(event_id, plan_id, "radio", "mesh")
+    resolved = resolver.current(identity)
+    projected = await temp_storage.delivery_status(
+        plan_id,
+        "radio",
+        "mesh",
+        event_id=event_id,
+    )
+
+    assert resolved is not None
+    assert projected is not None
+    assert resolved.receipt_id == newer_receipt.receipt_id
+    assert projected.receipt_id == newer_receipt.receipt_id

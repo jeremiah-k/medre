@@ -23,14 +23,12 @@ from medre.core.engine.pipeline.delivery_state import RECEIPT_STATUSES
 from medre.core.events import DELIVERY_CONFIRMATION_LEVEL_VALUES, DeliveryReceipt
 from medre.core.storage.sqlite.serde import _row_to_receipt
 from medre.core.storage.sqlite.statements import (
-    _DELIVERY_RECEIPT_LATEST_BY_CHANNEL,
     _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL,
     _INSERT_RECEIPT,
     _SELECT_ALL_RECEIPTS,
     _SELECT_RECEIPTS_BY_REPLAY_RUN,
     _SELECT_RECEIPTS_FOR_EVENT,
     _SELECT_RECEIPTS_FOR_EVENT_PLAN,
-    _SELECT_RECEIPTS_FOR_PLAN,
 )
 
 
@@ -121,9 +119,9 @@ class _ReceiptMixin:
         target_adapter: str,
         target_channel: str | None = None,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> DeliveryReceipt | None:
-        """Return the current receipt for a delivery target, optionally event-scoped.
+        """Return the event-scoped current receipt for a delivery target.
 
         Authority: **list/get** (read-only).  Queries the ``delivery_receipts``
         base table directly (rather than the ``delivery_status`` view) so that
@@ -147,10 +145,9 @@ class _ReceiptMixin:
             target are returned.  Passing ``None`` does **not** query
             across all channels.
         event_id:
-            Canonical event to scope the lookup to. Runtime lifecycle callers
-            that know the event MUST pass it because plan IDs are not globally
-            unique across events. ``None`` preserves the legacy unscoped
-            projection for callers that intentionally aggregate across events.
+            Canonical event scope. It is mandatory because plan IDs are not
+            globally unique and no current-delivery lookup may identify a
+            delivery by plan/target alone.
 
         Returns
         -------
@@ -158,17 +155,17 @@ class _ReceiptMixin:
             The current matching receipt, or ``None`` when no committed receipt exists
             for the given combination.
         """
-        if event_id is None:
-            sql = _DELIVERY_RECEIPT_LATEST_BY_CHANNEL
-            params = (delivery_plan_id, target_adapter, target_channel or None)
-        else:
-            sql = _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL
-            params = (
-                event_id,
-                delivery_plan_id,
-                target_adapter,
-                target_channel or None,
-            )
+        sql = _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL
+        params = (
+            event_id,
+            delivery_plan_id,
+            target_adapter,
+            target_channel or None,
+            event_id,
+            delivery_plan_id,
+            target_adapter,
+            target_channel or None,
+        )
         row = await self._read_one(sql, params)
         return _row_to_receipt(row) if row else None
 
@@ -177,24 +174,19 @@ class _ReceiptMixin:
         delivery_plan_id: str,
         target_adapter: str,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> list[DeliveryReceipt]:
-        """Return all receipts for a delivery plan / adapter pair in
-        attempt order.
+        """Return one event's plan / adapter receipts in attempt order.
 
         Authority: **list/get** (read-only). Receipts are ordered by
         ``attempt_number`` ascending (then ``sequence`` as tiebreaker) so
         callers can walk the full receipt lineage from first attempt to last.
-        Lifecycle callers SHOULD pass ``event_id`` because plan IDs are not
-        globally unique across events.
+        Event scope is mandatory because plan IDs are not globally unique.
         """
-        if event_id is None:
-            sql = _SELECT_RECEIPTS_FOR_PLAN
-            params = (delivery_plan_id, target_adapter)
-        else:
-            sql = _SELECT_RECEIPTS_FOR_EVENT_PLAN
-            params = (event_id, delivery_plan_id, target_adapter)
-        rows = await self._read_all(sql, params)
+        rows = await self._read_all(
+            _SELECT_RECEIPTS_FOR_EVENT_PLAN,
+            (event_id, delivery_plan_id, target_adapter),
+        )
         return [_row_to_receipt(r) for r in rows]
 
     async def list_receipts_by_replay_run(

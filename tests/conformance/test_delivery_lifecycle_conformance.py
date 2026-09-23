@@ -98,14 +98,14 @@ class _MemoryStorage:
         delivery_plan_id: str,
         target_adapter: str,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> list[DeliveryReceipt]:
         return [
             r
             for r in self._receipts
             if r.delivery_plan_id == delivery_plan_id
             and r.target_adapter == target_adapter
-            and (event_id is None or r.event_id == event_id)
+            and r.event_id == event_id
         ]
 
     async def store_native_ref(self, ref: NativeMessageRef) -> None:

@@ -6,10 +6,12 @@ Every consumer must apply the same rule:
 
 * delivery identity is event-scoped: ``(event, plan, adapter, channel)``;
 * empty and absent channels are one identity, matching persistence semantics;
-* outbox-backed receipts are current only when a matching outbox generation
+* outbox-backed receipts are current only when their exact outbox generation
   points at their ``receipt_id``;
+* outbox generation rank comes from mutable outbox state, never receipt claims;
 * outbox-less receipts remain eligible by durable append order; and
-* across multiple generations, the latest eligible durable receipt wins.
+* after choosing one candidate per authority class, durable append order decides
+  which class most recently changed observable lifecycle state.
 
 This module is deliberately storage-agnostic. SQLite implements the same rule
 in SQL and is checked against these pure functions by conformance tests.
@@ -28,7 +30,9 @@ __all__ = [
     "authority_index",
     "delivery_identity",
     "delivery_identity_sort_key",
+    "group_outbox_by_identity",
     "group_receipts_by_identity",
+    "select_current_outbox",
     "select_current_receipt",
 ]
 
@@ -72,14 +76,27 @@ class DeliveryIdentity(NamedTuple):
 
 @dataclass(frozen=True, slots=True)
 class ReceiptAuthority:
-    """Outbox authority state for one event-scoped delivery identity.
+    """Committed outbox pointers for one event-scoped delivery identity.
 
     Presence of this object means at least one outbox generation exists for the
-    identity. ``committed_receipt_ids`` may therefore be empty; that state is
-    semantically different from having no outbox generations at all.
+    identity. ``committed`` may therefore be empty; that state is semantically
+    different from having no outbox generations at all. Each tuple is
+    ``(outbox_id, receipt_id, finalized_attempt_number)`` so receipt eligibility
+    and generation ordering both derive from mutable outbox authority.
     """
 
-    committed_receipt_ids: frozenset[str]
+    committed: frozenset[tuple[str, str, int]]
+
+    def generation_for(self, receipt: Any) -> int | None:
+        """Return committed generation for *receipt*, or ``None`` if ineligible."""
+        outbox_id = str(_get(receipt, "outbox_id") or "")
+        receipt_id = str(_get(receipt, "receipt_id") or "")
+        if not outbox_id or not receipt_id:
+            return None
+        for committed_outbox, committed_receipt, attempt in self.committed:
+            if committed_outbox == outbox_id and committed_receipt == receipt_id:
+                return attempt
+        return None
 
 
 def delivery_identity(record: Any) -> DeliveryIdentity:
@@ -92,7 +109,6 @@ def delivery_identity(record: Any) -> DeliveryIdentity:
     )
 
 
-
 def delivery_identity_sort_key(identity: DeliveryIdentity) -> tuple[str, str, str, str]:
     """Return a deterministic sort key that handles the no-channel identity."""
     return (
@@ -102,18 +118,26 @@ def delivery_identity_sort_key(identity: DeliveryIdentity) -> tuple[str, str, st
         identity.target_channel or "",
     )
 
+
 def authority_index(outbox_items: Iterable[Any]) -> dict[DeliveryIdentity, ReceiptAuthority]:
-    """Index committed outbox receipt pointers by full delivery identity."""
-    mutable: dict[DeliveryIdentity, set[str]] = {}
+    """Index exact committed outbox pointers by full delivery identity."""
+    mutable: dict[DeliveryIdentity, set[tuple[str, str, int]]] = {}
     for item in outbox_items:
         identity = delivery_identity(item)
         committed = mutable.setdefault(identity, set())
-        receipt_id = _get(item, "receipt_id")
-        if receipt_id:
-            committed.add(str(receipt_id))
+        receipt_id = str(_get(item, "receipt_id") or "")
+        outbox_id = str(_get(item, "outbox_id") or "")
+        if receipt_id and outbox_id:
+            committed.add(
+                (
+                    outbox_id,
+                    receipt_id,
+                    int(_get(item, "attempt_number") or 1),
+                )
+            )
     return {
-        identity: ReceiptAuthority(frozenset(receipt_ids))
-        for identity, receipt_ids in mutable.items()
+        identity: ReceiptAuthority(frozenset(commits))
+        for identity, commits in mutable.items()
     }
 
 
@@ -127,13 +151,55 @@ def group_receipts_by_identity(
     return grouped
 
 
-def _receipt_rank(receipt: Any) -> tuple[int, str, str]:
-    """Return an ascending rank whose maximum is the latest durable receipt."""
+def group_outbox_by_identity(
+    outbox_items: Iterable[_T],
+) -> dict[DeliveryIdentity, list[_T]]:
+    """Group mutable outbox generations by full event-scoped identity."""
+    grouped: dict[DeliveryIdentity, list[_T]] = {}
+    for item in outbox_items:
+        grouped.setdefault(delivery_identity(item), []).append(item)
+    return grouped
+
+
+def _outbox_rank(item: Any) -> tuple[int, str, str, str]:
+    """Rank operational generations without relying on incidental list order."""
+    effective_attempt = int(
+        _get(item, "active_attempt")
+        or _get(item, "attempt_number")
+        or 1
+    )
+    return (
+        effective_attempt,
+        _iso(_get(item, "updated_at")),
+        _iso(_get(item, "created_at")),
+        str(_get(item, "outbox_id") or ""),
+    )
+
+
+def select_current_outbox(items: Iterable[_T]) -> _T | None:
+    """Select the newest operational generation for one delivery identity."""
+    item_list = list(items)
+    return max(item_list, key=_outbox_rank) if item_list else None
+
+
+def _append_rank(receipt: Any) -> tuple[int, str, str]:
+    """Return durable append order for receipts within one authority class."""
     return (
         int(_get(receipt, "sequence") or 0),
         _iso(_get(receipt, "created_at")),
         str(_get(receipt, "receipt_id") or ""),
     )
+
+
+def _generation_rank(
+    receipt: Any,
+    authority: ReceiptAuthority,
+) -> tuple[int, int, str, str]:
+    """Rank committed evidence by outbox generation then append order."""
+    generation = authority.generation_for(receipt)
+    if generation is None:
+        raise ValueError("receipt is not committed by this authority")
+    return (generation, *_append_rank(receipt))
 
 
 def select_current_receipt(
@@ -149,16 +215,28 @@ def select_current_receipt(
     """
     receipt_list = list(receipts)
     if authority is None:
-        eligible = receipt_list
-    else:
-        committed = authority.committed_receipt_ids
-        eligible = [
-            receipt
-            for receipt in receipt_list
-            if not _get(receipt, "outbox_id")
-            or str(_get(receipt, "receipt_id") or "") in committed
-        ]
-    return max(eligible, key=_receipt_rank) if eligible else None
+        return max(receipt_list, key=_append_rank) if receipt_list else None
+
+    outbox_backed = [
+        receipt
+        for receipt in receipt_list
+        if authority.generation_for(receipt) is not None
+    ]
+    outboxless = [receipt for receipt in receipt_list if not _get(receipt, "outbox_id")]
+
+    # Multiple outbox generations are ordered by dispatch identity, never by a
+    # late append from an older generation. Outbox-less evidence retains its
+    # append-order contract. Once each authority class has one candidate,
+    # durable append order decides which class most recently changed the
+    # delivery's observable lifecycle state.
+    candidates: list[_T] = []
+    if outbox_backed:
+        candidates.append(
+            max(outbox_backed, key=lambda receipt: _generation_rank(receipt, authority))
+        )
+    if outboxless:
+        candidates.append(max(outboxless, key=_append_rank))
+    return max(candidates, key=_append_rank) if candidates else None
 
 
 class DeliveryAuthorityResolver(Generic[_T]):
@@ -170,23 +248,33 @@ class DeliveryAuthorityResolver(Generic[_T]):
     consumers cannot accidentally apply only half of the rule.
     """
 
-    __slots__ = ("_authorities", "_receipts")
+    __slots__ = ("_authorities", "_outbox", "_receipts")
 
     def __init__(
         self,
         receipts: Iterable[_T] = (),
         outbox_items: Iterable[Any] = (),
     ) -> None:
+        receipt_list = list(receipts)
+        outbox_list = list(outbox_items)
         self._receipts = {
             identity: tuple(group)
-            for identity, group in group_receipts_by_identity(receipts).items()
+            for identity, group in group_receipts_by_identity(receipt_list).items()
         }
-        self._authorities = authority_index(outbox_items)
+        self._outbox = {
+            identity: tuple(group)
+            for identity, group in group_outbox_by_identity(outbox_list).items()
+        }
+        self._authorities = authority_index(outbox_list)
 
     @property
     def identities(self) -> frozenset[DeliveryIdentity]:
         """All identities represented by receipt history or outbox state."""
-        return frozenset(self._receipts) | frozenset(self._authorities)
+        return (
+            frozenset(self._receipts)
+            | frozenset(self._outbox)
+            | frozenset(self._authorities)
+        )
 
     def ordered_identities(self) -> tuple[DeliveryIdentity, ...]:
         """Return represented identities in deterministic display order."""
@@ -199,6 +287,14 @@ class DeliveryAuthorityResolver(Generic[_T]):
     def authority_for(self, identity: DeliveryIdentity) -> ReceiptAuthority | None:
         """Return outbox authority for *identity*, if any generation exists."""
         return self._authorities.get(identity)
+
+    def outbox_for(self, identity: DeliveryIdentity) -> tuple[Any, ...]:
+        """Return persisted outbox generations for *identity*."""
+        return self._outbox.get(identity, ())
+
+    def current_outbox(self, identity: DeliveryIdentity) -> Any | None:
+        """Return the current operational generation for *identity*."""
+        return select_current_outbox(self.outbox_for(identity))
 
     def current(self, identity: DeliveryIdentity) -> _T | None:
         """Return the lifecycle-authoritative receipt for *identity*."""

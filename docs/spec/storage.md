@@ -243,26 +243,25 @@ class StorageBackend(Protocol):
 
     async def delivery_status(
         self, delivery_plan_id: str, target_adapter: str,
-        target_channel: str | None = None, *, event_id: str | None = None,
+        target_channel: str | None = None, *, event_id: str,
     ) -> DeliveryReceipt | None:
         """Return the current receipt for a delivery target.
 
         Outbox-backed delivery uses the outbox row's committed receipt_id;
         rejected late receipts remain historical. Outbox-less delivery uses
         durable append order. When target_channel is None, only NULL-channel
-        receipts are considered. Lifecycle callers that know the canonical
-        event MUST pass event_id because plan IDs are not globally unique.
+        receipts are considered. ``event_id`` is mandatory because plan IDs
+        are not globally unique.
         """
         ...
 
     async def list_receipts_for_plan(
         self, delivery_plan_id: str, target_adapter: str, *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> list[DeliveryReceipt]:
-        """Return receipts for a delivery plan / adapter in attempt order.
+        """Return one event's plan / adapter receipts in attempt order.
 
-        Lifecycle callers SHOULD pass event_id because plan IDs are not
-        globally unique across events.
+        ``event_id`` is mandatory because plan IDs are not globally unique.
         """
         ...
 
@@ -736,33 +735,61 @@ does not by itself imply `end_to_end`.
 DROP VIEW IF EXISTS delivery_status;
 CREATE VIEW delivery_status AS
 WITH authoritative_receipts AS (
-    SELECT dr.*
+    SELECT dr.*, NULL AS committed_attempt
     FROM delivery_receipts dr
     WHERE dr.outbox_id IS NULL
-       OR EXISTS (
-           SELECT 1
-           FROM delivery_outbox o
-           WHERE o.outbox_id = dr.outbox_id
-             AND o.receipt_id = dr.receipt_id
-       )
+    UNION ALL
+    SELECT dr.*, o.attempt_number AS committed_attempt
+    FROM delivery_receipts dr
+    JOIN delivery_outbox o
+      ON o.outbox_id = dr.outbox_id
+     AND o.receipt_id = dr.receipt_id
+),
+ranked AS (
+    SELECT dr.*,
+           CASE
+               WHEN outbox_id IS NULL THEN
+                   ROW_NUMBER() OVER (
+                       PARTITION BY event_id, delivery_plan_id, target_adapter,
+                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
+                       ORDER BY sequence DESC
+                   )
+               ELSE
+                   ROW_NUMBER() OVER (
+                       PARTITION BY event_id, delivery_plan_id, target_adapter,
+                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
+                       ORDER BY committed_attempt DESC, sequence DESC
+                   )
+           END AS class_rank
+    FROM authoritative_receipts dr
+),
+candidates AS (
+    SELECT * FROM ranked WHERE class_rank = 1
+),
+current_rows AS (
+    SELECT c.*,
+           ROW_NUMBER() OVER (
+               PARTITION BY event_id, delivery_plan_id, target_adapter,
+                            COALESCE(target_channel, '')
+               ORDER BY sequence DESC
+           ) AS authority_rank
+    FROM candidates c
 )
-SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
-       dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
-       dr.failure_kind, dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
-       dr.parent_receipt_id, dr.source, dr.replay_run_id,
-       dr.retry_max_attempts, dr.retry_backoff_base, dr.retry_max_delay, dr.retry_jitter,
-       dr.rendering_evidence, dr.outbox_id, dr.confirmation_level, dr.created_at
-FROM authoritative_receipts dr
-JOIN (
-    SELECT event_id, delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
-    FROM authoritative_receipts
-    GROUP BY event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, '')
-) latest ON dr.sequence = latest.max_seq;
+SELECT sequence, receipt_id, event_id, delivery_plan_id,
+       target_adapter, target_channel, route_id, status,
+       receipt_kind, error, failure_kind,
+       adapter_message_id, next_retry_at, attempt_number,
+       parent_receipt_id, source, replay_run_id,
+       retry_max_attempts, retry_backoff_base,
+       retry_max_delay, retry_jitter, rendering_evidence,
+       outbox_id, confirmation_level, created_at
+FROM current_rows
+WHERE authority_rank = 1;
 ```
 
 The view is dropped and recreated on every `initialize()` call to ensure the column shape stays current when new columns are added to `delivery_receipts` (e.g. `rendering_evidence`). `DROP VIEW IF EXISTS` followed by `CREATE VIEW` guarantees the view definition always matches the table schema.
 
-The current delivery status is a projection, but immutable append order is not by itself lifecycle authority for an outbox-backed attempt. A receipt linked to an outbox row is eligible only when that row points to the receipt through `receipt_id`; a stale worker may still append evidence after losing its guarded transition, but that row remains historical. Receipt-only delivery has no outbox pointer and therefore continues to use greatest durable append `sequence`. No code path **SHALL** write to this view directly.
+The current delivery status is a projection, but immutable append order is not by itself lifecycle authority for outbox-backed delivery. An outbox-backed receipt is eligible only when the exact `(outbox_id, receipt_id)` pointer matches mutable outbox state. Among committed outbox generations, the generation rank comes from the outbox row's finalized `attempt_number`, never from a receipt's own attempt claim; this prevents a late append from an older generation from regressing current authority. Outbox-less evidence retains append-order semantics. The latest candidate across the committed-outbox and outbox-less authority classes wins by durable `sequence`. No code path **SHALL** write to this view directly.
 
 The grouping key is `(event_id, delivery_plan_id, target_adapter, target_channel)`. `event_id` is required because plan IDs are not globally unique across events. `COALESCE(target_channel, '')` treats `NULL` and empty-string channels as the same target within one event.
 
@@ -960,6 +987,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
 ```
 
 This closes the SQLite `NULL != NULL` gap without collapsing independent events that reuse a plan ID.
+
+Current-delivery lookups are always event-scoped. `delivery_status(...)` requires
+`event_id`; the storage contract intentionally has no plan-only overload because
+plan IDs may be reused by independent canonical events.
 
 The outbox also carries `idx_outbox_lineage` over
 `(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), attempt_number)`.
@@ -1170,17 +1201,17 @@ runtime startup. A clean current marker skips that redundant full scan.
   handoffs record the strongest fact actually proven and never infer end-to-end
   delivery from lifecycle status.
 
-### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel, *, event_id=None)
+### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel, *, event_id)
 
-- Returns the lifecycle-authoritative receipt for the given target, optionally scoped to one canonical event. Lifecycle callers **MUST** pass `event_id` because plan IDs are not globally unique across events; `event_id=None` is retained only for deliberate historical/unscoped queries.
-- For outbox-backed delivery, the outbox row's committed `receipt_id` is the current-state pointer; a later receipt whose guarded outbox transition was rejected remains append-only historical evidence.
-- For outbox-less delivery, greatest durable append `sequence` remains the projection rule. `attempt_number` does not override append order.
+- Returns the lifecycle-authoritative receipt for the given event-scoped target. `event_id` is mandatory because plan IDs are not globally unique across events; there is no plan-only current-delivery overload.
+- For outbox-backed delivery, the exact `(outbox_id, receipt_id)` pointer is eligibility authority and the outbox row's finalized `attempt_number` is generation authority. A later append from an older committed generation or a stale worker cannot outrank a newer committed generation.
+- For outbox-less delivery, greatest durable append `sequence` remains the projection rule. After one candidate is chosen from each authority class, greatest `sequence` decides which class most recently changed observable lifecycle state.
 - `target_channel` is **REQUIRED** for precise lookup. When `None`, only NULL-channel receipts are considered.
 - Returns `None` when no current receipt exists.
 
-### 8.11 list_receipts_for_plan(delivery_plan_id, target_adapter, *, event_id=None)
+### 8.11 list_receipts_for_plan(delivery_plan_id, target_adapter, *, event_id)
 
-- Returns receipts for a delivery plan / adapter in attempt order. Lifecycle callers **MUST** pass `event_id`; `None` preserves the intentionally unscoped historical-query surface.
+- Returns receipts for one event's delivery plan / adapter in attempt order. `event_id` is mandatory; the storage contract has no plan-only lineage overload.
 
 ### 8.12 list_receipts_by_replay_run(run_id)
 

@@ -164,14 +164,14 @@ class _FakeStorage:
         delivery_plan_id: str,
         target_adapter: str,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> list[DeliveryReceipt]:
         return [
             receipt
             for receipt in self._receipts
             if receipt.delivery_plan_id == delivery_plan_id
             and receipt.target_adapter == target_adapter
-            and (event_id is None or receipt.event_id == event_id)
+            and receipt.event_id == event_id
         ]
 
     async def query_receipts(self, **kwargs: Any) -> list[DeliveryReceipt]:
@@ -359,6 +359,86 @@ class _FakeStorage:
             expected_worker_id=expected_worker_id,
             error_summary=error_summary,
         )
+
+    async def finalize_outbox_terminal(
+        self,
+        receipt: DeliveryReceipt,
+        *,
+        attempt_receipt: DeliveryReceipt | None = None,
+        outbox_id: str,
+        attempt_number: int,
+        terminal_status: str,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+        failure_kind: str | None = None,
+        error_summary: str | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
+        """Mirror the guarded atomic terminal transition used by SQLite."""
+        if terminal_status not in {"dead_lettered", "cancelled", "abandoned"}:
+            raise ValueError("unsupported terminal_status")
+        if receipt.receipt_kind != "lifecycle" or receipt.status != terminal_status:
+            raise ValueError("terminal finalization requires matching lifecycle evidence")
+        if (
+            receipt.outbox_id != outbox_id
+            or receipt.event_id != event_id
+            or receipt.delivery_plan_id != delivery_plan_id
+            or receipt.target_adapter != target_adapter
+            or (receipt.target_channel or None) != (target_channel or None)
+            or receipt.attempt_number != attempt_number
+        ):
+            raise ValueError("terminal lifecycle receipt identity mismatch")
+        if attempt_receipt is not None and (
+            attempt_receipt.receipt_kind != "attempt"
+            or attempt_receipt.status != "failed"
+            or attempt_receipt.event_id != receipt.event_id
+            or attempt_receipt.delivery_plan_id != receipt.delivery_plan_id
+            or attempt_receipt.target_adapter != receipt.target_adapter
+            or (attempt_receipt.target_channel or None)
+            != (receipt.target_channel or None)
+            or attempt_receipt.outbox_id != receipt.outbox_id
+            or attempt_receipt.attempt_number != receipt.attempt_number
+            or receipt.parent_receipt_id != attempt_receipt.receipt_id
+        ):
+            raise ValueError("terminal lifecycle receipt must link to failed attempt")
+
+        item = self._outbox.get(outbox_id)
+        effective_attempt = (
+            item.active_attempt
+            if item is not None and item.active_attempt is not None
+            else item.attempt_number if item is not None else None
+        )
+        if (
+            item is None
+            or item.event_id != event_id
+            or item.delivery_plan_id != delivery_plan_id
+            or item.target_adapter != target_adapter
+            or (item.target_channel or None) != (target_channel or None)
+            or item.status not in {"queued", "in_progress"}
+            or effective_attempt != attempt_number
+            or (
+                expected_worker_id is not None
+                and item.worker_id != expected_worker_id
+            )
+        ):
+            return False
+
+        if attempt_receipt is not None:
+            self._receipts.append(attempt_receipt)
+        self._receipts.append(receipt)
+        object.__setattr__(item, "status", terminal_status)
+        object.__setattr__(item, "attempt_number", attempt_number)
+        object.__setattr__(item, "active_attempt", None)
+        object.__setattr__(item, "receipt_id", receipt.receipt_id)
+        object.__setattr__(item, "failure_kind", failure_kind)
+        object.__setattr__(item, "error_summary", error_summary)
+        object.__setattr__(item, "next_attempt_at", None)
+        object.__setattr__(item, "worker_id", None)
+        object.__setattr__(item, "locked_at", None)
+        object.__setattr__(item, "lease_until", None)
+        return True
 
     async def finalize_queued_delivery(
         self,

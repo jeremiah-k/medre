@@ -12,10 +12,9 @@ from typing import Any
 
 from medre.core.delivery_authority import (
     DeliveryIdentity,
-    ReceiptAuthority,
-    authority_index,
     delivery_identity,
-    select_current_receipt,
+    group_outbox_by_identity,
+    select_current_outbox,
 )
 
 from .types import ConvergenceSeverity
@@ -24,17 +23,12 @@ __all__ = [
     "_get",
     "_target_key",
     "_TargetKey",
-    "_ReverseStr",
-    "_receipt_sort_key",
-    "_pick_latest_receipt",
     "_worst_severity",
     "_SEVERITY_ORDER",
     "_TERMINAL_RECEIPT",
     "_NON_TERMINAL_RECEIPT",
     "_TERMINAL_OUTBOX",
     "_NON_TERMINAL_OUTBOX",
-    "_current_receipt_for_target",
-    "_build_committed_receipt_ids_by_key",
     "_build_outbox_by_key",
     "_parse_iso_timestamp",
     "_ensure_aware",
@@ -103,100 +97,6 @@ def _target_key(obj: Any) -> _TargetKey:
 
 
 # ---------------------------------------------------------------------------
-# Receipt ranking — deterministic latest-selection
-# ---------------------------------------------------------------------------
-
-
-class _ReverseStr:
-    """Wrapper that reverses string comparison order for ``min()`` selection.
-
-    ``_ReverseStr("b") < _ReverseStr("a")`` so that ``min()`` picks
-    the lexicographically *latest* string value.
-    """
-
-    __slots__ = ("_value",)
-
-    def __init__(self, value: str) -> None:
-        self._value = value
-
-    def __lt__(self, other: _ReverseStr) -> bool:  # type: ignore[override]
-        return self._value > other._value
-
-    def __le__(self, other: _ReverseStr) -> bool:  # type: ignore[override]
-        return self._value >= other._value
-
-    def __gt__(self, other: _ReverseStr) -> bool:  # type: ignore[override]
-        return self._value < other._value
-
-    def __ge__(self, other: _ReverseStr) -> bool:  # type: ignore[override]
-        return self._value <= other._value
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, _ReverseStr):
-            return NotImplemented
-        return self._value == other._value
-
-    def __hash__(self) -> int:
-        return hash(self._value)
-
-    def __repr__(self) -> str:  # pragma: no cover
-        return f"_ReverseStr({self._value!r})"
-
-
-def _receipt_sort_key(rec: Any) -> tuple:
-    """Sort key for deterministic latest-receipt selection.
-
-    Used with ``min()``.  All components are arranged so that the
-    "latest" / most authoritative receipt has the *smallest* key:
-
-    * ``sequence`` — negated so later durable appends sort first.
-    * ``created_at`` — wrapped in :class:`_ReverseStr` so later
-      timestamps sort first.
-    * ``receipt_id`` — wrapped in :class:`_ReverseStr` so
-      lexicographically larger IDs sort first.
-
-    Does not rely on object identity.
-    """
-    sequence = _get(rec, "sequence") or 0
-    created_at = _to_iso(_get(rec, "created_at")) or ""
-    receipt_id = _get(rec, "receipt_id") or ""
-    return (
-        -sequence,
-        _ReverseStr(created_at),
-        _ReverseStr(receipt_id),
-    )
-
-
-def _pick_latest_receipt(receipts: list[Any]) -> Any | None:
-    """Compatibility wrapper around the shared authority receipt ranking."""
-    return select_current_receipt(receipts, None)
-
-
-def _build_committed_receipt_ids_by_key(
-    outbox_items: list[Any],
-) -> dict[_TargetKey, set[str]]:
-    """Compatibility projection of the shared outbox authority index."""
-    return {
-        key: set(authority.committed_receipt_ids)
-        for key, authority in authority_index(outbox_items).items()
-    }
-
-
-def _current_receipt_for_target(
-    receipts_by_key: dict[_TargetKey, list[Any]],
-    key: _TargetKey,
-    committed_receipt_ids: set[str] | None,
-) -> Any | None:
-    """Compatibility wrapper around shared lifecycle-authority selection."""
-    authority = (
-        None
-        if committed_receipt_ids is None
-        else ReceiptAuthority(frozenset(committed_receipt_ids))
-    )
-    return select_current_receipt(receipts_by_key.get(key, []), authority)
-
-
-# ---------------------------------------------------------------------------
 # Worst-severity helper
 # ---------------------------------------------------------------------------
 
@@ -223,33 +123,12 @@ def _worst_severity(severities: list[ConvergenceSeverity]) -> str | None:
 def _build_outbox_by_key(
     outbox_items: list[Any],
 ) -> dict[_TargetKey, Any]:
-    """Index outbox items by target key, keeping the highest-authority item.
-
-    When multiple outbox items share the same ``(event_id, delivery_plan_id,
-    target_adapter, target_channel)`` key, the one with the higher
-    ``attempt_number`` wins.  Ties are broken by ``outbox_id``
-    (lexicographically largest wins).
-
-    Returns a ``dict[_TargetKey, item]`` mapping.
-    """
-    outbox_by_key: dict[_TargetKey, Any] = {}
-    for obx in outbox_items:
-        key = _target_key(obx)
-        existing = outbox_by_key.get(key)
-        if existing is None:
-            outbox_by_key[key] = obx
-        else:
-            # Keep higher attempt_number; break ties by outbox_id
-            existing_attempt = _get(existing, "attempt_number") or 0
-            new_attempt = _get(obx, "attempt_number") or 0
-            if new_attempt > existing_attempt:
-                outbox_by_key[key] = obx
-            elif new_attempt == existing_attempt:
-                existing_id = _get(existing, "outbox_id") or ""
-                new_id = _get(obx, "outbox_id") or ""
-                if new_id > existing_id:
-                    outbox_by_key[key] = obx
-    return outbox_by_key
+    """Index current operational outbox generations by delivery identity."""
+    return {
+        identity: current
+        for identity, items in group_outbox_by_identity(outbox_items).items()
+        if (current := select_current_outbox(items)) is not None
+    }
 
 
 # ---------------------------------------------------------------------------

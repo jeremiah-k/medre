@@ -141,31 +141,56 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
 DROP VIEW IF EXISTS delivery_status;
 CREATE VIEW delivery_status AS
 WITH authoritative_receipts AS (
-    SELECT dr.*
+    SELECT dr.*, NULL AS committed_attempt
     FROM delivery_receipts dr
     WHERE dr.outbox_id IS NULL
-       OR EXISTS (
-           SELECT 1
-           FROM delivery_outbox o
-           WHERE o.outbox_id = dr.outbox_id
-             AND o.receipt_id = dr.receipt_id
-       )
+    UNION ALL
+    SELECT dr.*, o.attempt_number AS committed_attempt
+    FROM delivery_receipts dr
+    JOIN delivery_outbox o
+      ON o.outbox_id = dr.outbox_id
+     AND o.receipt_id = dr.receipt_id
+),
+ranked AS (
+    SELECT dr.*,
+           CASE
+               WHEN outbox_id IS NULL THEN
+                   ROW_NUMBER() OVER (
+                       PARTITION BY event_id, delivery_plan_id, target_adapter,
+                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
+                       ORDER BY sequence DESC
+                   )
+               ELSE
+                   ROW_NUMBER() OVER (
+                       PARTITION BY event_id, delivery_plan_id, target_adapter,
+                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
+                       ORDER BY committed_attempt DESC, sequence DESC
+                   )
+           END AS class_rank
+    FROM authoritative_receipts dr
+),
+candidates AS (
+    SELECT * FROM ranked WHERE class_rank = 1
+),
+current_rows AS (
+    SELECT c.*,
+           ROW_NUMBER() OVER (
+               PARTITION BY event_id, delivery_plan_id, target_adapter,
+                            COALESCE(target_channel, '')
+               ORDER BY sequence DESC
+           ) AS authority_rank
+    FROM candidates c
 )
-SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
-       dr.target_adapter, dr.target_channel, dr.route_id, dr.status,
-       dr.receipt_kind, dr.error,
-       dr.failure_kind,
-       dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
-       dr.parent_receipt_id, dr.source, dr.replay_run_id,
-       dr.retry_max_attempts, dr.retry_backoff_base,
-       dr.retry_max_delay, dr.retry_jitter, dr.rendering_evidence,
-       dr.outbox_id, dr.confirmation_level, dr.created_at
-FROM authoritative_receipts dr
-JOIN (
-    SELECT event_id, delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
-    FROM authoritative_receipts
-    GROUP BY event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, '')
-) latest ON dr.sequence = latest.max_seq;
+SELECT sequence, receipt_id, event_id, delivery_plan_id,
+       target_adapter, target_channel, route_id, status,
+       receipt_kind, error, failure_kind,
+       adapter_message_id, next_retry_at, attempt_number,
+       parent_receipt_id, source, replay_run_id,
+       retry_max_attempts, retry_backoff_base,
+       retry_max_delay, retry_jitter, rendering_evidence,
+       outbox_id, confirmation_level, created_at
+FROM current_rows
+WHERE authority_rank = 1;
 
 CREATE TABLE IF NOT EXISTS delivery_outbox (
     outbox_id TEXT PRIMARY KEY,

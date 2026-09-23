@@ -51,7 +51,7 @@ class TestReceipts:
         )
         await temp_storage.append_receipt(receipt)
 
-        status = await temp_storage.delivery_status("plan-1", "fake_presentation")
+        status = await temp_storage.delivery_status("plan-1", "fake_presentation", event_id="evt-rcpt")
         assert status is not None
         assert status.receipt_id == "rcpt-1"
         assert status.status == "sent"
@@ -119,7 +119,7 @@ class TestReceipts:
             )
             await temp_storage.append_receipt(receipt)
 
-        status = await temp_storage.delivery_status("plan-2", "fake_presentation")
+        status = await temp_storage.delivery_status("plan-2", "fake_presentation", event_id="evt-multi-rcpt")
         assert status is not None
         assert status.status == "suppressed"
         assert status.receipt_id == "rcpt-2"
@@ -127,7 +127,7 @@ class TestReceipts:
     async def test_delivery_status_returns_none_for_unknown(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        status = await temp_storage.delivery_status("no-plan", "no-adapter")
+        status = await temp_storage.delivery_status("no-plan", "no-adapter", event_id="evt-missing")
         assert status is None
 
 
@@ -146,7 +146,7 @@ async def test_confirmation_level_round_trips(temp_storage: SQLiteStorage) -> No
 
     receipts = await temp_storage.list_receipts_for_event(event.event_id)
     assert receipts[0].confirmation_level == "remote_service"
-    status = await temp_storage.delivery_status("plan-confirmation", "matrix")
+    status = await temp_storage.delivery_status("plan-confirmation", "matrix", event_id=event.event_id)
     assert status is not None
     assert status.confirmation_level == "remote_service"
 
@@ -248,7 +248,7 @@ class TestAppendOnlyReceipts:
             )
             await temp_storage.append_receipt(receipt)
 
-        status = await temp_storage.delivery_status("plan-proj", "adapter_y")
+        status = await temp_storage.delivery_status("plan-proj", "adapter_y", event_id="evt-proj")
         assert status is not None
         assert status.status == "suppressed"
         assert status.receipt_id == "rcpt-proj-2"
@@ -271,7 +271,7 @@ class TestAppendOnlyReceipts:
             await temp_storage.append_receipt(receipt)
 
         # Consume delivery_status — this must not mutate receipt rows.
-        await temp_storage.delivery_status("plan-hist", "adapter_z")
+        await temp_storage.delivery_status("plan-hist", "adapter_z", event_id="evt-hist")
 
         rows = await temp_storage._read_all(
             "SELECT receipt_id, status FROM delivery_receipts WHERE delivery_plan_id = ? AND target_adapter = ? ORDER BY sequence ASC",
@@ -401,7 +401,7 @@ class TestReceiptLineage:
         )
         await temp_storage.append_receipt(receipt)
 
-        status = await temp_storage.delivery_status("plan-lin", "adapter_a")
+        status = await temp_storage.delivery_status("plan-lin", "adapter_a", event_id="evt-lineage-1")
         assert status is not None
         assert status.attempt_number == 3
         assert status.parent_receipt_id == "rcpt-lin-0"
@@ -445,7 +445,7 @@ class TestReceiptLineage:
         await temp_storage.append_receipt(r3)
 
         # list_receipts_for_plan returns all in attempt order.
-        receipts = await temp_storage.list_receipts_for_plan("plan-chain", "adapter_b")
+        receipts = await temp_storage.list_receipts_for_plan("plan-chain", "adapter_b", event_id="evt-chain")
         assert len(receipts) == 3
         assert [r.attempt_number for r in receipts] == [1, 2, 3]
         assert receipts[0].parent_receipt_id is None
@@ -458,7 +458,7 @@ class TestReceiptLineage:
     ) -> None:
         """list_receipts_for_plan returns empty list for unknown plan."""
         receipts = await temp_storage.list_receipts_for_plan(
-            "nonexistent-plan", "nonexistent-adapter"
+            "nonexistent-plan", "nonexistent-adapter", event_id="evt-missing-lineage"
         )
         assert receipts == []
 
@@ -478,7 +478,7 @@ class TestReceiptLineage:
         )
         await temp_storage.append_receipt(receipt)
 
-        status = await temp_storage.delivery_status("plan-default", "adapter_c")
+        status = await temp_storage.delivery_status("plan-default", "adapter_c", event_id="evt-default-attempt")
         assert status is not None
         assert status.attempt_number == 1
         assert status.parent_receipt_id is None
@@ -510,10 +510,10 @@ class TestReceiptLineage:
         await temp_storage.append_receipt(r_b)
 
         receipts_a = await temp_storage.list_receipts_for_plan(
-            "plan-indep", "adapter_a"
+            "plan-indep", "adapter_a", event_id="evt-indep"
         )
         receipts_b = await temp_storage.list_receipts_for_plan(
-            "plan-indep", "adapter_b"
+            "plan-indep", "adapter_b", event_id="evt-indep"
         )
         assert len(receipts_a) == 1
         assert len(receipts_b) == 1
@@ -707,7 +707,7 @@ class TestReceiptQueryHelpers:
                 )
             )
 
-        status = await temp_storage.delivery_status("plan-idx", "adapter_idx")
+        status = await temp_storage.delivery_status("plan-idx", "adapter_idx", event_id="evt-idx-verify")
         assert status is not None
         assert status.status == "suppressed"
         assert status.attempt_number == 3
@@ -815,7 +815,7 @@ class TestReceiptSourceReplayRunId:
         )
         await temp_storage.append_receipt(receipt)
 
-        fetched = await temp_storage.delivery_status("plan-live", "adapter_a")
+        fetched = await temp_storage.delivery_status("plan-live", "adapter_a", event_id="evt-live-rcpt")
         assert fetched is not None
         assert fetched.source == "live"
         assert fetched.replay_run_id is None
@@ -836,7 +836,7 @@ class TestReceiptSourceReplayRunId:
         )
         await temp_storage.append_receipt(receipt)
 
-        fetched = await temp_storage.delivery_status("plan-replay", "adapter_b")
+        fetched = await temp_storage.delivery_status("plan-replay", "adapter_b", event_id="evt-replay-rcpt")
         assert fetched is not None
         assert fetched.source == "replay"
         assert fetched.replay_run_id == "run-abc-123"
@@ -883,7 +883,7 @@ class TestReceiptSourceReplayRunId:
         await temp_storage.append_receipt(r1)
         await temp_storage.append_receipt(r2)
 
-        receipts = await temp_storage.list_receipts_for_plan("plan-list", "adapter_d")
+        receipts = await temp_storage.list_receipts_for_plan("plan-list", "adapter_d", event_id="evt-list-rcpt")
         assert len(receipts) == 2
         assert receipts[0].source == "live"
         assert receipts[0].replay_run_id is None
@@ -918,7 +918,7 @@ class TestDeliveryStatusFailureKind:
         )
         await temp_storage.append_receipt(receipt)
 
-        status = await temp_storage.delivery_status("plan-fk", "adapter_fk")
+        status = await temp_storage.delivery_status("plan-fk", "adapter_fk", event_id="evt-fk-1")
         assert status is not None
         assert status.failure_kind == "adapter_transient"
 
@@ -938,7 +938,7 @@ class TestDeliveryStatusFailureKind:
         )
         await temp_storage.append_receipt(receipt)
 
-        status = await temp_storage.delivery_status("plan-fk-sent", "adapter_fk_sent")
+        status = await temp_storage.delivery_status("plan-fk-sent", "adapter_fk_sent", event_id="evt-fk-sent")
         assert status is not None
         assert status.failure_kind is None
 
@@ -1116,7 +1116,7 @@ class TestReceiptRenderingEvidence:
         await temp_storage.append_receipt(receipt)
 
         # Read back via delivery_status.
-        status = await temp_storage.delivery_status("plan-rev", "fake_presentation")
+        status = await temp_storage.delivery_status("plan-rev", "fake_presentation", event_id="evt-rev-ev")
         assert status is not None
         assert status.receipt_id == "rcpt-rev-1"
         assert status.rendering_evidence is not None
@@ -1144,7 +1144,7 @@ class TestReceiptRenderingEvidence:
         )
         await temp_storage.append_receipt(receipt)
 
-        status = await temp_storage.delivery_status("plan-no-ev", "fake_presentation")
+        status = await temp_storage.delivery_status("plan-no-ev", "fake_presentation", event_id="evt-no-ev")
         assert status is not None
         assert status.rendering_evidence is None
 
@@ -1166,7 +1166,7 @@ class TestReceiptRenderingEvidence:
         )
         await temp_storage.append_receipt(receipt)
 
-        status = await temp_storage.delivery_status("plan-supp-ev", "fake_presentation")
+        status = await temp_storage.delivery_status("plan-supp-ev", "fake_presentation", event_id="evt-supp-ev")
         assert status is not None
         assert status.status == "suppressed"
         assert status.rendering_evidence is None
@@ -1237,7 +1237,8 @@ class TestReceiptRenderingEvidence:
         await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-queued-ev", "fake_presentation"
+            "plan-queued-ev", "fake_presentation",
+            event_id="evt-queued-ev",
         )
         assert status is not None
         assert status.status == "queued"
@@ -1290,7 +1291,8 @@ class TestReceiptRenderingEvidence:
 
         # Read back via delivery_status.
         status = await temp_storage.delivery_status(
-            "plan-e2e", "fake_presentation", "ch-1"
+            "plan-e2e", "fake_presentation", "ch-1",
+            event_id="evt-e2e-evidence",
         )
         assert status is not None
         assert status.rendering_evidence is not None
@@ -1352,7 +1354,8 @@ class TestReceiptRenderingEvidence:
 
         # Verify the sent receipt also carries the original evidence.
         status = await temp_storage.delivery_status(
-            "plan-qev-surv", "fake_presentation"
+            "plan-qev-surv", "fake_presentation",
+            event_id="evt-qev-survive",
         )
         assert status is not None
         assert status.status == "sent"
