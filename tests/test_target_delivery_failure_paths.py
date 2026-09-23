@@ -54,8 +54,6 @@ class _FakeStorage:
         self.native_refs.append(ref)
 
 
-
-
 def _assert_terminal_failure_chain(
     receipts: list[DeliveryReceipt],
     *,
@@ -72,6 +70,7 @@ def _assert_terminal_failure_chain(
     assert lifecycle.failure_kind == failure_kind.value
     assert lifecycle.attempt_number == attempt.attempt_number
     assert lifecycle.parent_receipt_id == attempt.receipt_id
+
 
 class _FakeRenderingPipeline:
     """Rendering pipeline stub whose render() behaviour is configurable."""

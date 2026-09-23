@@ -1048,6 +1048,7 @@ class TestUncorrelatedQueuedItems:
         assert "Queued without queued receipt linkage" in item.reason_pending
         assert "stale-grace reclaim" in item.reason_pending
 
+
 def test_receipt_only_evidence_is_not_hidden_by_other_event_outbox() -> None:
     summary = build_retry_outbox_summary(
         receipts=[

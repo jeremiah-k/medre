@@ -38,6 +38,7 @@ from medre.core.engine.pipeline.delivery_coordinator import (
     DeliveryCoordinator,
     InflightDelivery,
 )
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
     is_accepted_outcome_status as _is_accepted_outcome_status,
@@ -46,7 +47,6 @@ from medre.core.engine.pipeline.outbox_manager import (
     OUTBOX_CREATION_FAILED_REASON,
     OutboxManager,
 )
-from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.target_delivery import TargetDeliveryService
 from medre.core.events.bus import EventBus
 from medre.core.events.canonical import (

@@ -183,7 +183,9 @@ class _MemoryStorage:
         if terminal_status not in {"dead_lettered", "cancelled", "abandoned"}:
             raise ValueError("unsupported terminal_status")
         if receipt.receipt_kind != "lifecycle" or receipt.status != terminal_status:
-            raise ValueError("terminal finalization requires matching lifecycle evidence")
+            raise ValueError(
+                "terminal finalization requires matching lifecycle evidence"
+            )
         if (
             receipt.outbox_id != outbox_id
             or receipt.event_id != event_id
@@ -206,7 +208,9 @@ class _MemoryStorage:
                 or attempt_receipt.attempt_number != receipt.attempt_number
                 or receipt.parent_receipt_id != attempt_receipt.receipt_id
             ):
-                raise ValueError("terminal lifecycle receipt must link to failed attempt")
+                raise ValueError(
+                    "terminal lifecycle receipt must link to failed attempt"
+                )
 
         item = self._outbox.get(outbox_id)
         if (
@@ -217,10 +221,7 @@ class _MemoryStorage:
             or (item.target_channel or None) != (target_channel or None)
             or item.status not in {"queued", "in_progress"}
             or _effective_attempt(item) != attempt_number
-            or (
-                expected_worker_id is not None
-                and item.worker_id != expected_worker_id
-            )
+            or (expected_worker_id is not None and item.worker_id != expected_worker_id)
         ):
             return False
 

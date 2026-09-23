@@ -22,7 +22,6 @@ from medre.core.engine.pipeline.delivery_state import (
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.planning.delivery_plan import (
-    DeliveryFailureKind,
     DeliveryPlan,
     RetryPolicy,
 )

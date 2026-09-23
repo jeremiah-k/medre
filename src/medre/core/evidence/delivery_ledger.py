@@ -441,9 +441,7 @@ def build_delivery_outcome_ledger(
 
         authority_kind = _receipt_kind(authority) if authority is not None else None
         lifecycle_status = str(
-            (outbox or {}).get("status")
-            or (authority or {}).get("status")
-            or "unknown"
+            (outbox or {}).get("status") or (authority or {}).get("status") or "unknown"
         )
         outbox_status = str(outbox.get("status")) if outbox is not None else None
         failure_kind = (authority or {}).get("failure_kind") or (outbox or {}).get(

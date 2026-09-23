@@ -863,6 +863,7 @@ class TestMultipleTaxaInAggregate:
         assert ledger.aggregate_counts["by_failure_taxon"]["adapter_transient"] == 1
         assert ledger.aggregate_counts["by_failure_taxon"]["retry_exhausted"] == 1
 
+
 # ===================================================================
 # 19. Event-scoped authority and explicit operator semantics
 # ===================================================================
@@ -905,7 +906,10 @@ class TestEventScopedAuthority:
             ]
         )
         assert len(ledger.entries) == 2
-        assert {entry.event_id for entry in ledger.entries.values()} == {"evt-a", "evt-b"}
+        assert {entry.event_id for entry in ledger.entries.values()} == {
+            "evt-a",
+            "evt-b",
+        }
 
     def test_uncommitted_outbox_receipt_is_history_not_authority(self) -> None:
         ledger = build_delivery_outcome_ledger(

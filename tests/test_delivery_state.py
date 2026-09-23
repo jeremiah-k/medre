@@ -131,7 +131,13 @@ class TestAdapterDeliveryStatuses:
 class TestTerminalReceiptStatus:
     """TERMINAL_RECEIPT_STATUSES and is_terminal_receipt_status."""
 
-    EXPECTED_TERMINAL = {"sent", "dead_lettered", "cancelled", "abandoned", "suppressed"}
+    EXPECTED_TERMINAL = {
+        "sent",
+        "dead_lettered",
+        "cancelled",
+        "abandoned",
+        "suppressed",
+    }
     EXPECTED_NON_TERMINAL = {"queued", "failed"}
 
     def test_terminal_set(self) -> None:

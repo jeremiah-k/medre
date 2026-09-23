@@ -460,9 +460,7 @@ class TestPipeline:
             )
             assert len(rows) == 3
             good_rows = [row for row in rows if row["target_adapter"] == "good"]
-            failing_rows = [
-                row for row in rows if row["target_adapter"] == "failing"
-            ]
+            failing_rows = [row for row in rows if row["target_adapter"] == "failing"]
             assert [(row["status"], row["receipt_kind"]) for row in good_rows] == [
                 ("sent", "attempt")
             ]

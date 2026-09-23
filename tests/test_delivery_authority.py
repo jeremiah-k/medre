@@ -105,8 +105,6 @@ def test_resolver_keeps_all_outbox_generations_authoritative() -> None:
     assert current["receipt_id"] == "gen-2"
 
 
-
-
 def test_newer_generation_outranks_late_append_from_older_generation() -> None:
     receipts = [
         _receipt("gen-2", sequence=2, outbox_id="obox-2", attempt=2),
@@ -123,6 +121,7 @@ def test_newer_generation_outranks_late_append_from_older_generation() -> None:
     current = resolver.current(delivery_identity(receipts[0]))
     assert current is not None
     assert current["receipt_id"] == "gen-2"
+
 
 def test_outboxless_receipt_remains_eligible_with_outbox_generations() -> None:
     receipts = [
@@ -233,6 +232,8 @@ async def test_sqlite_delivery_status_matches_shared_resolver(
     assert projected is not None
     assert resolved.receipt_id == "auth-gen-2"
     assert projected.receipt_id == resolved.receipt_id
+
+
 async def test_sqlite_newer_generation_outranks_late_committed_older_generation(
     temp_storage: SQLiteStorage,
 ) -> None:

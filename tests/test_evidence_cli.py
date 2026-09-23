@@ -1260,8 +1260,11 @@ class TestDeadLetterIncidentSummary:
         parsed = _json.loads(key)
         assert parsed["target_adapter"] == "radio"
         assert parsed["target_channel"] == "ch-42"
-        assert parsed["route_id"] == "route-tch"
         assert parsed["delivery_plan_id"] == "dp-tch-001"
+        assert parsed["event_id"] == event_id
+        # Route is provenance, not delivery identity: the event-scoped
+        # delivery identity key does not partition by route_id.
+        assert "route_id" not in parsed
 
         entry = next(iter(dsbt.values()))
         assert entry["target_channel"] == "ch-42"

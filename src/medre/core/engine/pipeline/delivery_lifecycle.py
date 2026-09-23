@@ -2062,7 +2062,7 @@ class DeliveryLifecycleService:
 
     async def finalize_outbox_outcome(
         self,
-        storage: StorageBackend,
+        storage: DeliveryLifecycleStorage,
         *,
         outbox_id: str | None,
         outbox_created: bool,

@@ -18,6 +18,7 @@ from .helpers import (
     _TERMINAL_RECEIPT,
     _get,
     _target_key,
+    _TargetKey,
 )
 from .types import (
     KIND_RECLAIMED_THEN_ORPHANED,

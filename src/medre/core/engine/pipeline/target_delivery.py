@@ -832,8 +832,7 @@ class TargetDeliveryService:
 
         if status == "failed":
             failure_kind = (
-                _classified_failure_kind
-                or DeliveryFailureKind.ADAPTER_TRANSIENT
+                _classified_failure_kind or DeliveryFailureKind.ADAPTER_TRANSIENT
             )
             evidence = await self._persist_failure_evidence(
                 event=event,

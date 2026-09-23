@@ -901,7 +901,10 @@ class DeliveryCoordinator:
         """Reload receipt rows while preserving execution-evidence invariants."""
         attempt = await self._persisted_receipt(evidence.attempt_receipt)
         authority = await self._persisted_receipt(evidence.authority_receipt)
-        if attempt is evidence.attempt_receipt and authority is evidence.authority_receipt:
+        if (
+            attempt is evidence.attempt_receipt
+            and authority is evidence.authority_receipt
+        ):
             return evidence
         return DeliveryExecutionEvidence(
             attempt_receipt=attempt,

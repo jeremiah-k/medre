@@ -121,7 +121,9 @@ async def _receipt_ids(storage: object, event_id: str) -> list[str]:
 
 
 @pytest.fixture(params=("memory", "sqlite"))
-async def lifecycle_storage(request: pytest.FixtureRequest, temp_storage: SQLiteStorage):
+async def lifecycle_storage(
+    request: pytest.FixtureRequest, temp_storage: SQLiteStorage
+):
     if request.param == "memory":
         return _MemoryStorage()
     return temp_storage

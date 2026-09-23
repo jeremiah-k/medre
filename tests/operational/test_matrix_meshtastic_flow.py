@@ -380,7 +380,9 @@ class _FakeStorage:
         if terminal_status not in {"dead_lettered", "cancelled", "abandoned"}:
             raise ValueError("unsupported terminal_status")
         if receipt.receipt_kind != "lifecycle" or receipt.status != terminal_status:
-            raise ValueError("terminal finalization requires matching lifecycle evidence")
+            raise ValueError(
+                "terminal finalization requires matching lifecycle evidence"
+            )
         if (
             receipt.outbox_id != outbox_id
             or receipt.event_id != event_id
@@ -418,10 +420,7 @@ class _FakeStorage:
             or (item.target_channel or None) != (target_channel or None)
             or item.status not in {"queued", "in_progress"}
             or effective_attempt != attempt_number
-            or (
-                expected_worker_id is not None
-                and item.worker_id != expected_worker_id
-            )
+            or (expected_worker_id is not None and item.worker_id != expected_worker_id)
         ):
             return False
 

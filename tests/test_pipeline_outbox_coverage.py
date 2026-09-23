@@ -386,13 +386,26 @@ class TestAttemptNumberAuthority:
         )
         await manager.record_terminal(record)
 
+        # Queue exhaustion proves the enqueued attempt failed: one attempt
+        # receipt (failed) plus one linked lifecycle receipt (dead_lettered)
+        # at the SAME attempt number, and the outbox pointer names the
+        # lifecycle receipt as terminal authority.
         receipts = await temp_storage.list_receipts_for_event("evt-attempt-existing")
-        assert len(receipts) == 1
-        assert receipts[0].attempt_number == 7
+        assert len(receipts) == 2
+        attempt_receipt = receipts[0]
+        lifecycle_receipt = receipts[1]
+        assert attempt_receipt.receipt_kind == "attempt"
+        assert attempt_receipt.status == "failed"
+        assert attempt_receipt.attempt_number == 7
+        assert lifecycle_receipt.receipt_kind == "lifecycle"
+        assert lifecycle_receipt.status == "dead_lettered"
+        assert lifecycle_receipt.attempt_number == 7
+        assert lifecycle_receipt.parent_receipt_id == attempt_receipt.receipt_id
 
         outbox = await temp_storage.get_outbox_item("obox-attempt-existing")
         assert outbox is not None
         assert outbox.status == "dead_lettered"
+        assert outbox.receipt_id == lifecycle_receipt.receipt_id
 
 
 class TestCancelledAndAbandonedTransitions:
@@ -437,16 +450,19 @@ class TestCancelledAndAbandonedTransitions:
         )
         await manager.record_terminal(record)
 
-        # Receipt should exist with status=failed.
+        # Cancellation is a lifecycle-only transition: one lifecycle receipt
+        # carries the terminal state; no dispatch failure is manufactured.
         receipts = await temp_storage.list_receipts_for_event("evt-cancelled-001")
         assert len(receipts) == 1
-        assert receipts[0].status == "failed"
+        assert receipts[0].status == "cancelled"
+        assert receipts[0].receipt_kind == "lifecycle"
         assert receipts[0].failure_kind == "adapter_transient"
 
-        # Outbox should be cancelled.
+        # Outbox should be cancelled, pointing at the lifecycle receipt.
         outbox = await temp_storage.get_outbox_item("obox-cancelled-001")
         assert outbox is not None
         assert outbox.status == "cancelled"
+        assert outbox.receipt_id == receipts[0].receipt_id
 
     async def test_abandoned_outcome_marks_abandoned(
         self,
@@ -486,13 +502,16 @@ class TestCancelledAndAbandonedTransitions:
         )
         await manager.record_terminal(record)
 
-        # Receipt should exist.
+        # Abandonment is a lifecycle-only transition: one lifecycle receipt
+        # carries the terminal state; no dispatch failure is manufactured.
         receipts = await temp_storage.list_receipts_for_event("evt-abandoned-001")
         assert len(receipts) == 1
-        assert receipts[0].status == "failed"
+        assert receipts[0].status == "abandoned"
+        assert receipts[0].receipt_kind == "lifecycle"
         assert receipts[0].failure_kind == "adapter_transient"
 
-        # Outbox should be abandoned.
+        # Outbox should be abandoned, pointing at the lifecycle receipt.
         outbox = await temp_storage.get_outbox_item("obox-abandoned-001")
         assert outbox is not None
         assert outbox.status == "abandoned"
+        assert outbox.receipt_id == receipts[0].receipt_id

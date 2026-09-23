@@ -16,15 +16,15 @@ Delivery receipts carry both a status and a semantic evidence kind. Attempt
 receipts describe a delivery execution generation; lifecycle receipts describe
 state transitions that do not create another dispatch attempt.
 
-| Status          | Kind        | Terminal | Meaning                                                                                        |
-| --------------- | ----------- | -------- | ---------------------------------------------------------------------------------------------- |
-| `queued`        | attempt     | No       | Adapter accepted the event into a local send queue.                                            |
-| `sent`          | attempt     | Yes      | Adapter reported successful handoff to the transport layer.                                    |
-| `failed`        | attempt     | No       | Delivery attempt failed. May be followed by retry or dead letter.                              |
-| `dead_lettered` | lifecycle   | Yes      | Retry budget exhausted or delivery became terminally undeliverable.                            |
-| `cancelled`     | lifecycle   | Yes      | Explicit cancellation lifecycle transition.                                                    |
-| `abandoned`     | lifecycle   | Yes      | Delivery lifecycle abandoned because durable execution cannot continue.                        |
-| `suppressed`    | lifecycle   | Yes      | Delivery was suppressed without a transport attempt.                                           |
+| Status          | Kind      | Terminal | Meaning                                                                 |
+| --------------- | --------- | -------- | ----------------------------------------------------------------------- |
+| `queued`        | attempt   | No       | Adapter accepted the event into a local send queue.                     |
+| `sent`          | attempt   | Yes      | Adapter reported successful handoff to the transport layer.             |
+| `failed`        | attempt   | No       | Delivery attempt failed. May be followed by retry or dead letter.       |
+| `dead_lettered` | lifecycle | Yes      | Retry budget exhausted or delivery became terminally undeliverable.     |
+| `cancelled`     | lifecycle | Yes      | Explicit cancellation lifecycle transition.                             |
+| `abandoned`     | lifecycle | Yes      | Delivery lifecycle abandoned because durable execution cannot continue. |
+| `suppressed`    | lifecycle | Yes      | Delivery was suppressed without a transport attempt.                    |
 
 ### 1.2 Transition Graph
 
@@ -377,14 +377,14 @@ corresponding receipt. This enables:
 
 ### 3.3 Terminal State Correspondence
 
-| Outbox Terminal | Receipt Terminal  | Condition                                                                                                                                       |
-| --------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sent`          | `sent`            | Successful delivery                                                                                                                             |
-| `sent`          | `queued` → `sent` | Queue-based: initial queued, then sent on confirmation                                                                                          |
-| `dead_lettered` | `dead_lettered`   | Retry exhaustion or terminal failure                                                                                                            |
-| `cancelled`     | `cancelled`        | Lifecycle evidence for an explicit cancellation when an event-backed outbox row can be correlated                                              |
-| `abandoned`     | `abandoned` / `suppressed` | Lifecycle evidence for abandonment; legacy shutdown-drain evidence is normalized in the terminal-evidence tranche                              |
-| —               | `suppressed`      | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"`                               |
+| Outbox Terminal | Receipt Terminal           | Condition                                                                                                         |
+| --------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `sent`          | `sent`                     | Successful delivery                                                                                               |
+| `sent`          | `queued` → `sent`          | Queue-based: initial queued, then sent on confirmation                                                            |
+| `dead_lettered` | `dead_lettered`            | Retry exhaustion or terminal failure                                                                              |
+| `cancelled`     | `cancelled`                | Lifecycle evidence for an explicit cancellation when an event-backed outbox row can be correlated                 |
+| `abandoned`     | `abandoned` / `suppressed` | Lifecycle evidence for abandonment; legacy shutdown-drain evidence is normalized in the terminal-evidence tranche |
+| —               | `suppressed`               | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"` |
 
 ### 3.4 Implicit Suppression Paths
 
@@ -424,21 +424,21 @@ The module defines four status vocabularies as `frozenset` constants:
 
 | Constant                    | Values                                                                                              | Used by                          |
 | --------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------- |
-| `RECEIPT_STATUSES`          | `queued`, `sent`, `failed`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                   | `DeliveryReceipt.status`         |
+| `RECEIPT_STATUSES`          | `queued`, `sent`, `failed`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                 | `DeliveryReceipt.status`         |
 | `OUTBOX_STATUSES`           | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` | `DeliveryOutboxItem.status`      |
 | `OUTCOME_STATUSES`          | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            | `DeliveryOutcome.status`         |
 | `ADAPTER_DELIVERY_STATUSES` | `sent`, `enqueued`                                                                                  | `OutboundResult.delivery_status` |
 
 Classification subsets:
 
-| Constant                        | Subset of          | Values                                            |
-| ------------------------------- | ------------------ | ------------------------------------------------- |
+| Constant                        | Subset of          | Values                                                          |
+| ------------------------------- | ------------------ | --------------------------------------------------------------- |
 | `TERMINAL_RECEIPT_STATUSES`     | `RECEIPT_STATUSES` | `sent`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed` |
-| `NON_TERMINAL_RECEIPT_STATUSES` | `RECEIPT_STATUSES` | `queued`, `failed`                                |
-| `TERMINAL_OUTBOX_STATUSES`      | `OUTBOX_STATUSES`  | `sent`, `dead_lettered`, `cancelled`, `abandoned` |
-| `NON_TERMINAL_OUTBOX_STATUSES`  | `OUTBOX_STATUSES`  | `pending`, `in_progress`, `queued`, `retry_wait`  |
-| `CLAIMABLE_OUTBOX_STATUSES`     | `OUTBOX_STATUSES`  | `pending`, `retry_wait`                           |
-| `ACCEPTED_OUTCOME_STATUSES`     | `OUTCOME_STATUSES` | `success`, `queued`                               |
+| `NON_TERMINAL_RECEIPT_STATUSES` | `RECEIPT_STATUSES` | `queued`, `failed`                                              |
+| `TERMINAL_OUTBOX_STATUSES`      | `OUTBOX_STATUSES`  | `sent`, `dead_lettered`, `cancelled`, `abandoned`               |
+| `NON_TERMINAL_OUTBOX_STATUSES`  | `OUTBOX_STATUSES`  | `pending`, `in_progress`, `queued`, `retry_wait`                |
+| `CLAIMABLE_OUTBOX_STATUSES`     | `OUTBOX_STATUSES`  | `pending`, `retry_wait`                                         |
+| `ACCEPTED_OUTCOME_STATUSES`     | `OUTCOME_STATUSES` | `success`, `queued`                                             |
 
 Transition tables are declarative `dict[str, frozenset[str]]` mappings. Terminal statuses have no outgoing entries. The tables are consumed by `validate_receipt_transition()` and `validate_outbox_transition()` helpers, which return `bool` without raising exceptions.
 

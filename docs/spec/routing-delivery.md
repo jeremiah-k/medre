@@ -712,15 +712,15 @@ class DeliveryReceipt:
 
 Receipt status is a closed vocabulary paired with an evidence kind:
 
-| Status          | Kind      | Meaning                                                                           |
-| --------------- | --------- | --------------------------------------------------------------------------------- |
-| `queued`        | attempt   | Delivery enqueued for adapter execution                                           |
-| `sent`          | attempt   | Adapter reported successful handoff                                               |
-| `failed`        | attempt   | Delivery attempt failed                                                           |
-| `dead_lettered` | lifecycle | Delivery became terminally undeliverable                                          |
-| `cancelled`     | lifecycle | Delivery was explicitly cancelled                                                 |
-| `abandoned`     | lifecycle | Durable delivery execution was abandoned                                          |
-| `suppressed`    | lifecycle | Delivery was suppressed without a transport attempt                               |
+| Status          | Kind      | Meaning                                             |
+| --------------- | --------- | --------------------------------------------------- |
+| `queued`        | attempt   | Delivery enqueued for adapter execution             |
+| `sent`          | attempt   | Adapter reported successful handoff                 |
+| `failed`        | attempt   | Delivery attempt failed                             |
+| `dead_lettered` | lifecycle | Delivery became terminally undeliverable            |
+| `cancelled`     | lifecycle | Delivery was explicitly cancelled                   |
+| `abandoned`     | lifecycle | Durable delivery execution was abandoned            |
+| `suppressed`    | lifecycle | Delivery was suppressed without a transport attempt |
 
 ### 8.2 Append-Only Semantics
 

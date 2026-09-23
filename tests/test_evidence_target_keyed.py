@@ -360,7 +360,9 @@ class TestRouteIsProvenanceNotIdentity:
     """Same adapter and channel but different route IDs produce distinct entries."""
 
     @pytest.mark.asyncio
-    async def test_same_identity_collapses_across_route_provenance(self, tmp_path: Any) -> None:
+    async def test_same_identity_collapses_across_route_provenance(
+        self, tmp_path: Any
+    ) -> None:
         event_id = "ev-tk-routes-001"
         db_path = str(tmp_path / "routes.db")
         await _build_db(
@@ -395,7 +397,9 @@ class TestRouteIsProvenanceNotIdentity:
         assert entry["route_id"] == "route-beta"
 
     @pytest.mark.asyncio
-    async def test_selected_receipt_preserves_route_provenance(self, tmp_path: Any) -> None:
+    async def test_selected_receipt_preserves_route_provenance(
+        self, tmp_path: Any
+    ) -> None:
         event_id = "ev-tk-rids-001"
         db_path = str(tmp_path / "rids.db")
         await _build_db(

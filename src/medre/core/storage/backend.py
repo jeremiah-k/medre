@@ -431,7 +431,6 @@ def attempt_source_label(source: str | None, replay_run_id: str | None) -> str:
     return src
 
 
-
 # ---------------------------------------------------------------------------
 # DeliveryOutboxItem
 # ---------------------------------------------------------------------------

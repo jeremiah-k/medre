@@ -135,9 +135,7 @@ class _DeliveryFinalizationMixin:
                 f"status (dead_lettered/cancelled/abandoned), got {terminal_status!r}"
             )
         if receipt.receipt_kind != "lifecycle":
-            raise ValueError(
-                "terminal outbox finalization requires lifecycle evidence"
-            )
+            raise ValueError("terminal outbox finalization requires lifecycle evidence")
         if receipt.status != terminal_status:
             raise ValueError(
                 "terminal lifecycle receipt status must match terminal_status"

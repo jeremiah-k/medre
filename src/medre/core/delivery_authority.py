@@ -119,7 +119,9 @@ def delivery_identity_sort_key(identity: DeliveryIdentity) -> tuple[str, str, st
     )
 
 
-def authority_index(outbox_items: Iterable[Any]) -> dict[DeliveryIdentity, ReceiptAuthority]:
+def authority_index(
+    outbox_items: Iterable[Any],
+) -> dict[DeliveryIdentity, ReceiptAuthority]:
     """Index exact committed outbox pointers by full delivery identity."""
     mutable: dict[DeliveryIdentity, set[tuple[str, str, int]]] = {}
     for item in outbox_items:
@@ -164,9 +166,7 @@ def group_outbox_by_identity(
 def _outbox_rank(item: Any) -> tuple[int, str, str, str]:
     """Rank operational generations without relying on incidental list order."""
     effective_attempt = int(
-        _get(item, "active_attempt")
-        or _get(item, "attempt_number")
-        or 1
+        _get(item, "active_attempt") or _get(item, "attempt_number") or 1
     )
     return (
         effective_attempt,
