@@ -337,25 +337,77 @@ class StorageBackend(Protocol):
         are eligible."""
         ...
 
-    async def mark_outbox_sent(self, outbox_id: str, receipt_id: str) -> None:
-        """Mark an outbox item as sent (terminal)."""
+    async def reserve_outbox_attempt(
+        self, outbox_id: str, worker_id: str, from_attempt: int,
+    ) -> int | None:
+        """Reserve the next attempt on a row still owned by worker_id."""
         ...
 
-    async def mark_outbox_failed(
-        self, outbox_id: str, failure_kind: str, error_summary: str,
-        next_attempt_at: datetime | None = None,
-    ) -> None:
-        """Mark an outbox item as retry_wait or dead_lettered."""
+    async def clear_outbox_attempt_reservation(
+        self, outbox_id: str, worker_id: str, active_attempt: int,
+    ) -> bool:
+        """Release an exact stale reservation on a claimed row."""
+        ...
+
+    async def mark_outbox_sent(
+        self, outbox_id: str, receipt_id: str | None = None,
+        attempt_number: int | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
+        """Mark an outbox item as sent when all guards still match."""
+        ...
+
+    async def mark_outbox_queued(
+        self, outbox_id: str, receipt_id: str | None = None,
+        attempt_number: int | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
+        """Mark an outbox item as queued when all guards still match."""
+        ...
+
+    async def mark_outbox_retry_wait(
+        self, outbox_id: str, next_attempt_at: str,
+        receipt_id: str | None = None, failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None, attempt_number: int | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
+        """Schedule retry_wait when all attempt/owner guards still match."""
         ...
 
     async def mark_outbox_dead_lettered(
-        self, outbox_id: str, failure_kind: str, error_summary: str,
-    ) -> None:
-        """Mark an outbox item as dead_lettered (terminal)."""
+        self, outbox_id: str, receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        failure_kind_detail: str | None = None,
+        error_summary: str | None = None, attempt_number: int | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
+        """Mark dead-lettered when all attempt/owner guards still match."""
         ...
 
-    async def release_outbox_claim(self, outbox_id: str) -> None:
-        """Release a claimed outbox item back to pending."""
+    async def mark_outbox_cancelled(
+        self, outbox_id: str, error_summary: str | None = None,
+    ) -> bool:
+        """Mark an outbox item cancelled from any non-terminal state."""
+        ...
+
+    async def mark_outbox_abandoned(
+        self, outbox_id: str, error_summary: str | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
+        """Mark abandoned when the optional owner guard still matches."""
+        ...
+
+    async def renew_outbox_lease(
+        self, outbox_id: str, worker_id: str, lease_until: str,
+    ) -> bool:
+        """Extend a lease only while worker_id still owns in_progress."""
+        ...
+
+    async def release_outbox_claim(
+        self, outbox_id: str, worker_id: str, *, release_status: str = "pending"
+    ) -> None:
+        """Release a claim only while worker_id still owns the row."""
         ...
 
     async def count_outbox_by_status(self) -> dict[str, int]:

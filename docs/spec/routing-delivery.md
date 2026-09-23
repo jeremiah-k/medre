@@ -592,10 +592,31 @@ A non-retryable failure discovered during a retry attempt is terminal immediatel
    produce an unrepresentable timestamp. The hint cannot shorten policy backoff,
    bypass retry exhaustion, or make a permanent failure retryable.
 2. `RetryWorker` claims due outbox rows through `claim_due_outbox_items()`, loads the canonical event, reads the latest delivery status, and reconstructs the original delivery context from durable outbox metadata plus prior receipt evidence. Its direct storage surface is intentionally limited to claim/read operations; it does not inspect failure/dead-letter receipt chains or write durable lifecycle state directly. Reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, `target_identity`, `capability_level`, `delivery_strategy`, `capability_field`, `capability_reason`, and `deadline`. The route-decision keys are required durable state; missing or malformed values fail reconstruction and are abandoned rather than silently re-planned or defaulted.
-3. Before capacity acquisition or transport dispatch, the worker calls `DeliveryLifecycleService.reconcile_retry_claim()`. This preflight inspects only evidence attributable to `item.attempt_number + 1`. If a previous process persisted that attempt's receipt but failed before committing the matching outbox transition, lifecycle reconciliation repairs the outbox and the worker MUST skip transport dispatch. This makes lease reclaim safe after partial persistence and prevents duplicate sends of already accepted deliveries.
+3. Before capacity acquisition or transport dispatch, the worker calls
+   `DeliveryLifecycleService.reconcile_retry_claim()`. When the claimed row
+   carries a live `active_attempt` reservation, this preflight inspects only
+   evidence for that reserved attempt; if no evidence exists, it releases the
+   reservation so re-dispatch can reserve the same number. An unreserved row
+   is checked defensively for evidence at `item.attempt_number + 1`. If a
+   previous process persisted that attempt's receipt but failed before
+   committing the matching outbox transition, lifecycle reconciliation repairs
+   the outbox and the worker MUST skip transport dispatch. This makes lease
+   reclaim safe after partial persistence and prevents duplicate sends of
+   already accepted deliveries.
 4. Before capacity acquisition or transport dispatch, the worker checks startup target availability (LIVE scope). When startup classification recorded the row's target adapter as not started, the worker asks `DeliveryLifecycleService.defer_retry_outbox` to reschedule the row (`failure_kind=ADAPTER_TRANSIENT`, durable `adapter_unavailable_startup` marker on the outbox row). Because step 3 already reconciled persisted completion evidence, deferral cannot hide a terminal outcome from a prior attempt. `attempt_number` is unchanged — no transport attempt is consumed for a delivery that never ran — and the worker emits a truthful `retry_failed` event with `status=adapter_unavailable_startup`. Deferred rows stay durable and are re-claimed on later cycles; they are never dispatched into an adapter that did not complete startup and never exhausted as if an attempt had run. An adapter permanently disabled or removed from configuration keeps its durable work under the same rule; deferral is not an auto-heal.
-5. If no persisted next-attempt evidence exists, the worker attempts to acquire delivery capacity. If capacity is unavailable, it asks `DeliveryLifecycleService` to schedule outbox backoff. Receipts remain immutable; capacity rejection does not modify an existing receipt and does not advance `attempt_number`.
-6. If capacity is acquired, the worker re-invokes the same delivery pipeline. The retry receipt carries `source='retry'`, `target_channel`, and `route_id`. Each attempt appends new receipt evidence; earlier receipts are never overwritten.
+5. If no persisted next-attempt evidence exists, the worker attempts to acquire
+   delivery capacity. If capacity is unavailable, it asks
+   `DeliveryLifecycleService` to schedule outbox backoff. Receipts remain
+   immutable; capacity rejection does not modify an existing receipt and does
+   not advance `attempt_number`.
+6. If capacity is acquired, the worker durably reserves the dispatch attempt
+   (`active_attempt = attempt_number + 1`) and synchronously renews its claim
+   lease before invoking the transport. Reservation or initial lease-renewal
+   failure aborts dispatch. While the transport call is running, the worker
+   renews the lease periodically. It then re-invokes the same delivery pipeline
+   stamped with the reserved attempt number. The retry receipt carries
+   `source='retry'`, `target_channel`, and `route_id`. Each attempt appends new
+   receipt evidence; earlier receipts are never overwritten.
 7. If delivery raises, `DeliveryLifecycleService` is the sole durable retry-classification authority. It resolves evidence for the current outbox attempt using `outbox_id` plus exact attempt/target/lineage correlation, then commits exactly one resulting outbox transition. Current-attempt receipt classification overrides generic exception inference when both exist.
 8. Durable `queued` or `sent` evidence wins over an exception raised later in the same delivery call and suppresses an immediate resend. `queued` evidence keeps the outbox non-terminal while it awaits confirmation or stale `queued` to `in_progress` reclaim. Only `sent` evidence finalizes the outbox as accepted. A `suppressed` receipt is finalized as terminal abandonment and is not counted as retry success.
 9. A retryable failure below the attempt limit returns to `retry_wait`. When the failed receipt already persisted `next_retry_at`, the outbox MUST reuse that exact timestamp so receipt evidence and scheduler state cannot drift. If no current-attempt failure receipt exists, lifecycle policy computes the backoff from the attempt number.

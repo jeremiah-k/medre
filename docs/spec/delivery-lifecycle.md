@@ -209,11 +209,14 @@ attempt.
   commits are fenced in both reservation states: a live reservation must
   match exactly, and an unreserved row rejects any explicit attempt lower
   than its already-finalized `attempt_number`. Retry-worker transitions are
-  also fenced to the current claim owner. A worker finalizing after its lease
-  expired therefore cannot consume another worker's reservation, release its
-  claim, or regress finalized attempt identity. A rejected guard is reported
-  to lifecycle code as an uncommitted transition; runtime observability MUST
-  NOT project it as durable success, retry, or dead-letter state. Terminal
+  also fenced to the current claim owner. Live-pipeline finalization is
+  likewise fenced to the pipeline worker that owns the row, so a pipeline
+  result returning after lease expiry cannot clear or overwrite a retry worker
+  that reclaimed the row. A worker finalizing after its lease expired therefore
+  cannot consume another worker's reservation, release its claim, or regress
+  finalized attempt identity. A rejected guard is reported to lifecycle code as
+  an uncommitted transition; runtime observability MUST NOT project it as
+  durable success, retry, or dead-letter state. Terminal
   transitions that pass no attempt number (abandonment, cancellation)
   consume a live reservation too, recording the reserved attempt as
   final.
@@ -231,6 +234,14 @@ is alive, so an evidence-less reservation on a reclaimed row implies worker
 death or a storage outage, not a dispatch still inside the transport — so
 the reservation is released and the re-dispatch reserves the same number
 again.
+
+A queue terminal callback can win a narrow race after a retry dispatch returns
+a `queued` receipt but before the retry worker commits its own queued outbox
+transition. If that CAS is rejected, lifecycle MAY re-read the authoritative
+outbox row and project an already-committed outcome only when the row is
+terminal at the exact same attempt number with no live reservation. A different
+attempt or a still-reserved row remains superseded and MUST NOT be reclassified
+by runtime code.
 
 ### 3.5 Stale Callback Protection
 

@@ -56,6 +56,15 @@
   pass no attempt number (abandonment, cancellation of an in-flight dispatch)
   consume a live reservation and record the reserved attempt as the row's
   final one.
+- Live-pipeline outbox finalization is also fenced to the pipeline worker that
+  created/claimed the row. If its lease expires and a retry worker reclaims the
+  same row, the original pipeline result can still append immutable receipt
+  evidence but cannot clear or overwrite the newer worker's claim/reservation.
+- Queue-backed retry observability is race-stable when an asynchronous terminal
+  callback wins just before the retry worker commits its returned `queued`
+  receipt. Lifecycle re-reads the authoritative same-attempt outbox state after
+  the rejected CAS and projects the already-committed terminal outcome instead
+  of misreporting the retry as superseded.
 - This changes the prerelease SQLite shape by adding `active_attempt` to
   `delivery_outbox`. Existing stamped prerelease databases that do not match
   the current shape are rejected by design and must be recreated; schema
