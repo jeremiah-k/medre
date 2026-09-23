@@ -419,32 +419,6 @@ def decode_page_cursor(cursor: str) -> int:
     return after
 
 
-def delivery_lineage_key(receipt: DeliveryReceipt) -> tuple[str, str, str, str]:
-    """Return the logical delivery-identity key of *receipt*.
-
-    ``(event_id, delivery_plan_id, target_adapter, normalized target_channel)``.
-    Event scope is part of the identity because plan IDs are not globally
-    unique. ``None`` and empty-string channels normalize to ``""`` so they
-    never split one logical delivery into two lineages.
-
-    Retry **and executed-replay** receipts share the key with the live
-    delivery they re-attempt: the replay lifecycle continues the same
-    delivery (``attempt_number = max(existing) + 1``) and the storage
-    ``delivery_status`` authority selects the current receipt without
-    filtering on ``source``.  A committed successful executed replay therefore
-    resolves the original delivery's earlier failure; successes of a
-    *different* delivery (other target/channel/plan/event) never do.
-    ``replay_run_id`` is reported per receipt as provenance, never used
-    to partition one delivery.
-    """
-    return (
-        getattr(receipt, "event_id", "") or "",
-        getattr(receipt, "delivery_plan_id", "") or "",
-        getattr(receipt, "target_adapter", "") or "",
-        getattr(receipt, "target_channel", None) or "",
-    )
-
-
 def attempt_source_label(source: str | None, replay_run_id: str | None) -> str:
     """Return a receipt's source with its replay run when applicable.
 
@@ -456,33 +430,6 @@ def attempt_source_label(source: str | None, replay_run_id: str | None) -> str:
         return f"replay:{replay_run_id}"
     return src
 
-
-def resolve_delivery_outcomes(
-    receipts: list[DeliveryReceipt],
-) -> list[tuple[tuple[str, str, str, str], list[DeliveryReceipt]]]:
-    """Group *receipts* into logical deliveries in durable append order.
-
-    This helper is historical grouping only.  Each returned entry is
-    ``(delivery_key, receipts)`` with receipts ordered by append ``sequence``.
-    Callers that need the *current* outcome MUST consult storage lifecycle
-    authority (for SQLite, the outbox ``receipt_id`` projection exposed by
-    :meth:`StorageBackend.delivery_status`) rather than assuming the last
-    append won.  A stale worker may append immutable receipt evidence after
-    losing the guarded outbox transition; that receipt remains history but is
-    not current lifecycle state.
-    """
-    grouped: dict[tuple[str, str, str, str], list[DeliveryReceipt]] = {}
-    for receipt in receipts:
-        grouped.setdefault(delivery_lineage_key(receipt), []).append(receipt)
-    return [
-        (key, sorted(group, key=_receipt_append_order))
-        for key, group in grouped.items()
-    ]
-
-
-def _receipt_append_order(receipt: DeliveryReceipt) -> int:
-    """Sort key placing a delivery's receipts in durable append order."""
-    return int(getattr(receipt, "sequence", 0) or 0)
 
 
 # ---------------------------------------------------------------------------

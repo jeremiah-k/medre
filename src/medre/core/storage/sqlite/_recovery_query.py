@@ -6,13 +6,10 @@ Authority surface:
     lifecycle-authoritative receipt of each logical delivery whose status is
     ``failed`` or ``dead_lettered``.
 
-The lineage predicate here must stay identical to the pure Python grouping in
-:func:`medre.core.storage.backend.resolve_delivery_outcomes` (used by the
-per-event recovery runbook): ``(event_id, delivery_plan_id, target_adapter,
-COALESCE(target_channel, ''))``. ``event_id`` is part of the SQL key because
-plan IDs are not guaranteed unique across events; the runbook scopes by event
-first, so its key omits it. Retry and executed-replay receipts continue the
-same delivery, so ``source`` and ``replay_run_id`` are receipt provenance only.
+The lineage predicate here must match the shared event-scoped delivery identity
+used by :mod:`medre.core.delivery_authority`: ``(event_id, delivery_plan_id,
+target_adapter, COALESCE(target_channel, ''))``. Plan IDs are not globally
+unique, and ``source`` / ``replay_run_id`` are receipt provenance only.
 
 The scan starts from unresolved authoritative receipt candidates and rejects a
 candidate when any later authoritative receipt exists in the same lineage.
