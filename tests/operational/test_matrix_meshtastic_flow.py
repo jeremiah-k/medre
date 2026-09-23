@@ -232,26 +232,30 @@ class _FakeStorage:
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "queued")
             if attempt_number is not None:
                 object.__setattr__(item, "attempt_number", attempt_number)
                 object.__setattr__(item, "active_attempt", None)
+        return item is not None
 
     async def mark_outbox_sent(
         self,
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "sent")
             if attempt_number is not None:
                 object.__setattr__(item, "attempt_number", attempt_number)
                 object.__setattr__(item, "active_attempt", None)
+        return item is not None
 
     async def mark_outbox_retry_wait(
         self,
@@ -262,13 +266,15 @@ class _FakeStorage:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "retry_wait")
             if attempt_number is not None:
                 object.__setattr__(item, "attempt_number", attempt_number)
                 object.__setattr__(item, "active_attempt", None)
+        return item is not None
 
     async def mark_outbox_dead_lettered(
         self,
@@ -278,19 +284,21 @@ class _FakeStorage:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "dead_lettered")
             if attempt_number is not None:
                 object.__setattr__(item, "attempt_number", attempt_number)
                 object.__setattr__(item, "active_attempt", None)
+        return item is not None
 
     async def mark_outbox_cancelled(
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None:
+    ) -> bool:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "cancelled")
@@ -304,12 +312,14 @@ class _FakeStorage:
                 ),
             )
             object.__setattr__(item, "active_attempt", None)
+        return item is not None
 
     async def mark_outbox_abandoned(
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "abandoned")
@@ -323,6 +333,7 @@ class _FakeStorage:
                 ),
             )
             object.__setattr__(item, "active_attempt", None)
+        return item is not None
 
     async def finalize_queued_delivery(
         self,

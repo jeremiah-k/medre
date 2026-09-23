@@ -459,7 +459,7 @@ async def test_stale_finalize_cannot_consume_newer_reservation(temp_storage) -> 
     )
 
     # Zombie worker A returns with its attempt-2 success.
-    await temp_storage.mark_outbox_sent(
+    assert not await temp_storage.mark_outbox_sent(
         item.outbox_id, receipt_id="rcpt-a-late", attempt_number=2
     )
     after_stale = await temp_storage.get_outbox_item(item.outbox_id)
@@ -469,7 +469,7 @@ async def test_stale_finalize_cannot_consume_newer_reservation(temp_storage) -> 
     assert after_stale.active_attempt == 3
 
     # The live holder of attempt 3 still finalizes normally.
-    await temp_storage.mark_outbox_sent(
+    assert await temp_storage.mark_outbox_sent(
         item.outbox_id, receipt_id="rcpt-c", attempt_number=3
     )
     after_live = await temp_storage.get_outbox_item(item.outbox_id)
@@ -477,6 +477,85 @@ async def test_stale_finalize_cannot_consume_newer_reservation(temp_storage) -> 
     assert after_live.status == "sent"
     assert after_live.attempt_number == 3
     assert after_live.active_attempt is None
+
+
+async def test_stale_finalize_cannot_regress_finalized_attempt(temp_storage) -> None:
+    """An older explicit attempt stays stale after the reservation is gone."""
+    event = await _seed_event(temp_storage, "evt-stale-finalized")
+    item = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-stale-finalized",
+        event_id=event.event_id,
+        status="retry_wait",
+    )
+
+    await _claim_due(temp_storage)
+    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+    assert await temp_storage.mark_outbox_retry_wait(
+        item.outbox_id,
+        next_attempt_at=_PAST.isoformat(),
+        failure_kind="adapter_transient",
+        attempt_number=2,
+        expected_worker_id=_WORKER,
+    )
+
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None
+    assert (row.status, row.attempt_number, row.active_attempt) == (
+        "retry_wait",
+        2,
+        None,
+    )
+
+    # Zombie attempt 1 must not terminalize the row or regress lineage just
+    # because the newer reservation has already been consumed.
+    assert not await temp_storage.mark_outbox_dead_lettered(
+        item.outbox_id,
+        failure_kind="retry_exhausted",
+        attempt_number=1,
+    )
+    after_stale = await temp_storage.get_outbox_item(item.outbox_id)
+    assert after_stale is not None
+    assert (after_stale.status, after_stale.attempt_number) == ("retry_wait", 2)
+
+    # The finalized attempt itself remains an admissible unreserved commit.
+    assert await temp_storage.mark_outbox_dead_lettered(
+        item.outbox_id,
+        failure_kind="retry_exhausted",
+        attempt_number=2,
+    )
+    after_live = await temp_storage.get_outbox_item(item.outbox_id)
+    assert after_live is not None
+    assert (after_live.status, after_live.attempt_number) == ("dead_lettered", 2)
+
+
+async def test_retry_transition_requires_current_claim_owner(temp_storage) -> None:
+    """Pre-dispatch stale workers cannot release another worker's claim."""
+    event = await _seed_event(temp_storage, "evt-owner-fence")
+    item = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-owner-fence",
+        event_id=event.event_id,
+        status="retry_wait",
+    )
+    claimed = [
+        row
+        for row in await _claim_due(temp_storage, worker_id="retry-worker-new")
+        if row.outbox_id == item.outbox_id
+    ][0]
+    assert claimed.worker_id == "retry-worker-new"
+
+    assert not await temp_storage.mark_outbox_retry_wait(
+        item.outbox_id,
+        next_attempt_at=_PAST.isoformat(),
+        failure_kind="capacity_rejection",
+        attempt_number=claimed.attempt_number,
+        expected_worker_id="retry-worker-stale",
+    )
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None
+    assert row.status == "in_progress"
+    assert row.worker_id == "retry-worker-new"
 
 
 async def test_terminal_without_attempt_consumes_reservation(temp_storage) -> None:
@@ -938,3 +1017,72 @@ async def test_reserved_attempt_overrides_lineage_stamp() -> None:
     assert adapter.stamped is not None
     assert adapter.stamped.attempt_number == 6
     assert adapter.stamped.outbox_id == "obox-stamp"
+
+
+async def test_retry_worker_does_not_report_superseded_success_transition(
+    monkeypatch,
+) -> None:
+    """A guarded CAS miss is stale work, not a durable success or failure."""
+    from medre.core.engine.pipeline.delivery_lifecycle import (
+        RetryAttemptCommitRejected,
+    )
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-success-superseded",
+        event_id="evt-success-superseded",
+        route_id="route-success-superseded",
+        delivery_plan_id="plan-success-superseded",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+        worker_id="retry-worker-stale",
+    )
+    sent = DeliveryReceipt(
+        receipt_id="rcpt-success-superseded-2",
+        event_id=item.event_id,
+        delivery_plan_id=item.delivery_plan_id,
+        target_adapter=item.target_adapter,
+        route_id=item.route_id,
+        status="sent",
+        attempt_number=2,
+        outbox_id=item.outbox_id,
+    )
+    storage = MagicMock()
+    storage.get = AsyncMock(return_value=object())
+    storage.delivery_status = AsyncMock(return_value=None)
+    pipeline = MagicMock()
+    pipeline.deliver_to_target = AsyncMock(return_value=sent)
+    lifecycle = MagicMock()
+    lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
+    lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
+    lifecycle.finalize_retry_success = AsyncMock(
+        side_effect=RetryAttemptCommitRejected("claim moved to a newer worker")
+    )
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=3),
+        ),
+    )
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        lifecycle=lifecycle,
+    )
+    emit = MagicMock()
+    monkeypatch.setattr(worker, "_emit", emit)
+
+    await worker._retry_outbox_item(item)
+
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 0
+    assert worker.state.failed == 0
+    event_types = [call.args[0] for call in emit.call_args_list]
+    assert "retry_attempted" in event_types
+    assert "retry_succeeded" not in event_types
+    assert "retry_failed" not in event_types

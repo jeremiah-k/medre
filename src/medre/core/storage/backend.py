@@ -1384,13 +1384,15 @@ class StorageBackend(Protocol):
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
         Authority: **mark** (terminal transition).
 
         Only transitions from ``in_progress`` or ``queued``.  No-op if
-        already terminal.
+        already terminal.  Return ``True`` only when this call committed the
+        transition.
         """
         ...
 
@@ -1399,12 +1401,14 @@ class StorageBackend(Protocol):
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
 
         Authority: **mark** (non-terminal transition).
 
         Only transitions from ``in_progress``.  No-op if already terminal.
+        Return ``True`` only when this call committed the transition.
         """
         ...
 
@@ -1417,13 +1421,15 @@ class StorageBackend(Protocol):
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
         Authority: **mark** (non-terminal transition).
 
         Sets ``next_attempt_at`` for the next scheduled attempt.
-        Only transitions from ``in_progress``.
+        Only transitions from ``in_progress``.  Return ``True`` only when
+        this call committed the transition.
         """
         ...
 
@@ -1435,7 +1441,8 @@ class StorageBackend(Protocol):
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
         Authority: **mark** (terminal transition).
@@ -1445,6 +1452,7 @@ class StorageBackend(Protocol):
 
         When *attempt_number* is provided, it is persisted on the outbox
         row so that the terminal state records the final attempt count.
+        Return ``True`` only when this call committed the transition.
         """
         ...
 
@@ -1452,13 +1460,14 @@ class StorageBackend(Protocol):
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None:
+    ) -> bool:
         """Mark an outbox item as ``cancelled`` (terminal).
 
         Authority: **mark** (terminal transition).
 
         May be called from any non-terminal status.  No-op if already
-        terminal.
+        terminal.  Return ``True`` only when this call committed the
+        transition.
         """
         ...
 
@@ -1466,13 +1475,15 @@ class StorageBackend(Protocol):
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
 
         Authority: **mark** (terminal transition).
 
         Used for in-flight items lost at drain timeout.  No-op if already
-        terminal.
+        terminal.  Return ``True`` only when this call committed the
+        transition.
         """
         ...
 

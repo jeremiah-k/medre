@@ -173,14 +173,16 @@ class DeliveryLifecycleStorage(Protocol):
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None: ...
+        expected_worker_id: str | None = None,
+    ) -> bool: ...
 
     async def mark_outbox_queued(
         self,
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None: ...
+        expected_worker_id: str | None = None,
+    ) -> bool: ...
 
     async def mark_outbox_retry_wait(
         self,
@@ -191,7 +193,8 @@ class DeliveryLifecycleStorage(Protocol):
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None: ...
+        expected_worker_id: str | None = None,
+    ) -> bool: ...
 
     async def mark_outbox_dead_lettered(
         self,
@@ -201,13 +204,15 @@ class DeliveryLifecycleStorage(Protocol):
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None: ...
+        expected_worker_id: str | None = None,
+    ) -> bool: ...
 
     async def mark_outbox_abandoned(
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None: ...
+        expected_worker_id: str | None = None,
+    ) -> bool: ...
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +235,16 @@ class RetryAttemptFinalization:
     failure_kind: str | None
     attempt_number: int
     next_retry_at: datetime | None = None
+
+
+class RetryAttemptCommitRejected(RuntimeError):
+    """A guarded retry outbox transition no longer owns the durable row.
+
+    This is not a storage-I/O failure.  It means the compare-and-set guard
+    rejected a stale attempt or a worker that no longer owns the claim.  The
+    caller must not emit durable lifecycle success/failure evidence for a
+    transition that did not commit.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +287,24 @@ class DeliveryLifecycleService:
             outbox.active_attempt
             if outbox.active_attempt is not None
             else outbox.attempt_number
+        )
+
+    @staticmethod
+    def _require_retry_commit(
+        committed: bool,
+        item: DeliveryOutboxItem,
+        *,
+        transition: str,
+        attempt_number: int | None,
+    ) -> None:
+        """Reject stale retry lifecycle reports after a guarded no-op."""
+        if committed:
+            return
+        attempt = "none" if attempt_number is None else str(attempt_number)
+        raise RetryAttemptCommitRejected(
+            f"Retry outbox transition {transition!r} did not commit: "
+            f"outbox_id={item.outbox_id} attempt_number={attempt} "
+            f"worker_id={item.worker_id or 'none'}"
         )
 
     @staticmethod
@@ -1162,9 +1195,16 @@ class DeliveryLifecycleService:
         error_summary: str,
     ) -> None:
         """Persist terminal abandonment for an unreconstructable retry item."""
-        await storage.mark_outbox_abandoned(
+        committed = await storage.mark_outbox_abandoned(
             item.outbox_id,
             error_summary=error_summary,
+            expected_worker_id=item.worker_id,
+        )
+        self._require_retry_commit(
+            committed,
+            item,
+            transition="abandoned",
+            attempt_number=item.active_attempt,
         )
 
     @staticmethod
@@ -1336,11 +1376,18 @@ class DeliveryLifecycleService:
 
         if evidence is not None and evidence.status == "dead_lettered":
             terminal_kind = evidence.failure_kind or "retry_exhausted"
-            await storage.mark_outbox_dead_lettered(
+            committed = await storage.mark_outbox_dead_lettered(
                 item.outbox_id,
                 receipt_id=evidence.receipt_id,
                 failure_kind=terminal_kind,
                 error_summary=evidence.error[:512] if evidence.error else None,
+                attempt_number=attempt_number,
+                expected_worker_id=item.worker_id,
+            )
+            self._require_retry_commit(
+                committed,
+                item,
+                transition="dead_lettered",
                 attempt_number=attempt_number,
             )
             return RetryAttemptFinalization(
@@ -1375,11 +1422,18 @@ class DeliveryLifecycleService:
             terminal_kind = (
                 "retry_exhausted" if failure_kind.is_retryable else failure_kind.value
             )
-            await storage.mark_outbox_dead_lettered(
+            committed = await storage.mark_outbox_dead_lettered(
                 item.outbox_id,
                 receipt_id=receipt_id,
                 failure_kind=terminal_kind,
                 error_summary=error_summary,
+                attempt_number=attempt_number,
+                expected_worker_id=item.worker_id,
+            )
+            self._require_retry_commit(
+                committed,
+                item,
+                transition="dead_lettered",
                 attempt_number=attempt_number,
             )
             return RetryAttemptFinalization(
@@ -1391,12 +1445,19 @@ class DeliveryLifecycleService:
 
         if evidence is not None and evidence.next_retry_at is not None:
             next_attempt_at = evidence.next_retry_at
-            await storage.mark_outbox_retry_wait(
+            committed = await storage.mark_outbox_retry_wait(
                 item.outbox_id,
                 next_attempt_at=next_attempt_at.isoformat(),
                 receipt_id=receipt_id,
                 failure_kind=failure_kind.value,
                 error_summary=error_summary,
+                attempt_number=attempt_number,
+                expected_worker_id=item.worker_id,
+            )
+            self._require_retry_commit(
+                committed,
+                item,
+                transition="retry_wait",
                 attempt_number=attempt_number,
             )
         else:
@@ -1590,12 +1651,19 @@ class DeliveryLifecycleService:
         """Schedule one retry attempt with lifecycle-owned backoff."""
         backoff = RetryExecutor(retry_policy).compute_backoff(attempt_number)
         next_attempt_at = (now or datetime.now(timezone.utc)) + backoff
-        await storage.mark_outbox_retry_wait(
+        committed = await storage.mark_outbox_retry_wait(
             item.outbox_id,
             next_attempt_at=next_attempt_at.isoformat(),
             receipt_id=receipt_id,
             failure_kind=failure_kind,
             error_summary=error_summary,
+            attempt_number=attempt_number,
+            expected_worker_id=item.worker_id,
+        )
+        self._require_retry_commit(
+            committed,
+            item,
+            transition="retry_wait",
             attempt_number=attempt_number,
         )
         return next_attempt_at
@@ -1608,23 +1676,44 @@ class DeliveryLifecycleService:
     ) -> bool:
         """Persist a retry result and report whether it represents success."""
         if receipt.status == "queued":
-            await storage.mark_outbox_queued(
+            committed = await storage.mark_outbox_queued(
                 item.outbox_id,
                 receipt_id=receipt.receipt_id,
+                attempt_number=receipt.attempt_number,
+                expected_worker_id=item.worker_id,
+            )
+            self._require_retry_commit(
+                committed,
+                item,
+                transition="queued",
                 attempt_number=receipt.attempt_number,
             )
             return True
         if receipt.status == "sent":
-            await storage.mark_outbox_sent(
+            committed = await storage.mark_outbox_sent(
                 item.outbox_id,
                 receipt_id=receipt.receipt_id,
+                attempt_number=receipt.attempt_number,
+                expected_worker_id=item.worker_id,
+            )
+            self._require_retry_commit(
+                committed,
+                item,
+                transition="sent",
                 attempt_number=receipt.attempt_number,
             )
             return True
         if receipt.status == "suppressed":
-            await storage.mark_outbox_abandoned(
+            committed = await storage.mark_outbox_abandoned(
                 item.outbox_id,
                 error_summary=receipt.error,
+                expected_worker_id=item.worker_id,
+            )
+            self._require_retry_commit(
+                committed,
+                item,
+                transition="abandoned",
+                attempt_number=receipt.attempt_number,
             )
             return False
         raise ValueError(

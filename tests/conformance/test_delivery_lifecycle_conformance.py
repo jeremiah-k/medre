@@ -208,30 +208,46 @@ class _MemoryStorage:
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None and (
-            attempt_number is None or _effective_attempt(item) == attempt_number
+        if item is None or (
+            expected_worker_id is not None and item.worker_id != expected_worker_id
         ):
-            object.__setattr__(item, "status", "queued")
-            if attempt_number is not None:
-                object.__setattr__(item, "attempt_number", attempt_number)
-                object.__setattr__(item, "active_attempt", None)
+            return False
+        if attempt_number is not None and not (
+            (item.active_attempt is None and item.attempt_number <= attempt_number)
+            or item.active_attempt == attempt_number
+        ):
+            return False
+        object.__setattr__(item, "status", "queued")
+        if attempt_number is not None:
+            object.__setattr__(item, "attempt_number", attempt_number)
+            object.__setattr__(item, "active_attempt", None)
+        return True
 
     async def mark_outbox_sent(
         self,
         outbox_id: str,
         receipt_id: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None and (
-            attempt_number is None or _effective_attempt(item) == attempt_number
+        if item is None or (
+            expected_worker_id is not None and item.worker_id != expected_worker_id
         ):
-            object.__setattr__(item, "status", "sent")
-            if attempt_number is not None:
-                object.__setattr__(item, "attempt_number", attempt_number)
-                object.__setattr__(item, "active_attempt", None)
+            return False
+        if attempt_number is not None and not (
+            (item.active_attempt is None and item.attempt_number <= attempt_number)
+            or item.active_attempt == attempt_number
+        ):
+            return False
+        object.__setattr__(item, "status", "sent")
+        if attempt_number is not None:
+            object.__setattr__(item, "attempt_number", attempt_number)
+            object.__setattr__(item, "active_attempt", None)
+        return True
 
     async def mark_outbox_retry_wait(
         self,
@@ -242,15 +258,23 @@ class _MemoryStorage:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None and (
-            attempt_number is None or _effective_attempt(item) == attempt_number
+        if item is None or (
+            expected_worker_id is not None and item.worker_id != expected_worker_id
         ):
-            object.__setattr__(item, "status", "retry_wait")
-            if attempt_number is not None:
-                object.__setattr__(item, "attempt_number", attempt_number)
-                object.__setattr__(item, "active_attempt", None)
+            return False
+        if attempt_number is not None and not (
+            (item.active_attempt is None and item.attempt_number <= attempt_number)
+            or item.active_attempt == attempt_number
+        ):
+            return False
+        object.__setattr__(item, "status", "retry_wait")
+        if attempt_number is not None:
+            object.__setattr__(item, "attempt_number", attempt_number)
+            object.__setattr__(item, "active_attempt", None)
+        return True
 
     async def mark_outbox_dead_lettered(
         self,
@@ -260,27 +284,40 @@ class _MemoryStorage:
         failure_kind_detail: str | None = None,
         error_summary: str | None = None,
         attempt_number: int | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None and (
-            attempt_number is None or _effective_attempt(item) == attempt_number
+        if item is None or (
+            expected_worker_id is not None and item.worker_id != expected_worker_id
         ):
-            object.__setattr__(item, "status", "dead_lettered")
-            if attempt_number is not None:
-                object.__setattr__(item, "attempt_number", attempt_number)
-                object.__setattr__(item, "active_attempt", None)
+            return False
+        if attempt_number is not None and not (
+            (item.active_attempt is None and item.attempt_number <= attempt_number)
+            or item.active_attempt == attempt_number
+        ):
+            return False
+        object.__setattr__(item, "status", "dead_lettered")
+        if attempt_number is not None:
+            object.__setattr__(item, "attempt_number", attempt_number)
+            object.__setattr__(item, "active_attempt", None)
+        return True
 
     async def mark_outbox_abandoned(
         self,
         outbox_id: str,
         error_summary: str | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+    ) -> bool:
         item = self._outbox.get(outbox_id)
-        if item is not None:
-            object.__setattr__(item, "status", "abandoned")
-            object.__setattr__(item, "attempt_number", _effective_attempt(item))
-            object.__setattr__(item, "active_attempt", None)
-            object.__setattr__(item, "error_summary", error_summary)
+        if item is None or (
+            expected_worker_id is not None and item.worker_id != expected_worker_id
+        ):
+            return False
+        object.__setattr__(item, "status", "abandoned")
+        object.__setattr__(item, "attempt_number", _effective_attempt(item))
+        object.__setattr__(item, "active_attempt", None)
+        object.__setattr__(item, "error_summary", error_summary)
+        return True
 
     # -- Required by abstract protocol but unused in these tests --
 

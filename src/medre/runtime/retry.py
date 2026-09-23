@@ -46,7 +46,10 @@ if TYPE_CHECKING:
     from medre.runtime.events import EventBuffer
 
 from medre.config.model import RetryConfig
-from medre.core.engine.pipeline.delivery_lifecycle import RetryAttemptFinalization
+from medre.core.engine.pipeline.delivery_lifecycle import (
+    RetryAttemptCommitRejected,
+    RetryAttemptFinalization,
+)
 from medre.core.engine.pipeline.retry_plan import (
     reconstruct_retry_delivery_plan,
 )
@@ -352,6 +355,18 @@ class RetryWorker:
                 "error": f"{type(error).__name__}: {error}",
                 "next_retry_at": None,
             },
+        )
+
+    @staticmethod
+    def _log_superseded_transition(
+        item: DeliveryOutboxItem,
+        error: RetryAttemptCommitRejected,
+    ) -> None:
+        """Log a fenced stale write without inventing a durable outcome."""
+        _logger.warning(
+            "RetryWorker: superseded transition ignored for outbox %s: %s",
+            item.outbox_id,
+            error,
         )
 
     def _record_retry_finalization(
@@ -879,11 +894,14 @@ class RetryWorker:
                 item.event_id,
                 item.outbox_id,
             )
-            await self._lifecycle.abandon_retry_outbox(
-                self._lifecycle_storage,
-                item,
-                error_summary="Event not found in storage",
-            )
+            try:
+                await self._lifecycle.abandon_retry_outbox(
+                    self._lifecycle_storage,
+                    item,
+                    error_summary="Event not found in storage",
+                )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
             return
 
         previous_receipt = await self._storage.delivery_status(
@@ -909,11 +927,14 @@ class RetryWorker:
             )
             self.state.processed += 1
             self.state.failed += 1
-            await self._lifecycle.abandon_retry_outbox(
-                self._lifecycle_storage,
-                item,
-                error_summary="Reconstruction failure",
-            )
+            try:
+                await self._lifecycle.abandon_retry_outbox(
+                    self._lifecycle_storage,
+                    item,
+                    error_summary="Reconstruction failure",
+                )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
             return
 
         # A worker can reclaim an expired ``in_progress`` row after a prior
@@ -927,6 +948,10 @@ class RetryWorker:
                 item,
                 retry_context.retry_policy,
             )
+        except RetryAttemptCommitRejected as stale:
+            self.state.processed += 1
+            self._log_superseded_transition(item, stale)
+            return
         except Exception as lifecycle_exc:
             self.state.processed += 1
             _logger.exception(
@@ -973,6 +998,9 @@ class RetryWorker:
                         "complete runtime startup"
                     ),
                 )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
+                return
             except Exception as lifecycle_exc:
                 _logger.exception(
                     "RetryWorker: failed to defer outbox %s for unavailable "
@@ -1037,6 +1065,9 @@ class RetryWorker:
                             failure_kind="capacity_rejection",
                             attempt_number=item.attempt_number,
                         )
+                    except RetryAttemptCommitRejected as stale:
+                        self._log_superseded_transition(item, stale)
+                        return
                     except Exception:
                         _logger.exception(
                             "RetryWorker: failed to backoff outbox %s on capacity rejection",
@@ -1078,6 +1109,9 @@ class RetryWorker:
                         failure_kind="capacity_error",
                         attempt_number=item.attempt_number,
                     )
+                except RetryAttemptCommitRejected as stale:
+                    self._log_superseded_transition(item, stale)
+                    return
                 except Exception:
                     _logger.exception(
                         "RetryWorker: failed to backoff outbox %s on capacity error",
@@ -1157,6 +1191,8 @@ class RetryWorker:
                     error=exc,
                     attempt_number=reserved_attempt,
                 )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
             except Exception as lifecycle_exc:
                 _logger.exception(
                     "RetryWorker: failed to reconcile retry lifecycle for outbox %s",
@@ -1197,6 +1233,8 @@ class RetryWorker:
                     finalization,
                     error_summary=result_receipt.error,
                 )
+            except RetryAttemptCommitRejected as stale:
+                self._log_superseded_transition(item, stale)
             except Exception as lifecycle_exc:
                 _logger.exception(
                     "RetryWorker: failed to update outbox %s after successful delivery",
