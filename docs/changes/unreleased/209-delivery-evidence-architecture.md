@@ -22,5 +22,11 @@
   Route/source/replay fields are provenance only; empty and absent channels
   normalize to one identity; SQLite projection behavior is pinned to the same
   conformance vectors.
+- Make lifecycle storage behavior executable across SQLite and the conformance
+  backend with shared transition-sequence tests for reservation, ownership,
+  stale-callback, atomic terminalization, and full-identity fencing.
+- Enforce core outbox invariants in SQLite itself: positive finalized attempts,
+  exact next-attempt reservations only while `in_progress`, a closed status
+  vocabulary, and an event-scoped lineage index matching delivery authority.
 - Pre-release SQLite shape changes require recreating incompatible databases
   under the existing prerelease schema policy.

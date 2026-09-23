@@ -906,7 +906,14 @@ CREATE TABLE delivery_outbox (
     parent_receipt_id TEXT,
     error_summary   TEXT,
     metadata        TEXT NOT NULL DEFAULT '{}',
-    UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)
+    UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
+    CHECK (attempt_number >= 1),
+    CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
+    CHECK (active_attempt IS NULL OR status = 'in_progress'),
+    CHECK (status IN (
+        'pending', 'in_progress', 'queued', 'sent', 'retry_wait',
+        'dead_lettered', 'cancelled', 'abandoned'
+    ))
 );
 ```
 
@@ -923,6 +930,13 @@ and the explicit attempt is not older than the row's finalized
 claiming `worker_id`. Guarded status mutations return whether the update
 committed so lifecycle code cannot report a state change after a compare-and-set
 miss.
+
+The schema enforces the same base invariants independently of lifecycle code:
+`attempt_number` is always positive; a live `active_attempt` is exactly the next
+dispatch generation and is legal only while the row is `in_progress`; and the
+`status` column is closed over the documented outbox vocabulary. These checks are
+part of the pre-release schema shape, so an invalid row cannot be manufactured by
+a direct SQL caller and then interpreted differently by another subsystem.
 
 **Statuses:**
 
@@ -946,6 +960,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
 ```
 
 This closes the SQLite `NULL != NULL` gap without collapsing independent events that reuse a plan ID.
+
+The outbox also carries `idx_outbox_lineage` over
+`(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), attempt_number)`.
+This mirrors the event-scoped delivery identity used by receipt authority and keeps
+generation-aware operational lookups aligned with that contract.
 
 `receipt_id` is the most recent persisted receipt linked to the outbox row. If an
 attempt fails before receipt persistence, lifecycle may advance the outbox attempt

@@ -172,6 +172,25 @@ class DeliveryLifecycleStorage(Protocol):
         attempt_number: int,
     ) -> bool: ...
 
+    async def finalize_outbox_terminal(
+        self,
+        receipt: DeliveryReceipt,
+        *,
+        attempt_receipt: DeliveryReceipt | None = None,
+        outbox_id: str,
+        attempt_number: int,
+        terminal_status: str,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+        failure_kind: str | None = None,
+        error_summary: str | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
+        """Atomically append terminal evidence and advance outbox authority."""
+        ...
+
     async def get_outbox_item(self, outbox_id: str) -> DeliveryOutboxItem | None: ...
 
     async def reserve_outbox_attempt(

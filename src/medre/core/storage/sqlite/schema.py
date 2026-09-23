@@ -192,7 +192,14 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     parent_receipt_id TEXT,
     error_summary TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
-    UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)
+    UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
+    CHECK (attempt_number >= 1),
+    CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
+    CHECK (active_attempt IS NULL OR status = 'in_progress'),
+    CHECK (status IN (
+        'pending', 'in_progress', 'queued', 'sent', 'retry_wait',
+        'dead_lettered', 'cancelled', 'abandoned'
+    ))
 );
 
 CREATE TABLE IF NOT EXISTS delivery_observations (
@@ -296,6 +303,11 @@ CREATE INDEX IF NOT EXISTS idx_outbox_event
     ON delivery_outbox(event_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_event_created
     ON delivery_outbox(event_id, created_at, outbox_id);
+CREATE INDEX IF NOT EXISTS idx_outbox_lineage
+    ON delivery_outbox(
+        event_id, delivery_plan_id, target_adapter,
+        COALESCE(target_channel, ''), attempt_number
+    );
 CREATE INDEX IF NOT EXISTS idx_observations_event
     ON delivery_observations(event_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_observations_outbox
