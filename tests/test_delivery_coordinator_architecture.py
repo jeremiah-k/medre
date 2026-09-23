@@ -32,11 +32,14 @@ def _direct_awaited_attribute_calls(statements: list[ast.stmt]) -> list[str]:
     """Return awaited attribute calls that are direct sibling statements."""
     calls: list[str] = []
     for statement in statements:
-        if not isinstance(statement, ast.Expr) or not isinstance(
-            statement.value, ast.Await
-        ):
+        value: ast.expr | None = None
+        if isinstance(statement, ast.Expr):
+            value = statement.value
+        elif isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            value = statement.value
+        if not isinstance(value, ast.Await):
             continue
-        awaited = statement.value.value
+        awaited = value.value
         if isinstance(awaited, ast.Call) and isinstance(awaited.func, ast.Attribute):
             calls.append(awaited.func.attr)
     return calls
