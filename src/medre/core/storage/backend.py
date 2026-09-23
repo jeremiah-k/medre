@@ -1435,6 +1435,7 @@ class StorageBackend(Protocol):
         error_summary: str | None = None,
         receipt_id: str | None = None,
         failure_kind: str | None = None,
+        attempt_number: int | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``cancelled`` (terminal).
@@ -1453,6 +1454,7 @@ class StorageBackend(Protocol):
         error_summary: str | None = None,
         receipt_id: str | None = None,
         failure_kind: str | None = None,
+        attempt_number: int | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).

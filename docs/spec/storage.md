@@ -612,6 +612,7 @@ CREATE TABLE delivery_receipts (
     target_channel TEXT,
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
+    receipt_kind TEXT NOT NULL,
     error TEXT,
     failure_kind TEXT,
     adapter_message_id TEXT,
@@ -626,12 +627,12 @@ CREATE TABLE delivery_receipts (
     retry_jitter INTEGER,
     rendering_evidence TEXT,
     outbox_id TEXT,
-    confirmation_level TEXT NOT NULL DEFAULT 'unknown'
-        CHECK (confirmation_level IN (
-            'unknown', 'local_queue', 'local_transport',
-            'remote_service', 'end_to_end'
-        )),
-    created_at TEXT NOT NULL
+    confirmation_level TEXT NOT NULL DEFAULT 'unknown',
+    created_at TEXT NOT NULL,
+    CHECK (attempt_number >= 1),
+    CHECK (receipt_kind IN ('attempt', 'lifecycle')),
+    CHECK ((receipt_kind = 'attempt' AND status IN ('queued', 'sent', 'failed')) OR (receipt_kind = 'lifecycle' AND status IN ('dead_lettered', 'cancelled', 'abandoned', 'suppressed'))),
+    CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 ```
 
@@ -1365,7 +1366,10 @@ After opening, `initialize()` and `open_readonly()` **MUST** inspect foreign-key
 mappings, required UNIQUE keys, and the `sqlite_master` table definitions for required
 constraints. In particular, `delivery_outbox` MUST retain the event-scoped UNIQUE key
 `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`, and
-`conversation_membership` MUST retain the checks for nonnegative `depth`,
+`delivery_receipts` MUST retain the checks for `attempt_number >= 1`, the
+`attempt`/`lifecycle` `receipt_kind` vocabulary, and the required status/kind
+pairing. `delivery_outbox` MUST retain its attempt minimum, active-reservation
+shape, and status-vocabulary checks. `conversation_membership` MUST retain the checks for nonnegative `depth`,
 `conversation_id = root_event_id`, and the allowed `resolution_state` values. Missing
 constraints raise `PreReleaseSchemaConstraintMismatchError`; current columns alone do
 not make an older unconstrained table compatible.

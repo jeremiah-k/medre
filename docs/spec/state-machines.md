@@ -350,12 +350,14 @@ interaction occurs.
 
 ### 3.1 Causal Direction
 
-Outbox transitions drive receipt creation, never the reverse. The pipeline
-creates an outbox item (status `in_progress`) before attempting adapter
-delivery. On completion, it:
+The pipeline creates an outbox item (status `in_progress`) before attempting
+adapter delivery. On completion:
 
-1. Appends a `DeliveryReceipt` to storage.
-2. Updates the outbox item status based on the delivery outcome.
+1. Attempt evidence (`queued`/`sent`/`failed`) may be appended before the
+   outbox transition.
+2. Terminal lifecycle authority (`dead_lettered`/`cancelled`/`abandoned`) for
+   an outbox-backed delivery is inserted in the same guarded transaction as
+   the terminal outbox transition (`finalize_outbox_terminal`).
 
 Runtime delivery capacity is operational ownership around these machines, not a
 third durable state machine. Once a capacity slot is acquired for a target, the

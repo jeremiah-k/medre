@@ -436,10 +436,12 @@ class TargetDeliveryService:
            compute the next retry state.  If retries are exhausted, record
            a ``dead_lettered`` receipt.
 
-        When no retry scheduler is enabled, retry is receipt-level only:
-        this method records the failure receipt with ``next_retry_at`` populated.
-        A scheduler or manual replay re-invokes this method with the
-        ``previous_receipt`` parameter.
+        Retry is opt-in through the delivery plan. Without a retry policy, a
+        failed dispatch is terminal evidence: the failed attempt is paired with
+        linked ``dead_lettered`` lifecycle evidence at the same attempt number.
+        For retryable failures under a retry policy, a scheduler or manual replay
+        re-invokes this method with the ``previous_receipt`` parameter for a later
+        dispatch generation.
 
         Parameters
         ----------
@@ -466,16 +468,16 @@ class TargetDeliveryService:
             exact callback correlation.  ``None`` when no outbox item was
             created.
         reserved_attempt_number:
-            The durably reserved attempt identity for this dispatch, from
-            the outbox reservation committed at dispatch-begin.  When
-            provided it overrides the receipt-lineage attempt number for
-            everything stamped onto this dispatch (the rendered result and
-            every receipt it produces) so adapter callbacks echo the exact
-            identity the outbox will admit.  Receipt lineage
-            (``parent_receipt_id``) is still derived from
-            *previous_receipt*.  ``None`` for live/replay first dispatches,
-            where the outbox row's creation attempt is already the live
-            identity.
+            The durable outbox attempt identity for this dispatch. Retry
+            workers supply the attempt reserved at dispatch-begin; the
+            coordinator supplies the attempt of a directly-created live or
+            replay outbox generation. When provided it overrides the
+            receipt-lineage attempt number for everything stamped onto this
+            dispatch (the rendered result and every receipt it produces) so
+            adapter callbacks and receipts carry the exact identity the
+            outbox will admit. Receipt lineage (``parent_receipt_id``) is
+            still derived from *previous_receipt*. ``None`` is only valid
+            when no durable outbox attempt identity exists.
 
         Returns
         -------

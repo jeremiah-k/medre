@@ -43,6 +43,7 @@ class OutboxContext:
     created: bool
     pipeline_worker: str
     skip_reason: str | None
+    attempt_number: int | None = None
 
 
 class OutboxManager:
@@ -215,6 +216,7 @@ class OutboxManager:
                 created=outbox_created,
                 pipeline_worker=pipeline_worker,
                 skip_reason=skip_reason,
+                attempt_number=self._lifecycle.effective_attempt(created),
             )
         except Exception:
             self._log.exception(
@@ -229,6 +231,7 @@ class OutboxManager:
             created=outbox_created,
             pipeline_worker=pipeline_worker,
             skip_reason=skip_reason,
+            attempt_number=None,
         )
 
     # -- Lease renewal --

@@ -277,12 +277,28 @@ class DeliveryLifecycleStorage(Protocol):
         """
         ...
 
+    async def mark_outbox_cancelled(
+        self,
+        outbox_id: str,
+        error_summary: str | None = None,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        attempt_number: int | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
+        """Cancel the row only while its optional claim owner still matches.
+
+        Return ``False`` when the guarded transition did not commit.
+        """
+        ...
+
     async def mark_outbox_abandoned(
         self,
         outbox_id: str,
         error_summary: str | None = None,
         receipt_id: str | None = None,
         failure_kind: str | None = None,
+        attempt_number: int | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Abandon the row only while its optional claim owner still matches.
@@ -1358,6 +1374,7 @@ class DeliveryLifecycleService:
         committed = await storage.mark_outbox_abandoned(
             item.outbox_id,
             error_summary=error_summary,
+            attempt_number=item.active_attempt,
             expected_worker_id=item.worker_id,
         )
         self._require_retry_commit(
@@ -1433,8 +1450,8 @@ class DeliveryLifecycleService:
 
         ``outbox_id`` is the correlation authority.  Higher-attempt evidence
         is deliberately ignored so a stale worker snapshot cannot adopt a
-        later attempt.  Dead-letter evidence is one lineage step after the
-        failed attempt and must point back to evidence for this exact outbox.
+        later attempt.  Lifecycle evidence (dead-letter, cancellation, or
+        abandonment) must link to attempt evidence for this exact outbox.
         """
         target_receipts = [
             receipt for receipt in receipts if receipt.outbox_id == item.outbox_id
@@ -1489,14 +1506,26 @@ class DeliveryLifecycleService:
                     "Retry lifecycle receipt is missing required outbox_id: "
                     f"receipt_id={malformed_lifecycle[-1].receipt_id}"
                 )
-            linked_lifecycle = [
+            terminal_lifecycle = [
                 receipt
                 for receipt in current
                 if receipt.receipt_kind == "lifecycle"
-                and receipt.parent_receipt_id in attempt_ids
+                and receipt.status in {"dead_lettered", "cancelled", "abandoned"}
             ]
-            if linked_lifecycle:
-                return linked_lifecycle[-1]
+            unlinked_terminal = [
+                receipt
+                for receipt in terminal_lifecycle
+                if receipt.parent_receipt_id not in attempt_ids
+            ]
+            if unlinked_terminal:
+                raise ValueError(
+                    "Retry terminal lifecycle receipt is not linked to same-attempt "
+                    "attempt evidence: "
+                    f"receipt_id={unlinked_terminal[-1].receipt_id} "
+                    f"attempt_number={attempt_number}"
+                )
+            if terminal_lifecycle:
+                return terminal_lifecycle[-1]
             return current[-1]
         return None
 
@@ -1562,6 +1591,33 @@ class DeliveryLifecycleService:
                 outcome="dead_lettered",
                 receipt_id=evidence.receipt_id,
                 failure_kind=terminal_kind,
+                attempt_number=attempt_number,
+            )
+
+        if evidence is not None and evidence.status in {"cancelled", "abandoned"}:
+            mark_terminal = (
+                storage.mark_outbox_cancelled
+                if evidence.status == "cancelled"
+                else storage.mark_outbox_abandoned
+            )
+            committed = await mark_terminal(
+                item.outbox_id,
+                error_summary=evidence.error[:512] if evidence.error else None,
+                receipt_id=evidence.receipt_id,
+                failure_kind=evidence.failure_kind,
+                attempt_number=attempt_number,
+                expected_worker_id=item.worker_id,
+            )
+            self._require_retry_commit(
+                committed,
+                item,
+                transition=evidence.status,
+                attempt_number=attempt_number,
+            )
+            return RetryAttemptFinalization(
+                outcome=evidence.status,
+                receipt_id=evidence.receipt_id,
+                failure_kind=evidence.failure_kind,
                 attempt_number=attempt_number,
             )
 
@@ -1871,7 +1927,7 @@ class DeliveryLifecycleService:
         This is the retry failure-classification authority.  It selects only
         evidence attributable to the current outbox attempt, treats durable
         ``queued``/``sent`` evidence as acceptance even when a later
-        persistence step raised, honours existing dead-letter evidence,
+        persistence step raised, honours existing terminal lifecycle evidence,
         terminates non-retryable failures immediately, and otherwise commits
         the retry-wait transition.
 
@@ -1983,6 +2039,7 @@ class DeliveryLifecycleService:
                 item.outbox_id,
                 error_summary=receipt.error,
                 receipt_id=receipt.receipt_id,
+                attempt_number=receipt.attempt_number,
                 expected_worker_id=item.worker_id,
             )
             self._require_retry_commit(
@@ -2174,12 +2231,14 @@ class DeliveryLifecycleService:
                 committed = await storage.mark_outbox_queued(
                     outbox_id,
                     receipt_id=attempt.receipt_id,
+                    attempt_number=attempt.attempt_number,
                     expected_worker_id=expected_worker_id,
                 )
             elif attempt is not None and attempt.status == "sent":
                 committed = await storage.mark_outbox_sent(
                     outbox_id,
                     receipt_id=attempt.receipt_id,
+                    attempt_number=attempt.attempt_number,
                     expected_worker_id=expected_worker_id,
                 )
             elif failure_kind is not None:
@@ -2196,6 +2255,7 @@ class DeliveryLifecycleService:
                         receipt_id=receipt_id,
                         failure_kind=failure_kind.value,
                         error_summary=error_summary,
+                        attempt_number=attempt.attempt_number,
                         expected_worker_id=expected_worker_id,
                     )
                 elif attempt is None and failure_kind.is_retryable and retry_policy:

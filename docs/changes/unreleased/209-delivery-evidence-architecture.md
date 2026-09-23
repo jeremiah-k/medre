@@ -44,10 +44,16 @@
   under the existing prerelease schema policy.
 - Review hardening aligns every secondary surface with the same authority model:
   retry exhaustion commits linked lifecycle authority instead of pointing at the
-  failed attempt, recovery scans consume the generation-aware `delivery_status`
-  projection, queue terminal receipt transitions include cancellation and
-  abandonment, and reservation cleanup consumes `active_attempt` whenever a row
-  leaves `in_progress`.
+  failed attempt; recovery scans page a bounded receipt keyset and apply the same
+  generation-aware authority contract; queue terminal receipt transitions include
+  cancellation and abandonment; and reservation cleanup consumes `active_attempt`
+  whenever a row leaves `in_progress`.
 - Startup schema validation now verifies the new receipt/outbox CHECK constraints,
   and shared in-memory terminal-finalization helpers keep conformance and
   operational fakes aligned with SQLite.
+- Replay dispatch now threads the newly-created outbox generation into target
+  execution, so immutable replay evidence and guarded outbox finalization always
+  use the same attempt identity even when no prior replay receipt exists.
+- Retry reconciliation treats persisted `cancelled` and `abandoned` lifecycle
+  evidence as terminal authority and fences suppression/abandonment transitions
+  to the exact reserved attempt instead of allowing a later attempt to be consumed.

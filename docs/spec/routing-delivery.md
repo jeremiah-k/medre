@@ -562,7 +562,7 @@ The fallback chain is part of the `DeliveryPlan`. It is constructed at planning 
 
 ### 7.1 Opt-In
 
-Retry is **opt-in** — it is disabled by default. The `RetryWorker` only activates when a `RetryPolicy` is configured on the route or delivery plan. Without a `RetryPolicy`, transient failures are not automatically retried; they remain as `failed` receipts.
+Retry is **opt-in** — it is disabled by default. The `RetryWorker` only activates when a `RetryPolicy` is configured on the route or delivery plan. Without a `RetryPolicy`, transient failures are not automatically retried: the `failed` attempt receipt is followed by linked `dead_lettered` lifecycle evidence at the same attempt number.
 
 ### 7.2 Auto-Retried Failures
 

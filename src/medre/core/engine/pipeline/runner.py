@@ -1484,6 +1484,7 @@ class PipelineRunner:
             Callable[[str], Awaitable[list[NativeMessageRef]]] | None
         ) = None,
         outbox_id: str | None = None,
+        reserved_attempt_number: int | None = None,
     ) -> DeliveryExecutionEvidence:
         """Late-bind orchestration-facing target execution evidence.
 
@@ -1500,6 +1501,7 @@ class PipelineRunner:
             cached_get_fn=cached_get_fn,
             cached_list_fn=cached_list_fn,
             outbox_id=outbox_id,
+            reserved_attempt_number=reserved_attempt_number,
         )
 
     async def _deliver_to_targets_fan_out(
