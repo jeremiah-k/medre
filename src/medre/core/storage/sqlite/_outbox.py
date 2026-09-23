@@ -739,6 +739,9 @@ class _OutboxMixin:
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``cancelled`` (terminal).
 
@@ -754,7 +757,10 @@ class _OutboxMixin:
                 "retry_wait",
                 "queued",
             ),  # transition guard — intentionally literal
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
             error_summary=error_summary,
+            expected_worker_id=expected_worker_id,
         )
 
     async def mark_outbox_abandoned(
@@ -762,6 +768,7 @@ class _OutboxMixin:
         outbox_id: str,
         error_summary: str | None = None,
         receipt_id: str | None = None,
+        failure_kind: str | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
@@ -779,6 +786,7 @@ class _OutboxMixin:
                 "queued",
             ),  # transition guard — intentionally literal
             receipt_id=receipt_id,
+            failure_kind=failure_kind,
             error_summary=error_summary,
             expected_worker_id=expected_worker_id,
         )

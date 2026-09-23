@@ -1026,23 +1026,33 @@ class StorageBackend(Protocol):
         self,
         receipt: DeliveryReceipt,
         *,
+        attempt_receipt: DeliveryReceipt | None = None,
         outbox_id: str,
         attempt_number: int,
         terminal_status: str,
         event_id: str,
+        delivery_plan_id: str,
         target_adapter: str,
+        target_channel: str | None,
         failure_kind: str | None = None,
         error_summary: str | None = None,
+        expected_worker_id: str | None = None,
     ) -> bool:
         """Atomically finalize one terminal queue outcome.
 
-        Implementations MUST commit the immutable failed receipt and the
-        guarded outbox ``queued|in_progress -> terminal_status`` transition
-        in one transaction, re-checking the exact attempt at write time
+        Implementations MUST commit an immutable lifecycle receipt whose
+        status equals ``terminal_status`` and the guarded outbox
+        ``queued|in_progress -> terminal_status`` transition
+        in one transaction. When ``attempt_receipt`` is supplied (for a
+        queue callback that newly proves the dispatch failed), that attempt
+        receipt MUST commit in the same transaction before the lifecycle
+        receipt. Implementations re-check the exact attempt at write time
         (row identity, ``attempt_number``, eligible status).  Return
         ``False`` when the guarded attempt no longer qualifies — stale
         callback, duplicate notification, or a competing attempt/state
-        change won — in which case neither write may commit.
+        change won — in which case neither write may commit. When
+        ``expected_worker_id`` is supplied, implementations MUST additionally
+        fence the transition to that current owner.
         """
         ...
 
@@ -1480,6 +1490,9 @@ class StorageBackend(Protocol):
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``cancelled`` (terminal).
 
@@ -1496,6 +1509,7 @@ class StorageBackend(Protocol):
         outbox_id: str,
         error_summary: str | None = None,
         receipt_id: str | None = None,
+        failure_kind: str | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).

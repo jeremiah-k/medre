@@ -3,10 +3,9 @@
 Pins the all-or-nothing contract between the terminal receipt and the
 outbox transition at the real SQLite + OutboxManager seam:
 
-* a valid terminal callback commits the failed receipt and the outbox
-  terminal transition together — including from the production ``queued``
-  hand-off state, with the outbox row linked back to its receipt and
-  queued-receipt lineage preserved;
+* a valid terminal callback commits newly proven attempt evidence (when the
+  queue reports a send failure), lifecycle-terminal evidence, and the outbox
+  transition together; cancelled/abandoned callbacks remain lifecycle-only;
 * a stale callback that loses to a competing attempt/state change
   commits neither a receipt nor an outbox mutation;
 * a mid-transaction write failure rolls the guarded transition back —
@@ -100,8 +99,7 @@ def _terminal_record(
 async def test_exhausted_from_queued_outbox(
     temp_storage: SQLiteStorage,
 ) -> None:
-    """exhausted on a queued outbox -> one failed receipt with inherited
-    lineage, outbox dead_lettered and linked to that receipt."""
+    """Exhaustion records failed-attempt then dead-letter lifecycle evidence."""
     await _create_outbox(
         temp_storage,
         outbox_id="obox-q-ex",
@@ -146,12 +144,17 @@ async def test_exhausted_from_queued_outbox(
     # Lineage inherited from the queued receipt of the same attempt.
     assert receipt.source == "replay"
     assert receipt.replay_run_id == "replay-42"
-    assert receipt.parent_receipt_id == "rcpt-original"
+    assert receipt.parent_receipt_id == "rcpt-queued-ex"
+    terminal = [r for r in receipts if r.status == "dead_lettered"]
+    assert len(terminal) == 1
+    assert terminal[0].receipt_kind == "lifecycle"
+    assert terminal[0].attempt_number == receipt.attempt_number
+    assert terminal[0].parent_receipt_id == receipt.receipt_id
 
     outbox = await temp_storage.get_outbox_item("obox-q-ex")
     assert outbox is not None
     assert outbox.status == "dead_lettered"
-    assert outbox.receipt_id == receipt.receipt_id
+    assert outbox.receipt_id == terminal[0].receipt_id
     assert outbox.worker_id is None
 
 
@@ -159,8 +162,7 @@ async def test_exhausted_from_queued_outbox(
 async def test_cancelled_from_queued_outbox(
     temp_storage: SQLiteStorage,
 ) -> None:
-    """cancelled on a queued outbox -> failed receipt committed together
-    with the cancelled transition and linked via outbox.receipt_id."""
+    """Cancellation is lifecycle-only and does not invent a failed attempt."""
     await _create_outbox(
         temp_storage,
         outbox_id="obox-q-cancel",
@@ -179,21 +181,22 @@ async def test_cancelled_from_queued_outbox(
     )
 
     receipts = await temp_storage.list_receipts_for_event("evt-q-cancel")
-    failed = [r for r in receipts if r.status == "failed"]
-    assert len(failed) == 1
+    assert [r for r in receipts if r.status == "failed"] == []
+    terminal = [r for r in receipts if r.status == "cancelled"]
+    assert len(terminal) == 1
+    assert terminal[0].receipt_kind == "lifecycle"
 
     outbox = await temp_storage.get_outbox_item("obox-q-cancel")
     assert outbox is not None
     assert outbox.status == "cancelled"
-    assert outbox.receipt_id == failed[0].receipt_id
+    assert outbox.receipt_id == terminal[0].receipt_id
 
 
 @pytest.mark.asyncio
 async def test_abandoned_from_queued_outbox(
     temp_storage: SQLiteStorage,
 ) -> None:
-    """abandoned on a queued outbox -> failed receipt committed together
-    with the abandoned transition and linked via outbox.receipt_id."""
+    """Abandonment is lifecycle-only and does not invent a failed attempt."""
     await _create_outbox(
         temp_storage,
         outbox_id="obox-q-abandon",
@@ -212,13 +215,14 @@ async def test_abandoned_from_queued_outbox(
     )
 
     receipts = await temp_storage.list_receipts_for_event("evt-q-abandon")
-    failed = [r for r in receipts if r.status == "failed"]
-    assert len(failed) == 1
+    assert [r for r in receipts if r.status == "failed"] == []
+    terminal = [r for r in receipts if r.status == "abandoned"]
+    assert len(terminal) == 1
 
     outbox = await temp_storage.get_outbox_item("obox-q-abandon")
     assert outbox is not None
     assert outbox.status == "abandoned"
-    assert outbox.receipt_id == failed[0].receipt_id
+    assert outbox.receipt_id == terminal[0].receipt_id
 
 
 # ===================================================================
@@ -301,7 +305,8 @@ async def test_storage_guard_rejects_stale_attempt_number(
         target_adapter="mesh-1",
         target_channel="0",
         route_id="route-1",
-        status="failed",
+        status="dead_lettered",
+        receipt_kind="lifecycle",
         failure_kind="adapter_transient",
         outbox_id="obox-late",
         attempt_number=1,
@@ -312,7 +317,9 @@ async def test_storage_guard_rejects_stale_attempt_number(
         attempt_number=1,
         terminal_status="dead_lettered",
         event_id="evt-late",
+        delivery_plan_id="plan-late",
         target_adapter="mesh-1",
+        target_channel="0",
         failure_kind="adapter_transient",
         error_summary="stale attempt",
     )
@@ -369,7 +376,8 @@ async def test_duplicate_receipt_id_rolls_back_transition(
         target_adapter="mesh-1",
         target_channel="0",
         route_id="route-1",
-        status="failed",
+        status="dead_lettered",
+        receipt_kind="lifecycle",
         failure_kind="adapter_transient",
         outbox_id="obox-rb",
         attempt_number=1,
@@ -381,7 +389,9 @@ async def test_duplicate_receipt_id_rolls_back_transition(
             attempt_number=1,
             terminal_status="dead_lettered",
             event_id="evt-rb",
+            delivery_plan_id="plan-rb",
             target_adapter="mesh-1",
+            target_channel="0",
             failure_kind="adapter_transient",
             error_summary="collide",
         )
@@ -461,11 +471,13 @@ async def test_duplicate_exhausted_notifications_commit_once(
 
     receipts = await temp_storage.list_receipts_for_event("evt-dup")
     failed = [r for r in receipts if r.status == "failed"]
+    terminal = [r for r in receipts if r.status == "dead_lettered"]
     assert len(failed) == 1
+    assert len(terminal) == 1
 
     outbox = await temp_storage.get_outbox_item("obox-dup")
     assert outbox is not None
     assert outbox.status == "dead_lettered"
-    assert outbox.receipt_id == failed[0].receipt_id
+    assert outbox.receipt_id == terminal[0].receipt_id
 
     assert "already terminal" in caplog.text

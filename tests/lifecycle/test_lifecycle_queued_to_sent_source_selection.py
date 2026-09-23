@@ -886,9 +886,9 @@ class TestReplayQueuedTerminalCorrelation:
         assert len(failed) == 1
         assert failed[0].source == "replay"
         assert failed[0].replay_run_id == "run-9"
-        # record_terminal preserves replay source attribution from the
-        # queued receipt; this same-attempt terminal row has no parent.
-        assert failed[0].parent_receipt_id is None
+        # Failed dispatch evidence remains linked to the queued attempt it
+        # terminalizes while preserving replay source attribution.
+        assert failed[0].parent_receipt_id == "rcpt-rf-q"
         assert failed[0].failure_kind == "adapter_permanent"
         assert failed[0].attempt_number == 1
 

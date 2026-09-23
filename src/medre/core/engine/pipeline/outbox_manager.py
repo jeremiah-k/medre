@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from medre.core.contracts.adapter import QueueTerminalRecord
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
     TERMINAL_OUTBOX_STATUSES,
@@ -293,12 +294,8 @@ class OutboxManager:
     async def finalize_outcome(
         self,
         ctx: OutboxContext,
-        receipt: DeliveryReceipt | None,
-        failure_kind_val: DeliveryFailureKind | None,
-        error: str | None,
+        evidence: DeliveryExecutionEvidence,
         retry_policy: RetryPolicy | None,
-        *,
-        lifecycle_receipt: DeliveryReceipt | None = None,
     ) -> bool | None:
         """Update the outbox item status based on the delivery outcome.
 
@@ -312,12 +309,9 @@ class OutboxManager:
             self._storage,
             outbox_id=ctx.outbox_id,
             outbox_created=ctx.created,
-            receipt=receipt,
-            failure_kind_val=failure_kind_val,
-            error=error,
+            evidence=evidence,
             retry_policy=retry_policy,
             expected_worker_id=ctx.pipeline_worker or None,
-            lifecycle_receipt=lifecycle_receipt,
         )
 
     # -- Terminal outcome recording --
@@ -344,25 +338,23 @@ class OutboxManager:
             The terminal outcome record from the adapter.
         """
         try:
-            # Map adapter-reported outcome to receipt status and outbox
-            # terminal status.
+            # Map adapter-reported facts to one lifecycle transition. Queue
+            # callbacks do not represent a new dispatch attempt; the queued
+            # receipt is the attempt evidence and this receipt records only the
+            # terminal state transition caused by it.
             if record.outcome == "exhausted":
-                receipt_status = "failed"
                 failure_kind = "adapter_transient"
                 outbox_terminal = "dead_lettered"
                 error_msg = record.error or "local queue retry budget exhausted"
             elif record.outcome == "permanent_failed":
-                receipt_status = "failed"
                 failure_kind = "adapter_permanent"
                 outbox_terminal = "dead_lettered"
                 error_msg = record.error or "permanent send failure"
             elif record.outcome == "cancelled":
-                receipt_status = "failed"
                 failure_kind = "adapter_transient"
                 outbox_terminal = "cancelled"
                 error_msg = record.error or "queue item cancelled while in-flight"
             elif record.outcome == "abandoned":
-                receipt_status = "failed"
                 failure_kind = "adapter_transient"
                 outbox_terminal = "abandoned"
                 error_msg = record.error or "adapter shutdown with unsent queued items"
@@ -528,7 +520,7 @@ class OutboxManager:
             # outcomes preserve retry/replay lineage.
             _queued_source: str = "live"
             _queued_replay_run_id: str | None = None
-            _queued_parent_receipt_id: str | None = None
+            _queued_receipt_id: str | None = None
             try:
                 _all_receipts = await self._storage.list_receipts_for_event(
                     record.event_id,
@@ -541,7 +533,7 @@ class OutboxManager:
                     ):
                         _queued_source = _r.source
                         _queued_replay_run_id = _r.replay_run_id
-                        _queued_parent_receipt_id = _r.parent_receipt_id
+                        _queued_receipt_id = _r.receipt_id
                         break
             except Exception:
                 self._log.debug(
@@ -556,38 +548,62 @@ class OutboxManager:
             _enriched_plan_id = existing_item.delivery_plan_id
             _enriched_channel = existing_item.target_channel
 
-            # Create the terminal receipt.
+            # Build evidence for the queue terminal fact. A queue failure
+            # proves that the already-enqueued dispatch attempt failed, so it
+            # receives a failed attempt receipt. Cancellation/abandonment are
+            # lifecycle-only transitions and do not manufacture a failure.
+            failed_attempt: DeliveryReceipt | None = None
+            lifecycle_parent_id = _queued_receipt_id
+            if outbox_terminal == "dead_lettered":
+                failed_attempt = build_delivery_receipt(
+                    event_id=record.event_id,
+                    delivery_plan_id=_enriched_plan_id,
+                    target_adapter=record.adapter,
+                    target_channel=_enriched_channel,
+                    route_id=existing_item.route_id,
+                    status="failed",
+                    receipt_kind="attempt",
+                    error=error_msg,
+                    failure_kind=failure_kind,
+                    source=_queued_source,
+                    replay_run_id=_queued_replay_run_id,
+                    parent_receipt_id=_queued_receipt_id,
+                    outbox_id=record.outbox_id,
+                    attempt_number=_attempt_number,
+                )
+                lifecycle_parent_id = failed_attempt.receipt_id
+
             receipt = build_delivery_receipt(
                 event_id=record.event_id,
                 delivery_plan_id=_enriched_plan_id,
                 target_adapter=record.adapter,
                 target_channel=_enriched_channel,
                 route_id=existing_item.route_id,
-                status=receipt_status,
+                status=outbox_terminal,
+                receipt_kind="lifecycle",
                 error=error_msg,
                 failure_kind=failure_kind,
                 source=_queued_source,
                 replay_run_id=_queued_replay_run_id,
-                parent_receipt_id=_queued_parent_receipt_id,
+                parent_receipt_id=lifecycle_parent_id,
                 outbox_id=record.outbox_id,
                 attempt_number=_attempt_number,
             )
-            # Commit the terminal receipt and the outbox transition in a
-            # single storage transaction.  The guarded attempt re-check
-            # inside that transaction is the authority: a stale or
-            # duplicate callback that loses to a competing attempt or
-            # state change commits neither the receipt nor the transition,
-            # and any write failure rolls the whole operation back.
+            # Commit any newly-proven failed-attempt evidence, terminal
+            # lifecycle evidence, and the outbox transition in one guarded
+            # transaction. A stale/duplicate callback therefore commits none
+            # of them.
             committed = await self._storage.finalize_outbox_terminal(
                 receipt,
+                attempt_receipt=failed_attempt,
                 outbox_id=record.outbox_id,
                 attempt_number=_attempt_number,
                 terminal_status=outbox_terminal,
                 event_id=record.event_id,
+                delivery_plan_id=_enriched_plan_id,
                 target_adapter=record.adapter,
-                failure_kind=(
-                    failure_kind if outbox_terminal == "dead_lettered" else None
-                ),
+                target_channel=_enriched_channel,
+                failure_kind=failure_kind,
                 error_summary=error_msg[:200] if error_msg else None,
             )
             if not committed:

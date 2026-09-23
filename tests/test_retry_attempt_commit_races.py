@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import medre.runtime.retry as retry_module
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import (
     DeliveryLifecycleService,
     RetryAttemptCommitRejected,
@@ -317,9 +318,9 @@ async def test_outbox_manager_passes_pipeline_owner_to_finalization() -> None:
 
     await manager.finalize_outcome(
         ctx,
-        _receipt(status="sent", attempt_number=1),
-        None,
-        None,
+        DeliveryExecutionEvidence(
+            attempt_receipt=_receipt(status="sent", attempt_number=1)
+        ),
         None,
     )
 

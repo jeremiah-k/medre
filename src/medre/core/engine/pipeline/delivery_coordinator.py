@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Protocol, TypeVar, cast
 
 from medre.core.contracts.adapter import AdapterContract
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
 from medre.core.engine.pipeline.target_delivery import (
@@ -72,7 +73,7 @@ class _PersistSuppressionReceiptFn(Protocol):
         error: str,
         source: str = "live",
         replay_run_id: str | None = None,
-    ) -> DeliveryReceipt: ...
+    ) -> DeliveryExecutionEvidence: ...
 
 
 class _DeliverTargetFn(Protocol):
@@ -192,13 +193,10 @@ class _DeliveryContext:
 
 @dataclass(frozen=True)
 class _ExecutionResult:
-    """Delivery outcome plus the evidence needed for outbox finalization."""
+    """Delivery outcome plus validated execution evidence for finalization."""
 
     outcome: DeliveryOutcome
-    receipt: DeliveryReceipt | None
-    lifecycle_receipt: DeliveryReceipt | None
-    failure_kind: DeliveryFailureKind | None
-    error: str | None
+    evidence: DeliveryExecutionEvidence
 
 
 class DeliveryCoordinator:
@@ -701,22 +699,21 @@ class DeliveryCoordinator:
             # caller's outer finally still releases capacity if finalization
             # itself raises, so persistence faults cannot leak runtime slots.
             await OutboxManager.cancel_renewal(renewal_task)
+            evidence = (
+                result.evidence if result is not None else DeliveryExecutionEvidence()
+            )
             committed = await self._outbox_manager.finalize_outcome(
                 outbox_ctx,
-                result.receipt if result is not None else None,
-                result.failure_kind if result is not None else None,
-                result.error if result is not None else None,
+                evidence,
                 ctx.plan.retry_policy,
-                lifecycle_receipt=(
-                    result.lifecycle_receipt if result is not None else None
-                ),
             )
-            if committed is False and result is not None and result.receipt is not None:
+            primary_receipt = evidence.primary_receipt
+            if committed is False and primary_receipt is not None:
                 self._log.warning(
                     "Delivery receipt %s was appended but its outbox transition "
                     "did not commit for outbox %s; retaining the receipt as "
                     "historical evidence only",
-                    result.receipt.receipt_id,
+                    primary_receipt.receipt_id,
                     outbox_ctx.outbox_id,
                 )
 
@@ -726,20 +723,14 @@ class DeliveryCoordinator:
         replay_receipts: list[DeliveryReceipt],
         outbox_ctx: OutboxContext,
     ) -> _ExecutionResult:
-        """Return the delivery outcome and receipts needed for finalization.
-
-        Adapter and renderer failures become classified outcomes; a linked
-        terminal lifecycle receipt is kept separate from the failed attempt
-        receipt. Cancellation propagates rather than becoming a failure
-        outcome.
-        """
+        """Return the delivery outcome and validated execution evidence."""
         status: Literal["success", "queued", "transient_failure", "permanent_failure"]
         try:
             if self._runtime_accounting is not None:
                 self._runtime_accounting.record_outbound_attempt()
 
             previous_receipt = self._latest_matching_receipt(ctx, replay_receipts)
-            receipt = await self._deliver_target(
+            evidence = await self._deliver_target(
                 ctx.event,
                 ctx.route,
                 ctx.plan,
@@ -750,18 +741,31 @@ class DeliveryCoordinator:
                 cached_list_fn=ctx.cached_list_fn,
                 outbox_id=outbox_ctx.outbox_id,
             )
-            receipt = await self._persisted_receipt(receipt)
+            evidence = await self._persisted_evidence(evidence)
+            receipt = evidence.primary_receipt
+            if receipt is None:
+                raise RuntimeError("target delivery returned no receipt evidence")
             if self._route_stats is not None:
                 self._route_stats.record_delivered(ctx.route.id)
             if self._runtime_accounting is not None:
                 self._runtime_accounting.record_outbound_delivered()
-            status = "queued" if receipt.status == "queued" else "success"
-            outcome = self._build_outcome(
-                ctx,
-                status=status,
-                receipt=receipt,
-            )
-            return _ExecutionResult(outcome, receipt, None, None, None)
+
+            if receipt.receipt_kind == "lifecycle":
+                outcome = self._build_outcome(
+                    ctx,
+                    status="skipped",
+                    failure_kind=(
+                        DeliveryFailureKind(receipt.failure_kind)
+                        if receipt.failure_kind is not None
+                        else None
+                    ),
+                    receipt=receipt,
+                    error=receipt.error,
+                )
+            else:
+                status = "queued" if receipt.status == "queued" else "success"
+                outcome = self._build_outcome(ctx, status=status, receipt=receipt)
+            return _ExecutionResult(outcome, evidence)
         except _AdapterDeliveryError as exc:
             self._diagnostician.record_adapter_failure(
                 ctx.event.event_id,
@@ -769,52 +773,54 @@ class DeliveryCoordinator:
                 exc.error,
             )
             self._record_failed(ctx.route.id, exc.error)
-            if exc.failure_kind is not None:
-                failure_kind = exc.failure_kind
-            elif exc.original is not None:
-                failure_kind = self._lifecycle.classify_failure(
-                    exc.original,
-                    adapter_registered=True,
+            evidence = await self._persisted_evidence(exc.evidence)
+            failure_kind = evidence.failure_kind
+            if failure_kind is None:
+                if exc.original is not None:
+                    failure_kind = self._lifecycle.classify_failure(
+                        exc.original,
+                        adapter_registered=True,
+                    )
+                else:
+                    failure_kind = DeliveryFailureKind.ADAPTER_TRANSIENT
+                evidence = DeliveryExecutionEvidence(
+                    attempt_receipt=evidence.attempt_receipt,
+                    authority_receipt=evidence.authority_receipt,
+                    failure_kind=failure_kind,
+                    error=evidence.error or exc.error,
                 )
-            else:
-                failure_kind = DeliveryFailureKind.ADAPTER_TRANSIENT
             status = (
                 "transient_failure"
                 if failure_kind.is_retryable
                 else "permanent_failure"
             )
-            receipt = await self._persisted_receipt(exc.receipt)
-            lifecycle_receipt = await self._persisted_receipt(exc.lifecycle_receipt)
             outcome = self._build_outcome(
                 ctx,
                 status=status,
                 failure_kind=failure_kind,
-                receipt=receipt,
+                receipt=evidence.primary_receipt,
                 error=exc.error,
             )
-            return _ExecutionResult(
-                outcome,
-                receipt,
-                lifecycle_receipt,
-                failure_kind,
-                exc.error,
-            )
+            return _ExecutionResult(outcome, evidence)
         except _RendererDeliveryError as exc:
-            failure_kind = (
-                exc.failure_kind
-                if exc.failure_kind is not None
-                else DeliveryFailureKind.RENDERER_FAILURE
-            )
+            evidence = await self._persisted_evidence(exc.evidence)
+            failure_kind = evidence.failure_kind or DeliveryFailureKind.RENDERER_FAILURE
+            if evidence.failure_kind is None:
+                evidence = DeliveryExecutionEvidence(
+                    attempt_receipt=evidence.attempt_receipt,
+                    authority_receipt=evidence.authority_receipt,
+                    failure_kind=failure_kind,
+                    error=evidence.error or exc.error,
+                )
             self._record_failed(ctx.route.id, exc.error)
-            receipt = await self._persisted_receipt(exc.receipt)
             outcome = self._build_outcome(
                 ctx,
                 status="permanent_failure",
                 failure_kind=failure_kind,
-                receipt=receipt,
+                receipt=evidence.primary_receipt,
                 error=exc.error,
             )
-            return _ExecutionResult(outcome, receipt, None, failure_kind, exc.error)
+            return _ExecutionResult(outcome, evidence)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -840,7 +846,13 @@ class DeliveryCoordinator:
                 failure_kind=failure_kind,
                 error=error,
             )
-            return _ExecutionResult(outcome, None, None, failure_kind, error)
+            return _ExecutionResult(
+                outcome,
+                DeliveryExecutionEvidence(
+                    failure_kind=failure_kind,
+                    error=error,
+                ),
+            )
 
     def _latest_matching_receipt(
         self,
@@ -882,6 +894,21 @@ class DeliveryCoordinator:
         if persisted is None:
             raise RuntimeError("suppression receipt unexpectedly missing")
         return persisted
+
+    async def _persisted_evidence(
+        self, evidence: DeliveryExecutionEvidence
+    ) -> DeliveryExecutionEvidence:
+        """Reload receipt rows while preserving execution-evidence invariants."""
+        attempt = await self._persisted_receipt(evidence.attempt_receipt)
+        authority = await self._persisted_receipt(evidence.authority_receipt)
+        if attempt is evidence.attempt_receipt and authority is evidence.authority_receipt:
+            return evidence
+        return DeliveryExecutionEvidence(
+            attempt_receipt=attempt,
+            authority_receipt=authority,
+            failure_kind=evidence.failure_kind,
+            error=evidence.error,
+        )
 
     async def _persisted_receipt(
         self, receipt: DeliveryReceipt | None

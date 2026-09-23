@@ -322,6 +322,9 @@ class _FakeStorage:
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
         if item is None:
@@ -330,6 +333,9 @@ class _FakeStorage:
             item,
             "cancelled",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
+            expected_worker_id=expected_worker_id,
             error_summary=error_summary,
         )
 
@@ -338,6 +344,7 @@ class _FakeStorage:
         outbox_id: str,
         error_summary: str | None = None,
         receipt_id: str | None = None,
+        failure_kind: str | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
@@ -348,6 +355,7 @@ class _FakeStorage:
             "abandoned",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
             receipt_id=receipt_id,
+            failure_kind=failure_kind,
             expected_worker_id=expected_worker_id,
             error_summary=error_summary,
         )

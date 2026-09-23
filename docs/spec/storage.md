@@ -648,7 +648,7 @@ and MUST NOT be inferred from `status` alone.
 
 `sequence` provides a strictly monotonic append order for immutable receipt history. For outbox-less delivery it also determines the current receipt; outbox-backed delivery uses the outbox row's committed `receipt_id` as current-state authority.
 
-**Status values:** `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`.
+**Status values:** `queued`, `sent`, `failed`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`.
 
 `suppressed` covers loop/capacity/shutdown rejection receipts.
 
@@ -1053,6 +1053,11 @@ Multi-table operations **MUST** be atomic:
 
 - Event append (row in `canonical_events` plus rows in `event_relations`) **MUST** be a single transaction.
 - Native ref storage alongside receipt writing **MUST** be a single transaction.
+- Outbox-backed terminalization **MUST** insert any newly proven failed-attempt
+  evidence, insert the terminal lifecycle receipt, and advance the outbox
+  `receipt_id`/terminal status in one guarded transaction. The guard MUST match
+  event, plan, adapter, channel, outbox, effective attempt, and current owner
+  when an owner is supplied.
 - If any write in a batch fails, the database state **MUST** remain unchanged.
 
 SQLite transactions are atomic. An event write either completes fully or not at all. A receipt write is a separate transaction from the event write, which means:

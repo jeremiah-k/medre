@@ -69,11 +69,11 @@ These vocabularies are defined in `delivery_state.py` (§4 of
 
 | Vocabulary                    | Constant                        | Values                                                                                              |
 | ----------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Receipt statuses              | `RECEIPT_STATUSES`              | `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`                                           |
+| Receipt statuses              | `RECEIPT_STATUSES`              | `queued`, `sent`, `failed`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                 |
 | Outbox statuses               | `OUTBOX_STATUSES`               | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` |
 | Outcome statuses              | `OUTCOME_STATUSES`              | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            |
 | Adapter delivery statuses     | `ADAPTER_DELIVERY_STATUSES`     | `sent`, `enqueued`                                                                                  |
-| Terminal receipt statuses     | `TERMINAL_RECEIPT_STATUSES`     | `sent`, `dead_lettered`, `suppressed`                                                               |
+| Terminal receipt statuses     | `TERMINAL_RECEIPT_STATUSES`     | `sent`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                                     |
 | Non-terminal receipt statuses | `NON_TERMINAL_RECEIPT_STATUSES` | `queued`, `failed`                                                                                  |
 | Terminal outbox statuses      | `TERMINAL_OUTBOX_STATUSES`      | `sent`, `dead_lettered`, `cancelled`, `abandoned`                                                   |
 | Non-terminal outbox statuses  | `NON_TERMINAL_OUTBOX_STATUSES`  | `pending`, `in_progress`, `queued`, `retry_wait`                                                    |
@@ -276,12 +276,37 @@ of four outcomes:
 | `cancelled`        | Item cancelled while in-flight (e.g. task cancellation) |
 | `abandoned`        | Adapter shutdown with unsent queued items remaining     |
 
-The pipeline maps adapter-reported facts to lifecycle transitions:
-`exhausted` and `permanent_failed` → `dead_lettered` outbox + `failed` receipt;
-`cancelled` → `cancelled` outbox + `failed` receipt; `abandoned` → `abandoned` outbox + `failed` receipt.
+The pipeline maps adapter-reported facts to distinct evidence layers:
+
+- `exhausted` / `permanent_failed`: append a `failed` **attempt** receipt, then
+  a linked `dead_lettered` **lifecycle** receipt at the same attempt number;
+- `cancelled`: append `cancelled` lifecycle evidence linked to the queued
+  attempt;
+- `abandoned`: append `abandoned` lifecycle evidence linked to the queued
+  attempt.
+
+For outbox-backed callbacks, any newly proven failed-attempt receipt, the
+terminal lifecycle receipt, and the terminal outbox transition MUST commit in
+one guarded storage transaction. A stale callback therefore commits none of
+those writes.
 
 Adapters MUST NOT directly mutate outbox state. They report facts; the
 pipeline decides lifecycle transitions.
+
+### 3.7 Structured Execution Evidence
+
+The target-delivery → coordinator → lifecycle boundary carries one immutable
+`DeliveryExecutionEvidence` value rather than independent receipt and failure
+parameters. It contains an optional attempt receipt, an optional lifecycle
+authority receipt, the canonical failure kind, and the error summary. When both
+receipts are present, construction MUST reject mismatched event, plan, adapter,
+channel, outbox, attempt, or parent lineage.
+
+`TargetDeliveryService` produces this evidence, `DeliveryCoordinator` transports
+it without interpreting lifecycle ownership, and `DeliveryLifecycleService`
+decides which evidence may become mutable outbox authority. Compatibility
+entry points that return a primary receipt MAY unwrap the structured value, but
+MUST NOT recreate lifecycle interpretation outside the lifecycle layer.
 
 ---
 
@@ -300,11 +325,12 @@ append order.
 
 Receipts remain the authoritative immutable evidence trail for audit,
 diagnostics, and operator inspection; the outbox pointer selects which receipt
-is the current lifecycle projection. When one live attempt appends both a
-primary `failed` receipt and its linked retry-exhaustion `dead_lettered`
-receipt, the delivery outcome MAY retain the primary failed receipt as the
-attempt result, but the guarded outbox `dead_lettered` transition MUST point at
-the linked terminal receipt. This keeps attempt evidence distinct from mutable
+is the current lifecycle projection. When one execution produces both a primary `failed` attempt receipt and linked
+terminal lifecycle evidence, the delivery outcome MAY retain the failed receipt
+as its attempt-facing result, but the guarded terminal outbox transition MUST
+point at the lifecycle receipt. For outbox-backed terminalization the lifecycle
+receipt and pointer transition commit atomically; the target-delivery layer does
+not pre-append that authority receipt. This keeps attempt evidence distinct from mutable
 lifecycle authority and prevents a terminal outbox from projecting the
 preceding non-terminal failure as current. See
 [state-machines.md](state-machines.md) §1.4.
@@ -320,9 +346,12 @@ evidence trail independently of outbox lifecycle. See
 
 ### 4.3 Causal Direction
 
-Outbox transitions drive receipt creation, never the reverse. The pipeline
-creates an outbox item before attempting adapter delivery. On completion, it
-appends a receipt and then updates the outbox. See
+The pipeline creates an outbox item before attempting adapter delivery. Attempt
+evidence may be appended before mutable-state finalization, but terminal
+lifecycle authority for an outbox-backed delivery MUST be committed atomically
+with the terminal outbox transition. This prevents a crash from persisting a
+terminal receipt that the outbox never selected, or terminal state with no
+matching lifecycle receipt. See
 [state-machines.md](state-machines.md) §3.1.
 
 ### 4.4 Projections Are Read-Only

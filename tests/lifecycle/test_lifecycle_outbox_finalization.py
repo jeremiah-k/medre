@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
+from medre.core.events.canonical import DeliveryReceipt
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     RetryPolicy,
@@ -16,6 +20,35 @@ from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 from .conftest import _make_lifecycle, _make_receipt
+
+
+async def _finalize_outbox_outcome(
+    lifecycle,
+    storage: StorageBackend,
+    outbox_id: str | None,
+    outbox_created: bool,
+    receipt: DeliveryReceipt | None,
+    failure_kind_val: DeliveryFailureKind | None,
+    error: str | None,
+    retry_policy: RetryPolicy | None,
+    *,
+    lifecycle_receipt: DeliveryReceipt | None = None,
+    expected_worker_id: str | None = None,
+) -> bool | None:
+    """Exercise the structured finalization API with explicit evidence."""
+    return await lifecycle.finalize_outbox_outcome(
+        storage,
+        outbox_id=outbox_id,
+        outbox_created=outbox_created,
+        evidence=DeliveryExecutionEvidence(
+            attempt_receipt=receipt,
+            authority_receipt=lifecycle_receipt,
+            failure_kind=failure_kind_val,
+            error=error,
+        ),
+        retry_policy=retry_policy,
+        expected_worker_id=expected_worker_id,
+    )
 
 # ===================================================================
 # Outbox finalization — status transitions
@@ -32,7 +65,7 @@ class TestFinalizeOutboxOutcome:
         """No outbox_id → no action."""
         lifecycle = _make_lifecycle()
         # Should not raise.
-        await lifecycle.finalize_outbox_outcome(
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             None,
             False,
@@ -61,7 +94,7 @@ class TestFinalizeOutboxOutcome:
         await create_outbox_item_with_parent(temp_storage, item)
 
         receipt = _make_receipt(status="sent")
-        await lifecycle.finalize_outbox_outcome(
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-sent-test",
             True,
@@ -93,7 +126,7 @@ class TestFinalizeOutboxOutcome:
         await create_outbox_item_with_parent(temp_storage, item)
 
         receipt = _make_receipt(status="queued", event_id="evt-q")
-        await lifecycle.finalize_outbox_outcome(
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-queued-test",
             True,
@@ -133,7 +166,7 @@ class TestFinalizeOutboxOutcome:
         dead_lettered = _make_receipt(
             receipt_id="rcpt-dead-terminal",
             status="dead_lettered",
-            attempt_number=2,
+            attempt_number=1,
             event_id=item.event_id,
             plan_id=item.delivery_plan_id,
             adapter=item.target_adapter,
@@ -141,9 +174,9 @@ class TestFinalizeOutboxOutcome:
             outbox_id=item.outbox_id,
         )
         await temp_storage.append_receipt(failed)
-        await temp_storage.append_receipt(dead_lettered)
+        # Lifecycle authority is inserted atomically with the terminal outbox transition.
 
-        committed = await lifecycle.finalize_outbox_outcome(
+        committed = await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             item.outbox_id,
             True,
@@ -186,7 +219,7 @@ class TestFinalizeOutboxOutcome:
         unrelated = _make_receipt(
             receipt_id="rcpt-dead-unrelated",
             status="dead_lettered",
-            attempt_number=2,
+            attempt_number=1,
             event_id=item.event_id,
             plan_id=item.delivery_plan_id,
             adapter=item.target_adapter,
@@ -194,20 +227,18 @@ class TestFinalizeOutboxOutcome:
             outbox_id=item.outbox_id,
         )
         await temp_storage.append_receipt(failed)
-        await temp_storage.append_receipt(unrelated)
+        with pytest.raises(ValueError, match="same delivery attempt"):
+            await _finalize_outbox_outcome(lifecycle,
+                temp_storage,
+                item.outbox_id,
+                True,
+                failed,
+                DeliveryFailureKind.ADAPTER_TRANSIENT,
+                "ConnectionError: exhausted",
+                RetryPolicy(max_attempts=1),
+                lifecycle_receipt=unrelated,
+            )
 
-        committed = await lifecycle.finalize_outbox_outcome(
-            temp_storage,
-            item.outbox_id,
-            True,
-            failed,
-            DeliveryFailureKind.ADAPTER_TRANSIENT,
-            "ConnectionError: exhausted",
-            RetryPolicy(max_attempts=1),
-            lifecycle_receipt=unrelated,
-        )
-
-        assert committed is False
         updated = await temp_storage.get_outbox_item(item.outbox_id)
         assert updated is not None
         assert updated.status == "in_progress"
@@ -230,8 +261,15 @@ class TestFinalizeOutboxOutcome:
         )
         await create_outbox_item_with_parent(temp_storage, item)
 
-        receipt = _make_receipt(status="failed", event_id="evt-dl")
-        await lifecycle.finalize_outbox_outcome(
+        receipt = _make_receipt(
+            status="failed",
+            event_id=item.event_id,
+            plan_id=item.delivery_plan_id,
+            adapter=item.target_adapter,
+            channel=item.target_channel,
+            outbox_id=item.outbox_id,
+        )
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-dl-test",
             True,
@@ -244,6 +282,15 @@ class TestFinalizeOutboxOutcome:
         updated = await temp_storage.get_outbox_item("obox-dl-test")
         assert updated is not None
         assert updated.status == "dead_lettered"
+        assert updated.receipt_id is not None
+        current = await temp_storage.delivery_status(
+            item.delivery_plan_id, item.target_adapter, item.target_channel,
+            event_id=item.event_id,
+        )
+        assert current is not None
+        assert current.receipt_kind == "lifecycle"
+        assert current.status == "dead_lettered"
+        assert current.parent_receipt_id == receipt.receipt_id
 
     async def test_retryable_failure_marks_retry_wait(
         self,
@@ -270,7 +317,7 @@ class TestFinalizeOutboxOutcome:
             next_retry_at=retry_at,
         )
         policy = RetryPolicy(max_attempts=3, backoff_base=1.0)
-        await lifecycle.finalize_outbox_outcome(
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-rw-test",
             True,
@@ -301,8 +348,15 @@ class TestFinalizeOutboxOutcome:
         )
         await create_outbox_item_with_parent(temp_storage, item)
 
-        receipt = _make_receipt(status="failed", event_id="evt-rw-np")
-        await lifecycle.finalize_outbox_outcome(
+        receipt = _make_receipt(
+            status="failed",
+            event_id=item.event_id,
+            plan_id=item.delivery_plan_id,
+            adapter=item.target_adapter,
+            channel=item.target_channel,
+            outbox_id=item.outbox_id,
+        )
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-rw-np",
             True,
@@ -341,7 +395,7 @@ class TestFinalizeOutboxSwallowsStorageErrors:
         )
 
         # Should NOT raise despite the broken storage method.
-        await lifecycle.finalize_outbox_outcome(
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-broken",
             True,
@@ -388,12 +442,16 @@ class TestFinalizeOutboxRetryTimestampAlignment:
         # Receipt: failed, transient, next_retry_at=None (exhausted).
         receipt = _make_receipt(
             status="failed",
-            event_id="evt-exhausted",
+            event_id=item.event_id,
+            plan_id=item.delivery_plan_id,
+            adapter=item.target_adapter,
+            channel=item.target_channel,
+            outbox_id=item.outbox_id,
             failure_kind=DeliveryFailureKind.ADAPTER_TRANSIENT.value,
             next_retry_at=None,
         )
         policy = RetryPolicy(max_attempts=1, backoff_base=1.0)
-        await lifecycle.finalize_outbox_outcome(
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-exhausted",
             True,
@@ -406,6 +464,15 @@ class TestFinalizeOutboxRetryTimestampAlignment:
         updated = await temp_storage.get_outbox_item("obox-exhausted")
         assert updated is not None
         assert updated.status == "dead_lettered"
+        assert updated.receipt_id is not None
+        current = await temp_storage.delivery_status(
+            item.delivery_plan_id, item.target_adapter, item.target_channel,
+            event_id=item.event_id,
+        )
+        assert current is not None
+        assert current.status == "dead_lettered"
+        assert current.receipt_kind == "lifecycle"
+        assert current.parent_receipt_id == receipt.receipt_id
 
     async def test_retry_wait_uses_receipt_next_retry_at(
         self,
@@ -438,7 +505,7 @@ class TestFinalizeOutboxRetryTimestampAlignment:
             next_retry_at=expected_retry_at,
         )
         policy = RetryPolicy(max_attempts=3, backoff_base=1.0)
-        await lifecycle.finalize_outbox_outcome(
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-aligned",
             True,
@@ -482,7 +549,7 @@ class TestFinalizeOutboxDefensiveFallback:
         await create_outbox_item_with_parent(temp_storage, item)
 
         policy = RetryPolicy(max_attempts=5, backoff_base=2.0)
-        await lifecycle.finalize_outbox_outcome(
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-fallback",
             True,
@@ -522,7 +589,7 @@ class TestFinalizeOutboxNoReceiptExhausted:
 
         # max_attempts=1 means attempt_number=1 is already exhausted.
         policy = RetryPolicy(max_attempts=1, backoff_base=1.0)
-        await lifecycle.finalize_outbox_outcome(
+        await _finalize_outbox_outcome(lifecycle,
             temp_storage,
             "obox-no-rcpt-ex",
             True,
@@ -565,7 +632,7 @@ async def test_pipeline_worker_fence_rejects_late_finalization_after_reclaim(
         await temp_storage.reserve_outbox_attempt(item.outbox_id, "retry-new", 1) == 2
     )
 
-    await lifecycle.finalize_outbox_outcome(
+    await _finalize_outbox_outcome(lifecycle,
         temp_storage,
         item.outbox_id,
         True,

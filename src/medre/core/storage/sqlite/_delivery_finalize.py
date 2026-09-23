@@ -125,21 +125,33 @@ class _DeliveryFinalizationMixin:
         attempt_number: int,
         terminal_status: str,
         event_id: str,
+        delivery_plan_id: str,
         target_adapter: str,
+        target_channel: str | None,
     ) -> None:
         if terminal_status not in _ERROR_TERMINAL_OUTBOX_STATUSES:
             raise ValueError(
                 "terminal outbox finalization requires an error-terminal "
                 f"status (dead_lettered/cancelled/abandoned), got {terminal_status!r}"
             )
-        if receipt.status != "failed":
-            raise ValueError("terminal outbox finalization requires a failed receipt")
+        if receipt.receipt_kind != "lifecycle":
+            raise ValueError(
+                "terminal outbox finalization requires lifecycle evidence"
+            )
+        if receipt.status != terminal_status:
+            raise ValueError(
+                "terminal lifecycle receipt status must match terminal_status"
+            )
         if receipt.outbox_id != outbox_id:
             raise ValueError("receipt.outbox_id must match outbox_id")
         if receipt.event_id != event_id:
             raise ValueError("receipt.event_id must match event_id")
+        if receipt.delivery_plan_id != delivery_plan_id:
+            raise ValueError("receipt.delivery_plan_id must match delivery_plan_id")
         if receipt.target_adapter != target_adapter:
             raise ValueError("receipt.target_adapter must match target_adapter")
+        if (receipt.target_channel or None) != (target_channel or None):
+            raise ValueError("receipt.target_channel must match target_channel")
         if receipt.attempt_number != attempt_number:
             raise ValueError("receipt.attempt_number must match attempt_number")
         if attempt_number < 1:
@@ -149,20 +161,24 @@ class _DeliveryFinalizationMixin:
         self,
         receipt: DeliveryReceipt,
         *,
+        attempt_receipt: DeliveryReceipt | None = None,
         outbox_id: str,
         attempt_number: int,
         terminal_status: str,
         event_id: str,
+        delivery_plan_id: str,
         target_adapter: str,
+        target_channel: str | None,
         failure_kind: str | None = None,
         error_summary: str | None = None,
+        expected_worker_id: str | None = None,
     ) -> bool:
         """Atomically persist one terminal queue outcome.
 
         The transaction re-checks the exact outbox attempt at write time —
         row identity (``outbox_id`` / ``event_id`` / ``target_adapter``),
         ``attempt_number``, and eligibility (status still ``queued`` or
-        ``in_progress``) — then inserts the immutable failed receipt and
+        ``in_progress``) — then inserts the immutable lifecycle receipt and
         transitions the row to *terminal_status* together.  It returns
         ``False`` when the guarded attempt no longer qualifies (stale
         callback, duplicate notification, or a competing attempt/state
@@ -180,9 +196,34 @@ class _DeliveryFinalizationMixin:
             attempt_number=attempt_number,
             terminal_status=terminal_status,
             event_id=event_id,
+            delivery_plan_id=delivery_plan_id,
             target_adapter=target_adapter,
+            target_channel=target_channel,
         )
+        if attempt_receipt is not None:
+            if attempt_receipt.receipt_kind != "attempt":
+                raise ValueError("attempt_receipt must be attempt evidence")
+            if attempt_receipt.status != "failed":
+                raise ValueError("terminal attempt_receipt must have status='failed'")
+            if (
+                attempt_receipt.event_id != receipt.event_id
+                or attempt_receipt.delivery_plan_id != receipt.delivery_plan_id
+                or attempt_receipt.target_adapter != receipt.target_adapter
+                or (attempt_receipt.target_channel or None)
+                != (receipt.target_channel or None)
+                or attempt_receipt.outbox_id != receipt.outbox_id
+                or attempt_receipt.attempt_number != receipt.attempt_number
+                or receipt.parent_receipt_id != attempt_receipt.receipt_id
+            ):
+                raise ValueError(
+                    "terminal lifecycle receipt must be linked to attempt_receipt"
+                )
         receipt_params = _receipt_insert_params(receipt)
+        attempt_receipt_params = (
+            _receipt_insert_params(attempt_receipt)
+            if attempt_receipt is not None
+            else None
+        )
         transition_time = receipt.created_at.isoformat()
         outbox_params: tuple[object, ...] = (
             terminal_status,
@@ -192,8 +233,12 @@ class _DeliveryFinalizationMixin:
             error_summary,
             outbox_id,
             event_id,
+            delivery_plan_id,
             target_adapter,
+            target_channel or None,
             attempt_number,
+            expected_worker_id,
+            expected_worker_id,
         )
 
         db = self._require_db()
@@ -203,6 +248,7 @@ class _DeliveryFinalizationMixin:
                 db,
                 self._lock,
                 receipt_insert_params=receipt_params,
+                attempt_receipt_insert_params=attempt_receipt_params,
                 outbox_update_params=outbox_params,
             )
 

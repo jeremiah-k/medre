@@ -54,6 +54,25 @@ class _FakeStorage:
         self.native_refs.append(ref)
 
 
+
+
+def _assert_terminal_failure_chain(
+    receipts: list[DeliveryReceipt],
+    *,
+    failure_kind: DeliveryFailureKind,
+) -> None:
+    """Assert normalized failed-attempt -> dead-letter lifecycle evidence."""
+    assert len(receipts) == 2
+    attempt, lifecycle = receipts
+    assert attempt.receipt_kind == "attempt"
+    assert attempt.status == "failed"
+    assert attempt.failure_kind == failure_kind.value
+    assert lifecycle.receipt_kind == "lifecycle"
+    assert lifecycle.status == "dead_lettered"
+    assert lifecycle.failure_kind == failure_kind.value
+    assert lifecycle.attempt_number == attempt.attempt_number
+    assert lifecycle.parent_receipt_id == attempt.receipt_id
+
 class _FakeRenderingPipeline:
     """Rendering pipeline stub whose render() behaviour is configurable."""
 
@@ -287,11 +306,10 @@ class TestAdapterLookupFailure:
         with pytest.raises(_AdapterDeliveryError):
             await svc.deliver_to_target(event, route, plan)
 
-        assert len(storage.receipts) == 1
-        receipt = storage.receipts[0]
-        assert receipt.status == "failed"
-        assert receipt.failure_kind == DeliveryFailureKind.ADAPTER_MISSING.value
-        assert receipt.target_adapter == "ghost"
+        _assert_terminal_failure_chain(
+            storage.receipts, failure_kind=DeliveryFailureKind.ADAPTER_MISSING
+        )
+        assert storage.receipts[0].target_adapter == "ghost"
 
     async def test_missing_adapter_receipt_on_error_object(self) -> None:
         """The _AdapterDeliveryError carries the persisted receipt."""
@@ -340,8 +358,9 @@ class TestAdapterDeliveryException:
         with pytest.raises(_AdapterDeliveryError):
             await svc.deliver_to_target(event, route, plan)
 
-        assert len(storage.receipts) == 1
-        assert storage.receipts[0].status == "failed"
+        _assert_terminal_failure_chain(
+            storage.receipts, failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT
+        )
 
     async def test_no_native_ref_on_adapter_failure(self) -> None:
         """Failed deliveries do not store native refs."""
@@ -507,10 +526,9 @@ class TestDeadlineExceeded:
         with pytest.raises(_AdapterDeliveryError):
             await svc.deliver_to_target(event, route, plan)
 
-        assert len(storage.receipts) == 1
-        receipt = storage.receipts[0]
-        assert receipt.status == "failed"
-        assert receipt.failure_kind == DeliveryFailureKind.DEADLINE_EXCEEDED.value
+        _assert_terminal_failure_chain(
+            storage.receipts, failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED
+        )
 
     async def test_no_deadline_allows_delivery(self) -> None:
         """Plan without deadline does not block a successful delivery."""
@@ -571,8 +589,9 @@ class TestInvalidDeliveryStrategy:
         with pytest.raises(_RendererDeliveryError):
             await svc.deliver_to_target(event, route, plan)
 
-        assert len(storage.receipts) == 1
-        assert storage.receipts[0].status == "failed"
+        _assert_terminal_failure_chain(
+            storage.receipts, failure_kind=DeliveryFailureKind.PLANNER_FAILURE
+        )
 
 
 # ===================================================================
@@ -631,8 +650,9 @@ class TestAdapterWithoutDeliver:
         with pytest.raises(_AdapterDeliveryError):
             await svc.deliver_to_target(event, route, plan)
 
-        assert len(storage.receipts) == 1
-        assert storage.receipts[0].status == "failed"
+        _assert_terminal_failure_chain(
+            storage.receipts, failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT
+        )
 
 
 # ===================================================================
