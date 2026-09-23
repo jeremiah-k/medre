@@ -232,6 +232,7 @@ class _MemoryStorage:
             allowed_from=("in_progress",),
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
         )
 
     async def mark_outbox_sent(
@@ -250,6 +251,7 @@ class _MemoryStorage:
             allowed_from=("in_progress", "queued"),
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
         )
 
     async def mark_outbox_retry_wait(
@@ -266,16 +268,18 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        committed = apply_guarded_outbox_transition(
+        return apply_guarded_outbox_transition(
             item,
             "retry_wait",
             allowed_from=("in_progress",),
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
+            failure_kind_detail=failure_kind_detail,
+            error_summary=error_summary,
+            next_attempt_at=next_attempt_at,
         )
-        if committed:
-            object.__setattr__(item, "next_attempt_at", next_attempt_at)
-        return committed
 
     async def mark_outbox_dead_lettered(
         self,
@@ -290,18 +294,17 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        committed = apply_guarded_outbox_transition(
+        return apply_guarded_outbox_transition(
             item,
             "dead_lettered",
             allowed_from=("in_progress", "retry_wait"),
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
+            failure_kind_detail=failure_kind_detail,
+            error_summary=error_summary,
         )
-        if committed:
-            object.__setattr__(item, "receipt_id", receipt_id)
-            object.__setattr__(item, "failure_kind", failure_kind)
-            object.__setattr__(item, "error_summary", error_summary)
-        return committed
 
     async def mark_outbox_abandoned(
         self,
@@ -312,15 +315,13 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        committed = apply_guarded_outbox_transition(
+        return apply_guarded_outbox_transition(
             item,
             "abandoned",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
             expected_worker_id=expected_worker_id,
+            error_summary=error_summary,
         )
-        if committed:
-            object.__setattr__(item, "error_summary", error_summary)
-        return committed
 
     # -- Required by abstract protocol but unused in these tests --
 

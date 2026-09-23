@@ -33,13 +33,17 @@
   is released so the re-dispatch reserves the same number again. The
   defensive next-attempt evidence check for unreserved rows remains.
 - The worker renews the claimed row's lease for as long as its reserved
-  dispatch runs (renewal at half the poll interval, extending the claim's
-  lease duration), so a live worker's slow transport cannot outlive its
-  claim and invite a reclaim that re-dispatches under the same attempt
-  identity. Process death, a storage outage, or a failed renewal still
-  expires the lease — that is the recovery path claim reconciliation
-  expects, and the fences below remain the authority for anything a
-  superseded worker still commits.
+  dispatch runs: one synchronous renewal immediately after the reservation
+  (aborting transport when the claim is already lost, and starting the
+  dispatch on a fresh lease rather than whatever the claim gates left of
+  the original one), then periodic renewal at half the poll interval for
+  the claim's lease duration, cancelled when the dispatch completes. A
+  live worker's slow transport therefore cannot outlive its claim and
+  invite a reclaim that re-dispatches under the same attempt identity.
+  Process death, a storage outage, or a failed renewal still expires the
+  lease — that is the recovery path claim reconciliation expects, and the
+  fences below remain the authority for anything a superseded worker still
+  commits.
 - Explicit-attempt finalizations are fenced in both reservation states: a
   live reservation must match exactly, while an unreserved row rejects any
   explicit attempt older than its finalized `attempt_number`. Retry-worker

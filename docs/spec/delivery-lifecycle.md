@@ -192,11 +192,13 @@ attempt.
   row with no existing reservation. A worker that lost its claim (lease
   theft or reclaim) cannot reserve and MUST NOT invoke the transport.
 - While the reserved dispatch runs, the worker renews the claimed row's
-  lease (at half the poll interval, extending the claim's lease duration).
-  A live worker's slow transport therefore does not outlive its claim; lease
-  expiry during a dispatch implies worker death or a renewal/storage failure,
-  and the fences below remain the authority for anything a superseded worker
-  still commits.
+  lease: one awaited renewal immediately after the reservation — aborting
+  transport when the claim is already lost and starting the dispatch on a
+  fresh lease — then periodic renewal at half the poll interval for the
+  claim's lease duration. A live worker's slow transport therefore does not
+  outlive its claim; lease expiry during a dispatch implies worker death or
+  a renewal/storage failure, and the fences below remain the authority for
+  anything a superseded worker still commits.
 - From the reservation commit onward, every callback validator — queued
   delivery finalization, queue terminal reporting, and post-handoff
   observations — admits the reserved attempt number and rejects earlier

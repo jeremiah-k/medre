@@ -125,6 +125,11 @@ def apply_guarded_outbox_transition(
     allowed_from: tuple[str, ...] | None = None,
     attempt_number: int | None = None,
     expected_worker_id: str | None = None,
+    receipt_id: str | None = None,
+    failure_kind: str | None = None,
+    failure_kind_detail: str | None = None,
+    error_summary: str | None = None,
+    next_attempt_at: str | None = None,
 ) -> bool:
     """In-memory mirror of ``SQLiteStorage._update_outbox_status`` guards.
 
@@ -134,10 +139,13 @@ def apply_guarded_outbox_transition(
     fences the transition to the current claim owner, and explicit attempt
     commits follow the monotonic reservation fence — a live reservation
     must match exactly, while an unreserved row may only preserve or
-    advance its finalized attempt number.  Claim metadata (``worker_id``,
-    ``locked_at``, ``lease_until``) is cleared on the transitions that
-    release the claim in SQLite.  Returns ``True`` only when the transition
-    committed.
+    advance its finalized attempt number.  Transition-specific metadata
+    (``receipt_id``, ``failure_kind``, ``failure_kind_detail``,
+    ``error_summary``, ``next_attempt_at``) is applied after the guard
+    commits, with the queued/sent failure-field clears winning as in SQL.
+    Claim metadata (``worker_id``, ``locked_at``, ``lease_until``) is
+    cleared on the transitions that release the claim in SQLite.  Returns
+    ``True`` only when the transition committed.
     """
     from medre.core.engine.pipeline.delivery_state import (
         TERMINAL_OUTBOX_STATUSES,
@@ -170,7 +178,19 @@ def apply_guarded_outbox_transition(
             ),
         )
         object.__setattr__(item, "active_attempt", None)
+    if receipt_id is not None:
+        object.__setattr__(item, "receipt_id", receipt_id)
+    if failure_kind is not None:
+        object.__setattr__(item, "failure_kind", failure_kind)
+    if failure_kind_detail is not None:
+        object.__setattr__(item, "failure_kind_detail", failure_kind_detail)
+    if error_summary is not None:
+        object.__setattr__(item, "error_summary", error_summary)
+    if next_attempt_at is not None:
+        object.__setattr__(item, "next_attempt_at", next_attempt_at)
     if new_status in ("queued", "sent"):
+        # The queued/sent clears win over any supplied failure metadata,
+        # matching the duplicate-assignment resolution in the SQL UPDATE.
         object.__setattr__(item, "failure_kind", None)
         object.__setattr__(item, "failure_kind_detail", None)
         object.__setattr__(item, "error_summary", None)

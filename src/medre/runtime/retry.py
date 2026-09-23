@@ -1160,8 +1160,40 @@ class RetryWorker:
             # Without renewal, a transport call outliving the claim lease
             # invites a reclaim that clears the reservation and re-dispatches
             # under the same attempt identity while this worker is still in
-            # the transport.  Process death still expires the lease, and
-            # claim reconciliation recovers the reservation from there.
+            # the transport.  The first renewal is awaited synchronously so
+            # the dispatch starts on a fresh lease — the claim gates above
+            # can consume most of the original one — and transport is
+            # aborted when that renewal loses the claim.  Process death
+            # still expires the lease, and claim reconciliation recovers
+            # the reservation from there.
+            try:
+                initial_renewal = await self._lifecycle.renew_retry_lease(
+                    self._lifecycle_storage,
+                    item,
+                    lease_seconds=int(self._interval * 1.5) or 30,
+                )
+            except Exception as lifecycle_exc:
+                self.state.processed += 1
+                _logger.exception(
+                    "RetryWorker: failed to renew dispatch lease for outbox %s",
+                    item.outbox_id,
+                )
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=reserved_attempt,
+                )
+                return
+
+            if not initial_renewal:
+                self.state.processed += 1
+                _logger.warning(
+                    "RetryWorker: lost claim on outbox %s at dispatch lease "
+                    "renewal; transport not invoked",
+                    item.outbox_id,
+                )
+                return
+
             renewal_task = asyncio.create_task(self._renew_dispatch_lease(item))
 
             route = retry_context.route

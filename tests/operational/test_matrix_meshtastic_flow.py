@@ -256,6 +256,7 @@ class _FakeStorage:
             allowed_from=("in_progress",),
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
         )
 
     async def mark_outbox_sent(
@@ -274,6 +275,7 @@ class _FakeStorage:
             allowed_from=("in_progress", "queued"),
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
         )
 
     async def mark_outbox_retry_wait(
@@ -290,16 +292,18 @@ class _FakeStorage:
         item = self._outbox.get(outbox_id)
         if item is None:
             return False
-        committed = apply_guarded_outbox_transition(
+        return apply_guarded_outbox_transition(
             item,
             "retry_wait",
             allowed_from=("in_progress",),
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
+            failure_kind_detail=failure_kind_detail,
+            error_summary=error_summary,
+            next_attempt_at=next_attempt_at,
         )
-        if committed:
-            object.__setattr__(item, "next_attempt_at", next_attempt_at)
-        return committed
 
     async def mark_outbox_dead_lettered(
         self,
@@ -320,6 +324,10 @@ class _FakeStorage:
             allowed_from=("in_progress", "retry_wait"),
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
+            failure_kind_detail=failure_kind_detail,
+            error_summary=error_summary,
         )
 
     async def mark_outbox_cancelled(
@@ -334,6 +342,7 @@ class _FakeStorage:
             item,
             "cancelled",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            error_summary=error_summary,
         )
 
     async def mark_outbox_abandoned(
@@ -350,6 +359,7 @@ class _FakeStorage:
             "abandoned",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
             expected_worker_id=expected_worker_id,
+            error_summary=error_summary,
         )
 
     async def finalize_queued_delivery(

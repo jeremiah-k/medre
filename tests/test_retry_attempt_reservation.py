@@ -899,6 +899,57 @@ async def test_worker_never_invokes_transport_on_lost_claim(
     assert len(receipts) == 1  # only the seeded attempt-1 failure
 
 
+async def test_worker_skips_transport_when_initial_lease_renewal_fails(
+    temp_storage, monkeypatch
+) -> None:
+    """The awaited pre-transport renewal gates dispatch on a live claim.
+
+    A dispatch that reserves near the end of its original lease must not
+    enter the transport before the lease is extended; when the synchronous
+    renewal reports the claim lost, the transport is never invoked.
+    """
+    event = await _seed_event(temp_storage, "evt-renew-lost")
+    item = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-renew-lost",
+        event_id=event.event_id,
+        status="retry_wait",
+    )
+    await _append_receipt(
+        temp_storage,
+        outbox_id=item.outbox_id,
+        event_id=event.event_id,
+        status="failed",
+        attempt_number=1,
+    )
+    claimed = [
+        row for row in await _claim_due(temp_storage) if row.outbox_id == item.outbox_id
+    ][0]
+
+    deliver = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        retry_module,
+        "reconstruct_retry_delivery_plan",
+        lambda **_: SimpleNamespace(
+            route=MagicMock(),
+            plan=MagicMock(),
+            retry_policy=RetryPolicy(max_attempts=5),
+        ),
+    )
+    worker = _worker_with_stub_pipeline(temp_storage, deliver)
+
+    async def _losing_renewal(storage_arg, item_arg, *, lease_seconds):
+        return False
+
+    monkeypatch.setattr(worker._lifecycle, "renew_retry_lease", _losing_renewal)
+
+    await worker._retry_outbox_item(claimed)
+
+    deliver.assert_not_awaited()
+    receipts = await temp_storage.list_receipts_for_event(event.event_id)
+    assert len(receipts) == 1  # only the seeded attempt-1 failure
+
+
 async def test_dispatch_lease_is_renewed_while_transport_runs(temp_storage) -> None:
     """A live worker's dispatch must not outlive its claim lease."""
     from tests.helpers.async_utils import wait_until
@@ -1144,6 +1195,7 @@ async def test_retry_worker_does_not_report_superseded_success_transition(
     pipeline.deliver_to_target = AsyncMock(return_value=sent)
     lifecycle = MagicMock()
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=2)
+    lifecycle.renew_retry_lease = AsyncMock(return_value=True)
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
     lifecycle.finalize_retry_success = AsyncMock(
         side_effect=RetryAttemptCommitRejected("claim moved to a newer worker")
