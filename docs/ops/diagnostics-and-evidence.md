@@ -728,7 +728,7 @@ The convergence summary has three fields to check first:
 
 Each target in the convergence summary includes:
 
-- `delivery_plan_id`, `target_adapter`, `target_channel`: identifies the delivery target.
+- `event_id`, `delivery_plan_id`, `target_adapter`, `target_channel`: identifies the logical delivery target; event identity matters in global summaries because plan IDs are not globally unique.
 - `outbox_status`: the outbox item status (or `null` if no outbox item).
 - `latest_receipt_status`: the highest-authority receipt status (or `null` if no receipt).
 - `severity`: `safe`, `degraded`, or `inconsistent`.

@@ -1130,7 +1130,7 @@ Severity ordering: `safe` < `degraded` < `inconsistent`. The `worst_severity` fi
 
 ### 21.4 Classification Rules
 
-Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)`.
+Targets are grouped by `(event_id, delivery_plan_id, target_adapter, target_channel)`. `event_id` is required for storage-wide convergence because plan IDs are not globally unique across events.
 Receipts linked to an outbox are eligible only when their own outbox row points
 at that `receipt_id`; outbox-less receipts are also eligible. The latest eligible
 receipt is selected deterministically by `(sequence DESC, created_at DESC,
@@ -1173,7 +1173,7 @@ Operators use convergence diagnostics output to identify and manually address st
 
 ### 21.6 Public Data Models
 
-**`ConvergenceSummary`**: Aggregate summary across all delivery targets for one event.
+**`ConvergenceSummary`**: Aggregate summary across the supplied delivery targets. Event-scoped evidence contains one event; storage-wide evidence may contain many events.
 
 | Field                 | Type              | Semantics                                                                                                                                  |
 | --------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -1189,6 +1189,7 @@ Operators use convergence diagnostics output to identify and manually address st
 
 | Field                   | Type            | Semantics                                                                              |
 | ----------------------- | --------------- | -------------------------------------------------------------------------------------- |
+| `event_id`              | `str`           | Canonical event grouping key. Empty string when absent.                                |
 | `delivery_plan_id`      | `str`           | Grouping key. Empty string when absent.                                                |
 | `target_adapter`        | `str`           | Adapter name.                                                                          |
 | `target_channel`        | `str or None`   | Channel identifier.                                                                    |

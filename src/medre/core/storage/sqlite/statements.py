@@ -150,9 +150,32 @@ ORDER BY r.sequence DESC
 LIMIT 1
 """
 
+_DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL = """
+SELECT r.* FROM delivery_receipts r
+WHERE r.event_id = ? AND r.delivery_plan_id = ? AND r.target_adapter = ?
+  AND r.target_channel IS ?
+  AND (
+      r.outbox_id IS NULL
+      OR EXISTS (
+          SELECT 1
+          FROM delivery_outbox o
+          WHERE o.outbox_id = r.outbox_id
+            AND o.receipt_id = r.receipt_id
+      )
+  )
+ORDER BY r.sequence DESC
+LIMIT 1
+"""
+
 _SELECT_RECEIPTS_FOR_PLAN = """
 SELECT * FROM delivery_receipts
 WHERE delivery_plan_id = ? AND target_adapter = ?
+ORDER BY attempt_number ASC, sequence ASC
+"""
+
+_SELECT_RECEIPTS_FOR_EVENT_PLAN = """
+SELECT * FROM delivery_receipts
+WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?
 ORDER BY attempt_number ASC, sequence ASC
 """
 

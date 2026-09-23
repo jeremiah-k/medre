@@ -39,14 +39,30 @@
       "error": null,
       "data": {
         "adapters": [],
-        "renderer_registry": { "status": "unavailable" },
-        "event_bus_status": { "status": "unavailable" },
-        "storage_backend_status": { "status": "unavailable" },
-        "replay_backend_status": { "status": "unavailable" },
-        "route_topology": { "status": "unavailable" },
-        "queue_status": { "status": "unavailable" },
-        "backpressure_status": { "status": "unavailable" },
-        "task_status": { "status": "unavailable" }
+        "renderer_registry": {
+          "status": "unavailable"
+        },
+        "event_bus_status": {
+          "status": "unavailable"
+        },
+        "storage_backend_status": {
+          "status": "unavailable"
+        },
+        "replay_backend_status": {
+          "status": "unavailable"
+        },
+        "route_topology": {
+          "status": "unavailable"
+        },
+        "queue_status": {
+          "status": "unavailable"
+        },
+        "backpressure_status": {
+          "status": "unavailable"
+        },
+        "task_status": {
+          "status": "unavailable"
+        }
       }
     },
     "live_health": {
@@ -80,7 +96,8 @@
               "latest_receipt_id": "rcpt_001",
               "latest_attempt_number": 1,
               "severity": "safe",
-              "warnings": []
+              "warnings": [],
+              "event_id": "ev-1"
             },
             {
               "delivery_plan_id": "plan-1",
@@ -94,7 +111,8 @@
               "severity": "degraded",
               "warnings": [
                 "Latest receipt failed but outbox is retry_wait — retry scheduled"
-              ]
+              ],
+              "event_id": "ev-2"
             }
           ],
           "total_targets": 2,
@@ -175,7 +193,9 @@
       "data": {
         "recovery_summary": {
           "abandoned_items": 0,
-          "by_source": { "snapshot_diagnostics": 3 },
+          "by_source": {
+            "snapshot_diagnostics": 3
+          },
           "claimed_items": 0,
           "consistency_valid": true,
           "reclaimed_items": 0,
@@ -257,7 +277,8 @@
         "latest_receipt_id": "rcpt_001",
         "latest_attempt_number": 1,
         "severity": "safe",
-        "warnings": []
+        "warnings": [],
+        "event_id": "ev-1"
       },
       {
         "delivery_plan_id": "plan-1",
@@ -271,7 +292,8 @@
         "severity": "degraded",
         "warnings": [
           "Latest receipt failed but outbox is retry_wait — retry scheduled"
-        ]
+        ],
+        "event_id": "ev-2"
       }
     ],
     "total_targets": 2,
@@ -304,7 +326,9 @@
   },
   "recovery_summary": {
     "abandoned_items": 0,
-    "by_source": { "snapshot_diagnostics": 3 },
+    "by_source": {
+      "snapshot_diagnostics": 3
+    },
     "claimed_items": 0,
     "consistency_valid": true,
     "reclaimed_items": 0,

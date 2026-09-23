@@ -109,10 +109,11 @@ class _OutboxMixin:
 
         select_sql = (
             "SELECT outbox_id, status FROM delivery_outbox"
-            " WHERE delivery_plan_id = ? AND target_adapter = ?"
+            " WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?"
             " AND target_channel IS ? AND attempt_number = ?"
         )
         select_params = (
+            item.event_id,
             item.delivery_plan_id,
             item.target_adapter,
             item.target_channel or None,

@@ -428,7 +428,7 @@ class TestStaleCallbackAfterRetryReclaim:
 
         # --- Attempt B: retry delivery (new outbox item, different plan_id
         # to avoid the UNIQUE constraint on
-        # (delivery_plan_id, target_adapter, target_channel, attempt_number)) ---
+        # (event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)) ---
         await append_receipt_with_parent(
             temp_storage,
             _make_receipt(

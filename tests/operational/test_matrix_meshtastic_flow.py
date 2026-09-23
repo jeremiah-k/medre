@@ -160,13 +160,18 @@ class _FakeStorage:
         return [r for r in self._receipts if r.event_id == event_id]
 
     async def list_receipts_for_plan(
-        self, delivery_plan_id: str, target_adapter: str
+        self,
+        delivery_plan_id: str,
+        target_adapter: str,
+        *,
+        event_id: str | None = None,
     ) -> list[DeliveryReceipt]:
         return [
             receipt
             for receipt in self._receipts
             if receipt.delivery_plan_id == delivery_plan_id
             and receipt.target_adapter == target_adapter
+            and (event_id is None or receipt.event_id == event_id)
         ]
 
     async def query_receipts(self, **kwargs: Any) -> list[DeliveryReceipt]:

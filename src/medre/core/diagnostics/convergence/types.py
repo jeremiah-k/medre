@@ -70,6 +70,8 @@ class DeliveryTargetConvergence:
 
     Attributes
     ----------
+    event_id:
+        Canonical event grouping key.  Empty string when absent.
     delivery_plan_id:
         Grouping key component.  Empty string when absent.
     target_adapter:
@@ -95,6 +97,7 @@ class DeliveryTargetConvergence:
         Outbox item ID, or ``None``.
     """
 
+    event_id: str
     delivery_plan_id: str
     target_adapter: str
     target_channel: str | None

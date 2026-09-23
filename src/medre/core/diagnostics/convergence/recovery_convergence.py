@@ -18,6 +18,7 @@ from .helpers import (
     _current_receipt_for_target,
     _get,
     _target_key,
+    _TargetKey,
 )
 from .types import (
     KIND_RECLAIMED_THEN_ORPHANED,
@@ -85,7 +86,7 @@ def build_recovery_convergence_findings(
     actions_list: list[Any] = []
 
     # Index outbox items by target key and by outbox_id.
-    outbox_by_target: dict[tuple[str, str, str | None], list[Any]] = {}
+    outbox_by_target: dict[_TargetKey, list[Any]] = {}
     outbox_by_id: dict[str, Any] = {}
     for item in outbox_list:
         key = _target_key(item)
@@ -95,7 +96,7 @@ def build_recovery_convergence_findings(
             outbox_by_id[str(oid)] = item
 
     # Index receipts by target key.
-    receipts_by_target: dict[tuple[str, str, str | None], list[Any]] = {}
+    receipts_by_target: dict[_TargetKey, list[Any]] = {}
     for rec in receipts:
         key = _target_key(rec)
         receipts_by_target.setdefault(key, []).append(rec)
@@ -148,7 +149,7 @@ def build_recovery_convergence_findings(
                         latest = _current_receipt_for_target(
                             receipts_by_target,
                             target_key,
-                            item,
+                            committed_receipt_ids.get(target_key),
                         )
                         if latest is not None:
                             latest_status = str(_get(latest, "status", ""))

@@ -362,6 +362,43 @@ async def test_conversation_projection_state_missing_checks_is_rejected(
         await storage.close()
 
 
+async def test_stale_outbox_unique_key_is_rejected(tmp_path: Path) -> None:
+    """A pre-release DB must include event_id in the outbox identity key."""
+    db_path = tmp_path / "stale-outbox-unique.db"
+    current = (
+        "UNIQUE(event_id, delivery_plan_id, target_adapter, "
+        "target_channel, attempt_number)"
+    )
+    stale = "UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)"
+    ddl = _SCHEMA.replace(current, stale, 1)
+    assert ddl != _SCHEMA
+
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.executescript(ddl)
+        raw.execute(
+            "INSERT INTO _medre_schema_meta (key, value) VALUES (?, ?)",
+            ("schema_version", "1"),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    storage = SQLiteStorage(str(db_path))
+    try:
+        with pytest.raises(
+            PreReleaseSchemaConstraintMismatchError,
+            match="delivery_outbox",
+        ) as exc_info:
+            await storage.initialize()
+    finally:
+        await storage.close()
+
+    assert exc_info.value.missing_constraints == [
+        "UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)"
+    ]
+
+
 async def test_schema_check_validator_rejects_unconstrained_table_definition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

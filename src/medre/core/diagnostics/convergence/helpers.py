@@ -85,8 +85,8 @@ def _to_iso(value: Any) -> str | None:
 # Group key construction
 # ---------------------------------------------------------------------------
 
-_TargetKey = tuple[str, str, str | None]
-"""``(delivery_plan_id, target_adapter, target_channel)``."""
+_TargetKey = tuple[str, str, str, str | None]
+"""``(event_id, delivery_plan_id, target_adapter, target_channel)``."""
 
 
 def _target_key(obj: Any) -> _TargetKey:
@@ -96,10 +96,11 @@ def _target_key(obj: Any) -> _TargetKey:
     ``target_adapter``; ``None`` is preserved for ``target_channel`` to
     distinguish "absent" from "empty string".
     """
+    event_id = _get(obj, "event_id") or ""
     plan_id = _get(obj, "delivery_plan_id") or ""
     adapter = _get(obj, "target_adapter") or ""
     channel = _get(obj, "target_channel")
-    return (plan_id, adapter, channel)
+    return (event_id, plan_id, adapter, channel)
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +259,7 @@ def _build_outbox_by_key(
 ) -> dict[_TargetKey, Any]:
     """Index outbox items by target key, keeping the highest-authority item.
 
-    When multiple outbox items share the same ``(delivery_plan_id,
+    When multiple outbox items share the same ``(event_id, delivery_plan_id,
     target_adapter, target_channel)`` key, the one with the higher
     ``attempt_number`` wins.  Ties are broken by ``outbox_id``
     (lexicographically largest wins).

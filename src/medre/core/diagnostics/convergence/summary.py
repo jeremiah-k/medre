@@ -211,8 +211,8 @@ def build_convergence_summary(
 
     Notes
     -----
-    * Targets are grouped by ``(delivery_plan_id, target_adapter,
-      target_channel)`` with fallbacks for missing plan/channel.
+    * Targets are grouped by ``(event_id, delivery_plan_id, target_adapter,
+      target_channel)`` with fallbacks for missing event/plan/channel.
     * When an outbox item exists, its committed ``receipt_id`` selects the
       current receipt.  Later append-only receipts that lost a guarded outbox
       transition remain historical evidence and are not projected as current.
@@ -238,8 +238,8 @@ def build_convergence_summary(
 
     # --- Collect all target keys (union) ----------------------------------
     def _sort_key(key: _TargetKey) -> tuple:
-        plan_id, adapter, channel = key
-        return (plan_id, adapter, channel or "")
+        event_id, plan_id, adapter, channel = key
+        return (event_id, plan_id, adapter, channel or "")
 
     all_keys = sorted(
         set(outbox_by_key.keys()) | set(receipts_by_key.keys()),
@@ -252,7 +252,7 @@ def build_convergence_summary(
     global_warnings: list[str] = []
 
     for key in all_keys:
-        plan_id, adapter, channel = key
+        event_id, plan_id, adapter, channel = key
         obx = outbox_by_key.get(key)
         receipts_by_key.get(key, [])
 
@@ -282,6 +282,7 @@ def build_convergence_summary(
 
         targets.append(
             DeliveryTargetConvergence(
+                event_id=event_id,
                 delivery_plan_id=plan_id,
                 target_adapter=adapter,
                 target_channel=channel,

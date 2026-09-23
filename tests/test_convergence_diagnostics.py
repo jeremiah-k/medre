@@ -962,6 +962,41 @@ class TestMultipleTargets:
         assert results["dp-3"] == "inconsistent"
 
 
+    def test_same_plan_target_across_events_remains_separate(self) -> None:
+        """Global convergence never collapses identical target keys across events."""
+        summary = build_convergence_summary(
+            receipts=[
+                _receipt(
+                    receipt_id="r-event-a",
+                    event_id="event-a",
+                    delivery_plan_id="shared-plan",
+                    target_adapter="matrix",
+                    target_channel="room",
+                    status="sent",
+                    sequence=1,
+                ),
+                _receipt(
+                    receipt_id="r-event-b",
+                    event_id="event-b",
+                    delivery_plan_id="shared-plan",
+                    target_adapter="matrix",
+                    target_channel="room",
+                    status="failed",
+                    sequence=2,
+                ),
+            ]
+        )
+
+        assert summary.total_targets == 2
+        current_by_event = {
+            target.event_id: target.latest_receipt_id for target in summary.targets
+        }
+        assert current_by_event == {
+            "event-a": "r-event-a",
+            "event-b": "r-event-b",
+        }
+
+
 # ===================================================================
 # 14. Unrecognised outbox status → DEGRADED with warning
 # ===================================================================

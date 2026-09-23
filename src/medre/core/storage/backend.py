@@ -1051,8 +1051,10 @@ class StorageBackend(Protocol):
         delivery_plan_id: str,
         target_adapter: str,
         target_channel: str | None = None,
+        *,
+        event_id: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the current receipt for a delivery plan / adapter / channel triple.
+        """Return the current receipt for a delivery target, optionally event-scoped.
 
         Authority: **list/get** (read-only).  For outbox-backed delivery, the
         outbox row's committed ``receipt_id`` is current-state authority; a
@@ -1072,6 +1074,9 @@ class StorageBackend(Protocol):
             ``None`` (default), only receipts with a NULL (no-channel)
             target are returned.  Passing ``None`` does **not** query
             across all channels.
+        event_id:
+            Optional canonical-event scope. Lifecycle callers that know the
+            event MUST supply it because plan IDs are not globally unique.
 
         Returns
         -------
@@ -1085,8 +1090,14 @@ class StorageBackend(Protocol):
         self,
         delivery_plan_id: str,
         target_adapter: str,
+        *,
+        event_id: str | None = None,
     ) -> list[DeliveryReceipt]:
-        """Return all receipts for a delivery plan / adapter in attempt order.
+        """Return receipts for a delivery plan / adapter in attempt order.
+
+        Lifecycle callers SHOULD supply ``event_id`` because plan IDs are not
+        globally unique across events. ``None`` preserves the unscoped
+        historical-query surface.
 
         Authority: **list/get** (read-only).  Receipts are ordered by
         ``attempt_number`` ascending so callers can walk the full receipt

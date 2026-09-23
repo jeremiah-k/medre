@@ -65,12 +65,23 @@
   the outbox row's committed `receipt_id`, so that rejected late receipt stays
   historical and cannot become retry lineage merely by having a greater append
   sequence.
+- Delivery identity is consistently event-scoped anywhere state is projected or
+  operational work is deduplicated. Global convergence groups by
+  `(event_id, delivery_plan_id, target_adapter, target_channel)`; retry and
+  lifecycle receipt lookups pass `event_id`; and outbox creation/uniqueness uses
+  `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`.
+  This prevents one event from adopting another event's receipt or outbox row
+  when plan IDs collide. The recovery-convergence path also uses the committed
+  outbox `receipt_id` set when selecting current evidence, so a stale append
+  cannot hide or replace the lifecycle-authoritative receipt.
 - Queue-backed retry observability is race-stable when an asynchronous terminal
   callback wins just before the retry worker commits its returned `queued`
   receipt. Lifecycle re-reads the authoritative same-attempt outbox state after
   the rejected CAS and projects the already-committed terminal outcome instead
   of misreporting the retry as superseded.
 - This changes the prerelease SQLite shape by adding `active_attempt` to
-  `delivery_outbox`. Existing stamped prerelease databases that do not match
-  the current shape are rejected by design and must be recreated; schema
-  version remains `1` until the release compatibility boundary is declared.
+  `delivery_outbox` and correcting the outbox UNIQUE identity to include
+  `event_id`. Existing stamped prerelease databases that do not match the
+  current columns or structural constraints are rejected by design and must be
+  recreated; schema version remains `1` until the release compatibility
+  boundary is declared.

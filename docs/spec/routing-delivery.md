@@ -855,7 +855,7 @@ The correlation algorithm in `finalize_queued_delivery`:
 
 ### 9.1 View Definition
 
-The "current status" of a delivery is a **projection**, not a mutable receipt field. The `delivery_status` view first filters receipt history to lifecycle-authoritative rows: an outbox-backed receipt is eligible only when its outbox row points to that `receipt_id`; an outbox-less receipt is eligible by append history. It then selects the greatest durable `sequence` for each `(delivery_plan_id, target_adapter, target_channel)` group.
+The "current status" of a delivery is a **projection**, not a mutable receipt field. The `delivery_status` view first filters receipt history to lifecycle-authoritative rows: an outbox-backed receipt is eligible only when its outbox row points to that `receipt_id`; an outbox-less receipt is eligible by append history. It then selects the greatest durable `sequence` for each `(event_id, delivery_plan_id, target_adapter, target_channel)` group. `event_id` is part of lifecycle identity because plan IDs are not globally unique across events.
 
 ### 9.2 How It Works
 

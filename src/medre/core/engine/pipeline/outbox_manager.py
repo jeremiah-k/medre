@@ -90,7 +90,8 @@ class OutboxManager:
         **Replay attempt identity rule.**  When *source* is ``"replay"``,
         the method queries existing outbox rows for the same event and
         computes ``max(attempt_number) + 1`` across rows sharing the same
-        delivery identity (delivery_plan_id, target_adapter, target_channel).
+        event-scoped delivery identity (event_id, delivery_plan_id,
+        target_adapter, target_channel).
         This guarantees replay never reclaims or mutates live rows (which
         have lower attempt numbers).  The same ownership check applies to
         ALL sources — if the freshly-created replay row comes back terminal,

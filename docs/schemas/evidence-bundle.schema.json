@@ -431,6 +431,10 @@
       "description": "Convergence state for a single delivery target.",
       "type": "object",
       "properties": {
+        "event_id": {
+          "type": "string",
+          "description": "Canonical event grouping key. Empty string when absent."
+        },
         "delivery_plan_id": {
           "type": "string",
           "description": "Delivery plan grouping key. Empty string when absent."
@@ -475,6 +479,7 @@
         }
       },
       "required": [
+        "event_id",
         "delivery_plan_id",
         "target_adapter",
         "target_channel",

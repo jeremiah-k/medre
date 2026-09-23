@@ -62,6 +62,7 @@ def _make_receipt(
     attempt_number: int = 1,
     sequence: int = 1,
     source: str = "live",
+    outbox_id: str | None = None,
 ) -> dict:
     return {
         "receipt_id": receipt_id,
@@ -73,6 +74,7 @@ def _make_receipt(
         "attempt_number": attempt_number,
         "sequence": sequence,
         "source": source,
+        "outbox_id": outbox_id,
         "created_at": "2026-05-31T12:00:00+00:00",
     }
 
@@ -127,6 +129,53 @@ class TestRecoveredNotProgressed:
         f = next(f for f in findings if f.kind == KIND_RECOVERED_NOT_PROGRESSED)
         assert f.severity == "degraded"
         assert "no progress" in f.details.lower()
+
+    def test_outbox_backed_current_receipt_uses_committed_pointer(self) -> None:
+        """Recovery convergence uses the outbox pointer, not append order."""
+        outbox = [
+            _make_outbox(
+                outbox_id="ob-1",
+                status="queued",
+                receipt_id="r-committed",
+            )
+        ]
+        receipts = [
+            _make_receipt(
+                receipt_id="r-committed",
+                status="queued",
+                sequence=1,
+                outbox_id="ob-1",
+            ),
+            _make_receipt(
+                receipt_id="r-stale",
+                status="sent",
+                sequence=2,
+                outbox_id="ob-1",
+            ),
+        ]
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-1",
+            startup_timestamp=None,
+            actions=(
+                _make_action(
+                    outbox_id="ob-1",
+                    ownership_action="recoverable",
+                    prior_status="queued",
+                ),
+            ),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+
+        finding = next(
+            f for f in findings if f.kind == KIND_RECOVERED_NOT_PROGRESSED
+        )
+        assert finding.extra["latest_receipt_status"] == "queued"
 
     def test_not_flagged_when_progressed(self) -> None:
         """Receipt progressed to sent — should not fire."""

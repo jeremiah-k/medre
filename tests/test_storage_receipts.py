@@ -56,6 +56,52 @@ class TestReceipts:
         assert status.receipt_id == "rcpt-1"
         assert status.status == "sent"
 
+    async def test_delivery_status_event_scope_prevents_cross_event_collision(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Identical plan/adapter/channel values remain isolated by event."""
+        await temp_storage.append(make_storage_event(event_id="evt-scope-a"))
+        await temp_storage.append(make_storage_event(event_id="evt-scope-b"))
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id="rcpt-scope-a",
+                event_id="evt-scope-a",
+                delivery_plan_id="shared-plan",
+                target_adapter="fake_presentation",
+                target_channel="shared-channel",
+                status="failed",
+            )
+        )
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id="rcpt-scope-b",
+                event_id="evt-scope-b",
+                delivery_plan_id="shared-plan",
+                target_adapter="fake_presentation",
+                target_channel="shared-channel",
+                status="sent",
+            )
+        )
+
+        current = await temp_storage.delivery_status(
+            "shared-plan",
+            "fake_presentation",
+            "shared-channel",
+            event_id="evt-scope-a",
+        )
+
+        assert current is not None
+        assert current.event_id == "evt-scope-a"
+        assert current.receipt_id == "rcpt-scope-a"
+        assert current.status == "failed"
+
+        lineage = await temp_storage.list_receipts_for_plan(
+            "shared-plan",
+            "fake_presentation",
+            event_id="evt-scope-a",
+        )
+        assert [receipt.receipt_id for receipt in lineage] == ["rcpt-scope-a"]
+
     async def test_delivery_status_returns_latest_receipt(
         self, temp_storage: SQLiteStorage
     ) -> None:

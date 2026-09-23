@@ -243,21 +243,27 @@ class StorageBackend(Protocol):
 
     async def delivery_status(
         self, delivery_plan_id: str, target_adapter: str,
-        target_channel: str | None = None,
+        target_channel: str | None = None, *, event_id: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the current receipt for a delivery plan / adapter / channel.
+        """Return the current receipt for a delivery target.
 
         Outbox-backed delivery uses the outbox row's committed receipt_id;
         rejected late receipts remain historical. Outbox-less delivery uses
         durable append order. When target_channel is None, only NULL-channel
-        receipts are considered.
+        receipts are considered. Lifecycle callers that know the canonical
+        event MUST pass event_id because plan IDs are not globally unique.
         """
         ...
 
     async def list_receipts_for_plan(
-        self, delivery_plan_id: str, target_adapter: str
+        self, delivery_plan_id: str, target_adapter: str, *,
+        event_id: str | None = None,
     ) -> list[DeliveryReceipt]:
-        """Return all receipts for a delivery plan / adapter in attempt order."""
+        """Return receipts for a delivery plan / adapter in attempt order.
+
+        Lifecycle callers SHOULD pass event_id because plan IDs are not
+        globally unique across events.
+        """
         ...
 
     async def list_receipts_by_replay_run(
@@ -279,8 +285,8 @@ class StorageBackend(Protocol):
     async def initialize(self) -> None:
         """Prepare the backend for use (open connections, create schema).
 
-        MUST enable WAL mode.  MUST validate schema version and column
-        shape (see Section 10).
+        MUST enable WAL mode.  MUST validate schema version, column
+        shape, and structural constraints (see Section 10).
         """
         ...
 
@@ -666,7 +672,8 @@ and MUST NOT be inferred from `status` alone.
 
 | Index                 | Columns                                                                        | Purpose                                         |
 | --------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------- |
-| `idx_receipts_plan`   | `(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)` | delivery_status view and list_receipts_for_plan |
+| `idx_receipts_plan`   | `(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)` | legacy/unscoped receipt lookup paths |
+| `idx_receipts_lineage` | `(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), sequence)` | event-scoped current-outcome and recovery lineage |
 | `idx_receipts_event`  | `(event_id, sequence)`                                                         | Receipt lookups by event                        |
 | `idx_receipts_source` | `(source, replay_run_id)`                                                      | Filtering receipts by replay run                |
 
@@ -747,9 +754,9 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.rendering_evidence, dr.outbox_id, dr.confirmation_level, dr.created_at
 FROM authoritative_receipts dr
 JOIN (
-    SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
+    SELECT event_id, delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
     FROM authoritative_receipts
-    GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
+    GROUP BY event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, '')
 ) latest ON dr.sequence = latest.max_seq;
 ```
 
@@ -757,7 +764,7 @@ The view is dropped and recreated on every `initialize()` call to ensure the col
 
 The current delivery status is a projection, but immutable append order is not by itself lifecycle authority for an outbox-backed attempt. A receipt linked to an outbox row is eligible only when that row points to the receipt through `receipt_id`; a stale worker may still append evidence after losing its guarded transition, but that row remains historical. Receipt-only delivery has no outbox pointer and therefore continues to use greatest durable append `sequence`. No code path **SHALL** write to this view directly.
 
-The grouping uses `COALESCE(target_channel, '')` so that `NULL` and empty-string channels are treated as the same group.
+The grouping key is `(event_id, delivery_plan_id, target_adapter, target_channel)`. `event_id` is required because plan IDs are not globally unique across events. `COALESCE(target_channel, '')` treats `NULL` and empty-string channels as the same target within one event.
 
 ### 4.6 plugin_state (schema-reserved; plugin subsystem planned — not implemented; tracked for post-prerelease)
 
@@ -899,7 +906,7 @@ CREATE TABLE delivery_outbox (
     parent_receipt_id TEXT,
     error_summary   TEXT,
     metadata        TEXT NOT NULL DEFAULT '{}',
-    UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
+    UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)
 );
 ```
 
@@ -930,15 +937,15 @@ miss.
 | `cancelled`     | Operator or shutdown cancelled                   | Yes      |
 | `abandoned`     | Drain timeout or ambiguous loss                  | Yes      |
 
-**NULL-channel uniqueness:** The `UNIQUE` constraint on `(delivery_plan_id, target_adapter, target_channel, attempt_number)` is supplemented by a partial unique index:
+**NULL-channel uniqueness:** The `UNIQUE` constraint on `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)` is supplemented by a partial unique index:
 
 ```sql
 CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
-    ON delivery_outbox (delivery_plan_id, target_adapter, attempt_number)
+    ON delivery_outbox (event_id, delivery_plan_id, target_adapter, attempt_number)
     WHERE target_channel IS NULL;
 ```
 
-This closes the SQLite `NULL != NULL` gap for outbox uniqueness.
+This closes the SQLite `NULL != NULL` gap without collapsing independent events that reuse a plan ID.
 
 `receipt_id` is the most recent persisted receipt linked to the outbox row. If an
 attempt fails before receipt persistence, lifecycle may advance the outbox attempt
@@ -1139,17 +1146,17 @@ runtime startup. A clean current marker skips that redundant full scan.
   handoffs record the strongest fact actually proven and never infer end-to-end
   delivery from lifecycle status.
 
-### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel)
+### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel, *, event_id=None)
 
-- Returns the lifecycle-authoritative receipt for the given triple.
+- Returns the lifecycle-authoritative receipt for the given target, optionally scoped to one canonical event. Lifecycle callers **MUST** pass `event_id` because plan IDs are not globally unique across events; `event_id=None` is retained only for deliberate historical/unscoped queries.
 - For outbox-backed delivery, the outbox row's committed `receipt_id` is the current-state pointer; a later receipt whose guarded outbox transition was rejected remains append-only historical evidence.
 - For outbox-less delivery, greatest durable append `sequence` remains the projection rule. `attempt_number` does not override append order.
 - `target_channel` is **REQUIRED** for precise lookup. When `None`, only NULL-channel receipts are considered.
 - Returns `None` when no current receipt exists.
 
-### 8.11 list_receipts_for_plan(delivery_plan_id, target_adapter)
+### 8.11 list_receipts_for_plan(delivery_plan_id, target_adapter, *, event_id=None)
 
-- Returns all receipts for a delivery plan / adapter in attempt order.
+- Returns receipts for a delivery plan / adapter in attempt order. Lifecycle callers **MUST** pass `event_id`; `None` preserves the intentionally unscoped historical-query surface.
 
 ### 8.12 list_receipts_by_replay_run(run_id)
 
@@ -1174,6 +1181,8 @@ runtime startup. A clean current marker skips that redundant full scan.
 - It does not determine RetryWorker scheduling; outbox status/count APIs are operational authority.
 
 ### 8.16 Outbox Methods
+
+Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`. Plan IDs are not globally unique across events, so omitting `event_id` may neither reuse nor constrain another event's outbox row. For `NULL` channels the partial unique index enforces the same event-scoped key.
 
 - `create_outbox_item`: Creates or reclaims an outbox item (Section 9.3).
 - `get_outbox_item`: Retrieves an item by `outbox_id`.
@@ -1249,7 +1258,7 @@ Receipt rows are append-only. For outbox-backed chains, the outbox `receipt_id` 
 
 Creating an outbox item requires its initial status to be either `pending` (default durable work) or `in_progress` (pipeline claim path). All other statuses must be reached through the dedicated `mark_outbox_*` transition methods, never through `create_outbox_item()`.
 
-When creating an item with the same key tuple `(delivery_plan_id, target_adapter, target_channel, attempt_number)`:
+When creating an item with the same key tuple `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`:
 
 - **Existing row reclaimable** (`pending` or `retry_wait`): the existing row is **reclaimed** — its `status`, `worker_id`, `locked_at`, `lease_until`, and `updated_at` are updated to match the new item's values. `next_attempt_at` is cleared. The caller always receives a properly-claimed operational row suitable for finalization.
 - **Existing row active** (`in_progress` or `queued`): the existing row is returned **unchanged**. Active work is never stolen by a concurrent creator.
@@ -1266,8 +1275,9 @@ The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaim
 MEDRE has not yet made its first release. The schema version is frozen at `1` and will not be bumped until storage compatibility becomes release-tracked. However, the column shape (which tables exist, which columns each table has) may still change between prerelease builds.
 
 There is no automatic prerelease schema transformation. No code path rewrites
-old data into a new schema shape. The `initialize()` method **MUST** perform three
-validation checks that reject stale prerelease databases:
+old data into a new schema shape. The `initialize()` method **MUST** perform
+version, column-shape, and structural-constraint validation that rejects stale
+prerelease databases:
 
 ### 10.1 Schema Version Check
 
@@ -1287,7 +1297,7 @@ prerelease tables. If any required table or column is missing,
 missing columns, and the database file path. It **MUST NOT** suggest that
 automatic schema transformation is available.
 
-This validation catches old prerelease databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape validation is the primary guard against stale prerelease databases.
+This validation catches old prerelease databases whose `schema_version` still reads `1` but whose column shape predates the current DDL. Because the schema version number is frozen, column-shape and structural-constraint validation together are the primary guards against stale prerelease databases.
 
 This change adds the required `delivery_receipts.confirmation_level` column while
 the prerelease schema version remains `1`. A database created by an earlier
@@ -1298,8 +1308,10 @@ transform that database in place.
 ### 10.3 Structural-Constraint Validation
 
 After opening, `initialize()` and `open_readonly()` **MUST** inspect foreign-key
-mappings and the `sqlite_master` table definitions for required constraints. In
-particular, `conversation_membership` MUST retain the checks for nonnegative `depth`,
+mappings, required UNIQUE keys, and the `sqlite_master` table definitions for required
+constraints. In particular, `delivery_outbox` MUST retain the event-scoped UNIQUE key
+`(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`, and
+`conversation_membership` MUST retain the checks for nonnegative `depth`,
 `conversation_id = root_event_id`, and the allowed `resolution_state` values. Missing
 constraints raise `PreReleaseSchemaConstraintMismatchError`; current columns alone do
 not make an older unconstrained table compatible.

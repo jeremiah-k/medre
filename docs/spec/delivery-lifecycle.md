@@ -90,7 +90,7 @@ time. They do not introduce new states:
 
 | Derived artifact                                        | Source                                                   | Defined in                                               |
 | ------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------- |
-| `delivery_status` SQL view                              | Latest receipt per `(delivery_plan_id, target_adapter)`  | [routing-delivery.md](routing-delivery.md) §9            |
+| `delivery_status` SQL view                              | Latest authoritative receipt per event-scoped delivery target | [routing-delivery.md](routing-delivery.md) §9            |
 | Convergence severity (`safe`/`degraded`/`inconsistent`) | Cross-reference of outbox + receipt statuses             | [diagnostics-evidence.md](diagnostics-evidence.md) §21   |
 | Recovery ownership statuses                             | Classification of outbox items at startup                | [diagnostics-evidence.md](diagnostics-evidence.md) §22   |
 | Health vocabulary (`healthy`/`degraded`/etc.)           | Adapter diagnostics projection                           | [diagnostics-evidence.md](diagnostics-evidence.md) §5    |

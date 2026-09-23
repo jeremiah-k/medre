@@ -120,8 +120,8 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
--- delivery_status view: one row per unique (delivery_plan_id, target_adapter,
--- target_channel) tuple.  Outbox-backed receipts are current only when the
+-- delivery_status view: one row per unique (event_id, delivery_plan_id,
+-- target_adapter, target_channel) tuple.  Outbox-backed receipts are current only when the
 -- outbox row points at that receipt_id; receipts that lost a guarded outbox
 -- transition remain immutable historical evidence but do not become current
 -- status merely because they were appended later.
@@ -153,9 +153,9 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.outbox_id, dr.confirmation_level, dr.created_at
 FROM authoritative_receipts dr
 JOIN (
-    SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
+    SELECT event_id, delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
     FROM authoritative_receipts
-    GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
+    GROUP BY event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, '')
 ) latest ON dr.sequence = latest.max_seq;
 
 CREATE TABLE IF NOT EXISTS delivery_outbox (
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     parent_receipt_id TEXT,
     error_summary TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
-    UNIQUE(delivery_plan_id, target_adapter, target_channel, attempt_number)
+    UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)
 );
 
 CREATE TABLE IF NOT EXISTS delivery_observations (
@@ -295,9 +295,9 @@ CREATE INDEX IF NOT EXISTS idx_ingress_work_claim
     ON durable_ingress_work(status, lease_until, created_at);
 -- SQLite treats NULL != NULL in UNIQUE constraints.  This partial unique
 -- index closes the gap: no two outbox items with NULL target_channel can
--- share the same (delivery_plan_id, target_adapter, attempt_number) tuple.
+-- share the same (event_id, delivery_plan_id, target_adapter, attempt_number) tuple.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
-    ON delivery_outbox(delivery_plan_id, target_adapter, attempt_number)
+    ON delivery_outbox(event_id, delivery_plan_id, target_adapter, attempt_number)
     WHERE target_channel IS NULL;
 """
 
@@ -509,6 +509,23 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
 # Structural constraints that cannot be inferred from column presence alone.
 # Existing pre-release databases must already carry these relationships; MEDRE
 # rejects older shapes rather than rebuilding them automatically.
+# Required table-level UNIQUE constraints.  These are part of logical identity,
+# so column-presence validation alone is insufficient: an older pre-release
+# table can have every current column while still enforcing a stale key.
+_REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
+    "delivery_outbox": frozenset(
+        {
+            (
+                "event_id",
+                "delivery_plan_id",
+                "target_adapter",
+                "target_channel",
+                "attempt_number",
+            )
+        }
+    ),
+}
+
 _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
     "conversation_membership": frozenset(
         {

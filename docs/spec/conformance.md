@@ -457,7 +457,7 @@ A conforming implementation satisfies:
 
 2. **Closed severity vocabulary**: Convergence severity values are exactly `safe`, `degraded`, `inconsistent`. No other values are valid.
 
-3. **Deterministic target grouping**: Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)` with deterministic tie-breaking.
+3. **Deterministic target grouping**: Targets are grouped by `(event_id, delivery_plan_id, target_adapter, target_channel)` with deterministic tie-breaking.
 
 4. **Deterministic receipt selection**: A receipt linked to an outbox is
    eligible only when that outbox row points at its `receipt_id`; outbox-less
@@ -537,7 +537,7 @@ A conforming implementation satisfies:
 
 4. **Severity assignment correctness**: Finding kinds classified as `inconsistent` MUST be: `terminal_outbox_nonterminal_receipt`, `retry_wait_missing_next_retry`, `attempt_count_regression`. Finding kinds classified as `degraded` MUST be: `terminal_receipt_nonterminal_outbox`, `receipt_outbox_mismatch`, `next_retry_in_past`, `retryable_without_retry_metadata`, `stalled_delivery_plan`, `receipt_sequence_gap`.
 
-5. **Deterministic target grouping and finding selection**: Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)` using the same deterministic tie-breaking as convergence summary (§9.1). Findings are sorted deterministically by `(kind, record_id)`.
+5. **Deterministic target grouping and finding selection**: Targets are grouped by `(event_id, delivery_plan_id, target_adapter, target_channel)` using the same deterministic tie-breaking as convergence summary (§9.1). Findings are sorted deterministically by `(kind, record_id)`.
 
 6. **Detection-only policy**: The lifecycle convergence diagnostics system does not repair state, block startup, change retry scheduling, change worker behavior, or perform automatic remediation. It does not write to storage under any circumstances.
 

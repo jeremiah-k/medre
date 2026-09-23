@@ -151,6 +151,8 @@ class DeliveryLifecycleStorage(Protocol):
         self,
         delivery_plan_id: str,
         target_adapter: str,
+        *,
+        event_id: str | None = None,
     ) -> list[DeliveryReceipt]: ...
 
     async def finalize_queued_delivery(
@@ -1587,6 +1589,7 @@ class DeliveryLifecycleService:
         receipts = await storage.list_receipts_for_plan(
             item.delivery_plan_id,
             item.target_adapter,
+            event_id=item.event_id,
         )
         if item.active_attempt is not None:
             evidence = self._retry_attempt_evidence(receipts, item, item.active_attempt)
@@ -1716,6 +1719,7 @@ class DeliveryLifecycleService:
         receipts = await storage.list_receipts_for_plan(
             item.delivery_plan_id,
             item.target_adapter,
+            event_id=item.event_id,
         )
         evidence = self._retry_attempt_evidence(receipts, item, resolved_attempt)
         failure_kind = self._classify_retry_exception(error)
@@ -1852,6 +1856,7 @@ class DeliveryLifecycleService:
         receipts = await storage.list_receipts_for_plan(
             item.delivery_plan_id,
             item.target_adapter,
+            event_id=item.event_id,
         )
         committed_receipt = next(
             (

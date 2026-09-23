@@ -91,6 +91,8 @@ class RetryWorkerStorage(Protocol):
         delivery_plan_id: str,
         target_adapter: str,
         target_channel: str | None = None,
+        *,
+        event_id: str | None = None,
     ) -> DeliveryReceipt | None: ...
 
 
@@ -913,6 +915,7 @@ class RetryWorker:
             item.delivery_plan_id,
             item.target_adapter,
             item.target_channel,
+            event_id=item.event_id,
         )
 
         # Reconstruct the delivery context (route + plan + retry policy)

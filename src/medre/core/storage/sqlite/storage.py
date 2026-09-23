@@ -72,6 +72,7 @@ from medre.core.storage.sqlite.schema import (
     _REQUIRED_CHECK_CONSTRAINTS,
     _REQUIRED_COLUMNS,
     _REQUIRED_FOREIGN_KEYS,
+    _REQUIRED_UNIQUE_CONSTRAINTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -213,7 +214,7 @@ class _SQLiteStorageBase:
     # -- Lifecycle ----------------------------------------------------------
 
     async def initialize(self) -> None:
-        """Open the database, enable WAL mode, create schema, and verify version.
+        """Open the database and verify its version, shape, and constraints.
 
         Raises
         ------
@@ -246,6 +247,7 @@ class _SQLiteStorageBase:
             # schema_version=1 but predate current columns or constraints.
             await self._validate_schema_shape()
             await self._validate_schema_foreign_keys()
+            await self._validate_schema_unique_constraints()
             await self._validate_schema_checks()
 
             # Create targeted indexes AFTER shape validation so that old-shape
@@ -347,6 +349,34 @@ class _SQLiteStorageBase:
                     missing_constraints=formatted,
                 )
 
+    async def _validate_schema_unique_constraints(self) -> None:
+        """Reject pre-release tables whose logical UNIQUE keys are stale."""
+        for table, required in _REQUIRED_UNIQUE_CONSTRAINTS.items():
+            indexes = await self._read_all(
+                'SELECT name, "unique" FROM pragma_index_list(?)',
+                (table,),
+            )
+            existing: set[tuple[str, ...]] = set()
+            for index in indexes:
+                if int(index["unique"]) != 1:
+                    continue
+                columns = await self._read_all(
+                    "SELECT name FROM pragma_index_info(?) ORDER BY seqno",
+                    (str(index["name"]),),
+                )
+                existing.add(tuple(str(row["name"]) for row in columns))
+            missing = required - existing
+            if missing:
+                formatted = [
+                    "UNIQUE(" + ", ".join(columns) + ")"
+                    for columns in sorted(missing)
+                ]
+                raise PreReleaseSchemaConstraintMismatchError(
+                    path=self._db_path,
+                    table=table,
+                    missing_constraints=formatted,
+                )
+
     async def _validate_schema_checks(self) -> None:
         """Reject pre-release tables that omit required CHECK constraints."""
         for table, required in _REQUIRED_CHECK_CONSTRAINTS.items():
@@ -410,6 +440,7 @@ class _SQLiteStorageBase:
             await instance._verify_schema_version_readonly()
             await instance._validate_schema_shape()
             await instance._validate_schema_foreign_keys()
+            await instance._validate_schema_unique_constraints()
             await instance._validate_schema_checks()
         except BaseException:
             try:

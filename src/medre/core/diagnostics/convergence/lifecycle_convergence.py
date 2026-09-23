@@ -84,7 +84,7 @@ def build_lifecycle_convergence_findings(
 
     all_keys = sorted(
         set(outbox_by_key.keys()) | set(receipts_by_key.keys()),
-        key=lambda k: (k[0] or "", k[1] or "", k[2] or ""),
+        key=lambda k: (k[0] or "", k[1] or "", k[2] or "", k[3] or ""),
     )
 
     findings.extend(

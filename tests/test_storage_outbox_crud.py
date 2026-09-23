@@ -12,7 +12,7 @@ import uuid
 
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.storage_outbox import admit_default_event
+from tests.helpers.storage_outbox import admit_default_event, admit_event
 from tests.helpers.storage_outbox import make_outbox_item as _make_outbox_item
 
 # ===================================================================
@@ -57,8 +57,7 @@ class TestCreateAndGet:
 
 
 class TestIdempotentCreate:
-    """Creating with the same (delivery_plan_id, target_adapter, target_channel,
-    attempt_number) should not create duplicates."""
+    """Creating with the same event-scoped delivery-attempt key is idempotent."""
 
     async def test_duplicate_key_returns_existing(
         self, outbox_temp_storage: SQLiteStorage
@@ -80,6 +79,33 @@ class TestIdempotentCreate:
         created2 = await outbox_temp_storage.create_outbox_item(item2)
         # Should return the existing item (item1's outbox_id).
         assert created2.outbox_id == item1.outbox_id
+
+    async def test_same_plan_target_attempt_different_event_allows_separate(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
+        """Outbox idempotency is event-scoped for named and NULL channels."""
+        await admit_event(outbox_temp_storage, "evt-outbox-a")
+        await admit_event(outbox_temp_storage, "evt-outbox-b")
+
+        for suffix, channel in (("named", "ch-shared"), ("null", None)):
+            plan_id = f"plan-cross-event-{suffix}"
+            item_a = _make_outbox_item(
+                delivery_plan_id=plan_id,
+                target_channel=channel,
+                event_id="evt-outbox-a",
+            )
+            item_b = _make_outbox_item(
+                delivery_plan_id=plan_id,
+                target_channel=channel,
+                event_id="evt-outbox-b",
+            )
+
+            created_a = await outbox_temp_storage.create_outbox_item(item_a)
+            created_b = await outbox_temp_storage.create_outbox_item(item_b)
+
+            assert created_a.outbox_id != created_b.outbox_id
+            assert created_a.event_id == "evt-outbox-a"
+            assert created_b.event_id == "evt-outbox-b"
 
     async def test_different_channel_allows_separate(
         self, outbox_temp_storage: SQLiteStorage

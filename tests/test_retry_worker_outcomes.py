@@ -772,6 +772,12 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
 
     await worker._retry_outbox_item(item)
 
+    storage.delivery_status.assert_awaited_once_with(
+        item.delivery_plan_id,
+        item.target_adapter,
+        item.target_channel,
+        event_id=item.event_id,
+    )
     assert worker.state.processed == 1
     assert worker.state.succeeded == 0
     assert worker.state.failed == 1
