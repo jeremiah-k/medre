@@ -382,6 +382,57 @@ class TestFinalizeOutboxOutcome:
         assert updated.status == "dead_lettered"
 
 
+@pytest.mark.parametrize("receipt_status", ["queued", "sent", "failed"])
+async def test_outbox_finalization_fences_nonterminal_commit_to_receipt_attempt(
+    receipt_status: str,
+) -> None:
+    """Queued, sent, and retry-wait commits carry the immutable attempt identity."""
+    from unittest.mock import AsyncMock
+
+    lifecycle = _make_lifecycle()
+    storage = AsyncMock(spec=StorageBackend)
+    storage.mark_outbox_queued.return_value = True
+    storage.mark_outbox_sent.return_value = True
+    storage.mark_outbox_retry_wait.return_value = True
+    retry_at = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
+    failure_kind = (
+        DeliveryFailureKind.ADAPTER_TRANSIENT if receipt_status == "failed" else None
+    )
+    receipt = _make_receipt(
+        receipt_id=f"rcpt-attempt-fence-{receipt_status}",
+        status=receipt_status,
+        attempt_number=7,
+        event_id="evt-attempt-fence",
+        plan_id="plan-attempt-fence",
+        adapter="test_adapter",
+        failure_kind=(failure_kind.value if failure_kind else None),
+        next_retry_at=(retry_at if receipt_status == "failed" else None),
+        outbox_id="obox-attempt-fence",
+    )
+
+    committed = await _finalize_outbox_outcome(
+        lifecycle,
+        storage,
+        "obox-attempt-fence",
+        True,
+        receipt,
+        failure_kind,
+        "timeout" if failure_kind else None,
+        RetryPolicy(max_attempts=10) if failure_kind else None,
+        expected_worker_id="worker-7",
+    )
+
+    assert committed is True
+    if receipt_status == "queued":
+        call = storage.mark_outbox_queued.await_args
+    elif receipt_status == "sent":
+        call = storage.mark_outbox_sent.await_args
+    else:
+        call = storage.mark_outbox_retry_wait.await_args
+    assert call.kwargs["attempt_number"] == 7
+    assert call.kwargs["expected_worker_id"] == "worker-7"
+
+
 # ===================================================================
 # finalize_outbox_outcome — storage error swallowed
 # ===================================================================

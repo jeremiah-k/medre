@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from medre.core.delivery_authority import (
     DeliveryAuthorityResolver,
     DeliveryIdentity,
     delivery_identity,
 )
-from medre.core.events import DeliveryReceipt
+from medre.core.events import CanonicalEvent, DeliveryReceipt, EventMetadata
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import admit_event
@@ -515,3 +517,239 @@ async def test_recovery_scan_prefers_newer_terminal_generation_over_late_older_f
         newer_terminal.receipt_id,
         "dead_lettered",
     )
+
+
+async def test_recovery_keyset_crosses_stale_candidate_window_without_skipping(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Bounded raw windows still find later authority and preserve public paging."""
+    stale_event = "evt-recovery-stale-window"
+    stale_plan = "plan-recovery-stale-window"
+    await admit_event(temp_storage, stale_event)
+    stale_outbox = DeliveryOutboxItem(
+        outbox_id="obox-recovery-stale-window",
+        event_id=stale_event,
+        route_id="route-stale",
+        delivery_plan_id=stale_plan,
+        target_adapter="radio",
+        target_channel="mesh",
+        attempt_number=1,
+        status="in_progress",
+    )
+    await temp_storage.create_outbox_item(stale_outbox)
+
+    # More stale unresolved candidates than the minimum raw candidate window.
+    # They remain immutable history but none is current because the outbox
+    # ultimately commits the sent receipt below.
+    for index in range(70):
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id=f"rcpt-stale-window-{index:02d}",
+                event_id=stale_event,
+                delivery_plan_id=stale_plan,
+                target_adapter="radio",
+                target_channel="mesh",
+                route_id="route-stale",
+                status="failed",
+                failure_kind="adapter_transient",
+                attempt_number=1,
+                outbox_id=stale_outbox.outbox_id,
+            )
+        )
+    winner = DeliveryReceipt(
+        receipt_id="rcpt-stale-window-winner",
+        event_id=stale_event,
+        delivery_plan_id=stale_plan,
+        target_adapter="radio",
+        target_channel="mesh",
+        route_id="route-stale",
+        status="sent",
+        attempt_number=1,
+        outbox_id=stale_outbox.outbox_id,
+    )
+    await temp_storage.append_receipt(winner)
+    assert await temp_storage.mark_outbox_sent(
+        stale_outbox.outbox_id,
+        receipt_id=winner.receipt_id,
+        attempt_number=1,
+    )
+
+    current_receipts: list[DeliveryReceipt] = []
+    for suffix in ("a", "b"):
+        event_id = f"evt-recovery-current-{suffix}"
+        await admit_event(temp_storage, event_id)
+        receipt = DeliveryReceipt(
+            receipt_id=f"rcpt-recovery-current-{suffix}",
+            event_id=event_id,
+            delivery_plan_id=f"plan-recovery-current-{suffix}",
+            target_adapter="radio",
+            target_channel="mesh",
+            route_id="route-current",
+            status="failed",
+            failure_kind="adapter_permanent",
+            attempt_number=1,
+        )
+        await temp_storage.append_receipt(receipt)
+        current_receipts.append(receipt)
+
+    page1 = await temp_storage.query_unresolved_deliveries(limit=1)
+    assert [item.receipt_id for item in page1.items] == [
+        current_receipts[0].receipt_id
+    ]
+    assert page1.has_more is True
+    assert page1.next_cursor is not None
+
+    page2 = await temp_storage.query_unresolved_deliveries(
+        limit=1,
+        cursor=page1.next_cursor,
+    )
+    assert [item.receipt_id for item in page2.items] == [
+        current_receipts[1].receipt_id
+    ]
+    assert page2.has_more is False
+    assert page2.next_cursor is None
+
+
+async def test_recovery_since_event_time_filters_before_authority_scan(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Since-scoped recovery returns only unresolved deliveries in the time window."""
+    for event_id, timestamp in (
+        ("evt-recovery-old", datetime(2026, 1, 1, tzinfo=UTC)),
+        ("evt-recovery-new", datetime(2026, 9, 1, tzinfo=UTC)),
+    ):
+        await temp_storage.append(
+            CanonicalEvent(
+                event_id=event_id,
+                event_kind="message.created",
+                schema_version=1,
+                timestamp=timestamp,
+                source_adapter="test-source",
+                source_transport_id=event_id,
+                source_channel_id=None,
+                parent_event_id=None,
+                lineage=(),
+                relations=(),
+                payload={"text": event_id},
+                metadata=EventMetadata(),
+            )
+        )
+        await temp_storage.append_receipt(
+            DeliveryReceipt(
+                receipt_id=f"rcpt-{event_id}",
+                event_id=event_id,
+                delivery_plan_id=f"plan-{event_id}",
+                target_adapter="radio",
+                target_channel="mesh",
+                route_id="route-recovery",
+                status="failed",
+                failure_kind="adapter_permanent",
+                attempt_number=1,
+            )
+        )
+
+    page = await temp_storage.query_unresolved_deliveries(
+        since_event_time="2026-06-01T00:00:00+00:00",
+        limit=10,
+    )
+
+    assert [item.event_id for item in page.items] == ["evt-recovery-new"]
+    assert page.has_more is False
+    assert page.next_cursor is None
+
+
+async def test_recovery_authority_matches_cross_class_append_order(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Recovery matches resolver ordering between outbox and outbox-less classes."""
+    async def seed_case(
+        event_id: str,
+        *,
+        first_class: str,
+        first_status: str,
+        second_class: str,
+        second_status: str,
+    ) -> None:
+        plan_id = f"plan-{event_id}"
+        await admit_event(temp_storage, event_id)
+        outbox = DeliveryOutboxItem(
+            outbox_id=f"obox-{event_id}",
+            event_id=event_id,
+            route_id="route-cross-class",
+            delivery_plan_id=plan_id,
+            target_adapter="radio",
+            target_channel="mesh",
+            attempt_number=1,
+            status="in_progress",
+        )
+        await temp_storage.create_outbox_item(outbox)
+
+        async def append(kind: str, status: str, suffix: str) -> DeliveryReceipt:
+            receipt = DeliveryReceipt(
+                receipt_id=f"rcpt-{event_id}-{suffix}",
+                event_id=event_id,
+                delivery_plan_id=plan_id,
+                target_adapter="radio",
+                target_channel="mesh",
+                route_id="route-cross-class",
+                status=status,
+                failure_kind=("adapter_transient" if status == "failed" else None),
+                attempt_number=1,
+                outbox_id=(outbox.outbox_id if kind == "outbox" else None),
+            )
+            await temp_storage.append_receipt(receipt)
+            if kind == "outbox":
+                if status == "sent":
+                    assert await temp_storage.mark_outbox_sent(
+                        outbox.outbox_id,
+                        receipt_id=receipt.receipt_id,
+                        attempt_number=1,
+                    )
+                else:
+                    assert await temp_storage.mark_outbox_retry_wait(
+                        outbox.outbox_id,
+                        next_attempt_at="2099-01-01T00:00:00+00:00",
+                        receipt_id=receipt.receipt_id,
+                        failure_kind="adapter_transient",
+                        attempt_number=1,
+                    )
+            return receipt
+
+        await append(first_class, first_status, "first")
+        await append(second_class, second_status, "second")
+
+    await seed_case(
+        "evt-cross-outbox-sent-then-free-failed",
+        first_class="outbox",
+        first_status="sent",
+        second_class="free",
+        second_status="failed",
+    )
+    await seed_case(
+        "evt-cross-free-sent-then-outbox-failed",
+        first_class="free",
+        first_status="sent",
+        second_class="outbox",
+        second_status="failed",
+    )
+    await seed_case(
+        "evt-cross-outbox-failed-then-free-sent",
+        first_class="outbox",
+        first_status="failed",
+        second_class="free",
+        second_status="sent",
+    )
+    await seed_case(
+        "evt-cross-free-failed-then-outbox-sent",
+        first_class="free",
+        first_status="failed",
+        second_class="outbox",
+        second_status="sent",
+    )
+
+    page = await temp_storage.query_unresolved_deliveries(limit=20)
+    by_event = {item.event_id: item for item in page.items}
+    assert by_event["evt-cross-outbox-sent-then-free-failed"].status == "failed"
+    assert by_event["evt-cross-free-sent-then-outbox-failed"].status == "failed"
+    assert "evt-cross-outbox-failed-then-free-sent" not in by_event
+    assert "evt-cross-free-failed-then-outbox-sent" not in by_event

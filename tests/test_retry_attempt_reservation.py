@@ -582,8 +582,8 @@ async def test_terminal_without_attempt_consumes_reservation(temp_storage) -> No
     await _claim_due(temp_storage)
     assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
 
-    # finalize_retry_success maps a suppressed receipt to abandonment
-    # without passing an attempt number.
+    # The raw storage primitive remains safe when a caller intentionally omits
+    # attempt_number: leaving in_progress consumes the live reservation.
     await temp_storage.mark_outbox_abandoned(
         item.outbox_id, error_summary="capability_suppressed"
     )
@@ -592,6 +592,48 @@ async def test_terminal_without_attempt_consumes_reservation(temp_storage) -> No
     assert row.status == "abandoned"
     assert row.attempt_number == 2
     assert row.active_attempt is None
+
+
+async def test_cancel_and_abandon_honor_reserved_attempt_fence(temp_storage) -> None:
+    """Terminal lifecycle marks cannot consume a different live reservation."""
+    for status, marker in (
+        ("cancelled", temp_storage.mark_outbox_cancelled),
+        ("abandoned", temp_storage.mark_outbox_abandoned),
+    ):
+        event = await _seed_event(temp_storage, f"evt-{status}-attempt-fence")
+        item = await _seed_outbox(
+            temp_storage,
+            outbox_id=f"obox-{status}-attempt-fence",
+            event_id=event.event_id,
+        )
+        await _claim_due(temp_storage)
+        assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+
+        assert not await marker(
+            item.outbox_id,
+            attempt_number=1,
+            expected_worker_id=_WORKER,
+        )
+        live = await temp_storage.get_outbox_item(item.outbox_id)
+        assert live is not None
+        assert (live.status, live.attempt_number, live.active_attempt) == (
+            "in_progress",
+            1,
+            2,
+        )
+
+        assert await marker(
+            item.outbox_id,
+            attempt_number=2,
+            expected_worker_id=_WORKER,
+        )
+        terminal = await temp_storage.get_outbox_item(item.outbox_id)
+        assert terminal is not None
+        assert (terminal.status, terminal.attempt_number, terminal.active_attempt) == (
+            status,
+            2,
+            None,
+        )
 
 
 async def test_queued_to_sent_commits_reserved_attempt(temp_storage) -> None:
