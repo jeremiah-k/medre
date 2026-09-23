@@ -348,6 +348,7 @@ async def test_retry_suppression_commits_receipt_pointer() -> None:
         "obox-race",
         error_summary=receipt.error,
         receipt_id=receipt.receipt_id,
+        attempt_number=receipt.attempt_number,
         expected_worker_id="retry-worker-race",
     )
 

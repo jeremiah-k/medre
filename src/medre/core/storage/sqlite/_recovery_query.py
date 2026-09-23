@@ -51,7 +51,7 @@ def _same_identity(alias: str) -> str:
 
 
 _OUTBOXLESS_NEWER = (
-    "NOT EXISTS ("
+    "NOT EXISTS ("  # nosec B608 - composes only module-local fragments; values stay bound parameters
     " SELECT 1 FROM delivery_receipts newer_outboxless INDEXED BY idx_receipts_lineage"
     f" WHERE {_same_identity('newer_outboxless')}"
     " AND newer_outboxless.outbox_id IS NULL"
@@ -60,7 +60,7 @@ _OUTBOXLESS_NEWER = (
 )
 
 _HIGHER_COMMITTED_THAN_CURRENT = (
-    "NOT EXISTS ("
+    "NOT EXISTS ("  # nosec B608 - composes only module-local fragments; values stay bound parameters
     " SELECT 1"
     " FROM delivery_receipts higher_receipt INDEXED BY idx_receipts_lineage"
     " JOIN delivery_outbox higher_outbox"
@@ -77,7 +77,7 @@ _HIGHER_COMMITTED_THAN_CURRENT = (
 # outbox candidate has a later append sequence. A late append from an older
 # outbox generation must not hide newer-generation authority.
 _LATER_WINNING_COMMITTED = (
-    "NOT EXISTS ("
+    "NOT EXISTS ("  # nosec B608 - composes only module-local fragments; values stay bound parameters
     " SELECT 1"
     " FROM delivery_receipts committed_receipt INDEXED BY idx_receipts_lineage"
     " JOIN delivery_outbox candidate_outbox"
@@ -146,9 +146,7 @@ def _select_unresolved_deliveries(*, since_scoped: bool) -> str:
         " LEFT JOIN delivery_outbox committed_outbox"
         "   ON committed_outbox.outbox_id = dr.outbox_id"
         "  AND committed_outbox.receipt_id = dr.receipt_id"
-        " WHERE 1 = 1"
-        + _AUTHORITY_PREDICATE
-        + ")"
+        " WHERE 1 = 1" + _AUTHORITY_PREDICATE + ")"
         " SELECT dr.sequence AS receipt_sequence,"
         " dr.receipt_id, dr.event_id, dr.delivery_plan_id,"
         " dr.target_adapter, dr.target_channel, dr.route_id,"
