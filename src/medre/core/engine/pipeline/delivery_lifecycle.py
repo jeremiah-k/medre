@@ -1919,6 +1919,7 @@ class DeliveryLifecycleService:
         error: str | None,
         retry_policy: RetryPolicy | None,
         expected_worker_id: str | None = None,
+        lifecycle_receipt: DeliveryReceipt | None = None,
     ) -> bool | None:
         """Update the outbox item status based on the delivery outcome.
 
@@ -1946,6 +1947,12 @@ class DeliveryLifecycleService:
             transition commits. Live pipeline deliveries pass their pipeline
             worker identity so an expired delivery cannot overwrite a retry
             worker that reclaimed the row.
+        lifecycle_receipt:
+            Optional linked receipt that represents the lifecycle terminal
+            state after the primary attempt receipt. Retry exhaustion uses the
+            appended ``dead_lettered`` receipt here so the outbox's committed
+            ``receipt_id`` points at terminal evidence while the delivery
+            outcome can still expose the primary failed attempt.
         """
         if outbox_id is None or not outbox_created:
             return None
@@ -1969,6 +1976,27 @@ class DeliveryLifecycleService:
                 receipt_ref_id: str | None = (
                     receipt.receipt_id if receipt is not None else None
                 )
+                terminal_receipt_id = receipt_ref_id
+                if lifecycle_receipt is not None:
+                    if lifecycle_receipt.status != "dead_lettered":
+                        raise ValueError(
+                            "lifecycle_receipt must be dead_lettered when supplied"
+                        )
+                    if (
+                        receipt is None
+                        or lifecycle_receipt.event_id != receipt.event_id
+                        or lifecycle_receipt.delivery_plan_id
+                        != receipt.delivery_plan_id
+                        or lifecycle_receipt.target_adapter != receipt.target_adapter
+                        or lifecycle_receipt.target_channel != receipt.target_channel
+                        or lifecycle_receipt.outbox_id != receipt.outbox_id
+                        or lifecycle_receipt.parent_receipt_id != receipt.receipt_id
+                    ):
+                        raise ValueError(
+                            "lifecycle_receipt must be the linked terminal receipt "
+                            "for the primary delivery receipt"
+                        )
+                    terminal_receipt_id = lifecycle_receipt.receipt_id
                 # NOTE: attempt_number is NOT passed to mark_outbox_* calls.
                 # The outbox row's attempt_number is set correctly at creation
                 # time by _create_outbox_for_delivery() and must not be
@@ -1982,7 +2010,7 @@ class DeliveryLifecycleService:
                         # No retry policy - treat as terminal.
                         committed = await storage.mark_outbox_dead_lettered(
                             outbox_id,
-                            receipt_id=receipt_ref_id,
+                            receipt_id=terminal_receipt_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
                             expected_worker_id=expected_worker_id,
@@ -1995,7 +2023,7 @@ class DeliveryLifecycleService:
                         # than retry_wait to align with receipt-level state.
                         committed = await storage.mark_outbox_dead_lettered(
                             outbox_id,
-                            receipt_id=receipt_ref_id,
+                            receipt_id=terminal_receipt_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
                             expected_worker_id=expected_worker_id,
@@ -2021,7 +2049,7 @@ class DeliveryLifecycleService:
                         if executor.is_exhausted(retry_attempt):
                             committed = await storage.mark_outbox_dead_lettered(
                                 outbox_id,
-                                receipt_id=receipt_ref_id,
+                                receipt_id=terminal_receipt_id,
                                 failure_kind=failure_kind_val.value,
                                 error_summary=error_summary,
                                 expected_worker_id=expected_worker_id,
@@ -2042,7 +2070,7 @@ class DeliveryLifecycleService:
                 else:
                     committed = await storage.mark_outbox_dead_lettered(
                         outbox_id,
-                        receipt_id=receipt_ref_id,
+                        receipt_id=terminal_receipt_id,
                         failure_kind=failure_kind_val.value,
                         error_summary=error_summary,
                         expected_worker_id=expected_worker_id,
@@ -2053,7 +2081,9 @@ class DeliveryLifecycleService:
                     "outbox_id=%s receipt_id=%s expected_worker_id=%s; "
                     "receipt remains append-only historical evidence",
                     outbox_id,
-                    receipt.receipt_id if receipt is not None else None,
+                    terminal_receipt_id
+                    if failure_kind_val is not None
+                    else (receipt.receipt_id if receipt is not None else None),
                     expected_worker_id,
                 )
             return committed

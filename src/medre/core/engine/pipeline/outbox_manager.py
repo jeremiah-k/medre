@@ -297,6 +297,8 @@ class OutboxManager:
         failure_kind_val: DeliveryFailureKind | None,
         error: str | None,
         retry_policy: RetryPolicy | None,
+        *,
+        lifecycle_receipt: DeliveryReceipt | None = None,
     ) -> bool | None:
         """Update the outbox item status based on the delivery outcome.
 
@@ -315,6 +317,7 @@ class OutboxManager:
             error=error,
             retry_policy=retry_policy,
             expected_worker_id=ctx.pipeline_worker or None,
+            lifecycle_receipt=lifecycle_receipt,
         )
 
     # -- Terminal outcome recording --

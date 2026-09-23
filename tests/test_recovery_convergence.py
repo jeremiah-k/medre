@@ -24,6 +24,7 @@ from medre.core.recovery.models import (
     RecoveryOwnershipAction,
     StartupRecoveryLedger,
 )
+from medre.core.storage.backend import DeliveryOutboxItem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -175,6 +176,51 @@ class TestRecoveredNotProgressed:
         finding = next(
             f for f in findings if f.kind == KIND_RECOVERED_NOT_PROGRESSED
         )
+        assert finding.extra["latest_receipt_status"] == "queued"
+
+    def test_storage_object_outbox_uses_committed_receipt_pointer(self) -> None:
+        """Storage objects use committed receipt IDs without membership errors."""
+        outbox = [
+            DeliveryOutboxItem(
+                outbox_id="ob-object",
+                event_id="ev-1",
+                route_id="route-1",
+                delivery_plan_id="plan-1",
+                target_adapter="meshtastic",
+                status="queued",
+                receipt_id="r-object-committed",
+            )
+        ]
+        receipts = [
+            _make_receipt(
+                receipt_id="r-object-committed",
+                status="queued",
+                outbox_id="ob-object",
+            )
+        ]
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-object",
+            startup_timestamp=None,
+            actions=(
+                _make_action(
+                    outbox_id="ob-object",
+                    ownership_action="recoverable",
+                    prior_status="queued",
+                ),
+            ),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox,
+            receipts=receipts,
+            recovery_ledger=ledger,
+        )
+
+        finding = next(
+            f for f in findings if f.kind == KIND_RECOVERED_NOT_PROGRESSED
+        )
+        assert finding.record_id == "ob-object"
         assert finding.extra["latest_receipt_status"] == "queued"
 
     def test_not_flagged_when_progressed(self) -> None:

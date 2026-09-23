@@ -65,6 +65,12 @@
   the outbox row's committed `receipt_id`, so that rejected late receipt stays
   historical and cannot become retry lineage merely by having a greater append
   sequence.
+- Live retry exhaustion now keeps attempt evidence and lifecycle authority
+  distinct: the delivery outcome retains the primary `failed` receipt that
+  describes the transport attempt, while the outbox `dead_lettered` transition
+  points at the linked terminal `dead_lettered` receipt. Current-status and
+  convergence projections therefore see terminal evidence for a terminal
+  outbox instead of projecting the preceding failed attempt.
 - Delivery identity is consistently event-scoped anywhere state is projected or
   operational work is deduplicated. Global convergence groups by
   `(event_id, delivery_plan_id, target_adapter, target_channel)`; retry and

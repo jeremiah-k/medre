@@ -300,8 +300,14 @@ append order.
 
 Receipts remain the authoritative immutable evidence trail for audit,
 diagnostics, and operator inspection; the outbox pointer selects which receipt
-is the current lifecycle projection. See [state-machines.md](state-machines.md)
-§1.4.
+is the current lifecycle projection. When one live attempt appends both a
+primary `failed` receipt and its linked retry-exhaustion `dead_lettered`
+receipt, the delivery outcome MAY retain the primary failed receipt as the
+attempt result, but the guarded outbox `dead_lettered` transition MUST point at
+the linked terminal receipt. This keeps attempt evidence distinct from mutable
+lifecycle authority and prevents a terminal outbox from projecting the
+preceding non-terminal failure as current. See
+[state-machines.md](state-machines.md) §1.4.
 
 ### 4.2 Outbox Is Mutable Operational State
 

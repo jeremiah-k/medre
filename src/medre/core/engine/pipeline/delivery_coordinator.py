@@ -196,6 +196,7 @@ class _ExecutionResult:
 
     outcome: DeliveryOutcome
     receipt: DeliveryReceipt | None
+    lifecycle_receipt: DeliveryReceipt | None
     failure_kind: DeliveryFailureKind | None
     error: str | None
 
@@ -700,6 +701,9 @@ class DeliveryCoordinator:
                 result.failure_kind if result is not None else None,
                 result.error if result is not None else None,
                 ctx.plan.retry_policy,
+                lifecycle_receipt=(
+                    result.lifecycle_receipt if result is not None else None
+                ),
             )
             if committed is False and result is not None and result.receipt is not None:
                 self._log.warning(
@@ -744,7 +748,7 @@ class DeliveryCoordinator:
                 status=status,
                 receipt=receipt,
             )
-            return _ExecutionResult(outcome, receipt, None, None)
+            return _ExecutionResult(outcome, receipt, None, None, None)
         except _AdapterDeliveryError as exc:
             self._diagnostician.record_adapter_failure(
                 ctx.event.event_id,
@@ -767,6 +771,7 @@ class DeliveryCoordinator:
                 else "permanent_failure"
             )
             receipt = await self._persisted_receipt(exc.receipt)
+            lifecycle_receipt = await self._persisted_receipt(exc.lifecycle_receipt)
             outcome = self._build_outcome(
                 ctx,
                 status=status,
@@ -774,7 +779,13 @@ class DeliveryCoordinator:
                 receipt=receipt,
                 error=exc.error,
             )
-            return _ExecutionResult(outcome, receipt, failure_kind, exc.error)
+            return _ExecutionResult(
+                outcome,
+                receipt,
+                lifecycle_receipt,
+                failure_kind,
+                exc.error,
+            )
         except _RendererDeliveryError as exc:
             failure_kind = (
                 exc.failure_kind
@@ -790,7 +801,7 @@ class DeliveryCoordinator:
                 receipt=receipt,
                 error=exc.error,
             )
-            return _ExecutionResult(outcome, receipt, failure_kind, exc.error)
+            return _ExecutionResult(outcome, receipt, None, failure_kind, exc.error)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -816,7 +827,7 @@ class DeliveryCoordinator:
                 failure_kind=failure_kind,
                 error=error,
             )
-            return _ExecutionResult(outcome, None, failure_kind, error)
+            return _ExecutionResult(outcome, None, None, failure_kind, error)
 
     def _latest_matching_receipt(
         self,

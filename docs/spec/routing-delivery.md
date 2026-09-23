@@ -860,7 +860,7 @@ The "current status" of a delivery is a **projection**, not a mutable receipt fi
 ### 9.2 How It Works
 
 - Receipt rows remain immutable append-only evidence.
-- An outbox-backed receipt becomes current only when its guarded outbox transition commits the matching `receipt_id`. A late stale-worker receipt whose transition is rejected remains historical even if it has the greatest sequence.
+- An outbox-backed receipt becomes current only when its guarded outbox transition commits the matching `receipt_id`. A late stale-worker receipt whose transition is rejected remains historical even if it has the greatest sequence. When retry exhaustion appends a primary `failed` receipt followed by a linked `dead_lettered` receipt, the terminal outbox transition commits the linked `dead_lettered` receipt ID as current authority.
 - Receipt-only delivery has no mutable lifecycle pointer, so greatest durable append `sequence` remains its projection rule.
 - `MAX(sequence)` is used instead of timestamps for deterministic ordering among eligible receipts.
 - The view is read-only; its rows are never written directly.

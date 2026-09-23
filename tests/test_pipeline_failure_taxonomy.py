@@ -13,6 +13,7 @@ import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
+from medre.core.diagnostics.convergence.summary import build_convergence_summary
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.observability.metrics import Diagnostician, EventMetrics
 from medre.core.planning import FallbackResolver
@@ -872,6 +873,31 @@ class TestDeadLetter:
             assert rows[1]["status"] == "dead_lettered"
             assert rows[1]["attempt_number"] == 2
             assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
+
+            current = await temp_storage.delivery_status(
+                outcomes[0].delivery_plan_id,
+                "dead-target",
+                event_id=event.event_id,
+            )
+            assert current is not None
+            assert current.status == "dead_lettered"
+            assert current.receipt_id == rows[1]["receipt_id"]
+
+            outbox_items = await temp_storage.list_outbox_items_for_event(
+                event.event_id
+            )
+            assert len(outbox_items) == 1
+            assert outbox_items[0].status == "dead_lettered"
+            assert outbox_items[0].receipt_id == current.receipt_id
+
+            receipts = await temp_storage.list_receipts_for_event(event.event_id)
+            convergence = build_convergence_summary(
+                receipts=receipts,
+                outbox_items=outbox_items,
+            )
+            assert len(convergence.targets) == 1
+            assert convergence.targets[0].severity == "safe"
+            assert convergence.targets[0].latest_receipt_status == "dead_lettered"
         finally:
             await runner.stop()
 

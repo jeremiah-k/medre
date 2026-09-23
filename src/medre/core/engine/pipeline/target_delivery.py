@@ -153,10 +153,12 @@ class _AdapterDeliveryError(Exception):
     """Raised by ``deliver_to_target`` after persisting a failed receipt.
 
     Carries the adapter ID, error string, the original exception,
-    an optional pre-classified ``failure_kind``, and the persisted
-    ``receipt`` so that callers can produce a deterministic
-    :class:`DeliveryOutcome` without re-inspecting the exception type
-    and can correlate the outbox row with the actual receipt.
+    an optional pre-classified ``failure_kind``, the persisted primary
+    failure ``receipt``, and an optional terminal ``lifecycle_receipt``.
+    The latter is populated when retry exhaustion appends a linked
+    ``dead_lettered`` receipt so callers can keep the attempt-facing
+    :class:`DeliveryOutcome` on the primary failure while committing the
+    outbox pointer to the terminal lifecycle authority.
     """
 
     def __init__(
@@ -167,12 +169,14 @@ class _AdapterDeliveryError(Exception):
         *,
         failure_kind: DeliveryFailureKind | None = None,
         receipt: DeliveryReceipt | None = None,
+        lifecycle_receipt: DeliveryReceipt | None = None,
     ) -> None:
         self.adapter_id = adapter_id
         self.error = error
         self.original = original
         self.failure_kind = failure_kind
         self.receipt = receipt
+        self.lifecycle_receipt = lifecycle_receipt
         super().__init__(error)
 
 
@@ -888,8 +892,9 @@ class TargetDeliveryService:
 
         # If all retries exhausted, append dead-letter receipt after
         # the primary receipt to maintain append-only ordering.
+        lifecycle_receipt: DeliveryReceipt | None = None
         if _needs_dead_letter:
-            await self._lifecycle.build_and_persist_dead_letter_receipt(
+            lifecycle_receipt = await self._lifecycle.build_and_persist_dead_letter_receipt(
                 self._storage,
                 event_id=event.event_id,
                 delivery_plan_id=plan.plan_id,
@@ -958,6 +963,7 @@ class TargetDeliveryService:
                 delivery_exc,
                 failure_kind=_classified_failure_kind,
                 receipt=receipt,
+                lifecycle_receipt=lifecycle_receipt,
             ) from None
 
         return receipt
