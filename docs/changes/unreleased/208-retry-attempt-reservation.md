@@ -32,13 +32,18 @@
   persistence and outbox finalization), while a reservation without evidence
   is released so the re-dispatch reserves the same number again. The
   defensive next-attempt evidence check for unreserved rows remains.
-- Explicit-attempt finalizations are fenced to the reservation they hold:
-  a stale worker returning after lease expiry and re-reservation by a newer
-  worker cannot regress the row's live attempt identity (the retry worker
-  performs no lease renewal during dispatch, so mid-dispatch expiry is a
-  real path). Terminal transitions that pass no attempt number
-  (abandonment, cancellation of an in-flight dispatch) consume a live
-  reservation and record the reserved attempt as the row's final one.
+- Explicit-attempt finalizations are fenced in both reservation states: a
+  live reservation must match exactly, while an unreserved row rejects any
+  explicit attempt older than its finalized `attempt_number`. Retry-worker
+  transitions also require the current claim `worker_id`, and guarded storage
+  mutations report whether they committed so a rejected stale worker cannot
+  emit false durable success/retry/dead-letter evidence. This covers a worker
+  returning after lease expiry whether the newer attempt is still reserved or
+  has already finalized (the retry worker performs no lease renewal during
+  dispatch, so mid-dispatch expiry is a real path). Terminal transitions that
+  pass no attempt number (abandonment, cancellation of an in-flight dispatch)
+  consume a live reservation and record the reserved attempt as the row's
+  final one.
 - This changes the prerelease SQLite shape by adding `active_attempt` to
   `delivery_outbox`. Existing stamped prerelease databases that do not match
   the current shape are rejected by design and must be recreated; schema

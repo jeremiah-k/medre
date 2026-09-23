@@ -198,9 +198,14 @@ attempt.
 - Finalization consumes the reservation atomically with its outcome
   transition: `attempt_number` advances to the reserved attempt and
   `active_attempt` clears in the same guarded statement. Explicit-attempt
-  commits are fenced to the reservation they hold: a worker finalizing
-  after its lease expired and a newer worker re-reserved the row cannot
-  commit, so the live attempt identity never regresses. Terminal
+  commits are fenced in both reservation states: a live reservation must
+  match exactly, and an unreserved row rejects any explicit attempt lower
+  than its already-finalized `attempt_number`. Retry-worker transitions are
+  also fenced to the current claim owner. A worker finalizing after its lease
+  expired therefore cannot consume another worker's reservation, release its
+  claim, or regress finalized attempt identity. A rejected guard is reported
+  to lifecycle code as an uncommitted transition; runtime observability MUST
+  NOT project it as durable success, retry, or dead-letter state. Terminal
   transitions that pass no attempt number (abandonment, cancellation)
   consume a live reservation too, recording the reserved attempt as
   final.

@@ -848,7 +848,13 @@ is the durably reserved in-flight attempt: the retry worker sets it to
 update tied to the claiming worker), and every callback validator compares
 against `COALESCE(active_attempt, attempt_number)`. Finalization advances
 `attempt_number` to the reserved value and clears the reservation in the same
-guarded transition.
+guarded transition. An explicit-attempt transition is accepted only when a
+live reservation matches that attempt exactly, or when no reservation is live
+and the explicit attempt is not older than the row's finalized
+`attempt_number`. Retry-worker-owned transitions additionally compare the
+claiming `worker_id`. Guarded status mutations return whether the update
+committed so lifecycle code cannot report a state change after a compare-and-set
+miss.
 
 **Statuses:**
 

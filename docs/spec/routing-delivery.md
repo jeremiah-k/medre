@@ -600,7 +600,16 @@ A non-retryable failure discovered during a retry attempt is terminal immediatel
 8. Durable `queued` or `sent` evidence wins over an exception raised later in the same delivery call and suppresses an immediate resend. `queued` evidence keeps the outbox non-terminal while it awaits confirmation or stale `queued` to `in_progress` reclaim. Only `sent` evidence finalizes the outbox as accepted. A `suppressed` receipt is finalized as terminal abandonment and is not counted as retry success.
 9. A retryable failure below the attempt limit returns to `retry_wait`. When the failed receipt already persisted `next_retry_at`, the outbox MUST reuse that exact timestamp so receipt evidence and scheduler state cannot drift. If no current-attempt failure receipt exists, lifecycle policy computes the backoff from the attempt number.
 10. A non-retryable current-attempt failure is dead-lettered immediately. A retryable failure at `attempt_number >= max_attempts` is dead-lettered as retry exhaustion. When `deliver_to_target` already appended a linked `dead_lettered` receipt, lifecycle reconciliation preserves that receipt as the terminal evidence link and retains its recorded `failure_kind`, falling back to `retry_exhausted` only when the receipt omits it. Missing or invalid taxonomy on persisted `failed` retry evidence is an invariant violation; reconciliation terminally repairs the outbox as `adapter_permanent` rather than leaving it indefinitely reclaimable.
-11. Evidence lookup and lifecycle persistence failures propagate out of `DeliveryLifecycleService`. `RetryWorker` MAY emit an operational `retry_failed` event describing `lifecycle_persistence_error`, but MUST NOT report a durable retry/dead-letter/success transition that storage did not commit. An untransitioned claimed row remains recoverable through outbox lease expiry; if attempt evidence was persisted, the next claim preflight repairs it before any resend.
+11. Evidence lookup and lifecycle persistence failures propagate out of
+    `DeliveryLifecycleService`. Guarded transition rejection (stale attempt or
+    lost claim ownership) is distinct from an I/O failure and is treated as a
+    superseded worker result, not as committed lifecycle state. `RetryWorker`
+    MAY emit an operational `retry_failed` event describing a true
+    `lifecycle_persistence_error`, but MUST NOT report a durable
+    retry/dead-letter/success transition that storage did not commit. An
+    untransitioned claimed row remains recoverable through outbox lease expiry;
+    if attempt evidence was persisted, the next claim preflight repairs it
+    before any resend.
 12. Retry uses the same delivery planning and target-delivery pipeline as live work. No special transport bypass path exists.
 
 ### 7.5 Policy Persistence
