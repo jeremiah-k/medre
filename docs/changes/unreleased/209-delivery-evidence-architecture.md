@@ -28,5 +28,16 @@
 - Enforce core outbox invariants in SQLite itself: positive finalized attempts,
   exact next-attempt reservations only while `in_progress`, a closed status
   vocabulary, and an event-scoped lineage index matching delivery authority.
+- Make operator delivery projections use the same event-scoped authority model.
+  The delivery ledger now separates `lifecycle_status`, mutable outbox state,
+  authoritative receipt identity, causative lifecycle evidence, and latest
+  dispatch attempt/result; route/source/replay remain provenance only.
+- Make retry/outbox receipt-only deduplication event-scoped so equal plan IDs on
+  different canonical events cannot hide one another.
+- Remove plan-only current-status and receipt-lineage overloads: both current
+  authority and historical delivery lineage now require canonical `event_id`.
+- Tighten outbox-backed receipt eligibility to the exact `(outbox_id, receipt_id)`
+  pointer and rank committed generations from mutable outbox attempt state, so a
+  late append from an older generation cannot regress current authority.
 - Pre-release SQLite shape changes require recreating incompatible databases
   under the existing prerelease schema policy.

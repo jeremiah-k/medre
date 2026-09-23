@@ -613,7 +613,11 @@ Check `source` on the receipt: `"live"` or `"replay"`. For replay, `replay_run_i
 
 ### "How many retry attempts occurred?"
 
-Check `attempt_number` on the receipt chain. Each retry produces a new receipt with an incremented `attempt_number`, linked via `parent_receipt_id`. The highest `attempt_number` represents the latest attempt. A `dead_lettered` receipt means retries were exhausted.
+Check `latest_attempt_number` / `latest_attempt_status` in the delivery ledger,
+or inspect attempt receipts directly. Each actual retry dispatch increments the
+attempt number. A linked lifecycle `dead_lettered` receipt keeps the same
+causative attempt number and records the terminal transition without inventing
+another send. `lifecycle_status` is the current MEDRE-owned state.
 
 ```sql
 SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at

@@ -1047,3 +1047,31 @@ class TestUncorrelatedQueuedItems:
         assert item.reason_pending is not None
         assert "Queued without queued receipt linkage" in item.reason_pending
         assert "stale-grace reclaim" in item.reason_pending
+
+def test_receipt_only_evidence_is_not_hidden_by_other_event_outbox() -> None:
+    summary = build_retry_outbox_summary(
+        receipts=[
+            _receipt(
+                receipt_id="rcpt-event-b",
+                event_id="evt-b",
+                delivery_plan_id="shared-plan",
+                target_adapter="shared-adapter",
+                target_channel="shared-channel",
+                status="failed",
+                failure_kind="adapter_transient",
+            )
+        ],
+        outbox_items=[
+            _outbox(
+                outbox_id="obx-event-a",
+                event_id="evt-a",
+                delivery_plan_id="shared-plan",
+                target_adapter="shared-adapter",
+                target_channel="shared-channel",
+                status="retry_wait",
+            )
+        ],
+    )
+
+    assert {item.event_id for item in summary.items} == {"evt-a", "evt-b"}
+    assert summary.counts["failed"] == 1

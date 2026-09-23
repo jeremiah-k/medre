@@ -929,7 +929,7 @@ class TestStorageSectionOutboxItems:
         assert len(d["entries"]) >= 1
         # Check that the pending outbox item appears.
         found = any(
-            e.final_status == "pending" and e.outbox_id == "ob-test-1"
+            e.lifecycle_status == "pending" and e.outbox_id == "ob-test-1"
             for e in ledger.entries.values()
         )
         assert found, f"Expected pending outbox item in ledger, got {d}"

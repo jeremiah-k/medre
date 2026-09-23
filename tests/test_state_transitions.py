@@ -99,10 +99,18 @@ class TestReceiptStatusValues:
         status_args = typing.get_args(status_type)
         actual = set(status_args)
 
-        # The expected set as currently defined in canonical.py.
-        # The current closed receipt vocabulary is intentionally limited
-        # to these five statuses.
-        expected = {"queued", "sent", "failed", "dead_lettered", "suppressed"}
+        # The expected closed vocabulary as currently defined in canonical.py.
+        # Attempt evidence uses queued/sent/failed; lifecycle evidence adds
+        # dead_lettered/cancelled/abandoned/suppressed.
+        expected = {
+            "queued",
+            "sent",
+            "failed",
+            "dead_lettered",
+            "cancelled",
+            "abandoned",
+            "suppressed",
+        }
         assert actual == expected, (
             f"DeliveryReceipt.status Literal mismatch.\n"
             f"  Expected: {sorted(expected)}\n"
@@ -205,7 +213,7 @@ class TestReceiptAppendOnlyInvariant:
 
         # Verify originals are unchanged in storage.
         stored = await outbox_temp_storage.list_receipts_for_plan(
-            "plan-ao", "fake_presentation"
+            "plan-ao", "fake_presentation", event_id="__outbox_default__"
         )
         # Filter to just our original receipt_ids.
         stored_by_id = {r.receipt_id: r for r in stored}
@@ -249,17 +257,18 @@ class TestReceiptFailedToDeadLettered:
             target_adapter="fake_presentation",
             route_id="route-test",
             status="dead_lettered",
+            receipt_kind="lifecycle",
             error="Retry exhausted",
             failure_kind="adapter_permanent",
             created_at=datetime.now(timezone.utc),
-            attempt_number=2,
+            attempt_number=1,
             parent_receipt_id=failed_receipt.receipt_id,
         )
         await outbox_temp_storage.append_receipt(dead_lettered)
 
         # Verify the linkage.
         receipts = await outbox_temp_storage.list_receipts_for_plan(
-            "plan-dl", "fake_presentation"
+            "plan-dl", "fake_presentation", event_id="__outbox_default__"
         )
         by_id = {r.receipt_id: r for r in receipts}
 
@@ -268,7 +277,8 @@ class TestReceiptFailedToDeadLettered:
         dl = by_id["rcpt-dl-001"]
         assert dl.status == "dead_lettered"
         assert dl.parent_receipt_id == "rcpt-failed-001"
-        assert dl.attempt_number == 2
+        assert dl.attempt_number == 1
+        assert dl.receipt_kind == "lifecycle"
 
         # Verify the failed receipt is unchanged.
         f = by_id["rcpt-failed-001"]

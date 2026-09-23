@@ -452,15 +452,28 @@ class TestPipeline:
             # Failing adapter raised and did not append
             assert len(failing.received_events) == 0
 
-            # Both receipts stored: one sent, one failed
+            # Success has one attempt receipt. Terminal failure records the
+            # failed dispatch attempt plus its lifecycle dead-letter transition.
             rows = await temp_storage._read_all(
-                "SELECT * FROM delivery_receipts WHERE event_id = ?",
+                "SELECT * FROM delivery_receipts WHERE event_id = ? ORDER BY sequence",
                 ("err-001",),
             )
-            assert len(rows) == 2
-            by_status = {r["target_adapter"]: r["status"] for r in rows}
-            assert by_status["good"] == "sent"
-            assert by_status["failing"] == "failed"
+            assert len(rows) == 3
+            good_rows = [row for row in rows if row["target_adapter"] == "good"]
+            failing_rows = [
+                row for row in rows if row["target_adapter"] == "failing"
+            ]
+            assert [(row["status"], row["receipt_kind"]) for row in good_rows] == [
+                ("sent", "attempt")
+            ]
+            assert [
+                (row["status"], row["receipt_kind"], row["attempt_number"])
+                for row in failing_rows
+            ] == [
+                ("failed", "attempt", 1),
+                ("dead_lettered", "lifecycle", 1),
+            ]
+            assert failing_rows[1]["parent_receipt_id"] == failing_rows[0]["receipt_id"]
         finally:
             await runner.stop()
 
@@ -706,7 +719,7 @@ class TestReceiptLineageInPipeline:
             await runner.handle_ingress(event)
 
             await temp_storage.list_receipts_for_plan(
-                "attempt-route__target__0", "target"
+                "attempt-route__target__0", "target", event_id="attempt-001"
             )
             # May not match due to plan_id format; query all receipts.
             rows = await temp_storage._read_all(

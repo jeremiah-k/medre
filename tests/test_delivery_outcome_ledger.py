@@ -43,6 +43,7 @@ def _receipt(
     rendering_evidence: str | None = None,
     adapter_message_id: str | None = None,
     parent_receipt_id: str | None = None,
+    outbox_id: str | None = None,
     sequence: int = 0,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
@@ -63,6 +64,7 @@ def _receipt(
         rendering_evidence=rendering_evidence,
         adapter_message_id=adapter_message_id,
         parent_receipt_id=parent_receipt_id,
+        outbox_id=outbox_id,
         created_at=_TS,
     )
 
@@ -79,6 +81,8 @@ def _outbox(
     attempt_number: int = 1,
     failure_kind: str | None = None,
     error_summary: str | None = None,
+    receipt_id: str | None = None,
+    failure_kind_detail: str | None = None,
 ) -> DeliveryOutboxItem:
     return DeliveryOutboxItem(
         outbox_id=outbox_id,
@@ -90,7 +94,9 @@ def _outbox(
         attempt_number=attempt_number,
         status=status,
         failure_kind=failure_kind,
+        failure_kind_detail=failure_kind_detail,
         error_summary=error_summary,
+        receipt_id=receipt_id,
     )
 
 
@@ -135,12 +141,12 @@ class TestSingleSentReceipt:
     def test_final_status_sent(self) -> None:
         ledger = build_delivery_outcome_ledger(receipts=[_receipt(status="sent")])
         entry = next(iter(ledger.entries.values()))
-        assert entry.final_status == "sent"
+        assert entry.lifecycle_status == "sent"
 
     def test_attempt_number_is_one(self) -> None:
         ledger = build_delivery_outcome_ledger(receipts=[_receipt(status="sent")])
         entry = next(iter(ledger.entries.values()))
-        assert entry.attempt_number == 1
+        assert entry.latest_attempt_number == 1
 
     def test_retry_state_is_terminal(self) -> None:
         ledger = build_delivery_outcome_ledger(receipts=[_receipt(status="sent")])
@@ -181,7 +187,7 @@ class TestQueuedOutboxItem:
     def test_final_status_queued(self) -> None:
         ledger = build_delivery_outcome_ledger(outbox_items=[_outbox(status="queued")])
         entry = next(iter(ledger.entries.values()))
-        assert entry.final_status == "queued"
+        assert entry.lifecycle_status == "queued"
 
     def test_retry_state_active(self) -> None:
         ledger = build_delivery_outcome_ledger(outbox_items=[_outbox(status="queued")])
@@ -197,12 +203,12 @@ class TestQueuedOutboxItem:
 
 
 # ===================================================================
-# 4. Retry chain — highest attempt wins
+# 4. Retry chain — latest dispatch attempt is explicit
 # ===================================================================
 
 
 class TestRetryChainHighestAttempt:
-    """Multiple receipts for same target: highest attempt_number wins."""
+    """Attempt history reports the greatest dispatch generation explicitly."""
 
     def test_three_attempts_selects_third(self) -> None:
         ledger = build_delivery_outcome_ledger(
@@ -230,8 +236,8 @@ class TestRetryChainHighestAttempt:
         )
         assert len(ledger.entries) == 1
         entry = next(iter(ledger.entries.values()))
-        assert entry.attempt_number == 3
-        assert entry.final_status == "sent"
+        assert entry.latest_attempt_number == 3
+        assert entry.lifecycle_status == "sent"
 
     def test_all_receipt_ids_collected(self) -> None:
         ledger = build_delivery_outcome_ledger(
@@ -270,7 +276,7 @@ class TestSuppressedNotRetryable:
         )
         entry = next(iter(ledger.entries.values()))
         assert entry.retry_state == "terminal"
-        assert entry.final_status == "suppressed"
+        assert entry.lifecycle_status == "suppressed"
 
     def test_capability_suppressed_is_terminal(self) -> None:
         ledger = build_delivery_outcome_ledger(
@@ -309,7 +315,9 @@ class TestDeadLetteredRetryExhausted:
         assert entry.failure_taxon == "retry_exhausted"
         assert entry.failure_taxon_category == "derived_terminal"
         assert entry.retry_state == "terminal"
-        assert entry.attempt_number == 5
+        assert entry.latest_attempt_number is None
+        assert entry.lifecycle_status == "dead_lettered"
+        assert entry.authoritative_receipt_kind == "lifecycle"
 
     def test_dead_lettered_in_aggregate(self) -> None:
         ledger = build_delivery_outcome_ledger(
@@ -520,7 +528,7 @@ class TestJsonSafeOutput:
         reloaded = json.loads(raw)
         assert len(reloaded["entries"]) == 1
         entry = next(iter(reloaded["entries"].values()))
-        assert entry["final_status"] == "sent"
+        assert entry["lifecycle_status"] == "sent"
         assert entry["delivery_strategy"] == "direct"
 
     def test_ledger_with_datetime_field_is_json_safe(self) -> None:
@@ -566,7 +574,8 @@ class TestDeterministicKeys:
         for key in ledger.entries:
             parsed = json.loads(key)
             assert isinstance(parsed, dict)
-            assert "primary_id" in parsed
+            assert parsed["event_id"] == "ev-001"
+            assert parsed["delivery_plan_id"] == "dp-001"
 
 
 # ===================================================================
@@ -592,7 +601,7 @@ class TestDictInput:
         ledger = build_delivery_outcome_ledger(receipts=[receipt_dict])
         assert len(ledger.entries) == 1
         entry = next(iter(ledger.entries.values()))
-        assert entry.final_status == "sent"
+        assert entry.lifecycle_status == "sent"
         assert entry.delivery_plan_id == "dp-dict"
 
     def test_dict_outbox_item(self) -> None:
@@ -609,7 +618,7 @@ class TestDictInput:
         ledger = build_delivery_outcome_ledger(outbox_items=[outbox_dict])
         assert len(ledger.entries) == 1
         entry = next(iter(ledger.entries.values()))
-        assert entry.final_status == "pending"
+        assert entry.lifecycle_status == "pending"
         assert entry.outbox_id == "ob-dict-1"
 
 
@@ -688,11 +697,11 @@ class TestMixedReceiptsAndOutbox:
                 ),
             ],
         )
-        # Same composite key → one entry, highest attempt wins.
+        # Same event-scoped identity → one entry with separate lifecycle/attempt facts.
         assert len(ledger.entries) == 1
         entry = next(iter(ledger.entries.values()))
-        assert entry.attempt_number == 2
-        assert entry.final_status == "sent"
+        assert entry.latest_attempt_number == 2
+        assert entry.lifecycle_status == "sent"
 
     def test_receipt_and_outbox_different_targets(self) -> None:
         """Different targets produce separate entries."""
@@ -760,12 +769,12 @@ class TestFailedReceiptRetryable:
 
 
 # ===================================================================
-# 16. Grouping without delivery_plan_id falls back to event_id
+# 16. Identity remains event-scoped when delivery_plan_id is empty
 # ===================================================================
 
 
 class TestGroupingFallbackToEventId:
-    """When delivery_plan_id is empty, grouping falls back to event_id."""
+    """An empty plan ID never removes canonical event scope from identity."""
 
     def test_empty_plan_id_uses_event_id_in_key(self) -> None:
         ledger = build_delivery_outcome_ledger(
@@ -781,7 +790,8 @@ class TestGroupingFallbackToEventId:
         assert len(ledger.entries) == 1
         key = next(iter(ledger.entries.keys()))
         parsed = json.loads(key)
-        assert parsed["primary_id"] == "ev-fallback-1"
+        assert parsed["event_id"] == "ev-fallback-1"
+        assert parsed["delivery_plan_id"] == ""
 
 
 # ===================================================================
@@ -852,3 +862,130 @@ class TestMultipleTaxaInAggregate:
         )
         assert ledger.aggregate_counts["by_failure_taxon"]["adapter_transient"] == 1
         assert ledger.aggregate_counts["by_failure_taxon"]["retry_exhausted"] == 1
+
+# ===================================================================
+# 19. Event-scoped authority and explicit operator semantics
+# ===================================================================
+
+
+class TestEventScopedAuthority:
+    def test_route_and_source_are_provenance_not_identity(self) -> None:
+        ledger = build_delivery_outcome_ledger(
+            receipts=[
+                _receipt(
+                    receipt_id="r-live",
+                    route_id="route-old",
+                    source="live",
+                    sequence=1,
+                    status="failed",
+                    failure_kind="adapter_transient",
+                ),
+                _receipt(
+                    receipt_id="r-replay",
+                    route_id="route-new",
+                    source="replay",
+                    replay_run_id="run-1",
+                    sequence=2,
+                    status="sent",
+                ),
+            ]
+        )
+        assert len(ledger.entries) == 1
+        entry = next(iter(ledger.entries.values()))
+        assert entry.lifecycle_status == "sent"
+        assert entry.route_id == "route-new"
+        assert entry.source == "replay"
+        assert entry.replay_run_id == "run-1"
+
+    def test_same_plan_target_on_different_events_never_collides(self) -> None:
+        ledger = build_delivery_outcome_ledger(
+            receipts=[
+                _receipt(receipt_id="event-a", event_id="evt-a", status="sent"),
+                _receipt(receipt_id="event-b", event_id="evt-b", status="sent"),
+            ]
+        )
+        assert len(ledger.entries) == 2
+        assert {entry.event_id for entry in ledger.entries.values()} == {"evt-a", "evt-b"}
+
+    def test_uncommitted_outbox_receipt_is_history_not_authority(self) -> None:
+        ledger = build_delivery_outcome_ledger(
+            receipts=[
+                _receipt(
+                    receipt_id="committed",
+                    outbox_id="ob-authority",
+                    status="sent",
+                    sequence=1,
+                ),
+                _receipt(
+                    receipt_id="stale-late",
+                    outbox_id="ob-authority",
+                    status="failed",
+                    failure_kind="adapter_transient",
+                    sequence=2,
+                ),
+            ],
+            outbox_items=[
+                _outbox(
+                    outbox_id="ob-authority",
+                    status="sent",
+                    receipt_id="committed",
+                )
+            ],
+        )
+        entry = next(iter(ledger.entries.values()))
+        assert entry.lifecycle_status == "sent"
+        assert entry.authoritative_receipt_id == "committed"
+        assert entry.latest_attempt_status == "failed"
+        assert entry.receipt_ids == ["committed", "stale-late"]
+
+    def test_terminal_lifecycle_exposes_causative_attempt(self) -> None:
+        ledger = build_delivery_outcome_ledger(
+            receipts=[
+                _receipt(
+                    receipt_id="failed-attempt",
+                    outbox_id="ob-terminal",
+                    status="failed",
+                    attempt_number=3,
+                    sequence=1,
+                    failure_kind="adapter_permanent",
+                ),
+                _receipt(
+                    receipt_id="dead-letter",
+                    outbox_id="ob-terminal",
+                    status="dead_lettered",
+                    attempt_number=3,
+                    parent_receipt_id="failed-attempt",
+                    sequence=2,
+                    failure_kind="adapter_permanent",
+                ),
+            ],
+            outbox_items=[
+                _outbox(
+                    outbox_id="ob-terminal",
+                    status="dead_lettered",
+                    attempt_number=3,
+                    receipt_id="dead-letter",
+                    failure_kind="adapter_permanent",
+                )
+            ],
+        )
+        entry = next(iter(ledger.entries.values()))
+        assert entry.lifecycle_status == "dead_lettered"
+        assert entry.outbox_status == "dead_lettered"
+        assert entry.authoritative_receipt_id == "dead-letter"
+        assert entry.authoritative_receipt_kind == "lifecycle"
+        assert entry.causative_receipt_id == "failed-attempt"
+        assert entry.latest_attempt_status == "failed"
+        assert entry.latest_attempt_number == 3
+
+    def test_ambiguous_dispatch_is_explicit(self) -> None:
+        ledger = build_delivery_outcome_ledger(
+            outbox_items=[
+                _outbox(
+                    status="retry_wait",
+                    failure_kind="adapter_transient",
+                    failure_kind_detail="dispatch_outcome_unknown",
+                )
+            ]
+        )
+        assert next(iter(ledger.entries.values())).ambiguous_outcome is True
