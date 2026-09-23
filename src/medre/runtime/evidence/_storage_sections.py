@@ -257,9 +257,14 @@ async def _collect_storage_data_from_backend(
                 # Receipt source/replay_run_id are provenance on the selected
                 # receipt, not lineage partitions.  Outbox-backed delivery uses
                 # the outbox receipt_id as lifecycle authority; receipt-only
-                # delivery retains durable append order.
-                _target_groups: dict[str, list[dict[str, object]]] = {}
-                for rd in enriched_dicts:
+                # delivery retains durable append order.  The enriched report
+                # dicts do not carry ``outbox_id``, so each is paired with its
+                # raw receipt dict (same source list, same order) for the
+                # authority eligibility check.
+                _target_groups: dict[
+                    str, list[tuple[dict[str, object], dict[str, object]]]
+                ] = {}
+                for raw_rd, rd in zip(receipt_dicts, enriched_dicts, strict=False):
                     comp = _json.dumps(
                         {
                             "delivery_plan_id": rd.get("delivery_plan_id"),
@@ -269,7 +274,7 @@ async def _collect_storage_data_from_backend(
                         },
                         sort_keys=True,
                     )
-                    _target_groups.setdefault(comp, []).append(rd)
+                    _target_groups.setdefault(comp, []).append((raw_rd, rd))
 
                 _committed_receipt_ids: dict[str, set[str]] = {}
                 for item in outbox_items:
@@ -294,10 +299,10 @@ async def _collect_storage_data_from_backend(
                         group
                         if committed_ids is None
                         else [
-                            rd
-                            for rd in group
-                            if not rd.get("outbox_id")
-                            or str(rd.get("receipt_id") or "") in committed_ids
+                            pair
+                            for pair in group
+                            if not pair[0].get("outbox_id")
+                            or str(pair[0].get("receipt_id") or "") in committed_ids
                         ]
                     )
                     if not eligible:
@@ -307,12 +312,12 @@ async def _collect_storage_data_from_backend(
                     # synthetic inputs whose sequence is absent or zero.
                     best = max(
                         eligible,
-                        key=lambda rd: (
-                            int(rd.get("sequence") or 0),
-                            str(rd.get("created_at") or ""),
-                            str(rd.get("receipt_id") or ""),
+                        key=lambda pair: (
+                            int(pair[1].get("sequence") or 0),
+                            str(pair[1].get("created_at") or ""),
+                            str(pair[1].get("receipt_id") or ""),
                         ),
-                    )
+                    )[1]
                     delivery_state_by_target[target_key] = {
                         "target_adapter": best.get("target_adapter"),
                         "target_channel": best.get("target_channel"),

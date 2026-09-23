@@ -221,6 +221,7 @@ class DeliveryLifecycleStorage(Protocol):
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
         expected_worker_id: str | None = None,
     ) -> bool: ...
 
