@@ -1200,6 +1200,7 @@ async def test_retry_worker_does_not_report_superseded_success_transition(
     lifecycle.finalize_retry_success = AsyncMock(
         side_effect=RetryAttemptCommitRejected("claim moved to a newer worker")
     )
+    lifecycle.reconcile_retry_success_commit_rejection = AsyncMock(return_value=None)
     monkeypatch.setattr(
         retry_module,
         "reconstruct_retry_delivery_plan",

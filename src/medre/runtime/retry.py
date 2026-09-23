@@ -421,7 +421,12 @@ class RetryWorker:
             )
             return
 
-        if finalization.outcome in {"retry_wait", "suppressed"}:
+        if finalization.outcome in {
+            "retry_wait",
+            "suppressed",
+            "cancelled",
+            "abandoned",
+        }:
             self.state.failed += 1
             self._emit(
                 "retry_failed",
@@ -1276,7 +1281,35 @@ class RetryWorker:
                     error_summary=result_receipt.error,
                 )
             except RetryAttemptCommitRejected as stale:
-                self._log_superseded_transition(item, stale)
+                try:
+                    reconciled = (
+                        await self._lifecycle.reconcile_retry_success_commit_rejection(
+                            self._lifecycle_storage,
+                            item,
+                            result_receipt,
+                        )
+                    )
+                except Exception as lifecycle_exc:
+                    _logger.exception(
+                        "RetryWorker: failed to reconcile rejected success "
+                        "transition for outbox %s",
+                        item.outbox_id,
+                    )
+                    self._record_lifecycle_persistence_error(
+                        item,
+                        lifecycle_exc,
+                        attempt_number=result_receipt.attempt_number,
+                    )
+                else:
+                    if reconciled is None:
+                        self._log_superseded_transition(item, stale)
+                    else:
+                        self._record_retry_finalization(
+                            item,
+                            reconciled,
+                            error_summary=result_receipt.error,
+                            reconciled=True,
+                        )
             except Exception as lifecycle_exc:
                 _logger.exception(
                     "RetryWorker: failed to update outbox %s after successful delivery",

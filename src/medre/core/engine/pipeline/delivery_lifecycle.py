@@ -237,7 +237,14 @@ class RetryAttemptFinalization:
     attempt's evidence and committed the corresponding outbox transition.
     """
 
-    outcome: Literal["accepted", "suppressed", "retry_wait", "dead_lettered"]
+    outcome: Literal[
+        "accepted",
+        "suppressed",
+        "retry_wait",
+        "dead_lettered",
+        "cancelled",
+        "abandoned",
+    ]
     receipt_id: str | None
     failure_kind: str | None
     attempt_number: int
@@ -1756,6 +1763,65 @@ class DeliveryLifecycleService:
             f"receipt; got {receipt.status!r}"
         )
 
+    async def reconcile_retry_success_commit_rejection(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        receipt: DeliveryReceipt,
+    ) -> RetryAttemptFinalization | None:
+        """Resolve a same-attempt outcome that beat retry success finalization.
+
+        Queue-backed adapters can emit a terminal callback immediately after
+        returning a ``queued`` receipt.  That callback may consume the live
+        reservation and clear worker ownership before ``RetryWorker`` commits
+        its own queued transition.  A rejected CAS is therefore not always a
+        stale worker: when the authoritative row is already terminal at the
+        exact same attempt, runtime observability must project that committed
+        outcome instead of reporting a superseded transition.
+
+        Returns ``None`` when the rejection is genuinely stale or ambiguous.
+        The worker must not infer durable state on its own.
+        """
+        if receipt.status not in {"queued", "sent"}:
+            return None
+        current = await storage.get_outbox_item(item.outbox_id)
+        if current is None:
+            return None
+        if current.attempt_number != receipt.attempt_number:
+            return None
+        if current.active_attempt is not None:
+            return None
+
+        if current.status == "sent":
+            return RetryAttemptFinalization(
+                outcome="accepted",
+                receipt_id=current.receipt_id or receipt.receipt_id,
+                failure_kind=None,
+                attempt_number=receipt.attempt_number,
+            )
+        if current.status == "dead_lettered":
+            return RetryAttemptFinalization(
+                outcome="dead_lettered",
+                receipt_id=current.receipt_id,
+                failure_kind=current.failure_kind,
+                attempt_number=receipt.attempt_number,
+            )
+        if current.status == "cancelled":
+            return RetryAttemptFinalization(
+                outcome="cancelled",
+                receipt_id=current.receipt_id,
+                failure_kind=current.failure_kind,
+                attempt_number=receipt.attempt_number,
+            )
+        if current.status == "abandoned":
+            return RetryAttemptFinalization(
+                outcome="abandoned",
+                receipt_id=current.receipt_id,
+                failure_kind=current.failure_kind,
+                attempt_number=receipt.attempt_number,
+            )
+        return None
+
     # -- Outbox finalization ------------------------------------------------
 
     async def finalize_outbox_outcome(
@@ -1767,6 +1833,7 @@ class DeliveryLifecycleService:
         failure_kind_val: DeliveryFailureKind | None,
         error: str | None,
         retry_policy: RetryPolicy | None,
+        expected_worker_id: str | None = None,
     ) -> None:
         """Update the outbox item status based on the delivery outcome.
 
@@ -1789,6 +1856,11 @@ class DeliveryLifecycleService:
             Human-readable error description, if applicable.
         retry_policy:
             The retry policy governing backoff, if any.
+        expected_worker_id:
+            Optional outbox claim owner that must still own the row when the
+            transition commits. Live pipeline deliveries pass their pipeline
+            worker identity so an expired delivery cannot overwrite a retry
+            worker that reclaimed the row.
         """
         if outbox_id is None or not outbox_created:
             return
@@ -1799,11 +1871,13 @@ class DeliveryLifecycleService:
                     await storage.mark_outbox_queued(
                         outbox_id,
                         receipt_id=receipt.receipt_id,
+                        expected_worker_id=expected_worker_id,
                     )
                 else:
                     await storage.mark_outbox_sent(
                         outbox_id,
                         receipt_id=receipt.receipt_id,
+                        expected_worker_id=expected_worker_id,
                     )
             elif failure_kind_val is not None:
                 receipt_ref_id: str | None = (
@@ -1825,6 +1899,7 @@ class DeliveryLifecycleService:
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
+                            expected_worker_id=expected_worker_id,
                         )
                     elif receipt is not None and receipt.next_retry_at is None:
                         # Receipt exists but next_retry_at is None despite
@@ -1837,6 +1912,7 @@ class DeliveryLifecycleService:
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
+                            expected_worker_id=expected_worker_id,
                         )
                     elif receipt is not None and receipt.next_retry_at is not None:
                         # Receipt has a persisted next_retry_at - reuse it
@@ -1848,6 +1924,7 @@ class DeliveryLifecycleService:
                             receipt_id=receipt_ref_id,
                             failure_kind=failure_kind_val.value,
                             error_summary=error_summary,
+                            expected_worker_id=expected_worker_id,
                         )
                     else:
                         # No persisted receipt.  Derive attempt number from
@@ -1861,6 +1938,7 @@ class DeliveryLifecycleService:
                                 receipt_id=receipt_ref_id,
                                 failure_kind=failure_kind_val.value,
                                 error_summary=error_summary,
+                                expected_worker_id=expected_worker_id,
                             )
                         else:
                             backoff_duration = executor.compute_backoff(retry_attempt)
@@ -1873,6 +1951,7 @@ class DeliveryLifecycleService:
                                 receipt_id=receipt_ref_id,
                                 failure_kind=failure_kind_val.value,
                                 error_summary=error_summary,
+                                expected_worker_id=expected_worker_id,
                             )
                 else:
                     await storage.mark_outbox_dead_lettered(
@@ -1880,6 +1959,7 @@ class DeliveryLifecycleService:
                         receipt_id=receipt_ref_id,
                         failure_kind=failure_kind_val.value,
                         error_summary=error_summary,
+                        expected_worker_id=expected_worker_id,
                     )
         except Exception:
             self._log.exception(

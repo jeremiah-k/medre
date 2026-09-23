@@ -313,6 +313,7 @@ class OutboxManager:
             failure_kind_val=failure_kind_val,
             error=error,
             retry_policy=retry_policy,
+            expected_worker_id=ctx.pipeline_worker or None,
         )
 
     # -- Terminal outcome recording --
