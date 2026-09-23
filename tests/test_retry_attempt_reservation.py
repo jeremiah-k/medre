@@ -234,8 +234,7 @@ async def test_reservation_requires_in_progress_row(temp_storage) -> None:
     )
     await temp_storage.create_outbox_item(pending)
     assert (
-        await temp_storage.reserve_outbox_attempt(pending.outbox_id, _WORKER, 1)
-        is None
+        await temp_storage.reserve_outbox_attempt(pending.outbox_id, _WORKER, 1) is None
     )
 
 
@@ -792,9 +791,7 @@ async def test_reconcile_dead_letters_exhausted_ambiguous_reservation(
 
     reclaimed = [
         row
-        for row in await _claim_due(
-            temp_storage, worker_id="retry-worker-exhausted"
-        )
+        for row in await _claim_due(temp_storage, worker_id="retry-worker-exhausted")
         if row.outbox_id == item.outbox_id
     ]
     assert reclaimed

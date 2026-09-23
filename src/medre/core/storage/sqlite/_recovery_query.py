@@ -65,7 +65,9 @@ NOT EXISTS (
       AND newer.sequence > dr.sequence
       AND {newer_authoritative}
 )
-""".format(newer_authoritative=_AUTHORITATIVE_RECEIPT.format(alias="newer"))
+""".format(  # nosec B608 - interpolates only the module-local fragment above; values stay bound parameters
+    newer_authoritative=_AUTHORITATIVE_RECEIPT.format(alias="newer")
+)
 
 
 def _select_unresolved_deliveries(*, since_scoped: bool) -> str:

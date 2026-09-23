@@ -142,7 +142,9 @@ async def test_lifecycle_reconciles_same_attempt_error_terminal_after_queued_cas
     )
 
 
-async def test_lifecycle_does_not_reconcile_terminal_without_committed_receipt() -> None:
+async def test_lifecycle_does_not_reconcile_terminal_without_committed_receipt() -> (
+    None
+):
     lifecycle = DeliveryLifecycleService()
     storage = MagicMock()
     storage.get_outbox_item = AsyncMock(

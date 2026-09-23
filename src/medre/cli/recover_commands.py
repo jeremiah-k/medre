@@ -131,9 +131,9 @@ async def _build_event_recovery_runbook(
             target_adapter,
             target_channel or None,
         )
-        is_current_failure = (
-            current is not None
-            and current.status in ("failed", "dead_lettered")
+        is_current_failure = current is not None and current.status in (
+            "failed",
+            "dead_lettered",
         )
 
         # Historical failures are immutable receipts that are no longer the

@@ -254,7 +254,7 @@ def build_convergence_summary(
     for key in all_keys:
         plan_id, adapter, channel = key
         obx = outbox_by_key.get(key)
-        recs = receipts_by_key.get(key, [])
+        receipts_by_key.get(key, [])
 
         outbox_status = _get(obx, "status") if obx else None
         outbox_id = _get(obx, "outbox_id") if obx else None

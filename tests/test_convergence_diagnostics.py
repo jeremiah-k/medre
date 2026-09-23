@@ -486,7 +486,9 @@ class TestOutboxReceiptAuthority:
         assert target.latest_receipt_status == "sent"
         assert target.severity == "safe"
 
-    def test_all_outbox_generations_contribute_committed_receipt_authority(self) -> None:
+    def test_all_outbox_generations_contribute_committed_receipt_authority(
+        self,
+    ) -> None:
         summary = build_convergence_summary(
             receipts=[
                 _receipt(
@@ -517,7 +519,9 @@ class TestOutboxReceiptAuthority:
         assert target.latest_receipt_id == "r-live-current"
         assert target.latest_receipt_status == "sent"
 
-    def test_outboxless_later_receipt_can_supersede_committed_outbox_receipt(self) -> None:
+    def test_outboxless_later_receipt_can_supersede_committed_outbox_receipt(
+        self,
+    ) -> None:
         summary = build_convergence_summary(
             receipts=[
                 _receipt(

@@ -182,6 +182,7 @@ def _pick_latest_receipt(receipts: list[Any]) -> Any | None:
         return None
     return min(receipts, key=_receipt_sort_key)
 
+
 def _build_committed_receipt_ids_by_key(
     outbox_items: list[Any],
 ) -> dict[_TargetKey, set[str]]:

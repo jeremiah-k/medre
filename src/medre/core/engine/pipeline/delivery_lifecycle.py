@@ -1633,9 +1633,9 @@ class DeliveryLifecycleService:
                     attempt_number=attempt_number,
                 )
 
-            next_attempt_at = (now or datetime.now(timezone.utc)) + executor.compute_backoff(
-                attempt_number
-            )
+            next_attempt_at = (
+                now or datetime.now(timezone.utc)
+            ) + executor.compute_backoff(attempt_number)
             committed = await storage.mark_outbox_retry_wait(
                 item.outbox_id,
                 next_attempt_at=next_attempt_at.isoformat(),

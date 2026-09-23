@@ -787,13 +787,13 @@ State mismatch that cannot be explained by normal flow. Investigate the specific
 
 The convergence system also detects orphaned and invalid-lineage records when supplied with an event catalogue:
 
-| Finding kind                       | What it means                                               | What to do                                                                                      |
-| ---------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `orphaned_outbox`                  | Outbox item references an event that no longer exists.      | Cancel or abandon the orphaned outbox row if the event was intentionally deleted.               |
-| `orphaned_parent_receipt`          | Receipt references a parent receipt that does not exist.    | Check for data loss. The receipt lineage is broken.                                             |
-| `cross_plan_parent`                | Receipt's parent belongs to a different delivery plan.      | Retry lineage crossed plan boundaries. Investigate the delivery chain.                          |
-| `cross_event_parent`               | Receipt's parent belongs to a different event.              | Retry lineage crossed event boundaries. Investigate the delivery chain.                         |
-| `missing_delivery_plan_id`         | Retry receipt has no delivery plan ID.                      | The retry may resolve on its own. Check the original delivery.                                  |
+| Finding kind                       | What it means                                                | What to do                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `orphaned_outbox`                  | Outbox item references an event that no longer exists.       | Cancel or abandon the orphaned outbox row if the event was intentionally deleted.               |
+| `orphaned_parent_receipt`          | Receipt references a parent receipt that does not exist.     | Check for data loss. The receipt lineage is broken.                                             |
+| `cross_plan_parent`                | Receipt's parent belongs to a different delivery plan.       | Retry lineage crossed plan boundaries. Investigate the delivery chain.                          |
+| `cross_event_parent`               | Receipt's parent belongs to a different event.               | Retry lineage crossed event boundaries. Investigate the delivery chain.                         |
+| `missing_delivery_plan_id`         | Retry receipt has no delivery plan ID.                       | The retry may resolve on its own. Check the original delivery.                                  |
 | `dead_lettered_retryable_mismatch` | Outbox is dead-lettered but current receipt is non-terminal. | The item might still be retryable. Consider replay if the underlying failure cause is resolved. |
 
 All findings are detection-only. No automatic repair occurs.
@@ -817,17 +817,17 @@ The lifecycle convergence report has three fields to check first:
 All findings are detection-only; the closed `kind` enum is normative in
 [spec/diagnostics-evidence.md](../spec/diagnostics-evidence.md) §23.
 
-| Kind                                  | Severity     | Meaning and action                                                                                           |
-| ------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------ |
-| `terminal_receipt_nonterminal_outbox` | degraded     | Receipt finished, outbox still non-terminal. Usually a timing artifact; persistent cases = stale outbox row. |
+| Kind                                  | Severity     | Meaning and action                                                                                            |
+| ------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------- |
+| `terminal_receipt_nonterminal_outbox` | degraded     | Receipt finished, outbox still non-terminal. Usually a timing artifact; persistent cases = stale outbox row.  |
 | `terminal_outbox_nonterminal_receipt` | inconsistent | Outbox terminal but current receipt non-terminal. Delivery likely completed; receipt chain may be incomplete. |
-| `retry_wait_missing_next_retry`       | inconsistent | `retry_wait` without valid `next_attempt_at`. Scheduler cannot retry; replay or correct the value.           |
-| `receipt_outbox_mismatch`             | degraded     | Statuses contradict normal flow beyond a terminal/non-terminal mismatch. Check for in-progress transition.   |
-| `next_retry_in_past`                  | degraded     | `next_attempt_at` overdue. RetryWorker behind or bad timestamp; check the worker is processing.              |
-| `retryable_without_retry_metadata`    | degraded     | Retryable receipt missing scheduling fields. If retry is enabled it may never be picked up; replay.          |
-| `stalled_delivery_plan`               | degraded     | Non-terminal outbox untouched past the stall threshold (default 1 h). Check claiming worker health.          |
-| `attempt_count_regression`            | inconsistent | Later receipt has a lower attempt number. Audit the receipt chain for the delivery target.                   |
-| `receipt_sequence_gap`                | degraded     | Receipt sequence numbers skip. Possible lost receipts or concurrent attempts.                                |
+| `retry_wait_missing_next_retry`       | inconsistent | `retry_wait` without valid `next_attempt_at`. Scheduler cannot retry; replay or correct the value.            |
+| `receipt_outbox_mismatch`             | degraded     | Statuses contradict normal flow beyond a terminal/non-terminal mismatch. Check for in-progress transition.    |
+| `next_retry_in_past`                  | degraded     | `next_attempt_at` overdue. RetryWorker behind or bad timestamp; check the worker is processing.               |
+| `retryable_without_retry_metadata`    | degraded     | Retryable receipt missing scheduling fields. If retry is enabled it may never be picked up; replay.           |
+| `stalled_delivery_plan`               | degraded     | Non-terminal outbox untouched past the stall threshold (default 1 h). Check claiming worker health.           |
+| `attempt_count_regression`            | inconsistent | Later receipt has a lower attempt number. Audit the receipt chain for the delivery target.                    |
+| `receipt_sequence_gap`                | degraded     | Receipt sequence numbers skip. Possible lost receipts or concurrent attempts.                                 |
 
 Shared drill-down for any finding on a specific target:
 
@@ -858,7 +858,7 @@ The evidence bundle exposes three distinct convergence/diagnostic surfaces. Each
 
 | Surface                        | Answers                                                                     | Scope                                                                                                                           |
 | ------------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `convergence_summary`          | "Is this target healthy overall?"                                           | Per-target classification (safe / degraded / inconsistent) with `outbox_status` and current receipt status.                      |
+| `convergence_summary`          | "Is this target healthy overall?"                                           | Per-target classification (safe / degraded / inconsistent) with `outbox_status` and current receipt status.                     |
 | `orphan_report`                | "Are there broken lineages or recovery anomalies?"                          | Orphaned records, invalid parent chains, and four recovery-convergence finding kinds.                                           |
 | `lifecycle_convergence_report` | "What specific lifecycle contradictions exist between outbox and receipts?" | Nine specific finding kinds covering status mismatches, retry anomalies, stalled plans, sequence gaps, and attempt regressions. |
 
@@ -927,9 +927,9 @@ Four finding kinds extend the convergence diagnostics for recovery-specific anom
 
 | Finding Kind               | Severity       | What it means                                                                                  |
 | -------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
-| `recovered_not_progressed` | `degraded`     | Outbox was recovered but the current receipt hasn't progressed since the previous shutdown.         |
+| `recovered_not_progressed` | `degraded`     | Outbox was recovered but the current receipt hasn't progressed since the previous shutdown.    |
 | `repeatedly_reclaimed`     | `degraded`     | Same outbox item appears in multiple recovery ledgers with different `recovery_run_id` values. |
-| `reclaimed_then_terminal`  | `inconsistent` | Outbox is terminal but current receipt is non-terminal.                                         |
+| `reclaimed_then_terminal`  | `inconsistent` | Outbox is terminal but current receipt is non-terminal.                                        |
 | `reclaimed_then_orphaned`  | `inconsistent` | Outbox was recovered but its `event_id` is absent from the known event catalogue.              |
 
 ## See Also

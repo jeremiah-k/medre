@@ -1187,18 +1187,18 @@ Operators use convergence diagnostics output to identify and manually address st
 
 **`DeliveryTargetConvergence`**: Per-target convergence result.
 
-| Field                   | Type            | Semantics                                        |
-| ----------------------- | --------------- | ------------------------------------------------ |
-| `delivery_plan_id`      | `str`           | Grouping key. Empty string when absent.          |
-| `target_adapter`        | `str`           | Adapter name.                                    |
-| `target_channel`        | `str or None`   | Channel identifier.                              |
-| `outbox_status`         | `str or None`   | Outbox item status, or `None` if no outbox item. |
+| Field                   | Type            | Semantics                                                                              |
+| ----------------------- | --------------- | -------------------------------------------------------------------------------------- |
+| `delivery_plan_id`      | `str`           | Grouping key. Empty string when absent.                                                |
+| `target_adapter`        | `str`           | Adapter name.                                                                          |
+| `target_channel`        | `str or None`   | Channel identifier.                                                                    |
+| `outbox_status`         | `str or None`   | Outbox item status, or `None` if no outbox item.                                       |
 | `latest_receipt_status` | `str or None`   | Current lifecycle-authoritative receipt status; field name retained for compatibility. |
 | `latest_receipt_id`     | `str or None`   | Current lifecycle-authoritative receipt ID; field name retained for compatibility.     |
-| `latest_attempt_number` | `int or None`   | Attempt number of the current lifecycle-authoritative receipt.                          |
-| `severity`              | `str`           | One of `safe`, `degraded`, `inconsistent`.       |
-| `warnings`              | `tuple[str, …]` | Per-target diagnostic messages.                  |
-| `outbox_id`             | `str or None`   | Outbox item ID.                                  |
+| `latest_attempt_number` | `int or None`   | Attempt number of the current lifecycle-authoritative receipt.                         |
+| `severity`              | `str`           | One of `safe`, `degraded`, `inconsistent`.                                             |
+| `warnings`              | `tuple[str, …]` | Per-target diagnostic messages.                                                        |
+| `outbox_id`             | `str or None`   | Outbox item ID.                                                                        |
 
 ### 21.7 Per-Event Convergence in Evidence Bundles
 
@@ -1210,13 +1210,13 @@ The `build_orphan_report()` function detects orphaned and invalid-lineage record
 
 **Finding kinds:**
 
-| Kind                               | Severity       | Record type | Condition                                                                                                                            |
-| ---------------------------------- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `orphaned_outbox`                  | `inconsistent` | outbox      | Non-terminal outbox item whose `event_id` is absent from supplied `known_event_ids`.                                                 |
-| `orphaned_parent_receipt`          | `inconsistent` | receipt     | Receipt with `parent_receipt_id` that does not exist in the receipt set.                                                             |
-| `cross_plan_parent`                | `inconsistent` | receipt     | Receipt whose parent belongs to a different `delivery_plan_id`.                                                                      |
-| `cross_event_parent`               | `inconsistent` | receipt     | Receipt whose parent belongs to a different `event_id`.                                                                              |
-| `missing_delivery_plan_id`         | `degraded`     | receipt     | Retry-source receipt (`source="retry"`) with empty or `None` `delivery_plan_id`.                                                     |
+| Kind                               | Severity       | Record type | Condition                                                                                                                             |
+| ---------------------------------- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `orphaned_outbox`                  | `inconsistent` | outbox      | Non-terminal outbox item whose `event_id` is absent from supplied `known_event_ids`.                                                  |
+| `orphaned_parent_receipt`          | `inconsistent` | receipt     | Receipt with `parent_receipt_id` that does not exist in the receipt set.                                                              |
+| `cross_plan_parent`                | `inconsistent` | receipt     | Receipt whose parent belongs to a different `delivery_plan_id`.                                                                       |
+| `cross_event_parent`               | `inconsistent` | receipt     | Receipt whose parent belongs to a different `event_id`.                                                                               |
+| `missing_delivery_plan_id`         | `degraded`     | receipt     | Retry-source receipt (`source="retry"`) with empty or `None` `delivery_plan_id`.                                                      |
 | `dead_lettered_retryable_mismatch` | `degraded`     | outbox      | `dead_lettered` outbox item whose current receipt is non-terminal (`failed` or `queued`), suggesting the item may still be retryable. |
 
 Findings are sorted deterministically by `(kind, record_id)`.
@@ -1346,9 +1346,9 @@ Four recovery-specific finding kinds extend the convergence diagnostics system. 
 
 | Finding Kind               | Severity       | Condition                                                                                      |
 | -------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
-| `recovered_not_progressed` | `degraded`     | Outbox item was recovered but current receipt hasn't progressed since the previous shutdown.    |
+| `recovered_not_progressed` | `degraded`     | Outbox item was recovered but current receipt hasn't progressed since the previous shutdown.   |
 | `repeatedly_reclaimed`     | `degraded`     | Same outbox item appears in multiple recovery ledgers with different `recovery_run_id` values. |
-| `reclaimed_then_terminal`  | `inconsistent` | Outbox item is terminal but current receipt is non-terminal.                                    |
+| `reclaimed_then_terminal`  | `inconsistent` | Outbox item is terminal but current receipt is non-terminal.                                   |
 | `reclaimed_then_orphaned`  | `inconsistent` | Outbox item was recovered but its `event_id` is absent from the known event catalogue.         |
 
 ### 22.9 Normative Requirements
@@ -1408,8 +1408,8 @@ A conforming implementation detects exactly nine lifecycle finding kinds. No oth
 | Kind                                  | Severity       | Record type | Condition                                                                                                                                        |
 | ------------------------------------- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `receipt_outbox_mismatch`             | `degraded`     | outbox      | Both receipt and outbox present for a target but their statuses contradict normal flow without being a terminal/non-terminal mismatch (§23.5.C). |
-| `terminal_receipt_nonterminal_outbox` | `degraded`     | outbox      | Current receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox for the same target is still non-terminal.                     |
-| `terminal_outbox_nonterminal_receipt` | `inconsistent` | outbox      | Outbox has reached a terminal status but the current receipt for the same target is still non-terminal.                                           |
+| `terminal_receipt_nonterminal_outbox` | `degraded`     | outbox      | Current receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox for the same target is still non-terminal.                    |
+| `terminal_outbox_nonterminal_receipt` | `inconsistent` | outbox      | Outbox has reached a terminal status but the current receipt for the same target is still non-terminal.                                          |
 | `retry_wait_missing_next_retry`       | `inconsistent` | outbox      | Outbox is in `retry_wait` state with missing, empty, or unparsable `next_attempt_at` timestamp.                                                  |
 | `next_retry_in_past`                  | `degraded`     | outbox      | Outbox is in `retry_wait` state but `next_attempt_at` is in the past relative to the current time.                                               |
 | `retryable_without_retry_metadata`    | `degraded`     | receipt     | Receipt is `failed` and appears retryable (transient failure or matching non-terminal outbox) but is missing retry scheduling metadata.          |
