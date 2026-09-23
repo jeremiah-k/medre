@@ -455,7 +455,9 @@ async def test_pipeline_worker_fence_rejects_late_finalization_after_reclaim(
         limit=10,
     )
     assert [row.outbox_id for row in claimed] == [item.outbox_id]
-    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, "retry-new", 1) == 2
+    assert (
+        await temp_storage.reserve_outbox_attempt(item.outbox_id, "retry-new", 1) == 2
+    )
 
     await lifecycle.finalize_outbox_outcome(
         temp_storage,

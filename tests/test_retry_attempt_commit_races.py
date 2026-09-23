@@ -14,7 +14,9 @@ from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.retry import RetryWorker
 
 
-def _item(*, status: str = "in_progress", attempt_number: int = 1) -> DeliveryOutboxItem:
+def _item(
+    *, status: str = "in_progress", attempt_number: int = 1
+) -> DeliveryOutboxItem:
     return DeliveryOutboxItem(
         outbox_id="obox-race",
         event_id="evt-race",
@@ -71,7 +73,9 @@ async def test_lifecycle_reconciles_same_attempt_sent_after_queued_cas_loss() ->
     )
 
 
-async def test_lifecycle_reconciles_same_attempt_error_terminal_after_queued_cas_loss() -> None:
+async def test_lifecycle_reconciles_same_attempt_error_terminal_after_queued_cas_loss() -> (
+    None
+):
     lifecycle = DeliveryLifecycleService()
     storage = MagicMock()
     storage.get_outbox_item = AsyncMock(
