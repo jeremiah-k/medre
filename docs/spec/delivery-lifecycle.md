@@ -226,22 +226,24 @@ attempt.
   and still derives from the previous receipt.
 
 Claim reconciliation uses the reservation as the discriminator for crash
-recovery: a claimed row with a live reservation and persisted receipt
-evidence for that attempt commits the missing outbox transition (the
-transport is not invoked again); a reservation without evidence means the
-dispatch never produced durable state — the worker renews its lease while it
-is alive, so an evidence-less reservation on a reclaimed row implies worker
-death or a storage outage, not a dispatch still inside the transport — so
-the reservation is released and the re-dispatch reserves the same number
-again.
+recovery: a claimed row with a live reservation and persisted receipt evidence
+for that attempt commits the missing outbox transition (the transport is not
+invoked again). A reservation without receipt evidence is ambiguous: the prior
+process may have died before transport invocation, or the transport may have
+accepted the send while receipt persistence was lost. Recovery therefore
+**consumes** the reserved identity as an `adapter_transient` failed attempt and
+moves the row to `retry_wait`, or `dead_lettered` when the retry budget is
+exhausted. A later dispatch reserves a strictly newer number. Reserved attempt
+identities are never reused.
 
 A queue terminal callback can win a narrow race after a retry dispatch returns
 a `queued` receipt but before the retry worker commits its own queued outbox
 transition. If that CAS is rejected, lifecycle MAY re-read the authoritative
 outbox row and project an already-committed outcome only when the row is
-terminal at the exact same attempt number with no live reservation. A different
-attempt or a still-reserved row remains superseded and MUST NOT be reclassified
-by runtime code.
+terminal at the exact same attempt number with no live reservation. This is
+unambiguous because reserved attempt identities are never reused for another
+dispatch. A different attempt or a still-reserved row remains superseded and
+MUST NOT be reclassified by runtime code.
 
 ### 3.5 Stale Callback Protection
 
@@ -289,11 +291,17 @@ pipeline decides lifecycle transitions.
 
 Every delivery attempt produces a new `DeliveryReceipt` row. Existing receipt
 rows MUST NOT be updated or deleted after creation. The `DeliveryReceipt`
-dataclass is `frozen=True`. Current delivery status is derived by reading the
-latest receipt for a delivery chain, not by mutation.
+dataclass is `frozen=True`. Append order is historical evidence, not sufficient
+current-state authority for outbox-backed delivery: the receipt becomes current
+only when its guarded outbox transition commits and the outbox row points to its
+`receipt_id`. A receipt appended by a stale worker after losing that transition
+remains historical evidence. Outbox-less delivery continues to use latest
+append order.
 
-Receipts are the authoritative evidence trail for audit, diagnostics, and
-operator inspection. See [state-machines.md](state-machines.md) §1.4.
+Receipts remain the authoritative immutable evidence trail for audit,
+diagnostics, and operator inspection; the outbox pointer selects which receipt
+is the current lifecycle projection. See [state-machines.md](state-machines.md)
+§1.4.
 
 ### 4.2 Outbox Is Mutable Operational State
 

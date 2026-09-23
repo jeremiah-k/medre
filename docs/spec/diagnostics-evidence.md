@@ -677,10 +677,12 @@ Resolution order:
 ### 14.8.2 delivery_state_by_target Enrichment
 
 The incident summary's `delivery_state_by_target` dict groups receipts by
-composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and
-selects the latest receipt by durable append `sequence`. `source` and
-`replay_run_id` are provenance on that latest receipt, not grouping dimensions,
-so an executed replay or retry can supersede the same live delivery lineage.
+composite key `(delivery_plan_id, route_id, target_adapter, target_channel)`.
+For outbox-backed delivery it selects the receipt named by the authoritative
+outbox `receipt_id`; a rejected late append remains history. Receipt-only
+delivery uses durable append `sequence`. `source` and `replay_run_id` are
+provenance on the selected receipt, not grouping dimensions, so a committed
+executed replay or retry can supersede the same live delivery lineage.
 Each target entry includes the capability-evidence fields from § 14.8.1, plus
 `source`, `replay_run_id`, `suppression_reason`, and `error`. This gives
 operators a per-target view of current capability suppression without joining
@@ -883,8 +885,9 @@ is derived at report time from existing receipt fields:
 ### 17.3 delivery_state_by_target Enrichment
 
 The incident summary's `delivery_state_by_target` dict groups receipts by
-composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` and
-selects the latest receipt by durable append `sequence`. `source` and
+composite key `(delivery_plan_id, route_id, target_adapter, target_channel)`.
+Outbox-backed delivery selects the receipt named by the outbox `receipt_id`;
+receipt-only delivery selects the latest durable append. `source` and
 `replay_run_id` describe the selected receipt; they do not partition the
 delivery lineage. Each target entry includes:
 
@@ -904,9 +907,9 @@ delivery lineage. Each target entry includes:
 | `attempt_number`      | Selected receipt `attempt_number` |
 
 When live, retry, and replay receipts exist for the same target, they share one
-`delivery_state_by_target` entry. The entry reports the latest receipt by durable
-append `sequence`; its `source` and `replay_run_id` describe the provenance of
-that selected receipt.
+`delivery_state_by_target` entry. The entry reports the lifecycle-authoritative
+receipt when an outbox exists, otherwise the latest durable append; its
+`source` and `replay_run_id` describe the provenance of that selected receipt.
 
 ## 18. Adapter Status Lifecycle
 
@@ -1119,7 +1122,7 @@ Every delivery target is classified into exactly one of three severity levels:
 
 | Severity       | Semantics                                                                                                                                                             |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `safe`         | Outbox and latest receipt agree on a terminal state, or only one source exists and is terminal.                                                                       |
+| `safe`         | Outbox and current receipt agree on a terminal state, or only one source exists and is terminal.                                                                      |
 | `degraded`     | Non-terminal outbox with a `failed` receipt (work stalled, retry expected), or mid-flight state.                                                                      |
 | `inconsistent` | Terminal outbox with non-terminal receipt, or non-terminal outbox with terminal receipt `sent`/`suppressed`. Status mismatch that cannot be explained by normal flow. |
 
@@ -1128,10 +1131,12 @@ Severity ordering: `safe` < `degraded` < `inconsistent`. The `worst_severity` fi
 ### 21.4 Classification Rules
 
 Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)`.
-Within each group, the latest receipt is selected deterministically by
-`(sequence DESC, created_at DESC, receipt_id DESC)`. Durable append `sequence`
-is authoritative; `attempt_number` records lineage and does not override a
-later append.
+Receipts linked to an outbox are eligible only when their own outbox row points
+at that `receipt_id`; outbox-less receipts are also eligible. The latest eligible
+receipt is selected deterministically by `(sequence DESC, created_at DESC,
+receipt_id DESC)`. A later receipt whose guarded outbox transition was rejected
+remains historical evidence.
+`attempt_number` records lineage and does not override lifecycle authority.
 
 **`safe`** classification:
 
@@ -1152,8 +1157,8 @@ later append.
 
 **`inconsistent`** classification:
 
-1. Terminal outbox but latest receipt is non-terminal.
-2. Non-terminal outbox but latest receipt is terminal `sent` or `suppressed`.
+1. Terminal outbox but current receipt is non-terminal.
+2. Non-terminal outbox but current receipt is terminal `sent` or `suppressed`.
 
 ### 21.5 Detection-Only Policy
 
@@ -1188,9 +1193,9 @@ Operators use convergence diagnostics output to identify and manually address st
 | `target_adapter`        | `str`           | Adapter name.                                    |
 | `target_channel`        | `str or None`   | Channel identifier.                              |
 | `outbox_status`         | `str or None`   | Outbox item status, or `None` if no outbox item. |
-| `latest_receipt_status` | `str or None`   | Latest receipt status, or `None` if no receipt.  |
-| `latest_receipt_id`     | `str or None`   | Latest receipt ID.                               |
-| `latest_attempt_number` | `int or None`   | Latest receipt attempt number.                   |
+| `latest_receipt_status` | `str or None`   | Current lifecycle-authoritative receipt status; field name retained for compatibility. |
+| `latest_receipt_id`     | `str or None`   | Current lifecycle-authoritative receipt ID; field name retained for compatibility.     |
+| `latest_attempt_number` | `int or None`   | Attempt number of the current lifecycle-authoritative receipt.                          |
 | `severity`              | `str`           | One of `safe`, `degraded`, `inconsistent`.       |
 | `warnings`              | `tuple[str, …]` | Per-target diagnostic messages.                  |
 | `outbox_id`             | `str or None`   | Outbox item ID.                                  |
@@ -1212,7 +1217,7 @@ The `build_orphan_report()` function detects orphaned and invalid-lineage record
 | `cross_plan_parent`                | `inconsistent` | receipt     | Receipt whose parent belongs to a different `delivery_plan_id`.                                                                      |
 | `cross_event_parent`               | `inconsistent` | receipt     | Receipt whose parent belongs to a different `event_id`.                                                                              |
 | `missing_delivery_plan_id`         | `degraded`     | receipt     | Retry-source receipt (`source="retry"`) with empty or `None` `delivery_plan_id`.                                                     |
-| `dead_lettered_retryable_mismatch` | `degraded`     | outbox      | `dead_lettered` outbox item whose latest receipt is non-terminal (`failed` or `queued`), suggesting the item may still be retryable. |
+| `dead_lettered_retryable_mismatch` | `degraded`     | outbox      | `dead_lettered` outbox item whose current receipt is non-terminal (`failed` or `queued`), suggesting the item may still be retryable. |
 
 Findings are sorted deterministically by `(kind, record_id)`.
 
@@ -1341,9 +1346,9 @@ Four recovery-specific finding kinds extend the convergence diagnostics system. 
 
 | Finding Kind               | Severity       | Condition                                                                                      |
 | -------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
-| `recovered_not_progressed` | `degraded`     | Outbox item was recovered but latest receipt hasn't progressed since the previous shutdown.    |
+| `recovered_not_progressed` | `degraded`     | Outbox item was recovered but current receipt hasn't progressed since the previous shutdown.    |
 | `repeatedly_reclaimed`     | `degraded`     | Same outbox item appears in multiple recovery ledgers with different `recovery_run_id` values. |
-| `reclaimed_then_terminal`  | `inconsistent` | Outbox item is terminal but latest receipt is non-terminal.                                    |
+| `reclaimed_then_terminal`  | `inconsistent` | Outbox item is terminal but current receipt is non-terminal.                                    |
 | `reclaimed_then_orphaned`  | `inconsistent` | Outbox item was recovered but its `event_id` is absent from the known event catalogue.         |
 
 ### 22.9 Normative Requirements
@@ -1403,8 +1408,8 @@ A conforming implementation detects exactly nine lifecycle finding kinds. No oth
 | Kind                                  | Severity       | Record type | Condition                                                                                                                                        |
 | ------------------------------------- | -------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `receipt_outbox_mismatch`             | `degraded`     | outbox      | Both receipt and outbox present for a target but their statuses contradict normal flow without being a terminal/non-terminal mismatch (§23.5.C). |
-| `terminal_receipt_nonterminal_outbox` | `degraded`     | outbox      | Latest receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox for the same target is still non-terminal.                     |
-| `terminal_outbox_nonterminal_receipt` | `inconsistent` | outbox      | Outbox has reached a terminal status but the latest receipt for the same target is still non-terminal.                                           |
+| `terminal_receipt_nonterminal_outbox` | `degraded`     | outbox      | Current receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox for the same target is still non-terminal.                     |
+| `terminal_outbox_nonterminal_receipt` | `inconsistent` | outbox      | Outbox has reached a terminal status but the current receipt for the same target is still non-terminal.                                           |
 | `retry_wait_missing_next_retry`       | `inconsistent` | outbox      | Outbox is in `retry_wait` state with missing, empty, or unparsable `next_attempt_at` timestamp.                                                  |
 | `next_retry_in_past`                  | `degraded`     | outbox      | Outbox is in `retry_wait` state but `next_attempt_at` is in the past relative to the current time.                                               |
 | `retryable_without_retry_metadata`    | `degraded`     | receipt     | Receipt is `failed` and appears retryable (transient failure or matching non-terminal outbox) but is missing retry scheduling metadata.          |
@@ -1422,9 +1427,9 @@ A conforming implementation detects exactly nine lifecycle finding kinds. No oth
 
 For each delivery target that has both an outbox item and at least one receipt, the diagnostics perform three ordered checks:
 
-**A. Terminal receipt, non-terminal outbox** (`terminal_receipt_nonterminal_outbox`): The latest receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox status is non-terminal. Severity: `degraded`.
+**A. Terminal receipt, non-terminal outbox** (`terminal_receipt_nonterminal_outbox`): The current receipt is terminal (`sent`, `suppressed`, `dead_lettered`) but the outbox status is non-terminal. Severity: `degraded`.
 
-**B. Terminal outbox, non-terminal receipt** (`terminal_outbox_nonterminal_receipt`): The outbox has reached a terminal status but the latest receipt is non-terminal. Severity: `inconsistent`. This check is skipped if check A already fired for the same target.
+**B. Terminal outbox, non-terminal receipt** (`terminal_outbox_nonterminal_receipt`): The outbox has reached a terminal status but the current receipt is non-terminal. Severity: `inconsistent`. This check is skipped if check A already fired for the same target.
 
 **C. Receipt/outbox status mismatch** (`receipt_outbox_mismatch`): Both receipt and outbox are present, their statuses contradict normal delivery flow, and the contradiction is not covered by checks A or B. Examples: both terminal but with different statuses, or both non-terminal in an abnormal combination. Severity: `degraded`. This check is skipped if either A or B fired for the same target.
 

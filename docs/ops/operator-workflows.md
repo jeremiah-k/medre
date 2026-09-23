@@ -9,7 +9,7 @@ Understanding what is permanent, what is mutable, and what is derived helps you 
 ### What is permanent and immutable
 
 - **Canonical events** are never updated or deleted. Every event that entered the pipeline is preserved as an immutable fact. The event log is the definitive record of what happened.
-- **Delivery receipts** are append-only. Each delivery attempt produces a new receipt row. Old receipt rows are never changed. The current delivery status is a projection (latest receipt by sequence number), not a mutable field.
+- **Delivery receipts** are append-only. Each delivery attempt produces a new receipt row. Old receipt rows are never changed. Current delivery status is a projection: outbox-backed receipts are current only when an outbox row points at their `receipt_id`, while receipt-only delivery uses latest durable append order.
 - **Native message refs** are idempotent correlation facts. They map native transport IDs to canonical events and are never updated or deleted.
 - **Terminal outbox rows** (`sent`, `dead_lettered`, `cancelled`, `abandoned`) are immutable. Once an outbox item reaches a terminal status, it becomes permanent operational history.
 

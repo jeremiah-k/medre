@@ -55,17 +55,21 @@ The receipt state machine has five terminal and non-terminal statuses:
 ```
 
 Each delivery attempt produces a new receipt row. Receipts are never updated
-or deleted — the latest receipt for a given **delivery chain** determines the
-current delivery status of that chain. A delivery chain is identified by
-`delivery_plan_id`, `target_adapter`, and `target_channel`; retry lineage
-is linked by `parent_receipt_id`. Event-level status is an aggregate
-reporting view, not the primitive current-status key.
+or deleted. For outbox-backed delivery, the outbox row's committed `receipt_id`
+determines the current receipt; a later receipt whose guarded outbox transition
+was rejected remains historical evidence. Outbox-less delivery uses the latest
+append for current status. A delivery chain is identified by
+`delivery_plan_id`, `target_adapter`, and `target_channel`; retry lineage is
+linked by `parent_receipt_id`. Event-level status is an aggregate reporting
+view, not the primitive current-status key.
 
 ### 1.3 Legal Transitions
 
-Receipts are append-only. There is no explicit transition table because every
-receipt is a new row. The implicit transition is temporal: receipt N+1
-supersedes receipt N for the same delivery chain.
+Receipts are append-only. There is no mutable receipt transition table because
+every receipt is a new row. For an outbox-backed chain, a receipt becomes the
+current lifecycle outcome only when the guarded outbox transition commits and
+updates the row's `receipt_id`; a rejected late receipt stays historical. For
+outbox-less chains, durable append order remains the projection rule.
 
 | From (prev receipt status) | To (next receipt status) | Condition                                      |
 | -------------------------- | ------------------------ | ---------------------------------------------- |
@@ -85,8 +89,9 @@ receipts in a retry chain set `parent_receipt_id` to the previous receipt's
 
 > Every receipt is append-only. No `DeliveryReceipt` row is ever updated or
 > deleted after creation. The `DeliveryReceipt` struct is `frozen=True`
-> (immutable at the Python level). Current delivery status is derived by
-> reading the latest receipt for a given delivery chain, not by mutation.
+> (immutable at the Python level). Current delivery status is derived from
+> lifecycle authority, not by mutating receipt rows: outbox-backed delivery uses
+> the outbox `receipt_id` pointer; outbox-less delivery uses latest append order.
 
 ### 1.5 Retry Scheduling
 
@@ -250,16 +255,19 @@ and consumption are storage-guarded updates, not status transitions:
   claim lease for as long as the dispatch runs, so a live worker's slow
   transport does not outlive its claim; lease expiry mid-dispatch implies
   worker death or a renewal failure.
-- `clear_outbox_attempt_reservation()` releases a reservation that has no
-  persisted evidence (worker died between reservation and transport
-  evidence); the same number is re-reserved by the recovering dispatch.
+- A reclaimed reservation with no persisted receipt evidence is **not**
+  released for reuse. Its dispatch outcome is ambiguous, so recovery consumes
+  the reserved number as a transient failed attempt (or dead-letters when the
+  retry budget is exhausted). Any later dispatch reserves a strictly newer
+  number. This keeps one attempt number equal to one dispatch generation.
 - Every finalization that passes an explicit attempt number consumes the
   reservation atomically: `attempt_number` advances to the reserved value
   and `active_attempt` clears within the guarded transition. The write is
-  additionally fenced — it only commits when the row holds no reservation
-  or holds exactly the attempt being committed — so a stale worker whose
-  lease expired and whose row was re-reserved by a newer worker cannot
-  regress the live attempt identity.
+  additionally fenced — it only commits when the row holds exactly the
+  attempt being committed, or holds no reservation and the committed attempt
+  is not older than the finalized `attempt_number` — so a stale worker whose
+  lease expired cannot consume a newer reservation or regress finalized
+  attempt identity.
 - Terminal transitions that pass no explicit attempt number (abandonment,
   cancellation) also consume a live reservation, recording the reserved
   attempt as the row's final one.

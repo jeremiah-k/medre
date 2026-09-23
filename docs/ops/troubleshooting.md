@@ -682,7 +682,7 @@ Read-only inspection commands require `--storage-path` for direct SQLite access.
 
 **Symptom:** The convergence summary for an event shows `worst_severity: "inconsistent"` for one or more targets.
 
-**Cause:** The outbox item and latest receipt disagree on whether the delivery is terminal. For example, the outbox says `sent` but the latest receipt says `queued`.
+**Cause:** The outbox item and current lifecycle-authoritative receipt disagree on whether the delivery is terminal. For example, the outbox says `sent` but its current receipt says `queued`.
 
 **Investigation:** Drill into the receipt chain and outbox row for the
 affected `delivery_plan_id` using the shared SQL in

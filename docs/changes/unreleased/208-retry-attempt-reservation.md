@@ -29,9 +29,10 @@
   discriminator: a reclaimed row with a live reservation and persisted
   evidence for that attempt commits the missing outbox transition without
   re-invoking the transport (closing the crash window between receipt
-  persistence and outbox finalization), while a reservation without evidence
-  is released so the re-dispatch reserves the same number again. The
-  defensive next-attempt evidence check for unreserved rows remains.
+  persistence and outbox finalization). A reservation without evidence is
+  outcome-ambiguous and is consumed as a failed attempt (or dead-lettered at
+  retry exhaustion); it is never reused by a later dispatch. The defensive
+  next-attempt evidence check for unreserved rows remains.
 - The worker renews the claimed row's lease for as long as its reserved
   dispatch runs: one synchronous renewal immediately after the reservation
   (aborting transport when the claim is already lost, and starting the
@@ -60,6 +61,10 @@
   created/claimed the row. If its lease expires and a retry worker reclaims the
   same row, the original pipeline result can still append immutable receipt
   evidence but cannot clear or overwrite the newer worker's claim/reservation.
+  Current-status, retry-evidence, recovery-scan, and convergence projections use
+  the outbox row's committed `receipt_id`, so that rejected late receipt stays
+  historical and cannot become retry lineage merely by having a greater append
+  sequence.
 - Queue-backed retry observability is race-stable when an asynchronous terminal
   callback wins just before the retry worker commits its returned `queued`
   receipt. Lifecycle re-reads the authoritative same-attempt outbox state after

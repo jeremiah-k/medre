@@ -245,10 +245,12 @@ class StorageBackend(Protocol):
         self, delivery_plan_id: str, target_adapter: str,
         target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter / channel.
+        """Return the current receipt for a delivery plan / adapter / channel.
 
-        When target_channel is None, only receipts with a NULL target
-        channel are considered.  Returns None when no receipt exists.
+        Outbox-backed delivery uses the outbox row's committed receipt_id;
+        rejected late receipts remain historical. Outbox-less delivery uses
+        durable append order. When target_channel is None, only NULL-channel
+        receipts are considered.
         """
         ...
 
@@ -343,12 +345,6 @@ class StorageBackend(Protocol):
         """Reserve the next attempt on a row still owned by worker_id."""
         ...
 
-    async def clear_outbox_attempt_reservation(
-        self, outbox_id: str, worker_id: str, active_attempt: int,
-    ) -> bool:
-        """Release an exact stale reservation on a claimed row."""
-        ...
-
     async def mark_outbox_sent(
         self, outbox_id: str, receipt_id: str | None = None,
         attempt_number: int | None = None,
@@ -393,6 +389,7 @@ class StorageBackend(Protocol):
 
     async def mark_outbox_abandoned(
         self, outbox_id: str, error_summary: str | None = None,
+        receipt_id: str | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Mark abandoned when the optional owner guard still matches."""
@@ -643,7 +640,7 @@ transport handoff fact proven by the receipt: `unknown`, `local_queue`,
 `local_transport`, `remote_service`, or `end_to_end`. It is evidence strength
 and MUST NOT be inferred from `status` alone.
 
-`sequence` provides a strictly monotonic append order. It is used by the `delivery_status` view to deterministically find the latest receipt, avoiding timestamp collisions.
+`sequence` provides a strictly monotonic append order for immutable receipt history. For outbox-less delivery it also determines the current receipt; outbox-backed delivery uses the outbox row's committed `receipt_id` as current-state authority.
 
 **Status values:** `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`.
 
@@ -731,22 +728,34 @@ does not by itself imply `end_to_end`.
 ```sql
 DROP VIEW IF EXISTS delivery_status;
 CREATE VIEW delivery_status AS
+WITH authoritative_receipts AS (
+    SELECT dr.*
+    FROM delivery_receipts dr
+    WHERE dr.outbox_id IS NULL
+       OR EXISTS (
+           SELECT 1
+           FROM delivery_outbox o
+           WHERE o.outbox_id = dr.outbox_id
+             AND o.receipt_id = dr.receipt_id
+       )
+)
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
        dr.failure_kind, dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
        dr.parent_receipt_id, dr.source, dr.replay_run_id,
        dr.retry_max_attempts, dr.retry_backoff_base, dr.retry_max_delay, dr.retry_jitter,
        dr.rendering_evidence, dr.outbox_id, dr.confirmation_level, dr.created_at
-FROM delivery_receipts dr
+FROM authoritative_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
-    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
+    FROM authoritative_receipts
+    GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
 ) latest ON dr.sequence = latest.max_seq;
 ```
 
 The view is dropped and recreated on every `initialize()` call to ensure the column shape stays current when new columns are added to `delivery_receipts` (e.g. `rendering_evidence`). `DROP VIEW IF EXISTS` followed by `CREATE VIEW` guarantees the view definition always matches the table schema.
 
-The current delivery status for any plan is a projection: the latest receipt row for a given `(delivery_plan_id, target_adapter, target_channel)` tuple. Uses `MAX(sequence)` for deterministic ordering. No code path **SHALL** write to this view directly. To change the current status, append a new receipt row.
+The current delivery status is a projection, but immutable append order is not by itself lifecycle authority for an outbox-backed attempt. A receipt linked to an outbox row is eligible only when that row points to the receipt through `receipt_id`; a stale worker may still append evidence after losing its guarded transition, but that row remains historical. Receipt-only delivery has no outbox pointer and therefore continues to use greatest durable append `sequence`. No code path **SHALL** write to this view directly.
 
 The grouping uses `COALESCE(target_channel, '')` so that `NULL` and empty-string channels are treated as the same group.
 
@@ -1015,7 +1024,7 @@ No row in `canonical_events` **MUST** ever be updated or deleted. The `append` m
 
 Every delivery attempt produces a new row in `delivery_receipts`. Existing rows **MUST NOT** be updated or deleted. Capacity rejection creates a new receipt with `failure_kind = 'capacity_rejection'` and `parent_receipt_id` set to the original receipt, rather than mutating the existing row.
 
-The current status of a delivery is a projection from the `delivery_status` view (latest receipt by `MAX(sequence)`). No code path **SHALL** write to the view directly.
+The current status of a delivery is a projection from the `delivery_status` view. Outbox-backed delivery follows the outbox row's committed `receipt_id`; outbox-less delivery follows durable append order. No code path **SHALL** write to the view directly.
 
 ### 5.3 Native Message References
 
@@ -1132,9 +1141,11 @@ runtime startup. A clean current marker skips that redundant full scan.
 
 ### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel)
 
-- Returns the latest receipt for the given triple by greatest durable append `sequence`; `attempt_number` does not override a later append.
+- Returns the lifecycle-authoritative receipt for the given triple.
+- For outbox-backed delivery, the outbox row's committed `receipt_id` is the current-state pointer; a later receipt whose guarded outbox transition was rejected remains append-only historical evidence.
+- For outbox-less delivery, greatest durable append `sequence` remains the projection rule. `attempt_number` does not override append order.
 - `target_channel` is **REQUIRED** for precise lookup. When `None`, only NULL-channel receipts are considered.
-- Returns `None` when no receipt exists.
+- Returns `None` when no current receipt exists.
 
 ### 8.11 list_receipts_for_plan(delivery_plan_id, target_adapter)
 
@@ -1169,10 +1180,12 @@ runtime startup. A clean current marker skips that redundant full scan.
 - `list_outbox_items`: Lists items, optionally filtered by status.
 - `list_outbox_items_for_event`: Returns all outbox items for a specific event, ordered by `created_at ASC, outbox_id ASC`. Read-only.
 - `claim_due_outbox_items`: Claims eligible items for a worker.
-- `mark_outbox_sent`: Terminal transition to `sent`.
-- `mark_outbox_failed`: Transitions to `retry_wait` or `dead_lettered`.
-- `mark_outbox_dead_lettered`: Terminal transition to `dead_lettered`.
-- `release_outbox_claim`: Releases a claimed item back to `pending`.
+- `reserve_outbox_attempt`: Reserves `attempt_number + 1` on an owned `in_progress` row.
+- `mark_outbox_sent` / `mark_outbox_queued`: Guarded success transitions; return whether the transition committed.
+- `mark_outbox_retry_wait` / `mark_outbox_dead_lettered`: Guarded failure transitions; return whether the transition committed.
+- `mark_outbox_cancelled` / `mark_outbox_abandoned`: Terminal transitions; return commit status.
+- `renew_outbox_lease`: Extends the lease while the worker owns the `in_progress` row.
+- `release_outbox_claim`: Releases an owned claim to `pending` or `retry_wait`.
 - `count_outbox_by_status`: Returns counts grouped by status.
 
 ### 8.17 query_unresolved_deliveries(cursor, since_event_time, limit)
@@ -1182,13 +1195,15 @@ outcomes**. A logical delivery is one
 `(event_id, delivery_plan_id, target_adapter, target_channel)` tuple with
 `NULL`/`''` channels grouped together (`COALESCE`). `event_id` is part of the
 key because plan IDs are not unique across events. A delivery is included when
-its current receipt by durable append `sequence` has status `failed` or
-`dead_lettered`.
+its lifecycle-authoritative receipt has status `failed` or `dead_lettered`. For
+outbox-backed delivery, the outbox `receipt_id` selects that receipt; an append
+that lost the guarded outbox transition remains historical. Outbox-less
+delivery uses durable append order.
 
-- Retry and executed-replay receipts continue the same delivery. A later
-  `sent`/`queued` receipt from live, retry, or executed replay supersedes an
-  earlier failure; a latest `queued` receipt is a new attempt in flight, not a
-  current failure.
+- Retry and executed-replay receipts continue the same delivery. A committed
+  later `sent`/`queued` outcome supersedes an earlier failure; an uncommitted
+  stale-worker append does not. A current `queued` receipt is a new attempt in
+  flight, not a current failure.
 - Successes of a different channel, plan, event, or target never hide a
   failure. `replay_run_id` is per-receipt provenance, not a lineage partition.
 - A historical failed receipt alone is never a current failure, and dry-run
@@ -1228,7 +1243,7 @@ The outbox persists operational delivery work state. Outbox items are created af
 
 - `pending`, `in_progress`, `queued`, `retry_wait`
 
-Receipt rows are append-only; the latest receipt for a delivery chain determines the current receipt state. Outbox rows are mutable for non-terminal statuses only.
+Receipt rows are append-only. For outbox-backed chains, the outbox `receipt_id` selects the current receipt and rejected late appends remain historical; receipt-only chains use latest append order. Outbox rows are mutable for non-terminal statuses only.
 
 ### 9.3 Idempotent Create with Reclaim
 

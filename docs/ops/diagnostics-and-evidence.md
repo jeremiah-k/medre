@@ -794,7 +794,7 @@ The convergence system also detects orphaned and invalid-lineage records when su
 | `cross_plan_parent`                | Receipt's parent belongs to a different delivery plan.      | Retry lineage crossed plan boundaries. Investigate the delivery chain.                          |
 | `cross_event_parent`               | Receipt's parent belongs to a different event.              | Retry lineage crossed event boundaries. Investigate the delivery chain.                         |
 | `missing_delivery_plan_id`         | Retry receipt has no delivery plan ID.                      | The retry may resolve on its own. Check the original delivery.                                  |
-| `dead_lettered_retryable_mismatch` | Outbox is dead-lettered but latest receipt is non-terminal. | The item might still be retryable. Consider replay if the underlying failure cause is resolved. |
+| `dead_lettered_retryable_mismatch` | Outbox is dead-lettered but current receipt is non-terminal. | The item might still be retryable. Consider replay if the underlying failure cause is resolved. |
 
 All findings are detection-only. No automatic repair occurs.
 
@@ -820,7 +820,7 @@ All findings are detection-only; the closed `kind` enum is normative in
 | Kind                                  | Severity     | Meaning and action                                                                                           |
 | ------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------ |
 | `terminal_receipt_nonterminal_outbox` | degraded     | Receipt finished, outbox still non-terminal. Usually a timing artifact; persistent cases = stale outbox row. |
-| `terminal_outbox_nonterminal_receipt` | inconsistent | Outbox terminal but latest receipt non-terminal. Delivery likely completed; receipt chain may be incomplete. |
+| `terminal_outbox_nonterminal_receipt` | inconsistent | Outbox terminal but current receipt non-terminal. Delivery likely completed; receipt chain may be incomplete. |
 | `retry_wait_missing_next_retry`       | inconsistent | `retry_wait` without valid `next_attempt_at`. Scheduler cannot retry; replay or correct the value.           |
 | `receipt_outbox_mismatch`             | degraded     | Statuses contradict normal flow beyond a terminal/non-terminal mismatch. Check for in-progress transition.   |
 | `next_retry_in_past`                  | degraded     | `next_attempt_at` overdue. RetryWorker behind or bad timestamp; check the worker is processing.              |
@@ -858,7 +858,7 @@ The evidence bundle exposes three distinct convergence/diagnostic surfaces. Each
 
 | Surface                        | Answers                                                                     | Scope                                                                                                                           |
 | ------------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `convergence_summary`          | "Is this target healthy overall?"                                           | Per-target classification (safe / degraded / inconsistent) with `outbox_status` and latest receipt status.                      |
+| `convergence_summary`          | "Is this target healthy overall?"                                           | Per-target classification (safe / degraded / inconsistent) with `outbox_status` and current receipt status.                      |
 | `orphan_report`                | "Are there broken lineages or recovery anomalies?"                          | Orphaned records, invalid parent chains, and four recovery-convergence finding kinds.                                           |
 | `lifecycle_convergence_report` | "What specific lifecycle contradictions exist between outbox and receipts?" | Nine specific finding kinds covering status mismatches, retry anomalies, stalled plans, sequence gaps, and attempt regressions. |
 
@@ -927,9 +927,9 @@ Four finding kinds extend the convergence diagnostics for recovery-specific anom
 
 | Finding Kind               | Severity       | What it means                                                                                  |
 | -------------------------- | -------------- | ---------------------------------------------------------------------------------------------- |
-| `recovered_not_progressed` | `degraded`     | Outbox was recovered but latest receipt hasn't progressed since the previous shutdown.         |
+| `recovered_not_progressed` | `degraded`     | Outbox was recovered but the current receipt hasn't progressed since the previous shutdown.         |
 | `repeatedly_reclaimed`     | `degraded`     | Same outbox item appears in multiple recovery ledgers with different `recovery_run_id` values. |
-| `reclaimed_then_terminal`  | `inconsistent` | Outbox is terminal but latest receipt is non-terminal.                                         |
+| `reclaimed_then_terminal`  | `inconsistent` | Outbox is terminal but current receipt is non-terminal.                                         |
 | `reclaimed_then_orphaned`  | `inconsistent` | Outbox was recovered but its `event_id` is absent from the known event catalogue.              |
 
 ## See Also

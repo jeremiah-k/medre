@@ -449,15 +449,15 @@
         },
         "latest_receipt_status": {
           "type": ["string", "null"],
-          "description": "Status of the latest receipt, or null if no receipt."
+          "description": "Status of the current lifecycle-authoritative receipt, or null if no current receipt."
         },
         "latest_receipt_id": {
           "type": ["string", "null"],
-          "description": "Receipt ID of the latest receipt, or null."
+          "description": "Receipt ID of the current lifecycle-authoritative receipt, or null."
         },
         "latest_attempt_number": {
           "type": ["integer", "null"],
-          "description": "Attempt number from the latest receipt, or null."
+          "description": "Attempt number from the current lifecycle-authoritative receipt, or null."
         },
         "severity": {
           "type": "string",

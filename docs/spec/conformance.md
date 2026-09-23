@@ -66,8 +66,9 @@ The pipeline conforms when it:
    `parent_event_id` and lineage are reserved for future enrich/transform
    implementation (see [architecture.md §2 — Future Extension Points]).
 4. Records delivery receipts for every delivery attempt (append-only).
-5. Derives current delivery status from the latest receipt, not by mutating
-   receipt rows.
+5. Derives current delivery status without mutating receipt rows: an
+   outbox-backed delivery uses the outbox row's committed `receipt_id`, while
+   outbox-less delivery uses the latest durable append.
 6. Evaluates route policy at the correct stage (after routing, before
    delivery). Delivery-stage policy is a reserved extension point with zero
    current implementation.
@@ -82,7 +83,9 @@ A storage backend conforms when it:
 2. Stores canonical events immutably (no update or delete on event rows).
 3. Maintains the `native_message_refs` unique constraint on
    `(adapter, native_channel_id, native_message_id)`.
-4. Supports the `delivery_status` view as a projection from the latest receipt.
+4. Supports the `delivery_status` view as a lifecycle-authoritative receipt
+   projection: outbox-backed rows follow the outbox `receipt_id`; outbox-less
+   rows follow durable append order.
 
 ### 3.4 Configuration Conformance
 
@@ -456,10 +459,12 @@ A conforming implementation satisfies:
 
 3. **Deterministic target grouping**: Targets are grouped by `(delivery_plan_id, target_adapter, target_channel)` with deterministic tie-breaking.
 
-4. **Deterministic receipt selection**: The latest receipt is selected by
+4. **Deterministic receipt selection**: A receipt linked to an outbox is
+   eligible only when that outbox row points at its `receipt_id`; outbox-less
+   receipts are also eligible. The latest eligible receipt is selected by
    `(sequence DESC, created_at DESC, receipt_id DESC)` without relying on object
-   identity. Durable append `sequence` is authoritative; `attempt_number`
-   records lineage only.
+   identity. This rule spans all outbox generations for the target;
+   `attempt_number` records lineage only.
 
 5. **Detection-only policy**: The diagnostics system does not repair state, block startup, or perform automatic remediation.
 
