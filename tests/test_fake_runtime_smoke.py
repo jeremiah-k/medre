@@ -55,6 +55,7 @@ from tests.helpers.fake_runtime import (
     make_two_adapter_config_with_route,
     wait_until,
 )
+from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -809,9 +810,10 @@ class TestFailureKindIntegration:
             assert outcome.status == "transient_failure"
             assert outcome.target_adapter == "mesh_dst"
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) == 1
-            assert receipts[0].status == "failed"
-            assert outcome.receipt == receipts[0]
+            attempt, _lifecycle = assert_terminal_failure_pair(
+                receipts, failure_kind="adapter_transient"
+            )
+            assert outcome.receipt == attempt
         finally:
             await clean_stop(app)
 
@@ -844,9 +846,10 @@ class TestFailureKindIntegration:
             assert outcomes[0].status == "permanent_failure"
             assert outcomes[0].target_adapter == "mx_beta"
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) == 1
-            assert receipts[0].status == "failed"
-            assert outcomes[0].receipt == receipts[0]
+            attempt, _lifecycle = assert_terminal_failure_pair(
+                receipts, failure_kind="adapter_permanent"
+            )
+            assert outcomes[0].receipt == attempt
         finally:
             beta.deliver = original_deliver  # type: ignore[assignment]
             await clean_stop(app)
@@ -870,8 +873,7 @@ class TestFailureKindIntegration:
             assert outcomes[0].target_adapter == "ghost_adapter"
             # ADAPTER_MISSING still persists a receipt via deliver_to_target.
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) == 1
-            assert receipts[0].status == "failed"
+            assert_terminal_failure_pair(receipts, failure_kind="adapter_missing")
         finally:
             await clean_stop(app)
 
@@ -901,8 +903,7 @@ class TestFailureKindIntegration:
             assert outcomes[0].target_adapter == "mx_beta"
             # RENDERER_FAILURE persists a receipt via deliver_to_target.
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) == 1
-            assert receipts[0].status == "failed"
+            assert_terminal_failure_pair(receipts, failure_kind="renderer_failure")
         finally:
             app.rendering_pipeline.render = original_render  # type: ignore[assignment]
             await clean_stop(app)
@@ -971,9 +972,10 @@ class TestFailureKindIntegration:
 
             # Verify receipt was persisted with failure status.
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) == 1
-            assert receipts[0].status == "failed"
-            assert "deadline" in (receipts[0].error or "").lower()
+            attempt, _lifecycle = assert_terminal_failure_pair(
+                receipts, failure_kind="deadline_exceeded"
+            )
+            assert "deadline" in (attempt.error or "").lower()
         finally:
             await clean_stop(app)
 

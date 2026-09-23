@@ -9,6 +9,7 @@ import pytest
 
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.engine.pipeline.delivery_coordinator import _bounded_ordered_map
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.outbox_manager import OutboxContext
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
@@ -81,7 +82,7 @@ async def test_production_fanout_invokes_only_delivery_limit_acquires(
         if len(started) == 2:
             entered_two.set()
         await release.wait()
-        return build_delivery_receipt(
+        receipt = build_delivery_receipt(
             event_id=event.event_id,
             delivery_plan_id=plan.plan_id,
             target_adapter=plan.target.adapter or "",
@@ -90,6 +91,7 @@ async def test_production_fanout_invokes_only_delivery_limit_acquires(
             status="sent",
             outbox_id=kwargs["outbox_id"],
         )
+        return DeliveryExecutionEvidence(attempt_receipt=receipt)
 
     monkeypatch.setattr(capacity, "acquire_delivery", acquire_delivery)
     monkeypatch.setattr(
@@ -99,7 +101,7 @@ async def test_production_fanout_invokes_only_delivery_limit_acquires(
         runner._outbox_manager, "start_lease_renewal", lambda _ctx: None
     )
     monkeypatch.setattr(runner._outbox_manager, "finalize_outcome", finalize_outcome)
-    monkeypatch.setattr(runner, "deliver_to_target", deliver)
+    monkeypatch.setattr(runner, "deliver_execution_to_target", deliver)
 
     task = asyncio.create_task(runner._deliver_to_targets_fan_out(event, deliveries))
     try:

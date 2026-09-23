@@ -255,7 +255,7 @@ class Test100MessagePersistentSession:
     Phases: 30 fanout → 10 reverse → 10 dupes → 20 fanout →
             10 meshcore-fail → 10 reverse → 10 fanout
     Submitted: 100 | Accepted: 90 | Suppressed: 10
-    Receipts: 160 (150 sent, 10 failed)
+    Receipts: 170 (150 sent, 10 failed attempts, 10 dead-letter lifecycle)
     """
 
     async def test_100_message_persistent_session(
@@ -300,13 +300,14 @@ class Test100MessagePersistentSession:
             assert sum(1 for e in events if e["source_adapter"] == MX_ID) == 70
             assert sum(1 for e in events if e["source_adapter"] == MESH_ID) == 20
 
-            # 160 receipts (150 sent, 10 failed)
+            # 170 receipts (150 sent, 10 failed attempts, 10 dead-letter lifecycle)
             rcpts = await temp_storage._read_all(
                 "SELECT target_adapter, status, source FROM delivery_receipts ORDER BY sequence"
             )
-            assert len(rcpts) == 160
+            assert len(rcpts) == 170
             assert sum(1 for r in rcpts if r["status"] == "sent") == 150
             assert sum(1 for r in rcpts if r["status"] == "failed") == 10
+            assert sum(1 for r in rcpts if r["status"] == "dead_lettered") == 10
             assert all(r["source"] == "live" for r in rcpts)
 
             # Per-target
@@ -314,9 +315,10 @@ class Test100MessagePersistentSession:
             mc_r = [r for r in rcpts if r["target_adapter"] == MC_ID]
             mx_r = [r for r in rcpts if r["target_adapter"] == MX_ID]
             assert len(mesh_r) == 70 and all(r["status"] == "sent" for r in mesh_r)
-            assert len(mc_r) == 70
+            assert len(mc_r) == 80
             assert sum(1 for r in mc_r if r["status"] == "sent") == 60
             assert sum(1 for r in mc_r if r["status"] == "failed") == 10
+            assert sum(1 for r in mc_r if r["status"] == "dead_lettered") == 10
             assert len(mx_r) == 20 and all(r["status"] == "sent" for r in mx_r)
 
             # Accounting
@@ -347,10 +349,12 @@ class Test100MessagePersistentSession:
                     else:
                         assert isinstance(sv, int), f"rstats[{rid!r}][{sk!r}]={sv!r}"
 
-            # No duplicate (event_id, target_adapter) receipt pairs
+            # No duplicate dispatch-attempt identities. A terminal lifecycle
+            # receipt intentionally shares the event/target with its attempt.
             dupes = await temp_storage._read_all(
-                "SELECT event_id, target_adapter, COUNT(*) c "
-                "FROM delivery_receipts GROUP BY event_id, target_adapter, source HAVING c > 1"
+                "SELECT event_id, target_adapter, source, attempt_number, COUNT(*) c "
+                "FROM delivery_receipts WHERE receipt_kind = 'attempt' "
+                "GROUP BY event_id, target_adapter, source, attempt_number HAVING c > 1"
             )
             assert len(dupes) == 0
 
@@ -393,7 +397,7 @@ class TestRepeatedReplayRunsLineageStable:
 
         # Pre-replay baseline
         pre = await temp_storage._read_all("SELECT sequence FROM delivery_receipts")
-        assert len(pre) == 160
+        assert len(pre) == 170
 
         # -- Three separate replay runs targeting event p1-0 --
         run_ids = [
@@ -429,12 +433,12 @@ class TestRepeatedReplayRunsLineageStable:
             "FROM delivery_receipts ORDER BY sequence"
         )
 
-        # Total: 160 live + 3*2 replay (3 runs * 2 targets each) = 166
-        assert len(all_rc) == 166, f"Expected 166, got {len(all_rc)}"
+        # Total: 170 live + 3*2 replay (3 runs * 2 targets each) = 176
+        assert len(all_rc) == 176, f"Expected 176, got {len(all_rc)}"
 
         # Live receipts untouched
         live = [r for r in all_rc if r["source"] == "live"]
-        assert len(live) == 160
+        assert len(live) == 170
         assert all(r["replay_run_id"] is None for r in live)
 
         # Replay receipts: 3 runs * 2 targets = 6
@@ -502,9 +506,9 @@ class TestInterleavedLiveAndReplayTraffic:
         finally:
             await _stop(s)
 
-        # Baseline: 160 receipts, 90 events
+        # Baseline: 170 receipts, 90 events
         pre = await temp_storage._read_all("SELECT sequence FROM delivery_receipts")
-        assert len(pre) == 160
+        assert len(pre) == 170
 
         # -- Phase A: 5 fresh live events (fanout, 5*2=10 receipts) --
         s_a = await _build(temp_storage)
@@ -549,13 +553,13 @@ class TestInterleavedLiveAndReplayTraffic:
             "FROM delivery_receipts ORDER BY sequence"
         )
 
-        # Total: 160 + 5*2 + 3*2 + 5*2 = 186
-        assert len(all_rc) == 186, f"Expected 186, got {len(all_rc)}"
+        # Total: 170 + 5*2 + 3*2 + 5*2 = 196
+        assert len(all_rc) == 196, f"Expected 196, got {len(all_rc)}"
 
         # Breakdown by source
         live_rc = [r for r in all_rc if r["source"] == "live"]
         rp_rc = [r for r in all_rc if r["source"] == "replay"]
-        assert len(live_rc) == 180, f"Expected 180 live, got {len(live_rc)}"
+        assert len(live_rc) == 190, f"Expected 190 live, got {len(live_rc)}"
         assert len(rp_rc) == 6, f"Expected 6 replay, got {len(rp_rc)}"
 
         # All replay receipts share the same run_id
@@ -563,13 +567,13 @@ class TestInterleavedLiveAndReplayTraffic:
         assert all(r["replay_run_id"] is None for r in live_rc)
 
         # Identify the three groups by sequence ranges
-        original_live = [r for r in live_rc if r["sequence"] <= 160]
+        original_live = [r for r in live_rc if r["sequence"] <= 170]
         phase_a_live = [
-            r for r in live_rc if r["sequence"] > 160 and r["sequence"] <= 170
+            r for r in live_rc if r["sequence"] > 170 and r["sequence"] <= 180
         ]
-        phase_c_live = [r for r in live_rc if r["sequence"] > 176]
+        phase_c_live = [r for r in live_rc if r["sequence"] > 186]
 
-        assert len(original_live) == 160
+        assert len(original_live) == 170
         assert len(phase_a_live) == 10  # 5 events * 2 targets
         assert len(phase_c_live) == 10  # 5 events * 2 targets
 
@@ -670,22 +674,25 @@ class TestRestartPreservesEvidenceIntegrity:
             "SELECT target_adapter, status, source, sequence "
             "FROM delivery_receipts ORDER BY sequence"
         )
-        assert len(all_rc) == 160
+        assert len(all_rc) == 170
 
         # No duplicate events
         eids = [e["event_id"] for e in all_ev]
         assert len(eids) == len(set(eids)), "Duplicate event_ids found"
 
-        # No duplicate receipt combos
+        # No duplicate dispatch-attempt identities. Lifecycle evidence may
+        # intentionally share an event/target with its causative attempt.
         dupes = await temp_storage._read_all(
-            "SELECT event_id, target_adapter, source, COUNT(*) c "
-            "FROM delivery_receipts GROUP BY event_id, target_adapter, source HAVING c > 1"
+            "SELECT event_id, target_adapter, source, attempt_number, COUNT(*) c "
+            "FROM delivery_receipts WHERE receipt_kind = 'attempt' "
+            "GROUP BY event_id, target_adapter, source, attempt_number HAVING c > 1"
         )
         assert len(dupes) == 0
 
         # Receipt breakdown
         assert sum(1 for r in all_rc if r["status"] == "sent") == 150
         assert sum(1 for r in all_rc if r["status"] == "failed") == 10
+        assert sum(1 for r in all_rc if r["status"] == "dead_lettered") == 10
         assert all(r["source"] == "live" for r in all_rc)
 
         # Timeline stable
@@ -725,9 +732,9 @@ class TestReplayPreservesLineage:
         finally:
             await _stop(s)
 
-        # Pre-replay: 160 receipts
+        # Pre-replay: 170 receipts
         pre = await temp_storage._read_all("SELECT sequence FROM delivery_receipts")
-        assert len(pre) == 160
+        assert len(pre) == 170
 
         # -- Replay 5 events from phase 1 --
         replay_ids = [f"p1-{i}" for i in range(5)]
@@ -754,12 +761,12 @@ class TestReplayPreservesLineage:
             "FROM delivery_receipts ORDER BY sequence"
         )
 
-        # Total: 160 live + 10 replay (5 events × 2 targets)
-        assert len(all_rc) == 170, f"Expected 170, got {len(all_rc)}"
+        # Total: 170 live + 10 replay (5 events × 2 targets)
+        assert len(all_rc) == 180, f"Expected 180, got {len(all_rc)}"
 
         # Live receipts untouched
         live = [r for r in all_rc if r["source"] == "live"]
-        assert len(live) == 160
+        assert len(live) == 170
         assert all(r["replay_run_id"] is None for r in live)
 
         # Replay receipts
