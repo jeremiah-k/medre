@@ -7,9 +7,9 @@ must skip adapter delivery and return a ``DeliveryOutcome`` with
 ``status="skipped"`` and ``failure_kind=OUTBOX_NOT_OWNED``.
 
 Also covers the replay attempt-identity rule: replay computes
-``max(existing attempt_number) + 1`` so it never reclaims or mutates
-live rows, and ownership checks apply to replay just as they do to
-live delivery.
+``max(existing effective attempt) + 1`` so it never reclaims or mutates
+live rows or collides with an in-flight retry reservation, and ownership
+checks apply to replay just as they do to live delivery.
 """
 
 from __future__ import annotations
@@ -587,6 +587,63 @@ class TestReplayWithExistingTerminalAttempts1And2CreatesAttempt3:
             assert 3 in attempts
             replay_row = next(row for row in all_rows if row.attempt_number == 3)
             assert replay_row.status == outcome.receipt.status
+            assert replay_row.receipt_id == outcome.receipt.receipt_id
+        finally:
+            await runner.stop()
+
+
+class TestReplaySkipsReservedRetryGeneration:
+    """Replay allocates after a live row's reserved retry attempt."""
+
+    async def test_active_attempt_2_forces_replay_attempt_3(
+        self,
+        temp_storage: SQLiteStorage,
+        fake_presentation: FakePresentationAdapter,
+        route: Route,
+    ) -> None:
+        event_id = "evt-replay-active-retry-2"
+        seeded = await _seed_outbox_with_attempt(
+            temp_storage,
+            event_id=event_id,
+            status="in_progress",
+            attempt_number=1,
+            worker_id="retry:owner",
+        )
+        reserved = await temp_storage.reserve_outbox_attempt(
+            seeded.outbox_id,
+            "retry:owner",
+            1,
+        )
+        assert reserved == 2
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={_ADAPTER_ID: fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+        try:
+            event = make_event(event_id=event_id, source_channel_id="ch-0")
+            outcomes = await runner.deliver_to_targets(
+                event,
+                [(route, _make_plan(event_id, route))],
+                source="replay",
+            )
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status in ("success", "queued")
+            assert outcome.receipt is not None
+            assert outcome.receipt.source == "replay"
+            assert outcome.receipt.attempt_number == 3
+
+            all_rows = await temp_storage.list_outbox_items_for_event(event_id)
+            live = next(row for row in all_rows if row.outbox_id == seeded.outbox_id)
+            assert live.attempt_number == 1
+            assert live.active_attempt == 2
+            replay_row = next(row for row in all_rows if row.attempt_number == 3)
+            assert replay_row.outbox_id != live.outbox_id
             assert replay_row.receipt_id == outcome.receipt.receipt_id
         finally:
             await runner.stop()

@@ -702,6 +702,48 @@ async def test_terminal_finalization_wraps_raw_sqlite_error(
         )
 
 
+async def test_terminal_finalization_preserves_storage_error(
+    temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typed storage failure crosses the SQLite adapter unchanged."""
+    import medre.core.storage.sqlite._delivery_finalize as delivery_finalize
+
+    receipt = build_delivery_receipt(
+        receipt_id="rcpt-terminal-storage-error",
+        event_id="evt-terminal-storage-error",
+        delivery_plan_id="plan-terminal-storage-error",
+        target_adapter="mesh-1",
+        target_channel="0",
+        route_id="route-1",
+        status="dead_lettered",
+        receipt_kind="lifecycle",
+        outbox_id="obox-terminal-storage-error",
+        attempt_number=1,
+    )
+
+    def _raise_storage_error(*_args, **_kwargs):
+        raise StorageError("injected typed terminal failure")
+
+    monkeypatch.setattr(
+        delivery_finalize,
+        "sync_finalize_outbox_terminal",
+        _raise_storage_error,
+    )
+
+    with pytest.raises(StorageError, match="injected typed terminal failure"):
+        await temp_storage.finalize_outbox_terminal(
+            receipt,
+            outbox_id=receipt.outbox_id or "",
+            attempt_number=1,
+            terminal_status="dead_lettered",
+            event_id=receipt.event_id,
+            delivery_plan_id=receipt.delivery_plan_id,
+            target_adapter=receipt.target_adapter,
+            target_channel=receipt.target_channel,
+        )
+
+
 @pytest.mark.parametrize(
     ("case", "message"),
     [

@@ -8,8 +8,10 @@ import pytest
 
 from medre.core.storage.backend import MAX_RECOVERY_PAGE_LIMIT
 from medre.core.storage.sqlite._recovery_query import (
+    _RecoveryQueryMixin,
     _SELECT_UNRESOLVED_DELIVERIES,
     _SELECT_UNRESOLVED_DELIVERIES_SINCE,
+    _candidate_batch_limit,
     _validate_page_limit,
 )
 from medre.core.storage.sqlite.schema import _INDEXES
@@ -69,6 +71,50 @@ def test_since_scope_filters_the_same_event_lineage() -> None:
     assert "FROM delivery_receipts dr NOT INDEXED" in sql
     where_clause = _candidate_where_clause(sql)
     assert "replay_run_id" not in where_clause
+
+
+class _RecoveryReadStub(_RecoveryQueryMixin):
+    """Minimal read seam for recovery keyset control-flow tests."""
+
+    def __init__(self, responses: list[list[dict[str, object]]]) -> None:
+        self._responses = list(responses)
+
+    async def _read_all(
+        self,
+        _sql: str,
+        _params: tuple[object, ...],
+    ) -> list[dict[str, object]]:
+        return self._responses.pop(0)
+
+
+async def test_recovery_scan_empty_candidate_window_returns_empty_page() -> None:
+    """An empty raw keyset window terminates without inventing a cursor."""
+    storage = _RecoveryReadStub([[]])
+
+    page = await storage.query_unresolved_deliveries(limit=3)
+
+    assert page.items == []
+    assert page.has_more is False
+    assert page.next_cursor is None
+
+
+async def test_recovery_scan_rejects_nonadvancing_candidate_window() -> None:
+    """A malformed DB window cannot spin the internal keyset loop forever."""
+    candidate_limit = _candidate_batch_limit(1)
+    storage = _RecoveryReadStub(
+        [
+            [
+                {
+                    "candidate_count": candidate_limit,
+                    "scan_end_sequence": 0,
+                    "receipt_id": None,
+                }
+            ]
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="did not advance"):
+        await storage.query_unresolved_deliveries(limit=1)
 
 
 @pytest.mark.parametrize(

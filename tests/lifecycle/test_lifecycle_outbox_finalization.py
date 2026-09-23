@@ -33,6 +33,7 @@ async def _finalize_outbox_outcome(
     retry_policy: RetryPolicy | None,
     *,
     lifecycle_receipt: DeliveryReceipt | None = None,
+    reserved_attempt_number: int | None = None,
     expected_worker_id: str | None = None,
 ) -> bool | None:
     """Exercise the structured finalization API with explicit evidence."""
@@ -47,6 +48,7 @@ async def _finalize_outbox_outcome(
             error=error,
         ),
         retry_policy=retry_policy,
+        reserved_attempt_number=reserved_attempt_number,
         expected_worker_id=expected_worker_id,
     )
 
@@ -671,6 +673,96 @@ class TestFinalizeOutboxNoReceiptExhausted:
         updated = await temp_storage.get_outbox_item("obox-no-rcpt-ex")
         assert updated is not None
         assert updated.status == "dead_lettered"
+
+    async def test_reserved_attempt_drives_no_receipt_exhaustion_and_commit_fence(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """A receipt-less failure still consumes the reserved dispatch identity."""
+        lifecycle = _make_lifecycle()
+        item = DeliveryOutboxItem(
+            outbox_id="obox-no-rcpt-reserved",
+            event_id="evt-no-rcpt-reserved",
+            route_id="route-nrr",
+            delivery_plan_id="plan-nrr",
+            target_adapter="test_adapter",
+            attempt_number=1,
+            status="in_progress",
+            worker_id="pipeline:reserved",
+        )
+        await create_outbox_item_with_parent(temp_storage, item)
+        assert (
+            await temp_storage.reserve_outbox_attempt(
+                item.outbox_id,
+                "pipeline:reserved",
+                1,
+            )
+            == 2
+        )
+
+        await _finalize_outbox_outcome(
+            lifecycle,
+            temp_storage,
+            item.outbox_id,
+            True,
+            receipt=None,
+            failure_kind_val=DeliveryFailureKind.ADAPTER_TRANSIENT,
+            error="failed before receipt persistence",
+            retry_policy=RetryPolicy(max_attempts=2, backoff_base=1.0),
+            reserved_attempt_number=2,
+            expected_worker_id="pipeline:reserved",
+        )
+
+        updated = await temp_storage.get_outbox_item(item.outbox_id)
+        assert updated is not None
+        assert updated.status == "dead_lettered"
+        assert updated.attempt_number == 2
+        assert updated.active_attempt is None
+
+    async def test_reserved_attempt_fences_nonretryable_no_receipt_terminalization(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Receipt-less permanent failure dead-letters the reserved generation."""
+        lifecycle = _make_lifecycle()
+        item = DeliveryOutboxItem(
+            outbox_id="obox-no-rcpt-permanent",
+            event_id="evt-no-rcpt-permanent",
+            route_id="route-nrp",
+            delivery_plan_id="plan-nrp",
+            target_adapter="test_adapter",
+            attempt_number=1,
+            status="in_progress",
+            worker_id="pipeline:permanent",
+        )
+        await create_outbox_item_with_parent(temp_storage, item)
+        assert (
+            await temp_storage.reserve_outbox_attempt(
+                item.outbox_id,
+                "pipeline:permanent",
+                1,
+            )
+            == 2
+        )
+
+        await _finalize_outbox_outcome(
+            lifecycle,
+            temp_storage,
+            item.outbox_id,
+            True,
+            receipt=None,
+            failure_kind_val=DeliveryFailureKind.ADAPTER_PERMANENT,
+            error="permanent failure before receipt persistence",
+            retry_policy=None,
+            reserved_attempt_number=2,
+            expected_worker_id="pipeline:permanent",
+        )
+
+        updated = await temp_storage.get_outbox_item(item.outbox_id)
+        assert updated is not None
+        assert updated.status == "dead_lettered"
+        assert updated.attempt_number == 2
+        assert updated.active_attempt is None
 
 
 async def test_pipeline_worker_fence_rejects_late_finalization_after_reclaim(
