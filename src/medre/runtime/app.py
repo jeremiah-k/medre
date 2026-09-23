@@ -1957,6 +1957,9 @@ class MedreApp:
         for inflight in abandoned:
             # Preserve the real attempt_number from the outbox row when
             # available, so drain-abandoned receipts maintain retry lineage.
+            # A live reservation means the in-flight dispatch ran under the
+            # reserved generation — record that, not the older finalized
+            # number, or claim reconciliation will ignore the receipt.
             attempt_number = 1
             if inflight.outbox_id is not None and self.storage is not None:
                 try:
@@ -1966,7 +1969,11 @@ class MedreApp:
                     # receipt is still persisted with attempt_number=1.
                     item = None
                 if item is not None:
-                    attempt_number = item.attempt_number
+                    attempt_number = (
+                        item.active_attempt
+                        if item.active_attempt is not None
+                        else item.attempt_number
+                    )
             receipt = DeliveryReceipt(
                 sequence=0,
                 receipt_id=f"rcpt-{uuid.uuid4()}",

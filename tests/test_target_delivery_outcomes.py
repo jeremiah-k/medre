@@ -586,3 +586,46 @@ async def test_non_string_confirmation_level_degrades_to_unknown() -> None:
 
     assert receipt.status == "sent"
     assert receipt.confirmation_level == "unknown"
+
+
+class TestDeliverExecutionNativeRefRepair:
+    """The typed deliver_execution seam keeps the accepted-send invariant."""
+
+    async def test_projection_repair_failure_does_not_reclassify_accepted_send(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        adapter = _FakeAdapter(
+            result=AdapterDeliveryResult(
+                native_message_id="$msg-exec-callback-fail",
+                native_channel_id="!room:server",
+            )
+        )
+
+        async def _fail_repair(event_id: str) -> None:
+            del event_id
+            raise RuntimeError("projection repair failed")
+
+        svc, storage = _make_service(
+            adapters={"test_adapter": adapter},
+            native_ref_persisted_fn=_fail_repair,
+        )
+
+        with caplog.at_level(logging.ERROR, logger="test.target_delivery"):
+            evidence = await svc.deliver_execution(
+                _make_event(), *_make_route_and_plan()
+            )
+
+        assert evidence.attempt_receipt is not None
+        assert evidence.attempt_receipt.status == "sent"
+        assert len(storage.native_refs) == 1
+        assert len(storage.receipts) == 1
+        assert storage.receipts[0].status == "sent"
+        repair_errors = [
+            record
+            for record in caplog.records
+            if "Conversation projection repair failed after outbound native-ref persistence"
+            in record.getMessage()
+        ]
+        assert len(repair_errors) == 1
+        assert repair_errors[0].exc_info is not None

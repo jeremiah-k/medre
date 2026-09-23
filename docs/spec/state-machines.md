@@ -30,32 +30,36 @@ state transitions that do not create another dispatch attempt.
 
 ```text
                         ┌──────────┐
-                        │  queued  │
-                        └────┬─────┘
-                             │ (queue-based adapter confirms send)
-                             ▼
-              ┌──────────────────────────┐
-              │          sent            │ ◄── terminal
-              └──────────────────────────┘
+        (send)          │  queued  │ (queue terminal outcome)
+          ┌────────────►└────┬─────┘──────────────┐
+          │                 │                    │
+          │                 │ (queue-based        │
+          │                 │  adapter            │
+          │                 │  confirms send)     │
+          │                 ▼                    ▼
+   ┌──────────────────────┐   ┌──────────────────┐
+   │         sent         │   │      failed      │
+   └──────────────────────┘   └──────────────────┘
+    ▲   terminal                    │        │
+    │                              │        │ (cancelled / abandoned
+    │                              │        │  while queued or
+    │   (retry scheduled)          │        │  in flight)
+    │        ┌─────────────────────┘        │
+    │        ▼                              ▼
+    │   ┌──────────────────┐      ┌──────────────────┐
+    └── │      failed      │      │  cancelled,      │
+        └──────────────────┘      │  abandoned       │  ◄── terminal
+              │                   └──────────────────┘
+              │ (retries exhausted
+              │  or terminal error)
+              ▼
+        ┌──────────────────┐
+        │   dead_lettered  │ ◄── terminal
+        └──────────────────┘
 
-              ┌──────────────────────────┐
-              │         failed           │──┐
-              └──────────────────────────┘  │
-                     │                      │
-                     │ (retry scheduled)    │ (retries exhausted
-                     ▼                      │  or terminal error)
-              ┌──────────────────────────┐  │
-              │         failed           │  │  (subsequent attempt)
-              └──────────────────────────┘  │
-                     │                      │
-                     │                      ▼
-              ┌──────────────────────────┐
-              │      dead_lettered       │ ◄── terminal
-              └──────────────────────────┘
-
-              ┌──────────────────────────┐
-              │       suppressed         │ ◄── terminal
-              └──────────────────────────┘
+        ┌──────────────────┐
+        │    suppressed    │ ◄── terminal
+        └──────────────────┘
 ```
 
 Each delivery attempt produces a new receipt row. Receipts are never updated

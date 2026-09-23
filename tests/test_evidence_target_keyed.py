@@ -357,7 +357,7 @@ class TestSameAdapterTwoChannels:
 
 
 class TestRouteIsProvenanceNotIdentity:
-    """Same adapter and channel but different route IDs produce distinct entries."""
+    """Different route IDs on one event-scoped delivery identity collapse to a single entry (route is provenance, not identity)."""
 
     @pytest.mark.asyncio
     async def test_same_identity_collapses_across_route_provenance(

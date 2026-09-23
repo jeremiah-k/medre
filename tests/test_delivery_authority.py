@@ -750,3 +750,70 @@ async def test_recovery_authority_matches_cross_class_append_order(
     assert by_event["evt-cross-free-sent-then-outbox-failed"].status == "failed"
     assert "evt-cross-outbox-failed-then-free-sent" not in by_event
     assert "evt-cross-free-failed-then-outbox-sent" not in by_event
+
+
+def test_generation_rank_rejects_uncommitted_receipt() -> None:
+    """Ranking by generation is only defined for committed evidence."""
+    import pytest
+
+    from medre.core.delivery_authority import ReceiptAuthority, _generation_rank
+
+    authority = ReceiptAuthority(frozenset({("obox-1", "rcpt-committed", 2)}))
+    committed = {
+        "outbox_id": "obox-1",
+        "receipt_id": "rcpt-committed",
+        "sequence": 3,
+    }
+    rejected = {
+        "outbox_id": "obox-1",
+        "receipt_id": "rcpt-rejected-cas",
+        "sequence": 9,
+    }
+
+    assert _generation_rank(committed, authority) == (2, 3, "", "rcpt-committed")
+    with pytest.raises(ValueError, match="receipt is not committed by this authority"):
+        _generation_rank(rejected, authority)
+
+
+def test_select_current_outbox_ranks_live_reservations() -> None:
+    """A live active_attempt ranks as its reserved generation, not the
+    older finalized number on the same row."""
+    from medre.core.delivery_authority import select_current_outbox
+
+    finalized_newer = {
+        "outbox_id": "obox-finalized",
+        "attempt_number": 5,
+        "created_at": "2026-09-23T10:00:00+00:00",
+    }
+    reserved = {
+        "outbox_id": "obox-reserved",
+        "attempt_number": 2,
+        "active_attempt": 6,
+        "created_at": "2026-09-23T09:00:00+00:00",
+    }
+
+    assert select_current_outbox([finalized_newer, reserved]) is reserved
+
+
+def test_delivery_identity_complete_requires_all_components() -> None:
+    """An identity missing event, plan, or adapter components is incomplete."""
+    from medre.core.delivery_authority import delivery_identity
+
+    complete = delivery_identity(
+        {
+            "event_id": "evt-1",
+            "delivery_plan_id": "plan-1",
+            "target_adapter": "adapter-1",
+            "target_channel": None,
+        }
+    )
+    assert complete.complete is True
+
+    missing_event = delivery_identity(
+        {
+            "event_id": "",
+            "delivery_plan_id": "plan-1",
+            "target_adapter": "adapter-1",
+        }
+    )
+    assert missing_event.complete is False

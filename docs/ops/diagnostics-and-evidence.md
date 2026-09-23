@@ -625,7 +625,7 @@ SELECT receipt_id, receipt_kind, status, attempt_number, parent_receipt_id,
 FROM delivery_receipts
 WHERE event_id = '<event_id>'
   AND delivery_plan_id = '<plan_id>'
-ORDER BY sequence;
+ORDER BY attempt_number, sequence;
 ```
 
 ### "Were suppressed deliveries retried?"
