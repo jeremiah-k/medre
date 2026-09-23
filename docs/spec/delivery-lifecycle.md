@@ -197,7 +197,13 @@ attempt.
   attempts.
 - Finalization consumes the reservation atomically with its outcome
   transition: `attempt_number` advances to the reserved attempt and
-  `active_attempt` clears in the same guarded statement.
+  `active_attempt` clears in the same guarded statement. Explicit-attempt
+  commits are fenced to the reservation they hold: a worker finalizing
+  after its lease expired and a newer worker re-reserved the row cannot
+  commit, so the live attempt identity never regresses. Terminal
+  transitions that pass no attempt number (abandonment, cancellation)
+  consume a live reservation too, recording the reserved attempt as
+  final.
 - A dispatch stamps the reserved number onto the rendered result and every
   receipt it produces, so adapter callbacks echo exactly the identity the
   outbox will admit. Receipt lineage (`parent_receipt_id`) is independent

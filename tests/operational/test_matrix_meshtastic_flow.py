@@ -294,6 +294,16 @@ class _FakeStorage:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "cancelled")
+            object.__setattr__(
+                item,
+                "attempt_number",
+                (
+                    item.active_attempt
+                    if item.active_attempt is not None
+                    else item.attempt_number
+                ),
+            )
+            object.__setattr__(item, "active_attempt", None)
 
     async def mark_outbox_abandoned(
         self,
@@ -303,6 +313,16 @@ class _FakeStorage:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "abandoned")
+            object.__setattr__(
+                item,
+                "attempt_number",
+                (
+                    item.active_attempt
+                    if item.active_attempt is not None
+                    else item.attempt_number
+                ),
+            )
+            object.__setattr__(item, "active_attempt", None)
 
     async def finalize_queued_delivery(
         self,

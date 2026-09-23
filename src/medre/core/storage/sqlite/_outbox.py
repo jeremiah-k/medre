@@ -565,6 +565,12 @@ class _OutboxMixin:
             sets.append("attempt_number = ?")
             params.append(attempt_number)
             sets.append("active_attempt = NULL")
+        elif new_status in TERMINAL_OUTBOX_STATUSES:
+            # Terminal rows never keep a live reservation.  When a dispatch
+            # was in flight (abandonment, cancellation, suppression), the
+            # reserved attempt is the one that ran — record it as final.
+            sets.append("attempt_number = COALESCE(active_attempt, attempt_number)")
+            sets.append("active_attempt = NULL")
         if failure_kind is not None:
             sets.append("failure_kind = ?")
             params.append(failure_kind)
@@ -613,6 +619,13 @@ class _OutboxMixin:
         ]
         params.append(outbox_id)
         params.extend(TERMINAL_OUTBOX_STATUSES)
+        if attempt_number is not None:
+            # Fence: an explicit-attempt commit may only consume a
+            # reservation it holds.  A stale worker whose lease expired and
+            # whose reservation was cleared and re-reserved by a newer
+            # worker must not regress the row's live attempt identity.
+            where_clauses.append("(active_attempt IS NULL OR active_attempt = ?)")
+            params.append(attempt_number)
         if allowed_from is not None:
             holders = ",".join("?" for _ in allowed_from)
             where_clauses.append(f"status IN ({holders})")

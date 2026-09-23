@@ -252,7 +252,14 @@ and consumption are storage-guarded updates, not status transitions:
   the same number is re-reserved by the recovering dispatch.
 - Every finalization that passes an explicit attempt number consumes the
   reservation atomically: `attempt_number` advances to the reserved value
-  and `active_attempt` clears within the guarded transition.
+  and `active_attempt` clears within the guarded transition. The write is
+  additionally fenced — it only commits when the row holds no reservation
+  or holds exactly the attempt being committed — so a stale worker whose
+  lease expired and whose row was re-reserved by a newer worker cannot
+  regress the live attempt identity.
+- Terminal transitions that pass no explicit attempt number (abandonment,
+  cancellation) also consume a live reservation, recording the reserved
+  attempt as the row's final one.
 
 Callbacks correlate against `COALESCE(active_attempt, attempt_number)`; see
 [delivery-lifecycle.md](delivery-lifecycle.md) §3.4.1.

@@ -29,9 +29,16 @@
   discriminator: a reclaimed row with a live reservation and persisted
   evidence for that attempt commits the missing outbox transition without
   re-invoking the transport (closing the crash window between receipt
-  persistence and outbox finalization), while a reservation with no evidence
+  persistence and outbox finalization), while a reservation without evidence
   is released so the re-dispatch reserves the same number again. The
   defensive next-attempt evidence check for unreserved rows remains.
+- Explicit-attempt finalizations are fenced to the reservation they hold:
+  a stale worker returning after lease expiry and re-reservation by a newer
+  worker cannot regress the row's live attempt identity (the retry worker
+  performs no lease renewal during dispatch, so mid-dispatch expiry is a
+  real path). Terminal transitions that pass no attempt number
+  (abandonment, cancellation of an in-flight dispatch) consume a live
+  reservation and record the reserved attempt as the row's final one.
 - This changes the prerelease SQLite shape by adding `active_attempt` to
   `delivery_outbox`. Existing stamped prerelease databases that do not match
   the current shape are rejected by design and must be recreated; schema

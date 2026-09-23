@@ -10,6 +10,7 @@ a deferral before dispatch consumes no attempt.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -399,6 +400,106 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
     assert row_after.status == "dead_lettered"
 
 
+async def test_stale_finalize_cannot_consume_newer_reservation(temp_storage) -> None:
+    """A worker returning after lease theft must not regress the live attempt.
+
+    Worker A reserves attempt 2 and blocks in the transport.  Its lease
+    expires; the row is reclaimed, A's numberless reservation is re-reserved
+    as attempt 2 by a later cycle that fails (row reaches retry_wait at 2),
+    and worker C claims and reserves attempt 3.  When A finally returns and
+    finalizes attempt 2, the explicit-attempt fence must reject the write:
+    C's reservation stays live and the row's attempt identity never
+    regresses.
+    """
+    event = await _seed_event(temp_storage, "evt-stale-finalize")
+    item = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-stale-finalize",
+        event_id=event.event_id,
+        status="retry_wait",
+    )
+    await _append_receipt(
+        temp_storage,
+        outbox_id=item.outbox_id,
+        event_id=event.event_id,
+        status="failed",
+        attempt_number=1,
+    )
+    # Cycle B: claim, reserve 2, transient failure finalizes retry_wait at 2.
+    await _claim_due(temp_storage)
+    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+    await _append_receipt(
+        temp_storage,
+        outbox_id=item.outbox_id,
+        event_id=event.event_id,
+        status="failed",
+        attempt_number=2,
+    )
+    await temp_storage.mark_outbox_retry_wait(
+        item.outbox_id,
+        next_attempt_at=_PAST.isoformat(),
+        failure_kind="adapter_transient",
+        receipt_id="rcpt-b",
+        attempt_number=2,
+    )
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None
+    assert (row.attempt_number, row.active_attempt) == (2, None)
+
+    # Cycle C: claim the due row and reserve attempt 3.
+    claimed = [
+        row
+        for row in await _claim_due(temp_storage, worker_id="retry-worker-c")
+        if row.outbox_id == item.outbox_id
+    ]
+    assert claimed
+    assert (
+        await temp_storage.reserve_outbox_attempt(item.outbox_id, "retry-worker-c", 2)
+        == 3
+    )
+
+    # Zombie worker A returns with its attempt-2 success.
+    await temp_storage.mark_outbox_sent(
+        item.outbox_id, receipt_id="rcpt-a-late", attempt_number=2
+    )
+    after_stale = await temp_storage.get_outbox_item(item.outbox_id)
+    assert after_stale is not None
+    assert after_stale.status == "in_progress"
+    assert after_stale.attempt_number == 2
+    assert after_stale.active_attempt == 3
+
+    # The live holder of attempt 3 still finalizes normally.
+    await temp_storage.mark_outbox_sent(
+        item.outbox_id, receipt_id="rcpt-c", attempt_number=3
+    )
+    after_live = await temp_storage.get_outbox_item(item.outbox_id)
+    assert after_live is not None
+    assert after_live.status == "sent"
+    assert after_live.attempt_number == 3
+    assert after_live.active_attempt is None
+
+
+async def test_terminal_without_attempt_consumes_reservation(temp_storage) -> None:
+    """Abandonment/cancellation of a reserved dispatch records that attempt."""
+    event = await _seed_event(temp_storage, "evt-terminal-reserved")
+    item = await _seed_outbox(
+        temp_storage, outbox_id="obox-terminal-reserved", event_id=event.event_id
+    )
+    await _claim_due(temp_storage)
+    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+
+    # finalize_retry_success maps a suppressed receipt to abandonment
+    # without passing an attempt number.
+    await temp_storage.mark_outbox_abandoned(
+        item.outbox_id, error_summary="capability_suppressed"
+    )
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None
+    assert row.status == "abandoned"
+    assert row.attempt_number == 2
+    assert row.active_attempt is None
+
+
 async def test_queued_to_sent_commits_reserved_attempt(temp_storage) -> None:
     event = await _seed_event(temp_storage, "evt-queued")
     item = await _seed_outbox(
@@ -725,11 +826,17 @@ async def test_worker_never_invokes_transport_on_lost_claim(
 
 
 async def test_reserved_attempt_overrides_lineage_stamp() -> None:
+    from medre.core.engine.pipeline.target_delivery import TargetDeliveryService
+    from medre.core.observability.metrics import Diagnostician
+    from medre.core.planning.delivery_plan import (
+        DeliveryPlan,
+        DeliveryStrategy,
+    )
     from medre.core.rendering.renderer import RenderingResult
-    from tests.test_target_delivery_outcomes import (
-        _make_event,
-        _make_route_and_plan,
-        _make_service,
+    from medre.core.routing.models import (
+        Route,
+        RouteSource,
+        RouteTarget,
     )
 
     class _CapturingAdapter:
@@ -746,10 +853,63 @@ async def test_reserved_attempt_overrides_lineage_stamp() -> None:
                 native_channel_id=None,
             )
 
+    class _ReceiptListStorage:
+        def __init__(self) -> None:
+            self.receipts: list[DeliveryReceipt] = []
+
+        async def append_receipt(self, receipt: DeliveryReceipt) -> None:
+            self.receipts.append(receipt)
+
+        async def store_native_ref(self, ref) -> None:
+            return None
+
+    class _StaticRenderingPipeline:
+        async def render(self, event, target_adapter, target_channel=None, **_):
+            return RenderingResult(
+                event_id=event.event_id,
+                target_adapter=target_adapter,
+                target_channel=target_channel,
+                payload={"text": "reserved stamp"},
+            )
+
     adapter = _CapturingAdapter()
-    service, storage = _make_service(adapters={"test_adapter": adapter})
-    route, plan = _make_route_and_plan()
-    event = _make_event()
+    storage = _ReceiptListStorage()
+    service = TargetDeliveryService(
+        adapters={"test_adapter": adapter},
+        rendering_pipeline=_StaticRenderingPipeline(),  # type: ignore[arg-type]
+        storage=storage,  # type: ignore[arg-type]
+        diagnostician=Diagnostician(),
+        lifecycle=DeliveryLifecycleService(),
+        logger=logging.getLogger("test.reservation.stamp"),
+    )
+    target = RouteTarget(adapter="test_adapter", channel=None)
+    route = Route(
+        id="route-001",
+        source=RouteSource(
+            adapter="src_adapter", event_kinds=("message.created",), channel=None
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-001",
+        event_id="evt-stamp-001",
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+    event = CanonicalEvent(
+        event_id="evt-stamp-001",
+        event_kind="message.created",
+        schema_version=1,
+        timestamp=datetime.now(timezone.utc),
+        source_adapter="src_adapter",
+        source_transport_id="node-1",
+        source_channel_id=None,
+        parent_event_id=None,
+        lineage=(),
+        relations=(),
+        payload={"text": "reserved stamp"},
+        metadata=EventMetadata(),
+    )
 
     previous = DeliveryReceipt(
         receipt_id="rcpt-previous",

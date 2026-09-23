@@ -469,21 +469,14 @@ class OutboxManager:
                         record.outcome,
                     )
                     return
-                if record.attempt_number != (
-                    existing_item.active_attempt
-                    if existing_item.active_attempt is not None
-                    else existing_item.attempt_number
-                ):
+                effective_attempt = self._lifecycle.effective_attempt(existing_item)
+                if record.attempt_number != effective_attempt:
                     self._log.warning(
                         "Terminal outcome rejected: outbox_id=%s has "
                         "effective attempt_number=%d but record has %d; "
                         "adapter=%s outcome=%s",
                         record.outbox_id,
-                        (
-                            existing_item.active_attempt
-                            if existing_item.active_attempt is not None
-                            else existing_item.attempt_number
-                        ),
+                        effective_attempt,
                         record.attempt_number,
                         record.adapter,
                         record.outcome,
@@ -522,11 +515,7 @@ class OutboxManager:
             # the record's attempt_number matches its effective attempt
             # (a reserved in-flight attempt during handoff, otherwise the
             # stored number).
-            _attempt_number: int = (
-                existing_item.active_attempt
-                if existing_item.active_attempt is not None
-                else existing_item.attempt_number
-            )
+            _attempt_number: int = effective_attempt
 
             # Recover queued-receipt lineage: look up the queued receipt
             # for the same (outbox_id, attempt_number) to inherit its

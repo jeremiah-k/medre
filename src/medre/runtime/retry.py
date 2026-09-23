@@ -1099,6 +1099,7 @@ class RetryWorker:
                     item,
                 )
             except Exception as lifecycle_exc:
+                self.state.processed += 1
                 _logger.exception(
                     "RetryWorker: failed to reserve attempt for outbox %s",
                     item.outbox_id,

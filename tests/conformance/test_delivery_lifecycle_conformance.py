@@ -278,6 +278,8 @@ class _MemoryStorage:
         item = self._outbox.get(outbox_id)
         if item is not None:
             object.__setattr__(item, "status", "abandoned")
+            object.__setattr__(item, "attempt_number", _effective_attempt(item))
+            object.__setattr__(item, "active_attempt", None)
             object.__setattr__(item, "error_summary", error_summary)
 
     # -- Required by abstract protocol but unused in these tests --
