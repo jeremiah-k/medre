@@ -90,9 +90,12 @@ class OutboxManager:
 
         **Replay attempt identity rule.**  When *source* is ``"replay"``,
         the method queries existing outbox rows for the same event and
-        computes ``max(attempt_number) + 1`` across rows sharing the same
+        computes ``max(effective_attempt) + 1`` across rows sharing the same
         event-scoped delivery identity (event_id, delivery_plan_id,
-        target_adapter, target_channel).
+        target_adapter, target_channel).  ``effective_attempt`` means a live
+        ``active_attempt`` reservation when present, otherwise the finalized
+        ``attempt_number``.  Replay therefore cannot allocate a generation
+        already reserved by an in-flight retry.
         This guarantees replay never reclaims or mutates live rows (which
         have lower attempt numbers).  The same ownership check applies to
         ALL sources — if the freshly-created replay row comes back terminal,
@@ -137,8 +140,9 @@ class OutboxManager:
 
             attempt_number = 1
 
-            # For replay: compute attempt_number = max(existing) + 1 so
-            # the new row cannot conflict with any live or prior replay row.
+            # For replay: allocate beyond every finalized *or reserved*
+            # generation so the new row cannot collide with an in-flight
+            # retry or any prior replay row.
             if source == "replay":
                 existing = await self._storage.list_outbox_items_for_event(
                     event.event_id,
@@ -149,7 +153,10 @@ class OutboxManager:
                         and row.target_adapter == adapter_name
                         and (row.target_channel or None) == (target.channel or None)
                     ):
-                        attempt_number = max(attempt_number, row.attempt_number + 1)
+                        attempt_number = max(
+                            attempt_number,
+                            self._lifecycle.effective_attempt(row) + 1,
+                        )
 
             outbox_item = DeliveryOutboxItem(
                 outbox_id=f"obox-{uuid.uuid4()}",
@@ -313,6 +320,7 @@ class OutboxManager:
             outbox_created=ctx.created,
             evidence=evidence,
             retry_policy=retry_policy,
+            reserved_attempt_number=ctx.attempt_number,
             expected_worker_id=ctx.pipeline_worker or None,
         )
 

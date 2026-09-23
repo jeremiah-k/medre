@@ -385,13 +385,17 @@ receipt rows and never modify existing receipts.
 
 ### 5.1.1 Replay Attempt Identity
 
-Replay computes the outbox attempt number as `max(existing attempt_number) + 1`
-across all outbox rows sharing the same delivery identity (delivery_plan_id,
-target_adapter, target_channel). This ensures replay never reclaims or mutates
-live rows, which have lower attempt numbers. The same ownership check that
-applies to live delivery also applies to replay: if the freshly-created outbox
-row comes back terminal, active, or owned by another worker, the pipeline skips
-delivery with `failure_kind=outbox_not_owned`.
+Replay computes the outbox attempt number as
+`max(existing effective_attempt) + 1` across all outbox rows sharing the same
+event-scoped delivery identity (`event_id`, `delivery_plan_id`,
+`target_adapter`, normalized `target_channel`). `effective_attempt` is the
+row's live `active_attempt` reservation when present, otherwise its finalized
+`attempt_number`. Replay therefore cannot allocate a generation already
+reserved by an in-flight retry, and it never reclaims or mutates an existing
+live row. The same ownership check that applies to live delivery also applies
+to replay: if the freshly-created outbox row comes back terminal, active, or
+owned by another worker, the pipeline skips delivery with
+`failure_kind=outbox_not_owned`.
 
 ### 5.2 Replay Must Not Rewrite History
 

@@ -2151,6 +2151,7 @@ class DeliveryLifecycleService:
         outbox_created: bool,
         evidence: DeliveryExecutionEvidence,
         retry_policy: RetryPolicy | None,
+        reserved_attempt_number: int | None = None,
         expected_worker_id: str | None = None,
     ) -> bool | None:
         """Commit mutable outbox state from validated execution evidence.
@@ -2260,10 +2261,16 @@ class DeliveryLifecycleService:
                     )
                 elif attempt is None and failure_kind.is_retryable and retry_policy:
                     # Failure occurred before durable attempt evidence could be
-                    # appended. Preserve the old recovery behavior by deriving
-                    # retry timing from the persisted outbox attempt identity.
-                    outbox_item = await storage.get_outbox_item(outbox_id)
-                    retry_attempt = outbox_item.attempt_number if outbox_item else 1
+                    # appended. The durable dispatch reservation is still the
+                    # attempt identity for exhaustion, backoff, and CAS. The
+                    # coordinator supplies it directly; direct lifecycle tests
+                    # and defensive callers may recover it from the row.
+                    retry_attempt = reserved_attempt_number
+                    if retry_attempt is None:
+                        outbox_item = await storage.get_outbox_item(outbox_id)
+                        retry_attempt = (
+                            self.effective_attempt(outbox_item) if outbox_item else 1
+                        )
                     executor = RetryExecutor(retry_policy)
                     if not executor.is_exhausted(retry_attempt):
                         next_attempt_at = (
@@ -2276,6 +2283,7 @@ class DeliveryLifecycleService:
                             receipt_id=None,
                             failure_kind=failure_kind.value,
                             error_summary=error_summary,
+                            attempt_number=retry_attempt,
                             expected_worker_id=expected_worker_id,
                         )
                     else:
@@ -2284,17 +2292,29 @@ class DeliveryLifecycleService:
                             receipt_id=None,
                             failure_kind=failure_kind.value,
                             error_summary=error_summary,
+                            attempt_number=retry_attempt,
                             expected_worker_id=expected_worker_id,
                         )
                 else:
                     # A terminal execution should normally carry lifecycle
                     # authority. This fallback protects generic exception paths
                     # that failed before evidence persistence.
+                    terminal_attempt = reserved_attempt_number
+                    if attempt is None and terminal_attempt is None:
+                        outbox_item = await storage.get_outbox_item(outbox_id)
+                        terminal_attempt = (
+                            self.effective_attempt(outbox_item) if outbox_item else None
+                        )
                     committed = await storage.mark_outbox_dead_lettered(
                         outbox_id,
                         receipt_id=receipt_id,
                         failure_kind=failure_kind.value,
                         error_summary=error_summary,
+                        attempt_number=(
+                            attempt.attempt_number
+                            if attempt is not None
+                            else terminal_attempt
+                        ),
                         expected_worker_id=expected_worker_id,
                     )
 

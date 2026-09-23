@@ -54,6 +54,11 @@
 - Replay dispatch now threads the newly-created outbox generation into target
   execution, so immutable replay evidence and guarded outbox finalization always
   use the same attempt identity even when no prior replay receipt exists.
+- Replay generation allocation ranks existing rows by effective attempt
+  (`active_attempt` while reserved, otherwise finalized `attempt_number`) so a
+  concurrent replay cannot reuse a generation already reserved by an in-flight
+  retry. Receipt-less failure fallback likewise uses that reserved attempt for
+  exhaustion/backoff and guarded outbox finalization.
 - Retry reconciliation treats persisted `cancelled` and `abandoned` lifecycle
   evidence as terminal authority and fences suppression/abandonment transitions
   to the exact reserved attempt instead of allowing a later attempt to be consumed.
