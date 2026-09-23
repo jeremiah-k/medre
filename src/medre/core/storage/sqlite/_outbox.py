@@ -549,10 +549,10 @@ class _OutboxMixin:
             sets.append("attempt_number = ?")
             params.append(attempt_number)
             sets.append("active_attempt = NULL")
-        elif new_status in TERMINAL_OUTBOX_STATUSES:
-            # Terminal rows never keep a live reservation.  When a dispatch
-            # was in flight (abandonment, cancellation, suppression), the
-            # reserved attempt is the one that ran — record it as final.
+        elif new_status != "in_progress":
+            # Any transition out of in_progress ends the dispatch reservation.
+            # Preserve the reserved generation as the finalized attempt and
+            # clear active_attempt atomically so the SQLite CHECK remains true.
             sets.append("attempt_number = COALESCE(active_attempt, attempt_number)")
             sets.append("active_attempt = NULL")
         if failure_kind is not None:
@@ -837,7 +837,7 @@ class _OutboxMixin:
         if release_status not in CLAIMABLE_OUTBOX_STATUSES:
             raise ValueError(f"Invalid release_status: {release_status!r}")
 
-        _release_sql = "UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status = 'in_progress'"  # nosec B608 - status is hardcoded literal
+        _release_sql = "UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, attempt_number = COALESCE(active_attempt, attempt_number), active_attempt = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status = 'in_progress'"  # nosec B608 - status is hardcoded literal
         await self._write(
             _release_sql,
             (

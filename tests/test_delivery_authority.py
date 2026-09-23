@@ -317,3 +317,201 @@ async def test_sqlite_newer_generation_outranks_late_committed_older_generation(
     assert projected is not None
     assert resolved.receipt_id == newer_receipt.receipt_id
     assert projected.receipt_id == newer_receipt.receipt_id
+
+
+async def test_recovery_scan_prefers_newer_failed_generation_over_late_older_terminal(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Recovery consumes the same generation-aware authority as delivery_status."""
+    event_id = "evt-authority-recovery-new-failed"
+    plan_id = "plan-authority-recovery-new-failed"
+    await admit_event(temp_storage, event_id)
+    older = DeliveryOutboxItem(
+        outbox_id="obox-recovery-old-terminal",
+        event_id=event_id,
+        route_id="route-old",
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        attempt_number=1,
+        status="in_progress",
+    )
+    newer = DeliveryOutboxItem(
+        outbox_id="obox-recovery-new-failed",
+        event_id=event_id,
+        route_id="route-new",
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        attempt_number=2,
+        status="in_progress",
+    )
+    await temp_storage.create_outbox_item(older)
+    await temp_storage.create_outbox_item(newer)
+
+    newer_failed = DeliveryReceipt(
+        receipt_id="rcpt-recovery-new-failed",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        route_id="route-new",
+        status="failed",
+        failure_kind="adapter_transient",
+        attempt_number=2,
+        outbox_id=newer.outbox_id,
+    )
+    await temp_storage.append_receipt(newer_failed)
+    assert await temp_storage.mark_outbox_retry_wait(
+        newer.outbox_id,
+        next_attempt_at="2099-01-01T00:00:00+00:00",
+        receipt_id=newer_failed.receipt_id,
+        failure_kind="adapter_transient",
+        attempt_number=2,
+    )
+
+    older_failed = DeliveryReceipt(
+        receipt_id="rcpt-recovery-old-failed",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        route_id="route-old",
+        status="failed",
+        failure_kind="adapter_permanent",
+        attempt_number=1,
+        outbox_id=older.outbox_id,
+    )
+    older_terminal = DeliveryReceipt(
+        receipt_id="rcpt-recovery-old-terminal",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        route_id="route-old",
+        status="dead_lettered",
+        receipt_kind="lifecycle",
+        failure_kind="adapter_permanent",
+        attempt_number=1,
+        parent_receipt_id=older_failed.receipt_id,
+        outbox_id=older.outbox_id,
+    )
+    await temp_storage.append_receipt(older_failed)
+    assert await temp_storage.finalize_outbox_terminal(
+        older_terminal,
+        outbox_id=older.outbox_id,
+        attempt_number=1,
+        terminal_status="dead_lettered",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        failure_kind="adapter_permanent",
+    )
+
+    page = await temp_storage.query_unresolved_deliveries()
+    current = [item for item in page.items if item.event_id == event_id]
+    assert len(current) == 1
+    assert (current[0].receipt_id, current[0].status) == (
+        newer_failed.receipt_id,
+        "failed",
+    )
+
+
+async def test_recovery_scan_prefers_newer_terminal_generation_over_late_older_failed(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Late older retry evidence cannot hide a newer terminal generation."""
+    event_id = "evt-authority-recovery-new-terminal"
+    plan_id = "plan-authority-recovery-new-terminal"
+    await admit_event(temp_storage, event_id)
+    older = DeliveryOutboxItem(
+        outbox_id="obox-recovery-old-failed",
+        event_id=event_id,
+        route_id="route-old",
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        attempt_number=1,
+        status="in_progress",
+    )
+    newer = DeliveryOutboxItem(
+        outbox_id="obox-recovery-new-terminal",
+        event_id=event_id,
+        route_id="route-new",
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        attempt_number=2,
+        status="in_progress",
+    )
+    await temp_storage.create_outbox_item(older)
+    await temp_storage.create_outbox_item(newer)
+
+    newer_failed = DeliveryReceipt(
+        receipt_id="rcpt-recovery-newer-failed",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        route_id="route-new",
+        status="failed",
+        failure_kind="adapter_permanent",
+        attempt_number=2,
+        outbox_id=newer.outbox_id,
+    )
+    newer_terminal = DeliveryReceipt(
+        receipt_id="rcpt-recovery-newer-terminal",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        route_id="route-new",
+        status="dead_lettered",
+        receipt_kind="lifecycle",
+        failure_kind="adapter_permanent",
+        attempt_number=2,
+        parent_receipt_id=newer_failed.receipt_id,
+        outbox_id=newer.outbox_id,
+    )
+    await temp_storage.append_receipt(newer_failed)
+    assert await temp_storage.finalize_outbox_terminal(
+        newer_terminal,
+        outbox_id=newer.outbox_id,
+        attempt_number=2,
+        terminal_status="dead_lettered",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        failure_kind="adapter_permanent",
+    )
+
+    older_failed = DeliveryReceipt(
+        receipt_id="rcpt-recovery-older-late-failed",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="radio",
+        target_channel="mesh",
+        route_id="route-old",
+        status="failed",
+        failure_kind="adapter_transient",
+        attempt_number=1,
+        outbox_id=older.outbox_id,
+    )
+    await temp_storage.append_receipt(older_failed)
+    assert await temp_storage.mark_outbox_retry_wait(
+        older.outbox_id,
+        next_attempt_at="2099-01-01T00:00:00+00:00",
+        receipt_id=older_failed.receipt_id,
+        failure_kind="adapter_transient",
+        attempt_number=1,
+    )
+
+    page = await temp_storage.query_unresolved_deliveries()
+    current = [item for item in page.items if item.event_id == event_id]
+    assert len(current) == 1
+    assert (current[0].receipt_id, current[0].status) == (
+        newer_terminal.receipt_id,
+        "dead_lettered",
+    )

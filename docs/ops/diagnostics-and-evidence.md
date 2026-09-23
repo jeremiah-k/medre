@@ -570,7 +570,7 @@ Check `route_id` on the receipt or in the `delivery_state_by_target` entry. The 
 
 ### "Which target was selected?"
 
-Check `target_adapter` and `target_channel` in the receipt. The composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` uniquely identifies a delivery target.
+Check `event_id`, `delivery_plan_id`, `target_adapter`, and `target_channel` in the receipt. The composite key `(event_id, delivery_plan_id, target_adapter, target_channel)` identifies the event-scoped delivery target. `route_id` is provenance describing which route produced that delivery; it is not part of lifecycle identity.
 
 ### "What plan ID was assigned?"
 
@@ -620,10 +620,12 @@ causative attempt number and records the terminal transition without inventing
 another send. `lifecycle_status` is the current MEDRE-owned state.
 
 ```sql
-SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at
+SELECT receipt_id, receipt_kind, status, attempt_number, parent_receipt_id,
+       failure_kind, next_retry_at
 FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>'
-ORDER BY attempt_number;
+WHERE event_id = '<event_id>'
+  AND delivery_plan_id = '<plan_id>'
+ORDER BY sequence;
 ```
 
 ### "Were suppressed deliveries retried?"
@@ -764,21 +766,24 @@ instead describes abandonment of the current in-memory worker generation.
 
 State mismatch that cannot be explained by normal flow. Investigate the specific target:
 
-1. Check the receipt chain for the `delivery_plan_id`:
+1. Check the event-scoped receipt chain:
 
    ```sql
-   SELECT receipt_id, status, attempt_number, failure_kind, created_at
+   SELECT receipt_id, receipt_kind, status, attempt_number, parent_receipt_id,
+          failure_kind, created_at
    FROM delivery_receipts
-   WHERE delivery_plan_id = '<plan_id>'
-   ORDER BY attempt_number;
+   WHERE event_id = '<event_id>'
+     AND delivery_plan_id = '<plan_id>'
+   ORDER BY sequence;
    ```
 
-2. Check the outbox item status:
+2. Check the event-scoped outbox item status:
 
    ```sql
    SELECT outbox_id, status, attempt_number, updated_at
    FROM delivery_outbox
-   WHERE delivery_plan_id = '<plan_id>';
+   WHERE event_id = '<event_id>'
+     AND delivery_plan_id = '<plan_id>';
    ```
 
 3. Determine whether the outbox or receipt is the stale record. The outbox is the operational authority for current state; receipts are the immutable evidence trail.
@@ -837,10 +842,13 @@ Shared drill-down for any finding on a specific target:
 
 ```sql
 SELECT outbox_id, status, attempt_number, next_attempt_at, updated_at
-FROM delivery_outbox WHERE delivery_plan_id = '<plan_id>';
-SELECT receipt_id, status, attempt_number, sequence, failure_kind, created_at
-FROM delivery_receipts WHERE delivery_plan_id = '<plan_id>'
-ORDER BY attempt_number;
+FROM delivery_outbox
+WHERE event_id = '<event_id>' AND delivery_plan_id = '<plan_id>';
+SELECT receipt_id, receipt_kind, status, attempt_number, parent_receipt_id,
+       sequence, failure_kind, created_at
+FROM delivery_receipts
+WHERE event_id = '<event_id>' AND delivery_plan_id = '<plan_id>'
+ORDER BY sequence;
 ```
 
 Determine which record is stale: the outbox is the operational authority for

@@ -167,7 +167,7 @@ def apply_guarded_outbox_transition(
     if attempt_number is not None:
         object.__setattr__(item, "attempt_number", attempt_number)
         object.__setattr__(item, "active_attempt", None)
-    elif new_status in TERMINAL_OUTBOX_STATUSES:
+    elif new_status != "in_progress":
         object.__setattr__(
             item,
             "attempt_number",
@@ -198,4 +198,91 @@ def apply_guarded_outbox_transition(
         object.__setattr__(item, "locked_at", None)
         object.__setattr__(item, "lease_until", None)
         object.__setattr__(item, "worker_id", None)
+    return True
+
+
+def apply_guarded_outbox_terminal(
+    item: DeliveryOutboxItem | None,
+    receipts: list[DeliveryReceipt],
+    receipt: DeliveryReceipt,
+    *,
+    attempt_receipt: DeliveryReceipt | None = None,
+    outbox_id: str,
+    attempt_number: int,
+    terminal_status: str,
+    event_id: str,
+    delivery_plan_id: str,
+    target_adapter: str,
+    target_channel: str | None,
+    failure_kind: str | None = None,
+    error_summary: str | None = None,
+    expected_worker_id: str | None = None,
+) -> bool:
+    """Mirror SQLite's guarded atomic terminal finalization for test fakes.
+
+    Validation happens before the outbox guard, matching the concrete storage
+    API. When the guard rejects, neither immutable receipts nor mutable outbox
+    authority changes. A committed transition clears the same retry and claim
+    metadata as SQLite in the terminal transaction.
+    """
+    if terminal_status not in {"dead_lettered", "cancelled", "abandoned"}:
+        raise ValueError("unsupported terminal_status")
+    if receipt.receipt_kind != "lifecycle" or receipt.status != terminal_status:
+        raise ValueError("terminal finalization requires matching lifecycle evidence")
+    if (
+        receipt.outbox_id != outbox_id
+        or receipt.event_id != event_id
+        or receipt.delivery_plan_id != delivery_plan_id
+        or receipt.target_adapter != target_adapter
+        or (receipt.target_channel or None) != (target_channel or None)
+        or receipt.attempt_number != attempt_number
+        or attempt_number < 1
+    ):
+        raise ValueError("terminal lifecycle receipt identity mismatch")
+
+    if attempt_receipt is not None and (
+        attempt_receipt.receipt_kind != "attempt"
+        or attempt_receipt.status != "failed"
+        or attempt_receipt.event_id != receipt.event_id
+        or attempt_receipt.delivery_plan_id != receipt.delivery_plan_id
+        or attempt_receipt.target_adapter != receipt.target_adapter
+        or (attempt_receipt.target_channel or None) != (receipt.target_channel or None)
+        or attempt_receipt.outbox_id != receipt.outbox_id
+        or attempt_receipt.attempt_number != receipt.attempt_number
+        or receipt.parent_receipt_id != attempt_receipt.receipt_id
+    ):
+        raise ValueError("terminal lifecycle receipt must link to failed attempt")
+
+    effective_attempt = (
+        item.active_attempt
+        if item is not None and item.active_attempt is not None
+        else item.attempt_number if item is not None else None
+    )
+    if (
+        item is None
+        or item.outbox_id != outbox_id
+        or item.event_id != event_id
+        or item.delivery_plan_id != delivery_plan_id
+        or item.target_adapter != target_adapter
+        or (item.target_channel or None) != (target_channel or None)
+        or item.status not in {"queued", "in_progress"}
+        or effective_attempt != attempt_number
+        or (expected_worker_id is not None and item.worker_id != expected_worker_id)
+    ):
+        return False
+
+    if attempt_receipt is not None:
+        receipts.append(attempt_receipt)
+    receipts.append(receipt)
+    object.__setattr__(item, "status", terminal_status)
+    object.__setattr__(item, "attempt_number", attempt_number)
+    object.__setattr__(item, "active_attempt", None)
+    object.__setattr__(item, "receipt_id", receipt.receipt_id)
+    object.__setattr__(item, "failure_kind", failure_kind)
+    object.__setattr__(item, "failure_kind_detail", None)
+    object.__setattr__(item, "error_summary", error_summary)
+    object.__setattr__(item, "next_attempt_at", None)
+    object.__setattr__(item, "worker_id", None)
+    object.__setattr__(item, "locked_at", None)
+    object.__setattr__(item, "lease_until", None)
     return True

@@ -316,3 +316,33 @@ class TestClaimClearsNextAttemptAt:
         )
         assert len(claimed) == 1
         assert claimed[0].next_attempt_at is None
+
+
+async def test_release_claim_consumes_live_reservation(
+    outbox_temp_storage: SQLiteStorage,
+) -> None:
+    """Releasing an owned reserved row preserves the consumed attempt identity."""
+    item = _make_outbox_item(delivery_plan_id="plan-release-reserved")
+    created = await outbox_temp_storage.create_outbox_item(item)
+    claimed = await outbox_temp_storage.claim_due_outbox_items(
+        now="2026-01-01T00:00:00",
+        worker_id="worker-reserved",
+        lease_seconds=30,
+        limit=10,
+    )
+    assert len(claimed) == 1
+    assert await outbox_temp_storage.reserve_outbox_attempt(
+        created.outbox_id,
+        "worker-reserved",
+        1,
+    ) == 2
+
+    await outbox_temp_storage.release_outbox_claim(
+        created.outbox_id,
+        "worker-reserved",
+        release_status="pending",
+    )
+    row = await outbox_temp_storage.get_outbox_item(created.outbox_id)
+    assert row is not None
+    assert (row.status, row.attempt_number, row.active_attempt) == ("pending", 2, None)
+    assert row.worker_id is None

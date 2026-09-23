@@ -1470,30 +1470,33 @@ class DeliveryLifecycleService:
             if receipt.attempt_number == attempt_number
         ]
         if current:
-            current_ids = {receipt.receipt_id for receipt in current}
-            malformed_dead_letters = [
+            attempt_ids = {
+                receipt.receipt_id
+                for receipt in current
+                if receipt.receipt_kind == "attempt"
+            }
+            malformed_lifecycle = [
                 receipt
                 for receipt in receipts
                 if receipt.source == "retry"
                 and receipt.outbox_id is None
-                and receipt.status == "dead_lettered"
-                and receipt.attempt_number == attempt_number + 1
-                and receipt.parent_receipt_id in current_ids
+                and receipt.receipt_kind == "lifecycle"
+                and receipt.attempt_number == attempt_number
+                and receipt.parent_receipt_id in attempt_ids
             ]
-            if malformed_dead_letters:
+            if malformed_lifecycle:
                 raise ValueError(
-                    "Retry dead-letter receipt is missing required outbox_id: "
-                    f"receipt_id={malformed_dead_letters[-1].receipt_id}"
+                    "Retry lifecycle receipt is missing required outbox_id: "
+                    f"receipt_id={malformed_lifecycle[-1].receipt_id}"
                 )
-            linked_dead_letters = [
+            linked_lifecycle = [
                 receipt
-                for receipt in target_receipts
-                if receipt.status == "dead_lettered"
-                and receipt.attempt_number == attempt_number + 1
-                and receipt.parent_receipt_id in current_ids
+                for receipt in current
+                if receipt.receipt_kind == "lifecycle"
+                and receipt.parent_receipt_id in attempt_ids
             ]
-            if linked_dead_letters:
-                return linked_dead_letters[-1]
+            if linked_lifecycle:
+                return linked_lifecycle[-1]
             return current[-1]
         return None
 
@@ -1587,14 +1590,36 @@ class DeliveryLifecycleService:
             terminal_kind = (
                 "retry_exhausted" if failure_kind.is_retryable else failure_kind.value
             )
-            committed = await storage.mark_outbox_dead_lettered(
-                item.outbox_id,
-                receipt_id=receipt_id,
-                failure_kind=terminal_kind,
-                error_summary=error_summary,
-                attempt_number=attempt_number,
-                expected_worker_id=item.worker_id,
-            )
+            if evidence is not None and evidence.status == "failed":
+                lifecycle_receipt = self.build_terminal_lifecycle_receipt(
+                    evidence,
+                    status="dead_lettered",
+                    error=error_summary,
+                    failure_kind=terminal_kind,
+                )
+                committed = await storage.finalize_outbox_terminal(
+                    lifecycle_receipt,
+                    outbox_id=item.outbox_id,
+                    attempt_number=attempt_number,
+                    terminal_status="dead_lettered",
+                    event_id=item.event_id,
+                    delivery_plan_id=item.delivery_plan_id,
+                    target_adapter=item.target_adapter,
+                    target_channel=item.target_channel,
+                    failure_kind=terminal_kind,
+                    error_summary=error_summary,
+                    expected_worker_id=item.worker_id,
+                )
+                receipt_id = lifecycle_receipt.receipt_id
+            else:
+                committed = await storage.mark_outbox_dead_lettered(
+                    item.outbox_id,
+                    receipt_id=receipt_id,
+                    failure_kind=terminal_kind,
+                    error_summary=error_summary,
+                    attempt_number=attempt_number,
+                    expected_worker_id=item.worker_id,
+                )
             self._require_retry_commit(
                 committed,
                 item,
@@ -2039,7 +2064,7 @@ class DeliveryLifecycleService:
                 failure_kind=current.failure_kind,
                 attempt_number=receipt.attempt_number,
             )
-        if current.status == "cancelled" and committed_receipt.status == "failed":
+        if current.status == "cancelled" and committed_receipt.status == "cancelled":
             return RetryAttemptFinalization(
                 outcome="cancelled",
                 receipt_id=committed_receipt.receipt_id,
@@ -2048,6 +2073,7 @@ class DeliveryLifecycleService:
             )
         if current.status == "abandoned" and committed_receipt.status in {
             "failed",
+            "abandoned",
             "suppressed",
         }:
             return RetryAttemptFinalization(

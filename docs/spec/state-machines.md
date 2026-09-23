@@ -62,9 +62,9 @@ Each delivery attempt produces a new receipt row. Receipts are never updated
 or deleted. For outbox-backed delivery, the outbox row's committed `receipt_id`
 determines the current receipt; a later receipt whose guarded outbox transition
 was rejected remains historical evidence. Outbox-less delivery uses the latest
-append for current status. A delivery chain is identified by
-`delivery_plan_id`, `target_adapter`, and `target_channel`; retry lineage is
-linked by `parent_receipt_id`. Event-level status is an aggregate reporting
+append for current status. A delivery chain is identified by `event_id`, `delivery_plan_id`,
+`target_adapter`, and normalized `target_channel`; retry lineage is linked by
+`parent_receipt_id`. Event-level status is an aggregate reporting
 view, not the primitive current-status key.
 
 ### 1.3 Legal Transitions
@@ -82,12 +82,15 @@ outbox-less chains, durable append order remains the projection rule.
 | —                          | `failed`                 | Adapter raises transient or permanent error    |
 | —                          | `suppressed`             | Loop/policy/capacity/shutdown suppression      |
 | `queued`                   | `sent`                   | Queue-based adapter reports native message ID  |
+| `queued`                   | `failed`                 | Queue terminal callback reports failed attempt |
+| `queued`                   | `cancelled`              | Queue terminal callback reports cancellation   |
+| `queued`                   | `abandoned`              | Queue terminal callback reports abandonment    |
 | `failed`                   | `failed`                 | Retry attempt also fails                       |
 | `failed`                   | `dead_lettered`          | Retry exhausted                                |
 
-Receipts with `parent_receipt_id = None` are initial attempts. Subsequent
-receipts in a retry chain set `parent_receipt_id` to the previous receipt's
-`receipt_id` and increment `attempt_number`.
+Receipts with `parent_receipt_id = None` are initial attempts. A new dispatch
+attempt increments `attempt_number`; lifecycle evidence keeps the causative
+attempt number. Linked evidence sets `parent_receipt_id` to its causal receipt.
 
 ### 1.4 Invariant: Append-Only
 
@@ -383,7 +386,7 @@ corresponding receipt. This enables:
 | `sent`          | `queued` → `sent`          | Queue-based: initial queued, then sent on confirmation                                                            |
 | `dead_lettered` | `dead_lettered`            | Retry exhaustion or terminal failure                                                                              |
 | `cancelled`     | `cancelled`                | Lifecycle evidence for an explicit cancellation when an event-backed outbox row can be correlated                 |
-| `abandoned`     | `abandoned` / `suppressed` | Lifecycle evidence for abandonment; legacy shutdown-drain evidence is normalized in the terminal-evidence tranche |
+| `abandoned`     | `abandoned` / `suppressed` | Lifecycle evidence for abandonment; shutdown-drain suppression remains historical evidence when no correlated outbox transition is available |
 | —               | `suppressed`               | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"` |
 
 ### 3.4 Implicit Suppression Paths

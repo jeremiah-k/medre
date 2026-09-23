@@ -120,11 +120,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     created_at TEXT NOT NULL,
     CHECK (attempt_number >= 1),
     CHECK (receipt_kind IN ('attempt', 'lifecycle')),
-    CHECK (
-        (receipt_kind = 'attempt' AND status IN ('queued', 'sent', 'failed'))
-        OR
-        (receipt_kind = 'lifecycle' AND status IN ('dead_lettered', 'cancelled', 'abandoned', 'suppressed'))
-    ),
+    CHECK ((receipt_kind = 'attempt' AND status IN ('queued', 'sent', 'failed')) OR (receipt_kind = 'lifecycle' AND status IN ('dead_lettered', 'cancelled', 'abandoned', 'suppressed'))),
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
@@ -221,10 +217,7 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     CHECK (attempt_number >= 1),
     CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
     CHECK (active_attempt IS NULL OR status = 'in_progress'),
-    CHECK (status IN (
-        'pending', 'in_progress', 'queued', 'sent', 'retry_wait',
-        'dead_lettered', 'cancelled', 'abandoned'
-    ))
+    CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned'))
 );
 
 CREATE TABLE IF NOT EXISTS delivery_observations (
@@ -592,6 +585,57 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
 # existing pre-release table created without these invariants because
 # ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
 _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "delivery_receipts": (
+        (
+            "CHECK (attempt_number >= 1)",
+            r"CHECK\s*\(\s*attempt_number\s*>=\s*1\s*\)",
+        ),
+        (
+            "CHECK (receipt_kind IN ('attempt', 'lifecycle'))",
+            (
+                r"CHECK\s*\(\s*receipt_kind\s+IN\s*\(\s*'attempt'\s*,\s*"
+                r"'lifecycle'\s*\)\s*\)"
+            ),
+        ),
+        (
+            "CHECK (receipt_kind/status pairing)",
+            (
+                r"CHECK\s*\(\s*\(\s*receipt_kind\s*=\s*'attempt'\s+AND\s+"
+                r"status\s+IN\s*\(\s*'queued'\s*,\s*'sent'\s*,\s*'failed'\s*\)\s*\)"
+                r"\s+OR\s+\(\s*receipt_kind\s*=\s*'lifecycle'\s+AND\s+status\s+IN\s*\("
+                r"\s*'dead_lettered'\s*,\s*'cancelled'\s*,\s*'abandoned'\s*,\s*'suppressed'\s*"
+                r"\)\s*\)\s*\)"
+            ),
+        ),
+    ),
+    "delivery_outbox": (
+        (
+            "CHECK (attempt_number >= 1)",
+            r"CHECK\s*\(\s*attempt_number\s*>=\s*1\s*\)",
+        ),
+        (
+            "CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1)",
+            (
+                r"CHECK\s*\(\s*active_attempt\s+IS\s+NULL\s+OR\s+active_attempt\s*=\s*"
+                r"attempt_number\s*\+\s*1\s*\)"
+            ),
+        ),
+        (
+            "CHECK (active_attempt IS NULL OR status = 'in_progress')",
+            (
+                r"CHECK\s*\(\s*active_attempt\s+IS\s+NULL\s+OR\s+status\s*=\s*"
+                r"'in_progress'\s*\)"
+            ),
+        ),
+        (
+            "CHECK (delivery_outbox.status vocabulary)",
+            (
+                r"CHECK\s*\(\s*status\s+IN\s*\(\s*'pending'\s*,\s*'in_progress'\s*,\s*"
+                r"'queued'\s*,\s*'sent'\s*,\s*'retry_wait'\s*,\s*'dead_lettered'\s*,\s*"
+                r"'cancelled'\s*,\s*'abandoned'\s*\)\s*\)"
+            ),
+        ),
+    ),
     "delivery_observations": (
         (
             "CHECK (attempt_number >= 1)",

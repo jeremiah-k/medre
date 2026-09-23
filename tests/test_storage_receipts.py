@@ -1443,14 +1443,17 @@ class TestUnknownReceiptStatusRejected:
         )
         count_before = rows_before[0]["cnt"]
 
-        with pytest.raises(ValueError, match="Unknown delivery receipt status"):
-            DeliveryReceipt(
-                receipt_id="rcpt-no-row",
-                event_id="evt-unknown-row",
-                delivery_plan_id="plan-no-row",
-                target_adapter="adapter_no",
-                status="totally_invalid",  # type: ignore[arg-type]
-            )
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-no-row",
+            event_id="evt-unknown-row",
+            delivery_plan_id="plan-no-row",
+            target_adapter="adapter_no",
+            status="sent",
+        )
+        object.__setattr__(receipt, "status", "totally_invalid")
+
+        with pytest.raises(ValueError, match="Unknown receipt status"):
+            await temp_storage.append_receipt(receipt)
 
         # Count receipts after — must be unchanged.
         rows_after = await temp_storage._read_all(
@@ -1459,3 +1462,27 @@ class TestUnknownReceiptStatusRejected:
         )
         count_after = rows_after[0]["cnt"]
         assert count_after == count_before
+
+    async def test_unknown_receipt_kind_does_not_append_row(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Storage revalidates receipt kind even for corrupted model objects."""
+        event = make_storage_event(event_id="evt-unknown-kind-row")
+        await temp_storage.append(event)
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-bad-kind",
+            event_id=event.event_id,
+            delivery_plan_id="plan-bad-kind",
+            target_adapter="adapter_no",
+            status="sent",
+        )
+        object.__setattr__(receipt, "receipt_kind", "bogus")
+
+        with pytest.raises(ValueError, match="Unknown receipt kind"):
+            await temp_storage.append_receipt(receipt)
+
+        rows = await temp_storage._read_all(
+            "SELECT COUNT(*) AS cnt FROM delivery_receipts WHERE event_id = ?",
+            (event.event_id,),
+        )
+        assert rows[0]["cnt"] == 0

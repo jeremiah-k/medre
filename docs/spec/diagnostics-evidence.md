@@ -978,8 +978,6 @@ Each ledger entry contains:
 
 | Field                            | Source                                     | Semantics                                                                                      |
 | -------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Field                            | Source                                     | Semantics                                                                                      |
-| -------------------------------- | ---------------------------------------    | ---------                                                                                      |
 | `delivery_plan_id`               | Delivery identity                          | Plan component of the event-scoped delivery identity.                                          |
 | `event_id`                       | Delivery identity                          | Canonical event component; plan IDs never identify a delivery alone.                           |
 | `route_id`                       | Selected receipt/outbox provenance         | Route that produced the selected evidence; not lifecycle identity.                             |

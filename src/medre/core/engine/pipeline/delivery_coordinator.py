@@ -73,7 +73,7 @@ class _PersistSuppressionReceiptFn(Protocol):
         error: str,
         source: str = "live",
         replay_run_id: str | None = None,
-    ) -> DeliveryExecutionEvidence: ...
+    ) -> DeliveryReceipt: ...
 
 
 class _DeliverTargetFn(Protocol):
@@ -89,7 +89,7 @@ class _DeliverTargetFn(Protocol):
         cached_get_fn: _GetEventFn | None = None,
         cached_list_fn: _ListNativeRefsFn | None = None,
         outbox_id: str | None = None,
-    ) -> DeliveryReceipt: ...
+    ) -> DeliveryExecutionEvidence: ...
 
 
 async def _bounded_ordered_map(

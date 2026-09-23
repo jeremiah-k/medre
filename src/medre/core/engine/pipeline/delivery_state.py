@@ -144,7 +144,7 @@ ADAPTER_DELIVERY_STATUSES: frozenset[str] = frozenset({"sent", "enqueued"})
 #: can transition to ``dead_lettered`` when retries are exhausted, or
 #: to ``failed`` again when a retry attempt also fails.
 RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
-    "queued": frozenset({"sent"}),
+    "queued": frozenset({"sent", "failed", "cancelled", "abandoned"}),
     "failed": frozenset({"dead_lettered", "failed"}),
     # sent, dead_lettered, cancelled, abandoned, suppressed are terminal.
 }

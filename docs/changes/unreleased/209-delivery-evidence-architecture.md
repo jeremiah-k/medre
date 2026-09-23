@@ -42,3 +42,12 @@
   late append from an older generation cannot regress current authority.
 - Pre-release SQLite shape changes require recreating incompatible databases
   under the existing prerelease schema policy.
+- Review hardening aligns every secondary surface with the same authority model:
+  retry exhaustion commits linked lifecycle authority instead of pointing at the
+  failed attempt, recovery scans consume the generation-aware `delivery_status`
+  projection, queue terminal receipt transitions include cancellation and
+  abandonment, and reservation cleanup consumes `active_attempt` whenever a row
+  leaves `in_progress`.
+- Startup schema validation now verifies the new receipt/outbox CHECK constraints,
+  and shared in-memory terminal-finalization helpers keep conformance and
+  operational fakes aligned with SQLite.

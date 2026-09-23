@@ -171,10 +171,10 @@ class _DeliveryFinalizationMixin:
         error_summary: str | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
-        """Atomically persist one terminal queue outcome.
+        """Atomically persist one terminal delivery outcome.
 
         The transaction re-checks the exact outbox attempt at write time —
-        row identity (``outbox_id`` / ``event_id`` / ``target_adapter``),
+        full delivery identity (outbox/event/plan/adapter/channel),
         ``attempt_number``, and eligibility (status still ``queued`` or
         ``in_progress``) — then inserts the immutable lifecycle receipt and
         transitions the row to *terminal_status* together.  It returns

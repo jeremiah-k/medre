@@ -261,8 +261,9 @@ class TestReceiptTransitions:
     def test_suppressed_has_no_outgoing(self) -> None:
         assert validate_receipt_transition("suppressed", "sent") is False
 
-    def test_queued_to_failed_invalid(self) -> None:
-        assert validate_receipt_transition("queued", "failed") is False
+    @pytest.mark.parametrize("status", ["failed", "cancelled", "abandoned"])
+    def test_queued_terminal_callback_edges(self, status: str) -> None:
+        assert validate_receipt_transition("queued", status) is True
 
     def test_failed_to_sent_invalid(self) -> None:
         assert validate_receipt_transition("failed", "sent") is False

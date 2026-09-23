@@ -350,3 +350,93 @@ async def test_retry_suppression_commits_receipt_pointer() -> None:
         receipt_id=receipt.receipt_id,
         expected_worker_id="retry-worker-race",
     )
+
+
+async def test_lifecycle_reconciles_cancelled_lifecycle_receipt_after_cas_loss() -> None:
+    lifecycle = DeliveryLifecycleService()
+    storage = MagicMock()
+    storage.get_outbox_item = AsyncMock(
+        return_value=DeliveryOutboxItem(
+            outbox_id="obox-race",
+            event_id="evt-race",
+            route_id="route-race",
+            delivery_plan_id="plan-race",
+            target_adapter="target_a",
+            attempt_number=2,
+            status="cancelled",
+            receipt_id="rcpt-cancelled-2",
+            failure_kind="adapter_permanent",
+        )
+    )
+    storage.list_receipts_for_plan = AsyncMock(
+        return_value=[
+            DeliveryReceipt(
+                receipt_id="rcpt-cancelled-2",
+                event_id="evt-race",
+                delivery_plan_id="plan-race",
+                target_adapter="target_a",
+                route_id="route-race",
+                status="cancelled",
+                receipt_kind="lifecycle",
+                failure_kind="adapter_permanent",
+                attempt_number=2,
+                outbox_id="obox-race",
+                source="retry",
+            )
+        ]
+    )
+
+    finalization = await lifecycle.reconcile_retry_success_commit_rejection(
+        storage, _item(), _receipt()
+    )
+    assert finalization == RetryAttemptFinalization(
+        outcome="cancelled",
+        receipt_id="rcpt-cancelled-2",
+        failure_kind="adapter_permanent",
+        attempt_number=2,
+    )
+
+
+async def test_lifecycle_reconciles_abandoned_lifecycle_receipt_after_cas_loss() -> None:
+    lifecycle = DeliveryLifecycleService()
+    storage = MagicMock()
+    storage.get_outbox_item = AsyncMock(
+        return_value=DeliveryOutboxItem(
+            outbox_id="obox-race",
+            event_id="evt-race",
+            route_id="route-race",
+            delivery_plan_id="plan-race",
+            target_adapter="target_a",
+            attempt_number=2,
+            status="abandoned",
+            receipt_id="rcpt-abandoned-2",
+            failure_kind="capacity_rejection",
+        )
+    )
+    storage.list_receipts_for_plan = AsyncMock(
+        return_value=[
+            DeliveryReceipt(
+                receipt_id="rcpt-abandoned-2",
+                event_id="evt-race",
+                delivery_plan_id="plan-race",
+                target_adapter="target_a",
+                route_id="route-race",
+                status="abandoned",
+                receipt_kind="lifecycle",
+                failure_kind="capacity_rejection",
+                attempt_number=2,
+                outbox_id="obox-race",
+                source="retry",
+            )
+        ]
+    )
+
+    finalization = await lifecycle.reconcile_retry_success_commit_rejection(
+        storage, _item(), _receipt()
+    )
+    assert finalization == RetryAttemptFinalization(
+        outcome="abandoned",
+        receipt_id="rcpt-abandoned-2",
+        failure_kind="capacity_rejection",
+        attempt_number=2,
+    )

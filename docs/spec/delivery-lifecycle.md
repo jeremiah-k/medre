@@ -473,9 +473,9 @@ MUST NOT be presented as proof of delivery. See
    [state-machines.md](state-machines.md) §2.3 and the `OUTBOX_TRANSITIONS`
    table in `delivery_state.py`.
 
-4. Terminal statuses (`sent`, `dead_lettered`, `suppressed` for receipts;
-   `sent`, `dead_lettered`, `cancelled`, `abandoned` for outbox) MUST NOT have
-   outgoing transitions.
+4. Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`,
+   `suppressed` for receipts; `sent`, `dead_lettered`, `cancelled`, `abandoned`
+   for outbox) MUST NOT have outgoing transitions.
 
 5. Adapters MUST NOT directly mutate outbox rows or append receipt rows. The
    pipeline owns lifecycle transitions.

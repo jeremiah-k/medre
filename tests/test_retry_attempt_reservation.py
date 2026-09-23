@@ -1321,3 +1321,50 @@ async def test_retry_worker_does_not_report_superseded_success_transition(
     assert "retry_attempted" in event_types
     assert "retry_succeeded" not in event_types
     assert "retry_failed" not in event_types
+
+
+async def test_unstamped_queued_transition_consumes_live_reservation(temp_storage) -> None:
+    """Leaving in_progress without an explicit attempt finalizes the reservation."""
+    event = await _seed_event(temp_storage, "evt-reserved-queued-implicit")
+    item = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-reserved-queued-implicit",
+        event_id=event.event_id,
+    )
+    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+
+    assert await temp_storage.mark_outbox_queued(
+        item.outbox_id,
+        receipt_id="rcpt-reserved-queued-implicit",
+        expected_worker_id=_WORKER,
+    )
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None
+    assert (row.status, row.attempt_number, row.active_attempt) == ("queued", 2, None)
+
+
+async def test_unstamped_retry_wait_transition_consumes_live_reservation(
+    temp_storage,
+) -> None:
+    """Retry deferral without an explicit attempt cannot leave a ghost reservation."""
+    event = await _seed_event(temp_storage, "evt-reserved-retry-wait-implicit")
+    item = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-reserved-retry-wait-implicit",
+        event_id=event.event_id,
+    )
+    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+
+    assert await temp_storage.mark_outbox_retry_wait(
+        item.outbox_id,
+        next_attempt_at=_FUTURE.isoformat(),
+        failure_kind="adapter_transient",
+        expected_worker_id=_WORKER,
+    )
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None
+    assert (row.status, row.attempt_number, row.active_attempt) == (
+        "retry_wait",
+        2,
+        None,
+    )

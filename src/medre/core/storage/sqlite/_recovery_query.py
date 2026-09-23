@@ -11,11 +11,11 @@ used by :mod:`medre.core.delivery_authority`: ``(event_id, delivery_plan_id,
 target_adapter, COALESCE(target_channel, ''))``. Plan IDs are not globally
 unique, and ``source`` / ``replay_run_id`` are receipt provenance only.
 
-The scan starts from unresolved authoritative receipt candidates and rejects a
-candidate when any later authoritative receipt exists in the same lineage.
-Outbox-backed receipts are authoritative only when the outbox row points at
-their ``receipt_id``; stale-worker appends remain history. This avoids
-re-aggregating every receipt lineage for every page. No OFFSET or global COUNT is used: the page is
+The scan starts from the ``delivery_status`` projection, which already applies
+the same generation-aware authority rule as :mod:`medre.core.delivery_authority`.
+Outbox-backed receipts are eligible only through the exact committed outbox
+pointer; outbox-less evidence retains append-order authority. No OFFSET or
+global COUNT is used: the page is
 probed with ``limit + 1`` rows and the last emitted row's ``receipt_sequence``
 becomes the next keyset position (strictly ascending — ``sequence`` is the
 AUTOINCREMENT primary key, so positions are unique and stable).
@@ -37,34 +37,10 @@ from medre.core.storage.backend import (
     encode_page_cursor,
 )
 
-#: Correlated latest-receipt check. NULL and empty target channels are one
-#: lineage; replay provenance deliberately is not part of the key.
-_AUTHORITATIVE_RECEIPT = """
-(
-    {alias}.outbox_id IS NULL
-    OR EXISTS (
-        SELECT 1
-        FROM delivery_outbox authoritative_outbox
-        WHERE authoritative_outbox.outbox_id = {alias}.outbox_id
-          AND authoritative_outbox.receipt_id = {alias}.receipt_id
-    )
-)
-"""
-
-_NO_LATER_RECEIPT = """
-NOT EXISTS (
-    SELECT 1
-    FROM delivery_receipts newer
-    WHERE newer.event_id = dr.event_id
-      AND newer.delivery_plan_id = dr.delivery_plan_id
-      AND newer.target_adapter = dr.target_adapter
-      AND COALESCE(newer.target_channel, '') = COALESCE(dr.target_channel, '')
-      AND newer.sequence > dr.sequence
-      AND {newer_authoritative}
-)
-""".format(  # nosec B608 - interpolates only the module-local fragment above; values stay bound parameters
-    newer_authoritative=_AUTHORITATIVE_RECEIPT.format(alias="newer")
-)
+#: ``delivery_status`` is the SQLite implementation of the shared
+#: :class:`DeliveryAuthorityResolver` contract. Recovery queries consume that
+#: projection directly so current-receipt ordering cannot drift into a second
+#: correlated-SQL implementation.
 
 
 def _select_unresolved_deliveries(*, since_scoped: bool) -> str:
@@ -84,14 +60,10 @@ def _select_unresolved_deliveries(*, since_scoped: bool) -> str:
         " dr.created_at AS receipt_created_at,"
         " dr.source, dr.replay_run_id,"
         " ce.event_kind, ce.source_adapter, ce.timestamp AS event_timestamp"
-        " FROM delivery_receipts dr"
+        " FROM delivery_status dr"
         " JOIN canonical_events ce ON ce.event_id = dr.event_id"
         f" WHERE dr.status IN ({status_placeholders})"  # nosec B608 - ? only
         + since_clause
-        + " AND "
-        + _AUTHORITATIVE_RECEIPT.format(alias="dr")
-        + " AND "
-        + _NO_LATER_RECEIPT
     )
 
 
