@@ -121,7 +121,10 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
 );
 
 -- delivery_status view: one row per unique (delivery_plan_id, target_adapter,
--- target_channel) tuple, projecting the latest receipt via MAX(sequence).
+-- target_channel) tuple.  Outbox-backed receipts are current only when the
+-- outbox row points at that receipt_id; receipts that lost a guarded outbox
+-- transition remain immutable historical evidence but do not become current
+-- status merely because they were appended later.
 -- COALESCE(target_channel, '') in GROUP BY ensures that NULL and '' channels
 -- are treated as the same group, avoiding duplicate rows when some receipts
 -- have NULL and others have '' for target_channel.
@@ -129,6 +132,17 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
 -- rendering_evidence is added).
 DROP VIEW IF EXISTS delivery_status;
 CREATE VIEW delivery_status AS
+WITH authoritative_receipts AS (
+    SELECT dr.*
+    FROM delivery_receipts dr
+    WHERE dr.outbox_id IS NULL
+       OR EXISTS (
+           SELECT 1
+           FROM delivery_outbox o
+           WHERE o.outbox_id = dr.outbox_id
+             AND o.receipt_id = dr.receipt_id
+       )
+)
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
        dr.failure_kind,
@@ -137,10 +151,11 @@ SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
        dr.retry_max_attempts, dr.retry_backoff_base,
        dr.retry_max_delay, dr.retry_jitter, dr.rendering_evidence,
        dr.outbox_id, dr.confirmation_level, dr.created_at
-FROM delivery_receipts dr
+FROM authoritative_receipts dr
 JOIN (
     SELECT delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
-    FROM delivery_receipts GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
+    FROM authoritative_receipts
+    GROUP BY delivery_plan_id, target_adapter, COALESCE(target_channel, '')
 ) latest ON dr.sequence = latest.max_seq;
 
 CREATE TABLE IF NOT EXISTS delivery_outbox (

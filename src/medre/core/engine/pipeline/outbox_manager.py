@@ -296,7 +296,7 @@ class OutboxManager:
         failure_kind_val: DeliveryFailureKind | None,
         error: str | None,
         retry_policy: RetryPolicy | None,
-    ) -> None:
+    ) -> bool | None:
         """Update the outbox item status based on the delivery outcome.
 
         Thin wrapper that delegates to
@@ -305,7 +305,7 @@ class OutboxManager:
         See :meth:`DeliveryLifecycleService.finalize_outbox_outcome`
         for full documentation.
         """
-        await self._lifecycle.finalize_outbox_outcome(
+        return await self._lifecycle.finalize_outbox_outcome(
             self._storage,
             outbox_id=ctx.outbox_id,
             outbox_created=ctx.created,

@@ -219,29 +219,24 @@ async def test_reservation_requires_in_progress_row(temp_storage) -> None:
     assert snapshot is not None
     assert await lifecycle.reserve_retry_attempt(temp_storage, snapshot) is None
 
-
-async def test_clear_reservation_releases_exact_number_only(temp_storage) -> None:
-    event = await _seed_event(temp_storage, "evt-clear")
-    item = await _seed_outbox(
-        temp_storage, outbox_id="obox-clear", event_id=event.event_id
+    # Exercise the SQLite status predicate directly.  A matching worker ID is
+    # not sufficient when the row is not in_progress.
+    pending = DeliveryOutboxItem(
+        outbox_id="obox-pending-reservation-guard",
+        event_id=event.event_id,
+        route_id="route-reservation",
+        delivery_plan_id=_PLAN_ID,
+        target_adapter="lxmf-main",
+        target_channel="aa" * 16,
+        attempt_number=1,
+        status="pending",
+        worker_id=_WORKER,
     )
-    [row for row in await _claim_due(temp_storage) if row.outbox_id == item.outbox_id][
-        0
-    ]
-
-    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
-    assert not await temp_storage.clear_outbox_attempt_reservation(
-        item.outbox_id, _WORKER, 7
+    await temp_storage.create_outbox_item(pending)
+    assert (
+        await temp_storage.reserve_outbox_attempt(pending.outbox_id, _WORKER, 1)
+        is None
     )
-    assert await temp_storage.clear_outbox_attempt_reservation(
-        item.outbox_id, _WORKER, 2
-    )
-
-    row = await temp_storage.get_outbox_item(item.outbox_id)
-    assert row is not None
-    assert row.active_attempt is None
-    # The released number is immediately reservable again by the same claim.
-    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +358,29 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
     assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
 
     manager = OutboxManager(temp_storage, DeliveryLifecycleService())
+    receipts_before = len(await temp_storage.list_receipts_for_event(event.event_id))
+    await manager.record_terminal(
+        QueueTerminalRecord(
+            event_id=event.event_id,
+            adapter="lxmf-main",
+            outcome="permanent_failed",
+            outbox_id=item.outbox_id,
+            delivery_plan_id=_PLAN_ID,
+            attempt_number=1,
+            native_channel_id="aa" * 16,
+        )
+    )
+    live = await temp_storage.get_outbox_item(item.outbox_id)
+    assert live is not None
+    assert (live.status, live.attempt_number, live.active_attempt) == (
+        "in_progress",
+        1,
+        2,
+    )
+    assert len(await temp_storage.list_receipts_for_event(event.event_id)) == (
+        receipts_before
+    )
+
     committed = await manager.record_terminal(
         QueueTerminalRecord(
             event_id=event.event_id,
@@ -404,13 +422,10 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
 async def test_stale_finalize_cannot_consume_newer_reservation(temp_storage) -> None:
     """A worker returning after lease theft must not regress the live attempt.
 
-    Worker A reserves attempt 2 and blocks in the transport.  Its lease
-    expires; the row is reclaimed, A's numberless reservation is re-reserved
-    as attempt 2 by a later cycle that fails (row reaches retry_wait at 2),
-    and worker C claims and reserves attempt 3.  When A finally returns and
-    finalizes attempt 2, the explicit-attempt fence must reject the write:
-    C's reservation stays live and the row's attempt identity never
-    regresses.
+    Worker A's attempt 2 has already been finalized to retry_wait, and worker C
+    claims and reserves attempt 3.  If an older worker later tries to finalize
+    attempt 2, the explicit-attempt fence must reject the write: C's
+    reservation stays live and the row's attempt identity never regresses.
     """
     event = await _seed_event(temp_storage, "evt-stale-finalize")
     item = await _seed_outbox(
@@ -598,6 +613,31 @@ async def test_queued_to_sent_commits_reserved_attempt(temp_storage) -> None:
     )
 
     lifecycle = DeliveryLifecycleService()
+    receipts_before = len(await temp_storage.list_receipts_for_event(event.event_id))
+    await lifecycle.finalize_queued_delivery(
+        temp_storage,
+        OutboundNativeRefRecord(
+            event_id=event.event_id,
+            adapter="lxmf-main",
+            native_channel_id="aa" * 16,
+            native_message_id="native-live-stale-1",
+            delivery_plan_id=_PLAN_ID,
+            outbox_id=item.outbox_id,
+            attempt_number=1,
+        ),
+        datetime.now(timezone.utc),
+    )
+    live = await temp_storage.get_outbox_item(item.outbox_id)
+    assert live is not None
+    assert (live.status, live.attempt_number, live.active_attempt) == (
+        "in_progress",
+        1,
+        2,
+    )
+    assert len(await temp_storage.list_receipts_for_event(event.event_id)) == (
+        receipts_before
+    )
+
     await lifecycle.finalize_queued_delivery(
         temp_storage,
         OutboundNativeRefRecord(
@@ -686,10 +726,10 @@ async def test_reconcile_commits_evidence_after_receipt_persisted_crash(
     assert row.active_attempt is None
 
 
-async def test_reconcile_clears_reservation_after_pre_dispatch_crash(
+async def test_reconcile_consumes_evidence_less_reserved_attempt(
     temp_storage,
 ) -> None:
-    """Crash after reservation but before any evidence persisted."""
+    """A reclaimed evidence-less reservation consumes its attempt identity."""
     event = await _seed_event(temp_storage, "evt-crash-reserve")
     item = await _seed_outbox(
         temp_storage, outbox_id="obox-crash-reserve", event_id=event.event_id
@@ -706,23 +746,78 @@ async def test_reconcile_clears_reservation_after_pre_dispatch_crash(
     assert snapshot.active_attempt == 2
 
     lifecycle = DeliveryLifecycleService()
-    assert (
-        await lifecycle.reconcile_retry_claim(
-            temp_storage, snapshot, RetryPolicy(max_attempts=5)
-        )
-        is None
+    finalization = await lifecycle.reconcile_retry_claim(
+        temp_storage,
+        snapshot,
+        RetryPolicy(max_attempts=5, jitter=False),
+        now=_PAST,
     )
+    assert finalization is not None
+    assert finalization.outcome == "retry_wait"
+    assert finalization.attempt_number == 2
+    assert finalization.receipt_id is None
 
     row = await temp_storage.get_outbox_item(item.outbox_id)
     assert row is not None
     assert row.active_attempt is None
-    assert row.attempt_number == 1
-    assert row.status == "in_progress"
-    # The released identity is reservable again by the recovering worker.
+    assert row.attempt_number == 2
+    assert row.status == "retry_wait"
+
+    reclaimed_again = [
+        candidate
+        for candidate in await _claim_due(temp_storage, worker_id="retry-worker-three")
+        if candidate.outbox_id == item.outbox_id
+    ]
+    assert reclaimed_again
     assert (
-        await temp_storage.reserve_outbox_attempt(item.outbox_id, "retry-worker-two", 1)
-        == 2
+        await temp_storage.reserve_outbox_attempt(
+            item.outbox_id,
+            "retry-worker-three",
+            2,
+        )
+        == 3
     )
+
+
+async def test_reconcile_dead_letters_exhausted_ambiguous_reservation(
+    temp_storage,
+) -> None:
+    event = await _seed_event(temp_storage, "evt-reclaim-exhausted")
+    item = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-reclaim-exhausted",
+        event_id=event.event_id,
+    )
+    assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+
+    reclaimed = [
+        row
+        for row in await _claim_due(
+            temp_storage, worker_id="retry-worker-exhausted"
+        )
+        if row.outbox_id == item.outbox_id
+    ]
+    assert reclaimed
+
+    lifecycle = DeliveryLifecycleService()
+    finalization = await lifecycle.reconcile_retry_claim(
+        temp_storage,
+        reclaimed[0],
+        RetryPolicy(max_attempts=2, jitter=False),
+        now=_PAST,
+    )
+
+    assert finalization is not None
+    assert finalization.outcome == "dead_lettered"
+    assert finalization.attempt_number == 2
+    assert finalization.receipt_id is None
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None
+    assert row.status == "dead_lettered"
+    assert row.attempt_number == 2
+    assert row.active_attempt is None
+    assert row.failure_kind == "retry_exhausted"
+    assert row.failure_kind_detail == "dispatch_outcome_unknown"
 
 
 async def test_reconcile_still_repairs_unreserved_next_attempt_evidence(

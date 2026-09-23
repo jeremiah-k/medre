@@ -350,7 +350,7 @@ class RetryExecutor:
     When RetryWorker is not enabled, retry is synchronous / receipt-level only:
     the pipeline records the failure receipt with ``next_retry_at`` populated,
     and a future scheduler (or manual replay) re-invokes ``deliver_to_target``
-    using the plan and the latest receipt's ``attempt_number``.
+    using the plan and the lifecycle-authoritative receipt's ``attempt_number``.
 
     Parameters
     ----------

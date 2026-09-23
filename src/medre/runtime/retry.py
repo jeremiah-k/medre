@@ -889,8 +889,8 @@ class RetryWorker:
         """Retry delivery for a single due outbox item.
 
         Uses the outbox item's metadata to reconstruct the delivery
-        context, finds the latest receipt for lineage, and re-attempts
-        delivery through the pipeline.
+        context, finds the lifecycle-authoritative receipt for lineage, and
+        re-attempts delivery through the pipeline.
         """
         event = await self._storage.get(item.event_id)
         if event is None:

@@ -2,8 +2,9 @@
 
 Authority surface:
   - query_unresolved_deliveries: **list/get** (read-only). Keyset-paginated
-    scan over *currently-unresolved* delivery outcomes — the latest receipt
-    of each logical delivery whose status is ``failed`` or ``dead_lettered``.
+    scan over *currently-unresolved* delivery outcomes — the
+    lifecycle-authoritative receipt of each logical delivery whose status is
+    ``failed`` or ``dead_lettered``.
 
 The lineage predicate here must stay identical to the pure Python grouping in
 :func:`medre.core.storage.backend.resolve_delivery_outcomes` (used by the
@@ -13,9 +14,11 @@ plan IDs are not guaranteed unique across events; the runbook scopes by event
 first, so its key omits it. Retry and executed-replay receipts continue the
 same delivery, so ``source`` and ``replay_run_id`` are receipt provenance only.
 
-The scan starts from unresolved receipt candidates and rejects a candidate when
-any later receipt exists in the same lineage. This avoids re-aggregating every
-receipt lineage for every page. No OFFSET or global COUNT is used: the page is
+The scan starts from unresolved authoritative receipt candidates and rejects a
+candidate when any later authoritative receipt exists in the same lineage.
+Outbox-backed receipts are authoritative only when the outbox row points at
+their ``receipt_id``; stale-worker appends remain history. This avoids
+re-aggregating every receipt lineage for every page. No OFFSET or global COUNT is used: the page is
 probed with ``limit + 1`` rows and the last emitted row's ``receipt_sequence``
 becomes the next keyset position (strictly ascending — ``sequence`` is the
 AUTOINCREMENT primary key, so positions are unique and stable).
@@ -39,6 +42,18 @@ from medre.core.storage.backend import (
 
 #: Correlated latest-receipt check. NULL and empty target channels are one
 #: lineage; replay provenance deliberately is not part of the key.
+_AUTHORITATIVE_RECEIPT = """
+(
+    {alias}.outbox_id IS NULL
+    OR EXISTS (
+        SELECT 1
+        FROM delivery_outbox authoritative_outbox
+        WHERE authoritative_outbox.outbox_id = {alias}.outbox_id
+          AND authoritative_outbox.receipt_id = {alias}.receipt_id
+    )
+)
+"""
+
 _NO_LATER_RECEIPT = """
 NOT EXISTS (
     SELECT 1
@@ -48,8 +63,9 @@ NOT EXISTS (
       AND newer.target_adapter = dr.target_adapter
       AND COALESCE(newer.target_channel, '') = COALESCE(dr.target_channel, '')
       AND newer.sequence > dr.sequence
+      AND {newer_authoritative}
 )
-"""
+""".format(newer_authoritative=_AUTHORITATIVE_RECEIPT.format(alias="newer"))
 
 
 def _select_unresolved_deliveries(*, since_scoped: bool) -> str:
@@ -73,6 +89,8 @@ def _select_unresolved_deliveries(*, since_scoped: bool) -> str:
         " JOIN canonical_events ce ON ce.event_id = dr.event_id"
         f" WHERE dr.status IN ({status_placeholders})"  # nosec B608 - ? only
         + since_clause
+        + " AND "
+        + _AUTHORITATIVE_RECEIPT.format(alias="dr")
         + " AND "
         + _NO_LATER_RECEIPT
     )

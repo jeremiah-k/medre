@@ -91,8 +91,11 @@ class _ReceiptMixin:
 
         Authority: **append** (append-only).  Receipts are append-only:
         every call creates a new row.  Existing receipt rows are never
-        updated or deleted.  The ``delivery_status``
-        view projects the latest receipt as a ``MAX(sequence)`` aggregation.
+        updated or deleted.  Current-status projections distinguish append
+        history from lifecycle authority: an outbox-backed receipt is current
+        only when the outbox row points at its ``receipt_id``.  A receipt whose
+        guarded outbox transition lost a race remains durable historical
+        evidence.
 
         Empty-string ``target_channel`` values are normalised to ``None``
         (SQL NULL) before insertion.  The ``delivery_status`` view uses
@@ -110,12 +113,16 @@ class _ReceiptMixin:
         target_adapter: str,
         target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter / channel triple.
+        """Return the current receipt for a delivery plan / adapter / channel triple.
 
-        Authority: **list/get** (read-only).  Queries the ``delivery_receipts`` base table directly (rather than
-        the ``delivery_status`` view) so that NULL and empty-string channel
-        values are handled robustly without relying on the view's
-        ``COALESCE(target_channel, '')`` grouping.
+        Authority: **list/get** (read-only).  Queries the ``delivery_receipts``
+        base table directly (rather than the ``delivery_status`` view) so that
+        NULL and empty-string channel values are handled robustly without
+        relying on the view's ``COALESCE(target_channel, '')`` grouping.
+        Outbox-backed receipts are eligible only when the matching outbox row
+        names their ``receipt_id`` as the committed lifecycle outcome.  This
+        keeps a late receipt from a stale worker as history instead of letting
+        append order overwrite current delivery status.
 
         Parameters
         ----------
@@ -133,7 +140,7 @@ class _ReceiptMixin:
         Returns
         -------
         DeliveryReceipt | None
-            The latest-matching receipt, or ``None`` when no receipt exists
+            The current matching receipt, or ``None`` when no committed receipt exists
             for the given combination.
         """
         row = await self._read_one(
@@ -225,6 +232,14 @@ class _ReceiptMixin:
                AND r.next_retry_at IS NOT NULL
                AND r.next_retry_at <= ?
                AND r.attempt_number < ?
+               AND (
+                   r.outbox_id IS NULL
+                   OR EXISTS (
+                       SELECT 1 FROM delivery_outbox o
+                       WHERE o.outbox_id = r.outbox_id
+                         AND o.receipt_id = r.receipt_id
+                   )
+               )
                AND NOT EXISTS (
                    SELECT 1 FROM delivery_receipts child
                    WHERE child.parent_receipt_id = r.receipt_id
@@ -248,6 +263,14 @@ class _ReceiptMixin:
                AND r.next_retry_at IS NOT NULL
                AND r.next_retry_at <= ?
                AND r.attempt_number < ?
+               AND (
+                   r.outbox_id IS NULL
+                   OR EXISTS (
+                       SELECT 1 FROM delivery_outbox o
+                       WHERE o.outbox_id = r.outbox_id
+                         AND o.receipt_id = r.receipt_id
+                   )
+               )
                AND NOT EXISTS (
                    SELECT 1 FROM delivery_receipts child
                    WHERE child.parent_receipt_id = r.receipt_id

@@ -293,9 +293,9 @@ MAX_RECOVERY_PAGE_LIMIT: int = 500
 _PAGE_CURSOR_VERSION: int = 1
 
 #: Receipt statuses that represent an unresolved *failure* outcome for a
-#: delivery lineage when they are the lineage's latest receipt.  ``queued``
-#: means a new attempt is in flight (not a current failure); ``sent`` and
-#: ``suppressed`` are resolved outcomes.
+#: delivery lineage when they are its lifecycle-authoritative receipt.
+#: ``queued`` means a new attempt is in flight (not a current failure);
+#: ``sent`` and ``suppressed`` are resolved outcomes.
 UNRESOLVED_RECEIPT_STATUSES: frozenset[str] = frozenset({"failed", "dead_lettered"})
 
 
@@ -303,15 +303,15 @@ UNRESOLVED_RECEIPT_STATUSES: frozenset[str] = frozenset({"failed", "dead_lettere
 class UnresolvedDelivery:
     """One currently-unresolved delivery outcome.
 
-    A row is produced only for the **latest receipt of a logical
-    delivery** — one ``(event_id, delivery_plan_id, target_adapter,
+    A row is produced only for the **lifecycle-authoritative receipt of a
+    logical delivery** — one ``(event_id, delivery_plan_id, target_adapter,
     target_channel)`` identity — whose status is ``failed`` or
-    ``dead_lettered``.  Retry and executed-replay receipts continue the
-    same delivery (the replay lifecycle appends attempts to it), so a
-    later success from any of those sources supersedes the delivery's
-    earlier failure, while successes of a different channel, plan,
-    event, or target never hide it.  ``replay_run_id`` partitions
-    nothing; it is per-receipt provenance.
+    ``dead_lettered``.  Outbox-backed delivery follows the outbox
+    ``receipt_id`` pointer; outbox-less delivery follows append order.
+    Retry and executed-replay receipts continue the same delivery, so a
+    committed later success supersedes the earlier failure while a rejected
+    stale-worker append does not.  ``replay_run_id`` partitions nothing; it
+    is per-receipt provenance.
 
     Timestamps are ISO-8601 strings exactly as stored (UTC, ``+00:00``
     suffix); they are evidence fields, not parsed datetimes.
@@ -433,8 +433,8 @@ def delivery_lineage_key(receipt: DeliveryReceipt) -> tuple[str, str, str]:
     Retry **and executed-replay** receipts share the key with the live
     delivery they re-attempt: the replay lifecycle continues the same
     delivery (``attempt_number = max(existing) + 1``) and the storage
-    ``delivery_status`` authority picks the latest receipt without
-    filtering on ``source``.  A successful executed replay therefore
+    ``delivery_status`` authority selects the current receipt without
+    filtering on ``source``.  A committed successful executed replay therefore
     resolves the original delivery's earlier failure; successes of a
     *different* delivery (other target/channel/plan/event) never do.
     ``replay_run_id`` is reported per receipt as provenance, never used
@@ -463,12 +463,15 @@ def resolve_delivery_outcomes(
     receipts: list[DeliveryReceipt],
 ) -> list[tuple[tuple[str, str, str], list[DeliveryReceipt]]]:
     """Group *receipts* into logical deliveries in durable append order.
-    This is the pure, storage-independent half of the current-outcome rule;
-    the SQL in ``SQLiteStorage.query_unresolved_deliveries`` implements the
-    same grouping.  Each returned entry is ``(delivery_key, receipts)`` with
-    receipts ordered by append ``sequence``; the **last** receipt of a
-    delivery — whatever its ``source`` or attempt number — is its current
-    outcome.
+
+    This helper is historical grouping only.  Each returned entry is
+    ``(delivery_key, receipts)`` with receipts ordered by append ``sequence``.
+    Callers that need the *current* outcome MUST consult storage lifecycle
+    authority (for SQLite, the outbox ``receipt_id`` projection exposed by
+    :meth:`StorageBackend.delivery_status`) rather than assuming the last
+    append won.  A stale worker may append immutable receipt evidence after
+    losing the guarded outbox transition; that receipt remains history but is
+    not current lifecycle state.
     """
     grouped: dict[tuple[str, str, str], list[DeliveryReceipt]] = {}
     for receipt in receipts:
@@ -1049,10 +1052,13 @@ class StorageBackend(Protocol):
         target_adapter: str,
         target_channel: str | None = None,
     ) -> DeliveryReceipt | None:
-        """Return the latest receipt for a delivery plan / adapter / channel triple.
+        """Return the current receipt for a delivery plan / adapter / channel triple.
 
-        Authority: **list/get** (read-only).  Projects the latest receipt
-        via ``MAX(sequence)`` aggregation.
+        Authority: **list/get** (read-only).  For outbox-backed delivery, the
+        outbox row's committed ``receipt_id`` is current-state authority; a
+        later receipt whose guarded outbox transition was rejected remains
+        immutable historical evidence.  Outbox-less lineages retain durable
+        append order as their projection rule.
 
         Parameters
         ----------
@@ -1123,16 +1129,18 @@ class StorageBackend(Protocol):
         """Return one bounded page of currently-unresolved deliveries.
 
         Authority: **list/get** (read-only).  A delivery is included when
-        the **latest receipt of its logical delivery** has status
-        ``failed`` or ``dead_lettered``.  A logical delivery is one
-        ``(event_id, delivery_plan_id, target_adapter, target_channel)``
-        identity (NULL and ``''`` channels grouped together); retry and
-        executed-replay receipts continue that same delivery, matching
-        the ``delivery_status`` authority (latest receipt, no source
-        filter), so:
+        its **lifecycle-authoritative receipt** has status ``failed`` or
+        ``dead_lettered``.  A logical delivery is one ``(event_id,
+        delivery_plan_id, target_adapter, target_channel)`` identity (NULL and
+        ``''`` channels grouped together); retry and executed-replay receipts
+        continue that same delivery.  Outbox-backed delivery uses the outbox
+        ``receipt_id`` pointer as current-state authority, while outbox-less
+        delivery uses durable append order, so:
 
-        * a later ``sent``/``queued`` receipt from live, retry, or an
+        * a committed later ``sent``/``queued`` receipt from live, retry, or an
           executed replay **supersedes** the delivery's earlier failure,
+        * a stale-worker receipt whose guarded outbox transition was rejected
+          remains historical and does **not** become current by append order,
         * successes of a different target, channel, plan, or event never
           hide a failure; ``replay_run_id`` is provenance, not a
           partition,
@@ -1140,8 +1148,9 @@ class StorageBackend(Protocol):
           failure, and dry-run replays (which append no receipts) can
           fabricate neither success nor failure.
 
-        Ordering is by the lineage's latest-receipt ``sequence`` ascending
-        (oldest unresolved evidence first), keyset-paginated via *cursor*.
+        Ordering is by the authoritative unresolved receipt's ``sequence``
+        ascending (oldest unresolved evidence first), keyset-paginated via
+        *cursor*.
         No OFFSET scan and no unconditional global COUNT are performed;
         ``has_more``/``next_cursor`` come from a ``limit + 1`` probe.
         Pages are a live view of append-only evidence, not a snapshot.
@@ -1475,6 +1484,7 @@ class StorageBackend(Protocol):
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
@@ -1502,23 +1512,6 @@ class StorageBackend(Protocol):
         from_attempt``.  Returns the reserved attempt number, or ``None``
         when the guard failed (lost claim, lease theft, or a competing
         reservation) — the caller must not invoke the transport.
-        """
-        ...
-
-    async def clear_outbox_attempt_reservation(
-        self,
-        outbox_id: str,
-        worker_id: str,
-        active_attempt: int,
-    ) -> bool:
-        """Clear a stale attempt reservation on a claimed row.
-
-        Authority: **update** (reservation release only, no status
-        change).  Succeeds only when the row is ``in_progress``, owned by
-        *worker_id*, and its reservation is exactly *active_attempt*.
-        Used by claim reconciliation when a prior worker reserved an
-        attempt but persisted no evidence for it, so the same number can
-        be re-reserved by the re-dispatch.
         """
         ...
 

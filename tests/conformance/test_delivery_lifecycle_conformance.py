@@ -187,23 +187,6 @@ class _MemoryStorage:
         object.__setattr__(item, "active_attempt", from_attempt + 1)
         return from_attempt + 1
 
-    async def clear_outbox_attempt_reservation(
-        self,
-        outbox_id: str,
-        worker_id: str,
-        active_attempt: int,
-    ) -> bool:
-        item = self._outbox.get(outbox_id)
-        if (
-            item is None
-            or item.status != "in_progress"
-            or item.worker_id != worker_id
-            or item.active_attempt != active_attempt
-        ):
-            return False
-        object.__setattr__(item, "active_attempt", None)
-        return True
-
     async def renew_outbox_lease(
         self,
         outbox_id: str,
@@ -310,6 +293,7 @@ class _MemoryStorage:
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
@@ -319,6 +303,7 @@ class _MemoryStorage:
             item,
             "abandoned",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            receipt_id=receipt_id,
             expected_worker_id=expected_worker_id,
             error_summary=error_summary,
         )

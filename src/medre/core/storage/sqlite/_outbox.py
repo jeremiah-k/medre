@@ -9,7 +9,6 @@ Authority surface:
   - list_outbox_items_for_event: **list/get** (read-only).
   - claim_due_outbox_items:     **claim** (atomic).
   - reserve_outbox_attempt:     **claim** (atomic attempt-identity reservation).
-  - clear_outbox_attempt_reservation: **update** (reservation release only).
   - mark_outbox_sent:           **mark** (terminal transition, in_progress|queued -> sent).
   - mark_outbox_queued:         **mark** (non-terminal, in_progress -> queued).
   - mark_outbox_retry_wait:     **mark** (non-terminal, in_progress -> retry_wait).
@@ -494,34 +493,6 @@ class _OutboxMixin:
             return from_attempt + 1
         return None
 
-    async def clear_outbox_attempt_reservation(
-        self,
-        outbox_id: str,
-        worker_id: str,
-        active_attempt: int,
-    ) -> bool:
-        """Clear a stale attempt reservation on a row this worker claimed.
-
-        Authority: **update** (reservation release only, no status
-        change).  Claim reconciliation uses this when a prior worker
-        reserved an attempt but persisted no evidence for it: releasing
-        the number lets the re-dispatch reserve the same identity again.
-        The guard requires the exact reserved number so a concurrent
-        finalization (which clears the reservation as part of committing
-        its transition) makes this a no-op.
-        """
-        rowcount = await self._write_rowcount(
-            """UPDATE delivery_outbox
-               SET active_attempt = NULL,
-                   updated_at = ?
-               WHERE outbox_id = ?
-                 AND worker_id = ?
-                 AND status = 'in_progress'
-                 AND active_attempt = ?""",
-            (_now_iso(), outbox_id, worker_id, active_attempt),
-        )
-        return rowcount == 1
-
     async def _update_outbox_status(
         self,
         outbox_id: str,
@@ -783,6 +754,7 @@ class _OutboxMixin:
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
@@ -799,6 +771,7 @@ class _OutboxMixin:
                 "retry_wait",
                 "queued",
             ),  # transition guard — intentionally literal
+            receipt_id=receipt_id,
             error_summary=error_summary,
             expected_worker_id=expected_worker_id,
         )

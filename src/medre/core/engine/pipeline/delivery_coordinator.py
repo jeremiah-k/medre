@@ -694,13 +694,21 @@ class DeliveryCoordinator:
             # caller's outer finally still releases capacity if finalization
             # itself raises, so persistence faults cannot leak runtime slots.
             await OutboxManager.cancel_renewal(renewal_task)
-            await self._outbox_manager.finalize_outcome(
+            committed = await self._outbox_manager.finalize_outcome(
                 outbox_ctx,
                 result.receipt if result is not None else None,
                 result.failure_kind if result is not None else None,
                 result.error if result is not None else None,
                 ctx.plan.retry_policy,
             )
+            if committed is False and result is not None and result.receipt is not None:
+                self._log.warning(
+                    "Delivery receipt %s was appended but its outbox transition "
+                    "did not commit for outbox %s; retaining the receipt as "
+                    "historical evidence only",
+                    result.receipt.receipt_id,
+                    outbox_ctx.outbox_id,
+                )
 
     async def _invoke_target(
         self,

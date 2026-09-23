@@ -142,7 +142,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
                 target_channel=channel,
                 route_id=route_id,
                 status="sent",
-                attempt_number=int(kwargs.get("reserved_attempt_number", 2)),  # type: ignore[arg-type]
+                attempt_number=int(kwargs["reserved_attempt_number"]),  # type: ignore[arg-type]
                 parent_receipt_id=receipt.receipt_id,
                 source="retry",
                 created_at=datetime.now(timezone.utc),
@@ -218,6 +218,7 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
         assert prev_rcpt is not None
         assert prev_rcpt.receipt_id == receipt.receipt_id
         assert captured["kwargs"]["source"] == "retry"
+        assert captured["kwargs"]["reserved_attempt_number"] == 3
 
         # Worker state reflects success
         assert worker.state.succeeded == 1
