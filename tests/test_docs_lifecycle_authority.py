@@ -808,24 +808,19 @@ class TestOutboxTransitionAlignment:
 
 
 # ===========================================================================
-# 9. Dead-letter attempt convention alignment
+# 9. Attempt identity vs lifecycle evidence alignment
 # ===========================================================================
 
 
-class TestDeadLetterAttemptConvention:
-    """Dead-letter attempt_number convention must be documented in
-    state-machines.md."""
+class TestLifecycleEvidenceAttemptIdentity:
+    """Lifecycle evidence must preserve the causative dispatch attempt."""
 
-    def test_state_machines_documents_dead_letter_convention(self) -> None:
-        """state-machines.md must have §1.6 Dead-Letter Attempt Convention."""
+    def test_state_machines_documents_no_phantom_attempt(self) -> None:
+        """§1.6 must forbid inventing a dispatch for lifecycle transitions."""
         content = _read(STATE_MACHINES_MD)
-        assert (
-            "Dead-Letter Attempt Convention" in content
-        ), "state-machines.md missing Dead-Letter Attempt Convention section"
-        assert "attempt_number + 1" in content, (
-            "state-machines.md dead-letter convention does not describe "
-            "attempt_number + 1 chain-closing"
-        )
+        assert "Attempt Identity vs Lifecycle Evidence" in content
+        assert "There is no synthetic attempt 4" in content
+        assert "also has `attempt_number = 3`" in content
 
 
 # ===========================================================================

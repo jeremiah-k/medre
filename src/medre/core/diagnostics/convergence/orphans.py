@@ -12,15 +12,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from medre.core.delivery_authority import DeliveryAuthorityResolver
+
 from .helpers import (
     _NON_TERMINAL_OUTBOX,
     _NON_TERMINAL_RECEIPT,
-    _build_committed_receipt_ids_by_key,
     _build_outbox_by_key,
-    _current_receipt_for_target,
     _get,
-    _target_key,
-    _TargetKey,
     _worst_severity,
 )
 from .types import (
@@ -112,15 +110,9 @@ def build_orphan_report(
         if rid:
             receipt_by_id[rid] = rec
 
-    # --- Index outbox items by target key ---------------------------------
+    # --- Index lifecycle authority by full target identity ----------------
     outbox_by_key = _build_outbox_by_key(outbox_list)
-    committed_receipt_ids = _build_committed_receipt_ids_by_key(outbox_list)
-
-    # --- Index receipts by target key -------------------------------------
-    receipts_by_key: dict[_TargetKey, list[Any]] = {}
-    for rec in receipt_list:
-        key = _target_key(rec)
-        receipts_by_key.setdefault(key, []).append(rec)
+    authority = DeliveryAuthorityResolver(receipt_list, outbox_list)
 
     # --- 1. Orphaned outbox (event_id not in known_event_ids) -------------
     if known_event_ids is not None:
@@ -261,9 +253,7 @@ def build_orphan_report(
         if outbox_status != "dead_lettered":
             continue
 
-        latest_rec = _current_receipt_for_target(
-            receipts_by_key, key, committed_receipt_ids.get(key)
-        )
+        latest_rec = authority.current(key)
         if latest_rec is None:
             continue
 

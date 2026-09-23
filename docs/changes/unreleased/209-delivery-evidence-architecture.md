@@ -17,5 +17,10 @@
   atomically for outbox-backed delivery, fenced by the full
   `(event, plan, adapter, channel, outbox, attempt)` identity and worker owner
   where applicable.
+- Centralize current-delivery projection behind `DeliveryAuthorityResolver`,
+  keyed by `(event_id, delivery_plan_id, target_adapter, target_channel)`.
+  Route/source/replay fields are provenance only; empty and absent channels
+  normalize to one identity; SQLite projection behavior is pinned to the same
+  conformance vectors.
 - Pre-release SQLite shape changes require recreating incompatible databases
   under the existing prerelease schema policy.

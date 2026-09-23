@@ -356,11 +356,11 @@ class TestSameAdapterTwoChannels:
 # ===================================================================
 
 
-class TestSameAdapterSameChannelDifferentRoutes:
+class TestRouteIsProvenanceNotIdentity:
     """Same adapter and channel but different route IDs produce distinct entries."""
 
     @pytest.mark.asyncio
-    async def test_two_entries_by_route_id(self, tmp_path: Any) -> None:
+    async def test_same_identity_collapses_across_route_provenance(self, tmp_path: Any) -> None:
         event_id = "ev-tk-routes-001"
         db_path = str(tmp_path / "routes.db")
         await _build_db(
@@ -390,13 +390,12 @@ class TestSameAdapterSameChannelDifferentRoutes:
         summary = await _get_incident_summary(db_path, event_id)
         dsbt = summary["delivery_state_by_target"]
 
-        assert len(dsbt) == 2, (
-            f"Same adapter/channel but different route_ids must produce 2 entries, "
-            f"got {len(dsbt)}: {list(dsbt.keys())}"
-        )
+        assert len(dsbt) == 1
+        entry = next(iter(dsbt.values()))
+        assert entry["route_id"] == "route-beta"
 
     @pytest.mark.asyncio
-    async def test_route_ids_preserved_in_entries(self, tmp_path: Any) -> None:
+    async def test_selected_receipt_preserves_route_provenance(self, tmp_path: Any) -> None:
         event_id = "ev-tk-rids-001"
         db_path = str(tmp_path / "rids.db")
         await _build_db(
@@ -426,11 +425,8 @@ class TestSameAdapterSameChannelDifferentRoutes:
         summary = await _get_incident_summary(db_path, event_id)
         dsbt = summary["delivery_state_by_target"]
 
-        route_ids_in_entries = {v["route_id"] for v in dsbt.values()}
-        assert route_ids_in_entries == {"route-alpha", "route-beta"}, (
-            f"Expected route_alpha and route_beta in entries, "
-            f"got {route_ids_in_entries}"
-        )
+        assert len(dsbt) == 1
+        assert next(iter(dsbt.values()))["route_id"] == "route-beta"
 
 
 # ===================================================================
@@ -689,7 +685,7 @@ class TestCompositeKeyDeterministicJsonSafe:
 
     @pytest.mark.asyncio
     async def test_key_contains_target_components(self, tmp_path: Any) -> None:
-        """Parsed key contains target_adapter, target_channel, route_id, delivery_plan_id."""
+        """Parsed key contains the full event-scoped delivery identity."""
         event_id = "ev-tk-keycomp-001"
         db_path = str(tmp_path / "keycomp.db")
         await _build_db(
@@ -715,8 +711,9 @@ class TestCompositeKeyDeterministicJsonSafe:
         parsed = json.loads(key)
         assert parsed["target_adapter"] == "radio"
         assert parsed["target_channel"] == "ch-42"
-        assert parsed["route_id"] == "route-x"
+        assert parsed["event_id"] == event_id
         assert parsed["delivery_plan_id"] == "dp-007"
+        assert "route_id" not in parsed
 
     @pytest.mark.asyncio
     async def test_key_deterministic_for_same_inputs(self, tmp_path: Any) -> None:

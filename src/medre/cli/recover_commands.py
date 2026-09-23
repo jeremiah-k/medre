@@ -30,6 +30,7 @@ from dataclasses import asdict
 from typing import Any
 
 import medre.runtime.timeline as _timeline
+from medre.core.delivery_authority import DeliveryAuthorityResolver
 from medre.core.observability.classification import (
     failure_category as _failure_category,
 )
@@ -45,7 +46,6 @@ from medre.core.storage.backend import (
     UnresolvedDelivery,
     attempt_source_label,
     decode_page_cursor,
-    resolve_delivery_outcomes,
 )
 from medre.runtime.reporting import _derive_capability_evidence
 
@@ -114,27 +114,15 @@ async def _build_event_recovery_runbook(
     receipts = tl_result["receipts"]
     native_refs = tl_result["native_refs"]
 
-    # Committed outbox receipt pointers, scoped to THIS event.  Plan IDs are
-    # not unique across events, so the event-less storage-level
-    # delivery_status lookup cannot disambiguate them; the runbook applies
-    # the same lifecycle-authority rule (an outbox-backed receipt is current
-    # only when its outbox row names it) over the event's own receipts.
+    # Build the shared event-scoped lifecycle-authority index. Plan IDs may
+    # recur across events, so current delivery identity always includes the
+    # canonical event even in this event-scoped runbook.
     outbox_items: list[Any] = []
     try:
         outbox_items = list(await storage.list_outbox_items_for_event(event_id))
     except Exception:
         outbox_items = []
-    committed_by_key: dict[tuple[str, str, str], set[str]] = {}
-    for outbox_row in outbox_items:
-        row_key = (
-            getattr(outbox_row, "delivery_plan_id", None) or "",
-            getattr(outbox_row, "target_adapter", None) or "",
-            getattr(outbox_row, "target_channel", None) or "",
-        )
-        ids = committed_by_key.setdefault(row_key, set())
-        row_receipt_id = getattr(outbox_row, "receipt_id", None)
-        if row_receipt_id:
-            ids.add(str(row_receipt_id))
+    authority = DeliveryAuthorityResolver(receipts, outbox_items)
 
     # Identify currently-failed lineages and classify by failure_kind.
     classification: dict[str, list[dict[str, Any]]] = {
@@ -146,18 +134,11 @@ async def _build_event_recovery_runbook(
     failed_targets: list[dict[str, Any]] = []
     historical_failures: list[dict[str, Any]] = []
 
-    for key, lineage_receipts in resolve_delivery_outcomes(receipts):
-        committed = committed_by_key.get(key)
-        eligible = (
-            lineage_receipts
-            if committed is None
-            else [
-                r
-                for r in lineage_receipts
-                if not getattr(r, "outbox_id", None) or r.receipt_id in committed
-            ]
-        )
-        current = eligible[-1] if eligible else None
+    for identity in authority.ordered_identities():
+        lineage_receipts = list(authority.receipts_for(identity))
+        if not lineage_receipts:
+            continue
+        current = authority.current(identity)
         is_current_failure = current is not None and current.status in (
             "failed",
             "dead_lettered",

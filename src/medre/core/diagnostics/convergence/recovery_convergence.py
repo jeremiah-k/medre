@@ -11,14 +11,13 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from medre.core.delivery_authority import DeliveryAuthorityResolver
+
 from .helpers import (
     _TERMINAL_OUTBOX,
     _TERMINAL_RECEIPT,
-    _build_committed_receipt_ids_by_key,
-    _current_receipt_for_target,
     _get,
     _target_key,
-    _TargetKey,
 )
 from .types import (
     KIND_RECLAIMED_THEN_ORPHANED,
@@ -78,9 +77,10 @@ def build_recovery_convergence_findings(
     """
     findings: list[OrphanFinding] = []
 
-    # Materialize generators once — outbox_items may be a one-shot generator.
+    # Materialize generators once — inputs may be one-shot iterables.
     outbox_list = list(outbox_items)
-    committed_receipt_ids = _build_committed_receipt_ids_by_key(outbox_list)
+    receipt_list = list(receipts)
+    authority = DeliveryAuthorityResolver(receipt_list, outbox_list)
 
     # Normalized recovery actions — populated when recovery_ledger is present.
     actions_list: list[Any] = []
@@ -94,12 +94,6 @@ def build_recovery_convergence_findings(
         oid = _get(item, "outbox_id", "")
         if oid:
             outbox_by_id[str(oid)] = item
-
-    # Index receipts by target key.
-    receipts_by_target: dict[_TargetKey, list[Any]] = {}
-    for rec in receipts:
-        key = _target_key(rec)
-        receipts_by_target.setdefault(key, []).append(rec)
 
     # -- Recovered but not progressed ---------------------------------------
     # An outbox item was reclaimed (its recovery action says so) but
@@ -146,11 +140,7 @@ def build_recovery_convergence_findings(
                     item = outbox_by_id.get(outbox_id)
                     if item is not None:
                         target_key = _target_key(item)
-                        latest = _current_receipt_for_target(
-                            receipts_by_target,
-                            target_key,
-                            committed_receipt_ids.get(target_key),
-                        )
+                        latest = authority.current(target_key)
                         if latest is not None:
                             latest_status = str(_get(latest, "status", ""))
                             if (
@@ -232,11 +222,7 @@ def build_recovery_convergence_findings(
                 if oid not in recovered_outbox_ids_terminal:
                     continue
                 target_key = _target_key(item)
-                latest = _current_receipt_for_target(
-                    receipts_by_target,
-                    target_key,
-                    committed_receipt_ids.get(target_key),
-                )
+                latest = authority.current(target_key)
                 if latest is not None:
                     latest_status = str(_get(latest, "status", "")).lower()
                     if latest_status not in _TERMINAL_RECEIPT:

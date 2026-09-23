@@ -362,6 +362,15 @@ They MUST NOT drive state transitions, MUST NOT write to storage, and MUST NOT
 be treated as evidence of what happened — only receipts and outbox state are
 evidence.
 
+All current-delivery projections MUST use the same event-scoped identity
+`(event_id, delivery_plan_id, target_adapter, target_channel)` and the same
+authority rule. Outbox-backed receipts are eligible only when a matching
+outbox generation commits their `receipt_id`; outbox-less receipts remain
+eligible by durable append order. `route_id`, receipt `source`, and
+`replay_run_id` are provenance, not lifecycle-identity dimensions. The pure
+`DeliveryAuthorityResolver` is the in-memory reference implementation; SQLite
+projections MUST conform to the same vectors.
+
 ---
 
 ## 5. Replay Boundary

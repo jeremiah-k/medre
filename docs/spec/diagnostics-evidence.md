@@ -676,13 +676,14 @@ Resolution order:
 
 ### 14.8.2 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by
-composite key `(delivery_plan_id, route_id, target_adapter, target_channel)`.
-For outbox-backed delivery it selects the receipt named by the authoritative
-outbox `receipt_id`; a rejected late append remains history. Receipt-only
-delivery uses durable append `sequence`. `source` and `replay_run_id` are
-provenance on the selected receipt, not grouping dimensions, so a committed
-executed replay or retry can supersede the same live delivery lineage.
+The incident summary's `delivery_state_by_target` dict uses the full
+current-delivery identity `(event_id, delivery_plan_id, target_adapter,
+target_channel)`. Empty-string and absent channels are one identity, matching
+SQLite persistence semantics. `route_id`, `source`, and `replay_run_id` are
+provenance on the selected receipt, not grouping dimensions. For outbox-backed
+delivery the shared authority resolver selects only receipts named by a matching
+outbox generation's committed `receipt_id`; rejected late appends remain
+history. Outbox-less delivery uses durable append order.
 Each target entry includes the capability-evidence fields from § 14.8.1, plus
 `source`, `replay_run_id`, `suppression_reason`, and `error`. This gives
 operators a per-target view of current capability suppression without joining
@@ -884,12 +885,13 @@ is derived at report time from existing receipt fields:
 
 ### 17.3 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by
-composite key `(delivery_plan_id, route_id, target_adapter, target_channel)`.
-Outbox-backed delivery selects the receipt named by the outbox `receipt_id`;
-receipt-only delivery selects the latest durable append. `source` and
-`replay_run_id` describe the selected receipt; they do not partition the
-delivery lineage. Each target entry includes:
+The incident summary's `delivery_state_by_target` dict groups receipts by the
+full event-scoped delivery identity `(event_id, delivery_plan_id,
+target_adapter, target_channel)`. Empty-string and absent channels normalize to
+the same identity. `route_id`, `source`, and `replay_run_id` describe the
+selected receipt and do not partition lifecycle authority. Outbox-backed
+delivery uses committed outbox receipt pointers across all generations;
+outbox-less delivery uses durable append order. Each target entry includes:
 
 | Field                 | Source                            |
 | --------------------- | --------------------------------- |

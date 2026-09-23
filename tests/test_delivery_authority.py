@@ -1,0 +1,216 @@
+"""Conformance tests for shared current-delivery authority resolution."""
+
+from __future__ import annotations
+
+from medre.core.delivery_authority import (
+    DeliveryAuthorityResolver,
+    DeliveryIdentity,
+    delivery_identity,
+)
+from medre.core.events import DeliveryReceipt
+from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.storage_outbox import admit_event
+
+
+def _receipt(
+    receipt_id: str,
+    *,
+    sequence: int,
+    event_id: str = "evt-authority",
+    plan_id: str = "plan-authority",
+    adapter: str = "radio",
+    channel: str | None = "mesh",
+    outbox_id: str | None = None,
+    status: str = "sent",
+    attempt: int = 1,
+) -> dict[str, object]:
+    return {
+        "receipt_id": receipt_id,
+        "sequence": sequence,
+        "event_id": event_id,
+        "delivery_plan_id": plan_id,
+        "target_adapter": adapter,
+        "target_channel": channel,
+        "outbox_id": outbox_id,
+        "status": status,
+        "attempt_number": attempt,
+    }
+
+
+def _outbox(
+    outbox_id: str,
+    *,
+    receipt_id: str | None,
+    event_id: str = "evt-authority",
+    plan_id: str = "plan-authority",
+    adapter: str = "radio",
+    channel: str | None = "mesh",
+    attempt: int = 1,
+) -> dict[str, object]:
+    return {
+        "outbox_id": outbox_id,
+        "event_id": event_id,
+        "delivery_plan_id": plan_id,
+        "target_adapter": adapter,
+        "target_channel": channel,
+        "receipt_id": receipt_id,
+        "attempt_number": attempt,
+    }
+
+
+def test_delivery_identity_normalizes_empty_channel() -> None:
+    assert delivery_identity(
+        {
+            "event_id": "e",
+            "delivery_plan_id": "p",
+            "target_adapter": "a",
+            "target_channel": "",
+        }
+    ) == DeliveryIdentity("e", "p", "a", None)
+
+
+def test_resolver_rejects_uncommitted_outbox_receipt() -> None:
+    receipts = [
+        _receipt("committed", sequence=1, outbox_id="obox-1"),
+        _receipt("stale-late", sequence=2, outbox_id="obox-1", status="failed"),
+    ]
+    resolver = DeliveryAuthorityResolver(
+        receipts,
+        [_outbox("obox-1", receipt_id="committed")],
+    )
+    identity = delivery_identity(receipts[0])
+
+    current = resolver.current(identity)
+    assert current is not None
+    assert current["receipt_id"] == "committed"
+
+
+def test_resolver_keeps_all_outbox_generations_authoritative() -> None:
+    receipts = [
+        _receipt("gen-1", sequence=1, outbox_id="obox-1", attempt=1),
+        _receipt("gen-2", sequence=3, outbox_id="obox-2", attempt=2),
+        _receipt("stale", sequence=4, outbox_id="obox-1", status="failed"),
+    ]
+    resolver = DeliveryAuthorityResolver(
+        receipts,
+        [
+            _outbox("obox-1", receipt_id="gen-1", attempt=1),
+            _outbox("obox-2", receipt_id="gen-2", attempt=2),
+        ],
+    )
+
+    current = resolver.current(delivery_identity(receipts[0]))
+    assert current is not None
+    assert current["receipt_id"] == "gen-2"
+
+
+def test_outboxless_receipt_remains_eligible_with_outbox_generations() -> None:
+    receipts = [
+        _receipt("committed", sequence=1, outbox_id="obox-1"),
+        _receipt("observation-only", sequence=2, outbox_id=None, status="failed"),
+    ]
+    resolver = DeliveryAuthorityResolver(
+        receipts,
+        [_outbox("obox-1", receipt_id="committed")],
+    )
+
+    current = resolver.current(delivery_identity(receipts[0]))
+    assert current is not None
+    assert current["receipt_id"] == "observation-only"
+
+
+async def test_sqlite_delivery_status_matches_shared_resolver(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event_id = "evt-authority-sql"
+    await admit_event(temp_storage, event_id)
+
+    first = DeliveryOutboxItem(
+        outbox_id="obox-auth-1",
+        event_id=event_id,
+        route_id="route-a",
+        delivery_plan_id="plan-authority-sql",
+        target_adapter="radio",
+        target_channel="mesh",
+        attempt_number=1,
+        status="in_progress",
+    )
+    second = DeliveryOutboxItem(
+        outbox_id="obox-auth-2",
+        event_id=event_id,
+        route_id="route-b",
+        delivery_plan_id="plan-authority-sql",
+        target_adapter="radio",
+        target_channel="mesh",
+        attempt_number=2,
+        status="in_progress",
+    )
+    await temp_storage.create_outbox_item(first)
+    await temp_storage.create_outbox_item(second)
+
+    receipts = [
+        DeliveryReceipt(
+            receipt_id="auth-gen-1",
+            event_id=event_id,
+            delivery_plan_id="plan-authority-sql",
+            target_adapter="radio",
+            target_channel="mesh",
+            route_id="route-a",
+            status="sent",
+            outbox_id=first.outbox_id,
+            attempt_number=1,
+        ),
+        DeliveryReceipt(
+            receipt_id="auth-gen-2",
+            event_id=event_id,
+            delivery_plan_id="plan-authority-sql",
+            target_adapter="radio",
+            target_channel="mesh",
+            route_id="route-b",
+            status="sent",
+            outbox_id=second.outbox_id,
+            attempt_number=2,
+        ),
+        DeliveryReceipt(
+            receipt_id="auth-stale-late",
+            event_id=event_id,
+            delivery_plan_id="plan-authority-sql",
+            target_adapter="radio",
+            target_channel="mesh",
+            route_id="route-a",
+            status="failed",
+            outbox_id=first.outbox_id,
+            attempt_number=1,
+        ),
+    ]
+    for receipt in receipts:
+        await temp_storage.append_receipt(receipt)
+
+    assert await temp_storage.mark_outbox_sent(
+        first.outbox_id,
+        receipt_id="auth-gen-1",
+        attempt_number=1,
+    )
+    assert await temp_storage.mark_outbox_sent(
+        second.outbox_id,
+        receipt_id="auth-gen-2",
+        attempt_number=2,
+    )
+
+    stored_receipts = await temp_storage.list_receipts_for_event(event_id)
+    stored_outbox = await temp_storage.list_outbox_items_for_event(event_id)
+    resolver = DeliveryAuthorityResolver(stored_receipts, stored_outbox)
+    identity = DeliveryIdentity(event_id, "plan-authority-sql", "radio", "mesh")
+    resolved = resolver.current(identity)
+    projected = await temp_storage.delivery_status(
+        "plan-authority-sql",
+        "radio",
+        "mesh",
+        event_id=event_id,
+    )
+
+    assert resolved is not None
+    assert projected is not None
+    assert resolved.receipt_id == "auth-gen-2"
+    assert projected.receipt_id == resolved.receipt_id

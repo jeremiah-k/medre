@@ -1031,11 +1031,10 @@ class TestUnrecognisedOutboxStatus:
 
 
 class TestTargetChannelGrouping:
-    """Empty-string and None target_channel values produce separate targets."""
+    """Persistence-equivalent no-channel values resolve to one target."""
 
-    def test_empty_string_channel_grouped_separately_from_none(self) -> None:
-        """An outbox item with target_channel="" and a receipt with target_channel=None
-        for the same plan_id and adapter are NOT grouped together."""
+    def test_empty_string_channel_normalizes_with_none(self) -> None:
+        """Empty and absent channels are one persisted delivery identity."""
         summary = build_convergence_summary(
             outbox_items=[
                 _outbox(
@@ -1056,7 +1055,5 @@ class TestTargetChannelGrouping:
                 ),
             ],
         )
-        assert summary.total_targets == 2
-        channels = {t.target_channel for t in summary.targets}
-        assert "" in channels
-        assert None in channels
+        assert summary.total_targets == 1
+        assert summary.targets[0].target_channel is None

@@ -10,6 +10,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from medre.core.delivery_authority import (
+    DeliveryIdentity,
+    ReceiptAuthority,
+    authority_index,
+    delivery_identity,
+    select_current_receipt,
+)
+
 from .types import ConvergenceSeverity
 
 __all__ = [
@@ -85,22 +93,13 @@ def _to_iso(value: Any) -> str | None:
 # Group key construction
 # ---------------------------------------------------------------------------
 
-_TargetKey = tuple[str, str, str, str | None]
+_TargetKey = DeliveryIdentity
 """``(event_id, delivery_plan_id, target_adapter, target_channel)``."""
 
 
 def _target_key(obj: Any) -> _TargetKey:
-    """Build a deterministic group key from a record.
-
-    Falls back to ``""`` for missing ``delivery_plan_id`` and
-    ``target_adapter``; ``None`` is preserved for ``target_channel`` to
-    distinguish "absent" from "empty string".
-    """
-    event_id = _get(obj, "event_id") or ""
-    plan_id = _get(obj, "delivery_plan_id") or ""
-    adapter = _get(obj, "target_adapter") or ""
-    channel = _get(obj, "target_channel")
-    return (event_id, plan_id, adapter, channel)
+    """Build the shared event-scoped delivery identity for *obj*."""
+    return delivery_identity(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -169,38 +168,18 @@ def _receipt_sort_key(rec: Any) -> tuple:
 
 
 def _pick_latest_receipt(receipts: list[Any]) -> Any | None:
-    """Select the latest receipt from a list by deterministic ranking.
-
-    Ranking priority (highest wins):
-    1. ``sequence`` (highest durable append position)
-    2. ``created_at`` ISO string (lexicographically latest; deterministic
-       fallback for synthetic/unpersisted inputs with equal sequence)
-    3. ``receipt_id`` (lexicographically latest fallback)
-
-    Does not rely on object identity.
-    """
-    if not receipts:
-        return None
-    return min(receipts, key=_receipt_sort_key)
+    """Compatibility wrapper around the shared authority receipt ranking."""
+    return select_current_receipt(receipts, None)
 
 
 def _build_committed_receipt_ids_by_key(
     outbox_items: list[Any],
 ) -> dict[_TargetKey, set[str]]:
-    """Return committed outbox receipt IDs grouped by target key.
-
-    Every outbox generation contributes its current ``receipt_id``.  Keys are
-    retained even when no generation has committed a receipt yet so callers can
-    distinguish an outbox-backed target from a receipt-only target.
-    """
-    result: dict[_TargetKey, set[str]] = {}
-    for item in outbox_items:
-        key = _target_key(item)
-        ids = result.setdefault(key, set())
-        receipt_id = _get(item, "receipt_id")
-        if receipt_id:
-            ids.add(str(receipt_id))
-    return result
+    """Compatibility projection of the shared outbox authority index."""
+    return {
+        key: set(authority.committed_receipt_ids)
+        for key, authority in authority_index(outbox_items).items()
+    }
 
 
 def _current_receipt_for_target(
@@ -208,26 +187,13 @@ def _current_receipt_for_target(
     key: _TargetKey,
     committed_receipt_ids: set[str] | None,
 ) -> Any | None:
-    """Select the lifecycle-authoritative receipt for one target.
-
-    ``None`` means the target has no outbox rows, so durable append order is
-    authoritative.  When outbox rows exist, an eligible receipt is either
-    outbox-less or explicitly named by one of those rows' committed
-    ``receipt_id`` pointers.  The latest eligible receipt wins.  This mirrors
-    SQLite ``delivery_status`` across multiple outbox generations and prevents
-    a late receipt whose guarded outbox transition was rejected from becoming
-    current merely because it has the largest append sequence.
-    """
-    recs = receipts_by_key.get(key, [])
-    if committed_receipt_ids is None:
-        return _pick_latest_receipt(recs)
-    eligible = [
-        rec
-        for rec in recs
-        if not _get(rec, "outbox_id")
-        or str(_get(rec, "receipt_id") or "") in committed_receipt_ids
-    ]
-    return _pick_latest_receipt(eligible)
+    """Compatibility wrapper around shared lifecycle-authority selection."""
+    authority = (
+        None
+        if committed_receipt_ids is None
+        else ReceiptAuthority(frozenset(committed_receipt_ids))
+    )
+    return select_current_receipt(receipts_by_key.get(key, []), authority)
 
 
 # ---------------------------------------------------------------------------
