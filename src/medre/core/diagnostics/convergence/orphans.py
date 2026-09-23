@@ -15,9 +15,10 @@ from typing import Any
 from .helpers import (
     _NON_TERMINAL_OUTBOX,
     _NON_TERMINAL_RECEIPT,
+    _build_committed_receipt_ids_by_key,
     _build_outbox_by_key,
+    _current_receipt_for_target,
     _get,
-    _latest_receipt_for_target,
     _target_key,
     _TargetKey,
     _worst_severity,
@@ -93,7 +94,7 @@ def build_orphan_report(
         once the plan ID is resolved.
 
     ``dead_lettered_retryable_mismatch`` (degraded):
-        Outbox item with ``dead_lettered`` status whose latest receipt
+        Outbox item with ``dead_lettered`` status whose current receipt
         for the same target key is non-terminal (``failed`` or
         ``queued``), suggesting the item may still be retryable despite
         the terminal outbox status.  Degraded because the discrepancy
@@ -113,6 +114,7 @@ def build_orphan_report(
 
     # --- Index outbox items by target key ---------------------------------
     outbox_by_key = _build_outbox_by_key(outbox_list)
+    committed_receipt_ids = _build_committed_receipt_ids_by_key(outbox_list)
 
     # --- Index receipts by target key -------------------------------------
     receipts_by_key: dict[_TargetKey, list[Any]] = {}
@@ -259,7 +261,9 @@ def build_orphan_report(
         if outbox_status != "dead_lettered":
             continue
 
-        latest_rec = _latest_receipt_for_target(receipts_by_key, key)
+        latest_rec = _current_receipt_for_target(
+            receipts_by_key, key, committed_receipt_ids.get(key)
+        )
         if latest_rec is None:
             continue
 

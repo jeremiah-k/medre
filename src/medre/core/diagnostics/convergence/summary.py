@@ -15,9 +15,10 @@ from .helpers import (
     _NON_TERMINAL_RECEIPT,
     _TERMINAL_OUTBOX,
     _TERMINAL_RECEIPT,
+    _build_committed_receipt_ids_by_key,
     _build_outbox_by_key,
+    _current_receipt_for_target,
     _get,
-    _pick_latest_receipt,
     _target_key,
     _TargetKey,
     _worst_severity,
@@ -212,10 +213,11 @@ def build_convergence_summary(
     -----
     * Targets are grouped by ``(delivery_plan_id, target_adapter,
       target_channel)`` with fallbacks for missing plan/channel.
-    * The latest receipt is selected deterministically by
-      ``(sequence DESC, created_at DESC, receipt_id DESC)`` without relying
-      on object identity. Durable append sequence is the current-outcome
-      authority; attempt number describes lineage only.
+    * When an outbox item exists, its committed ``receipt_id`` selects the
+      current receipt.  Later append-only receipts that lost a guarded outbox
+      transition remain historical evidence and are not projected as current.
+      Receipt-only targets still use deterministic append ordering by
+      ``(sequence DESC, created_at DESC, receipt_id DESC)``.
     * ``orphan_count`` is ``None`` until linked to an orphan report;
       ``evidence_bundle_ref`` is ``None`` until attached to an
       evidence bundle.
@@ -226,6 +228,7 @@ def build_convergence_summary(
     # --- Build target-keyed maps ------------------------------------------
     # Outbox items: at most one per target key (latest by attempt_number).
     outbox_by_key = _build_outbox_by_key(outbox_list)
+    committed_receipt_ids = _build_committed_receipt_ids_by_key(outbox_list)
 
     # Receipts: group by target key.
     receipts_by_key: dict[_TargetKey, list[Any]] = {}
@@ -256,10 +259,12 @@ def build_convergence_summary(
         outbox_status = _get(obx, "status") if obx else None
         outbox_id = _get(obx, "outbox_id") if obx else None
         has_outbox = obx is not None
-        has_receipt = len(recs) > 0
         plan_id_present = bool(plan_id)
 
-        latest_rec = _pick_latest_receipt(recs)
+        latest_rec = _current_receipt_for_target(
+            receipts_by_key, key, committed_receipt_ids.get(key)
+        )
+        has_receipt = latest_rec is not None
         latest_receipt_status = _get(latest_rec, "status") if latest_rec else None
         latest_receipt_id = _get(latest_rec, "receipt_id") if latest_rec else None
         latest_attempt_number = (

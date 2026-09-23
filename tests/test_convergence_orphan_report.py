@@ -70,6 +70,7 @@ def _outbox(
     route_id: str = "route-1",
     status: str = "pending",
     attempt_number: int = 1,
+    receipt_id: str | None = "rcpt-001",
 ) -> dict:
     """Build an outbox item dict (duck-typed input)."""
     return {
@@ -81,6 +82,7 @@ def _outbox(
         "route_id": route_id,
         "status": status,
         "attempt_number": attempt_number,
+        "receipt_id": receipt_id,
     }
 
 

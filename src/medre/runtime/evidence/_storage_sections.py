@@ -254,10 +254,10 @@ async def _collect_storage_data_from_backend(
 
                 # Target-keyed delivery state: group by logical target key
                 # (target_adapter, target_channel, route_id, delivery_plan_id).
-                # Receipt source/replay_run_id are provenance on the winning
-                # receipt, not lineage partitions.  Durable append sequence is
-                # the current-outcome authority, matching delivery_status and
-                # recovery scans.
+                # Receipt source/replay_run_id are provenance on the selected
+                # receipt, not lineage partitions.  Outbox-backed delivery uses
+                # the outbox receipt_id as lifecycle authority; receipt-only
+                # delivery retains durable append order.
                 _target_groups: dict[str, list[dict[str, object]]] = {}
                 for rd in enriched_dicts:
                     comp = _json.dumps(
@@ -271,13 +271,42 @@ async def _collect_storage_data_from_backend(
                     )
                     _target_groups.setdefault(comp, []).append(rd)
 
+                _committed_receipt_ids: dict[str, set[str]] = {}
+                for item in outbox_items:
+                    comp = _json.dumps(
+                        {
+                            "delivery_plan_id": getattr(item, "delivery_plan_id", None),
+                            "route_id": getattr(item, "route_id", None),
+                            "target_adapter": getattr(item, "target_adapter", None),
+                            "target_channel": getattr(item, "target_channel", None),
+                        },
+                        sort_keys=True,
+                    )
+                    ids = _committed_receipt_ids.setdefault(comp, set())
+                    receipt_id = getattr(item, "receipt_id", None)
+                    if receipt_id:
+                        ids.add(str(receipt_id))
+
                 delivery_state_by_target: dict[str, dict[str, object]] = {}
                 for target_key, group in _target_groups.items():
+                    committed_ids = _committed_receipt_ids.get(target_key)
+                    eligible = (
+                        group
+                        if committed_ids is None
+                        else [
+                            rd
+                            for rd in group
+                            if not rd.get("outbox_id")
+                            or str(rd.get("receipt_id") or "") in committed_ids
+                        ]
+                    )
+                    if not eligible:
+                        continue
                     # Persisted receipt sequence is unique and monotonic.
                     # created_at/receipt_id are deterministic fallbacks for
                     # synthetic inputs whose sequence is absent or zero.
                     best = max(
-                        group,
+                        eligible,
                         key=lambda rd: (
                             int(rd.get("sequence") or 0),
                             str(rd.get("created_at") or ""),

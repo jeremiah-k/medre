@@ -12,7 +12,7 @@ Design constraints
 * **No storage imports.**  Accepts plain objects or dict-like records via
   duck-typed field access.
 * **Deterministic ordering.**  Targets are sorted by group key; receipts
-  are ranked by ``(sequence, created_at, receipt_id)``; durable append sequence is the current-outcome authority.
+  are filtered by lifecycle authority first (committed outbox pointers plus outbox-less receipts), then ranked by ``(sequence, created_at, receipt_id)``.
 
 Status vocabularies (source: ``medre.core.engine.pipeline.delivery_state``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -28,14 +28,14 @@ Classification rules
 **Convergence summary** (``build_convergence_summary`` — per-target aggregate
 classification):
 
-1. **safe** — outbox terminal ``sent`` and latest receipt terminal ``sent``;
+1. **safe** — outbox terminal ``sent`` and current receipt terminal ``sent``;
    or both terminal and matching (e.g. ``dead_lettered``/``dead_lettered``);
    or receipt-only terminal evidence (explicit warning emitted).
 2. **degraded** — non-terminal outbox (``pending``, ``retry_wait``) with a
    ``failed`` receipt (work stalled, retry expected); ``in_progress``/``queued``
    outbox without any receipt (mid-flight, receipt not yet written);
    missing ``delivery_plan_id`` (degraded with warning).
-3. **inconsistent** — terminal outbox but latest receipt is non-terminal;
+3. **inconsistent** — terminal outbox but current receipt is non-terminal;
    non-terminal outbox with a terminal ``sent``/``suppressed`` receipt;
    status mismatch that cannot be explained by normal flow.
 

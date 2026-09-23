@@ -38,6 +38,7 @@ def _make_outbox(
     target_adapter: str = "meshtastic",
     target_channel: str | None = None,
     attempt_number: int = 1,
+    receipt_id: str | None = "r-1",
 ) -> dict:
     return {
         "outbox_id": outbox_id,
@@ -47,6 +48,7 @@ def _make_outbox(
         "target_adapter": target_adapter,
         "target_channel": target_channel,
         "attempt_number": attempt_number,
+        "receipt_id": receipt_id,
     }
 
 
