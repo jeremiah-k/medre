@@ -765,7 +765,6 @@ async def test_deferral_without_dispatch_consumes_no_attempt(temp_storage) -> No
         temp_storage,
         outbox_id="obox-defer",
         event_id=event.event_id,
-        status="retry_wait",
     )
     snapshot = await temp_storage.get_outbox_item(item.outbox_id)
     assert snapshot is not None

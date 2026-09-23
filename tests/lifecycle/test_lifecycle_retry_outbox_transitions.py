@@ -276,6 +276,7 @@ async def test_retry_claim_reconciliation_dead_letters_malformed_failure_kind(
         failure_kind="adapter_permanent",
         error_summary="Retry delivery failed",
         attempt_number=2,
+        expected_worker_id=None,
     )
 
 
@@ -329,6 +330,7 @@ async def test_retry_claim_reconciliation_preserves_dead_letter_failure_kind() -
         failure_kind="adapter_permanent",
         error_summary=None,
         attempt_number=2,
+        expected_worker_id=None,
     )
 
 
