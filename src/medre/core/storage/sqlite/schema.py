@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     target_channel TEXT,
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
+    receipt_kind TEXT NOT NULL,
     error TEXT,
     failure_kind TEXT,
     adapter_message_id TEXT,
@@ -117,6 +118,13 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     outbox_id TEXT,
     confirmation_level TEXT NOT NULL DEFAULT 'unknown',
     created_at TEXT NOT NULL,
+    CHECK (attempt_number >= 1),
+    CHECK (receipt_kind IN ('attempt', 'lifecycle')),
+    CHECK (
+        (receipt_kind = 'attempt' AND status IN ('queued', 'sent', 'failed'))
+        OR
+        (receipt_kind = 'lifecycle' AND status IN ('dead_lettered', 'cancelled', 'abandoned', 'suppressed'))
+    ),
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
@@ -144,7 +152,8 @@ WITH authoritative_receipts AS (
        )
 )
 SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
-       dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
+       dr.target_adapter, dr.target_channel, dr.route_id, dr.status,
+       dr.receipt_kind, dr.error,
        dr.failure_kind,
        dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
        dr.parent_receipt_id, dr.source, dr.replay_run_id,
@@ -408,6 +417,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "target_channel",
             "route_id",
             "status",
+            "receipt_kind",
             "error",
             "failure_kind",
             "adapter_message_id",

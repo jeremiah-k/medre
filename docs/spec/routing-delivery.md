@@ -686,7 +686,11 @@ class DeliveryReceipt:
     target_adapter: str = ""               # Name of the target adapter
     target_channel: str | None = None      # Target channel/room from RouteTarget
     route_id: str = ""                     # Route that produced this delivery
-    status: Literal["queued", "sent", "suppressed", "failed", "dead_lettered"] = "queued"
+    status: Literal[
+        "queued", "sent", "failed", "dead_lettered",
+        "cancelled", "abandoned", "suppressed"
+    ] = "queued"
+    receipt_kind: Literal["attempt", "lifecycle"] | None = None
     error: str | None = None               # Error message if delivery failed
     failure_kind: str | None = None        # DeliveryFailureKind value
     adapter_message_id: str | None = None  # Platform-specific message ID
@@ -706,15 +710,17 @@ class DeliveryReceipt:
     created_at: datetime = ...             # Timestamp when this receipt was created
 ```
 
-Receipt status is a string literal constrained to five values:
+Receipt status is a closed vocabulary paired with an evidence kind:
 
-| Status          | Meaning                                                                           |
-| --------------- | --------------------------------------------------------------------------------- |
-| `queued`        | Delivery enqueued for adapter execution                                           |
-| `sent`          | Adapter reported successful handoff                                               |
-| `suppressed`    | Post-planning direct-call suppression. MAY be recorded for defense-in-depth audit |
-| `failed`        | Delivery attempt failed                                                           |
-| `dead_lettered` | All retries exhausted; final terminal state                                       |
+| Status          | Kind      | Meaning                                                                           |
+| --------------- | --------- | --------------------------------------------------------------------------------- |
+| `queued`        | attempt   | Delivery enqueued for adapter execution                                           |
+| `sent`          | attempt   | Adapter reported successful handoff                                               |
+| `failed`        | attempt   | Delivery attempt failed                                                           |
+| `dead_lettered` | lifecycle | Delivery became terminally undeliverable                                          |
+| `cancelled`     | lifecycle | Delivery was explicitly cancelled                                                 |
+| `abandoned`     | lifecycle | Durable delivery execution was abandoned                                          |
+| `suppressed`    | lifecycle | Delivery was suppressed without a transport attempt                               |
 
 ### 8.2 Append-Only Semantics
 
@@ -736,6 +742,7 @@ CREATE TABLE delivery_receipts (
     target_channel TEXT,
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
+    receipt_kind TEXT NOT NULL,
     error TEXT,
     failure_kind TEXT,
     adapter_message_id TEXT,
@@ -789,11 +796,12 @@ For the full rendering evidence semantics, payload vs evidence distinction, and 
 | `attempt_number`    | `int` (default `1`)            | 1-indexed attempt number. First attempt = 1.                   |
 | `parent_receipt_id` | `str \| None` (default `None`) | Receipt ID of the preceding attempt. `None` for first attempt. |
 
-When retries are exhausted, the receipt chain ends with a `dead_lettered` receipt:
+When a terminal lifecycle transition is caused by an attempt, it preserves the
+causative attempt number instead of inventing another dispatch generation:
 
 ```text
-rcpt-1 (attempt=1, parent=None, status=failed)
-  └→ rcpt-2 (attempt=2, parent=rcpt-1, status=dead_lettered)
+rcpt-1 (kind=attempt,   attempt=1, parent=None,   status=failed)
+  └→ rcpt-2 (kind=lifecycle, attempt=1, parent=rcpt-1, status=dead_lettered)
 ```
 
 ### 8.5 Queued-to-Sent Receipt Correlation

@@ -20,7 +20,8 @@ Status vocabularies
 ~~~~~~~~~~~~~~~~~~~
 
 Receipt statuses (DeliveryReceipt.status)
-    ``queued``, ``sent``, ``failed``, ``dead_lettered``, ``suppressed``.
+    ``queued``, ``sent``, ``failed``, ``dead_lettered``, ``cancelled``,
+    ``abandoned``, ``suppressed``.
 
 Outbox statuses (DeliveryOutboxItem.status)
     ``pending``, ``in_progress``, ``queued``, ``sent``, ``retry_wait``,
@@ -42,13 +43,21 @@ from __future__ import annotations
 
 #: All known DeliveryReceipt status values.
 RECEIPT_STATUSES: frozenset[str] = frozenset(
-    {"queued", "sent", "failed", "dead_lettered", "suppressed"}
+    {
+        "queued",
+        "sent",
+        "failed",
+        "dead_lettered",
+        "cancelled",
+        "abandoned",
+        "suppressed",
+    }
 )
 
 #: Receipt statuses that are terminal -- once reached, the receipt is never
 #: transitioned to a different status.
 TERMINAL_RECEIPT_STATUSES: frozenset[str] = frozenset(
-    {"sent", "dead_lettered", "suppressed"}
+    {"sent", "dead_lettered", "cancelled", "abandoned", "suppressed"}
 )
 
 #: Receipt statuses that are non-terminal -- the delivery chain may later
@@ -137,7 +146,7 @@ ADAPTER_DELIVERY_STATUSES: frozenset[str] = frozenset({"sent", "enqueued"})
 RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
     "queued": frozenset({"sent"}),
     "failed": frozenset({"dead_lettered", "failed"}),
-    # sent, dead_lettered, suppressed are terminal -- no outgoing transitions.
+    # sent, dead_lettered, cancelled, abandoned, suppressed are terminal.
 }
 
 #: Observed outbox transitions.  Terminal statuses (sent, dead_lettered,

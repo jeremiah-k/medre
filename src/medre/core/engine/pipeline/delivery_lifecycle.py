@@ -617,8 +617,9 @@ class DeliveryLifecycleService:
         previous_receipt_id:
             Receipt ID of the primary failed receipt.
         attempt_number:
-            The attempt number of the primary receipt (the dead-letter
-            gets ``attempt_number + 1``).
+            The attempt number of the causative primary receipt. The lifecycle
+            receipt keeps this same number because dead-lettering is a state
+            transition, not another dispatch attempt.
         error:
             Human-readable error from the primary failure.
         source:
@@ -649,7 +650,7 @@ class DeliveryLifecycleService:
             delivery_plan_id=delivery_plan_id,
             target_adapter=target_adapter,
             previous_receipt_id=previous_receipt_id,
-            attempt_number=attempt_number + 1,
+            attempt_number=attempt_number,
             error=error or "Retry exhausted",
             source=source,
             replay_run_id=replay_run_id,
@@ -716,6 +717,7 @@ class DeliveryLifecycleService:
             target_channel=target_channel,
             route_id=route_id,
             status="suppressed",
+            receipt_kind="lifecycle",
             error=error,
             failure_kind=failure_kind.value,
             source=source,

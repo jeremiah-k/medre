@@ -1976,6 +1976,7 @@ class MedreApp:
                 target_channel=inflight.target_channel,
                 route_id=inflight.route_id,
                 status="suppressed",
+                receipt_kind="lifecycle",
                 error="shutdown_drain_timeout",
                 failure_kind=DeliveryFailureKind.SHUTDOWN_REJECTION.value,
                 next_retry_at=None,

@@ -64,6 +64,15 @@ class EventRecordKind(Enum):
 # ---------------------------------------------------------------------------
 
 
+DeliveryReceiptKind = Literal["attempt", "lifecycle"]
+"""Semantic role of a delivery receipt in the lifecycle evidence stream."""
+
+_DELIVERY_ATTEMPT_RECEIPT_STATUSES = frozenset({"queued", "sent", "failed"})
+_DELIVERY_LIFECYCLE_RECEIPT_STATUSES = frozenset(
+    {"dead_lettered", "cancelled", "abandoned", "suppressed"}
+)
+
+
 class NativeRef(msgspec.Struct, frozen=True):
     """Reference to a message in an adapter's native ID space.
 
@@ -207,7 +216,14 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     route_id:
         Identifier of the route that triggered this delivery.
     status:
-        Current delivery status.
+        Delivery evidence status. Attempt receipts use ``queued``, ``sent``,
+        or ``failed``. Lifecycle receipts use ``dead_lettered``, ``cancelled``,
+        ``abandoned``, or ``suppressed``.
+    receipt_kind:
+        Semantic evidence role. ``"attempt"`` records one delivery execution
+        generation; ``"lifecycle"`` records a state transition that does not
+        create a new dispatch attempt. When omitted, the kind is derived from
+        ``status`` and then frozen onto the instance.
     error:
         Error message if the delivery failed.
     adapter_message_id:
@@ -253,8 +269,11 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         "sent",
         "failed",
         "dead_lettered",
+        "cancelled",
+        "abandoned",
         "suppressed",
     ] = "queued"
+    receipt_kind: DeliveryReceiptKind | None = None
     error: str | None = None
     failure_kind: str | None = None
     adapter_message_id: str | None = None
@@ -273,6 +292,22 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     created_at: datetime = msgspec.field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+    def __post_init__(self) -> None:
+        if self.status in _DELIVERY_ATTEMPT_RECEIPT_STATUSES:
+            expected_kind: DeliveryReceiptKind = "attempt"
+        elif self.status in _DELIVERY_LIFECYCLE_RECEIPT_STATUSES:
+            expected_kind = "lifecycle"
+        else:  # Defensive: the Literal is a static contract, not runtime validation.
+            raise ValueError(f"Unknown delivery receipt status: {self.status!r}")
+
+        if self.receipt_kind is None:
+            force_setattr(self, "receipt_kind", expected_kind)
+        elif self.receipt_kind != expected_kind:
+            raise ValueError(
+                f"receipt_kind={self.receipt_kind!r} is incompatible with "
+                f"status={self.status!r}; expected {expected_kind!r}"
+            )
 
 
 class DeliveryObservation(msgspec.Struct, frozen=True):

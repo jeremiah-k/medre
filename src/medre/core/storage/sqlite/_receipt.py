@@ -41,6 +41,11 @@ def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
             f"Unknown receipt status {receipt.status!r}; "
             f"expected one of {sorted(RECEIPT_STATUSES)}"
         )
+    if receipt.receipt_kind not in {"attempt", "lifecycle"}:
+        raise ValueError(
+            f"Unknown receipt kind {receipt.receipt_kind!r}; "
+            "expected 'attempt' or 'lifecycle'"
+        )
     if not isinstance(receipt.confirmation_level, str) or (
         receipt.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES
     ):
@@ -58,6 +63,7 @@ def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
         channel,
         receipt.route_id,
         receipt.status,
+        receipt.receipt_kind,
         receipt.error,
         receipt.failure_kind,
         receipt.adapter_message_id,

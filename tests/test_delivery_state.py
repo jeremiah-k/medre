@@ -43,7 +43,15 @@ from medre.core.engine.pipeline.delivery_state import (
 class TestReceiptStatuses:
     """RECEIPT_STATUSES contains exactly the expected receipt statuses."""
 
-    EXPECTED = {"queued", "sent", "failed", "dead_lettered", "suppressed"}
+    EXPECTED = {
+        "queued",
+        "sent",
+        "failed",
+        "dead_lettered",
+        "cancelled",
+        "abandoned",
+        "suppressed",
+    }
 
     def test_all_present(self) -> None:
         assert RECEIPT_STATUSES == self.EXPECTED
@@ -123,7 +131,7 @@ class TestAdapterDeliveryStatuses:
 class TestTerminalReceiptStatus:
     """TERMINAL_RECEIPT_STATUSES and is_terminal_receipt_status."""
 
-    EXPECTED_TERMINAL = {"sent", "dead_lettered", "suppressed"}
+    EXPECTED_TERMINAL = {"sent", "dead_lettered", "cancelled", "abandoned", "suppressed"}
     EXPECTED_NON_TERMINAL = {"queued", "failed"}
 
     def test_terminal_set(self) -> None:

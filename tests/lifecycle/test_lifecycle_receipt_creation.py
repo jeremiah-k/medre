@@ -52,7 +52,8 @@ class TestBuildAndPersistDeadLetterReceipt:
 
         assert receipt.status == "dead_lettered"
         assert receipt.parent_receipt_id == "rcpt-primary"
-        assert receipt.attempt_number == 2  # attempt_number + 1
+        assert receipt.attempt_number == 1
+        assert receipt.receipt_kind == "lifecycle"
         assert receipt.outbox_id is None
         stored = await temp_storage.list_receipts_for_event("evt-001")
         assert len(stored) == 1
@@ -86,7 +87,8 @@ class TestBuildAndPersistDeadLetterReceipt:
         assert receipt.source == "replay"
         assert receipt.replay_run_id == "run-42"
         assert receipt.target_channel == "ch-0"
-        assert receipt.attempt_number == 4
+        assert receipt.attempt_number == 3
+        assert receipt.receipt_kind == "lifecycle"
 
     async def test_dead_letter_receipt_preserves_outbox_correlation(
         self,
@@ -112,6 +114,7 @@ class TestBuildAndPersistDeadLetterReceipt:
         )
 
         assert receipt.outbox_id == "obox-123"
+        assert receipt.receipt_kind == "lifecycle"
 
 
 # ===================================================================
@@ -142,6 +145,7 @@ class TestBuildAndPersistSuppressionReceipt:
         )
 
         assert receipt.status == "suppressed"
+        assert receipt.receipt_kind == "lifecycle"
         assert receipt.failure_kind == "loop_suppressed"
         assert receipt.attempt_number == 1
         assert receipt.parent_receipt_id is None

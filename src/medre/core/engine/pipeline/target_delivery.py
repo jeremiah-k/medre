@@ -594,6 +594,7 @@ class TargetDeliveryService:
                 target_channel=target.channel,
                 route_id=route.id,
                 status="suppressed",
+                receipt_kind="lifecycle",
                 error=_skip_error,
                 failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED.value,
                 attempt_number=attempt_number,

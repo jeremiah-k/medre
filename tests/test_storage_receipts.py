@@ -179,8 +179,8 @@ def test_receipt_schema_rejects_invalid_confirmation_level() -> None:
                 """
                 INSERT INTO delivery_receipts (
                     receipt_id, event_id, delivery_plan_id, target_adapter,
-                    status, confirmation_level, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    status, receipt_kind, confirmation_level, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "rcpt-invalid-schema-confirmation",
@@ -188,6 +188,7 @@ def test_receipt_schema_rejects_invalid_confirmation_level() -> None:
                     "plan-invalid-schema-confirmation",
                     "matrix",
                     "sent",
+                    "attempt",
                     "delivered",
                     "2026-08-19T00:00:00+00:00",
                 ),
@@ -1376,16 +1377,14 @@ class TestUnknownReceiptStatusRejected:
         event = make_storage_event(event_id="evt-unknown-rcpt")
         await temp_storage.append(event)
 
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-bad-status",
-            event_id="evt-unknown-rcpt",
-            delivery_plan_id="plan-bad-status",
-            target_adapter="adapter_bad",
-            status="not_a_real_status",  # type: ignore[arg-type]
-        )
-
-        with pytest.raises(ValueError, match="Unknown receipt status"):
-            await temp_storage.append_receipt(receipt)
+        with pytest.raises(ValueError, match="Unknown delivery receipt status"):
+            DeliveryReceipt(
+                receipt_id="rcpt-bad-status",
+                event_id="evt-unknown-rcpt",
+                delivery_plan_id="plan-bad-status",
+                target_adapter="adapter_bad",
+                status="not_a_real_status",  # type: ignore[arg-type]
+            )
 
     async def test_unknown_receipt_status_does_not_append_row(
         self, temp_storage: SQLiteStorage
@@ -1401,16 +1400,14 @@ class TestUnknownReceiptStatusRejected:
         )
         count_before = rows_before[0]["cnt"]
 
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-no-row",
-            event_id="evt-unknown-row",
-            delivery_plan_id="plan-no-row",
-            target_adapter="adapter_no",
-            status="totally_invalid",  # type: ignore[arg-type]
-        )
-
-        with pytest.raises(ValueError, match="Unknown receipt status"):
-            await temp_storage.append_receipt(receipt)
+        with pytest.raises(ValueError, match="Unknown delivery receipt status"):
+            DeliveryReceipt(
+                receipt_id="rcpt-no-row",
+                event_id="evt-unknown-row",
+                delivery_plan_id="plan-no-row",
+                target_adapter="adapter_no",
+                status="totally_invalid",  # type: ignore[arg-type]
+            )
 
         # Count receipts after — must be unchanged.
         rows_after = await temp_storage._read_all(

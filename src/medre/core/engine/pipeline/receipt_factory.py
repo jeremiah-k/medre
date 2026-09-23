@@ -12,7 +12,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
-from medre.core.events.canonical import DeliveryConfirmationLevel, DeliveryReceipt
+from medre.core.events.canonical import (
+    DeliveryConfirmationLevel,
+    DeliveryReceipt,
+    DeliveryReceiptKind,
+)
 
 __all__ = ["build_delivery_receipt"]
 
@@ -24,7 +28,16 @@ def build_delivery_receipt(
     target_adapter: str,
     target_channel: str | None,
     route_id: str,
-    status: Literal["queued", "sent", "failed", "dead_lettered", "suppressed"],
+    status: Literal[
+        "queued",
+        "sent",
+        "failed",
+        "dead_lettered",
+        "cancelled",
+        "abandoned",
+        "suppressed",
+    ],
+    receipt_kind: DeliveryReceiptKind | None = None,
     source: str = "live",
     replay_run_id: str | None = None,
     attempt_number: int = 1,
@@ -64,7 +77,10 @@ def build_delivery_receipt(
     route_id:
         Identifier of the route that triggered this delivery.
     status:
-        Current delivery status.
+        Delivery evidence status.
+    receipt_kind:
+        Semantic evidence role. When omitted, :class:`DeliveryReceipt` derives
+        it from ``status``.
     source:
         Origin of this receipt (``"live"``, ``"retry"``, or ``"replay"``).
     replay_run_id:
@@ -125,6 +141,7 @@ def build_delivery_receipt(
         target_channel=target_channel,
         route_id=route_id,
         status=status,
+        receipt_kind=receipt_kind,
         error=error,
         failure_kind=failure_kind,
         adapter_message_id=adapter_message_id,
