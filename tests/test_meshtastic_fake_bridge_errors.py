@@ -31,8 +31,8 @@ from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
 from tests.helpers.delivery_receipts import assert_terminal_failure_pair
+from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
 
 # ===================================================================
 # 3. Error mapping bridge

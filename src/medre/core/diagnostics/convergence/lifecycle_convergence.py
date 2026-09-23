@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
 
 from ...delivery_authority import DeliveryAuthorityResolver
-
 from .helpers import (
     _build_outbox_by_key,
     _ensure_aware,

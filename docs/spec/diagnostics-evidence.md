@@ -976,36 +976,36 @@ evidence as separate facts.
 
 Each ledger entry contains:
 
-| Field                            | Source                                     | Semantics                                                                                      |
-| -------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `delivery_plan_id`               | Delivery identity                          | Plan component of the event-scoped delivery identity.                                          |
-| `event_id`                       | Delivery identity                          | Canonical event component; plan IDs never identify a delivery alone.                           |
-| `route_id`                       | Selected receipt/outbox provenance         | Route that produced the selected evidence; not lifecycle identity.                             |
-| `target_adapter`                 | Delivery identity                          | Target adapter.                                                                                |
-| `target_channel`                 | Delivery identity                          | Normalized target channel (`null` for no channel).                                             |
-| `lifecycle_status`               | Current outbox, else authoritative receipt | Current MEDRE-owned lifecycle state.                                                           |
-| `outbox_status`                  | Current outbox generation                  | Mutable operational state, or `null` when no outbox exists.                                    |
-| `authoritative_receipt_id`       | Authority resolver                         | Receipt currently allowed to represent immutable lifecycle evidence.                           |
-| `authoritative_receipt_kind`     | Authoritative receipt                      | `attempt` or `lifecycle`.                                                                      |
-| `causative_receipt_id`           | Lifecycle receipt                          | Parent attempt that caused a lifecycle transition, otherwise `null`.                           |
-| `latest_attempt_status`          | Immutable attempt history                  | Result/status of the greatest dispatch attempt generation, independent of lifecycle authority. |
-| `latest_attempt_number`          | Immutable attempt history                  | Greatest actual dispatch attempt number; lifecycle transitions never fabricate one.            |
-| `ambiguous_outcome`              | Outbox failure detail                      | `true` when recovery consumed a dispatch whose external outcome was unknown.                   |
-| `delivery_strategy`              | Rendering evidence / error                 | Strategy used (`direct`, `fallback_text`, `skip`) when derivable.                              |
-| `capability_field`               | Error                                      | Capability field that triggered suppression, or `null`.                                        |
-| `capability_level`               | Rendering evidence / error                 | Capability decision when derivable.                                                            |
-| `suppression_reason`             | Error                                      | Human-readable suppression reason, if applicable.                                              |
-| `retry_state`                    | Lifecycle/retry metadata                   | Derived display label only; not mutable authority.                                             |
-| `failure_kind`                   | Authoritative receipt / outbox             | Current failure classification, if applicable.                                                 |
-| `failure_taxon`                  | `resolve_taxon()`                          | Resolved failure taxon, or `null`.                                                             |
-| `failure_taxon_category`         | `taxon_category()`                         | Category of the resolved taxon, or `null`.                                                     |
-| `source`                         | Selected receipt provenance                | `live`, `retry`, or `replay`; not lifecycle identity.                                          |
-| `replay_run_id`                  | Selected replay receipt                    | Replay run identifier only when selected provenance is replay.                                 |
-| `receipt_ids`                    | Full identity receipt history              | Sorted receipt IDs, including historical/non-authoritative evidence.                           |
-| `outbox_id`                      | Current outbox generation                  | Current operational row ID, if present.                                                        |
-| `adapter_message_id`             | Authoritative/latest attempt receipt       | Provider/native message ID when available.                                                     |
-| `next_retry_at`                  | Receipt/outbox scheduling metadata         | Scheduled retry timestamp, or `null`.                                                          |
-| `error`                          | Authoritative receipt / outbox             | Current error summary, or `null`.                                                              |
+| Field                        | Source                                     | Semantics                                                                                      |
+| ---------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `delivery_plan_id`           | Delivery identity                          | Plan component of the event-scoped delivery identity.                                          |
+| `event_id`                   | Delivery identity                          | Canonical event component; plan IDs never identify a delivery alone.                           |
+| `route_id`                   | Selected receipt/outbox provenance         | Route that produced the selected evidence; not lifecycle identity.                             |
+| `target_adapter`             | Delivery identity                          | Target adapter.                                                                                |
+| `target_channel`             | Delivery identity                          | Normalized target channel (`null` for no channel).                                             |
+| `lifecycle_status`           | Current outbox, else authoritative receipt | Current MEDRE-owned lifecycle state.                                                           |
+| `outbox_status`              | Current outbox generation                  | Mutable operational state, or `null` when no outbox exists.                                    |
+| `authoritative_receipt_id`   | Authority resolver                         | Receipt currently allowed to represent immutable lifecycle evidence.                           |
+| `authoritative_receipt_kind` | Authoritative receipt                      | `attempt` or `lifecycle`.                                                                      |
+| `causative_receipt_id`       | Lifecycle receipt                          | Parent attempt that caused a lifecycle transition, otherwise `null`.                           |
+| `latest_attempt_status`      | Immutable attempt history                  | Result/status of the greatest dispatch attempt generation, independent of lifecycle authority. |
+| `latest_attempt_number`      | Immutable attempt history                  | Greatest actual dispatch attempt number; lifecycle transitions never fabricate one.            |
+| `ambiguous_outcome`          | Outbox failure detail                      | `true` when recovery consumed a dispatch whose external outcome was unknown.                   |
+| `delivery_strategy`          | Rendering evidence / error                 | Strategy used (`direct`, `fallback_text`, `skip`) when derivable.                              |
+| `capability_field`           | Error                                      | Capability field that triggered suppression, or `null`.                                        |
+| `capability_level`           | Rendering evidence / error                 | Capability decision when derivable.                                                            |
+| `suppression_reason`         | Error                                      | Human-readable suppression reason, if applicable.                                              |
+| `retry_state`                | Lifecycle/retry metadata                   | Derived display label only; not mutable authority.                                             |
+| `failure_kind`               | Authoritative receipt / outbox             | Current failure classification, if applicable.                                                 |
+| `failure_taxon`              | `resolve_taxon()`                          | Resolved failure taxon, or `null`.                                                             |
+| `failure_taxon_category`     | `taxon_category()`                         | Category of the resolved taxon, or `null`.                                                     |
+| `source`                     | Selected receipt provenance                | `live`, `retry`, or `replay`; not lifecycle identity.                                          |
+| `replay_run_id`              | Selected replay receipt                    | Replay run identifier only when selected provenance is replay.                                 |
+| `receipt_ids`                | Full identity receipt history              | Sorted receipt IDs, including historical/non-authoritative evidence.                           |
+| `outbox_id`                  | Current outbox generation                  | Current operational row ID, if present.                                                        |
+| `adapter_message_id`         | Authoritative/latest attempt receipt       | Provider/native message ID when available.                                                     |
+| `next_retry_at`              | Receipt/outbox scheduling metadata         | Scheduled retry timestamp, or `null`.                                                          |
+| `error`                      | Authoritative receipt / outbox             | Current error summary, or `null`.                                                              |
 
 ### 19.4 No Additional Storage Required
 

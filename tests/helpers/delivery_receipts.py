@@ -18,7 +18,9 @@ def assert_terminal_failure_pair(
     failure_kind: str | None = None,
 ) -> tuple[object, object]:
     """Assert one failed dispatch attempt followed by dead-letter lifecycle evidence."""
-    ordered = sorted(receipts, key=lambda receipt: int(_field(receipt, "sequence") or 0))
+    ordered = sorted(
+        receipts, key=lambda receipt: int(_field(receipt, "sequence") or 0)
+    )
     assert len(ordered) == 2
     attempt, lifecycle = ordered
     assert (_field(attempt, "receipt_kind"), _field(attempt, "status")) == (

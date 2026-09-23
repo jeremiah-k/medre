@@ -47,6 +47,7 @@ from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.route_engine import RouteOperationalState
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
+from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 from tests.helpers.fake_runtime import (
     build_and_start,
     clean_stop,
@@ -55,7 +56,6 @@ from tests.helpers.fake_runtime import (
     make_two_adapter_config_with_route,
     wait_until,
 )
-from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 
 # ---------------------------------------------------------------------------
 # Fixtures

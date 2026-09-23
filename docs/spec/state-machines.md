@@ -380,14 +380,14 @@ corresponding receipt. This enables:
 
 ### 3.3 Terminal State Correspondence
 
-| Outbox Terminal | Receipt Terminal           | Condition                                                                                                         |
-| --------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `sent`          | `sent`                     | Successful delivery                                                                                               |
-| `sent`          | `queued` → `sent`          | Queue-based: initial queued, then sent on confirmation                                                            |
-| `dead_lettered` | `dead_lettered`            | Retry exhaustion or terminal failure                                                                              |
-| `cancelled`     | `cancelled`                | Lifecycle evidence for an explicit cancellation when an event-backed outbox row can be correlated                 |
+| Outbox Terminal | Receipt Terminal           | Condition                                                                                                                                    |
+| --------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sent`          | `sent`                     | Successful delivery                                                                                                                          |
+| `sent`          | `queued` → `sent`          | Queue-based: initial queued, then sent on confirmation                                                                                       |
+| `dead_lettered` | `dead_lettered`            | Retry exhaustion or terminal failure                                                                                                         |
+| `cancelled`     | `cancelled`                | Lifecycle evidence for an explicit cancellation when an event-backed outbox row can be correlated                                            |
 | `abandoned`     | `abandoned` / `suppressed` | Lifecycle evidence for abandonment; shutdown-drain suppression remains historical evidence when no correlated outbox transition is available |
-| —               | `suppressed`               | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"` |
+| —               | `suppressed`               | New delivery rejected during shutdown (no outbox item created); receipt with `error="delivery_rejected_shutdown"`                            |
 
 ### 3.4 Implicit Suppression Paths
 
