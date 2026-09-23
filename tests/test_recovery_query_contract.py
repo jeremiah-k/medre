@@ -8,10 +8,10 @@ import pytest
 
 from medre.core.storage.backend import MAX_RECOVERY_PAGE_LIMIT
 from medre.core.storage.sqlite._recovery_query import (
-    _RecoveryQueryMixin,
     _SELECT_UNRESOLVED_DELIVERIES,
     _SELECT_UNRESOLVED_DELIVERIES_SINCE,
     _candidate_batch_limit,
+    _RecoveryQueryMixin,
     _validate_page_limit,
 )
 from medre.core.storage.sqlite.schema import _INDEXES

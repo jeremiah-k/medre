@@ -486,6 +486,7 @@ async def test_duplicate_exhausted_notifications_commit_once(
 
     assert "already terminal" in caplog.text
 
+
 # ===================================================================
 # 5. Storage contract validation is explicit at the transaction boundary
 # ===================================================================
@@ -880,7 +881,8 @@ async def test_queued_finalization_rejects_conflicting_native_identity_atomicall
     )
 
     with pytest.raises(
-        StorageError, match="Native identity already maps to a different canonical event"
+        StorageError,
+        match="Native identity already maps to a different canonical event",
     ):
         await temp_storage.finalize_queued_delivery(
             candidate_ref,

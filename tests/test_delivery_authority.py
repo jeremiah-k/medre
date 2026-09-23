@@ -593,9 +593,7 @@ async def test_recovery_keyset_crosses_stale_candidate_window_without_skipping(
         current_receipts.append(receipt)
 
     page1 = await temp_storage.query_unresolved_deliveries(limit=1)
-    assert [item.receipt_id for item in page1.items] == [
-        current_receipts[0].receipt_id
-    ]
+    assert [item.receipt_id for item in page1.items] == [current_receipts[0].receipt_id]
     assert page1.has_more is True
     assert page1.next_cursor is not None
 
@@ -603,9 +601,7 @@ async def test_recovery_keyset_crosses_stale_candidate_window_without_skipping(
         limit=1,
         cursor=page1.next_cursor,
     )
-    assert [item.receipt_id for item in page2.items] == [
-        current_receipts[1].receipt_id
-    ]
+    assert [item.receipt_id for item in page2.items] == [current_receipts[1].receipt_id]
     assert page2.has_more is False
     assert page2.next_cursor is None
 
@@ -662,6 +658,7 @@ async def test_recovery_authority_matches_cross_class_append_order(
     temp_storage: SQLiteStorage,
 ) -> None:
     """Recovery matches resolver ordering between outbox and outbox-less classes."""
+
     async def seed_case(
         event_id: str,
         *,

@@ -607,7 +607,9 @@ async def test_cancel_and_abandon_honor_reserved_attempt_fence(temp_storage) -> 
             event_id=event.event_id,
         )
         await _claim_due(temp_storage)
-        assert await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+        assert (
+            await temp_storage.reserve_outbox_attempt(item.outbox_id, _WORKER, 1) == 2
+        )
 
         assert not await marker(
             item.outbox_id,

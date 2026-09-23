@@ -528,9 +528,6 @@ async def test_retry_exception_cannot_override_existing_lifecycle_terminal(
     assert updated.next_attempt_at is None
 
 
-
-
-
 async def test_retry_reconciliation_rejects_unlinked_terminal_lifecycle_evidence(
     temp_storage: StorageBackend,
 ) -> None:
