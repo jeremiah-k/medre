@@ -138,7 +138,7 @@ class TestSingleSentReceipt:
         ledger = build_delivery_outcome_ledger(receipts=[_receipt(status="sent")])
         assert len(ledger.entries) == 1
 
-    def test_final_status_sent(self) -> None:
+    def test_lifecycle_status_sent(self) -> None:
         ledger = build_delivery_outcome_ledger(receipts=[_receipt(status="sent")])
         entry = next(iter(ledger.entries.values()))
         assert entry.lifecycle_status == "sent"
@@ -178,13 +178,13 @@ class TestSingleSentReceipt:
 
 
 class TestQueuedOutboxItem:
-    """A queued outbox item produces an entry with final_status=queued."""
+    """A queued outbox item reports lifecycle_status=queued."""
 
     def test_outbox_item_produces_entry(self) -> None:
         ledger = build_delivery_outcome_ledger(outbox_items=[_outbox(status="queued")])
         assert len(ledger.entries) == 1
 
-    def test_final_status_queued(self) -> None:
+    def test_lifecycle_status_queued(self) -> None:
         ledger = build_delivery_outcome_ledger(outbox_items=[_outbox(status="queued")])
         entry = next(iter(ledger.entries.values()))
         assert entry.lifecycle_status == "queued"

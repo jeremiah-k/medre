@@ -300,8 +300,6 @@ CREATE INDEX IF NOT EXISTS idx_relations_target_native_ref
     ON event_relations(target_native_adapter, target_native_channel_id, target_native_message_id);
 CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
     ON native_message_refs(event_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_receipts_plan
-    ON delivery_receipts(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_event
     ON delivery_receipts(event_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_replay_run

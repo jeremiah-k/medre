@@ -34,8 +34,9 @@
   dispatch attempt/result; route/source/replay remain provenance only.
 - Make retry/outbox receipt-only deduplication event-scoped so equal plan IDs on
   different canonical events cannot hide one another.
-- Remove plan-only current-status and receipt-lineage overloads: both current
-  authority and historical delivery lineage now require canonical `event_id`.
+- Remove plan-only current-status and receipt-lineage overloads and their
+  obsolete SQLite index: both current authority and historical delivery lineage
+  now require canonical `event_id`.
 - Tighten outbox-backed receipt eligibility to the exact `(outbox_id, receipt_id)`
   pointer and rank committed generations from mutable outbox attempt state, so a
   late append from an older generation cannot regress current authority.
