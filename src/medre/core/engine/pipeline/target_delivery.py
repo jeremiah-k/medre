@@ -894,19 +894,21 @@ class TargetDeliveryService:
         # the primary receipt to maintain append-only ordering.
         lifecycle_receipt: DeliveryReceipt | None = None
         if _needs_dead_letter:
-            lifecycle_receipt = await self._lifecycle.build_and_persist_dead_letter_receipt(
-                self._storage,
-                event_id=event.event_id,
-                delivery_plan_id=plan.plan_id,
-                target_adapter=adapter_id or "",
-                previous_receipt_id=receipt_id,
-                attempt_number=attempt_number,
-                error=error or "Retry exhausted",
-                source=source,
-                replay_run_id=replay_run_id,
-                target_channel=target.channel,
-                outbox_id=outbox_id,
-                plan=plan,
+            lifecycle_receipt = (
+                await self._lifecycle.build_and_persist_dead_letter_receipt(
+                    self._storage,
+                    event_id=event.event_id,
+                    delivery_plan_id=plan.plan_id,
+                    target_adapter=adapter_id or "",
+                    previous_receipt_id=receipt_id,
+                    attempt_number=attempt_number,
+                    error=error or "Retry exhausted",
+                    source=source,
+                    replay_run_id=replay_run_id,
+                    target_channel=target.channel,
+                    outbox_id=outbox_id,
+                    plan=plan,
+                )
             )
 
         # Store native ref mapping (outbound direction) ONLY on success.

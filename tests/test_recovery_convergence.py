@@ -173,9 +173,7 @@ class TestRecoveredNotProgressed:
             recovery_ledger=ledger,
         )
 
-        finding = next(
-            f for f in findings if f.kind == KIND_RECOVERED_NOT_PROGRESSED
-        )
+        finding = next(f for f in findings if f.kind == KIND_RECOVERED_NOT_PROGRESSED)
         assert finding.extra["latest_receipt_status"] == "queued"
 
     def test_storage_object_outbox_uses_committed_receipt_pointer(self) -> None:
@@ -217,9 +215,7 @@ class TestRecoveredNotProgressed:
             recovery_ledger=ledger,
         )
 
-        finding = next(
-            f for f in findings if f.kind == KIND_RECOVERED_NOT_PROGRESSED
-        )
+        finding = next(f for f in findings if f.kind == KIND_RECOVERED_NOT_PROGRESSED)
         assert finding.record_id == "ob-object"
         assert finding.extra["latest_receipt_status"] == "queued"
 

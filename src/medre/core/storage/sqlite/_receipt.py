@@ -157,7 +157,12 @@ class _ReceiptMixin:
             params = (delivery_plan_id, target_adapter, target_channel or None)
         else:
             sql = _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL
-            params = (event_id, delivery_plan_id, target_adapter, target_channel or None)
+            params = (
+                event_id,
+                delivery_plan_id,
+                target_adapter,
+                target_channel or None,
+            )
         row = await self._read_one(sql, params)
         return _row_to_receipt(row) if row else None
 

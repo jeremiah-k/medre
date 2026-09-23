@@ -2081,9 +2081,11 @@ class DeliveryLifecycleService:
                     "outbox_id=%s receipt_id=%s expected_worker_id=%s; "
                     "receipt remains append-only historical evidence",
                     outbox_id,
-                    terminal_receipt_id
-                    if failure_kind_val is not None
-                    else (receipt.receipt_id if receipt is not None else None),
+                    (
+                        terminal_receipt_id
+                        if failure_kind_val is not None
+                        else (receipt.receipt_id if receipt is not None else None)
+                    ),
                     expected_worker_id,
                 )
             return committed

@@ -368,8 +368,7 @@ class _SQLiteStorageBase:
             missing = required - existing
             if missing:
                 formatted = [
-                    "UNIQUE(" + ", ".join(columns) + ")"
-                    for columns in sorted(missing)
+                    "UNIQUE(" + ", ".join(columns) + ")" for columns in sorted(missing)
                 ]
                 raise PreReleaseSchemaConstraintMismatchError(
                     path=self._db_path,

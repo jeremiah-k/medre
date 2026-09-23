@@ -88,15 +88,15 @@ are drawn from the vocabularies above.
 The following are derived from authoritative vocabularies at query or report
 time. They do not introduce new states:
 
-| Derived artifact                                        | Source                                                   | Defined in                                               |
-| ------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------- |
+| Derived artifact                                        | Source                                                        | Defined in                                               |
+| ------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------- |
 | `delivery_status` SQL view                              | Latest authoritative receipt per event-scoped delivery target | [routing-delivery.md](routing-delivery.md) §9            |
-| Convergence severity (`safe`/`degraded`/`inconsistent`) | Cross-reference of outbox + receipt statuses             | [diagnostics-evidence.md](diagnostics-evidence.md) §21   |
-| Recovery ownership statuses                             | Classification of outbox items at startup                | [diagnostics-evidence.md](diagnostics-evidence.md) §22   |
-| Health vocabulary (`healthy`/`degraded`/etc.)           | Adapter diagnostics projection                           | [diagnostics-evidence.md](diagnostics-evidence.md) §5    |
-| Report dict enrichment fields                           | Parsed from receipt `error` and `rendering_evidence`     | [diagnostics-evidence.md](diagnostics-evidence.md) §17.2 |
-| Delivery outcome ledger                                 | Grouped projection over receipts and outbox              | [diagnostics-evidence.md](diagnostics-evidence.md) §19   |
-| Lifecycle convergence findings                          | Detection-only analysis of receipt/outbox contradictions | [diagnostics-evidence.md](diagnostics-evidence.md) §23   |
+| Convergence severity (`safe`/`degraded`/`inconsistent`) | Cross-reference of outbox + receipt statuses                  | [diagnostics-evidence.md](diagnostics-evidence.md) §21   |
+| Recovery ownership statuses                             | Classification of outbox items at startup                     | [diagnostics-evidence.md](diagnostics-evidence.md) §22   |
+| Health vocabulary (`healthy`/`degraded`/etc.)           | Adapter diagnostics projection                                | [diagnostics-evidence.md](diagnostics-evidence.md) §5    |
+| Report dict enrichment fields                           | Parsed from receipt `error` and `rendering_evidence`          | [diagnostics-evidence.md](diagnostics-evidence.md) §17.2 |
+| Delivery outcome ledger                                 | Grouped projection over receipts and outbox                   | [diagnostics-evidence.md](diagnostics-evidence.md) §19   |
+| Lifecycle convergence findings                          | Detection-only analysis of receipt/outbox contradictions      | [diagnostics-evidence.md](diagnostics-evidence.md) §23   |
 
 ### 2.3 Closure Constraint
 

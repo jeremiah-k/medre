@@ -961,7 +961,6 @@ class TestMultipleTargets:
         assert results["dp-2"] == "degraded"
         assert results["dp-3"] == "inconsistent"
 
-
     def test_same_plan_target_across_events_remains_separate(self) -> None:
         """Global convergence never collapses identical target keys across events."""
         summary = build_convergence_summary(

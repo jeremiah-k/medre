@@ -670,12 +670,12 @@ and MUST NOT be inferred from `status` alone.
 
 **Indexes:**
 
-| Index                 | Columns                                                                        | Purpose                                         |
-| --------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------- |
-| `idx_receipts_plan`   | `(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)` | legacy/unscoped receipt lookup paths |
+| Index                  | Columns                                                                                | Purpose                                           |
+| ---------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `idx_receipts_plan`    | `(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence)`         | legacy/unscoped receipt lookup paths              |
 | `idx_receipts_lineage` | `(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), sequence)` | event-scoped current-outcome and recovery lineage |
-| `idx_receipts_event`  | `(event_id, sequence)`                                                         | Receipt lookups by event                        |
-| `idx_receipts_source` | `(source, replay_run_id)`                                                      | Filtering receipts by replay run                |
+| `idx_receipts_event`   | `(event_id, sequence)`                                                                 | Receipt lookups by event                          |
+| `idx_receipts_source`  | `(source, replay_run_id)`                                                              | Filtering receipts by replay run                  |
 
 ### 4.4.1 delivery_observations
 
