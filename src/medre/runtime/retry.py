@@ -93,7 +93,14 @@ class RetryWorkerStorage(Protocol):
         target_channel: str | None = None,
         *,
         event_id: str | None = None,
-    ) -> DeliveryReceipt | None: ...
+    ) -> DeliveryReceipt | None:
+        """Return current delivery status for one target, optionally event-scoped.
+
+        Retry callers should pass ``event_id`` because plan IDs can recur
+        across events. ``None`` for ``target_channel`` selects the no-channel
+        target, not every channel.
+        """
+        ...
 
 
 if TYPE_CHECKING:
@@ -1336,12 +1343,9 @@ class RetryWorker:
     async def _renew_dispatch_lease(self, item: DeliveryOutboxItem) -> None:
         """Extend the claimed row's lease while its reserved dispatch runs.
 
-        Renewal runs at half the poll interval and extends the lease by the
-        same duration the claim acquired (``interval * 1.5``), so a live
-        worker's dispatch never outlives its claim.  When a renewal reports
-        the claim lost, the loop stops: the attempt and worker fences on
-        finalization remain the authority for anything this worker still
-        commits after that point.
+        Renews periodically during dispatch. Renewal errors are retried on
+        the next cycle; a lost claim stops renewal. Attempt and
+        worker fences determine whether finalization can still commit.
         """
         interval = max(0.05, self._interval * 0.5)
         lease_seconds = int(self._interval * 1.5) or 30

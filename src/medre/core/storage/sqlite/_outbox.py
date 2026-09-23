@@ -521,8 +521,14 @@ class _OutboxMixin:
         the finalized attempt number.  *expected_worker_id* optionally
         fences a transition to the current claim owner.
 
+        Returns ``True`` only if the transition committed. Returns ``False``
+        for a terminal row, a disallowed source status, or a mismatched
+        attempt or owner. A terminal transition without an explicit attempt
+        consumes any active reservation.
+
         Raises :class:`ValueError` if *new_status* is not a known
-        outbox status (not in ``OUTBOX_STATUSES``).
+        outbox status (not in ``OUTBOX_STATUSES``), or if ``retry_wait``
+        has no ``next_attempt_at``.
         """
         if new_status not in OUTBOX_STATUSES:
             raise ValueError(
