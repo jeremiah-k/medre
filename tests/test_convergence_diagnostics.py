@@ -114,7 +114,10 @@ def _linked(
 ) -> tuple[dict, dict]:
     """Build one coherent outbox/receipt pair with an exact committed pointer."""
     receipt_values = {"outbox_id": "ob-001", **(receipt_overrides or {})}
-    outbox_values = {"receipt_id": receipt_values.get("receipt_id", "rcpt-001"), **(outbox_overrides or {})}
+    outbox_values = {
+        "receipt_id": receipt_values.get("receipt_id", "rcpt-001"),
+        **(outbox_overrides or {}),
+    }
     receipt = _receipt(**receipt_values)
     outbox_values.setdefault("outbox_id", receipt["outbox_id"])
     outbox = _outbox(**outbox_values)

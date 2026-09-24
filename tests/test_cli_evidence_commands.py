@@ -820,7 +820,9 @@ class TestInspectAugmentedStoragePath:
         assert len(parsed["recovery"]["failed_targets"]) == 1
 
 
-def test_inspect_replay_finds_durable_claim_before_first_receipt(tmp_path: Path) -> None:
+def test_inspect_replay_finds_durable_claim_before_first_receipt(
+    tmp_path: Path,
+) -> None:
     """Named replay admission is inspectable during the pre-receipt crash window."""
     import asyncio
     from datetime import datetime, timezone
@@ -882,4 +884,6 @@ def test_inspect_replay_finds_durable_claim_before_first_receipt(tmp_path: Path)
     assert parsed["origin"] == "replay"
     assert parsed["sources_seen"] == []
     assert parsed["timeline"][0]["entry_type"] in {"event_summary", "outbox_generation"}
-    assert any(entry["entry_type"] == "outbox_generation" for entry in parsed["timeline"])
+    assert any(
+        entry["entry_type"] == "outbox_generation" for entry in parsed["timeline"]
+    )

@@ -117,7 +117,9 @@ class TestDeliveryProvenanceValidation:
         assert receipt.replay_run_id == "run-42"
 
     def test_live_receipt_rejects_replay_origin(self) -> None:
-        with pytest.raises(ValueError, match="live delivery cannot carry replay_run_id"):
+        with pytest.raises(
+            ValueError, match="live delivery cannot carry replay_run_id"
+        ):
             DeliveryReceipt(
                 receipt_id="rcpt-live-replay-origin",
                 event_id="evt-live-replay-origin",
@@ -172,9 +174,10 @@ class TestDeliveryProvenanceValidation:
         )
         force_setattr(receipt, "replay_run_id", "run-impossible")
 
-        with pytest.raises(ValueError, match="live delivery cannot carry replay_run_id"):
+        with pytest.raises(
+            ValueError, match="live delivery cannot carry replay_run_id"
+        ):
             await temp_storage.append_receipt(receipt)
-
 
     async def test_sqlite_rejects_live_receipt_with_replay_origin(
         self, temp_storage: SQLiteStorage

@@ -1368,7 +1368,6 @@ class TestBestEffortWarningText:
         assert "duplicate" in lowered
 
 
-
 # ===================================================================
 # Public sanitize_error (snapshot.py)
 # ===================================================================

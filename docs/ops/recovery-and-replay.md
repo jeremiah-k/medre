@@ -139,20 +139,20 @@ What happened?
 
 On hard crash (kill -9, OOM, power loss):
 
-| State                                            | Survived? | Notes                                                                                                                                                                 |
-| ------------------------------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Canonical events                                 | Yes       | Written to SQLite before delivery                                                                                                                                     |
-| Delivery receipts                                | Yes       | Written after each delivery attempt                                                                                                                                   |
-| Post-handoff delivery observations               | Partial   | Appended rows survive; callbacks awaiting persistence can be lost. A missing row does not prove LXMF reported no terminal state.                                      |
-| Native message refs                              | Yes       | Persisted in SQLite alongside receipts                                                                                                                                |
-| Receipt traceability (`source`, `replay_run_id`) | Yes       | Stored on receipts in SQLite                                                                                                                                          |
-| Matrix E2EE crypto keys                          | Yes       | On disk under adapter state root                                                                                                                                      |
-| LXMF identity files                              | Yes       | On disk under adapter state root                                                                                                                                      |
-| Logs (pre-crash)                                 | Yes       | Appended to `{log_dir}/medre.log`                                                                                                                                     |
-| In-flight deliveries                             | Partial   | No receipt, but an `in_progress` outbox row may survive. Missing/expired leases are reclaimable by `claim_due_outbox_items()`. Deliveries without outbox rows are fully lost. |
+| State                                            | Survived? | Notes                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Canonical events                                 | Yes       | Written to SQLite before delivery                                                                                                                                                                                                                                        |
+| Delivery receipts                                | Yes       | Written after each delivery attempt                                                                                                                                                                                                                                      |
+| Post-handoff delivery observations               | Partial   | Appended rows survive; callbacks awaiting persistence can be lost. A missing row does not prove LXMF reported no terminal state.                                                                                                                                         |
+| Native message refs                              | Yes       | Persisted in SQLite alongside receipts                                                                                                                                                                                                                                   |
+| Receipt traceability (`source`, `replay_run_id`) | Yes       | Stored on receipts in SQLite                                                                                                                                                                                                                                             |
+| Matrix E2EE crypto keys                          | Yes       | On disk under adapter state root                                                                                                                                                                                                                                         |
+| LXMF identity files                              | Yes       | On disk under adapter state root                                                                                                                                                                                                                                         |
+| Logs (pre-crash)                                 | Yes       | Appended to `{log_dir}/medre.log`                                                                                                                                                                                                                                        |
+| In-flight deliveries                             | Partial   | No receipt, but an `in_progress` outbox row may survive. Missing/expired leases are reclaimable by `claim_due_outbox_items()`. Deliveries without outbox rows are fully lost.                                                                                            |
 | Active replay runs                               | Partial   | A **named** run's admitted target generations and `replay_run_id` survive in the outbox before the first receipt; process-local iteration/request state and unnamed run identity do not. Stale named-run claims are recovered through the normal outbox/retry lifecycle. |
-| Runtime counters (accounting)                    | No        | Process-local counters reset after restart                                                                                                                            |
-| Adapter connection state                         | No        | Adapters reconnect from scratch                                                                                                                                       |
+| Runtime counters (accounting)                    | No        | Process-local counters reset after restart                                                                                                                                                                                                                               |
+| Adapter connection state                         | No        | Adapters reconnect from scratch                                                                                                                                                                                                                                          |
 
 ### Crash Recovery Steps
 
@@ -578,9 +578,9 @@ medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.
 }
 ```
 
-| Field           | Value for replay      | Purpose                                              |
-| --------------- | --------------------- | ---------------------------------------------------- |
-| `source`        | `"replay"`            | Distinguishes replay deliveries from live deliveries |
+| Field           | Value for replay            | Purpose                                                                    |
+| --------------- | --------------------------- | -------------------------------------------------------------------------- |
+| `source`        | `"replay"`                  | Distinguishes replay deliveries from live deliveries                       |
 | `replay_run_id` | Unique named-run identifier | Durably groups admitted target generations and their replay/retry receipts |
 
 Key distinctions:
@@ -702,13 +702,13 @@ transport delivery: an ambiguous handoff may still be redispatched by retry/reco
 
 ### When Duplicates Occur
 
-| Scenario                                                             | Risk level | Why                                                                                          |
-| -------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------- |
-| Replaying events that were never delivered                           | Low        | No prior delivery exists                                                                     |
-| Replaying events that were delivered before a crash                  | Medium     | Some events may have been delivered but have no receipt                                      |
-| Replaying events that have existing **live** `sent` receipts         | High       | A replay run is intentionally distinct from prior live delivery                              |
-| Re-running the same non-empty replay `run_id`                     | Low        | The run atomically reuses its existing target generation; ambiguous retry/recovery remains transport-dependent |
-| Multiple `best_effort` replays with different or empty run IDs       | High       | Each run/empty-ID execution remains intentionally repeatable                                 |
+| Scenario                                                       | Risk level | Why                                                                                                            |
+| -------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------- |
+| Replaying events that were never delivered                     | Low        | No prior delivery exists                                                                                       |
+| Replaying events that were delivered before a crash            | Medium     | Some events may have been delivered but have no receipt                                                        |
+| Replaying events that have existing **live** `sent` receipts   | High       | A replay run is intentionally distinct from prior live delivery                                                |
+| Re-running the same non-empty replay `run_id`                  | Low        | The run atomically reuses its existing target generation; ambiguous retry/recovery remains transport-dependent |
+| Multiple `best_effort` replays with different or empty run IDs | High       | Each run/empty-ID execution remains intentionally repeatable                                                   |
 
 ### Assessing Risk Before Replay
 
@@ -737,15 +737,15 @@ ORDER BY e.created_at DESC;
 
 ## Retry vs Replay
 
-|                    | Retry (automatic)                                                     | Replay (manual)                                              |
-| ------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------ |
-| **Trigger**        | `ADAPTER_TRANSIENT` failures only                                     | Operator-initiated via CLI                                   |
-| **Owner**          | `RetryWorker` (background)                                            | Operator                                                     |
+|                    | Retry (automatic)                                                     | Replay (manual)                                                                                |
+| ------------------ | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **Trigger**        | `ADAPTER_TRANSIENT` failures only                                     | Operator-initiated via CLI                                                                     |
+| **Owner**          | `RetryWorker` (background)                                            | Operator                                                                                       |
 | **Lineage**        | `source='retry'`, linked via `parent_receipt_id`, same delivery chain | Initial dispatch uses `source='replay'`; `replay_run_id` persists across replay-origin retries |
 | **Persistence**    | Outbox `status` and `next_attempt_at` survive restart                 | Named target admission and receipts are durable; the aggregate ReplaySummary remains in-memory |
-| **Duplicate risk** | Retry/recovery may redispatch ambiguous transport handoff             | Named runs dedupe target admission; distinct/empty runs MAY redeliver |
-| **Bounded by**     | `RetryPolicy` (max attempts, backoff)                                 | Operator decides scope                                       |
-| **Opt-in**         | Yes — requires `RetryPolicy` config                                   | Always available                                             |
+| **Duplicate risk** | Retry/recovery may redispatch ambiguous transport handoff             | Named runs dedupe target admission; distinct/empty runs MAY redeliver                          |
+| **Bounded by**     | `RetryPolicy` (max attempts, backoff)                                 | Operator decides scope                                                                         |
+| **Opt-in**         | Yes — requires `RetryPolicy` config                                   | Always available                                                                               |
 
 ### Retry Accountability
 

@@ -1468,16 +1468,16 @@ During the Persist phase of shutdown, the runtime **MUST** flush pending SQLite 
 
 The following runtime state is held in memory only and is never written to SQLite or disk:
 
-| State                                | Nature                       |
-| ------------------------------------ | ---------------------------- |
-| In-flight deliveries                 | Semaphore-tracked coroutines |
-| Replay CLI request / iterator         | Async generator iteration   |
-| Named replay target admissions        | **Persisted in delivery outbox**; not process-local |
-| `CapacityController` internal gauges | In-memory counters           |
-| `RouteStats` per-route counters      | In-memory counters           |
-| `RuntimeAccounting` counters         | In-memory counters           |
-| Adapter health / connection state    | In-memory                    |
-| Pipeline runner state                | Ephemeral                    |
+| State                                | Nature                                              |
+| ------------------------------------ | --------------------------------------------------- |
+| In-flight deliveries                 | Semaphore-tracked coroutines                        |
+| Replay CLI request / iterator        | Async generator iteration                           |
+| Named replay target admissions       | **Persisted in delivery outbox**; not process-local |
+| `CapacityController` internal gauges | In-memory counters                                  |
+| `RouteStats` per-route counters      | In-memory counters                                  |
+| `RuntimeAccounting` counters         | In-memory counters                                  |
+| Adapter health / connection state    | In-memory                                           |
+| Pipeline runner state                | Ephemeral                                           |
 
 The process-local rows above reset to zero or initial state on every startup. Named replay target admissions are intentionally excluded from that statement because they are durable outbox work and retain their `replay_run_id` across restarts.
 
@@ -1487,13 +1487,13 @@ The process-local rows above reset to zero or initial state on every startup. Na
 
 The canonical event log supports replaying events through the pipeline. Replay is an ephemeral runtime operation, not a durable job system.
 
-| Property                   | Value                                                                                                           |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Replay request durability  | The request/selection iterator is in-memory. A non-empty named run becomes durable per dispatchable target when its outbox generation is admitted; pre-filter-only results remain in-memory. |
-| Replay queue               | No separate replay-job queue exists. Admitted delivery work uses the normal durable delivery outbox.             |
+| Property                   | Value                                                                                                                                                                                           |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Replay request durability  | The request/selection iterator is in-memory. A non-empty named run becomes durable per dispatchable target when its outbox generation is admitted; pre-filter-only results remain in-memory.    |
+| Replay queue               | No separate replay-job queue exists. Admitted delivery work uses the normal durable delivery outbox.                                                                                            |
 | Replay resume after crash  | The replay request itself is not resumed. Operators may re-initiate it; already-admitted named targets reuse their durable run claims, while normal retry/recovery owns unfinished outbox work. |
-| Replay deduplication       | Non-empty `run_id` atomically owns one outbox generation per dispatchable delivery identity; different/empty run IDs MAY redeliver. |
-| Replay receipt persistence | Yes. Receipts produced by replay or its later retries are persisted with the originating `replay_run_id`.         |
+| Replay deduplication       | Non-empty `run_id` atomically owns one outbox generation per dispatchable delivery identity; different/empty run IDs MAY redeliver.                                                             |
+| Replay receipt persistence | Yes. Receipts produced by replay or its later retries are persisted with the originating `replay_run_id`.                                                                                       |
 
 ### 13.2 Replay Modes
 
@@ -1659,7 +1659,7 @@ This section states which code owns each table's rows, who may create/mutate/del
    outbound native ref, supplemental `sent` receipt, and exact
    outbox-attempt transition in one storage transaction. Storage MUST
    re-check the exact `(event_id, delivery_plan_id, target_adapter,
-   normalized target_channel, outbox_id, attempt_number)` identity and
+normalized target_channel, outbox_id, attempt_number)` identity and
    finalizable status inside that transaction. A failed guard or failed insert
    MUST leave all three categories unchanged.
 

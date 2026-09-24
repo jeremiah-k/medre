@@ -79,7 +79,9 @@ async def _trace_event(
                     elif etype == "outbox_generation":
                         status = data.get("status", "")
                         target = data.get("target_adapter", "")
-                        attempt = data.get("active_attempt") or data.get("attempt_number")
+                        attempt = data.get("active_attempt") or data.get(
+                            "attempt_number"
+                        )
                         line = f"  {ts}  [{etype}] {status} -> {target}"
                         if data.get("target_channel"):
                             line += f" channel={data['target_channel']}"
@@ -179,7 +181,9 @@ async def _trace_replay(
                 print(f"  Outbox generations: {replay_data['outbox_count']}")
                 print(f"  Receipts: {replay_data['receipt_count']}")
                 if replay_data["sources_seen"]:
-                    print(f"  Dispatch sources: {', '.join(replay_data['sources_seen'])}")
+                    print(
+                        f"  Dispatch sources: {', '.join(replay_data['sources_seen'])}"
+                    )
                 print(f"  Events:  {len(replay_data['event_ids'])}")
                 print()
                 for entry in replay_data["timeline"]:
@@ -189,11 +193,15 @@ async def _trace_replay(
                     if etype == "outbox_generation":
                         status = data.get("status", "")
                         target = data.get("target_adapter", "")
-                        attempt = data.get("active_attempt") or data.get("attempt_number")
+                        attempt = data.get("active_attempt") or data.get(
+                            "attempt_number"
+                        )
                         line = f"  {ts}  [{etype}] {status} -> {target}"
                         if data.get("target_channel"):
                             line += f" channel={data['target_channel']}"
-                        line += f" attempt={attempt} (event: {data.get('event_id', '')})"
+                        line += (
+                            f" attempt={attempt} (event: {data.get('event_id', '')})"
+                        )
                         print(line)
                     elif etype == "receipt":
                         status = data.get("status", "")

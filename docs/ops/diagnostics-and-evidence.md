@@ -321,12 +321,12 @@ the JSON snapshot schema.
 
 ### Inspect Output Interpretation
 
-| `medre inspect` output                                               | What to look for                                                                                                      |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `event` — source_adapter, event_kind, payload                        | Event was stored correctly before delivery                                                                            |
-| `receipts` — status, failure_kind, attempt_number, parent_receipt_id | Full delivery lifecycle. `attempt_number > 1` with `parent_receipt_id` chain indicates retry.                         |
-| `receipts` — route_id                                                | Which route triggered the delivery                                                                                    |
-| `native-ref` — native_message_id, resolves_to                        | Maps transport-native IDs to canonical events                                                                         |
+| `medre inspect` output                                               | What to look for                                                                                                                               |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event` — source_adapter, event_kind, payload                        | Event was stored correctly before delivery                                                                                                     |
+| `receipts` — status, failure_kind, attempt_number, parent_receipt_id | Full delivery lifecycle. `attempt_number > 1` with `parent_receipt_id` chain indicates retry.                                                  |
+| `receipts` — route_id                                                | Which route triggered the delivery                                                                                                             |
+| `native-ref` — native_message_id, resolves_to                        | Maps transport-native IDs to canonical events                                                                                                  |
 | `receipts --replay-run` — replay_run_id                              | Groups one replay-origin lineage, including later `source="retry"` attempts. Different run IDs identify distinct named BEST_EFFORT executions. |
 
 ## Fake Bridge Smoke: Running the Tests
@@ -730,7 +730,7 @@ The convergence summary has three fields to check first:
 | ----------------- | ---------------------------------------------------------------------------------- |
 | `worst_severity`  | If `"inconsistent"`, investigate the targets with that severity.                   |
 | `severity_counts` | How many targets at each level. Any non-zero `inconsistent` count needs attention. |
-| `targets`         | Per-target details with `outbox_status`, `current_receipt_status`, and `warnings`.  |
+| `targets`         | Per-target details with `outbox_status`, `current_receipt_status`, and `warnings`. |
 
 ### Per-Target Details
 

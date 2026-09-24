@@ -118,8 +118,6 @@ class _FakeReceipt:
         self.created_at = datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc)
 
 
-
-
 class _FakeNativeRef:
     """Minimal native ref for radio transport detection."""
 

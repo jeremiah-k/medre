@@ -20,6 +20,7 @@ from typing import Any
 
 import msgspec
 
+from medre.core.engine.pipeline.delivery_state import TERMINAL_OUTBOX_STATUSES
 from medre.core.events import (
     CanonicalEvent,
     DeliveryObservation,
@@ -27,7 +28,6 @@ from medre.core.events import (
     EventRelation,
     NativeMessageRef,
 )
-from medre.core.engine.pipeline.delivery_state import TERMINAL_OUTBOX_STATUSES
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.reporting import (
     delivery_observation_to_report_dict,

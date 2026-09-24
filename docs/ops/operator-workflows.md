@@ -255,14 +255,14 @@ canonical events could not all be loaded.
 
 ### Timeline Entry Types
 
-| Entry type             | What it shows                                                          |
-| ---------------------- | ---------------------------------------------------------------------- |
-| `event`                | Canonical event (kind, source adapter, timestamp)                      |
-| `native_ref`           | Native transport references (Matrix event IDs, Meshtastic message IDs) |
+| Entry type             | What it shows                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| `event`                | Canonical event (kind, source adapter, timestamp)                                                       |
+| `native_ref`           | Native transport references (Matrix event IDs, Meshtastic message IDs)                                  |
 | `outbox_generation`    | Durable target admission/current outbox snapshot, including named replay origin before a receipt exists |
-| `receipt`              | Immutable MEDRE delivery evidence (status, target adapter, attempt count) |
-| `delivery_observation` | Later transport facts tied to one exact durable delivery attempt       |
-| `relation`             | Relations to other events (replies, reactions)                         |
+| `receipt`              | Immutable MEDRE delivery evidence (status, target adapter, attempt count)                               |
+| `delivery_observation` | Later transport facts tied to one exact durable delivery attempt                                        |
+| `relation`             | Relations to other events (replies, reactions)                                                          |
 
 ### Interpreting Timeline Gaps
 
@@ -278,17 +278,17 @@ canonical events could not all be loaded.
 
 **DeliveryReceipt:**
 
-| Field               | Description                                                     |
-| ------------------- | --------------------------------------------------------------- |
-| `receipt_id`        | Unique receipt identifier                                       |
-| `event_id`          | Canonical event                                                 |
-| `target_adapter`    | Adapter that received the delivery                              |
-| `route_id`          | Route that matched the event                                    |
-| `status`            | `sent`, `failed`, `suppressed`, etc.                            |
-| `failure_kind`      | Failure classification or `null`                                |
-| `attempt_number`    | 1 for first attempt, increments on retry                        |
-| `parent_receipt_id` | Links to previous receipt in retry chain                        |
-| `source`            | `"live"`, `"retry"`, or `"replay"`                              |
+| Field               | Description                                                       |
+| ------------------- | ----------------------------------------------------------------- |
+| `receipt_id`        | Unique receipt identifier                                         |
+| `event_id`          | Canonical event                                                   |
+| `target_adapter`    | Adapter that received the delivery                                |
+| `route_id`          | Route that matched the event                                      |
+| `status`            | `sent`, `failed`, `suppressed`, etc.                              |
+| `failure_kind`      | Failure classification or `null`                                  |
+| `attempt_number`    | 1 for first attempt, increments on retry                          |
+| `parent_receipt_id` | Links to previous receipt in retry chain                          |
+| `source`            | `"live"`, `"retry"`, or `"replay"`                                |
 | `replay_run_id`     | Named replay origin; preserved on later `source="retry"` attempts |
 
 **NativeMessageRef:**

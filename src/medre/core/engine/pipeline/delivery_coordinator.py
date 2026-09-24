@@ -273,9 +273,7 @@ class DeliveryCoordinator:
         if not route_targets:
             return []
 
-        source, replay_run_id = normalize_delivery_provenance(
-            source, replay_run_id
-        )
+        source, replay_run_id = normalize_delivery_provenance(source, replay_run_id)
 
         worker_limit = (
             self._capacity_controller.delivery_limit
@@ -520,10 +518,14 @@ class DeliveryCoordinator:
         # before outbox admission.  Outbox-less suppression/capacity receipts
         # record decisions, not ownership of a transport generation, and must
         # not permanently poison a named run.
-        if replay_authority.receipt_kind != "attempt" or replay_authority.status not in {
-            "queued",
-            "sent",
-        }:
+        if (
+            replay_authority.receipt_kind != "attempt"
+            or replay_authority.status
+            not in {
+                "queued",
+                "sent",
+            }
+        ):
             return None
         return self._build_replay_duplicate_outcome(
             ctx,

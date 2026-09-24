@@ -446,12 +446,15 @@ class TestDeliveryStatusFromReceipt:
                 current = await temp_storage.delivery_status(identity)
                 assert current is not None
                 assert current.status in {"sent", "queued"}
-                assert DeliveryIdentity(
-                    current.event_id,
-                    current.delivery_plan_id,
-                    current.target_adapter,
-                    current.target_channel,
-                ) == identity
+                assert (
+                    DeliveryIdentity(
+                        current.event_id,
+                        current.delivery_plan_id,
+                        current.target_adapter,
+                        current.target_channel,
+                    )
+                    == identity
+                )
         finally:
             await runner.stop()
 

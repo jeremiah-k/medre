@@ -920,7 +920,9 @@ def test_delivery_identity_complete_requires_all_components() -> None:
     assert missing_event.complete is False
 
 
-def test_resolved_snapshot_distinguishes_current_generation_from_latest_history() -> None:
+def test_resolved_snapshot_distinguishes_current_generation_from_latest_history() -> (
+    None
+):
     receipts = [
         {
             "receipt_id": "old-attempt",
@@ -972,7 +974,9 @@ def test_resolved_snapshot_distinguishes_current_generation_from_latest_history(
     assert snapshot.latest_attempt["receipt_id"] == "old-attempt"
 
 
-def test_resolved_snapshot_does_not_promote_uncommitted_current_generation_attempt() -> None:
+def test_resolved_snapshot_does_not_promote_uncommitted_current_generation_attempt() -> (
+    None
+):
     """A receipt that merely claims the active generation is history, not authority."""
     identity = DeliveryIdentity("event-uncommitted", "plan-uncommitted", "dest", "room")
     receipts = [
@@ -1023,7 +1027,9 @@ def test_resolved_snapshot_does_not_promote_uncommitted_current_generation_attem
     assert snapshot.authoritative_receipt["receipt_id"] == "attempt-1"
 
 
-def test_resolved_snapshot_lifecycle_pointer_resolves_current_causative_attempt() -> None:
+def test_resolved_snapshot_lifecycle_pointer_resolves_current_causative_attempt() -> (
+    None
+):
     """Current lifecycle authority exposes its linked attempt for the same generation."""
     identity = DeliveryIdentity("event-terminal", "plan-terminal", "dest", "room")
     receipts = [

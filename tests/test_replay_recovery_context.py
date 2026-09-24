@@ -101,11 +101,7 @@ def _storage(
 @pytest.mark.asyncio
 async def test_replay_context_included_from_receipt() -> None:
     runbook = await _build_event_recovery_runbook(
-        _storage(
-            receipts=[
-                _FakeReceipt(source="replay", replay_run_id="run-42")
-            ]
-        ),
+        _storage(receipts=[_FakeReceipt(source="replay", replay_run_id="run-42")]),
         "evt-1",
         storage_path="/nonexistent",
     )
@@ -126,7 +122,9 @@ async def test_replay_context_tracks_retry_dispatch_origin() -> None:
         _storage(
             receipts=[
                 _FakeReceipt(
-                    source="retry", replay_run_id="run-retry-origin", error="retry failed"
+                    source="retry",
+                    replay_run_id="run-retry-origin",
+                    error="retry failed",
                 )
             ]
         ),
@@ -150,9 +148,7 @@ async def test_replay_context_tracks_retry_dispatch_origin() -> None:
 async def test_admitted_replay_run_is_visible_before_first_receipt() -> None:
     runbook = await _build_event_recovery_runbook(
         _storage(
-            outbox_items=[
-                _FakeOutbox(replay_run_id="run-admitted", status="pending")
-            ]
+            outbox_items=[_FakeOutbox(replay_run_id="run-admitted", status="pending")]
         ),
         "evt-1",
         storage_path="/nonexistent",

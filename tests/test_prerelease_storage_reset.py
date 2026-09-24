@@ -594,8 +594,7 @@ async def test_same_version_db_missing_replay_outbox_provenance_is_rejected(
         "    error_summary TEXT,\n"
         "    replay_run_id TEXT,\n"
         "    metadata TEXT NOT NULL DEFAULT '{}',\n",
-        "    error_summary TEXT,\n"
-        "    metadata TEXT NOT NULL DEFAULT '{}',\n",
+        "    error_summary TEXT,\n" "    metadata TEXT NOT NULL DEFAULT '{}',\n",
         1,
     ).replace(
         "    CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned')),\n"

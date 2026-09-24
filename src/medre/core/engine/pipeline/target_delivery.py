@@ -344,9 +344,7 @@ class TargetDeliveryService:
         object. Successful, queued, and lifecycle-only outcomes return the
         evidence directly. This is the orchestration-facing API.
         """
-        source, replay_run_id = normalize_delivery_provenance(
-            source, replay_run_id
-        )
+        source, replay_run_id = normalize_delivery_provenance(source, replay_run_id)
         receipt_id = f"rcpt-{uuid.uuid4()}"
         target = plan.target
         with correlation_scope(

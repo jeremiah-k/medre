@@ -34,5 +34,9 @@
   not promise transport exactly-once delivery. Prior live delivery,
   different/empty run IDs, and ambiguous sends later retried or recovered can
   still redeliver.
-- Make crash-window provenance visible across event/replay trace, inspect, recovery, evidence, and convergence surfaces. Event timelines now include durable outbox-generation admissions before a first receipt exists; recovery treats current mutable generations independently from older immutable authority.
+- Make crash-window provenance visible across event/replay trace, inspect,
+  recovery, evidence, and convergence surfaces. Event timelines now include
+  durable outbox-generation admissions before a first receipt exists; recovery
+  treats current mutable generations independently from older immutable
+  authority.
 - Align stale-claim recovery with diagnostics by reclaiming `in_progress` rows whose lease is missing or expired, preserving named replay provenance through the RetryWorker path.

@@ -33,7 +33,9 @@ def _event(event_id: str) -> CanonicalEvent:
     )
 
 
-def _outbox(*, outbox_id: str, event_id: str, replay_run_id: str | None = None) -> DeliveryOutboxItem:
+def _outbox(
+    *, outbox_id: str, event_id: str, replay_run_id: str | None = None
+) -> DeliveryOutboxItem:
     return DeliveryOutboxItem(
         outbox_id=outbox_id,
         event_id=event_id,
@@ -55,7 +57,9 @@ async def test_target_projection_uses_current_generation_not_older_authority(
     await storage.initialize()
     try:
         await storage.append(_event(event_id))
-        await storage.create_outbox_item(outbox_id := _outbox(outbox_id="ob-live", event_id=event_id))
+        await storage.create_outbox_item(
+            outbox_id := _outbox(outbox_id="ob-live", event_id=event_id)
+        )
         claimed = await storage.claim_due_outbox_items(
             now="2026-09-24T12:00:00+00:00",
             worker_id="worker-live",
@@ -107,7 +111,9 @@ async def test_target_projection_uses_current_generation_not_older_authority(
     target_state = next(
         iter(storage_data["incident_summary"]["delivery_state_by_target"].values())
     )
-    ledger_entry = next(iter(storage_data["delivery_outcome_ledger"]["entries"].values()))
+    ledger_entry = next(
+        iter(storage_data["delivery_outcome_ledger"]["entries"].values())
+    )
 
     assert target_state["status"] == "pending"
     assert target_state["attempt_number"] == 2

@@ -385,7 +385,9 @@ class TestReplayOriginProvenance:
         assert entry.source == "retry"
         assert entry.replay_run_id == "run-retry-origin"
 
-    def test_retry_uses_durable_outbox_replay_run_id_when_receipt_is_legacy(self) -> None:
+    def test_retry_uses_durable_outbox_replay_run_id_when_receipt_is_legacy(
+        self,
+    ) -> None:
         receipt = _receipt(
             status="sent",
             source="retry",
@@ -1162,7 +1164,9 @@ class TestCurrentGenerationCoherence:
         assert entry.source == "retry"
         assert entry.replay_run_id is None
 
-    def test_reserved_replay_origin_retry_keeps_run_but_reports_retry_mechanism(self) -> None:
+    def test_reserved_replay_origin_retry_keeps_run_but_reports_retry_mechanism(
+        self,
+    ) -> None:
         item = _outbox(
             outbox_id="ob-replay-retry",
             status="in_progress",

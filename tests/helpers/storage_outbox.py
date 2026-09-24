@@ -140,7 +140,6 @@ def _effective_outbox_attempt(item: DeliveryOutboxItem) -> int:
     )
 
 
-
 def find_existing_replay_run_claim(
     items: dict[str, DeliveryOutboxItem],
     candidate: DeliveryOutboxItem,
@@ -161,6 +160,7 @@ def find_existing_replay_run_claim(
         ):
             return existing
     return None
+
 
 def allocate_new_outbox_generation(
     items: dict[str, DeliveryOutboxItem],

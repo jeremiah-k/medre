@@ -154,14 +154,14 @@ class TestConvergenceSummarySafeEvent:
             event_id="evt-conv-safe",
             status="sent",
             delivery_plan_id="plan-conv",
-            outbox_id="ob-conv-safe"
+            outbox_id="ob-conv-safe",
         )
         outbox = _make_outbox_item(
             event_id="evt-conv-safe",
             outbox_id="ob-conv-safe",
             target_adapter="adapter_a",
             status="sent",
-            receipt_id="rcpt-conv-safe"
+            receipt_id="rcpt-conv-safe",
         )
         # Override delivery_plan_id to match receipt grouping key.
         outbox = DeliveryOutboxItem(
@@ -174,7 +174,7 @@ class TestConvergenceSummarySafeEvent:
             status="sent",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-conv-safe"
+            receipt_id="rcpt-conv-safe",
         )
         storage = _populated_fake(
             event_id="evt-conv-safe",
@@ -233,7 +233,7 @@ class TestConvergenceSummaryDegradedEvent:
             status="pending",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-conv-deg"
+            receipt_id="rcpt-conv-deg",
         )
         receipt = _make_receipt(
             "rcpt-conv-deg",
@@ -292,7 +292,7 @@ class TestConvergenceSummaryInconsistentEvent:
             event_id="evt-conv-inc",
             status="queued",
             delivery_plan_id="plan-inc",
-            outbox_id="ob-conv-inc"
+            outbox_id="ob-conv-inc",
         )
         outbox = DeliveryOutboxItem(
             outbox_id="ob-conv-inc",
@@ -304,7 +304,7 @@ class TestConvergenceSummaryInconsistentEvent:
             status="sent",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-conv-inc"
+            receipt_id="rcpt-conv-inc",
         )
         storage = _populated_fake(
             event_id="evt-conv-inc",
@@ -331,7 +331,7 @@ class TestConvergenceSummaryInconsistentEvent:
             event_id="evt-conv-inc2",
             status="sent",
             delivery_plan_id="plan-inc2",
-            outbox_id="ob-conv-inc2"
+            outbox_id="ob-conv-inc2",
         )
         outbox = DeliveryOutboxItem(
             outbox_id="ob-conv-inc2",
@@ -343,7 +343,7 @@ class TestConvergenceSummaryInconsistentEvent:
             status="pending",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-conv-inc2"
+            receipt_id="rcpt-conv-inc2",
         )
         storage = _populated_fake(
             event_id="evt-conv-inc2",
@@ -398,7 +398,7 @@ class TestConvergenceSummaryMultipleTargets:
             target_adapter="adapter_a",
             status="sent",
             sequence=1,
-            outbox_id="ob-safe"
+            outbox_id="ob-safe",
         )
         r_inc = _make_receipt(
             "rcpt-inc",
@@ -407,7 +407,7 @@ class TestConvergenceSummaryMultipleTargets:
             target_adapter="adapter_b",
             status="sent",
             sequence=2,
-            outbox_id="ob-inc"
+            outbox_id="ob-inc",
         )
         ob_safe = DeliveryOutboxItem(
             outbox_id="ob-safe",
@@ -419,7 +419,7 @@ class TestConvergenceSummaryMultipleTargets:
             status="sent",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-safe"
+            receipt_id="rcpt-safe",
         )
         ob_inc = DeliveryOutboxItem(
             outbox_id="ob-inc",
@@ -431,7 +431,7 @@ class TestConvergenceSummaryMultipleTargets:
             status="pending",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-inc"
+            receipt_id="rcpt-inc",
         )
         storage = _populated_fake(
             event_id="evt-conv-mix",
@@ -499,7 +499,7 @@ class TestLifecycleConvergenceReportWithFindings:
             event_id="evt-lc-trno",
             status="sent",
             delivery_plan_id="plan-lc",
-            outbox_id="ob-lc-1"
+            outbox_id="ob-lc-1",
         )
         outbox = DeliveryOutboxItem(
             outbox_id="ob-lc-1",
@@ -511,7 +511,7 @@ class TestLifecycleConvergenceReportWithFindings:
             status="pending",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-lc-1"
+            receipt_id="rcpt-lc-1",
         )
         storage = _populated_fake(
             event_id="evt-lc-trno",
@@ -539,7 +539,7 @@ class TestLifecycleConvergenceReportWithFindings:
             event_id="evt-lc-js",
             status="sent",
             delivery_plan_id="plan-js",
-            outbox_id="ob-lc-js"
+            outbox_id="ob-lc-js",
         )
         outbox = DeliveryOutboxItem(
             outbox_id="ob-lc-js",
@@ -551,7 +551,7 @@ class TestLifecycleConvergenceReportWithFindings:
             status="pending",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-lc-js"
+            receipt_id="rcpt-lc-js",
         )
         storage = _populated_fake(
             event_id="evt-lc-js",
@@ -582,7 +582,7 @@ class TestLifecycleConvergenceReportWithFindings:
             delivery_plan_id="plan-det1",
             target_adapter="adapter_a",
             sequence=1,
-            outbox_id="ob-det1"
+            outbox_id="ob-det1",
         )
         r2 = _make_receipt(
             "rcpt-lc-det2",
@@ -591,7 +591,7 @@ class TestLifecycleConvergenceReportWithFindings:
             delivery_plan_id="plan-det2",
             target_adapter="adapter_b",
             sequence=2,
-            outbox_id="ob-det2"
+            outbox_id="ob-det2",
         )
         ob1 = DeliveryOutboxItem(
             outbox_id="ob-det1",
@@ -603,7 +603,7 @@ class TestLifecycleConvergenceReportWithFindings:
             status="pending",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-lc-det1"
+            receipt_id="rcpt-lc-det1",
         )
         ob2 = DeliveryOutboxItem(
             outbox_id="ob-det2",
@@ -615,7 +615,7 @@ class TestLifecycleConvergenceReportWithFindings:
             status="pending",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-lc-det2"
+            receipt_id="rcpt-lc-det2",
         )
         storage = _populated_fake(
             event_id="evt-lc-det",
@@ -640,7 +640,7 @@ class TestLifecycleConvergenceReportWithFindings:
             event_id="evt-lc-sep",
             status="sent",
             delivery_plan_id="plan-sep",
-            outbox_id="ob-lc-sep"
+            outbox_id="ob-lc-sep",
         )
         outbox = DeliveryOutboxItem(
             outbox_id="ob-lc-sep",
@@ -652,7 +652,7 @@ class TestLifecycleConvergenceReportWithFindings:
             status="pending",
             created_at="2026-01-15T12:00:00+00:00",
             updated_at="2026-01-15T12:00:01+00:00",
-            receipt_id="rcpt-lc-sep"
+            receipt_id="rcpt-lc-sep",
         )
         storage = _populated_fake(
             event_id="evt-lc-sep",

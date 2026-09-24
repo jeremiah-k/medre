@@ -131,9 +131,7 @@ async def test_named_replay_duplicate_serializes_before_capacity_admission(
 ) -> None:
     """Exact local replay duplicates cannot manufacture capacity suppression."""
     runner = _runner(temp_storage)
-    capacity = CapacityController(
-        _Limits(delivery_acquire_timeout_seconds=0.02)
-    )
+    capacity = CapacityController(_Limits(delivery_acquire_timeout_seconds=0.02))
     runner.set_capacity_controller(capacity)
     event = make_event(event_id="coordinator-event", source_adapter="source")
     await temp_storage.append(event)
@@ -226,9 +224,7 @@ async def test_named_replay_duplicate_serializes_before_capacity_admission(
     assert create_calls == 2
     assert deliver_calls == 1
     assert runner._delivery_rejection_count == 0
-    identity = DeliveryIdentity(
-        event.event_id, _plan().plan_id, "target", None
-    )
+    identity = DeliveryIdentity(event.event_id, _plan().plan_id, "target", None)
     assert await temp_storage.list_receipts_for_delivery(identity) == []
 
 

@@ -178,7 +178,9 @@ async def test_same_replay_run_suppresses_already_accepted_target(
         make_pipeline_config_for_pipeline(
             storage=temp_storage,
             router=Router(routes=[route]),
-            adapters={"dest": FakePresentationAdapter(adapter_id="dest", channel="room")},
+            adapters={
+                "dest": FakePresentationAdapter(adapter_id="dest", channel="room")
+            },
         )
     )
 
@@ -213,7 +215,9 @@ async def test_stale_same_run_receipt_does_not_override_current_authority(
     target = RouteTarget(adapter="dest", channel="room")
     route = Route(
         id="route-replay-stale",
-        source=RouteSource(adapter="src", event_kinds=("message.created",), channel=None),
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
         targets=[target],
     )
     plan = DeliveryPlan(
@@ -296,11 +300,15 @@ async def test_stale_same_run_receipt_does_not_override_current_authority(
 async def test_same_replay_run_does_not_treat_suppression_as_dispatch_claim(
     temp_storage: SQLiteStorage,
 ) -> None:
-    event = make_event(event_id="core-reliability-replay-suppressed", source_adapter="src")
+    event = make_event(
+        event_id="core-reliability-replay-suppressed", source_adapter="src"
+    )
     await temp_storage.append(event)
     route = Route(
         id="route-replay-suppressed",
-        source=RouteSource(adapter="src", event_kinds=("message.created",), channel=None),
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
         targets=[RouteTarget(adapter="dest", channel="room")],
     )
     plan = DeliveryPlan(
@@ -327,7 +335,9 @@ async def test_same_replay_run_does_not_treat_suppression_as_dispatch_claim(
         make_pipeline_config_for_pipeline(
             storage=temp_storage,
             router=Router(routes=[route]),
-            adapters={"dest": FakePresentationAdapter(adapter_id="dest", channel="room")},
+            adapters={
+                "dest": FakePresentationAdapter(adapter_id="dest", channel="room")
+            },
         )
     )
 
@@ -343,9 +353,12 @@ async def test_same_replay_run_does_not_treat_suppression_as_dispatch_claim(
     assert len(receipts) == 2
     assert all(receipt.status == "suppressed" for receipt in receipts)
     assert all(receipt.replay_run_id == "run-suppressed" for receipt in receipts)
-    assert await temp_storage.list_outbox_items_for_delivery(
-        DeliveryIdentity(event.event_id, plan.plan_id, "dest", "room")
-    ) == []
+    assert (
+        await temp_storage.list_outbox_items_for_delivery(
+            DeliveryIdentity(event.event_id, plan.plan_id, "dest", "room")
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize("malformed_capability", [[], {}])

@@ -12,6 +12,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 import pytest
+
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.events import (
     CanonicalEvent,
