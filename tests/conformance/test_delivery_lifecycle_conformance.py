@@ -417,9 +417,10 @@ async def test_memory_storage_canonicalizes_dispatch_source() -> None:
     )
     created_live = await storage.create_outbox_item(live)
     assert created_live.dispatch_source == "live"
-    assert await storage.reserve_outbox_attempt(
-        created_live.outbox_id, "worker-live", 1
-    ) == 2
+    assert (
+        await storage.reserve_outbox_attempt(created_live.outbox_id, "worker-live", 1)
+        == 2
+    )
     assert created_live.dispatch_source == "retry"
 
     replay = DeliveryOutboxItem(

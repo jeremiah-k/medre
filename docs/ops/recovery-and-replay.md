@@ -578,10 +578,10 @@ medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.
 }
 ```
 
-| Field           | Value for replay            | Purpose                                                                    |
-| --------------- | --------------------------- | -------------------------------------------------------------------------- |
-| `source`        | `"replay"` on initial replay dispatch | Dispatch mechanism; later RetryWorker attempts use `"retry"`              |
-| `replay_run_id` | Unique named-run identifier | Durably groups admitted target generations and their replay/retry receipts |
+| Field           | Value for replay                      | Purpose                                                                    |
+| --------------- | ------------------------------------- | -------------------------------------------------------------------------- |
+| `source`        | `"replay"` on initial replay dispatch | Dispatch mechanism; later RetryWorker attempts use `"retry"`               |
+| `replay_run_id` | Unique named-run identifier           | Durably groups admitted target generations and their replay/retry receipts |
 
 Key distinctions:
 
