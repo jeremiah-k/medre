@@ -162,7 +162,12 @@ class DeliveryLifecycleStorage(Protocol):
     async def finalize_queued_delivery(
         self,
         command: QueuedDeliveryFinalization,
-    ) -> bool: ...
+    ) -> bool:
+        """Commit sent evidence and the guarded outbox transition atomically.
+
+        Return ``False`` if the outbox generation can no longer be finalized.
+        """
+        ...
 
     async def finalize_outbox_terminal(
         self,

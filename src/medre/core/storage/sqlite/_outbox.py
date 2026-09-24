@@ -361,7 +361,11 @@ class _OutboxMixin:
         self,
         identity: DeliveryIdentity,
     ) -> list[DeliveryOutboxItem]:
-        """Return all operational generations for one delivery identity."""
+        """Return all outbox generations for a complete delivery identity.
+
+        Rows are ordered by effective attempt, creation time, and outbox ID.
+        Raise ``ValueError`` for an incomplete identity.
+        """
         if not identity.complete:
             raise ValueError("outbox history requires a complete DeliveryIdentity")
         rows = await self._read_all(

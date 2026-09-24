@@ -589,6 +589,12 @@ class QueuedDeliveryFinalization:
     receipt: DeliveryReceipt
 
     def __post_init__(self) -> None:
+        """Reject evidence that cannot identify the same outbound sent attempt.
+
+        Raise ``ValueError`` for an invalid sent receipt, an incomplete delivery
+        identity or generation, or a native reference that disagrees with the
+        receipt's event, adapter, channel, or message ID.
+        """
         receipt = self.receipt
         native_ref = self.native_ref
         if native_ref.direction != "outbound":
@@ -654,6 +660,13 @@ class TerminalOutboxFinalization:
     expected_worker_id: str | None = None
 
     def __post_init__(self) -> None:
+        """Reject terminal evidence without a valid delivery and attempt link.
+
+        Raise ``ValueError`` unless the lifecycle receipt identifies a complete,
+        positive-numbered terminal outbox attempt. A supplied failed-attempt
+        receipt must identify that same attempt, and the lifecycle receipt must
+        name it as its direct parent.
+        """
         receipt = self.lifecycle_receipt
         if receipt.receipt_kind != "lifecycle":
             raise ValueError("terminal outbox finalization requires lifecycle evidence")
@@ -721,7 +734,7 @@ class TerminalOutboxFinalization:
 
     @property
     def error_summary(self) -> str | None:
-        """Mutable outbox summary derived from immutable lifecycle evidence."""
+        """Return up to 512 error characters for the outbox, or ``None``."""
         error = self.lifecycle_receipt.error
         return error[:512] if error else None
 
