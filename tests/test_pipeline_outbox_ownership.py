@@ -6,10 +6,10 @@ storage layer returns an existing terminal or active row, the pipeline
 must skip adapter delivery and return a ``DeliveryOutcome`` with
 ``status="skipped"`` and ``failure_kind=OUTBOX_NOT_OWNED``.
 
-Also covers the replay attempt-identity rule: replay computes
-``max(existing effective attempt) + 1`` so it never reclaims or mutates
-live rows or collides with an in-flight retry reservation, and ownership
-checks apply to replay just as they do to live delivery.
+Also covers the replay attempt-identity rule: storage atomically allocates
+``max(existing effective attempt) + 1`` with the replay-row insert so replay
+never reclaims a retry generation or collides with an in-flight reservation;
+ownership checks apply to replay just as they do to live delivery.
 """
 
 from __future__ import annotations
@@ -892,7 +892,8 @@ class TestReplayChannelNormalization:
     SQLite storage normalizes empty-string channels to NULL in outbox
     keys.  If the route target has ``channel=""`` and the stored row has
     ``target_channel=None``, replay must still find existing attempts
-    and compute ``attempt_number = max(existing) + 1``.
+    and allocate a fresh outbox generation above the maximum effective
+    attempt (including any live reservation).
     """
 
     async def test_empty_channel_normalized_to_none_for_attempt_counting(

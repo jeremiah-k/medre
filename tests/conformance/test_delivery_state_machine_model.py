@@ -244,6 +244,42 @@ async def test_live_reservation_blocks_sibling_generation_create(
     )
 
 
+async def test_replay_generation_allocation_is_atomic_and_fresh(
+    lifecycle_storage: object,
+) -> None:
+    """Both backends allocate replay above a live retry reservation atomically."""
+    event_id = "evt-model-atomic-replay-generation"
+    original = _item(
+        outbox_id="obox-model-atomic-replay-original",
+        event_id=event_id,
+        attempt=1,
+        worker_id="worker-a",
+    )
+    await _admit(lifecycle_storage, original)
+    reserved = await lifecycle_storage.reserve_outbox_attempt(  # type: ignore[attr-defined]
+        original.outbox_id,
+        "worker-a",
+        1,
+    )
+    assert reserved == 2
+
+    replay = _item(
+        outbox_id="obox-model-atomic-replay-new",
+        event_id=event_id,
+        attempt=1,
+        worker_id="worker-replay",
+    )
+    created = await lifecycle_storage.create_outbox_item(  # type: ignore[attr-defined]
+        replay,
+        allocate_new_generation=True,
+    )
+    assert created.outbox_id == replay.outbox_id
+    assert created.attempt_number == 3
+    assert await _snapshot(lifecycle_storage, original.outbox_id) == _Snapshot(
+        "in_progress", 1, 2, None, "worker-a"
+    )
+
+
 async def test_terminal_finalization_is_atomic_and_same_attempt(
     lifecycle_storage: object,
 ) -> None:

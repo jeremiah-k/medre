@@ -27,6 +27,7 @@ appropriate ``mark_outbox_*`` transition method.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from medre.core.events import (
@@ -137,6 +138,25 @@ def _effective_outbox_attempt(item: DeliveryOutboxItem) -> int:
     )
 
 
+def allocate_new_outbox_generation(
+    items: dict[str, DeliveryOutboxItem],
+    candidate: DeliveryOutboxItem,
+) -> DeliveryOutboxItem:
+    """Allocate one fresh generation above all effective sibling attempts.
+
+    This mirrors SQLite's atomic replay allocator for in-memory test stores.
+    The caller is responsible for storing the returned row.
+    """
+    if candidate.active_attempt is not None:
+        raise ValueError("allocate_new_generation requires active_attempt=None")
+
+    max_attempt = 0
+    for existing in items.values():
+        if _same_outbox_identity(existing, candidate):
+            max_attempt = max(max_attempt, _effective_outbox_attempt(existing))
+    return replace(candidate, attempt_number=max_attempt + 1, active_attempt=None)
+
+
 def find_existing_outbox_generation(
     items: dict[str, DeliveryOutboxItem],
     candidate: DeliveryOutboxItem,
@@ -192,6 +212,7 @@ def reserve_guarded_outbox_attempt(
 
     object.__setattr__(item, "active_attempt", next_attempt)
     return next_attempt
+
 
 def apply_guarded_outbox_transition(
     item: DeliveryOutboxItem,

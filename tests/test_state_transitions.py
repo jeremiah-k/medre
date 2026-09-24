@@ -449,7 +449,7 @@ class TestOutboxStatusTransitionsMatchCode:
 
 
 class TestOutboxReceiptRelationship:
-    """Verify outbox transitions drive receipt creation, not the reverse."""
+    """Verify receipt evidence and outbox authority stay lifecycle-consistent."""
 
     @pytest.fixture
     def router(self) -> Router:
