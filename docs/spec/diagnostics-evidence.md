@@ -298,7 +298,7 @@ The `collect_evidence_bundle()` function assembles a comprehensive evidence bund
 | `status`                       | `str`          | Overall status: `"passed"`, `"partial"`, or `"error"`.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `sections`                     | `dict`         | Per-section evidence data (see § 7.1).                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `errors`                       | `list[str]`    | Accumulated error strings from section collection.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `limitations`                  | `list[str]`    | Fixed list of evidence limitations (see § 7.2).                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `limitations`                  | `list[str]`    | Fixed list of evidence limitations (see § 7.3).                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `collected_at`                 | `str`          | ISO 8601 timestamp of collection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `generated_at`                 | `str`          | ISO 8601 timestamp of bundle generation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `command`                      | `str`          | Always `"evidence"`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -324,15 +324,20 @@ The dual-location pattern exists for operator convenience — the top-level keys
 
 ### 7.1 Sections
 
-Each section follows the pattern `{"status": str, "error": str or None, "data": Any or None}`.
+Each section uses a closed machine envelope. The only envelope keys are
+`status`, `error`, `data`, and the skipped-only `note`. `passed` sections MUST
+carry object `data` and `error=null`; `error` sections MUST carry `data=null` and
+a string `error`; `skipped` sections MUST carry `data=null`, `error=null`, and a
+non-empty `note`; `partial` sections MUST carry a string `error` and MAY retain
+partial object data or use `null`. Extra envelope fields are invalid.
 
 | Section                | Statuses                                        | Semantics                                                                                        |
 | ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `config_summary`       | `"passed"`, `"error"`                           | Loaded config metadata, adapter counts, route counts.                                            |
-| `route_validation`     | `"passed"`, `"partial"`, `"error"`              | Route eligibility validation results.                                                            |
-| `diagnostics_snapshot` | `"passed"`, `"error"`                           | Build-time diagnostics snapshot (no runtime start).                                              |
+| `config_summary`       | `"passed"`, `"error"`, `"skipped"`              | Loaded config metadata, adapter counts, route counts.                                            |
+| `route_validation`     | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Route eligibility validation results.                                                            |
+| `diagnostics_snapshot` | `"passed"`, `"error"`, `"skipped"`              | Build-time diagnostics snapshot (no runtime start).                                              |
 | `live_health`          | `"passed"`, `"partial"`, `"skipped"`            | Live adapter health after `refresh_live_health()`. Skipped unless requested.                     |
-| `storage`              | `"passed"`, `"partial"`, `"error"`              | Storage backend evidence: receipts, post-handoff observations, incident summaries, outbox state. |
+| `storage`              | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Storage backend evidence: receipts, post-handoff observations, incident summaries, outbox state. |
 | `recovery`             | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Startup recovery ownership diagnostics and ledger data.                                          |
 
 Status computation:
@@ -340,7 +345,22 @@ Status computation:
 - All sections `"passed"` or `"skipped"` → overall `"passed"`.
 - Any section `"partial"` or mixed `"error"`/`"skipped"` → overall `"partial"`.
 
-### 7.2 Fixed Limitations
+### 7.2 Machine schema and payload closure
+
+`docs/schemas/evidence-bundle.schema.json` is the normative machine schema for
+the runtime `medre evidence` dict. The schema closes the section envelopes and
+the top-level payload shapes for `config_summary`, `route_validation`,
+`storage`, and `recovery`. Nested domain reports keep their dedicated schemas or
+model contracts. The schema example and runtime-generated config-backed,
+storage-path, and config-error bundles MUST validate against the same schema.
+
+The machine schema is independent of the per-event core `EvidenceBundle` model
+in §16. The two surfaces serve different consumers; changing one MUST NOT
+silently reinterpret the other. `schema_version` is frozen at `1` during
+pre-release; incompatible machine-contract changes update the schema, example,
+and tests in the same change without advancing the version.
+
+### 7.3 Fixed Limitations
 
 The evidence bundle always includes these limitation statements:
 

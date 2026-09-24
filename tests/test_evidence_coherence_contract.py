@@ -105,6 +105,43 @@ class TestExampleValidatesAgainstSchema:
         missing = optional_keys - set(example.keys())
         assert not missing, f"example missing optional keys: {sorted(missing)}"
 
+    def test_section_envelope_rejects_unknown_fields(self) -> None:
+        """Machine consumers must not silently accept section-envelope drift."""
+        import jsonschema
+
+        example = _load_json(_EXAMPLE_PATH)
+        schema = _load_json(_SCHEMA_PATH)
+        example["sections"]["route_validation"]["unexpected"] = True
+
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=example, schema=schema)
+
+    def test_section_status_controls_error_and_data_shape(self) -> None:
+        """Status envelopes reject contradictory machine states."""
+        import jsonschema
+
+        schema = _load_json(_SCHEMA_PATH)
+        example = _load_json(_EXAMPLE_PATH)
+        example["sections"]["route_validation"]["data"] = None
+
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=example, schema=schema)
+
+        example = _load_json(_EXAMPLE_PATH)
+        example["sections"]["live_health"].pop("note")
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=example, schema=schema)
+
+    def test_config_and_storage_payloads_reject_unknown_fields(self) -> None:
+        """Stable machine-section payloads are closed at their top level."""
+        import jsonschema
+
+        schema = _load_json(_SCHEMA_PATH)
+        for section_name in ("config_summary", "storage"):
+            example = _load_json(_EXAMPLE_PATH)
+            example["sections"][section_name]["data"]["unexpected"] = True
+            with pytest.raises(jsonschema.ValidationError):
+                jsonschema.validate(instance=example, schema=schema)
 
 # ===========================================================================
 # 2. Runtime dict validates against schema (config and storage_path modes)
@@ -610,6 +647,12 @@ class TestTopLevelConvergenceFieldsPopulated:
         assert bundle["recovery_summary"] is None
         assert bundle["recovery_ledger"] is None
         assert "recovery" not in bundle["sections"]
+
+        # The populated event-scoped bundle fills the closed storage payload
+        # with real shapes; it must still validate against the machine schema.
+        import jsonschema
+
+        jsonschema.validate(instance=bundle, schema=_load_json(_SCHEMA_PATH))
 
     @pytest.mark.asyncio
     async def test_global_convergence_includes_all_outbox_rows_beyond_default_limit(
