@@ -54,4 +54,6 @@
   race before its queued receipt is appended: a durable `active_attempt`
   reservation identifies RetryWorker dispatch, while a named replay claim
   identifies initial replay dispatch. Finalized replay-origin rows still reject
-  missing-lineage callbacks rather than guessing provenance.
+  missing-lineage callbacks rather than guessing provenance, and a lineage-read
+  failure now rejects terminal callbacks for every source instead of treating a
+  storage error as evidence that no queued receipt exists.

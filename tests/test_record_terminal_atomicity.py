@@ -168,6 +168,43 @@ async def test_exhausted_from_queued_outbox(
 
 
 @pytest.mark.asyncio
+async def test_terminal_callback_rejects_lineage_read_failure(
+    temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A history-read error must not be mistaken for a missing queued receipt."""
+    await _create_outbox(
+        temp_storage,
+        outbox_id="obox-lineage-read-failure",
+        event_id="evt-lineage-read-failure",
+        delivery_plan_id="plan-lineage-read-failure",
+    )
+
+    async def _raise_lineage_read(*_args, **_kwargs):
+        raise StorageError("lineage read failed")
+
+    monkeypatch.setattr(
+        temp_storage,
+        "list_receipts_for_delivery",
+        _raise_lineage_read,
+    )
+
+    manager = _make_manager(temp_storage)
+    await manager.record_terminal(
+        _terminal_record(
+            outbox_id="obox-lineage-read-failure",
+            event_id="evt-lineage-read-failure",
+            delivery_plan_id="plan-lineage-read-failure",
+        )
+    )
+
+    row = await temp_storage.get_outbox_item("obox-lineage-read-failure")
+    assert row is not None
+    assert row.status == "queued"
+    assert await temp_storage.list_receipts_for_event("evt-lineage-read-failure") == []
+
+
+@pytest.mark.asyncio
 async def test_cancelled_from_queued_outbox(
     temp_storage: SQLiteStorage,
 ) -> None:

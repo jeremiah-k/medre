@@ -562,25 +562,17 @@ class OutboxManager:
                         _queued_receipt_id = _r.receipt_id
                         break
             except Exception:
-                if existing_item.replay_run_id:
-                    # Truthful dispatch provenance cannot be reconstructed
-                    # without the queued receipt: the row carries a replay
-                    # origin, and source must not be guessed. Reject the
-                    # callback; lease expiry / stale reclaim re-drives the
-                    # row and terminalizes it with real provenance.
-                    self._log.warning(
-                        "Could not recover queued-receipt lineage for "
-                        "replay-origin outbox_id=%s; rejecting terminal "
-                        "callback rather than committing guessed "
-                        "provenance",
-                        record.outbox_id,
-                    )
-                    return
-                self._log.debug(
-                    "Could not recover queued-receipt lineage for "
-                    "outbox_id=%s; defaulting to source=live",
+                # A failed history read is not the same as a successful read
+                # that proves the queued receipt has not been appended yet.
+                # Without that distinction parent/provenance lineage cannot be
+                # reconstructed safely, so fail closed for every source.
+                self._log.warning(
+                    "Could not read queued-receipt lineage for "
+                    "outbox_id=%s; rejecting terminal callback rather "
+                    "than committing incomplete provenance",
                     record.outbox_id,
                 )
+                return
 
             if _queued_receipt_id is None:
                 if existing_item.status == "in_progress":

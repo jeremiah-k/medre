@@ -461,7 +461,9 @@ receipt. If a terminal callback arrives while the authoritative row is still
 durable proof of RetryWorker dispatch; absent a reservation, a non-empty
 `replay_run_id` is durable proof of initial named-replay dispatch. A finalized
 replay-origin row with no matching queued receipt is rejected rather than
-guessing provenance. When malformed history offers duplicate queued receipts
+guessing provenance. A queued-receipt history read that fails is also rejected
+for every source; only a successful read may establish that the receipt is not
+yet visible. When malformed history offers duplicate queued receipts
 across sources for the same row and attempt (a row is single-sourced in normal
 operation), non-replay candidates are preferred. Callbacks that do not match
 the validated row — stale attempts, terminal or reclaimed rows — are still
