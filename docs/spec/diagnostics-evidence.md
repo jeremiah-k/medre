@@ -655,7 +655,7 @@ diagnostics but does not itself replay payloads.
   claims one target generation in durable storage, but different/empty run IDs and
   ambiguous transport attempts later retried/recovered may redeliver.
 
-Evidence completeness for post-hoc inspection and deterministic re-rendering given identical context are supported by the frozen nature of the data structures. Replay isolation from live delivery is guaranteed by the `source` and `replay_run_id` tagging on receipts.
+Evidence completeness for post-hoc inspection and deterministic re-rendering given identical context are supported by the frozen nature of the data structures. Replay-origin evidence is identified by `replay_run_id`; `source` independently records the dispatch mechanism (`replay` initially, `retry` on later replay-origin retries).
 
 ### 14.6 Evidence Signals Summary
 
@@ -713,15 +713,15 @@ Outbox-less delivery uses immutable receipt authority.
 Each target entry includes the capability-evidence fields from § 14.8.1, plus
 `source`, `replay_run_id`, `suppression_reason`, and `error`.
 
-| Field                | Present? | Source                          |
-| -------------------- | -------- | ------------------------------- |
+| Field                | Present? | Source                             |
+| -------------------- | -------- | ---------------------------------- |
 | `source`             | Yes      | Current-generation dispatch source |
 | `replay_run_id`      | Yes      | Current-generation replay origin   |
-| `suppression_reason` | Yes      | Derived per § 14.8.1            |
-| `capability_field`   | Yes      | Derived per § 14.8.1            |
-| `capability_level`   | Yes      | Derived per § 14.8.1            |
-| `delivery_strategy`  | Yes      | Derived per § 14.8.1            |
-| `error`              | Yes      | Sanitized receipt `error` field |
+| `suppression_reason` | Yes      | Derived per § 14.8.1               |
+| `capability_field`   | Yes      | Derived per § 14.8.1               |
+| `capability_level`   | Yes      | Derived per § 14.8.1               |
+| `delivery_strategy`  | Yes      | Derived per § 14.8.1               |
+| `error`              | Yes      | Sanitized receipt `error` field    |
 
 ## 14.9 Rendering Budget Enforcement and Evidence
 
@@ -769,7 +769,7 @@ identity before writing the native ref, sent receipt, or outbox transition.
 | ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Supplemental `sent` receipt        | `finalize_queued_delivery` | Queued receipt was successfully correlated and the full-identity storage guard finalized                                                                     |
 | No supplemental receipt created    | `finalize_queued_delivery` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                                       |
-| Replay-lineage finalize            | `finalize_queued_delivery` | Replay-origin queued receipt finalized via the exact row/attempt correlation plus full-identity storage fence; its replay lineage is carried onto `sent`    |
+| Replay-lineage finalize            | `finalize_queued_delivery` | Replay-origin queued receipt finalized via the exact row/attempt correlation plus full-identity storage fence; its replay lineage is carried onto `sent`     |
 | Missing outbox_id on callback      | `finalize_queued_delivery` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                                                           |
 | Missing attempt_number on callback | `finalize_queued_delivery` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                                                      |
 | Delivery-plan metadata absent      | `finalize_queued_delivery` | `delivery_plan_id` validation field absent on outbound ref; exact correlation proceeds via `outbox_id` + `attempt_number` but validation is degraded/skipped |
@@ -795,26 +795,26 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 
 ### 16.2 Contents
 
-| Field                          | Type                       | Semantics                                                                                               |
-| ------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `schema_version`               | `int`                      | Currently `1`. Frozen during pre-release.                                                               |
-| `event_id`                     | `str`                      | The canonical event ID this bundle covers.                                                              |
-| `event_summary`                | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found. |
-| `delivery_receipts`            | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
-| `native_refs`                  | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
-| `outbox_items`                 | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
+| Field                          | Type                       | Semantics                                                                                                                         |
+| ------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `schema_version`               | `int`                      | Currently `1`. Frozen during pre-release.                                                                                         |
+| `event_id`                     | `str`                      | The canonical event ID this bundle covers.                                                                                        |
+| `event_summary`                | `dict or None`             | Summary of the canonical event (kind, source, relation count, payload keys). `None` if event not found.                           |
+| `delivery_receipts`            | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                                                        |
+| `native_refs`                  | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                                          |
+| `outbox_items`                 | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                                                   |
 | `replay_run_ids`               | `tuple[str, …]`            | Sorted distinct durable `replay_run_id` values from receipts or admitted outbox generations. (`to_dict()` produces a JSON array.) |
-| `sources_seen`                 | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
-| `warnings`                     | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
-| `generated_at`                 | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
-| `evidence_tier`                | `str`                      | Machine-readable evidence provenance tier (see § 8). Default `"synthetic"`.                             |
-| `delivery_outcome_ledger`      | `dict or None`             | Per-target delivery outcome ledger grouped by composite key (see § 19).                                 |
-| `retry_outbox_summary`         | `dict or None`             | Retry/outbox accountability summary with aggregate counts and per-item details (see § 20).              |
-| `convergence_summary`          | `dict or None`             | Per-event convergence diagnostics summary derived from receipts and outbox items (see § 21).            |
-| `orphan_report`                | `dict or None`             | Per-event orphan/invalid-lineage report merged with recovery convergence findings (see § 21.8).         |
-| `recovery_summary`             | `dict or None`             | Per-event recovery ownership summary derived from outbox state (see § 22).                              |
-| `recovery_ledger`              | `dict or None`             | Per-event startup recovery ledger with ownership actions (see § 22).                                    |
-| `lifecycle_convergence_report` | `dict or None`             | Per-event lifecycle delivery convergence findings (see § 23).                                           |
+| `sources_seen`                 | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                                               |
+| `warnings`                     | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)                            |
+| `generated_at`                 | `str`                      | ISO 8601 timestamp of bundle generation.                                                                                          |
+| `evidence_tier`                | `str`                      | Machine-readable evidence provenance tier (see § 8). Default `"synthetic"`.                                                       |
+| `delivery_outcome_ledger`      | `dict or None`             | Per-target delivery outcome ledger grouped by composite key (see § 19).                                                           |
+| `retry_outbox_summary`         | `dict or None`             | Retry/outbox accountability summary with aggregate counts and per-item details (see § 20).                                        |
+| `convergence_summary`          | `dict or None`             | Per-event convergence diagnostics summary derived from receipts and outbox items (see § 21).                                      |
+| `orphan_report`                | `dict or None`             | Per-event orphan/invalid-lineage report merged with recovery convergence findings (see § 21.8).                                   |
+| `recovery_summary`             | `dict or None`             | Per-event recovery ownership summary derived from outbox state (see § 22).                                                        |
+| `recovery_ledger`              | `dict or None`             | Per-event startup recovery ledger with ownership actions (see § 22).                                                              |
+| `lifecycle_convergence_report` | `dict or None`             | Per-event lifecycle delivery convergence findings (see § 23).                                                                     |
 
 ### 16.3 ReceiptSummary
 
@@ -922,20 +922,20 @@ partition lifecycle authority. Outbox-backed delivery uses the current mutable
 generation plus its exact attempt evidence; outbox-less delivery uses immutable
 receipt authority. Each target entry includes:
 
-| Field                 | Source                            |
-| --------------------- | --------------------------------- |
+| Field                 | Source                             |
+| --------------------- | ---------------------------------- |
 | `source`              | Current-generation dispatch source |
-| `replay_run_id`       | Current-generation replay origin    |
-| `suppression_reason`  | Derived per § 17.2                |
-| `capability_field`    | Derived per § 17.2                |
-| `capability_level`    | Derived per § 17.2                |
-| `delivery_strategy`   | Derived per § 17.2                |
-| `error`               | Sanitised receipt `error` field   |
-| `failure_kind`        | Receipt `failure_kind` field      |
-| `failure_kind_detail` | Derived per § 17.2                |
-| `retryable`           | Derived per § 17.2                |
-| `next_retry_at`       | Receipt `next_retry_at` field     |
-| `attempt_number`      | Selected receipt `attempt_number` |
+| `replay_run_id`       | Current-generation replay origin   |
+| `suppression_reason`  | Derived per § 17.2                 |
+| `capability_field`    | Derived per § 17.2                 |
+| `capability_level`    | Derived per § 17.2                 |
+| `delivery_strategy`   | Derived per § 17.2                 |
+| `error`               | Current-generation error evidence  |
+| `failure_kind`        | Current-generation failure kind    |
+| `failure_kind_detail` | Derived per § 17.2                 |
+| `retryable`           | Derived per § 17.2                 |
+| `next_retry_at`       | Current-generation retry schedule  |
+| `attempt_number`      | Current effective generation       |
 
 When live, retry, and replay receipts exist for the same target, they share one
 `delivery_state_by_target` entry. If an outbox exists, the entry reports the
@@ -1019,13 +1019,13 @@ Each ledger entry contains:
 | `outbox_status`              | Current outbox generation                  | Mutable operational state, or `null` when no outbox exists.                                    |
 | `authoritative_receipt_id`   | Authority resolver                         | Receipt currently allowed to represent immutable lifecycle evidence.                           |
 | `authoritative_receipt_kind` | Authoritative receipt                      | `attempt` or `lifecycle`.                                                                      |
-| `current_receipt_id`         | Current outbox generation                  | Exact receipt committed by the current mutable generation, or `null` when none is committed.  |
+| `current_receipt_id`         | Current outbox generation                  | Exact receipt committed by the current mutable generation, or `null` when none is committed.   |
 | `current_receipt_kind`       | Current outbox generation                  | `attempt` or `lifecycle` for the exact current-generation receipt, otherwise `null`.           |
 | `current_receipt_status`     | Current outbox generation                  | Status of the exact current-generation receipt, otherwise `null`.                              |
 | `causative_receipt_id`       | Lifecycle receipt                          | Parent attempt that caused a lifecycle transition, otherwise `null`.                           |
 | `current_attempt_receipt_id` | Current outbox generation                  | Attempt receipt for the current generation, or `null` before that generation emits evidence.   |
-| `current_attempt_status`     | Current outbox generation                  | Dispatch status for the current generation, or `null` before its first receipt.                 |
-| `current_attempt_number`     | Current generation                         | Effective current generation (`active_attempt` while reserved, otherwise finalized attempt).    |
+| `current_attempt_status`     | Current outbox generation                  | Dispatch status for the current generation, or `null` before its first receipt.                |
+| `current_attempt_number`     | Current generation                         | Effective current generation (`active_attempt` while reserved, otherwise finalized attempt).   |
 | `latest_attempt_status`      | Immutable attempt history                  | Result/status of the greatest dispatch attempt generation, independent of lifecycle authority. |
 | `latest_attempt_number`      | Immutable attempt history                  | Greatest actual dispatch attempt number; lifecycle transitions never fabricate one.            |
 | `ambiguous_outcome`          | Outbox failure detail                      | `true` when recovery consumed a dispatch whose external outcome was unknown.                   |
@@ -1038,7 +1038,7 @@ Each ledger entry contains:
 | `failure_taxon`              | `resolve_taxon()`                          | Resolved failure taxon, or `null`.                                                             |
 | `failure_taxon_category`     | `taxon_category()`                         | Category of the resolved taxon, or `null`.                                                     |
 | `source`                     | Current generation                         | Dispatch mechanism: `live`, `retry`, or `replay`; not lifecycle identity.                      |
-| `replay_run_id`              | Current generation                         | Replay-origin run identifier; it may accompany `source="replay"` or a later `source="retry"`. |
+| `replay_run_id`              | Current generation                         | Replay-origin run identifier; it may accompany `source="replay"` or a later `source="retry"`.  |
 | `receipt_ids`                | Full identity receipt history              | Sorted receipt IDs, including historical/non-authoritative evidence.                           |
 | `outbox_id`                  | Current outbox generation                  | Current operational row ID, if present.                                                        |
 | `adapter_message_id`         | Current attempt receipt                    | Provider/native message ID for the current generation, when available.                         |
@@ -1245,19 +1245,19 @@ Operators use convergence diagnostics output to identify and manually address st
 
 **`DeliveryTargetConvergence`**: Per-target convergence result.
 
-| Field                   | Type            | Semantics                                                                              |
-| ----------------------- | --------------- | -------------------------------------------------------------------------------------- |
-| `event_id`              | `str`           | Canonical event grouping key. Empty string when absent.                                |
-| `delivery_plan_id`      | `str`           | Grouping key. Empty string when absent.                                                |
-| `target_adapter`        | `str`           | Adapter name.                                                                          |
-| `target_channel`        | `str or None`   | Channel identifier.                                                                    |
-| `outbox_status`         | `str or None`   | Outbox item status, or `None` if no outbox item.                                       |
-| `current_receipt_status` | `str or None`   | Receipt status committed by the current outbox generation; with no outbox, current immutable authority. |
-| `current_receipt_id`     | `str or None`   | Receipt ID under the same current-generation rule; `null` before a fresh generation commits evidence. |
+| Field                    | Type            | Semantics                                                                                                 |
+| ------------------------ | --------------- | --------------------------------------------------------------------------------------------------------- |
+| `event_id`               | `str`           | Canonical event grouping key. Empty string when absent.                                                   |
+| `delivery_plan_id`       | `str`           | Grouping key. Empty string when absent.                                                                   |
+| `target_adapter`         | `str`           | Adapter name.                                                                                             |
+| `target_channel`         | `str or None`   | Channel identifier.                                                                                       |
+| `outbox_status`          | `str or None`   | Outbox item status, or `None` if no outbox item.                                                          |
+| `current_receipt_status` | `str or None`   | Receipt status committed by the current outbox generation; with no outbox, current immutable authority.   |
+| `current_receipt_id`     | `str or None`   | Receipt ID under the same current-generation rule; `null` before a fresh generation commits evidence.     |
 | `current_attempt_number` | `int or None`   | Attempt number of `current_receipt_id`, or `null` before the current generation commits receipt evidence. |
-| `severity`              | `str`           | One of `safe`, `degraded`, `inconsistent`.                                             |
-| `warnings`              | `tuple[str, …]` | Per-target diagnostic messages.                                                        |
-| `outbox_id`             | `str or None`   | Outbox item ID.                                                                        |
+| `severity`               | `str`           | One of `safe`, `degraded`, `inconsistent`.                                                                |
+| `warnings`               | `tuple[str, …]` | Per-target diagnostic messages.                                                                           |
+| `outbox_id`              | `str or None`   | Outbox item ID.                                                                                           |
 
 ### 21.7 Per-Event Convergence in Evidence Bundles
 

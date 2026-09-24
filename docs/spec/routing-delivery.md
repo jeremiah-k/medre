@@ -507,7 +507,7 @@ The following fields intentionally differ between live and replay:
 
 | Field                | Live value         | Replay value          | Why                    |
 | -------------------- | ------------------ | --------------------- | ---------------------- |
-| `source`             | `"live"`           | `"replay"`            | Distinguishes origin   |
+| `source`             | `"live"`           | `"replay"`            | Dispatch mechanism     |
 | `replay_run_id`      | `None`             | Replay run identifier | Run attribution        |
 | `receipt_id`         | Unique per call    | Unique per call       | Append-only semantics  |
 | `parent_receipt_id`  | Depends on chain   | Depends on chain      | Independent chains     |

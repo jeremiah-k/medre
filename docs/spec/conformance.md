@@ -435,7 +435,7 @@ A conforming implementation satisfies:
 
 2. **Report dict enrichment**: Every receipt report dict includes derived fields: `delivery_strategy`, `capability_field`, `capability_level`, `suppression_reason`, `failure_kind_detail`, and `retryable`.
 
-3. **Live/replay distinction**: Evidence bundles distinguish live from replay deliveries via `source` and `replay_run_id` fields. When both exist for the same event, separate entries are visible.
+3. **Dispatch/replay-origin distinction**: Evidence bundles use `source` for the dispatch mechanism and `replay_run_id` for replay origin. A replay-origin retry therefore remains visible as `source="retry"` with a non-null run ID; live and replay-origin entries for the same event remain distinguishable.
 
 ### 8.6 Known Gaps
 
