@@ -109,6 +109,21 @@ class _OutboxMixin:
         """
         _reclaimable = CLAIMABLE_OUTBOX_STATUSES
         effective_status = item.status if item.status is not None else "pending"
+        dispatch_source = item.dispatch_source or (
+            "replay" if allocate_new_generation else "live"
+        )
+        if dispatch_source not in {"live", "replay"}:
+            raise ValueError(f"invalid dispatch_source {dispatch_source!r}")
+        if item.replay_run_id and not allocate_new_generation:
+            raise ValueError(
+                "named replay provenance requires allocate_new_generation=True"
+            )
+        if dispatch_source == "live" and item.replay_run_id:
+            raise ValueError("live dispatch_source cannot carry replay_run_id")
+        if dispatch_source == "replay" and not allocate_new_generation:
+            raise ValueError(
+                "replay dispatch_source requires allocate_new_generation=True"
+            )
         # Production lifecycle authority: only pending (default durable
         # work) and in_progress (pipeline claim path) may be the initial
         # status.  All other statuses must be reached through explicit
@@ -158,8 +173,8 @@ class _OutboxMixin:
             "  failure_kind_detail, next_attempt_at, created_at, updated_at,"
             "  last_attempt_at, locked_at, lease_until, worker_id,"
             "  payload_hash, receipt_id, parent_receipt_id, error_summary,"
-            "  replay_run_id, metadata)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "  dispatch_source, replay_run_id, metadata)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         insert_params = (
             item.outbox_id,
@@ -185,6 +200,7 @@ class _OutboxMixin:
             item.receipt_id,
             item.parent_receipt_id,
             item.error_summary,
+            dispatch_source,
             item.replay_run_id or None,
             meta_json,
         )
@@ -634,7 +650,8 @@ class _OutboxMixin:
 
         Authority: **claim** (atomic attempt-identity reservation).  The
         conditional ``UPDATE`` commits ``active_attempt = from_attempt + 1``
-        only when the row is ``in_progress``, owned by *worker_id*, carries
+        and ``dispatch_source = 'retry'`` only when the row is ``in_progress``,
+        owned by *worker_id*, carries
         no reservation yet, still stores ``attempt_number == from_attempt``,
         and no sibling row for the same event-scoped delivery identity already
         represents that generation (or a newer one).  Any concurrent replay
@@ -648,6 +665,7 @@ class _OutboxMixin:
         rowcount = await self._write_rowcount(
             """UPDATE delivery_outbox
                SET active_attempt = attempt_number + 1,
+                   dispatch_source = 'retry',
                    last_attempt_at = ?,
                    updated_at = ?
                WHERE outbox_id = ?

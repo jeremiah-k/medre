@@ -178,7 +178,12 @@ def allocate_new_outbox_generation(
     for existing in items.values():
         if _same_outbox_identity(existing, candidate):
             max_attempt = max(max_attempt, _effective_outbox_attempt(existing))
-    return replace(candidate, attempt_number=max_attempt + 1, active_attempt=None)
+    return replace(
+        candidate,
+        attempt_number=max_attempt + 1,
+        active_attempt=None,
+        dispatch_source=candidate.dispatch_source or "replay",
+    )
 
 
 def find_existing_outbox_generation(
@@ -246,6 +251,7 @@ def reserve_guarded_outbox_attempt(
             return None
 
     object.__setattr__(item, "active_attempt", next_attempt)
+    object.__setattr__(item, "dispatch_source", "retry")
     return next_attempt
 
 

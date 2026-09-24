@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     receipt_id TEXT,
     parent_receipt_id TEXT,
     error_summary TEXT,
+    dispatch_source TEXT NOT NULL DEFAULT 'live',
     replay_run_id TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
@@ -222,6 +223,8 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
     CHECK (active_attempt IS NULL OR status = 'in_progress'),
     CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned')),
+    CHECK (dispatch_source IN ('live', 'replay', 'retry')),
+    CHECK (dispatch_source != 'live' OR replay_run_id IS NULL),
     CHECK (replay_run_id IS NULL OR (length(replay_run_id) > 0 AND replay_run_id = trim(replay_run_id)))
 );
 
@@ -523,6 +526,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "receipt_id",
             "parent_receipt_id",
             "error_summary",
+            "dispatch_source",
             "replay_run_id",
             "metadata",
         }
@@ -671,6 +675,20 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
                 r"CHECK\s*\(\s*status\s+IN\s*\(\s*'pending'\s*,\s*'in_progress'\s*,\s*"
                 r"'queued'\s*,\s*'sent'\s*,\s*'retry_wait'\s*,\s*'dead_lettered'\s*,\s*"
                 r"'cancelled'\s*,\s*'abandoned'\s*\)\s*\)"
+            ),
+        ),
+        (
+            "CHECK (dispatch_source IN ('live', 'replay', 'retry'))",
+            (
+                r"CHECK\s*\(\s*dispatch_source\s+IN\s*\(\s*'live'\s*,\s*"
+                r"'replay'\s*,\s*'retry'\s*\)\s*\)"
+            ),
+        ),
+        (
+            "CHECK (dispatch_source != 'live' OR replay_run_id IS NULL)",
+            (
+                r"CHECK\s*\(\s*dispatch_source\s*!=\s*'live'\s+OR\s+"
+                r"replay_run_id\s+IS\s+NULL\s*\)"
             ),
         ),
         (

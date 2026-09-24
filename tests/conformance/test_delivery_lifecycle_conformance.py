@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -193,6 +194,16 @@ class _MemoryStorage:
         *,
         allocate_new_generation: bool = False,
     ) -> DeliveryOutboxItem:
+        dispatch_source = item.dispatch_source or (
+            "replay" if allocate_new_generation else "live"
+        )
+        if dispatch_source not in {"live", "replay"}:
+            raise ValueError(f"invalid dispatch_source {dispatch_source!r}")
+        if dispatch_source == "replay" and not allocate_new_generation:
+            raise ValueError(
+                "replay dispatch_source requires allocate_new_generation=True"
+            )
+        item = replace(item, dispatch_source=dispatch_source)
         if item.replay_run_id and not allocate_new_generation:
             raise ValueError("replay_run_id requires allocate_new_generation=True")
         if allocate_new_generation:
@@ -390,6 +401,40 @@ class _MemoryStorage:
 
 def test_memory_storage_satisfies_delivery_lifecycle_storage_contract() -> None:
     assert isinstance(_MemoryStorage(), DeliveryLifecycleStorage)
+
+
+async def test_memory_storage_canonicalizes_dispatch_source() -> None:
+    """The conformance fake mirrors SQLite current-attempt provenance."""
+    storage = _MemoryStorage()
+    live = DeliveryOutboxItem(
+        outbox_id="obox-memory-live-source",
+        event_id="evt-memory-live-source",
+        route_id="route-1",
+        delivery_plan_id="plan-live",
+        target_adapter="matrix",
+        status="in_progress",
+        worker_id="worker-live",
+    )
+    created_live = await storage.create_outbox_item(live)
+    assert created_live.dispatch_source == "live"
+    assert await storage.reserve_outbox_attempt(
+        created_live.outbox_id, "worker-live", 1
+    ) == 2
+    assert created_live.dispatch_source == "retry"
+
+    replay = DeliveryOutboxItem(
+        outbox_id="obox-memory-replay-source",
+        event_id="evt-memory-replay-source",
+        route_id="route-1",
+        delivery_plan_id="plan-replay",
+        target_adapter="matrix",
+        status="in_progress",
+        worker_id="worker-replay",
+    )
+    created_replay = await storage.create_outbox_item(
+        replay, allocate_new_generation=True
+    )
+    assert created_replay.dispatch_source == "replay"
 
 
 async def test_memory_storage_rejects_conflicting_native_identity() -> None:

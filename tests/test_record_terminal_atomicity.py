@@ -205,6 +205,58 @@ async def test_terminal_callback_rejects_lineage_read_failure(
 
 
 @pytest.mark.asyncio
+async def test_retry_source_survives_queued_receipt_race(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Retry dispatch source stays durable after the reservation is consumed."""
+    await admit_event(temp_storage, "evt-retry-source-race")
+    item = DeliveryOutboxItem(
+        outbox_id="obox-retry-source-race",
+        event_id="evt-retry-source-race",
+        route_id="route-1",
+        delivery_plan_id="plan-retry-source-race",
+        target_adapter="mesh-1",
+        target_channel="0",
+        attempt_number=1,
+        status="in_progress",
+        worker_id="retry-worker",
+    )
+    created = await temp_storage.create_outbox_item(item)
+    assert created.dispatch_source == "live"
+    reserved = await temp_storage.reserve_outbox_attempt(
+        item.outbox_id,
+        "retry-worker",
+        1,
+    )
+    assert reserved == 2
+    assert await temp_storage.mark_outbox_queued(
+        item.outbox_id,
+        attempt_number=2,
+        expected_worker_id="retry-worker",
+    )
+    queued = await temp_storage.get_outbox_item(item.outbox_id)
+    assert queued is not None
+    assert queued.active_attempt is None
+    assert queued.attempt_number == 2
+    assert queued.dispatch_source == "retry"
+
+    manager = _make_manager(temp_storage)
+    await manager.record_terminal(
+        _terminal_record(
+            outbox_id=item.outbox_id,
+            event_id=item.event_id,
+            delivery_plan_id=item.delivery_plan_id,
+            attempt_number=2,
+        )
+    )
+
+    receipts = await temp_storage.list_receipts_for_event(item.event_id)
+    assert [receipt.status for receipt in receipts] == ["failed", "dead_lettered"]
+    assert all(receipt.source == "retry" for receipt in receipts)
+    assert all(receipt.replay_run_id is None for receipt in receipts)
+
+
+@pytest.mark.asyncio
 async def test_cancelled_from_queued_outbox(
     temp_storage: SQLiteStorage,
 ) -> None:

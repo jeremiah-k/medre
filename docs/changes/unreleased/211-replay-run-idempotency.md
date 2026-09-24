@@ -51,9 +51,9 @@
   recovery reuse the event timeline's outbox snapshot, and human recovery output
   renders either receipt- or outbox-shaped supersession authority safely.
 - Preserve dispatch provenance when a queue terminal callback wins the narrow
-  race before its queued receipt is appended: a durable `active_attempt`
-  reservation identifies RetryWorker dispatch, while a named replay claim
-  identifies initial replay dispatch. Finalized replay-origin rows still reject
-  missing-lineage callbacks rather than guessing provenance, and a lineage-read
-  failure now rejects terminal callbacks for every source instead of treating a
-  storage error as evidence that no queued receipt exists.
+  race before its queued receipt is appended: the outbox now stores the current
+  attempt's `dispatch_source`. Initial admission records `live` or `replay`
+  (including unnamed replay), and RetryWorker reservation atomically changes it
+  to `retry`; the value survives queue handoff after `active_attempt` is
+  consumed. A lineage-read failure still rejects terminal callbacks instead of
+  treating a storage error as evidence that no queued receipt exists.

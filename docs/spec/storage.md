@@ -939,6 +939,7 @@ CREATE TABLE delivery_outbox (
     receipt_id      TEXT,
     parent_receipt_id TEXT,
     error_summary   TEXT,
+    dispatch_source  TEXT NOT NULL DEFAULT 'live',
     replay_run_id   TEXT,
     metadata        TEXT NOT NULL DEFAULT '{}',
     UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
@@ -948,7 +949,9 @@ CREATE TABLE delivery_outbox (
     CHECK (status IN (
         'pending', 'in_progress', 'queued', 'sent', 'retry_wait',
         'dead_lettered', 'cancelled', 'abandoned'
-    ))
+    )),
+    CHECK (dispatch_source IN ('live', 'replay', 'retry')),
+    CHECK (dispatch_source != 'live' OR replay_run_id IS NULL)
 );
 ```
 
@@ -965,6 +968,14 @@ and the explicit attempt is not older than the row's finalized
 claiming `worker_id`. Guarded status mutations return whether the update
 committed so lifecycle code cannot report a state change after a compare-and-set
 miss.
+
+`dispatch_source` records the dispatch mechanism for the row's current/effective
+attempt. Initial admission stores `live` or `replay` independently of
+`replay_run_id`, so unnamed replay remains attributable before a receipt exists.
+RetryWorker reservation atomically changes it to `retry` with `active_attempt`;
+that value survives queue handoff after the reservation is consumed. Callback
+lineage therefore does not depend on whether the immutable queued receipt is
+already visible.
 
 The schema enforces the same base invariants independently of lifecycle code:
 `attempt_number` is always positive; a live `active_attempt` is exactly the next

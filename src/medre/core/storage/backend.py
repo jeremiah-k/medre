@@ -21,6 +21,7 @@ from medre.core.events import (
     CanonicalEvent,
     DeliveryObservation,
     DeliveryReceipt,
+    DeliverySource,
     EventRelation,
     NativeMessageRef,
     normalize_delivery_provenance,
@@ -521,6 +522,15 @@ class DeliveryOutboxItem:
         Previous receipt ID in retry lineage.
     error_summary:
         Sanitised, capped error string from the most recent attempt.
+    dispatch_source:
+        Dispatch mechanism for the row's current/effective attempt
+        (``"live"``, ``"replay"``, or ``"retry"``).  Initial admission stores
+        live versus replay independently of ``replay_run_id`` so unnamed replay
+        remains attributable before its first receipt exists.  Reserving a
+        retry updates this field to ``"retry"`` atomically with
+        ``active_attempt``; the value survives queue handoff after that
+        reservation is consumed.  ``None`` is permitted only on transient
+        pre-storage construction; storage canonicalizes it at admission.
     replay_run_id:
         Non-empty replay execution identifier that durably owns this delivery
         generation.  It is provenance/idempotency metadata, not part of
@@ -553,12 +563,19 @@ class DeliveryOutboxItem:
     receipt_id: str | None = None
     parent_receipt_id: str | None = None
     error_summary: str | None = None
+    dispatch_source: DeliverySource | None = None
     replay_run_id: str | None = None
     metadata: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         """Normalize durable replay provenance at the value boundary."""
         self.replay_run_id = normalize_replay_run_id(self.replay_run_id)
+        if self.dispatch_source is not None:
+            source, run_id = normalize_delivery_provenance(
+                self.dispatch_source, self.replay_run_id
+            )
+            self.dispatch_source = source
+            self.replay_run_id = run_id
 
     @property
     def is_terminal(self) -> bool:
@@ -1644,8 +1661,9 @@ class StorageBackend(Protocol):
         """Durably reserve the next delivery attempt on a claimed row.
 
         Authority: **claim** (atomic attempt-identity reservation).  The
-        conditional ``UPDATE`` sets ``active_attempt = from_attempt + 1``
-        only when the row is ``in_progress``, owned by *worker_id*, has no
+        conditional ``UPDATE`` sets ``active_attempt = from_attempt + 1`` and
+        ``dispatch_source = 'retry'`` only when the row is ``in_progress``,
+        owned by *worker_id*, has no
         existing reservation, still stores ``attempt_number ==
         from_attempt``, and no sibling row for the same event-scoped delivery
         identity already represents ``from_attempt + 1`` or a newer effective

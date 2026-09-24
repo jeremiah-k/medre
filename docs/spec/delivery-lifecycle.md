@@ -456,12 +456,12 @@ attempt before any candidate is selected (see
 own durable `source` / `replay_run_id` lineage is the trusted provenance for
 that one attempt, so a replay-origin candidate is finalized exactly like a
 live one and its replay lineage is carried onto the supplemental `sent`
-receipt. If a terminal callback arrives while the authoritative row is still
-`in_progress` and before that queued receipt is visible, `active_attempt` is
-durable proof of RetryWorker dispatch; absent a reservation, a non-empty
-`replay_run_id` is durable proof of initial named-replay dispatch. A finalized
-replay-origin row with no matching queued receipt is rejected rather than
-guessing provenance. A queued-receipt history read that fails is also rejected
+receipt. If a terminal callback wins the queued-receipt append race, the outbox
+row remains sufficient provenance on either side of the mutable handoff:
+initial admission stores `dispatch_source="live"` or `"replay"` (including
+unnamed replay), while RetryWorker reservation atomically stamps
+`dispatch_source="retry"` before transport invocation and that value survives
+the transition to `queued`. A queued-receipt history read that fails is rejected
 for every source; only a successful read may establish that the receipt is not
 yet visible. When malformed history offers duplicate queued receipts
 across sources for the same row and attempt (a row is single-sourced in normal

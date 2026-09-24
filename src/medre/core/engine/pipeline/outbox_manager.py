@@ -21,7 +21,7 @@ from medre.core.engine.pipeline.delivery_state import (
     TERMINAL_OUTBOX_STATUSES,
 )
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
-from medre.core.events import normalize_delivery_provenance
+from medre.core.events import DeliverySource, normalize_delivery_provenance
 from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
@@ -167,6 +167,7 @@ class OutboxManager:
                 locked_at=_now.isoformat(),
                 lease_until=_lease_until,
                 worker_id=pipeline_worker,
+                dispatch_source=source,
                 replay_run_id=(
                     replay_run_id if source == "replay" and replay_run_id else None
                 ),
@@ -544,7 +545,7 @@ class OutboxManager:
             # then match the authoritative outbox generation.  Keeping sibling
             # targets outside the query makes lineage ownership structural
             # rather than an ad-hoc filter over event-wide history.
-            _queued_source: str = "live"
+            _queued_source: DeliverySource = existing_item.dispatch_source or "live"
             _queued_replay_run_id: str | None = None
             _queued_receipt_id: str | None = None
             try:
@@ -575,24 +576,15 @@ class OutboxManager:
                 return
 
             if _queued_receipt_id is None:
-                if existing_item.status == "in_progress":
-                    # A terminal callback can race the queued-receipt append
-                    # while the durable row is still in_progress. A live
-                    # active_attempt reservation proves RetryWorker dispatch;
-                    # otherwise a named replay claim proves initial replay.
-                    if existing_item.active_attempt is not None:
-                        _queued_source = "retry"
-                    elif existing_item.replay_run_id:
-                        _queued_source = "replay"
-                    _queued_replay_run_id = existing_item.replay_run_id
-                elif existing_item.replay_run_id:
-                    self._log.warning(
-                        "No queued receipt for finalized replay-origin "
-                        "outbox_id=%s; rejecting terminal callback rather "
-                        "than guessing dispatch provenance",
-                        record.outbox_id,
-                    )
-                    return
+                # A terminal callback can race the immutable queued-receipt
+                # append before or after the mutable row reaches ``queued``.
+                # The row therefore carries the current attempt's dispatch
+                # mechanism independently of receipt timing. Retry reservation
+                # stamps ``retry`` before transport invocation; initial
+                # admission stamps ``live`` or ``replay`` (including unnamed
+                # replay). Named replay origin remains orthogonal metadata.
+                _queued_source = existing_item.dispatch_source or "live"
+                _queued_replay_run_id = existing_item.replay_run_id
 
             # Enrich receipt fields from the validated outbox item when
             # available — the outbox row is the authoritative source for

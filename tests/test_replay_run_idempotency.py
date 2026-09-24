@@ -324,7 +324,67 @@ async def test_replay_terminal_callback_before_queued_receipt_preserves_origin(
     assert all(receipt.replay_run_id == "run-terminal-race" for receipt in receipts)
 
 
-async def test_finalized_replay_row_without_queued_receipt_rejects_terminal_callback(
+async def test_unnamed_replay_terminal_callback_before_queued_receipt_preserves_source(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Unnamed replay source survives the admission-to-queued-receipt race."""
+    event = make_event(
+        event_id="evt-unnamed-replay-terminal-race", source_adapter="src"
+    )
+    await temp_storage.append(event)
+    target = RouteTarget(adapter="dest", channel="room")
+    route = Route(
+        id="route-unnamed-replay-terminal-race",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-unnamed-replay-terminal-race",
+        event_id=event.event_id,
+        route_id=route.id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+    manager = OutboxManager(temp_storage, DeliveryLifecycleService())
+    claim = await manager.create_for_delivery(
+        event,
+        route,
+        plan,
+        target,
+        "dest",
+        source="replay",
+        replay_run_id=None,
+    )
+
+    row = await temp_storage.get_outbox_item(claim.outbox_id)
+    assert row is not None
+    assert row.dispatch_source == "replay"
+    assert row.replay_run_id is None
+
+    await manager.record_terminal(
+        QueueTerminalRecord(
+            event_id=event.event_id,
+            adapter="dest",
+            outcome="permanent_failed",
+            outbox_id=claim.outbox_id,
+            delivery_plan_id=plan.plan_id,
+            attempt_number=claim.attempt_number,
+            native_channel_id="room",
+            error="adapter rejected unnamed replay send",
+        )
+    )
+
+    receipts = await temp_storage.list_receipts_for_delivery(
+        DeliveryIdentity(event.event_id, plan.plan_id, "dest", "room")
+    )
+    assert [receipt.status for receipt in receipts] == ["failed", "dead_lettered"]
+    assert all(receipt.source == "replay" for receipt in receipts)
+    assert all(receipt.replay_run_id is None for receipt in receipts)
+
+
+async def test_finalized_unnamed_replay_without_queued_receipt_preserves_source(
     temp_storage: SQLiteStorage,
 ) -> None:
     event = make_event(event_id="evt-replay-missing-queued", source_adapter="src")
@@ -352,11 +412,15 @@ async def test_finalized_replay_row_without_queued_receipt_rejects_terminal_call
         target,
         "dest",
         source="replay",
-        replay_run_id="run-missing-queued",
+        replay_run_id=None,
     )
     assert await temp_storage.mark_outbox_queued(
         claim.outbox_id, attempt_number=claim.attempt_number
     )
+    queued_row = await temp_storage.get_outbox_item(claim.outbox_id)
+    assert queued_row is not None
+    assert queued_row.dispatch_source == "replay"
+    assert queued_row.replay_run_id is None
 
     await manager.record_terminal(
         QueueTerminalRecord(
@@ -373,8 +437,11 @@ async def test_finalized_replay_row_without_queued_receipt_rejects_terminal_call
 
     row = await temp_storage.get_outbox_item(claim.outbox_id)
     assert row is not None
-    assert row.status == "queued"
-    assert await temp_storage.list_receipts_for_event(event.event_id) == []
+    assert row.status == "dead_lettered"
+    receipts = await temp_storage.list_receipts_for_event(event.event_id)
+    assert [receipt.status for receipt in receipts] == ["failed", "dead_lettered"]
+    assert all(receipt.source == "replay" for receipt in receipts)
+    assert all(receipt.replay_run_id is None for receipt in receipts)
 
 
 async def test_retry_preserves_originating_replay_run_provenance(
@@ -456,7 +523,9 @@ async def test_replay_run_claim_index_is_present_and_schema_revision_stays_one(
     temp_storage: SQLiteStorage,
 ) -> None:
     columns = await temp_storage._read_all("PRAGMA table_info(delivery_outbox)")
-    assert "replay_run_id" in {row["name"] for row in columns}
+    column_names = {row["name"] for row in columns}
+    assert "dispatch_source" in column_names
+    assert "replay_run_id" in column_names
     indexes = await temp_storage._read_all("PRAGMA index_list(delivery_outbox)")
     names = {row["name"] for row in indexes}
     assert "idx_outbox_replay_run_identity_unique" in names

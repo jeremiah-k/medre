@@ -191,6 +191,8 @@ class DeliveryLifecycleStorage(Protocol):
     ) -> int | None:
         """Reserve the next attempt for the current claim owner.
 
+        The successful reservation also records ``dispatch_source='retry'``
+        as durable provenance for callbacks that can beat receipt append.
         Return its number, or ``None`` if the row is no longer owned,
         in progress, or eligible for a new reservation. A failed
         reservation must not proceed to transport dispatch.
