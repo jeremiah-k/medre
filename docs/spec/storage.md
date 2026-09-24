@@ -312,9 +312,14 @@ class StorageBackend(Protocol):
 
     # -- Outbox -------------------------------------------------------------
 
-    async def create_outbox_item(self, item: OutboxItem) -> OutboxItem:
-        """Create an outbox item.  Idempotent create with reclaim semantics
-        (see Section 9.3)."""
+    async def create_outbox_item(
+        self,
+        item: OutboxItem,
+        *,
+        allocate_new_generation: bool = False,
+    ) -> OutboxItem:
+        """Create an outbox item. Idempotent create uses reclaim semantics;
+        replay can request atomic fresh-generation allocation (Section 9.3)."""
         ...
 
     async def get_outbox_item(self, outbox_id: str) -> OutboxItem | None:
@@ -1240,7 +1245,7 @@ runtime startup. A clean current marker skips that redundant full scan.
 
 Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`. Plan IDs are not globally unique across events, so omitting `event_id` may neither reuse nor constrain another event's outbox row. For `NULL` channels the partial unique index enforces the same event-scoped key.
 
-- `create_outbox_item`: Creates or reclaims an outbox item (Section 9.3).
+- `create_outbox_item`: Creates or reclaims an outbox item; replay may request atomic fresh-generation allocation (Section 9.3).
 - `get_outbox_item`: Retrieves an item by `outbox_id`.
 - `list_outbox_items`: Lists items, optionally filtered by status.
 - `list_outbox_items_for_event`: Returns all outbox items for a specific event, ordered by `created_at ASC, outbox_id ASC`. Read-only.
@@ -1320,7 +1325,15 @@ Receipt rows are append-only. For outbox-backed chains, the outbox `receipt_id` 
 
 Creating an outbox item requires its initial status to be either `pending` (default durable work) or `in_progress` (pipeline claim path). All other statuses must be reached through the dedicated `mark_outbox_*` transition methods, never through `create_outbox_item()`.
 
-When creating an item with the same key tuple `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`:
+Normal creation is idempotent/reclaiming. Explicit replay uses
+`allocate_new_generation=True`: SQLite holds `BEGIN IMMEDIATE`, computes one
+plus the maximum `COALESCE(active_attempt, attempt_number)` for the same
+`(event_id, delivery_plan_id, target_adapter, normalized target_channel)`
+identity, and inserts that generation before releasing the write lock. Replay
+therefore never reclaims a prior retry generation and cannot reuse a generation
+that became reserved or finalized between a caller-side read and insertion.
+
+When normal creation targets the same key tuple `(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)`:
 
 - **Existing row reclaimable** (`pending` or `retry_wait`): the existing row is **reclaimed** — its `status`, `worker_id`, `locked_at`, `lease_until`, and `updated_at` are updated to match the new item's values. `next_attempt_at` is cleared. The caller always receives a properly-claimed operational row suitable for finalization.
 - **Existing row active** (`in_progress` or `queued`): the existing row is returned **unchanged**. Active work is never stolen by a concurrent creator.

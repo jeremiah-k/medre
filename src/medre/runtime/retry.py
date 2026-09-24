@@ -976,7 +976,11 @@ class RetryWorker:
             self._record_lifecycle_persistence_error(
                 item,
                 lifecycle_exc,
-                attempt_number=item.attempt_number + 1,
+                attempt_number=(
+                    item.active_attempt
+                    if item.active_attempt is not None
+                    else item.attempt_number + 1
+                ),
             )
             return
 

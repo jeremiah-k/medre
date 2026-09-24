@@ -62,11 +62,15 @@
 - Retry reconciliation treats persisted `cancelled` and `abandoned` lifecycle
   evidence as terminal authority and fences suppression/abandonment transitions
   to the exact reserved attempt instead of allowing a later attempt to be consumed.
-- Close the remaining replay/retry sibling-generation races in both writer
-  orderings: creation reuses a live reserved generation, reservation rejects a
-  generation already represented by a sibling row, and due-work claiming skips
-  older generations once the same delivery identity has been superseded.
+- Close the remaining replay/retry sibling-generation races in every writer
+  ordering: replay allocates `max(effective_attempt) + 1` atomically with row
+  insertion, generic creation recognizes live reservations, reservation rejects
+  a generation already represented by a sibling row, and due-work claiming
+  skips older generations once the same delivery identity has been superseded.
 - Keep read-only recovery independent of optional performance indexes: bounded
   generation-aware authority checks no longer hard-code `idx_receipts_lineage`,
   so a structurally valid prerelease database remains inspectable even when that
   optimizer is absent.
+- Recovery diagnostics prefer persisted `failure_kind`; a bare `dead_lettered`
+  lifecycle status no longer implies a transient failure because immediate
+  permanent failures can produce the same lifecycle status without retries.

@@ -1213,15 +1213,31 @@ class StorageBackend(Protocol):
     # Terminal rows are never deleted or replaced — new delivery after
     # terminal state must use new attempt identity.
 
-    async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
+    async def create_outbox_item(
+        self,
+        item: DeliveryOutboxItem,
+        *,
+        allocate_new_generation: bool = False,
+    ) -> DeliveryOutboxItem:
         """Create a new outbox item or reclaim an existing pending/retry_wait row.
 
         Authority: **create** / **claim** (reclaim pending/retry_wait).
+
+        When *allocate_new_generation* is true, storage atomically ignores the
+        candidate attempt number and inserts a new row at one greater than the
+        maximum effective attempt for the same event-scoped delivery identity.
+        That mode never reclaims an existing row and is used by explicit replay
+        so generation allocation and insertion cannot race retry reservation or
+        finalization.
 
         Production lifecycle policy:
           - Initial status MUST be ``pending`` (default) or ``in_progress``
             (pipeline claim path).  All other statuses must be reached
             through ``mark_outbox_*`` transition methods.
+          - The effective generation is represented by finalized
+            ``attempt_number`` or, while reserved, ``active_attempt``. If an
+            existing row already represents the requested generation, that row
+            is reused instead of inserting a sibling generation.
           - If an existing row has a reclaimable status (``pending`` or
             ``retry_wait``), it is reclaimed — its ``status``,
             ``worker_id``, ``locked_at``, ``lease_until``, and
@@ -1341,6 +1357,8 @@ class StorageBackend(Protocol):
 
         - ``(next_attempt_at IS NULL OR next_attempt_at <= now)``
         - ``(lease_until IS NULL OR lease_until <= now)``
+        - no sibling row for the same event-scoped delivery identity already
+          represents the same or a newer effective attempt generation.
 
         Each claimed item is set to ``status='in_progress'`` with
         ``locked_at=now``, ``lease_until=now+lease_seconds``,
@@ -1478,10 +1496,12 @@ class StorageBackend(Protocol):
         Authority: **claim** (atomic attempt-identity reservation).  The
         conditional ``UPDATE`` sets ``active_attempt = from_attempt + 1``
         only when the row is ``in_progress``, owned by *worker_id*, has no
-        existing reservation, and still stores ``attempt_number ==
-        from_attempt``.  Returns the reserved attempt number, or ``None``
-        when the guard failed (lost claim, lease theft, or a competing
-        reservation) — the caller must not invoke the transport.
+        existing reservation, still stores ``attempt_number ==
+        from_attempt``, and no sibling row for the same event-scoped delivery
+        identity already represents ``from_attempt + 1`` or a newer effective
+        generation. Returns the reserved attempt number, or ``None`` when the
+        guard failed (lost claim, lease theft, replay/sibling supersession, or
+        a competing reservation) — the caller must not invoke the transport.
         """
         ...
 

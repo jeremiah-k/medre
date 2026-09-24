@@ -58,10 +58,21 @@ class _OutboxMixin:
     base class via MRO.
     """
 
-    async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
+    async def create_outbox_item(
+        self,
+        item: DeliveryOutboxItem,
+        *,
+        allocate_new_generation: bool = False,
+    ) -> DeliveryOutboxItem:
         """Create a new outbox item, or reclaim an existing pending/retry_wait row.
 
         Authority: **create** / **claim** (reclaim pending/retry_wait).
+
+        When *allocate_new_generation* is true, this method allocates and
+        inserts a fresh generation in one ``BEGIN IMMEDIATE`` transaction using
+        ``max(COALESCE(active_attempt, attempt_number)) + 1`` for the same
+        event-scoped delivery identity. That mode never reclaims an existing
+        row and is the replay path's durable generation allocator.
 
         Production lifecycle policy:
           - New rows may be created only as ``pending`` (default) or
@@ -164,7 +175,39 @@ class _OutboxMixin:
             meta_json,
         )
 
+        generation_select_sql = (
+            "SELECT MAX(COALESCE(active_attempt, attempt_number)) AS max_attempt"
+            " FROM delivery_outbox"
+            " WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?"
+            " AND COALESCE(target_channel, '') = COALESCE(?, '')"
+        )
+        generation_select_params = (
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel or None,
+        )
+
         try:
+            if allocate_new_generation:
+                if item.active_attempt is not None:
+                    raise ValueError(
+                        "allocate_new_generation requires active_attempt=None"
+                    )
+                await self._run_in_thread(
+                    self._sync_atomic_create_outbox_generation,
+                    self._require_db(),
+                    generation_select_sql,
+                    generation_select_params,
+                    insert_sql,
+                    insert_params,
+                )
+                created = await self.get_outbox_item(item.outbox_id)
+                if created is None:
+                    raise StorageError(
+                        "Atomic outbox generation insert committed but row could not be re-read"
+                    )
+                return created
             existing_id = await self._run_in_thread(
                 self._sync_atomic_create_outbox,
                 self._require_db(),
@@ -185,12 +228,50 @@ class _OutboxMixin:
             msg = str(exc)
             if "FOREIGN KEY" in msg:
                 raise StorageError(f"Outbox create failed: {exc}") from exc
+            if allocate_new_generation:
+                raise
             existing = await self._read_one(select_sql, select_params)
             if existing is not None:
                 return await self.get_outbox_item(existing["outbox_id"]) or item
             raise
 
         return await self.get_outbox_item(item.outbox_id) or item
+
+    def _sync_atomic_create_outbox_generation(
+        self,
+        db: sqlite3.Connection,
+        generation_select_sql: str,
+        generation_select_params: tuple[Any, ...],
+        insert_sql: str,
+        insert_params: tuple[Any, ...],
+    ) -> None:
+        """Atomically allocate and insert a fresh outbox generation.
+
+        ``BEGIN IMMEDIATE`` serializes this allocator against retry reservation,
+        retry finalization, and other replay creators.  The stored attempt is
+        one greater than the maximum *effective* generation, where a live
+        ``active_attempt`` outranks its row's finalized ``attempt_number``.
+        """
+        with self._lock:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    generation_select_sql, generation_select_params
+                ).fetchone()
+                max_attempt = None if row is None else row["max_attempt"]
+                next_attempt = int(max_attempt or 0) + 1
+                params = list(insert_params)
+                # ``attempt_number`` is the eighth column/parameter in the
+                # canonical delivery_outbox INSERT assembled above.
+                params[7] = next_attempt
+                db.execute(insert_sql, tuple(params))
+                db.execute("COMMIT")
+            except BaseException:
+                try:
+                    db.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise
 
     def _sync_atomic_create_outbox(
         self,
@@ -478,7 +559,7 @@ class _OutboxMixin:
         # Re-read to get the updated rows (some may have been claimed by
         # another worker if the SELECT/UPDATE window was contested).
         final_rows = await self._read_all(
-            f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ? AND status = 'in_progress'",  # nosec: placeholders are only ? markers, values passed as params
+            f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ? AND status = 'in_progress' AND {_no_newer_generation}",  # nosec: interpolated fragments are static SQL or ? placeholders
             (*outbox_ids, worker_id),
         )
         return [_row_to_outbox_item(r) for r in final_rows]

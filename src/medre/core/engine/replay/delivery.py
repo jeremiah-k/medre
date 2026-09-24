@@ -273,9 +273,11 @@ class _ReplayDeliveryMixin:
     ``pipeline.deliver_to_targets(source="replay", replay_run_id=...)``
     which creates new persistence through the standard delivery lifecycle
     helpers.  Replay-created rows are identifiable by ``source="replay"``
-    and the ``replay_run_id`` field.  The lifecycle ensures new outbox
-    rows get ``attempt_number = max(existing) + 1`` (never mutates
-    existing rows) and receipts are append-only.
+    and the ``replay_run_id`` field. The lifecycle allocates replay outbox
+    generations above the maximum existing *effective* attempt (a live
+    ``active_attempt`` reservation outranks the row's finalized
+    ``attempt_number``), never mutates existing rows, and keeps receipts
+    append-only.
     """
 
     async def _stage_deliver(

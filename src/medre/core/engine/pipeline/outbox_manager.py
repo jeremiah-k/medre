@@ -89,17 +89,15 @@ class OutboxManager:
           another worker.
 
         **Replay attempt identity rule.**  When *source* is ``"replay"``,
-        the method queries existing outbox rows for the same event and
-        computes ``max(effective_attempt) + 1`` across rows sharing the same
-        event-scoped delivery identity (event_id, delivery_plan_id,
-        target_adapter, target_channel).  ``effective_attempt`` means a live
-        ``active_attempt`` reservation when present, otherwise the finalized
-        ``attempt_number``.  Replay therefore cannot allocate a generation
-        already reserved by an in-flight retry.
-        This guarantees replay never reclaims or mutates live rows (which
-        have lower attempt numbers).  The same ownership check applies to
-        ALL sources — if the freshly-created replay row comes back terminal,
-        active, or owned by another worker, delivery is skipped.
+        storage atomically allocates and inserts one fresh outbox generation at
+        ``max(effective_attempt) + 1`` for the event-scoped delivery identity
+        (event_id, delivery_plan_id, target_adapter, target_channel).
+        ``effective_attempt`` means a live ``active_attempt`` reservation when
+        present, otherwise the finalized ``attempt_number``.  Allocation and
+        insertion share one write transaction, so replay cannot reclaim a
+        retry generation or reuse a generation that becomes reserved/finalized
+        concurrently.  The same ownership check applies to all sources after
+        creation.
         """
         outbox_id: str | None = None
         outbox_created: bool = False
@@ -138,25 +136,11 @@ class OutboxManager:
             else:
                 _dest_meta = _route_decision_meta
 
+            # Replay requires a fresh durable generation. The storage backend
+            # allocates it atomically with insertion; the placeholder value is
+            # ignored in replay mode. Live delivery retains normal idempotent
+            # attempt-1 creation/reclaim semantics.
             attempt_number = 1
-
-            # For replay: allocate beyond every finalized *or reserved*
-            # generation so the new row cannot collide with an in-flight
-            # retry or any prior replay row.
-            if source == "replay":
-                existing = await self._storage.list_outbox_items_for_event(
-                    event.event_id,
-                )
-                for row in existing:
-                    if (
-                        row.delivery_plan_id == route_plan.plan_id
-                        and row.target_adapter == adapter_name
-                        and (row.target_channel or None) == (target.channel or None)
-                    ):
-                        attempt_number = max(
-                            attempt_number,
-                            self._lifecycle.effective_attempt(row) + 1,
-                        )
 
             outbox_item = DeliveryOutboxItem(
                 outbox_id=f"obox-{uuid.uuid4()}",
@@ -175,7 +159,10 @@ class OutboxManager:
                 worker_id=pipeline_worker,
                 metadata=_dest_meta,
             )
-            created = await self._storage.create_outbox_item(outbox_item)
+            created = await self._storage.create_outbox_item(
+                outbox_item,
+                allocate_new_generation=(source == "replay"),
+            )
             outbox_id = created.outbox_id
             outbox_created = True
 

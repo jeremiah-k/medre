@@ -195,7 +195,9 @@ async def _build_event_recovery_runbook(
 
         r = current
         error_msg = getattr(r, "error", None)
-        inferred = _infer_failure_kind(error_msg, r.status)
+        inferred = getattr(r, "failure_kind", None) or _infer_failure_kind(
+            error_msg, r.status
+        )
         cat = _failure_category(inferred)
         entry: dict[str, Any] = {
             "target_adapter": r.target_adapter,
