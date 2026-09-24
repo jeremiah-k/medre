@@ -51,7 +51,13 @@ jobs:
       - name: Run tests
         if: matrix.python-version != '3.13'
         run: |
-          python -m pytest tests/ -q -ra \
+          verbosity="-q"
+          if [[ "${{ matrix.python-version }}" == "3.14" ]]; then
+            # Keep one fast matrix leg human-readable without multiplying
+            # per-test log volume across every supported interpreter.
+            verbosity="-v"
+          fi
+          python -m pytest tests/ "$verbosity" -ra \
             -m "not live and not docker and not hardware and not local_integration and not soak and not matrix_sdk and not lxmf_sdk and not meshtastic_sdk and not meshcore_sdk" \
             --durations=25 \
             --durations-min=0.5 \
