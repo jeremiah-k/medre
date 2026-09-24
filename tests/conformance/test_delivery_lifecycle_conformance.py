@@ -66,6 +66,7 @@ from tests.helpers.storage_outbox import (
     apply_guarded_outbox_terminal,
     apply_guarded_outbox_transition,
     find_existing_outbox_generation,
+    find_existing_replay_run_claim,
     reserve_guarded_outbox_attempt,
 )
 
@@ -192,7 +193,12 @@ class _MemoryStorage:
         *,
         allocate_new_generation: bool = False,
     ) -> DeliveryOutboxItem:
+        if item.replay_run_id and not allocate_new_generation:
+            raise ValueError("replay_run_id requires allocate_new_generation=True")
         if allocate_new_generation:
+            replay_claim = find_existing_replay_run_claim(self._outbox, item)
+            if replay_claim is not None:
+                return replay_claim
             item = allocate_new_outbox_generation(self._outbox, item)
         else:
             existing = find_existing_outbox_generation(self._outbox, item)

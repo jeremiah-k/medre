@@ -56,11 +56,15 @@
         },
         "routes": [
           {
-            "dest_adapters": ["radio"],
+            "dest_adapters": [
+              "radio"
+            ],
             "directionality": "one_way",
             "enabled": true,
             "route_id": "mx_to_radio",
-            "source_adapters": ["matrix_main"]
+            "source_adapters": [
+              "matrix_main"
+            ]
           }
         ],
         "runtime_name": "medre",
@@ -191,9 +195,9 @@
               "target_channel": "chan_a",
               "outbox_id": "obx_001",
               "outbox_status": "sent",
-              "latest_receipt_status": "sent",
-              "latest_receipt_id": "rcpt_001",
-              "latest_attempt_number": 1,
+              "current_receipt_status": "sent",
+              "current_receipt_id": "rcpt_001",
+              "current_attempt_number": 1,
               "severity": "safe",
               "warnings": [],
               "event_id": "ev-1"
@@ -204,9 +208,9 @@
               "target_channel": "chan_b",
               "outbox_id": "obx_002",
               "outbox_status": "retry_wait",
-              "latest_receipt_status": "failed",
-              "latest_receipt_id": "rcpt_002",
-              "latest_attempt_number": 2,
+              "current_receipt_status": "failed",
+              "current_receipt_id": "rcpt_002",
+              "current_attempt_number": 2,
               "severity": "degraded",
               "warnings": [
                 "Latest receipt failed but outbox is retry_wait \u2014 retry scheduled"
@@ -277,7 +281,8 @@
               "recovery_source": "snapshot_diagnostics",
               "startup_timestamp": null,
               "timestamp": "2026-05-27T12:00:00+00:00",
-              "worker_identity": null
+              "worker_identity": null,
+              "replay_run_id": null
             },
             {
               "delivery_plan_id": "plan-1",
@@ -291,7 +296,8 @@
               "recovery_source": "snapshot_diagnostics",
               "startup_timestamp": null,
               "timestamp": "2026-05-27T12:00:00+00:00",
-              "worker_identity": null
+              "worker_identity": null,
+              "replay_run_id": null
             },
             {
               "delivery_plan_id": "plan-1",
@@ -305,7 +311,8 @@
               "recovery_source": "snapshot_diagnostics",
               "startup_timestamp": null,
               "timestamp": "2026-05-27T12:00:00+00:00",
-              "worker_identity": null
+              "worker_identity": null,
+              "replay_run_id": null
             }
           ],
           "generated_at": "2026-05-27T12:00:02+00:00",
@@ -335,9 +342,9 @@
         "target_channel": "chan_a",
         "outbox_id": "obx_001",
         "outbox_status": "sent",
-        "latest_receipt_status": "sent",
-        "latest_receipt_id": "rcpt_001",
-        "latest_attempt_number": 1,
+        "current_receipt_status": "sent",
+        "current_receipt_id": "rcpt_001",
+        "current_attempt_number": 1,
         "severity": "safe",
         "warnings": [],
         "event_id": "ev-1"
@@ -348,9 +355,9 @@
         "target_channel": "chan_b",
         "outbox_id": "obx_002",
         "outbox_status": "retry_wait",
-        "latest_receipt_status": "failed",
-        "latest_receipt_id": "rcpt_002",
-        "latest_attempt_number": 2,
+        "current_receipt_status": "failed",
+        "current_receipt_id": "rcpt_002",
+        "current_attempt_number": 2,
         "severity": "degraded",
         "warnings": [
           "Latest receipt failed but outbox is retry_wait \u2014 retry scheduled"
@@ -414,7 +421,8 @@
         "recovery_source": "snapshot_diagnostics",
         "startup_timestamp": null,
         "timestamp": "2026-05-27T12:00:00+00:00",
-        "worker_identity": null
+        "worker_identity": null,
+        "replay_run_id": null
       },
       {
         "delivery_plan_id": "plan-1",
@@ -428,7 +436,8 @@
         "recovery_source": "snapshot_diagnostics",
         "startup_timestamp": null,
         "timestamp": "2026-05-27T12:00:00+00:00",
-        "worker_identity": null
+        "worker_identity": null,
+        "replay_run_id": null
       },
       {
         "delivery_plan_id": "plan-1",
@@ -442,7 +451,8 @@
         "recovery_source": "snapshot_diagnostics",
         "startup_timestamp": null,
         "timestamp": "2026-05-27T12:00:00+00:00",
-        "worker_identity": null
+        "worker_identity": null,
+        "replay_run_id": null
       }
     ],
     "generated_at": "2026-05-27T12:00:02+00:00",

@@ -2,7 +2,7 @@
 
 Covers: empty input, single sent, queued outbox item, retry chain choosing
 highest attempt, suppressed excluded from retry, dead_lettered /
-retry_exhausted, replay_run_id only when replay, capability suppression
+retry_exhausted, replay-origin provenance across replay/retry, capability suppression
 metadata from rendering_evidence / error dict, aggregate counts, JSON-safe
 output, and fields that cannot be derived from current records.
 """
@@ -79,10 +79,12 @@ def _outbox(
     delivery_plan_id: str = "dp-001",
     status: str = "pending",
     attempt_number: int = 1,
+    active_attempt: int | None = None,
     failure_kind: str | None = None,
     error_summary: str | None = None,
     receipt_id: str | None = None,
     failure_kind_detail: str | None = None,
+    replay_run_id: str | None = None,
 ) -> DeliveryOutboxItem:
     return DeliveryOutboxItem(
         outbox_id=outbox_id,
@@ -92,11 +94,13 @@ def _outbox(
         target_adapter=target_adapter,
         target_channel=target_channel,
         attempt_number=attempt_number,
+        active_attempt=active_attempt,
         status=status,
         failure_kind=failure_kind,
         failure_kind_detail=failure_kind_detail,
         error_summary=error_summary,
         receipt_id=receipt_id,
+        replay_run_id=replay_run_id,
     )
 
 
@@ -334,12 +338,12 @@ class TestDeadLetteredRetryExhausted:
 
 
 # ===================================================================
-# 7. replay_run_id only when replay
+# 7. replay_run_id follows replay-origin lineage
 # ===================================================================
 
 
-class TestReplayRunIdOnlyWhenReplay:
-    """replay_run_id is populated only when source=replay."""
+class TestReplayOriginProvenance:
+    """replay_run_id is exposed only for replay-origin dispatch lineage."""
 
     def test_replay_source_has_run_id(self) -> None:
         ledger = build_delivery_outcome_ledger(
@@ -367,20 +371,107 @@ class TestReplayRunIdOnlyWhenReplay:
         entry = next(iter(ledger.entries.values()))
         assert entry.replay_run_id is None
 
-    def test_replay_run_id_stored_but_source_is_live(self) -> None:
-        """If replay_run_id is set but source is 'live', replay_run_id is None."""
+    def test_retry_source_preserves_replay_origin_run_id(self) -> None:
         ledger = build_delivery_outcome_ledger(
             receipts=[
                 _receipt(
                     status="sent",
-                    source="live",
-                    replay_run_id="run-ghost",
+                    source="retry",
+                    replay_run_id="run-retry-origin",
                 )
             ]
         )
         entry = next(iter(ledger.entries.values()))
-        # replay_run_id is only populated when source=replay
-        assert entry.replay_run_id is None
+        assert entry.source == "retry"
+        assert entry.replay_run_id == "run-retry-origin"
+
+    def test_retry_uses_durable_outbox_replay_run_id_when_receipt_is_legacy(self) -> None:
+        receipt = _receipt(
+            status="sent",
+            source="retry",
+            replay_run_id=None,
+            outbox_id="ob-retry-origin",
+            sequence=4,
+        )
+        ledger = build_delivery_outcome_ledger(
+            receipts=[receipt],
+            outbox_items=[
+                _outbox(
+                    outbox_id="ob-retry-origin",
+                    status="sent",
+                    receipt_id=receipt.receipt_id,
+                    replay_run_id="run-durable-origin",
+                )
+            ],
+        )
+        entry = next(iter(ledger.entries.values()))
+        assert entry.source == "retry"
+        assert entry.replay_run_id == "run-durable-origin"
+
+    def test_fresh_named_replay_outbox_outranks_older_live_provenance(self) -> None:
+        live = _receipt(
+            receipt_id="rcpt-old-live",
+            status="sent",
+            source="live",
+            sequence=1,
+            outbox_id="ob-old-live",
+        )
+        ledger = build_delivery_outcome_ledger(
+            receipts=[live],
+            outbox_items=[
+                _outbox(
+                    outbox_id="ob-old-live",
+                    status="sent",
+                    receipt_id=live.receipt_id,
+                    attempt_number=1,
+                ),
+                _outbox(
+                    outbox_id="ob-fresh-replay",
+                    status="in_progress",
+                    attempt_number=2,
+                    replay_run_id="run-current",
+                ),
+            ],
+        )
+        entry = next(iter(ledger.entries.values()))
+        assert entry.lifecycle_status == "in_progress"
+        assert entry.source == "replay"
+        assert entry.replay_run_id == "run-current"
+
+    def test_current_retry_attempt_controls_current_generation_provenance(self) -> None:
+        old_replay = _receipt(
+            receipt_id="rcpt-replay-attempt-1",
+            status="failed",
+            source="replay",
+            replay_run_id="run-current",
+            attempt_number=1,
+            sequence=1,
+            outbox_id="ob-replay-retry",
+        )
+        retry = _receipt(
+            receipt_id="rcpt-replay-attempt-2",
+            status="sent",
+            source="retry",
+            replay_run_id="run-current",
+            attempt_number=2,
+            sequence=2,
+            outbox_id="ob-replay-retry",
+        )
+        ledger = build_delivery_outcome_ledger(
+            receipts=[old_replay, retry],
+            outbox_items=[
+                _outbox(
+                    outbox_id="ob-replay-retry",
+                    status="sent",
+                    attempt_number=2,
+                    receipt_id=retry.receipt_id,
+                    replay_run_id="run-current",
+                )
+            ],
+        )
+        entry = next(iter(ledger.entries.values()))
+        assert entry.source == "retry"
+        assert entry.replay_run_id == "run-current"
 
 
 # ===================================================================
@@ -939,6 +1030,9 @@ class TestEventScopedAuthority:
         entry = next(iter(ledger.entries.values()))
         assert entry.lifecycle_status == "sent"
         assert entry.authoritative_receipt_id == "committed"
+        assert entry.current_receipt_id == "committed"
+        assert entry.current_receipt_kind == "attempt"
+        assert entry.current_receipt_status == "sent"
         assert entry.latest_attempt_status == "failed"
         assert entry.receipt_ids == ["committed", "stale-late"]
 
@@ -977,6 +1071,9 @@ class TestEventScopedAuthority:
         assert entry.lifecycle_status == "dead_lettered"
         assert entry.outbox_status == "dead_lettered"
         assert entry.authoritative_receipt_id == "dead-letter"
+        assert entry.current_receipt_id == "dead-letter"
+        assert entry.current_receipt_kind == "lifecycle"
+        assert entry.current_receipt_status == "dead_lettered"
         assert entry.authoritative_receipt_kind == "lifecycle"
         assert entry.causative_receipt_id == "failed-attempt"
         assert entry.latest_attempt_status == "failed"
@@ -993,3 +1090,91 @@ class TestEventScopedAuthority:
             ]
         )
         assert next(iter(ledger.entries.values())).ambiguous_outcome is True
+
+
+class TestCurrentGenerationCoherence:
+    """Operator fields never combine a newer outbox with older receipt evidence."""
+
+    def test_fresh_named_replay_does_not_inherit_older_live_evidence(self) -> None:
+        old_receipt = _receipt(
+            receipt_id="rcpt-old-live",
+            status="sent",
+            attempt_number=1,
+            failure_kind="adapter_permanent",
+            error="old failure detail",
+            source="live",
+            adapter_message_id="old-native-id",
+            outbox_id="ob-old",
+            sequence=1,
+        )
+        old_outbox = _outbox(
+            outbox_id="ob-old",
+            status="sent",
+            attempt_number=1,
+            receipt_id="rcpt-old-live",
+            failure_kind="adapter_permanent",
+            error_summary="old failure detail",
+        )
+        replay_outbox = _outbox(
+            outbox_id="ob-replay",
+            status="pending",
+            attempt_number=2,
+            replay_run_id="run-fresh",
+        )
+
+        entry = next(
+            iter(
+                build_delivery_outcome_ledger(
+                    receipts=[old_receipt],
+                    outbox_items=[old_outbox, replay_outbox],
+                ).entries.values()
+            )
+        )
+
+        assert entry.lifecycle_status == "pending"
+        assert entry.current_attempt_number == 2
+        assert entry.current_receipt_id is None
+        assert entry.current_attempt_receipt_id is None
+        assert entry.current_attempt_status is None
+        assert entry.latest_attempt_number == 1
+        assert entry.latest_attempt_status == "sent"
+        assert entry.source == "replay"
+        assert entry.replay_run_id == "run-fresh"
+        assert entry.failure_kind is None
+        assert entry.failure_taxon is None
+        assert entry.error is None
+        assert entry.adapter_message_id is None
+
+    def test_reserved_retry_reports_effective_current_attempt(self) -> None:
+        item = _outbox(
+            outbox_id="ob-retry",
+            status="in_progress",
+            attempt_number=2,
+            active_attempt=3,
+        )
+        entry = next(
+            iter(build_delivery_outcome_ledger(outbox_items=[item]).entries.values())
+        )
+        assert entry.current_attempt_number == 3
+        assert entry.current_attempt_receipt_id is None
+        assert entry.current_attempt_status is None
+        assert entry.latest_attempt_number is None
+        assert entry.source == "retry"
+        assert entry.replay_run_id is None
+
+    def test_reserved_replay_origin_retry_keeps_run_but_reports_retry_mechanism(self) -> None:
+        item = _outbox(
+            outbox_id="ob-replay-retry",
+            status="in_progress",
+            attempt_number=2,
+            active_attempt=3,
+            replay_run_id="run-replay",
+        )
+        entry = next(
+            iter(build_delivery_outcome_ledger(outbox_items=[item]).entries.values())
+        )
+        assert entry.current_attempt_number == 3
+        assert entry.current_receipt_id is None
+        assert entry.current_attempt_receipt_id is None
+        assert entry.source == "retry"
+        assert entry.replay_run_id == "run-replay"

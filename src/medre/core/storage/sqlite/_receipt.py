@@ -21,7 +21,12 @@ from datetime import datetime
 
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_state import RECEIPT_STATUSES
-from medre.core.events import DELIVERY_CONFIRMATION_LEVEL_VALUES, DeliveryReceipt
+from medre.core.events import (
+    DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DeliveryReceipt,
+    normalize_delivery_provenance,
+    normalize_replay_run_id,
+)
 from medre.core.storage.sqlite.serde import _row_to_receipt
 from medre.core.storage.sqlite.statements import (
     _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL,
@@ -53,6 +58,9 @@ def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
             f"expected one of {sorted(DELIVERY_CONFIRMATION_LEVEL_VALUES)}"
         )
 
+    source, replay_run_id = normalize_delivery_provenance(
+        receipt.source, receipt.replay_run_id
+    )
     channel = receipt.target_channel or None
     return (
         receipt.receipt_id,
@@ -69,8 +77,8 @@ def _receipt_insert_params(receipt: DeliveryReceipt) -> tuple[object, ...]:
         receipt.next_retry_at.isoformat() if receipt.next_retry_at else None,
         receipt.attempt_number,
         receipt.parent_receipt_id,
-        receipt.source,
-        receipt.replay_run_id,
+        source,
+        replay_run_id,
         receipt.retry_max_attempts,
         receipt.retry_backoff_base,
         receipt.retry_max_delay,
@@ -177,9 +185,12 @@ class _ReceiptMixin:
         with the given ``replay_run_id`` are returned.  Returns an
         empty list when no receipts match.
         """
+        normalized_run_id = normalize_replay_run_id(run_id)
+        if normalized_run_id is None:
+            raise ValueError("replay-run receipt lookup requires a non-empty run ID")
         rows = await self._read_all(
             _SELECT_RECEIPTS_BY_REPLAY_RUN,
-            (run_id,),
+            (normalized_run_id,),
         )
         return [_row_to_receipt(r) for r in rows]
 

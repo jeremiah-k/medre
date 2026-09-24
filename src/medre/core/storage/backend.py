@@ -23,6 +23,8 @@ from medre.core.events import (
     DeliveryReceipt,
     EventRelation,
     NativeMessageRef,
+    normalize_delivery_provenance,
+    normalize_replay_run_id,
 )
 from medre.core.ingress import (
     AdapterCheckpoint,
@@ -423,12 +425,14 @@ def decode_page_cursor(cursor: str) -> int:
 def attempt_source_label(source: str | None, replay_run_id: str | None) -> str:
     """Return a receipt's source with its replay run when applicable.
 
-    ``"live"`` / ``"retry"`` / ``"replay"`` stay verbatim; a replay
-    receipt carries its run id as provenance: ``"replay:<run_id>"``.
+    ``source`` is the dispatch mechanism.  When a replay-origin run ID is
+    present on either the initial replay attempt or a later retry, append it
+    as provenance (for example ``"replay:<run_id>"`` or
+    ``"retry:<run_id>"``). Live work never carries a replay run ID.
     """
-    src = source or "live"
-    if src == "replay" and replay_run_id:
-        return f"replay:{replay_run_id}"
+    src, run_id = normalize_delivery_provenance(source or "live", replay_run_id)
+    if run_id:
+        return f"{src}:{run_id}"
     return src
 
 
@@ -517,6 +521,11 @@ class DeliveryOutboxItem:
         Previous receipt ID in retry lineage.
     error_summary:
         Sanitised, capped error string from the most recent attempt.
+    replay_run_id:
+        Non-empty replay execution identifier that durably owns this delivery
+        generation.  It is provenance/idempotency metadata, not part of
+        :class:`DeliveryIdentity`.  ``None`` for live work and replays without
+        an explicit run ID.
     metadata:
         JSON-safe dict for non-secret transport-neutral details.
     """
@@ -544,7 +553,12 @@ class DeliveryOutboxItem:
     receipt_id: str | None = None
     parent_receipt_id: str | None = None
     error_summary: str | None = None
+    replay_run_id: str | None = None
     metadata: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        """Normalize durable replay provenance at the value boundary."""
+        self.replay_run_id = normalize_replay_run_id(self.replay_run_id)
 
     @property
     def is_terminal(self) -> bool:
@@ -1108,10 +1122,12 @@ class StorageBackend(Protocol):
         Authority: **append** (append-only).  Every call creates a new row.
         Existing receipt rows are never updated or deleted.
 
-        The receipt's ``source`` field indicates the origin (``"live"`` or
-        ``"replay"``); ``replay_run_id`` is populated when
-        ``source="replay"``.  The ``target_channel`` field records the
-        channel the event was delivered to, enabling retry reconstruction.
+        The receipt's ``source`` field records the dispatch mechanism
+        (``"live"``, ``"replay"``, or ``"retry"``). ``replay_run_id`` is
+        orthogonal origin provenance: an initial named replay carries it and
+        later RetryWorker attempts preserve it. The ``target_channel`` field
+        records the channel the event was delivered to, enabling retry
+        reconstruction.
         """
         ...
 
@@ -1184,10 +1200,11 @@ class StorageBackend(Protocol):
     ) -> list[DeliveryReceipt]:
         """Return all receipts produced by a specific replay run.
 
-        Authority: **list/get** (read-only).  Receipts are ordered by
-        ``sequence`` ascending.  Only receipts
-        with ``source='replay'`` and the given ``replay_run_id`` are
-        returned.  Returns an empty list when no receipts match.
+        Authority: **list/get** (read-only). Receipts are ordered by
+        ``sequence`` ascending. All receipts carrying the given
+        ``replay_run_id`` are returned, including later ``source='retry'``
+        attempts that preserve replay-origin provenance. Returns an empty list
+        when no receipts match.
         """
         ...
 
@@ -1305,7 +1322,11 @@ class StorageBackend(Protocol):
         ...
 
     async def count_replay_runs(self) -> int:
-        """Return the number of distinct ``replay_run_id`` values."""
+        """Return the number of distinct durable replay run IDs.
+
+        Implementations count the union of run IDs represented by immutable
+        receipts and durable outbox claims.
+        """
         ...
 
     # -- Retry --------------------------------------------------------------
@@ -1346,9 +1367,11 @@ class StorageBackend(Protocol):
         When *allocate_new_generation* is true, storage atomically ignores the
         candidate attempt number and inserts a new row at one greater than the
         maximum effective attempt for the same event-scoped delivery identity.
-        That mode never reclaims an existing row and is used by explicit replay
-        so generation allocation and insertion cannot race retry reservation or
-        finalization.
+        A non-empty ``item.replay_run_id`` additionally makes
+        ``DeliveryIdentity + replay_run_id`` an atomic idempotency key: an
+        existing claim is returned instead of allocating a sibling generation.
+        Named replay provenance is only valid in this allocation mode. Empty
+        run IDs remain repeatable.
 
         Production lifecycle policy:
           - Initial status MUST be ``pending`` (default) or ``in_progress``
@@ -1443,6 +1466,20 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_outbox_items_by_replay_run(
+        self,
+        replay_run_id: str,
+    ) -> list[DeliveryOutboxItem]:
+        """Return durable outbox generations owned by one named replay run.
+
+        Authority: **list/get** (read-only). A named replay becomes durable at
+        outbox admission, before its first receipt exists, so this query is the
+        read-side counterpart to replay-run idempotency. The lookup key must
+        normalize to a non-empty run ID. Rows are ordered by ``created_at ASC,
+        outbox_id ASC``.
+        """
+        ...
+
     async def claim_due_outbox_items(
         self,
         now: str,
@@ -1458,8 +1495,9 @@ class StorageBackend(Protocol):
 
         - ``status IN ('pending', 'retry_wait')`` — directly
           claimable;
-        - ``status = 'in_progress' AND lease_until <= now`` — expired
-          leases (worker crashed or stalled);
+        - ``status = 'in_progress' AND (lease_until IS NULL OR
+          lease_until <= now)`` — missing or expired leases (worker
+          crashed or stalled);
         - ``status = 'queued' AND updated_at <= now - GRACE`` — stale
           queued items past the grace threshold defined by
           :data:`~medre.core.storage.sqlite.STALE_QUEUED_GRACE_SECONDS`

@@ -1230,7 +1230,7 @@ class RetryWorker:
                 plan=plan,
                 previous_receipt=previous_receipt,
                 source="retry",
-                replay_run_id=None,
+                replay_run_id=item.replay_run_id,
                 outbox_id=item.outbox_id,
                 reserved_attempt_number=reserved_attempt,
             )

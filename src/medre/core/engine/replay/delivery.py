@@ -276,7 +276,9 @@ class _ReplayDeliveryMixin:
     and the ``replay_run_id`` field. The lifecycle allocates replay outbox
     generations above the maximum existing *effective* attempt (a live
     ``active_attempt`` reservation outranks the row's finalized
-    ``attempt_number``), never mutates existing rows, and keeps receipts
+    ``attempt_number``). A non-empty run ID first atomically reuses any existing
+    claim for that delivery identity, preventing sibling same-run dispatches.
+    Existing rows are never rewritten as another generation and receipts remain
     append-only.
     """
 

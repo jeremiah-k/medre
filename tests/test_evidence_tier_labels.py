@@ -172,6 +172,17 @@ class TestInferEvidenceTier:
     def test_replay_among_sources_is_synthetic(self) -> None:
         assert infer_evidence_tier(sources_seen=("live", "replay")) == "synthetic"
 
+    def test_replay_origin_retry_beats_docker_tier(self) -> None:
+        """Replay origin is synthetic even when dispatch mechanism is retry."""
+        assert (
+            infer_evidence_tier(
+                sources_seen=("retry",),
+                has_replay_origin=True,
+                is_docker_artifact=True,
+            )
+            == "synthetic"
+        )
+
     def test_live_source_without_replay_defaults_synthetic(self) -> None:
         """Just having source="live" does not prove live_service tier."""
         assert infer_evidence_tier(sources_seen=("live",)) == "synthetic"

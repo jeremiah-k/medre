@@ -21,6 +21,7 @@ from medre.core.engine.pipeline.delivery_state import (
     TERMINAL_OUTBOX_STATUSES,
 )
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
+from medre.core.events import normalize_delivery_provenance
 from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
@@ -49,6 +50,7 @@ class OutboxContext:
     pipeline_worker: str
     skip_reason: str | None
     attempt_number: int | None = None
+    replay_duplicate: bool = False
 
 
 class OutboxManager:
@@ -78,6 +80,7 @@ class OutboxManager:
         adapter_name: str,
         *,
         source: str = "live",
+        replay_run_id: str | None = None,
     ) -> OutboxContext:
         """Create a durable outbox item tracking a delivery attempt.
 
@@ -98,12 +101,14 @@ class OutboxManager:
         ``max(effective_attempt) + 1`` for the event-scoped delivery identity
         (event_id, delivery_plan_id, target_adapter, target_channel).
         ``effective_attempt`` means a live ``active_attempt`` reservation when
-        present, otherwise the finalized ``attempt_number``.  Allocation and
-        insertion share one write transaction, so replay cannot reclaim a
-        retry generation or reuse a generation that becomes reserved/finalized
-        concurrently.  The same ownership check applies to all sources after
-        creation.
+        present, otherwise the finalized ``attempt_number``.  A non-empty
+        *replay_run_id* additionally claims that logical target atomically: a
+        second execution of the same run reuses the existing row instead of
+        allocating a sibling generation.  The run ID is durable execution
+        provenance/idempotency metadata and is deliberately not part of
+        ``DeliveryIdentity``.  Empty run IDs remain repeatable.
         """
+        source, replay_run_id = normalize_delivery_provenance(source, replay_run_id)
         outbox_id: str | None = None
         outbox_created: bool = False
         pipeline_worker: str = ""
@@ -162,6 +167,9 @@ class OutboxManager:
                 locked_at=_now.isoformat(),
                 lease_until=_lease_until,
                 worker_id=pipeline_worker,
+                replay_run_id=(
+                    replay_run_id if source == "replay" and replay_run_id else None
+                ),
                 metadata=_dest_meta,
             )
             created = await self._storage.create_outbox_item(
@@ -170,13 +178,29 @@ class OutboxManager:
             )
             outbox_id = created.outbox_id
             outbox_created = True
+            replay_duplicate = bool(
+                source == "replay"
+                and replay_run_id
+                and created.outbox_id != outbox_item.outbox_id
+                and created.replay_run_id == replay_run_id
+            )
 
             # Ownership check — must run BEFORE we update pipeline_worker
             # so that we compare the persisted worker_id against the
             # pipeline's own worker_id (not the overridden value).
             # Applies to ALL sources including replay.
             skip_reason: str | None = None
-            if created.status in TERMINAL_OUTBOX_STATUSES:
+            if replay_duplicate:
+                skip_reason = f"replay_run_claimed:{created.status}"
+                self._log.info(
+                    "replay_run_skip: event_id=%s adapter=%s outbox_id=%s run_id=%s status=%s",
+                    event.event_id,
+                    adapter_name,
+                    created.outbox_id,
+                    replay_run_id,
+                    created.status,
+                )
+            elif created.status in TERMINAL_OUTBOX_STATUSES:
                 skip_reason = f"terminal:{created.status}"
                 self._log.info(
                     "outbox_skip: event_id=%s adapter=%s outbox_id=%s status=%s (terminal, not delivering)",
@@ -216,6 +240,7 @@ class OutboxManager:
                 pipeline_worker=pipeline_worker,
                 skip_reason=skip_reason,
                 attempt_number=self._lifecycle.effective_attempt(created),
+                replay_duplicate=replay_duplicate,
             )
         except Exception:
             self._log.exception(
@@ -231,6 +256,7 @@ class OutboxManager:
             pipeline_worker=pipeline_worker,
             skip_reason=skip_reason,
             attempt_number=None,
+            replay_duplicate=False,
         )
 
     # -- Lease renewal --
@@ -536,6 +562,20 @@ class OutboxManager:
                         _queued_receipt_id = _r.receipt_id
                         break
             except Exception:
+                if existing_item.replay_run_id:
+                    # Truthful dispatch provenance cannot be reconstructed
+                    # without the queued receipt: the row carries a replay
+                    # origin, and source must not be guessed. Reject the
+                    # callback; lease expiry / stale reclaim re-drives the
+                    # row and terminalizes it with real provenance.
+                    self._log.warning(
+                        "Could not recover queued-receipt lineage for "
+                        "replay-origin outbox_id=%s; rejecting terminal "
+                        "callback rather than committing guessed "
+                        "provenance",
+                        record.outbox_id,
+                    )
+                    return
                 self._log.debug(
                     "Could not recover queued-receipt lineage for "
                     "outbox_id=%s; defaulting to source=live",

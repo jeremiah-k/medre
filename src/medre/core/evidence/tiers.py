@@ -68,6 +68,7 @@ def infer_evidence_tier(
     sources_seen: tuple[str, ...] | list[str] = (),
     adapter_kind: str | None = None,
     is_docker_artifact: bool = False,
+    has_replay_origin: bool = False,
     explicit_tier: str | None = None,
     source_adapter: str | None = None,
 ) -> str:
@@ -77,8 +78,10 @@ def infer_evidence_tier(
 
     1. *explicit_tier* is a valid tier value → use it.
     2. *adapter_kind* is ``"fake"`` → ``"synthetic"``.
-    3. Any source in *sources_seen* is ``"replay"`` → ``"synthetic"``
-       (replay is derived / synthetic by nature).
+    3. *has_replay_origin* is true, or any source in *sources_seen* is
+       ``"replay"`` → ``"synthetic"`` (replay is derived / synthetic by
+       nature).  The explicit origin flag also covers retry dispatches that
+       retain a replay run ID.
     4. *is_docker_artifact* is ``True`` → ``"docker"``.
     5. Default → ``"synthetic"`` (most conservative).
 
@@ -96,6 +99,9 @@ def infer_evidence_tier(
         Adapter kind string (``"real"``, ``"fake"``, or ``None``).
     is_docker_artifact:
         Whether the evidence was collected from a Docker bridge-artifact run.
+    has_replay_origin:
+        Whether any durable evidence belongs to a replay run, independent of
+        the per-attempt dispatch mechanism.
     explicit_tier:
         Caller-provided tier value.  When a valid :class:`EvidenceTier` value,
         returned as-is.
@@ -124,8 +130,10 @@ def infer_evidence_tier(
     if source_adapter is not None and source_adapter.startswith("fake_"):
         return EvidenceTier.SYNTHETIC.value
 
-    # Priority 3: replay source → synthetic.
-    if "replay" in sources_seen:
+    # Priority 3: replay origin → synthetic.  ``sources_seen`` retains the
+    # legacy direct-replay signal; ``has_replay_origin`` also catches retries
+    # that originated from a named replay.
+    if has_replay_origin or "replay" in sources_seen:
         return EvidenceTier.SYNTHETIC.value
 
     # Priority 4: docker artifact → docker.

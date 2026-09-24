@@ -76,6 +76,17 @@ async def _trace_event(
                         adapter = data.get("adapter", "")
                         msg_id = data.get("native_message_id", "")
                         print(f"  {ts}  [{etype}] {direction} via {adapter}: {msg_id}")
+                    elif etype == "outbox_generation":
+                        status = data.get("status", "")
+                        target = data.get("target_adapter", "")
+                        attempt = data.get("active_attempt") or data.get("attempt_number")
+                        line = f"  {ts}  [{etype}] {status} -> {target}"
+                        if data.get("target_channel"):
+                            line += f" channel={data['target_channel']}"
+                        line += f" attempt={attempt}"
+                        if data.get("replay_run_id"):
+                            line += f" replay_run={data['replay_run_id']}"
+                        print(line)
                     elif etype == "receipt":
                         status = data.get("status", "")
                         target = data.get("target_adapter", "")
@@ -111,6 +122,9 @@ async def _trace_event(
                     status_counts[s] = status_counts.get(s, 0) + 1
                 nref_count = sum(1 for e in timeline if e["entry_type"] == "native_ref")
                 rel_count = sum(1 for e in timeline if e["entry_type"] == "relation")
+                outbox_count = sum(
+                    1 for e in timeline if e["entry_type"] == "outbox_generation"
+                )
                 print()
                 print("Summary:")
                 status_parts = ", ".join(
@@ -118,6 +132,9 @@ async def _trace_event(
                     for status, count in sorted(status_counts.items())
                 )
                 print(f"  Receipts: {status_parts or 'none'}")
+                print(f"  Outbox generations: {outbox_count}")
+                if result["replay_run_ids"]:
+                    print(f"  Replay runs: {', '.join(result['replay_run_ids'])}")
                 print(f"  Native refs: {nref_count}")
                 print(f"  Relations: {rel_count}")
     finally:
@@ -135,7 +152,8 @@ async def _trace_replay(
     """Assemble and print a chronological timeline for a replay run.
 
     Read-only derived view: opens storage in read-only mode and queries
-    persisted replay receipts.  Does not mutate storage.
+    durable replay outbox claims plus replay-origin receipts. Does not mutate
+    storage.
     """
     storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
@@ -143,7 +161,7 @@ async def _trace_replay(
         result = await _timeline.assemble_replay_timeline(storage, run_id)
         if result is None:
             print(
-                f"Error: no receipts found for replay run: {run_id}",
+                f"Error: no durable evidence found for replay run: {run_id}",
                 file=sys.stderr,
             )
             _exit_code = EXIT_NOT_FOUND
@@ -158,14 +176,26 @@ async def _trace_replay(
                 # Human-readable summary.
                 print(f"Replay timeline: {run_id}")
                 print(f"  Status:  {replay_data['status']}")
+                print(f"  Outbox generations: {replay_data['outbox_count']}")
                 print(f"  Receipts: {replay_data['receipt_count']}")
+                if replay_data["sources_seen"]:
+                    print(f"  Dispatch sources: {', '.join(replay_data['sources_seen'])}")
                 print(f"  Events:  {len(replay_data['event_ids'])}")
                 print()
                 for entry in replay_data["timeline"]:
                     ts = entry["timestamp"]
                     etype = entry["entry_type"]
                     data = entry["data"]
-                    if etype == "receipt":
+                    if etype == "outbox_generation":
+                        status = data.get("status", "")
+                        target = data.get("target_adapter", "")
+                        attempt = data.get("active_attempt") or data.get("attempt_number")
+                        line = f"  {ts}  [{etype}] {status} -> {target}"
+                        if data.get("target_channel"):
+                            line += f" channel={data['target_channel']}"
+                        line += f" attempt={attempt} (event: {data.get('event_id', '')})"
+                        print(line)
+                    elif etype == "receipt":
                         status = data.get("status", "")
                         target = data.get("target_adapter", "")
                         eid = data.get("event_id", "")

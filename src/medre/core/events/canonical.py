@@ -25,6 +25,8 @@ from medre.core.events.delivery import (
     DELIVERY_OBSERVATION_STATE_VALUES,
     DeliveryConfirmationLevel,
     DeliveryObservationState,
+    DeliverySource,
+    normalize_delivery_provenance,
 )
 from medre.core.events.metadata import EventMetadata, _FrozenDict
 
@@ -244,8 +246,11 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     source:
         Origin of this receipt: ``"live"``, ``"retry"``, or ``"replay"``.
     replay_run_id:
-        When ``source="replay"``, the ``run_id`` of the replay execution
-        that produced this receipt.  ``None`` for live and retry deliveries.
+        Durable replay execution provenance when this delivery lineage began
+        from a named replay run.  It is populated on the initial
+        ``source="replay"`` attempt and preserved on later ``source="retry"``
+        attempts from the same outbox generation. ``None`` for live work and
+        replay executions without a non-empty run ID.
     outbox_id:
         Internal correlation key linking this receipt to the durable
         outbox item tracking this delivery attempt.  ``None`` when not
@@ -282,7 +287,7 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     next_retry_at: datetime | None = None
     attempt_number: int = 1
     parent_receipt_id: str | None = None
-    source: str = "live"
+    source: DeliverySource = "live"
     replay_run_id: str | None = None
     retry_max_attempts: int | None = None
     retry_backoff_base: float | None = None
@@ -310,6 +315,15 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
                 f"receipt_kind={self.receipt_kind!r} is incompatible with "
                 f"status={self.status!r}; expected {expected_kind!r}"
             )
+
+        normalized_source, normalized_run_id = normalize_delivery_provenance(
+            self.source,
+            self.replay_run_id,
+        )
+        if normalized_source != self.source:
+            force_setattr(self, "source", normalized_source)
+        if normalized_run_id != self.replay_run_id:
+            force_setattr(self, "replay_run_id", normalized_run_id)
 
 
 class DeliveryObservation(msgspec.Struct, frozen=True):

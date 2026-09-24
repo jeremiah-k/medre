@@ -583,3 +583,43 @@ async def test_schema_check_validator_rejects_outbox_without_reservation_shape(
         await storage._validate_schema_checks()
 
     assert required in exc_info.value.missing_constraints
+
+
+async def test_same_version_db_missing_replay_outbox_provenance_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """Replay idempotency shape changes stay schema version 1 but require reset."""
+    db_path = tmp_path / "missing-replay-outbox-provenance.db"
+    stale_schema = _SCHEMA.replace(
+        "    error_summary TEXT,\n"
+        "    replay_run_id TEXT,\n"
+        "    metadata TEXT NOT NULL DEFAULT '{}',\n",
+        "    error_summary TEXT,\n"
+        "    metadata TEXT NOT NULL DEFAULT '{}',\n",
+        1,
+    ).replace(
+        "    CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned')),\n"
+        "    CHECK (replay_run_id IS NULL OR (length(replay_run_id) > 0 AND replay_run_id = trim(replay_run_id)))\n",
+        "    CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned'))\n",
+        1,
+    )
+    assert stale_schema != _SCHEMA
+
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.executescript(stale_schema)
+        raw.execute(
+            "INSERT INTO _medre_schema_meta (key, value) VALUES (?, ?)",
+            ("schema_version", "1"),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+
+    stale = SQLiteStorage(str(db_path))
+    with pytest.raises(PreReleaseSchemaMismatchError) as exc_info:
+        await stale.initialize()
+
+    assert _EXPECTED_SCHEMA_VERSION == 1
+    assert exc_info.value.table == "delivery_outbox"
+    assert "replay_run_id" in exc_info.value.missing_columns

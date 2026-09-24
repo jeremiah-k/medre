@@ -918,3 +918,170 @@ def test_delivery_identity_complete_requires_all_components() -> None:
         }
     )
     assert missing_event.complete is False
+
+
+def test_resolved_snapshot_distinguishes_current_generation_from_latest_history() -> None:
+    receipts = [
+        {
+            "receipt_id": "old-attempt",
+            "event_id": "event-current-generation",
+            "delivery_plan_id": "plan-current-generation",
+            "target_adapter": "dest",
+            "target_channel": "room",
+            "status": "sent",
+            "receipt_kind": "attempt",
+            "attempt_number": 1,
+            "outbox_id": "outbox-old",
+            "sequence": 1,
+        }
+    ]
+    outbox = [
+        {
+            "outbox_id": "outbox-old",
+            "event_id": "event-current-generation",
+            "delivery_plan_id": "plan-current-generation",
+            "target_adapter": "dest",
+            "target_channel": "room",
+            "status": "sent",
+            "attempt_number": 1,
+            "receipt_id": "old-attempt",
+        },
+        {
+            "outbox_id": "outbox-new",
+            "event_id": "event-current-generation",
+            "delivery_plan_id": "plan-current-generation",
+            "target_adapter": "dest",
+            "target_channel": "room",
+            "status": "in_progress",
+            "attempt_number": 2,
+            "replay_run_id": "run-new",
+        },
+    ]
+    resolver = DeliveryAuthorityResolver(receipts, outbox)
+    snapshot = resolver.resolve(
+        DeliveryIdentity(
+            "event-current-generation",
+            "plan-current-generation",
+            "dest",
+            "room",
+        )
+    )
+
+    assert snapshot.current_outbox["outbox_id"] == "outbox-new"
+    assert snapshot.current_attempt is None
+    assert snapshot.latest_attempt["receipt_id"] == "old-attempt"
+
+
+def test_resolved_snapshot_does_not_promote_uncommitted_current_generation_attempt() -> None:
+    """A receipt that merely claims the active generation is history, not authority."""
+    identity = DeliveryIdentity("event-uncommitted", "plan-uncommitted", "dest", "room")
+    receipts = [
+        {
+            "receipt_id": "attempt-1",
+            "event_id": identity.event_id,
+            "delivery_plan_id": identity.delivery_plan_id,
+            "target_adapter": identity.target_adapter,
+            "target_channel": identity.target_channel,
+            "status": "failed",
+            "receipt_kind": "attempt",
+            "attempt_number": 1,
+            "outbox_id": "outbox-current",
+            "sequence": 1,
+        },
+        {
+            "receipt_id": "attempt-2-uncommitted",
+            "event_id": identity.event_id,
+            "delivery_plan_id": identity.delivery_plan_id,
+            "target_adapter": identity.target_adapter,
+            "target_channel": identity.target_channel,
+            "status": "sent",
+            "receipt_kind": "attempt",
+            "attempt_number": 2,
+            "outbox_id": "outbox-current",
+            "sequence": 2,
+        },
+    ]
+    outbox = [
+        {
+            "outbox_id": "outbox-current",
+            "event_id": identity.event_id,
+            "delivery_plan_id": identity.delivery_plan_id,
+            "target_adapter": identity.target_adapter,
+            "target_channel": identity.target_channel,
+            "status": "in_progress",
+            "attempt_number": 1,
+            "active_attempt": 2,
+            "receipt_id": "attempt-1",
+        }
+    ]
+
+    snapshot = DeliveryAuthorityResolver(receipts, outbox).resolve(identity)
+
+    assert snapshot.current_receipt is None
+    assert snapshot.current_attempt is None
+    assert snapshot.latest_attempt["receipt_id"] == "attempt-2-uncommitted"
+    assert snapshot.authoritative_receipt["receipt_id"] == "attempt-1"
+
+
+def test_resolved_snapshot_lifecycle_pointer_resolves_current_causative_attempt() -> None:
+    """Current lifecycle authority exposes its linked attempt for the same generation."""
+    identity = DeliveryIdentity("event-terminal", "plan-terminal", "dest", "room")
+    receipts = [
+        {
+            "receipt_id": "attempt-3",
+            "event_id": identity.event_id,
+            "delivery_plan_id": identity.delivery_plan_id,
+            "target_adapter": identity.target_adapter,
+            "target_channel": identity.target_channel,
+            "status": "failed",
+            "receipt_kind": "attempt",
+            "attempt_number": 3,
+            "outbox_id": "outbox-terminal",
+            "sequence": 10,
+        },
+        {
+            "receipt_id": "lifecycle-3",
+            "event_id": identity.event_id,
+            "delivery_plan_id": identity.delivery_plan_id,
+            "target_adapter": identity.target_adapter,
+            "target_channel": identity.target_channel,
+            "status": "dead_lettered",
+            "receipt_kind": "lifecycle",
+            "attempt_number": 3,
+            "outbox_id": "outbox-terminal",
+            "parent_receipt_id": "attempt-3",
+            "sequence": 11,
+        },
+        {
+            "receipt_id": "attempt-3-rejected-sibling",
+            "event_id": identity.event_id,
+            "delivery_plan_id": identity.delivery_plan_id,
+            "target_adapter": identity.target_adapter,
+            "target_channel": identity.target_channel,
+            "status": "sent",
+            "receipt_kind": "attempt",
+            "attempt_number": 3,
+            "outbox_id": "outbox-terminal",
+            "sequence": 12,
+        },
+    ]
+    outbox = [
+        {
+            "outbox_id": "outbox-terminal",
+            "event_id": identity.event_id,
+            "delivery_plan_id": identity.delivery_plan_id,
+            "target_adapter": identity.target_adapter,
+            "target_channel": identity.target_channel,
+            "status": "dead_lettered",
+            "attempt_number": 3,
+            "receipt_id": "lifecycle-3",
+        }
+    ]
+
+    snapshot = DeliveryAuthorityResolver(receipts, outbox).resolve(identity)
+
+    assert snapshot.current_receipt["receipt_id"] == "lifecycle-3"
+    assert snapshot.current_attempt["receipt_id"] == "attempt-3"
+    assert snapshot.latest_attempt["receipt_id"] == "attempt-3-rejected-sibling"
+    assert snapshot.authoritative_receipt["receipt_id"] == "lifecycle-3"
+    assert snapshot.causative_receipt["receipt_id"] == "attempt-3"

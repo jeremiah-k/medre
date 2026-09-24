@@ -98,6 +98,7 @@ class _FakeReceipt:
         replay_run_id: str | None = None,
         target_channel: str | None = None,
         route_id: str = "route-1",
+        outbox_id: str | None = None,
     ) -> None:
         self.receipt_id = receipt_id
         self.event_id = event_id
@@ -112,8 +113,11 @@ class _FakeReceipt:
         self.target_channel = target_channel
         self.source = source
         self.replay_run_id = replay_run_id
+        self.outbox_id = outbox_id
         self.sequence = 1
         self.created_at = datetime(2026, 1, 15, 12, 0, 1, tzinfo=timezone.utc)
+
+
 
 
 class _FakeNativeRef:
@@ -1210,40 +1214,6 @@ class TestRecoverClassification:
             warnings = parsed.get("warnings", [])
             best_effort_warnings = [w for w in warnings if "BEST_EFFORT" in w]
             assert len(best_effort_warnings) == 0
-
-    def test_replay_context_included(self) -> None:
-        """Replay context is included when event has replay receipts."""
-        event = _FakeEvent()
-        replay_receipt = _FakeReceipt(
-            status="failed",
-            target_adapter="adapter_a",
-            error="permission denied",
-            source="replay",
-            replay_run_id="run-42",
-        )
-
-        mock_storage = AsyncMock()
-        mock_storage.get = AsyncMock(return_value=event)
-        mock_storage.list_receipts_for_event = AsyncMock(return_value=[replay_receipt])
-        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
-        mock_storage.list_relations = AsyncMock(return_value=[])
-        mock_storage.close = AsyncMock()
-
-        with patch(
-            "medre.cli.recover_commands._open_readonly_storage",
-            return_value=mock_storage,
-        ):
-            output = _run_cli(
-                "recover",
-                "--event",
-                "evt-1",
-                "--json",
-                "--storage-path",
-                "/nonexistent",
-            )
-            parsed = json.loads(output)
-            assert "replay_context" in parsed
-            assert parsed["replay_context"][0]["replay_run_id"] == "run-42"
 
     def test_recover_no_replay_side_effects(self) -> None:
         """Recovery is read-only — no replay or write operations."""

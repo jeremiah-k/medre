@@ -203,7 +203,9 @@ async def _collect_storage_data_from_backend(
                                 worst_category = cat
                                 break
 
-                has_replay = any(r.get("source") == "replay" for r in receipt_dicts)
+                has_replay_origin = any(
+                    r.get("replay_run_id") for r in receipt_dicts
+                ) or any(getattr(item, "replay_run_id", None) for item in outbox_items)
                 has_native_refs = len(native_refs) > 0
 
                 # Determine overall classification for the event.
@@ -252,57 +254,73 @@ async def _collect_storage_data_from_backend(
                     1 for r in receipt_dicts if r.get("status") == "sent"
                 )
 
-                # Target-keyed delivery state uses the shared full delivery
-                # identity. Route ID is provenance on the selected receipt, not
-                # part of lifecycle identity; two routes that feed the same
-                # event/plan/adapter/channel resolve to one current delivery.
-                from medre.core.delivery_authority import DeliveryAuthorityResolver
+                # Resolve operator state once. ``delivery_state_by_target`` is
+                # a compatibility projection of the canonical delivery ledger;
+                # it must never perform an independent authority selection.
+                from medre.core.evidence.delivery_ledger import (
+                    build_delivery_outcome_ledger as _build_ledger,
+                )
 
-                authority = DeliveryAuthorityResolver(receipts, outbox_items)
+                delivery_ledger = _build_ledger(
+                    receipts=receipts,
+                    outbox_items=outbox_items,
+                )
                 enriched_by_receipt_id = {
                     str(rd.get("receipt_id") or ""): rd for rd in enriched_dicts
                 }
+                outbox_by_id = {
+                    str(getattr(item, "outbox_id", "") or ""): item
+                    for item in outbox_items
+                }
 
                 delivery_state_by_target: dict[str, dict[str, object]] = {}
-                for snapshot in authority.ordered_snapshots():
-                    current = snapshot.authoritative_receipt
-                    if current is None:
-                        continue
-                    identity = snapshot.identity
-                    receipt_id = str(getattr(current, "receipt_id", "") or "")
-                    best = enriched_by_receipt_id.get(receipt_id)
-                    if best is None:
-                        continue
-                    target_key = _json.dumps(
-                        {
-                            "event_id": identity.event_id,
-                            "delivery_plan_id": identity.delivery_plan_id,
-                            "target_adapter": identity.target_adapter,
-                            "target_channel": identity.target_channel,
-                        },
-                        sort_keys=True,
+                for target_key, entry in delivery_ledger.entries.items():
+                    # Receipt enrichment contributes display-only detail.  It
+                    # cannot choose lifecycle authority or current generation.
+                    detail_receipt_id = (
+                        entry.current_attempt_receipt_id
+                        if entry.outbox_id is not None
+                        else entry.authoritative_receipt_id
                     )
+                    detail = enriched_by_receipt_id.get(
+                        str(detail_receipt_id or ""),
+                        {},
+                    )
+                    outbox_detail = outbox_by_id.get(str(entry.outbox_id or ""))
+                    failure_kind_detail = detail.get("failure_kind_detail")
+                    if failure_kind_detail is None and outbox_detail is not None:
+                        failure_kind_detail = getattr(
+                            outbox_detail,
+                            "failure_kind_detail",
+                            None,
+                        )
+                    retryable = bool(detail.get("retryable", False))
+                    if not detail:
+                        retryable = (
+                            entry.retry_state == "retryable"
+                            and entry.failure_taxon_category != "permanent"
+                        )
+
                     delivery_state_by_target[target_key] = {
-                        "target_adapter": best.get("target_adapter"),
-                        "target_channel": best.get("target_channel"),
-                        "route_id": best.get("route_id"),
-                        "delivery_plan_id": best.get("delivery_plan_id"),
-                        "status": best.get("status"),
-                        "attempt_number": best.get("attempt_number"),
-                        "failure_kind": best.get("failure_kind"),
-                        "failure_kind_detail": best.get("failure_kind_detail"),
-                        "retryable": best.get("retryable"),
-                        "next_retry_at": best.get("next_retry_at"),
-                        "native_message_id": best.get("native_message_id"),
-                        "adapter_message_id": best.get("adapter_message_id"),
-                        # Capability-evidence observability fields.
-                        "source": best.get("source"),
-                        "replay_run_id": best.get("replay_run_id"),
-                        "suppression_reason": best.get("suppression_reason"),
-                        "capability_field": best.get("capability_field"),
-                        "capability_level": best.get("capability_level"),
-                        "delivery_strategy": best.get("delivery_strategy"),
-                        "error": best.get("error"),
+                        "target_adapter": entry.target_adapter,
+                        "target_channel": entry.target_channel,
+                        "route_id": entry.route_id,
+                        "delivery_plan_id": entry.delivery_plan_id,
+                        "status": entry.lifecycle_status,
+                        "attempt_number": entry.current_attempt_number,
+                        "failure_kind": entry.failure_kind,
+                        "failure_kind_detail": failure_kind_detail,
+                        "retryable": retryable,
+                        "next_retry_at": entry.next_retry_at,
+                        "native_message_id": entry.adapter_message_id,
+                        "adapter_message_id": entry.adapter_message_id,
+                        "source": entry.source,
+                        "replay_run_id": entry.replay_run_id,
+                        "suppression_reason": entry.suppression_reason,
+                        "capability_field": entry.capability_field,
+                        "capability_level": entry.capability_level,
+                        "delivery_strategy": entry.delivery_strategy,
+                        "error": entry.error,
                     }
 
                 data["incident_summary"] = {
@@ -312,7 +330,7 @@ async def _collect_storage_data_from_backend(
                     "source_adapter": event.source_adapter,
                     "first_failure_kind": first_failure_kind,
                     "classification": classification,
-                    "replay_receipts_present": has_replay,
+                    "replay_origin_present": has_replay_origin,
                     "native_refs_present": has_native_refs,
                     "receipt_count": len(receipt_dicts),
                     "failed_count": failed_count,
@@ -326,15 +344,9 @@ async def _collect_storage_data_from_backend(
                     "delivery_state_by_target": delivery_state_by_target,
                 }
 
-                # --- Delivery outcome ledger (pure, from receipts) ---
-                from medre.core.evidence.delivery_ledger import (
-                    build_delivery_outcome_ledger as _build_ledger,
-                )
-
-                data["delivery_outcome_ledger"] = _build_ledger(
-                    receipts=receipts,
-                    outbox_items=outbox_items,
-                ).to_dict()
+                # The target compatibility view above and this machine-facing
+                # ledger share the exact same resolved operator state.
+                data["delivery_outcome_ledger"] = delivery_ledger.to_dict()
 
                 # --- Retry/outbox accountability summary (pure, from receipts) ---
                 from medre.core.evidence.retry_outbox import (
@@ -355,6 +367,7 @@ async def _collect_storage_data_from_backend(
                             "route_id": it.route_id,
                             "target_adapter": it.target_adapter,
                             "target_channel": it.target_channel,
+                            "replay_run_id": it.replay_run_id,
                             "status": it.status,
                             "retry_state": it.retry_state,
                             "attempt_number": it.attempt_number,

@@ -10,7 +10,7 @@ Proves that operator evidence artifacts include:
 Honesty constraints tested:
 - Storage-only is NOT live/hardware.
 - Suppressed receipts appear in retry/outbox summary but not queued/retrying.
-- ``replay_run_id`` appears only on replay ledger entries.
+- ``replay_run_id`` follows replay-origin replay and retry ledger entries.
 - Pending outbox counts at stopped/shutdown are ``shutdown_pending``, not cancelled.
 - Running runtime has shutdown evidence as running/not_executed, not false success.
 - Core EvidenceBundle includes delivery_outcome_ledger and retry_outbox_summary.
@@ -269,12 +269,12 @@ class TestSuppressedReceiptsInOutboxSummary:
 
 
 # ---------------------------------------------------------------------------
-# 4. replay_run_id appears only on replay ledger entries
+# 4. replay_run_id follows replay-origin lineage
 # ---------------------------------------------------------------------------
 
 
-class TestReplayRunIdOnlyOnReplay:
-    """replay_run_id is populated only when source is 'replay'."""
+class TestReplayOriginRunId:
+    """replay_run_id is orthogonal replay origin across replay/retry dispatch."""
 
     def test_replay_run_id_on_replay_entry(self) -> None:
         live_receipt = _make_receipt(
@@ -310,6 +310,18 @@ class TestReplayRunIdOnlyOnReplay:
         for entry in ledger.entries.values():
             if entry.source == "live":
                 assert entry.replay_run_id is None
+
+    def test_replay_origin_run_id_survives_retry_dispatch(self) -> None:
+        retry_receipt = _make_receipt(
+            "rcpt-retry-replay-origin",
+            event_id="evt-retry-replay-origin",
+            source="retry",
+            replay_run_id="run-origin",
+        )
+        ledger = build_delivery_outcome_ledger(receipts=[retry_receipt])
+        entry = next(iter(ledger.entries.values()))
+        assert entry.source == "retry"
+        assert entry.replay_run_id == "run-origin"
 
 
 # ---------------------------------------------------------------------------

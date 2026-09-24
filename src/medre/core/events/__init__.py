@@ -37,8 +37,12 @@ from medre.core.events.canonical import (
 from medre.core.events.delivery import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
     DELIVERY_OBSERVATION_STATE_VALUES,
+    DELIVERY_SOURCE_VALUES,
     DeliveryConfirmationLevel,
     DeliveryObservationState,
+    DeliverySource,
+    normalize_delivery_provenance,
+    normalize_replay_run_id,
 )
 from medre.core.events.kinds import (
     KNOWN_KINDS,
@@ -76,8 +80,12 @@ __all__ = [
     # delivery
     "DELIVERY_CONFIRMATION_LEVEL_VALUES",
     "DELIVERY_OBSERVATION_STATE_VALUES",
+    "DELIVERY_SOURCE_VALUES",
     "DeliveryConfirmationLevel",
     "DeliveryObservationState",
+    "DeliverySource",
+    "normalize_delivery_provenance",
+    "normalize_replay_run_id",
     # kinds
     "EventKind",
     "KNOWN_KINDS",

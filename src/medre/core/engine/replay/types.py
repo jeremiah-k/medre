@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
+from medre.core.events import normalize_replay_run_id
 from medre.core.storage.backend import DEFAULT_QUERY_LIMIT
 
 
@@ -144,10 +145,11 @@ class ReplayRequest:
         When set, it is recorded in :class:`ReplayRouteAttribution` and
         :class:`ReplaySummary` so operators can correlate replay runs.
 
-        **Idempotency note:** Replay may intentionally redeliver events.
-        Duplicate-send risk exists by design for mesh/radio transports
-        where at-least-once delivery is the norm.  Operators should use
-        ``run_id`` to track and deduplicate at the application layer.
+        **Idempotency note:** A non-empty ``run_id`` is a durable execution
+        key for each full delivery identity that reaches outbox admission.
+        Concurrent executions sharing that run ID reuse one generation.
+        Different or empty run IDs remain intentionally repeatable, and
+        transport retry/recovery is still at-least-once rather than exactly-once.
     """
 
     time_start: datetime | None = None
@@ -161,6 +163,10 @@ class ReplayRequest:
     target_adapters: list[str] | None = None
     route_ids: tuple[str, ...] = ()
     run_id: str = ""
+
+    def __post_init__(self) -> None:
+        """Normalize the optional durable replay execution key."""
+        self.run_id = normalize_replay_run_id(self.run_id) or ""
 
 
 @dataclass

@@ -38,6 +38,7 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
     NativeMessageRef,
 )
+from medre.core.events.delivery import normalize_delivery_provenance
 from medre.core.observability.correlation import correlation_scope
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import (
@@ -268,6 +269,10 @@ class DeliveryCoordinator:
         if not route_targets:
             return []
 
+        source, replay_run_id = normalize_delivery_provenance(
+            source, replay_run_id
+        )
+
         worker_limit = (
             self._capacity_controller.delivery_limit
             if self._capacity_controller is not None
@@ -335,8 +340,8 @@ class DeliveryCoordinator:
         """
         if not ctx.identity.complete:
             return await self._incomplete_identity_outcome(ctx)
-        replay_receipts = await self._load_replay_receipts(ctx)
-        preflight = await self._preflight_outcome(ctx, replay_receipts)
+        replay_authority = await self._load_replay_authority(ctx)
+        preflight = await self._preflight_outcome(ctx, replay_authority)
         if preflight is not None:
             return preflight
 
@@ -360,7 +365,13 @@ class DeliveryCoordinator:
                 ctx.target,
                 ctx.adapter_id,
                 source=ctx.source,
+                replay_run_id=ctx.replay_run_id,
             )
+            if outbox_ctx.replay_duplicate:
+                return self._build_replay_duplicate_outcome(
+                    ctx,
+                    detail=outbox_ctx.skip_reason or "replay_run_claimed",
+                )
             if outbox_ctx.skip_reason is not None:
                 return self._build_outcome(
                     ctx,
@@ -375,7 +386,7 @@ class DeliveryCoordinator:
             )
             return await self._execute_owned_delivery(
                 ctx,
-                replay_receipts=replay_receipts,
+                replay_authority=replay_authority,
                 outbox_ctx=outbox_ctx,
                 inflight_key=inflight_key,
             )
@@ -385,34 +396,36 @@ class DeliveryCoordinator:
                     self._inflight_deliveries.pop(inflight_key, None)
                 await owned_controller.release_delivery()
 
-    async def _load_replay_receipts(
+    async def _load_replay_authority(
         self,
         ctx: _DeliveryContext,
-    ) -> list[DeliveryReceipt]:
-        """Load this delivery's history for replay, or return no history for live work.
+    ) -> DeliveryReceipt | None:
+        """Load lifecycle-authoritative prior evidence for a replay target.
 
-        A lookup error propagates when the replay has a run ID, preventing an
-        unchecked duplicate send. Without a run ID, lookup errors yield an
-        empty history.
+        Replay lineage and same-run suppression must derive from the same
+        current-authority rule as diagnostics and recovery. Raw receipt
+        history is intentionally not consulted here: a stale append whose
+        guarded outbox transition was rejected is immutable evidence, but it
+        cannot become the parent or idempotency proof for a new execution.
+
+        A lookup error propagates for a named replay because idempotency is a
+        safety boundary. Unnamed replay remains best-effort.
         """
         if ctx.source != "replay":
-            return []
+            return None
         try:
-            return await self._storage.list_receipts_for_delivery(ctx.identity)
+            return await self._storage.delivery_status(ctx.identity)
         except Exception:
-            # Same-run suppression is a safety boundary: if a non-empty run ID
-            # cannot be checked, fail closed rather than duplicate delivery.
-            # Empty run IDs remain best-effort.
             if ctx.replay_run_id:
                 raise
             self._log.debug(
-                "Failed to load replay receipt history; proceeding without "
-                "attempt lineage: event_id=%s adapter=%s",
+                "Failed to resolve replay delivery authority; proceeding without "
+                "prior lineage: event_id=%s adapter=%s",
                 ctx.event.event_id,
                 ctx.adapter_id,
                 exc_info=True,
             )
-            return []
+            return None
 
     async def _incomplete_identity_outcome(
         self,
@@ -454,7 +467,7 @@ class DeliveryCoordinator:
     async def _preflight_outcome(
         self,
         ctx: _DeliveryContext,
-        replay_receipts: list[DeliveryReceipt],
+        replay_authority: DeliveryReceipt | None,
     ) -> DeliveryOutcome | None:
         """Run suppression checks in the normative pre-capacity order."""
         for check in (
@@ -465,7 +478,7 @@ class DeliveryCoordinator:
             self._capability_outcome,
             self._plan_skip_outcome,
         ):
-            outcome = await check(ctx, replay_receipts)
+            outcome = await check(ctx, replay_authority)
             if outcome is not None:
                 return outcome
         return None
@@ -473,36 +486,53 @@ class DeliveryCoordinator:
     async def _replay_duplicate_outcome(
         self,
         ctx: _DeliveryContext,
-        replay_receipts: list[DeliveryReceipt],
+        replay_authority: DeliveryReceipt | None,
     ) -> DeliveryOutcome | None:
-        if not ctx.replay_run_id:
+        if not ctx.replay_run_id or replay_authority is None:
             return None
-        prior_accepted = any(
-            receipt.source == "replay"
-            and receipt.replay_run_id == ctx.replay_run_id
-            and receipt.status in {"queued", "sent"}
-            for receipt in replay_receipts
-        )
-        if not prior_accepted:
+        if replay_authority.replay_run_id != ctx.replay_run_id:
             return None
-        error = "replay_duplicate_suppressed: run target already accepted"
-        receipt = await self._persist_suppression(
+        # Only accepted transport evidence can prove a same-run dispatch
+        # before outbox admission.  Outbox-less suppression/capacity receipts
+        # record decisions, not ownership of a transport generation, and must
+        # not permanently poison a named run.
+        if replay_authority.receipt_kind != "attempt" or replay_authority.status not in {
+            "queued",
+            "sent",
+        }:
+            return None
+        return self._build_replay_duplicate_outcome(
             ctx,
-            failure_kind=DeliveryFailureKind.REPLAY_DUPLICATE_SUPPRESSED,
-            error=error,
+            detail=f"authoritative_receipt:{replay_authority.status}",
         )
+
+    def _build_replay_duplicate_outcome(
+        self,
+        ctx: _DeliveryContext,
+        *,
+        detail: str,
+    ) -> DeliveryOutcome:
+        """Report same-run replay idempotency without creating lifecycle evidence.
+
+        A replay duplicate is an execution-level skip: the durable outbox claim or
+        an already-visible accepted receipt proves that this replay run already
+        owns the logical target.  Recording a new outbox-less ``suppressed``
+        lifecycle receipt here would incorrectly outrank the accepted delivery in
+        current authority despite no new lifecycle generation being created.
+        """
+        error = "replay_duplicate_suppressed: run target already claimed"
         return self._build_outcome(
             ctx,
             status="skipped",
             failure_kind=DeliveryFailureKind.REPLAY_DUPLICATE_SUPPRESSED,
-            receipt=receipt,
             error=error,
+            failure_kind_detail=detail,
         )
 
     async def _route_trace_loop_outcome(
         self,
         ctx: _DeliveryContext,
-        _: list[DeliveryReceipt],
+        _: DeliveryReceipt | None,
     ) -> DeliveryOutcome | None:
         routing_meta = ctx.event.metadata.routing
         if routing_meta is None:
@@ -537,7 +567,7 @@ class DeliveryCoordinator:
     async def _self_loop_outcome(
         self,
         ctx: _DeliveryContext,
-        _: list[DeliveryReceipt],
+        _: DeliveryReceipt | None,
     ) -> DeliveryOutcome | None:
         if not ctx.adapter_id or ctx.adapter_id != ctx.event.source_adapter:
             return None
@@ -566,7 +596,7 @@ class DeliveryCoordinator:
     async def _policy_outcome(
         self,
         ctx: _DeliveryContext,
-        _: list[DeliveryReceipt],
+        _: DeliveryReceipt | None,
     ) -> DeliveryOutcome | None:
         if ctx.route.policy is None:
             return None
@@ -612,7 +642,7 @@ class DeliveryCoordinator:
     async def _capability_outcome(
         self,
         ctx: _DeliveryContext,
-        _: list[DeliveryReceipt],
+        _: DeliveryReceipt | None,
     ) -> DeliveryOutcome | None:
         if not (
             ctx.adapter_id
@@ -650,7 +680,7 @@ class DeliveryCoordinator:
     async def _plan_skip_outcome(
         self,
         ctx: _DeliveryContext,
-        _: list[DeliveryReceipt],
+        _: DeliveryReceipt | None,
     ) -> DeliveryOutcome | None:
         if not (
             ctx.plan.primary_strategy.method == "skip"
@@ -726,7 +756,7 @@ class DeliveryCoordinator:
         self,
         ctx: _DeliveryContext,
         *,
-        replay_receipts: list[DeliveryReceipt],
+        replay_authority: DeliveryReceipt | None,
         outbox_ctx: OutboxContext,
         inflight_key: str | None,
     ) -> DeliveryOutcome:
@@ -751,7 +781,7 @@ class DeliveryCoordinator:
                 outbox_id=outbox_ctx.outbox_id,
             )
         try:
-            result = await self._invoke_target(ctx, replay_receipts, outbox_ctx)
+            result = await self._invoke_target(ctx, replay_authority, outbox_ctx)
             return result.outcome
         finally:
             # The outbox lifecycle is finalized before capacity release.  The
@@ -779,7 +809,7 @@ class DeliveryCoordinator:
     async def _invoke_target(
         self,
         ctx: _DeliveryContext,
-        replay_receipts: list[DeliveryReceipt],
+        replay_authority: DeliveryReceipt | None,
         outbox_ctx: OutboxContext,
     ) -> _ExecutionResult:
         """Return the delivery outcome and validated execution evidence."""
@@ -788,12 +818,11 @@ class DeliveryCoordinator:
             if self._runtime_accounting is not None:
                 self._runtime_accounting.record_outbound_attempt()
 
-            previous_receipt = self._latest_matching_receipt(ctx, replay_receipts)
             evidence = await self._deliver_target(
                 ctx.event,
                 ctx.route,
                 ctx.plan,
-                previous_receipt=previous_receipt,
+                previous_receipt=replay_authority,
                 source=ctx.source,
                 replay_run_id=ctx.replay_run_id,
                 cached_get_fn=ctx.cached_get_fn,
@@ -913,24 +942,6 @@ class DeliveryCoordinator:
                     error=error,
                 ),
             )
-
-    def _latest_matching_receipt(
-        self,
-        ctx: _DeliveryContext,
-        replay_receipts: list[DeliveryReceipt],
-    ) -> DeliveryReceipt | None:
-        if ctx.source != "replay":
-            return None
-        matching = [
-            receipt
-            for receipt in replay_receipts
-            if receipt.delivery_plan_id == ctx.plan.plan_id
-            and receipt.target_adapter == ctx.adapter_id
-            and (receipt.target_channel or None) == (ctx.target.channel or None)
-        ]
-        if not matching:
-            return None
-        return max(matching, key=lambda receipt: receipt.attempt_number)
 
     async def _persist_suppression(
         self,

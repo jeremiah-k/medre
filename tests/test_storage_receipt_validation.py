@@ -6,6 +6,7 @@ import pytest
 from msgspec.structs import force_setattr
 
 from medre.core.events import DeliveryReceipt
+from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 
@@ -87,3 +88,144 @@ class TestUnknownReceiptStatusRejected:
             (event.event_id,),
         )
         assert rows[0]["cnt"] == 0
+
+
+class TestDeliveryProvenanceValidation:
+    """Receipt provenance is canonical at model, storage, and SQLite boundaries."""
+
+    def test_receipt_rejects_unknown_source(self) -> None:
+        with pytest.raises(ValueError, match="unknown delivery source"):
+            DeliveryReceipt(
+                receipt_id="rcpt-unknown-source",
+                event_id="evt-unknown-source",
+                delivery_plan_id="plan-unknown-source",
+                target_adapter="adapter",
+                status="sent",
+                source="bogus",  # type: ignore[arg-type]
+            )
+
+    def test_receipt_normalizes_replay_run_id(self) -> None:
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-normalized-run",
+            event_id="evt-normalized-run",
+            delivery_plan_id="plan-normalized-run",
+            target_adapter="adapter",
+            status="sent",
+            source="replay",
+            replay_run_id="  run-42  ",
+        )
+        assert receipt.replay_run_id == "run-42"
+
+    def test_live_receipt_rejects_replay_origin(self) -> None:
+        with pytest.raises(ValueError, match="live delivery cannot carry replay_run_id"):
+            DeliveryReceipt(
+                receipt_id="rcpt-live-replay-origin",
+                event_id="evt-live-replay-origin",
+                delivery_plan_id="plan-live-replay-origin",
+                target_adapter="adapter",
+                status="sent",
+                source="live",
+                replay_run_id="run-impossible",
+            )
+
+    def test_retry_receipt_accepts_replay_origin(self) -> None:
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-retry-replay-origin",
+            event_id="evt-retry-replay-origin",
+            delivery_plan_id="plan-retry-replay-origin",
+            target_adapter="adapter",
+            status="sent",
+            source="retry",
+            replay_run_id="run-origin",
+        )
+        assert receipt.source == "retry"
+        assert receipt.replay_run_id == "run-origin"
+
+    async def test_storage_rejects_force_mutated_unknown_source(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        event = make_storage_event(event_id="evt-bad-source-row")
+        await temp_storage.append(event)
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-bad-source",
+            event_id=event.event_id,
+            delivery_plan_id="plan-bad-source",
+            target_adapter="adapter",
+            status="sent",
+        )
+        force_setattr(receipt, "source", "bogus")
+
+        with pytest.raises(ValueError, match="unknown delivery source"):
+            await temp_storage.append_receipt(receipt)
+
+    async def test_storage_rejects_force_mutated_live_replay_origin(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        event = make_storage_event(event_id="evt-bad-live-origin-row")
+        await temp_storage.append(event)
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-bad-live-origin",
+            event_id=event.event_id,
+            delivery_plan_id="plan-bad-live-origin",
+            target_adapter="adapter",
+            status="sent",
+        )
+        force_setattr(receipt, "replay_run_id", "run-impossible")
+
+        with pytest.raises(ValueError, match="live delivery cannot carry replay_run_id"):
+            await temp_storage.append_receipt(receipt)
+
+
+    async def test_sqlite_rejects_live_receipt_with_replay_origin(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        event = make_storage_event(event_id="evt-sql-live-origin")
+        await temp_storage.append(event)
+
+        with pytest.raises(StorageError, match="CHECK constraint failed"):
+            await temp_storage._write(
+                """
+                INSERT INTO delivery_receipts
+                    (receipt_id, event_id, delivery_plan_id, target_adapter, status,
+                     receipt_kind, source, replay_run_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "rcpt-sql-live-origin",
+                    event.event_id,
+                    "plan-sql-live-origin",
+                    "adapter",
+                    "sent",
+                    "attempt",
+                    "live",
+                    "run-impossible",
+                    event.timestamp.isoformat(),
+                ),
+            )
+
+    async def test_sqlite_rejects_noncanonical_replay_run_id(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        event = make_storage_event(event_id="evt-sql-run-whitespace")
+        await temp_storage.append(event)
+
+        with pytest.raises(StorageError, match="CHECK constraint failed"):
+            await temp_storage._write(
+                """
+                INSERT INTO delivery_receipts
+                    (receipt_id, event_id, delivery_plan_id, target_adapter, status,
+                     receipt_kind, source, replay_run_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "rcpt-sql-run-whitespace",
+                    event.event_id,
+                    "plan-sql-run-whitespace",
+                    "adapter",
+                    "sent",
+                    "attempt",
+                    "replay",
+                    "  run-not-canonical  ",
+                    event.timestamp.isoformat(),
+                ),
+            )

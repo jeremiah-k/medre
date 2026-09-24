@@ -7,6 +7,7 @@ Authority surface:
   - list_outbox_items:          **list/get** (read-only).
   - list_all_outbox_items:      **list/get** (read-only).
   - list_outbox_items_for_event: **list/get** (read-only).
+  - list_outbox_items_by_replay_run: **list/get** (read-only).
   - claim_due_outbox_items:     **claim** (atomic).
   - reserve_outbox_attempt:     **claim** (atomic attempt-identity reservation).
   - mark_outbox_sent:           **mark** (terminal transition, in_progress|queued -> sent).
@@ -40,6 +41,7 @@ from medre.core.engine.pipeline.delivery_state import (
     OUTBOX_STATUSES,
     TERMINAL_OUTBOX_STATUSES,
 )
+from medre.core.events import normalize_replay_run_id
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
@@ -72,8 +74,11 @@ class _OutboxMixin:
         When *allocate_new_generation* is true, this method allocates and
         inserts a fresh generation in one ``BEGIN IMMEDIATE`` transaction using
         ``max(COALESCE(active_attempt, attempt_number)) + 1`` for the same
-        event-scoped delivery identity. That mode never reclaims an existing
-        row and is the replay path's durable generation allocator.
+        event-scoped delivery identity. For a non-empty ``replay_run_id``, the
+        same transaction first checks for an existing row owned by that replay
+        run and returns it instead of allocating a sibling generation.  The run
+        ID is therefore a durable idempotency key for one replay target while
+        remaining provenance rather than part of :class:`DeliveryIdentity`.
 
         Production lifecycle policy:
           - New rows may be created only as ``pending`` (default) or
@@ -98,7 +103,9 @@ class _OutboxMixin:
         ``BEGIN IMMEDIATE`` transaction so that two concurrent callers
         cannot both pass the existence check and race on INSERT.  If the
         INSERT still fails with a UNIQUE constraint violation
-        (extreme edge case), the existing row is re-read and returned.
+        (extreme edge case), plain-create conflicts re-read and return the
+        existing row; named replay-generation allocation re-raises so the
+        caller fails closed instead of adopting a foreign claim.
         """
         _reclaimable = CLAIMABLE_OUTBOX_STATUSES
         effective_status = item.status if item.status is not None else "pending"
@@ -115,6 +122,11 @@ class _OutboxMixin:
             raise ValueError(
                 f"create_outbox_item does not permit initial status {effective_status!r}; "
                 f"expected one of ['pending', 'in_progress']"
+            )
+        if item.replay_run_id and not allocate_new_generation:
+            raise ValueError(
+                "replay_run_id requires allocate_new_generation=True; "
+                "named replay execution provenance may only enter through the replay allocator"
             )
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
@@ -146,8 +158,8 @@ class _OutboxMixin:
             "  failure_kind_detail, next_attempt_at, created_at, updated_at,"
             "  last_attempt_at, locked_at, lease_until, worker_id,"
             "  payload_hash, receipt_id, parent_receipt_id, error_summary,"
-            "  metadata)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "  replay_run_id, metadata)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         insert_params = (
             item.outbox_id,
@@ -173,6 +185,7 @@ class _OutboxMixin:
             item.receipt_id,
             item.parent_receipt_id,
             item.error_summary,
+            item.replay_run_id or None,
             meta_json,
         )
 
@@ -188,6 +201,19 @@ class _OutboxMixin:
             item.target_adapter,
             item.target_channel or None,
         )
+        replay_run_select_sql = (
+            "SELECT outbox_id FROM delivery_outbox"
+            " WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?"
+            " AND COALESCE(target_channel, '') = COALESCE(?, '')"
+            " AND replay_run_id = ? LIMIT 1"
+        )
+        replay_run_select_params = (
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel or None,
+            item.replay_run_id,
+        )
 
         try:
             if allocate_new_generation:
@@ -195,14 +221,23 @@ class _OutboxMixin:
                     raise ValueError(
                         "allocate_new_generation requires active_attempt=None"
                     )
-                await self._run_in_thread(
+                existing_id = await self._run_in_thread(
                     self._sync_atomic_create_outbox_generation,
                     self._require_db(),
                     generation_select_sql,
                     generation_select_params,
                     insert_sql,
                     insert_params,
+                    replay_run_select_sql if item.replay_run_id else None,
+                    replay_run_select_params if item.replay_run_id else None,
                 )
+                if existing_id is not None:
+                    existing = await self.get_outbox_item(existing_id)
+                    if existing is None:
+                        raise StorageError(
+                            "Atomic replay-run claim found an outbox row that could not be re-read"
+                        )
+                    return existing
                 created = await self.get_outbox_item(item.outbox_id)
                 if created is None:
                     raise StorageError(
@@ -245,17 +280,34 @@ class _OutboxMixin:
         generation_select_params: tuple[Any, ...],
         insert_sql: str,
         insert_params: tuple[Any, ...],
-    ) -> None:
+        replay_run_select_sql: str | None = None,
+        replay_run_select_params: tuple[Any, ...] | None = None,
+    ) -> str | None:
         """Atomically allocate and insert a fresh outbox generation.
 
         ``BEGIN IMMEDIATE`` serializes this allocator against retry reservation,
         retry finalization, and other replay creators.  The stored attempt is
         one greater than the maximum *effective* generation, where a live
         ``active_attempt`` outranks its row's finalized ``attempt_number``.
+        When replay-run lookup SQL is supplied, an existing row for that
+        event-scoped delivery + run ID wins and its ``outbox_id`` is returned
+        without inserting another generation.
         """
         with self._lock:
             db.execute("BEGIN IMMEDIATE")
             try:
+                if replay_run_select_sql is not None:
+                    if replay_run_select_params is None:
+                        raise ValueError(
+                            "replay_run_select_params are required with replay lookup SQL"
+                        )
+                    existing = db.execute(
+                        replay_run_select_sql,
+                        replay_run_select_params,
+                    ).fetchone()
+                    if existing is not None:
+                        db.execute("COMMIT")
+                        return str(existing["outbox_id"])
                 row = db.execute(
                     generation_select_sql, generation_select_params
                 ).fetchone()
@@ -267,6 +319,7 @@ class _OutboxMixin:
                 params[7] = next_attempt
                 db.execute(insert_sql, tuple(params))
                 db.execute("COMMIT")
+                return None
             except BaseException:
                 try:
                     db.execute("ROLLBACK")
@@ -446,6 +499,21 @@ class _OutboxMixin:
         )
         return [_row_to_outbox_item(r) for r in rows]
 
+    async def list_outbox_items_by_replay_run(
+        self,
+        replay_run_id: str,
+    ) -> list[DeliveryOutboxItem]:
+        """Return durable outbox generations owned by one named replay run."""
+        run_id = normalize_replay_run_id(replay_run_id)
+        if run_id is None:
+            raise ValueError("replay-run outbox lookup requires a non-empty run ID")
+        rows = await self._read_all(
+            "SELECT * FROM delivery_outbox WHERE replay_run_id = ? "
+            "ORDER BY created_at ASC, outbox_id ASC",
+            (run_id,),
+        )
+        return [_row_to_outbox_item(r) for r in rows]
+
     async def claim_due_outbox_items(
         self,
         now: str,
@@ -459,7 +527,7 @@ class _OutboxMixin:
         UPDATE equivalent (rowid-based) and updates in one step.  Claims items that are:
 
         - ``status IN ('pending', 'retry_wait')`` — directly claimable;
-        - ``status = 'in_progress' AND lease_until <= now`` — expired leases;
+        - ``status = 'in_progress' AND (lease_until IS NULL OR lease_until <= now)`` — missing or expired leases;
         - ``status = 'queued' AND updated_at <= now - GRACE`` — stale
           queued items past the grace threshold
           (:data:`STALE_QUEUED_GRACE_SECONDS`).
@@ -509,7 +577,7 @@ class _OutboxMixin:
                AND COALESCE(sibling.active_attempt, sibling.attempt_number) >=
                    COALESCE(delivery_outbox.active_attempt, delivery_outbox.attempt_number)
         )"""
-        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND lease_until <= ?) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) AND {_no_newer_generation} ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 - interpolated fragments are static SQL or ? placeholders
+        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?)) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) AND {_no_newer_generation} ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 - interpolated fragments are static SQL or ? placeholders
         rows = await self._read_all(
             _claim_sql,
             (*claimable_params, now, stale_cutoff, now, now, limit),
@@ -529,7 +597,7 @@ class _OutboxMixin:
                     next_attempt_at = NULL
                 WHERE outbox_id IN ({placeholders})
                   AND (status IN ({claimable_ph})
-                       OR (status = 'in_progress' AND lease_until <= ?)
+                       OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?))
                        OR (status = 'queued' AND updated_at <= ?))
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                   AND (lease_until IS NULL OR lease_until <= ?)

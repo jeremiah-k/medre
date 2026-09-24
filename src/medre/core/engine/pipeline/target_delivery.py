@@ -63,6 +63,7 @@ from medre.core.events.canonical import (
 from medre.core.events.delivery import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
     DeliveryConfirmationLevel,
+    normalize_delivery_provenance,
 )
 from medre.core.observability.correlation import correlation_scope
 from medre.core.observability.metrics import Diagnostician
@@ -343,6 +344,9 @@ class TargetDeliveryService:
         object. Successful, queued, and lifecycle-only outcomes return the
         evidence directly. This is the orchestration-facing API.
         """
+        source, replay_run_id = normalize_delivery_provenance(
+            source, replay_run_id
+        )
         receipt_id = f"rcpt-{uuid.uuid4()}"
         target = plan.target
         with correlation_scope(

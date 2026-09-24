@@ -121,6 +121,9 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     CHECK (attempt_number >= 1),
     CHECK (receipt_kind IN ('attempt', 'lifecycle')),
     CHECK ((receipt_kind = 'attempt' AND status IN ('queued', 'sent', 'failed')) OR (receipt_kind = 'lifecycle' AND status IN ('dead_lettered', 'cancelled', 'abandoned', 'suppressed'))),
+    CHECK (source IN ('live', 'retry', 'replay')),
+    CHECK (source != 'live' OR replay_run_id IS NULL),
+    CHECK (replay_run_id IS NULL OR (length(replay_run_id) > 0 AND replay_run_id = trim(replay_run_id))),
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
@@ -212,12 +215,14 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     receipt_id TEXT,
     parent_receipt_id TEXT,
     error_summary TEXT,
+    replay_run_id TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
     CHECK (attempt_number >= 1),
     CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
     CHECK (active_attempt IS NULL OR status = 'in_progress'),
-    CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned'))
+    CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned')),
+    CHECK (replay_run_id IS NULL OR (length(replay_run_id) > 0 AND replay_run_id = trim(replay_run_id)))
 );
 
 CREATE TABLE IF NOT EXISTS delivery_observations (
@@ -324,6 +329,16 @@ CREATE INDEX IF NOT EXISTS idx_outbox_lineage
         event_id, delivery_plan_id, target_adapter,
         COALESCE(target_channel, ''), attempt_number
     );
+-- A non-empty replay run ID is a durable idempotency key for one logical
+-- delivery target.  The expression normalizes NULL/'' target channels exactly
+-- like DeliveryIdentity so concurrent executions of the same replay run
+-- cannot allocate sibling outbox generations.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_replay_run_identity_unique
+    ON delivery_outbox(
+        event_id, delivery_plan_id, target_adapter,
+        COALESCE(target_channel, ''), replay_run_id
+    )
+    WHERE replay_run_id IS NOT NULL AND replay_run_id <> '';
 CREATE INDEX IF NOT EXISTS idx_observations_event
     ON delivery_observations(event_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_observations_outbox
@@ -508,6 +523,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "receipt_id",
             "parent_receipt_id",
             "error_summary",
+            "replay_run_id",
             "metadata",
         }
     ),
@@ -607,6 +623,28 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
                 r"\)\s*\)\s*\)"
             ),
         ),
+        (
+            "CHECK (source IN ('live', 'retry', 'replay'))",
+            (
+                r"CHECK\s*\(\s*source\s+IN\s*\(\s*'live'\s*,\s*"
+                r"'retry'\s*,\s*'replay'\s*\)\s*\)"
+            ),
+        ),
+        (
+            "CHECK (source != 'live' OR replay_run_id IS NULL)",
+            (
+                r"CHECK\s*\(\s*source\s*!=\s*'live'\s+OR\s+"
+                r"replay_run_id\s+IS\s+NULL\s*\)"
+            ),
+        ),
+        (
+            "CHECK (replay_run_id canonical)",
+            (
+                r"CHECK\s*\(\s*replay_run_id\s+IS\s+NULL\s+OR\s+\("
+                r"\s*length\s*\(\s*replay_run_id\s*\)\s*>\s*0\s+AND\s+"
+                r"replay_run_id\s*=\s*trim\s*\(\s*replay_run_id\s*\)\s*\)\s*\)"
+            ),
+        ),
     ),
     "delivery_outbox": (
         (
@@ -633,6 +671,14 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
                 r"CHECK\s*\(\s*status\s+IN\s*\(\s*'pending'\s*,\s*'in_progress'\s*,\s*"
                 r"'queued'\s*,\s*'sent'\s*,\s*'retry_wait'\s*,\s*'dead_lettered'\s*,\s*"
                 r"'cancelled'\s*,\s*'abandoned'\s*\)\s*\)"
+            ),
+        ),
+        (
+            "CHECK (replay_run_id canonical)",
+            (
+                r"CHECK\s*\(\s*replay_run_id\s+IS\s+NULL\s+OR\s+\("
+                r"\s*length\s*\(\s*replay_run_id\s*\)\s*>\s*0\s+AND\s+"
+                r"replay_run_id\s*=\s*trim\s*\(\s*replay_run_id\s*\)\s*\)\s*\)"
             ),
         ),
     ),

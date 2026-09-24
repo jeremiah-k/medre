@@ -76,18 +76,20 @@ class _CountMixin:
         return row["cnt"] if row else 0
 
     async def count_replay_runs(self) -> int:
-        """Return the number of distinct ``replay_run_id`` values.
+        """Return the number of distinct durable replay run IDs.
 
-        Counts only non-null ``replay_run_id`` values in
-        ``delivery_receipts``.
-
-        Returns
-        -------
-        int
-            Count of distinct replay run IDs.
+        A named replay run becomes durable when either immutable receipt evidence
+        exists or a dispatchable target has atomically claimed an outbox
+        generation.  Counting the union keeps operator diagnostics truthful
+        across the crash window between outbox admission and first receipt.
         """
         row = await self._read_one(
-            "SELECT COUNT(DISTINCT replay_run_id) AS cnt FROM delivery_receipts "
-            "WHERE replay_run_id IS NOT NULL",
+            "SELECT COUNT(*) AS cnt FROM ("
+            "SELECT replay_run_id FROM delivery_receipts "
+            "WHERE replay_run_id IS NOT NULL AND replay_run_id <> '' "
+            "UNION "
+            "SELECT replay_run_id FROM delivery_outbox "
+            "WHERE replay_run_id IS NOT NULL AND replay_run_id <> ''"
+            ")",
         )
-        return row["cnt"] if row else 0
+        return int(row["cnt"]) if row else 0

@@ -255,7 +255,7 @@ def build_orphan_report(
         if outbox_status != "dead_lettered":
             continue
 
-        latest_rec = snapshot.authoritative_receipt
+        latest_rec = snapshot.current_receipt
         if latest_rec is None:
             continue
 

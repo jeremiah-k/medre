@@ -81,7 +81,11 @@ def _check_target_mismatches(
     for snapshot in snapshots:
         key = snapshot.identity
         obx = snapshot.current_outbox
-        current_rec = snapshot.authoritative_receipt
+        current_rec = (
+            snapshot.current_receipt
+            if obx is not None
+            else snapshot.authoritative_receipt
+        )
 
         has_outbox = obx is not None
         has_receipt = current_rec is not None
@@ -309,6 +313,9 @@ def _check_retryable_without_metadata(
             obx is not None
             and str(_get(obx, "status", "") or "").lower() in _NON_TERMINAL_OUTBOX
         )
+        current_attempt_id = _safe_record_id(
+            _get(snapshot.current_attempt, "receipt_id")
+        )
         for rec in snapshot.receipts:
             rec_status = str(_get(rec, "status", "") or "").lower()
             if rec_status != "failed":
@@ -316,7 +323,12 @@ def _check_retryable_without_metadata(
 
             receipt_id = _safe_record_id(_get(rec, "receipt_id"))
             failure_kind = str(_get(rec, "failure_kind", "") or "").lower()
-            if failure_kind != "adapter_transient" and not has_non_terminal_outbox:
+            matches_current_outbox = bool(
+                has_non_terminal_outbox
+                and receipt_id
+                and receipt_id == current_attempt_id
+            )
+            if failure_kind != "adapter_transient" and not matches_current_outbox:
                 continue
 
             missing_fields: list[str] = []

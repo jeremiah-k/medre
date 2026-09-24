@@ -951,7 +951,7 @@ class TestTraceReplay:
             str(config_trace_sqlite.parent / "state" / "trace.db"),
             "nonexistent-run",
         )
-        assert "no receipts found" in stderr
+        assert "no durable evidence found" in stderr
         assert "nonexistent-run" in stderr
 
     def test_replay_human_readable(
@@ -1348,39 +1348,25 @@ class TestEnrichedReplayTimeline:
 
 
 class TestBestEffortWarningText:
-    """_BEST_EFFORT_WARNING must not claim replay records are
-    NOT distinguishable; it must mention source='replay',
-    replay_run_id, traceability is NOT dedupe, and duplicate-send risk."""
+    """BEST_EFFORT warning states the durable and transport-level boundaries."""
 
-    def test_warning_mentions_distinguishable(self) -> None:
+    def test_warning_mentions_named_run_atomic_claim(self) -> None:
         from medre.cli.replay_commands import _BEST_EFFORT_WARNING
 
-        assert "distinguishable" in _BEST_EFFORT_WARNING.lower()
-        # Must NOT say "NOT distinguishable from live records"
-        assert (
-            "NOT" not in _BEST_EFFORT_WARNING
-            or "NOT distinguishable" not in _BEST_EFFORT_WARNING
-        )
+        lowered = _BEST_EFFORT_WARNING.lower()
+        assert "non-empty run id" in lowered
+        assert "atomically claims" in lowered
+        assert "durable storage" in lowered
 
-    def test_warning_mentions_source_replay(self) -> None:
+    def test_warning_preserves_remaining_duplicate_risks(self) -> None:
         from medre.cli.replay_commands import _BEST_EFFORT_WARNING
 
-        assert "source='replay'" in _BEST_EFFORT_WARNING
-        assert "replay_run_id" in _BEST_EFFORT_WARNING
+        lowered = _BEST_EFFORT_WARNING.lower()
+        assert "prior live" in lowered
+        assert "different/empty run ids" in lowered
+        assert "retry/recovery" in lowered
+        assert "duplicate" in lowered
 
-    def test_warning_mentions_traceability_not_dedupe(self) -> None:
-        from medre.cli.replay_commands import _BEST_EFFORT_WARNING
-
-        assert "traceability" in _BEST_EFFORT_WARNING.lower()
-        assert (
-            "dedupe" in _BEST_EFFORT_WARNING.lower()
-            or "NOT dedupe" in _BEST_EFFORT_WARNING
-        )
-
-    def test_warning_mentions_duplicate_send_risk(self) -> None:
-        from medre.cli.replay_commands import _BEST_EFFORT_WARNING
-
-        assert "duplicate" in _BEST_EFFORT_WARNING.lower()
 
 
 # ===================================================================

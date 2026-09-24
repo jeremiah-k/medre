@@ -141,7 +141,7 @@ def build_recovery_convergence_findings(
                     item = outbox_by_id.get(outbox_id)
                     if item is not None:
                         target_key = _target_key(item)
-                        latest = authority.resolve(target_key).authoritative_receipt
+                        latest = authority.resolve(target_key).current_receipt
                         if latest is not None:
                             latest_status = str(_get(latest, "status", ""))
                             if (
@@ -169,7 +169,7 @@ def build_recovery_convergence_findings(
                                         extra={
                                             "outbox_id": outbox_id,
                                             "prior_status": prior_status,
-                                            "latest_receipt_status": latest_status,
+                                            "current_receipt_status": latest_status,
                                             "recovery_run_id": run_id,
                                         },
                                     )
@@ -223,7 +223,7 @@ def build_recovery_convergence_findings(
                 if oid not in recovered_outbox_ids_terminal:
                     continue
                 target_key = _target_key(item)
-                latest = authority.resolve(target_key).authoritative_receipt
+                latest = authority.resolve(target_key).current_receipt
                 if latest is not None:
                     latest_status = str(_get(latest, "status", "")).lower()
                     if latest_status not in _TERMINAL_RECEIPT:
@@ -244,7 +244,7 @@ def build_recovery_convergence_findings(
                                 extra={
                                     "outbox_id": oid,
                                     "outbox_status": status,
-                                    "latest_receipt_status": latest_status,
+                                    "current_receipt_status": latest_status,
                                     "delivery_plan_id": str(
                                         _get(item, "delivery_plan_id", "")
                                     ),

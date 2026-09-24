@@ -737,7 +737,7 @@ class TestInspectReplay:
             "--storage-path",
             db_inspect_sqlite,
         )
-        assert "no receipts found" in stderr
+        assert "no durable evidence found" in stderr
         assert "nonexistent-run" in stderr
 
     def test_replay_json_deterministic(
@@ -818,3 +818,68 @@ class TestInspectAugmentedStoragePath:
         parsed = json.loads(output)
         assert "recovery" in parsed
         assert len(parsed["recovery"]["failed_targets"]) == 1
+
+
+def test_inspect_replay_finds_durable_claim_before_first_receipt(tmp_path: Path) -> None:
+    """Named replay admission is inspectable during the pre-receipt crash window."""
+    import asyncio
+    from datetime import datetime, timezone
+
+    from medre.core.events import CanonicalEvent, EventMetadata
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.core.storage.sqlite.storage import SQLiteStorage
+
+    db_path = str(tmp_path / "claim-only.db")
+
+    async def _seed() -> None:
+        storage = SQLiteStorage(db_path)
+        try:
+            await storage.initialize()
+            await storage.append(
+                CanonicalEvent(
+                    event_id="evt-claim-only",
+                    event_kind="message.created",
+                    schema_version=1,
+                    timestamp=datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc),
+                    source_adapter="test_adapter",
+                    source_transport_id="transport",
+                    source_channel_id="source-room",
+                    parent_event_id=None,
+                    lineage=(),
+                    relations=(),
+                    payload={"text": "claim only"},
+                    metadata=EventMetadata(),
+                )
+            )
+            await storage.create_outbox_item(
+                DeliveryOutboxItem(
+                    outbox_id="obox-claim-only",
+                    event_id="evt-claim-only",
+                    route_id="route-claim-only",
+                    delivery_plan_id="plan-claim-only",
+                    target_adapter="dest_adapter",
+                    target_channel="dest-room",
+                    status="in_progress",
+                    replay_run_id="run-claim-only",
+                ),
+                allocate_new_generation=True,
+            )
+        finally:
+            await storage.close()
+
+    asyncio.run(_seed())
+    output = _run_cli(
+        "inspect",
+        "replay",
+        "run-claim-only",
+        "--storage-path",
+        db_path,
+    )
+    parsed = json.loads(output)
+    assert parsed["status"] == "admitted"
+    assert parsed["outbox_count"] == 1
+    assert parsed["receipt_count"] == 0
+    assert parsed["origin"] == "replay"
+    assert parsed["sources_seen"] == []
+    assert parsed["timeline"][0]["entry_type"] in {"event_summary", "outbox_generation"}
+    assert any(entry["entry_type"] == "outbox_generation" for entry in parsed["timeline"])

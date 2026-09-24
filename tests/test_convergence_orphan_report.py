@@ -42,6 +42,7 @@ def _receipt(
     source: str = "live",
     created_at: datetime | None = None,
     parent_receipt_id: str | None = None,
+    outbox_id: str | None = "ob-001",
 ) -> dict:
     """Build a receipt dict (duck-typed input)."""
     return {
@@ -57,6 +58,7 @@ def _receipt(
         "source": source,
         "created_at": created_at or _TS,
         "parent_receipt_id": parent_receipt_id,
+        "outbox_id": outbox_id,
     }
 
 
@@ -401,7 +403,7 @@ class TestMissingDeliveryPlanId:
 
 
 class TestDeadLetteredRetryableMismatch:
-    """Dead-lettered outbox with non-terminal latest receipt."""
+    """Dead-lettered outbox with a non-terminal current receipt."""
 
     def test_dead_lettered_with_failed_receipt(self) -> None:
         report = build_orphan_report(
@@ -621,6 +623,7 @@ class TestOrphanReportCombined:
                     delivery_plan_id="dp-c",
                     event_id="ev-3",
                     status="dead_lettered",
+                    receipt_id="r-dl-rec",
                 ),
             ],
             receipts=[
@@ -658,6 +661,7 @@ class TestOrphanReportCombined:
                     delivery_plan_id="dp-c",
                     event_id="ev-3",
                     status="failed",
+                    outbox_id="ob-dl",
                 ),
             ],
             known_event_ids={"ev-1", "ev-2", "ev-3"},
