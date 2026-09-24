@@ -31,6 +31,7 @@ from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
 
 # ===================================================================
@@ -50,7 +51,7 @@ class TestMeshtasticBridgeErrorMapping:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """When MeshtasticAdapter's queue raises a transient error, the
-        pipeline records a 'failed' receipt."""
+        pipeline records failed-attempt and dead-letter lifecycle evidence."""
         fake_in_config = MeshtasticConfig(adapter_id="err-fake-in")
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
@@ -117,13 +118,12 @@ class TestMeshtasticBridgeErrorMapping:
         packet = make_text_packet(text="transient error test")
         await fake_in_adapter.simulate_inbound(packet)
 
-        # Delivery receipt should be 'failed'.
+        # Terminal failure records attempt evidence plus lifecycle authority.
         rows = await temp_storage._read_all(
             "SELECT * FROM delivery_receipts WHERE target_adapter = ?",
             ("err-mesh-out",),
         )
-        assert len(rows) == 1
-        assert rows[0]["status"] == "failed"
+        assert_terminal_failure_pair(rows)
 
         # No outbound native ref for failed delivery.
         outbound_refs = await temp_storage._read_all(
@@ -147,7 +147,7 @@ class TestMeshtasticBridgeErrorMapping:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """When MeshtasticAdapter's queue raises a permanent error, the
-        pipeline records a 'failed' receipt."""
+        pipeline records failed-attempt and dead-letter lifecycle evidence."""
         fake_in_config = MeshtasticConfig(adapter_id="perm-fake-in")
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
@@ -214,13 +214,12 @@ class TestMeshtasticBridgeErrorMapping:
         packet = make_text_packet(text="permanent error test")
         await fake_in_adapter.simulate_inbound(packet)
 
-        # Delivery receipt should be 'failed'.
+        # Terminal failure records attempt evidence plus lifecycle authority.
         rows = await temp_storage._read_all(
             "SELECT * FROM delivery_receipts WHERE target_adapter = ?",
             ("perm-mesh-out",),
         )
-        assert len(rows) == 1
-        assert rows[0]["status"] == "failed"
+        assert_terminal_failure_pair(rows)
 
         await fake_in_adapter.stop()
         await mesh_out_adapter.stop()
@@ -339,15 +338,19 @@ class TestMeshtasticBridgeErrorMapping:
         # Good adapter received its payload despite the other target failing.
         assert len(good_adapter.delivered_payloads) == 1
 
-        # Two receipts: one sent, one failed.
+        # Success has one attempt receipt; terminal failure has attempt + lifecycle.
         rows = await temp_storage._read_all(
             "SELECT * FROM delivery_receipts WHERE event_id = ?",
             (fake_in_adapter.inbound_events[0].event_id,),
         )
-        assert len(rows) == 2
-        by_status = {r["target_adapter"]: r["status"] for r in rows}
-        assert by_status["iso-mesh-out"] == "failed"
-        assert by_status["iso-good-out"] == "sent"
+        failed_rows = [r for r in rows if r["target_adapter"] == "iso-mesh-out"]
+        good_rows = [r for r in rows if r["target_adapter"] == "iso-good-out"]
+        assert_terminal_failure_pair(failed_rows)
+        assert len(good_rows) == 1
+        assert (good_rows[0]["receipt_kind"], good_rows[0]["status"]) == (
+            "attempt",
+            "sent",
+        )
 
         await fake_in_adapter.stop()
         await mesh_out_adapter.stop()

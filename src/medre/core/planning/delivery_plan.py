@@ -554,6 +554,7 @@ class RetryExecutor:
             target_adapter=target_adapter,
             target_channel=target_channel,
             status="dead_lettered",
+            receipt_kind="lifecycle",
             error=error,
             next_retry_at=None,
             created_at=now,

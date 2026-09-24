@@ -830,11 +830,11 @@ class TestFailureKindClassification:
             == "adapter_transient"
         )
 
-    def test_infer_adapter_transient_from_dead_lettered(self) -> None:
-        """dead_lettered status implies transient (retries exhausted)."""
+    def test_dead_lettered_without_failure_signal_remains_unknown(self) -> None:
+        """Lifecycle terminal status alone must not invent retryability."""
         from medre.core.observability.classification import infer_failure_kind
 
-        assert infer_failure_kind("some error", "dead_lettered") == "adapter_transient"
+        assert infer_failure_kind("some error", "dead_lettered") == "unknown"
 
     def test_infer_adapter_permanent_from_generic_error(self) -> None:
         from medre.core.observability.classification import infer_failure_kind
@@ -1286,6 +1286,41 @@ class TestRecoverClassification:
             # No write methods.
             mock_storage.append.assert_not_called()
             mock_storage.append_receipt.assert_not_called()
+
+    def test_persisted_failure_kind_wins_for_dead_lettered_target(self) -> None:
+        """Recovery uses durable failure_kind instead of status-only inference."""
+        event = _FakeEvent()
+        receipt = _FakeReceipt(
+            status="dead_lettered",
+            target_adapter="adapter_a",
+            error="opaque terminal failure",
+            failure_kind="adapter_permanent",
+        )
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(return_value=event)
+        mock_storage.list_receipts_for_event = AsyncMock(return_value=[receipt])
+        mock_storage.list_native_refs_for_event = AsyncMock(return_value=[])
+        mock_storage.list_relations = AsyncMock(return_value=[])
+        mock_storage.list_outbox_items_for_event = AsyncMock(return_value=[])
+        mock_storage.close = AsyncMock()
+
+        with patch(
+            "medre.cli.recover_commands._open_readonly_storage",
+            return_value=mock_storage,
+        ):
+            output = _run_cli(
+                "recover",
+                "--event",
+                "evt-1",
+                "--json",
+                "--storage-path",
+                "/nonexistent",
+            )
+            parsed = json.loads(output)
+            failed = parsed["failed_targets"][0]
+            assert failed["failure_kind"] == "adapter_permanent"
+            assert failed["category"] == "permanent"
 
     def test_failure_kind_on_failed_targets(self) -> None:
         """Each failed target includes failure_kind and category."""

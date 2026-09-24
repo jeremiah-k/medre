@@ -83,6 +83,49 @@ class TestClaimDueItems:
         assert len(claimed2) == 1
         assert claimed2[0].worker_id == "worker-2"
 
+    async def test_claim_skips_superseded_older_generation(
+        self, outbox_temp_storage: SQLiteStorage
+    ) -> None:
+        """A newer sibling generation makes an expired older claim historical."""
+        older = _make_outbox_item(
+            delivery_plan_id="plan-superseded-claim",
+            target_channel=None,
+            attempt_number=1,
+        )
+        await outbox_temp_storage.create_outbox_item(older)
+        claimed = await outbox_temp_storage.claim_due_outbox_items(
+            now="2026-01-01T00:00:00",
+            worker_id="older-worker",
+            lease_seconds=30,
+            limit=10,
+        )
+        assert [item.outbox_id for item in claimed] == [older.outbox_id]
+
+        # Replay (or another generation owner) can create generation 2 while
+        # generation 1 is claimed but has not reserved its next attempt yet.
+        newer = _make_outbox_item(
+            delivery_plan_id="plan-superseded-claim",
+            target_channel=None,
+            attempt_number=2,
+        )
+        await outbox_temp_storage.create_outbox_item(newer)
+
+        # Once generation 1's lease expires it must not enter a permanent
+        # claim -> reservation rejection -> lease-expiry loop.  Only the
+        # current generation remains dispatchable.
+        reclaimed = await outbox_temp_storage.claim_due_outbox_items(
+            now="2026-02-01T00:00:00",
+            worker_id="current-worker",
+            lease_seconds=30,
+            limit=10,
+        )
+        assert [item.outbox_id for item in reclaimed] == [newer.outbox_id]
+
+        historical = await outbox_temp_storage.get_outbox_item(older.outbox_id)
+        assert historical is not None
+        assert historical.status == "in_progress"
+        assert historical.worker_id == "older-worker"
+
     async def test_claim_skips_sent_items(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
@@ -316,3 +359,36 @@ class TestClaimClearsNextAttemptAt:
         )
         assert len(claimed) == 1
         assert claimed[0].next_attempt_at is None
+
+
+async def test_release_claim_consumes_live_reservation(
+    outbox_temp_storage: SQLiteStorage,
+) -> None:
+    """Releasing an owned reserved row preserves the consumed attempt identity."""
+    item = _make_outbox_item(delivery_plan_id="plan-release-reserved")
+    created = await outbox_temp_storage.create_outbox_item(item)
+    claimed = await outbox_temp_storage.claim_due_outbox_items(
+        now="2026-01-01T00:00:00",
+        worker_id="worker-reserved",
+        lease_seconds=30,
+        limit=10,
+    )
+    assert len(claimed) == 1
+    assert (
+        await outbox_temp_storage.reserve_outbox_attempt(
+            created.outbox_id,
+            "worker-reserved",
+            1,
+        )
+        == 2
+    )
+
+    await outbox_temp_storage.release_outbox_claim(
+        created.outbox_id,
+        "worker-reserved",
+        release_status="pending",
+    )
+    row = await outbox_temp_storage.get_outbox_item(created.outbox_id)
+    assert row is not None
+    assert (row.status, row.attempt_number, row.active_attempt) == ("pending", 2, None)
+    assert row.worker_id is None

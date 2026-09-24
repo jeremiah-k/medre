@@ -23,6 +23,7 @@ def _retry_item(
     attempt_number: int = 1,
     target_channel: str | None = None,
     receipt_id: str | None = None,
+    active_attempt: int | None = None,
 ) -> DeliveryOutboxItem:
     return DeliveryOutboxItem(
         outbox_id=outbox_id,
@@ -33,6 +34,7 @@ def _retry_item(
         target_channel=target_channel,
         status="in_progress",
         attempt_number=attempt_number,
+        active_attempt=active_attempt,
         receipt_id=receipt_id,
     )
 
@@ -56,6 +58,11 @@ class _FailingTransitionStorage:
         if self._fail_method == "mark_outbox_dead_lettered":
             raise RuntimeError("injected dead-letter persistence failure")
         return await self._delegate.mark_outbox_dead_lettered(*args, **kwargs)
+
+    async def finalize_outbox_terminal(self, *args: Any, **kwargs: Any) -> bool:
+        if self._fail_method == "finalize_outbox_terminal":
+            raise RuntimeError("injected dead-letter persistence failure")
+        return await self._delegate.finalize_outbox_terminal(*args, **kwargs)
 
     async def mark_outbox_sent(self, *args: Any, **kwargs: Any) -> bool:
         if self._fail_method == "mark_outbox_sent":
@@ -83,7 +90,12 @@ async def test_abandon_retry_outbox_is_lifecycle_owned(
     temp_storage: StorageBackend,
 ) -> None:
     lifecycle = _make_lifecycle()
-    item = _retry_item(outbox_id="obox-abandon", event_id="evt-abandon")
+    item = _retry_item(
+        outbox_id="obox-abandon",
+        event_id="evt-abandon",
+        attempt_number=1,
+        active_attempt=2,
+    )
     await create_outbox_item_with_parent(temp_storage, item)
 
     await lifecycle.abandon_retry_outbox(
@@ -95,6 +107,8 @@ async def test_abandon_retry_outbox_is_lifecycle_owned(
     updated = await temp_storage.get_outbox_item(item.outbox_id)
     assert updated is not None
     assert updated.status == "abandoned"
+    assert updated.attempt_number == 2
+    assert updated.active_attempt is None
     assert updated.error_summary == "Reconstruction failure"
 
 
@@ -268,16 +282,21 @@ async def test_retry_claim_reconciliation_dead_letters_malformed_failure_kind(
 
     assert result is not None
     assert result.outcome == "dead_lettered"
-    assert result.receipt_id == malformed.receipt_id
     assert result.failure_kind == "adapter_permanent"
-    storage.mark_outbox_dead_lettered.assert_awaited_once_with(
-        item.outbox_id,
-        receipt_id=malformed.receipt_id,
-        failure_kind="adapter_permanent",
-        error_summary="Retry delivery failed",
-        attempt_number=2,
-        expected_worker_id=None,
-    )
+    # Permanent failure terminalizes through the guarded transaction: a NEW
+    # same-attempt lifecycle receipt is appended and the outbox pointer is
+    # committed with it, rather than re-marking with the failed receipt.
+    storage.finalize_outbox_terminal.assert_awaited_once()
+    call = storage.finalize_outbox_terminal.await_args
+    lifecycle_receipt = call.args[0]
+    assert lifecycle_receipt.receipt_kind == "lifecycle"
+    assert lifecycle_receipt.status == "dead_lettered"
+    assert lifecycle_receipt.attempt_number == 2
+    assert lifecycle_receipt.parent_receipt_id == malformed.receipt_id
+    assert result.receipt_id == lifecycle_receipt.receipt_id
+    assert call.kwargs["terminal_status"] == "dead_lettered"
+    assert call.kwargs["attempt_number"] == 2
+    assert call.kwargs["expected_worker_id"] is None
 
 
 async def test_retry_claim_reconciliation_preserves_dead_letter_failure_kind() -> None:
@@ -302,7 +321,7 @@ async def test_retry_claim_reconciliation_preserves_dead_letter_failure_kind() -
     dead = _make_receipt(
         receipt_id="rcpt-terminal-dead",
         status="dead_lettered",
-        attempt_number=3,
+        attempt_number=2,
         event_id=item.event_id,
         adapter=item.target_adapter,
         plan_id=item.delivery_plan_id,
@@ -344,6 +363,7 @@ async def test_finalize_retry_attempt_error_links_existing_dead_letter_evidence(
         attempt_number=2,
         target_channel="room-a",
         receipt_id="rcpt-attempt-2",
+        active_attempt=3,
     )
     await create_outbox_item_with_parent(temp_storage, item)
     failed = _make_receipt(
@@ -360,9 +380,9 @@ async def test_finalize_retry_attempt_error_links_existing_dead_letter_evidence(
         outbox_id=item.outbox_id,
     )
     dead = _make_receipt(
-        receipt_id="rcpt-dead-4",
+        receipt_id="rcpt-dead-3",
         status="dead_lettered",
-        attempt_number=4,
+        attempt_number=3,
         event_id=item.event_id,
         adapter=item.target_adapter,
         channel=item.target_channel,
@@ -383,15 +403,168 @@ async def test_finalize_retry_attempt_error_links_existing_dead_letter_evidence(
     )
 
     assert result.outcome == "dead_lettered"
-    assert result.receipt_id == dead.receipt_id
+    assert result.receipt_id == "rcpt-dead-3"
     assert result.failure_kind == "retry_exhausted"
     assert result.attempt_number == 3
     updated = await temp_storage.get_outbox_item(item.outbox_id)
     assert updated is not None
     assert updated.status == "dead_lettered"
-    assert updated.receipt_id == dead.receipt_id
+    assert updated.receipt_id == "rcpt-dead-3"
     assert updated.failure_kind == "retry_exhausted"
     assert updated.attempt_number == 3
+    assert updated.active_attempt is None
+
+
+@pytest.mark.parametrize("terminal_status", ["cancelled", "abandoned"])
+async def test_reconcile_retry_claim_commits_existing_lifecycle_terminal(
+    temp_storage: StorageBackend,
+    terminal_status: str,
+) -> None:
+    """Recovery honours terminal lifecycle evidence persisted before outbox CAS."""
+    lifecycle = _make_lifecycle()
+    item = _retry_item(
+        outbox_id=f"obox-existing-{terminal_status}",
+        event_id=f"evt-existing-{terminal_status}",
+        attempt_number=1,
+        receipt_id="rcpt-parent",
+        active_attempt=2,
+    )
+    await create_outbox_item_with_parent(temp_storage, item)
+    attempt = _make_receipt(
+        receipt_id=f"rcpt-{terminal_status}-attempt",
+        status="queued",
+        attempt_number=2,
+        event_id=item.event_id,
+        adapter=item.target_adapter,
+        plan_id=item.delivery_plan_id,
+        source="retry",
+        outbox_id=item.outbox_id,
+    )
+    terminal = _make_receipt(
+        receipt_id=f"rcpt-{terminal_status}-lifecycle",
+        status=terminal_status,
+        attempt_number=2,
+        event_id=item.event_id,
+        adapter=item.target_adapter,
+        plan_id=item.delivery_plan_id,
+        error=f"retry {terminal_status}",
+        parent_receipt_id=attempt.receipt_id,
+        source="retry",
+        outbox_id=item.outbox_id,
+    )
+    await temp_storage.append_receipt(attempt)
+    await temp_storage.append_receipt(terminal)
+
+    result = await lifecycle.reconcile_retry_claim(
+        temp_storage,
+        item,
+        RetryPolicy(max_attempts=4, backoff_base=1.0, jitter=False),
+    )
+
+    assert result is not None
+    assert result.outcome == terminal_status
+    assert result.receipt_id == terminal.receipt_id
+    assert result.attempt_number == 2
+    updated = await temp_storage.get_outbox_item(item.outbox_id)
+    assert updated is not None
+    assert updated.status == terminal_status
+    assert updated.receipt_id == terminal.receipt_id
+    assert updated.attempt_number == 2
+    assert updated.active_attempt is None
+
+
+@pytest.mark.parametrize("terminal_status", ["cancelled", "abandoned"])
+async def test_retry_exception_cannot_override_existing_lifecycle_terminal(
+    temp_storage: StorageBackend,
+    terminal_status: str,
+) -> None:
+    """An exception cannot reschedule or dead-letter an explicit terminal callback."""
+    lifecycle = _make_lifecycle()
+    item = _retry_item(
+        outbox_id=f"obox-exception-{terminal_status}",
+        event_id=f"evt-exception-{terminal_status}",
+        attempt_number=1,
+        receipt_id="rcpt-parent",
+        active_attempt=2,
+    )
+    await create_outbox_item_with_parent(temp_storage, item)
+    attempt = _make_receipt(
+        receipt_id=f"rcpt-exception-{terminal_status}-attempt",
+        status="queued",
+        attempt_number=2,
+        event_id=item.event_id,
+        adapter=item.target_adapter,
+        plan_id=item.delivery_plan_id,
+        source="retry",
+        outbox_id=item.outbox_id,
+    )
+    terminal = _make_receipt(
+        receipt_id=f"rcpt-exception-{terminal_status}-lifecycle",
+        status=terminal_status,
+        attempt_number=2,
+        event_id=item.event_id,
+        adapter=item.target_adapter,
+        plan_id=item.delivery_plan_id,
+        parent_receipt_id=attempt.receipt_id,
+        source="retry",
+        outbox_id=item.outbox_id,
+    )
+    await temp_storage.append_receipt(attempt)
+    await temp_storage.append_receipt(terminal)
+
+    result = await lifecycle.finalize_retry_attempt_error(
+        temp_storage,
+        item,
+        RetryPolicy(max_attempts=4, backoff_base=1.0, jitter=False),
+        error=ConnectionError("must not resurrect a terminal retry"),
+    )
+
+    assert result.outcome == terminal_status
+    assert result.receipt_id == terminal.receipt_id
+    updated = await temp_storage.get_outbox_item(item.outbox_id)
+    assert updated is not None
+    assert updated.status == terminal_status
+    assert updated.receipt_id == terminal.receipt_id
+    assert updated.next_attempt_at is None
+
+
+async def test_retry_reconciliation_rejects_unlinked_terminal_lifecycle_evidence(
+    temp_storage: StorageBackend,
+) -> None:
+    """Malformed terminal lifecycle evidence cannot acquire outbox authority."""
+    lifecycle = _make_lifecycle()
+    item = _retry_item(
+        outbox_id="obox-unlinked-terminal",
+        event_id="evt-unlinked-terminal",
+        attempt_number=1,
+        active_attempt=2,
+    )
+    await create_outbox_item_with_parent(temp_storage, item)
+    terminal = _make_receipt(
+        receipt_id="rcpt-unlinked-terminal",
+        status="cancelled",
+        attempt_number=2,
+        event_id=item.event_id,
+        adapter=item.target_adapter,
+        plan_id=item.delivery_plan_id,
+        parent_receipt_id="rcpt-missing-attempt",
+        source="retry",
+        outbox_id=item.outbox_id,
+    )
+    await temp_storage.append_receipt(terminal)
+
+    with pytest.raises(ValueError, match="not linked to same-attempt attempt evidence"):
+        await lifecycle.reconcile_retry_claim(
+            temp_storage,
+            item,
+            RetryPolicy(max_attempts=4, backoff_base=1.0, jitter=False),
+        )
+
+    updated = await temp_storage.get_outbox_item(item.outbox_id)
+    assert updated is not None
+    assert updated.status == "in_progress"
+    assert updated.attempt_number == 1
+    assert updated.active_attempt == 2
 
 
 async def test_finalize_retry_attempt_error_dead_letters_permanent_failure(
@@ -403,6 +576,7 @@ async def test_finalize_retry_attempt_error_dead_letters_permanent_failure(
         event_id="evt-permanent",
         attempt_number=1,
         receipt_id="rcpt-parent",
+        active_attempt=2,
     )
     await create_outbox_item_with_parent(temp_storage, item)
     current = _make_receipt(
@@ -428,12 +602,21 @@ async def test_finalize_retry_attempt_error_dead_letters_permanent_failure(
 
     assert result.outcome == "dead_lettered"
     assert result.failure_kind == "adapter_permanent"
-    assert result.receipt_id == current.receipt_id
+    assert result.receipt_id != current.receipt_id
     updated = await temp_storage.get_outbox_item(item.outbox_id)
     assert updated is not None
     assert updated.status == "dead_lettered"
     assert updated.failure_kind == "adapter_permanent"
-    assert updated.receipt_id == current.receipt_id
+    assert updated.receipt_id == result.receipt_id
+    assert updated.attempt_number == 2
+    assert updated.active_attempt is None
+    receipts = await temp_storage.list_receipts_for_event(item.event_id)
+    lifecycle_rows = [r for r in receipts if r.receipt_kind == "lifecycle"]
+    assert len(lifecycle_rows) == 1
+    lifecycle_row = lifecycle_rows[0]
+    assert lifecycle_row.status == "dead_lettered"
+    assert lifecycle_row.attempt_number == 2
+    assert lifecycle_row.parent_receipt_id == current.receipt_id
 
 
 async def test_finalize_retry_attempt_error_preserves_accepted_receipt(
@@ -599,6 +782,7 @@ async def test_finalize_retry_attempt_error_propagates_dead_letter_write_failure
         event_id="evt-dead-write-fail",
         attempt_number=1,
         receipt_id="rcpt-parent",
+        active_attempt=2,
     )
     await create_outbox_item_with_parent(temp_storage, item)
     current = _make_receipt(
@@ -613,7 +797,7 @@ async def test_finalize_retry_attempt_error_propagates_dead_letter_write_failure
         outbox_id=item.outbox_id,
     )
     await temp_storage.append_receipt(current)
-    failing = _FailingTransitionStorage(temp_storage, "mark_outbox_dead_lettered")
+    failing = _FailingTransitionStorage(temp_storage, "finalize_outbox_terminal")
 
     with pytest.raises(RuntimeError, match="dead-letter persistence failure"):
         await lifecycle.finalize_retry_attempt_error(
@@ -634,12 +818,12 @@ async def test_finalize_retry_attempt_error_propagates_dead_letter_write_failure
     )
     assert repaired is not None
     assert repaired.outcome == "dead_lettered"
-    assert repaired.receipt_id == current.receipt_id
+    assert repaired.receipt_id != current.receipt_id
     assert repaired.failure_kind == "adapter_permanent"
     updated = await temp_storage.get_outbox_item(item.outbox_id)
     assert updated is not None
     assert updated.status == "dead_lettered"
-    assert updated.receipt_id == current.receipt_id
+    assert updated.receipt_id == repaired.receipt_id
 
 
 async def test_retry_claim_reconciliation_repairs_sent_transition_failure(
@@ -770,12 +954,17 @@ async def test_finalize_retry_success_suppressed_result_is_non_success(
     temp_storage: StorageBackend,
 ) -> None:
     lifecycle = _make_lifecycle()
-    item = _retry_item(outbox_id="obox-suppressed", event_id="evt-suppressed")
+    item = _retry_item(
+        outbox_id="obox-suppressed",
+        event_id="evt-suppressed",
+        attempt_number=1,
+        active_attempt=2,
+    )
     await create_outbox_item_with_parent(temp_storage, item)
     receipt = _make_receipt(
         receipt_id="rcpt-suppressed",
         status="suppressed",
-        attempt_number=1,
+        attempt_number=2,
         event_id=item.event_id,
         plan_id=item.delivery_plan_id,
         error="capability_suppressed",
@@ -787,6 +976,8 @@ async def test_finalize_retry_success_suppressed_result_is_non_success(
     updated = await temp_storage.get_outbox_item(item.outbox_id)
     assert updated is not None
     assert updated.status == "abandoned"
+    assert updated.attempt_number == 2
+    assert updated.active_attempt is None
     assert updated.error_summary == "capability_suppressed"
 
 

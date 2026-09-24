@@ -723,9 +723,9 @@ class TestReplayQueuedTerminalCorrelation:
         """One queue-backed row: in_progress → queued with its queued receipt.
 
         All rows share the delivery-plan identity — the production shape
-        for live + replay runs of the same event/target (replay creates
-        its own row with attempt = max(existing) + 1); only outbox_id and
-        attempt_number distinguish them.
+        for live + replay runs of the same event/target (replay atomically
+        allocates a fresh row above the maximum effective attempt); only
+        outbox_id and attempt_number distinguish them.
         """
         await append_receipt_with_parent(
             storage,
@@ -833,9 +833,9 @@ class TestReplayQueuedTerminalCorrelation:
         assert [r.status for r in receipts if r.outbox_id == "obox-live"] == ["queued"]
         assert [r.status for r in receipts if r.outbox_id == "obox-run-a"] == ["queued"]
 
-        # Past the stale-queued grace, the retry authority may reclaim the
-        # still-pending rows (their normal crash-recovery path) but never
-        # the terminal replay row — no orphan re-transmission.
+        # Past the stale-queued grace, attempts 1 and 2 remain durable
+        # queued history but are superseded by generation 3. Recovery must
+        # not reclaim an older generation once a newer sibling exists.
         claim_now = (
             datetime.now(tz=timezone.utc)
             + timedelta(seconds=STALE_QUEUED_GRACE_SECONDS + 5)
@@ -844,7 +844,7 @@ class TestReplayQueuedTerminalCorrelation:
             claim_now,
             worker_id="worker-retry-scan",
         )
-        assert {c.outbox_id for c in claims} == {"obox-live", "obox-run-a"}
+        assert claims == []
 
     async def test_replay_native_failure_stays_failed_rejects_late_success(
         self,
@@ -886,9 +886,9 @@ class TestReplayQueuedTerminalCorrelation:
         assert len(failed) == 1
         assert failed[0].source == "replay"
         assert failed[0].replay_run_id == "run-9"
-        # record_terminal preserves replay source attribution from the
-        # queued receipt; this same-attempt terminal row has no parent.
-        assert failed[0].parent_receipt_id is None
+        # Failed dispatch evidence remains linked to the queued attempt it
+        # terminalizes while preserving replay source attribution.
+        assert failed[0].parent_receipt_id == "rcpt-rf-q"
         assert failed[0].failure_kind == "adapter_permanent"
         assert failed[0].attempt_number == 1
 

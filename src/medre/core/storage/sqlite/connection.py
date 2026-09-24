@@ -225,6 +225,7 @@ def sync_finalize_outbox_terminal(
     lock: threading.Lock,
     *,
     receipt_insert_params: tuple[object, ...],
+    attempt_receipt_insert_params: tuple[object, ...] | None = None,
     outbox_update_params: tuple[object, ...],
 ) -> bool:
     """Atomically commit one terminal queue outcome.
@@ -247,6 +248,8 @@ def sync_finalize_outbox_terminal(
             if int(cursor.rowcount) != 1:
                 db.rollback()
                 return False
+            if attempt_receipt_insert_params is not None:
+                db.execute(_INSERT_RECEIPT, attempt_receipt_insert_params)
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
             db.commit()
             return True

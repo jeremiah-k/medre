@@ -6,10 +6,10 @@ storage layer returns an existing terminal or active row, the pipeline
 must skip adapter delivery and return a ``DeliveryOutcome`` with
 ``status="skipped"`` and ``failure_kind=OUTBOX_NOT_OWNED``.
 
-Also covers the replay attempt-identity rule: replay computes
-``max(existing attempt_number) + 1`` so it never reclaims or mutates
-live rows, and ownership checks apply to replay just as they do to
-live delivery.
+Also covers the replay attempt-identity rule: storage atomically allocates
+``max(existing effective attempt) + 1`` with the replay-row insert so replay
+never reclaims a retry generation or collides with an in-flight reservation;
+ownership checks apply to replay just as they do to live delivery.
 """
 
 from __future__ import annotations
@@ -528,12 +528,16 @@ class TestReplayWithExistingTerminalAttempt1CreatesAttempt2:
             assert outcome.status in ("success", "queued")
             assert outcome.receipt is not None
             assert outcome.receipt.source == "replay"
+            assert outcome.receipt.attempt_number == 2
             assert len(fake_presentation.delivered_payloads) == 1
 
-            # Verify a new attempt 2 row was created.
+            # The durable replay row and its immutable evidence share generation 2.
             all_rows = await temp_storage.list_outbox_items_for_event(event_id)
             attempts = sorted(r.attempt_number for r in all_rows)
             assert 2 in attempts
+            replay_row = next(row for row in all_rows if row.attempt_number == 2)
+            assert replay_row.status == outcome.receipt.status
+            assert replay_row.receipt_id == outcome.receipt.receipt_id
         finally:
             await runner.stop()
 
@@ -574,11 +578,135 @@ class TestReplayWithExistingTerminalAttempts1And2CreatesAttempt3:
             outcome = outcomes[0]
             assert outcome.status in ("success", "queued")
             assert outcome.receipt is not None
+            assert outcome.receipt.source == "replay"
+            assert outcome.receipt.attempt_number == 3
             assert len(fake_presentation.delivered_payloads) == 1
 
             all_rows = await temp_storage.list_outbox_items_for_event(event_id)
             attempts = sorted(r.attempt_number for r in all_rows)
             assert 3 in attempts
+            replay_row = next(row for row in all_rows if row.attempt_number == 3)
+            assert replay_row.status == outcome.receipt.status
+            assert replay_row.receipt_id == outcome.receipt.receipt_id
+        finally:
+            await runner.stop()
+
+
+class TestReplaySkipsReservedRetryGeneration:
+    """Replay allocates after a live row's reserved retry attempt."""
+
+    async def test_active_attempt_2_forces_replay_attempt_3(
+        self,
+        temp_storage: SQLiteStorage,
+        fake_presentation: FakePresentationAdapter,
+        route: Route,
+    ) -> None:
+        event_id = "evt-replay-active-retry-2"
+        seeded = await _seed_outbox_with_attempt(
+            temp_storage,
+            event_id=event_id,
+            status="in_progress",
+            attempt_number=1,
+            worker_id="retry:owner",
+        )
+        reserved = await temp_storage.reserve_outbox_attempt(
+            seeded.outbox_id,
+            "retry:owner",
+            1,
+        )
+        assert reserved == 2
+
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={_ADAPTER_ID: fake_presentation},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+        try:
+            event = make_event(event_id=event_id, source_channel_id="ch-0")
+            outcomes = await runner.deliver_to_targets(
+                event,
+                [(route, _make_plan(event_id, route))],
+                source="replay",
+            )
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status in ("success", "queued")
+            assert outcome.receipt is not None
+            assert outcome.receipt.source == "replay"
+            assert outcome.receipt.attempt_number == 3
+
+            all_rows = await temp_storage.list_outbox_items_for_event(event_id)
+            live = next(row for row in all_rows if row.outbox_id == seeded.outbox_id)
+            assert live.attempt_number == 1
+            assert live.active_attempt == 2
+            replay_row = next(row for row in all_rows if row.attempt_number == 3)
+            assert replay_row.outbox_id != live.outbox_id
+            assert replay_row.receipt_id == outcome.receipt.receipt_id
+        finally:
+            await runner.stop()
+
+
+class TestReplayTerminalFailureUsesCreatedOutboxGeneration:
+    """Terminal replay evidence must use the newly-created outbox generation."""
+
+    async def test_attempt_2_failure_commits_lifecycle_authority(
+        self,
+        temp_storage: SQLiteStorage,
+        route: Route,
+    ) -> None:
+        event_id = "evt-replay-terminal-failure-2"
+        await _seed_outbox_with_attempt(
+            temp_storage, event_id=event_id, status="sent", attempt_number=1
+        )
+
+        # The target is intentionally absent. Replay attempt 2 therefore takes
+        # the permanent-failure path and must still terminalize its own row.
+        config = make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={},
+        )
+        runner = PipelineRunner(config)
+        await runner.start()
+        try:
+            event = make_event(event_id=event_id, source_channel_id="ch-0")
+            outcomes = await runner.deliver_to_targets(
+                event,
+                [(route, _make_plan(event_id, route))],
+                source="replay",
+            )
+
+            assert len(outcomes) == 1
+            outcome = outcomes[0]
+            assert outcome.status == "permanent_failure"
+            assert outcome.failure_kind == DeliveryFailureKind.ADAPTER_MISSING
+            assert outcome.receipt is not None
+            assert outcome.receipt.status == "failed"
+            assert outcome.receipt.source == "replay"
+            assert outcome.receipt.attempt_number == 2
+
+            all_rows = await temp_storage.list_outbox_items_for_event(event_id)
+            replay_row = next(row for row in all_rows if row.attempt_number == 2)
+            assert replay_row.status == "dead_lettered"
+            assert replay_row.active_attempt is None
+
+            replay_receipts = [
+                receipt
+                for receipt in await temp_storage.list_receipts_for_event(event_id)
+                if receipt.outbox_id == replay_row.outbox_id
+            ]
+            assert [receipt.status for receipt in replay_receipts] == [
+                "failed",
+                "dead_lettered",
+            ]
+            assert {receipt.attempt_number for receipt in replay_receipts} == {2}
+            failed, lifecycle = replay_receipts
+            assert lifecycle.receipt_kind == "lifecycle"
+            assert lifecycle.parent_receipt_id == failed.receipt_id
+            assert replay_row.receipt_id == lifecycle.receipt_id
         finally:
             await runner.stop()
 
@@ -764,7 +892,8 @@ class TestReplayChannelNormalization:
     SQLite storage normalizes empty-string channels to NULL in outbox
     keys.  If the route target has ``channel=""`` and the stored row has
     ``target_channel=None``, replay must still find existing attempts
-    and compute ``attempt_number = max(existing) + 1``.
+    and allocate a fresh outbox generation above the maximum effective
+    attempt (including any live reservation).
     """
 
     async def test_empty_channel_normalized_to_none_for_attempt_counting(

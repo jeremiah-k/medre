@@ -545,3 +545,41 @@ async def test_missing_conversation_projection_table_is_rejected_without_migrati
 
     assert exc_info.value.table == "conversation_membership"
     assert "event_id" in exc_info.value.missing_columns
+
+
+async def test_schema_check_validator_rejects_outbox_without_reservation_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same-version prerelease databases must enforce active-attempt invariants."""
+    storage = SQLiteStorage("unused.db")
+
+    def _current_table_definition(table: str) -> str:
+        prefix = f"CREATE TABLE IF NOT EXISTS {table} ("
+        start = _SCHEMA.index(prefix)
+        end = _SCHEMA.index("\n);", start) + len("\n);")
+        return _SCHEMA[start:end]
+
+    required = "CHECK (active_attempt IS NULL OR status = 'in_progress')"
+    stale_outbox = _current_table_definition("delivery_outbox").replace(
+        f"    {required},\n",
+        "",
+        1,
+    )
+    assert required not in stale_outbox
+
+    async def _definition(sql: str, params: tuple[object, ...] = ()) -> dict[str, str]:
+        assert "sqlite_master" in sql
+        table = str(params[0])
+        if table == "delivery_outbox":
+            return {"sql": stale_outbox}
+        return {"sql": _current_table_definition(table)}
+
+    monkeypatch.setattr(storage, "_read_one", _definition)
+
+    with pytest.raises(
+        PreReleaseSchemaConstraintMismatchError,
+        match="delivery_outbox",
+    ) as exc_info:
+        await storage._validate_schema_checks()
+
+    assert required in exc_info.value.missing_constraints

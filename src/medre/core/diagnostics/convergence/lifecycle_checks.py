@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from medre.core.delivery_authority import DeliveryAuthorityResolver
+
 from .helpers import (
     _NON_TERMINAL_OUTBOX,
     _NON_TERMINAL_RECEIPT,
@@ -16,7 +18,6 @@ from .helpers import (
 )
 from .helpers import _TERMINAL_RECEIPT as _TERMINAL_RECEIPT_FOR_MISMATCH
 from .helpers import (
-    _current_receipt_for_target,
     _ensure_aware,
     _get,
     _parse_iso_timestamp,
@@ -81,18 +82,15 @@ _NORMAL_NON_TERMINAL_COMBOS = frozenset(
 
 def _check_target_mismatches(
     outbox_by_key: dict[_TargetKey, Any],
-    receipts_by_key: dict[_TargetKey, list[Any]],
+    authority: DeliveryAuthorityResolver[Any],
     all_keys: list[_TargetKey],
-    committed_receipt_ids: dict[_TargetKey, set[str]],
 ) -> list[OrphanFinding]:
     """Detect terminal/non-terminal and status mismatches between outbox and receipt."""
     findings: list[OrphanFinding] = []
 
     for key in all_keys:
         obx = outbox_by_key.get(key)
-        current_rec = _current_receipt_for_target(
-            receipts_by_key, key, committed_receipt_ids.get(key)
-        )
+        current_rec = authority.current(key)
 
         has_outbox = obx is not None
         has_receipt = current_rec is not None

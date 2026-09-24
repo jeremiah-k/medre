@@ -9,6 +9,7 @@ import msgspec
 import pytest
 
 from medre.core.engine.pipeline import PipelineRunner
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.events import CanonicalEvent, EventRelation, NativeMessageRef, NativeRef
 from medre.core.ingress import DurableIngressDeferredError
@@ -389,9 +390,9 @@ async def test_partial_deferral_does_not_redeliver_successful_target(
             outbox_id=kwargs["outbox_id"],
         )
         await temp_storage.append_receipt(receipt)
-        return receipt
+        return DeliveryExecutionEvidence(attempt_receipt=receipt)
 
-    monkeypatch.setattr(runner, "deliver_to_target", deliver)
+    monkeypatch.setattr(runner, "deliver_execution_to_target", deliver)
 
     with pytest.raises(DurableIngressDeferredError) as exc_info:
         await runner.process_admitted_event(event.event_id)

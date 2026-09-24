@@ -52,6 +52,7 @@ from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
     AdapterSendError,
 )
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.events.canonical import (
@@ -150,15 +151,11 @@ def _normalize_mapping(value: Any) -> Any:
 
 
 class _AdapterDeliveryError(Exception):
-    """Raised by ``deliver_to_target`` after persisting a failed receipt.
+    """Raised after adapter-facing failure evidence has been persisted.
 
-    Carries the adapter ID, error string, the original exception,
-    an optional pre-classified ``failure_kind``, the persisted primary
-    failure ``receipt``, and an optional terminal ``lifecycle_receipt``.
-    The latter is populated when retry exhaustion appends a linked
-    ``dead_lettered`` receipt so callers can keep the attempt-facing
-    :class:`DeliveryOutcome` on the primary failure while committing the
-    outbox pointer to the terminal lifecycle authority.
+    The validated :class:`DeliveryExecutionEvidence` object is the sole
+    receipt/failure payload crossing into orchestration. ``original`` is kept
+    only for exception classification fallback and diagnostics.
     """
 
     def __init__(
@@ -167,40 +164,54 @@ class _AdapterDeliveryError(Exception):
         error: str,
         original: Exception | None = None,
         *,
-        failure_kind: DeliveryFailureKind | None = None,
-        receipt: DeliveryReceipt | None = None,
-        lifecycle_receipt: DeliveryReceipt | None = None,
+        evidence: DeliveryExecutionEvidence,
     ) -> None:
         self.adapter_id = adapter_id
         self.error = error
         self.original = original
-        self.failure_kind = failure_kind
-        self.receipt = receipt
-        self.lifecycle_receipt = lifecycle_receipt
+        self.evidence = evidence
         super().__init__(error)
+
+    @property
+    def receipt(self) -> DeliveryReceipt | None:
+        """Return primary attempt evidence for diagnostics/tests."""
+        return self.evidence.primary_receipt
+
+    @property
+    def lifecycle_receipt(self) -> DeliveryReceipt | None:
+        """Return lifecycle-authority evidence, when one was produced."""
+        return self.evidence.authority_receipt
+
+    @property
+    def failure_kind(self) -> DeliveryFailureKind | None:
+        """Return the typed failure classification carried by evidence."""
+        return self.evidence.failure_kind
 
 
 class _RendererDeliveryError(Exception):
-    """Raised by ``deliver_to_target`` when rendering fails before delivery.
-
-    Carries the adapter ID, error string, and optional persisted
-    ``receipt`` so callers can produce a deterministic
-    :class:`DeliveryOutcome` and correlate the outbox row.
-    """
+    """Raised after renderer/planner failure evidence has been persisted."""
 
     def __init__(
         self,
         adapter_id: str,
         error: str,
         *,
-        receipt: DeliveryReceipt | None = None,
-        failure_kind: DeliveryFailureKind | None = None,
+        evidence: DeliveryExecutionEvidence,
     ) -> None:
         self.adapter_id = adapter_id
         self.error = error
-        self.receipt = receipt
-        self.failure_kind = failure_kind
+        self.evidence = evidence
         super().__init__(error)
+
+    @property
+    def receipt(self) -> DeliveryReceipt | None:
+        """Return primary evidence for diagnostics/tests."""
+        return self.evidence.primary_receipt
+
+    @property
+    def failure_kind(self) -> DeliveryFailureKind | None:
+        """Return the typed failure classification carried by evidence."""
+        return self.evidence.failure_kind
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +323,7 @@ class TargetDeliveryService:
 
     # -- Public API ---------------------------------------------------------
 
-    async def deliver_to_target(
+    async def deliver_execution(
         self,
         event: CanonicalEvent,
         route: Route,
@@ -324,8 +335,14 @@ class TargetDeliveryService:
         replay_run_id: str | None = None,
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
-    ) -> DeliveryReceipt:
-        """Deliver one target inside a structured correlation scope."""
+    ) -> DeliveryExecutionEvidence:
+        """Execute one target and return its validated immutable evidence.
+
+        Expected adapter/renderer failures still raise their typed internal
+        exceptions, each carrying the same ``DeliveryExecutionEvidence``
+        object. Successful, queued, and lifecycle-only outcomes return the
+        evidence directly. This is the orchestration-facing API.
+        """
         receipt_id = f"rcpt-{uuid.uuid4()}"
         target = plan.target
         with correlation_scope(
@@ -340,7 +357,7 @@ class TargetDeliveryService:
             source=source,
             replay_run_id=replay_run_id,
         ):
-            return await self._deliver_to_target_scoped(
+            receipt = await self._deliver_to_target_scoped(
                 event,
                 route,
                 plan,
@@ -352,6 +369,44 @@ class TargetDeliveryService:
                 reserved_attempt_number=reserved_attempt_number,
                 _receipt_id=receipt_id,
             )
+        if receipt.receipt_kind == "lifecycle":
+            return DeliveryExecutionEvidence(authority_receipt=receipt)
+        return DeliveryExecutionEvidence(attempt_receipt=receipt)
+
+    async def deliver_to_target(
+        self,
+        event: CanonicalEvent,
+        route: Route,
+        plan: DeliveryPlan,
+        *,
+        render_event: CanonicalEvent | None = None,
+        previous_receipt: DeliveryReceipt | None = None,
+        source: str = "live",
+        replay_run_id: str | None = None,
+        outbox_id: str | None = None,
+        reserved_attempt_number: int | None = None,
+    ) -> DeliveryReceipt:
+        """Execute one target and return its primary receipt.
+
+        This compatibility surface is retained for retry/replay callers that
+        operate on receipt lineage directly. Delivery coordination uses
+        :meth:`deliver_execution` so receipt/failure plumbing remains typed.
+        """
+        evidence = await self.deliver_execution(
+            event,
+            route,
+            plan,
+            render_event=render_event,
+            previous_receipt=previous_receipt,
+            source=source,
+            replay_run_id=replay_run_id,
+            outbox_id=outbox_id,
+            reserved_attempt_number=reserved_attempt_number,
+        )
+        receipt = evidence.primary_receipt
+        if receipt is None:  # Defensive: every normal execution persists evidence.
+            raise RuntimeError("target delivery produced no receipt evidence")
+        return receipt
 
     async def _deliver_to_target_scoped(
         self,
@@ -381,10 +436,12 @@ class TargetDeliveryService:
            compute the next retry state.  If retries are exhausted, record
            a ``dead_lettered`` receipt.
 
-        When no retry scheduler is enabled, retry is receipt-level only:
-        this method records the failure receipt with ``next_retry_at`` populated.
-        A scheduler or manual replay re-invokes this method with the
-        ``previous_receipt`` parameter.
+        Retry is opt-in through the delivery plan. Without a retry policy, a
+        failed dispatch is terminal evidence: the failed attempt is paired with
+        linked ``dead_lettered`` lifecycle evidence at the same attempt number.
+        For retryable failures under a retry policy, a scheduler or manual replay
+        re-invokes this method with the ``previous_receipt`` parameter for a later
+        dispatch generation.
 
         Parameters
         ----------
@@ -411,16 +468,16 @@ class TargetDeliveryService:
             exact callback correlation.  ``None`` when no outbox item was
             created.
         reserved_attempt_number:
-            The durably reserved attempt identity for this dispatch, from
-            the outbox reservation committed at dispatch-begin.  When
-            provided it overrides the receipt-lineage attempt number for
-            everything stamped onto this dispatch (the rendered result and
-            every receipt it produces) so adapter callbacks echo the exact
-            identity the outbox will admit.  Receipt lineage
-            (``parent_receipt_id``) is still derived from
-            *previous_receipt*.  ``None`` for live/replay first dispatches,
-            where the outbox row's creation attempt is already the live
-            identity.
+            The durable outbox attempt identity for this dispatch. Retry
+            workers supply the attempt reserved at dispatch-begin; the
+            coordinator supplies the attempt of a directly-created live or
+            replay outbox generation. When provided it overrides the
+            receipt-lineage attempt number for everything stamped onto this
+            dispatch (the rendered result and every receipt it produces) so
+            adapter callbacks and receipts carry the exact identity the
+            outbox will admit. Receipt lineage (``parent_receipt_id``) is
+            still derived from *previous_receipt*. ``None`` is only valid
+            when no durable outbox attempt identity exists.
 
         Returns
         -------
@@ -449,61 +506,52 @@ class TargetDeliveryService:
                 adapter_id,
                 event.event_id,
             )
-            receipt = build_delivery_receipt(
+            _missing_error = (
+                f"Adapter {adapter_id!r} is not registered - "
+                f"check if the adapter was configured and built successfully"
+            )
+            evidence = await self._persist_failure_evidence(
+                event=event,
+                route=route,
+                plan=plan,
+                adapter_id=adapter_id or "",
                 receipt_id=receipt_id,
-                event_id=event.event_id,
-                delivery_plan_id=plan.plan_id,
-                target_adapter=adapter_id or "",
-                target_channel=target.channel,
-                route_id=route.id,
-                status="failed",
-                error=f"Adapter {adapter_id!r} is not registered in the runtime "
-                f"- the adapter may have failed to build or was not configured. "
-                f"Check build logs for {adapter_id!r}",
-                failure_kind=DeliveryFailureKind.ADAPTER_MISSING.value,
+                error=_missing_error,
+                failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
-                **self._lifecycle.extract_retry_fields(plan),
             )
-            await self._storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
                 adapter_id or "",
-                f"Adapter {adapter_id!r} is not registered - "
-                f"check if the adapter was configured and built successfully",
-                failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
-                receipt=receipt,
+                _missing_error,
+                evidence=evidence,
             ) from None
 
         # Check delivery plan deadline.
         now = datetime.now(tz=timezone.utc)
         if plan.deadline is not None and now > plan.deadline:
-            receipt = build_delivery_receipt(
+            evidence = await self._persist_failure_evidence(
+                event=event,
+                route=route,
+                plan=plan,
+                adapter_id=adapter_id or "",
                 receipt_id=receipt_id,
-                event_id=event.event_id,
-                delivery_plan_id=plan.plan_id,
-                target_adapter=adapter_id or "",
-                target_channel=target.channel,
-                route_id=route.id,
-                status="failed",
                 error="Delivery deadline exceeded",
-                failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED.value,
-                created_at=now,
+                failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
-                **self._lifecycle.extract_retry_fields(plan),
+                created_at=now,
             )
-            await self._storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
                 adapter_id or "",
                 "Delivery deadline exceeded",
-                failure_kind=DeliveryFailureKind.DEADLINE_EXCEEDED,
-                receipt=receipt,
+                evidence=evidence,
             ) from None
 
         # Render the event into a RenderingResult before adapter delivery.
@@ -544,29 +592,24 @@ class TargetDeliveryService:
             self._diagnostician.record_planner_failure(
                 event.event_id, _invalid_cap_error
             )
-            receipt = build_delivery_receipt(
+            evidence = await self._persist_failure_evidence(
+                event=event,
+                route=route,
+                plan=plan,
+                adapter_id=adapter_id or "",
                 receipt_id=receipt_id,
-                event_id=event.event_id,
-                delivery_plan_id=plan.plan_id,
-                target_adapter=adapter_id or "",
-                target_channel=target.channel,
-                route_id=route.id,
-                status="failed",
                 error=_invalid_cap_error,
-                failure_kind=DeliveryFailureKind.PLANNER_FAILURE.value,
+                failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
-                **self._lifecycle.extract_retry_fields(plan),
             )
-            await self._storage.append_receipt(receipt)
             raise _RendererDeliveryError(
                 adapter_id or "",
                 _invalid_cap_error,
-                receipt=receipt,
-                failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
+                evidence=evidence,
             ) from None
         _capability_level = cast(_CapLevel, _plan_cap_level)
 
@@ -594,6 +637,7 @@ class TargetDeliveryService:
                 target_channel=target.channel,
                 route_id=route.id,
                 status="suppressed",
+                receipt_kind="lifecycle",
                 error=_skip_error,
                 failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED.value,
                 attempt_number=attempt_number,
@@ -621,29 +665,24 @@ class TargetDeliveryService:
                 f"{_strategy_method!r}: not a known strategy"
             )
             self._diagnostician.record_planner_failure(event.event_id, _invalid_error)
-            receipt = build_delivery_receipt(
+            evidence = await self._persist_failure_evidence(
+                event=event,
+                route=route,
+                plan=plan,
+                adapter_id=adapter_id or "",
                 receipt_id=receipt_id,
-                event_id=event.event_id,
-                delivery_plan_id=plan.plan_id,
-                target_adapter=adapter_id or "",
-                target_channel=target.channel,
-                route_id=route.id,
-                status="failed",
                 error=_invalid_error,
-                failure_kind=DeliveryFailureKind.PLANNER_FAILURE.value,
+                failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
-                **self._lifecycle.extract_retry_fields(plan),
             )
-            await self._storage.append_receipt(receipt)
             raise _RendererDeliveryError(
                 adapter_id or "",
                 _invalid_error,
-                receipt=receipt,
-                failure_kind=DeliveryFailureKind.PLANNER_FAILURE,
+                evidence=evidence,
             ) from None
 
         try:
@@ -664,29 +703,24 @@ class TargetDeliveryService:
             self._diagnostician.record_renderer_failure(
                 event.event_id, adapter_id or "", rendering_error
             )
-            receipt = build_delivery_receipt(
+            evidence = await self._persist_failure_evidence(
+                event=event,
+                route=route,
+                plan=plan,
+                adapter_id=adapter_id or "",
                 receipt_id=receipt_id,
-                event_id=event.event_id,
-                delivery_plan_id=plan.plan_id,
-                target_adapter=adapter_id or "",
-                target_channel=target.channel,
-                route_id=route.id,
-                status="failed",
                 error=rendering_error,
-                failure_kind=DeliveryFailureKind.RENDERER_FAILURE.value,
+                failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
-                **self._lifecycle.extract_retry_fields(plan),
             )
-            await self._storage.append_receipt(receipt)
             raise _RendererDeliveryError(
                 adapter_id or "",
                 rendering_error,
-                receipt=receipt,
-                failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+                evidence=evidence,
             ) from None
 
         # Stamp delivery_plan_id for validation in queue callbacks;
@@ -709,29 +743,24 @@ class TargetDeliveryService:
                 adapter_id,
                 event.event_id,
             )
-            receipt = build_delivery_receipt(
+            evidence = await self._persist_failure_evidence(
+                event=event,
+                route=route,
+                plan=plan,
+                adapter_id=adapter_id or "",
                 receipt_id=receipt_id,
-                event_id=event.event_id,
-                delivery_plan_id=plan.plan_id,
-                target_adapter=adapter_id or "",
-                target_channel=target.channel,
-                route_id=route.id,
-                status="failed",
                 error=no_deliver_error,
-                failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT.value,
+                failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
                 attempt_number=attempt_number,
                 parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
                 outbox_id=outbox_id,
-                **self._lifecycle.extract_retry_fields(plan),
             )
-            await self._storage.append_receipt(receipt)
             raise _AdapterDeliveryError(
                 adapter_id or "",
                 no_deliver_error,
-                failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
-                receipt=receipt,
+                evidence=evidence,
             ) from None
 
         # Deliver the rendered result via adapter.
@@ -777,37 +806,18 @@ class TargetDeliveryService:
                 attempt_number,
             )
 
-        # Determine if we need to record a retry or dead-letter receipt.
-        # This happens AFTER the main receipt is persisted (below) to
-        # maintain correct append ordering. We capture the decision here
-        # and execute after the primary receipt.
-        _needs_dead_letter = self._lifecycle.should_dead_letter(
-            status, plan, attempt_number
-        )
-
-        # Record receipt.
-        # Classify the failure kind as an enum so we can propagate the same
-        # value to both the receipt (as .value string) and the re-raised
-        # _AdapterDeliveryError (as the typed enum).
+        # Normalize the execution result into immutable evidence. Failures
+        # persist an attempt receipt and, when terminal, a linked lifecycle
+        # receipt at the *same* attempt number. Successful/enqueued execution
+        # produces attempt evidence only.
         _classified_failure_kind: DeliveryFailureKind | None = None
         if status == "failed" and delivery_exc is not None:
             _classified_failure_kind = self._lifecycle.classify_failure(
                 delivery_exc,
                 adapter_registered=True,
             )
-        _receipt_failure_kind: str | None = (
-            _classified_failure_kind.value if _classified_failure_kind else None
-        )
 
-        # Use a fresh persistence-time timestamp for created_at and
-        # next_retry_at on the main receipt, rather than the stale
-        # execution-start ``now`` captured before enrichment / rendering /
-        # adapter I/O.  The start time is no longer used for receipt
-        # timestamps in this path.
         now_persist = datetime.now(tz=timezone.utc)
-
-        # Compute next_retry_at for retryable transient failures.
-        # Only set when the plan declares an explicit retry_policy.
         _retry_after_seconds = (
             delivery_exc.retry_after_seconds
             if isinstance(delivery_exc, AdapterSendError)
@@ -822,11 +832,37 @@ class TargetDeliveryService:
             retry_after_seconds=_retry_after_seconds,
         )
 
-        # Populate adapter_message_id only when delivery succeeded and
-        # the adapter returned a native_message_id.  Never fabricate IDs.
+        if status == "failed":
+            failure_kind = (
+                _classified_failure_kind or DeliveryFailureKind.ADAPTER_TRANSIENT
+            )
+            evidence = await self._persist_failure_evidence(
+                event=event,
+                route=route,
+                plan=plan,
+                adapter_id=adapter_id or "",
+                receipt_id=receipt_id,
+                error=error or "Adapter delivery failed",
+                failure_kind=failure_kind,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
+                next_retry_at=_next_retry_at,
+                created_at=now_persist,
+            )
+            raise _AdapterDeliveryError(
+                adapter_id or "",
+                error or "Adapter delivery failed",
+                delivery_exc,
+                evidence=evidence,
+            ) from None
+
+        # Successful/enqueued delivery remains dispatch-attempt evidence.
         _adapter_message_id: str | None = None
         _confirmation_level: DeliveryConfirmationLevel = "unknown"
-        if status in ("sent", "queued") and adapter_result is not None:
+        if adapter_result is not None:
             raw_confirmation = adapter_result.confirmation_level
             if (
                 isinstance(raw_confirmation, str)
@@ -840,7 +876,6 @@ class TargetDeliveryService:
                     adapter_id,
                     raw_confirmation,
                 )
-                _confirmation_level = "unknown"
         if (
             status == "sent"
             and adapter_result is not None
@@ -848,23 +883,18 @@ class TargetDeliveryService:
         ):
             _adapter_message_id = adapter_result.native_message_id
 
-        # Serialize rendering evidence from the rendering result into the
-        # receipt.  Only attached on successful deliveries (sent / queued);
-        # suppressed, skipped, rendering-failure, and adapter-failure receipts
-        # naturally leave rendering_evidence=None.
         _rendering_evidence: str | None = None
-        if status in ("sent", "queued"):
-            _raw_evidence = getattr(rendering_result, "rendering_evidence", None)
-            if _raw_evidence is not None:
-                _rendering_evidence = _serialize_rendering_evidence_for_receipt(
-                    _raw_evidence
+        _raw_evidence = getattr(rendering_result, "rendering_evidence", None)
+        if _raw_evidence is not None:
+            _rendering_evidence = _serialize_rendering_evidence_for_receipt(
+                _raw_evidence
+            )
+            if _rendering_evidence is None:
+                self._log.warning(
+                    "rendering_evidence is unsupported type %s; "
+                    "persisting receipt without evidence",
+                    type(_raw_evidence).__name__,
                 )
-                if _rendering_evidence is None and _raw_evidence is not None:
-                    self._log.warning(
-                        "rendering_evidence is unsupported type %s; "
-                        "persisting receipt without evidence",
-                        type(_raw_evidence).__name__,
-                    )
 
         receipt = build_delivery_receipt(
             receipt_id=receipt_id,
@@ -874,10 +904,7 @@ class TargetDeliveryService:
             target_channel=target.channel,
             route_id=route.id,
             status=status,
-            error=error,
-            failure_kind=_receipt_failure_kind,
             adapter_message_id=_adapter_message_id,
-            next_retry_at=_next_retry_at,
             created_at=now_persist,
             attempt_number=attempt_number,
             parent_receipt_id=parent_receipt_id,
@@ -890,27 +917,6 @@ class TargetDeliveryService:
         )
         await self._storage.append_receipt(receipt)
 
-        # If all retries exhausted, append dead-letter receipt after
-        # the primary receipt to maintain append-only ordering.
-        lifecycle_receipt: DeliveryReceipt | None = None
-        if _needs_dead_letter:
-            lifecycle_receipt = (
-                await self._lifecycle.build_and_persist_dead_letter_receipt(
-                    self._storage,
-                    event_id=event.event_id,
-                    delivery_plan_id=plan.plan_id,
-                    target_adapter=adapter_id or "",
-                    previous_receipt_id=receipt_id,
-                    attempt_number=attempt_number,
-                    error=error or "Retry exhausted",
-                    source=source,
-                    replay_run_id=replay_run_id,
-                    target_channel=target.channel,
-                    outbox_id=outbox_id,
-                    plan=plan,
-                )
-            )
-
         # Store native ref mapping (outbound direction) ONLY on success.
         # Use adapter-provided native IDs; never fabricate synthetic IDs.
         if (
@@ -918,9 +924,6 @@ class TargetDeliveryService:
             and adapter_result is not None
             and adapter_result.native_message_id is not None
         ):
-            # Extract metadata from adapter result, recursively converting
-            # MappingProxyType (and other Mapping subclasses) to plain dicts
-            # so that msgspec.json.encode never encounters a mappingproxy.
             outbound_meta: dict[str, object] = (
                 _normalize_mapping(adapter_result.metadata)
                 if adapter_result.metadata
@@ -944,7 +947,7 @@ class TargetDeliveryService:
                     await self._native_ref_persisted_fn(event.event_id)
                 except Exception:
                     # Native delivery and its durable reference are already
-                    # committed.  Derived conversation repair is recoverable on
+                    # committed. Derived conversation repair is recoverable on
                     # startup and must not convert an accepted send into a
                     # transport failure that could be retried and duplicated.
                     self._log.exception(
@@ -953,22 +956,72 @@ class TargetDeliveryService:
                         event.event_id,
                     )
 
-        # Re-raise adapter errors so that callers (deliver_to_targets)
-        # can inspect the exception type for transient/permanent classification.
-        # The receipt and native ref are already persisted at this point.
-        # Propagate the same failure_kind already persisted in the receipt so
-        # the exception and storage do not disagree.
-        if status == "failed":
-            raise _AdapterDeliveryError(
-                adapter_id or "",
-                error or "",
-                delivery_exc,
-                failure_kind=_classified_failure_kind,
-                receipt=receipt,
-                lifecycle_receipt=lifecycle_receipt,
-            ) from None
-
         return receipt
+
+    async def _persist_failure_evidence(
+        self,
+        *,
+        event: CanonicalEvent,
+        route: Route,
+        plan: DeliveryPlan,
+        adapter_id: str,
+        receipt_id: str,
+        error: str,
+        failure_kind: DeliveryFailureKind,
+        attempt_number: int,
+        parent_receipt_id: str | None,
+        source: str,
+        replay_run_id: str | None,
+        outbox_id: str | None,
+        next_retry_at: datetime | None = None,
+        created_at: datetime | None = None,
+    ) -> DeliveryExecutionEvidence:
+        """Persist attempt evidence and, when terminal, linked lifecycle evidence."""
+        attempt_receipt = build_delivery_receipt(
+            receipt_id=receipt_id,
+            event_id=event.event_id,
+            delivery_plan_id=plan.plan_id,
+            target_adapter=adapter_id,
+            target_channel=plan.target.channel,
+            route_id=route.id,
+            status="failed",
+            error=error,
+            failure_kind=failure_kind.value,
+            next_retry_at=next_retry_at,
+            created_at=created_at,
+            attempt_number=attempt_number,
+            parent_receipt_id=parent_receipt_id,
+            source=source,
+            replay_run_id=replay_run_id,
+            outbox_id=outbox_id,
+            **self._lifecycle.extract_retry_fields(plan),
+        )
+        await self._storage.append_receipt(attempt_receipt)
+
+        authority_receipt: DeliveryReceipt | None = None
+        if self._lifecycle.is_terminal_failure(
+            failure_kind,
+            next_retry_at=next_retry_at,
+        ):
+            authority_receipt = self._lifecycle.build_terminal_lifecycle_receipt(
+                attempt_receipt,
+                status="dead_lettered",
+                error=error,
+                failure_kind=failure_kind.value,
+            )
+            # Outbox-backed lifecycle authority is committed atomically with
+            # the terminal outbox transition by DeliveryLifecycleService.
+            # Outbox-less delivery has no mutable authority pointer, so append
+            # the lifecycle evidence here.
+            if outbox_id is None:
+                await self._storage.append_receipt(authority_receipt)
+
+        return DeliveryExecutionEvidence(
+            attempt_receipt=attempt_receipt,
+            authority_receipt=authority_receipt,
+            failure_kind=failure_kind,
+            error=error,
+        )
 
     # -- Internal helpers ---------------------------------------------------
 

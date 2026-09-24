@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     target_channel TEXT,
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
+    receipt_kind TEXT NOT NULL,
     error TEXT,
     failure_kind TEXT,
     adapter_message_id TEXT,
@@ -117,6 +118,9 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     outbox_id TEXT,
     confirmation_level TEXT NOT NULL DEFAULT 'unknown',
     created_at TEXT NOT NULL,
+    CHECK (attempt_number >= 1),
+    CHECK (receipt_kind IN ('attempt', 'lifecycle')),
+    CHECK ((receipt_kind = 'attempt' AND status IN ('queued', 'sent', 'failed')) OR (receipt_kind = 'lifecycle' AND status IN ('dead_lettered', 'cancelled', 'abandoned', 'suppressed'))),
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
@@ -133,30 +137,56 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
 DROP VIEW IF EXISTS delivery_status;
 CREATE VIEW delivery_status AS
 WITH authoritative_receipts AS (
-    SELECT dr.*
+    SELECT dr.*, NULL AS committed_attempt
     FROM delivery_receipts dr
     WHERE dr.outbox_id IS NULL
-       OR EXISTS (
-           SELECT 1
-           FROM delivery_outbox o
-           WHERE o.outbox_id = dr.outbox_id
-             AND o.receipt_id = dr.receipt_id
-       )
+    UNION ALL
+    SELECT dr.*, o.attempt_number AS committed_attempt
+    FROM delivery_receipts dr
+    JOIN delivery_outbox o
+      ON o.outbox_id = dr.outbox_id
+     AND o.receipt_id = dr.receipt_id
+),
+ranked AS (
+    SELECT dr.*,
+           CASE
+               WHEN outbox_id IS NULL THEN
+                   ROW_NUMBER() OVER (
+                       PARTITION BY event_id, delivery_plan_id, target_adapter,
+                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
+                       ORDER BY sequence DESC
+                   )
+               ELSE
+                   ROW_NUMBER() OVER (
+                       PARTITION BY event_id, delivery_plan_id, target_adapter,
+                                    COALESCE(target_channel, ''), (outbox_id IS NULL)
+                       ORDER BY committed_attempt DESC, sequence DESC
+                   )
+           END AS class_rank
+    FROM authoritative_receipts dr
+),
+candidates AS (
+    SELECT * FROM ranked WHERE class_rank = 1
+),
+current_rows AS (
+    SELECT c.*,
+           ROW_NUMBER() OVER (
+               PARTITION BY event_id, delivery_plan_id, target_adapter,
+                            COALESCE(target_channel, '')
+               ORDER BY sequence DESC
+           ) AS authority_rank
+    FROM candidates c
 )
-SELECT dr.sequence, dr.receipt_id, dr.event_id, dr.delivery_plan_id,
-       dr.target_adapter, dr.target_channel, dr.route_id, dr.status, dr.error,
-       dr.failure_kind,
-       dr.adapter_message_id, dr.next_retry_at, dr.attempt_number,
-       dr.parent_receipt_id, dr.source, dr.replay_run_id,
-       dr.retry_max_attempts, dr.retry_backoff_base,
-       dr.retry_max_delay, dr.retry_jitter, dr.rendering_evidence,
-       dr.outbox_id, dr.confirmation_level, dr.created_at
-FROM authoritative_receipts dr
-JOIN (
-    SELECT event_id, delivery_plan_id, target_adapter, target_channel, MAX(sequence) AS max_seq
-    FROM authoritative_receipts
-    GROUP BY event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, '')
-) latest ON dr.sequence = latest.max_seq;
+SELECT sequence, receipt_id, event_id, delivery_plan_id,
+       target_adapter, target_channel, route_id, status,
+       receipt_kind, error, failure_kind,
+       adapter_message_id, next_retry_at, attempt_number,
+       parent_receipt_id, source, replay_run_id,
+       retry_max_attempts, retry_backoff_base,
+       retry_max_delay, retry_jitter, rendering_evidence,
+       outbox_id, confirmation_level, created_at
+FROM current_rows
+WHERE authority_rank = 1;
 
 CREATE TABLE IF NOT EXISTS delivery_outbox (
     outbox_id TEXT PRIMARY KEY,
@@ -183,7 +213,11 @@ CREATE TABLE IF NOT EXISTS delivery_outbox (
     parent_receipt_id TEXT,
     error_summary TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
-    UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number)
+    UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
+    CHECK (attempt_number >= 1),
+    CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1),
+    CHECK (active_attempt IS NULL OR status = 'in_progress'),
+    CHECK (status IN ('pending', 'in_progress', 'queued', 'sent', 'retry_wait', 'dead_lettered', 'cancelled', 'abandoned'))
 );
 
 CREATE TABLE IF NOT EXISTS delivery_observations (
@@ -259,8 +293,6 @@ CREATE INDEX IF NOT EXISTS idx_relations_target_native_ref
     ON event_relations(target_native_adapter, target_native_channel_id, target_native_message_id);
 CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
     ON native_message_refs(event_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_receipts_plan
-    ON delivery_receipts(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_event
     ON delivery_receipts(event_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
@@ -287,6 +319,11 @@ CREATE INDEX IF NOT EXISTS idx_outbox_event
     ON delivery_outbox(event_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_event_created
     ON delivery_outbox(event_id, created_at, outbox_id);
+CREATE INDEX IF NOT EXISTS idx_outbox_lineage
+    ON delivery_outbox(
+        event_id, delivery_plan_id, target_adapter,
+        COALESCE(target_channel, ''), attempt_number
+    );
 CREATE INDEX IF NOT EXISTS idx_observations_event
     ON delivery_observations(event_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_observations_outbox
@@ -408,6 +445,7 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "target_channel",
             "route_id",
             "status",
+            "receipt_kind",
             "error",
             "failure_kind",
             "adapter_message_id",
@@ -547,6 +585,57 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
 # existing pre-release table created without these invariants because
 # ``CREATE TABLE IF NOT EXISTS`` leaves that older definition untouched.
 _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
+    "delivery_receipts": (
+        (
+            "CHECK (attempt_number >= 1)",
+            r"CHECK\s*\(\s*attempt_number\s*>=\s*1\s*\)",
+        ),
+        (
+            "CHECK (receipt_kind IN ('attempt', 'lifecycle'))",
+            (
+                r"CHECK\s*\(\s*receipt_kind\s+IN\s*\(\s*'attempt'\s*,\s*"
+                r"'lifecycle'\s*\)\s*\)"
+            ),
+        ),
+        (
+            "CHECK (receipt_kind/status pairing)",
+            (
+                r"CHECK\s*\(\s*\(\s*receipt_kind\s*=\s*'attempt'\s+AND\s+"
+                r"status\s+IN\s*\(\s*'queued'\s*,\s*'sent'\s*,\s*'failed'\s*\)\s*\)"
+                r"\s+OR\s+\(\s*receipt_kind\s*=\s*'lifecycle'\s+AND\s+status\s+IN\s*\("
+                r"\s*'dead_lettered'\s*,\s*'cancelled'\s*,\s*'abandoned'\s*,\s*'suppressed'\s*"
+                r"\)\s*\)\s*\)"
+            ),
+        ),
+    ),
+    "delivery_outbox": (
+        (
+            "CHECK (attempt_number >= 1)",
+            r"CHECK\s*\(\s*attempt_number\s*>=\s*1\s*\)",
+        ),
+        (
+            "CHECK (active_attempt IS NULL OR active_attempt = attempt_number + 1)",
+            (
+                r"CHECK\s*\(\s*active_attempt\s+IS\s+NULL\s+OR\s+active_attempt\s*=\s*"
+                r"attempt_number\s*\+\s*1\s*\)"
+            ),
+        ),
+        (
+            "CHECK (active_attempt IS NULL OR status = 'in_progress')",
+            (
+                r"CHECK\s*\(\s*active_attempt\s+IS\s+NULL\s+OR\s+status\s*=\s*"
+                r"'in_progress'\s*\)"
+            ),
+        ),
+        (
+            "CHECK (delivery_outbox.status vocabulary)",
+            (
+                r"CHECK\s*\(\s*status\s+IN\s*\(\s*'pending'\s*,\s*'in_progress'\s*,\s*"
+                r"'queued'\s*,\s*'sent'\s*,\s*'retry_wait'\s*,\s*'dead_lettered'\s*,\s*"
+                r"'cancelled'\s*,\s*'abandoned'\s*\)\s*\)"
+            ),
+        ),
+    ),
     "delivery_observations": (
         (
             "CHECK (attempt_number >= 1)",

@@ -58,10 +58,21 @@ class _OutboxMixin:
     base class via MRO.
     """
 
-    async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
+    async def create_outbox_item(
+        self,
+        item: DeliveryOutboxItem,
+        *,
+        allocate_new_generation: bool = False,
+    ) -> DeliveryOutboxItem:
         """Create a new outbox item, or reclaim an existing pending/retry_wait row.
 
         Authority: **create** / **claim** (reclaim pending/retry_wait).
+
+        When *allocate_new_generation* is true, this method allocates and
+        inserts a fresh generation in one ``BEGIN IMMEDIATE`` transaction using
+        ``max(COALESCE(active_attempt, attempt_number)) + 1`` for the same
+        event-scoped delivery identity. That mode never reclaims an existing
+        row and is the replay path's durable generation allocator.
 
         Production lifecycle policy:
           - New rows may be created only as ``pending`` (default) or
@@ -107,16 +118,23 @@ class _OutboxMixin:
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
 
+        # A live ``active_attempt`` already represents the next generation.
+        # Treat it as an existing generation during creation so a replay that
+        # computed N before a concurrent retry reserved N cannot insert a
+        # sibling row for the same generation.  This check runs inside the
+        # same BEGIN IMMEDIATE transaction as the eventual INSERT.
         select_sql = (
             "SELECT outbox_id, status FROM delivery_outbox"
             " WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?"
-            " AND target_channel IS ? AND attempt_number = ?"
+            " AND target_channel IS ?"
+            " AND (attempt_number = ? OR active_attempt = ?)"
         )
         select_params = (
             item.event_id,
             item.delivery_plan_id,
             item.target_adapter,
             item.target_channel or None,
+            item.attempt_number,
             item.attempt_number,
         )
         insert_sql = (
@@ -157,7 +175,39 @@ class _OutboxMixin:
             meta_json,
         )
 
+        generation_select_sql = (
+            "SELECT MAX(COALESCE(active_attempt, attempt_number)) AS max_attempt"
+            " FROM delivery_outbox"
+            " WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?"
+            " AND COALESCE(target_channel, '') = COALESCE(?, '')"
+        )
+        generation_select_params = (
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel or None,
+        )
+
         try:
+            if allocate_new_generation:
+                if item.active_attempt is not None:
+                    raise ValueError(
+                        "allocate_new_generation requires active_attempt=None"
+                    )
+                await self._run_in_thread(
+                    self._sync_atomic_create_outbox_generation,
+                    self._require_db(),
+                    generation_select_sql,
+                    generation_select_params,
+                    insert_sql,
+                    insert_params,
+                )
+                created = await self.get_outbox_item(item.outbox_id)
+                if created is None:
+                    raise StorageError(
+                        "Atomic outbox generation insert committed but row could not be re-read"
+                    )
+                return created
             existing_id = await self._run_in_thread(
                 self._sync_atomic_create_outbox,
                 self._require_db(),
@@ -178,12 +228,50 @@ class _OutboxMixin:
             msg = str(exc)
             if "FOREIGN KEY" in msg:
                 raise StorageError(f"Outbox create failed: {exc}") from exc
+            if allocate_new_generation:
+                raise
             existing = await self._read_one(select_sql, select_params)
             if existing is not None:
                 return await self.get_outbox_item(existing["outbox_id"]) or item
             raise
 
         return await self.get_outbox_item(item.outbox_id) or item
+
+    def _sync_atomic_create_outbox_generation(
+        self,
+        db: sqlite3.Connection,
+        generation_select_sql: str,
+        generation_select_params: tuple[Any, ...],
+        insert_sql: str,
+        insert_params: tuple[Any, ...],
+    ) -> None:
+        """Atomically allocate and insert a fresh outbox generation.
+
+        ``BEGIN IMMEDIATE`` serializes this allocator against retry reservation,
+        retry finalization, and other replay creators.  The stored attempt is
+        one greater than the maximum *effective* generation, where a live
+        ``active_attempt`` outranks its row's finalized ``attempt_number``.
+        """
+        with self._lock:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    generation_select_sql, generation_select_params
+                ).fetchone()
+                max_attempt = None if row is None else row["max_attempt"]
+                next_attempt = int(max_attempt or 0) + 1
+                params = list(insert_params)
+                # ``attempt_number`` is the eighth column/parameter in the
+                # canonical delivery_outbox INSERT assembled above.
+                params[7] = next_attempt
+                db.execute(insert_sql, tuple(params))
+                db.execute("COMMIT")
+            except BaseException:
+                try:
+                    db.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise
 
     def _sync_atomic_create_outbox(
         self,
@@ -388,6 +476,10 @@ class _OutboxMixin:
 
         - ``(next_attempt_at IS NULL OR next_attempt_at <= now)``
         - ``(lease_until IS NULL OR lease_until <= now)``
+        - no sibling row for the same event-scoped delivery identity represents
+          the same or a newer effective attempt generation. Older generations
+          remain durable history but are not re-dispatched after replay or
+          another generation supersedes them.
 
         When moving a row to ``in_progress``, ``next_attempt_at`` is
         cleared (set to ``NULL``) since the item is no longer waiting
@@ -413,7 +505,19 @@ class _OutboxMixin:
         # Use a two-step approach: SELECT candidates, then UPDATE matching.
         # SQLite doesn't support RETURNING with ORIGIN in all configurations,
         # so we select first, then update by outbox_id.
-        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND lease_until <= ?) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 - claimable_ph is only ? placeholders, values parameterized
+        _no_newer_generation = """NOT EXISTS (
+            SELECT 1
+              FROM delivery_outbox AS sibling
+             WHERE sibling.outbox_id <> delivery_outbox.outbox_id
+               AND sibling.event_id = delivery_outbox.event_id
+               AND sibling.delivery_plan_id = delivery_outbox.delivery_plan_id
+               AND sibling.target_adapter = delivery_outbox.target_adapter
+               AND COALESCE(sibling.target_channel, '') =
+                   COALESCE(delivery_outbox.target_channel, '')
+               AND COALESCE(sibling.active_attempt, sibling.attempt_number) >=
+                   COALESCE(delivery_outbox.active_attempt, delivery_outbox.attempt_number)
+        )"""
+        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND lease_until <= ?) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) AND {_no_newer_generation} ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 - interpolated fragments are static SQL or ? placeholders
         rows = await self._read_all(
             _claim_sql,
             (*claimable_params, now, stale_cutoff, now, now, limit),
@@ -436,7 +540,8 @@ class _OutboxMixin:
                        OR (status = 'in_progress' AND lease_until <= ?)
                        OR (status = 'queued' AND updated_at <= ?))
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-                  AND (lease_until IS NULL OR lease_until <= ?)""",  # nosec: placeholders are only ? markers, values passed as params
+                  AND (lease_until IS NULL OR lease_until <= ?)
+                  AND {_no_newer_generation}""",  # nosec: interpolated fragments are static SQL or ? placeholders
             (
                 now,
                 lease_until,
@@ -454,7 +559,7 @@ class _OutboxMixin:
         # Re-read to get the updated rows (some may have been claimed by
         # another worker if the SELECT/UPDATE window was contested).
         final_rows = await self._read_all(
-            f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ? AND status = 'in_progress'",  # nosec: placeholders are only ? markers, values passed as params
+            f"SELECT * FROM delivery_outbox WHERE outbox_id IN ({','.join('?' for _ in outbox_ids)}) AND worker_id = ? AND status = 'in_progress' AND {_no_newer_generation}",  # nosec: interpolated fragments are static SQL or ? placeholders
             (*outbox_ids, worker_id),
         )
         return [_row_to_outbox_item(r) for r in final_rows]
@@ -470,9 +575,11 @@ class _OutboxMixin:
         Authority: **claim** (atomic attempt-identity reservation).  The
         conditional ``UPDATE`` commits ``active_attempt = from_attempt + 1``
         only when the row is ``in_progress``, owned by *worker_id*, carries
-        no reservation yet, and still stores ``attempt_number ==
-        from_attempt``.  Any concurrent reclaim, lease theft, or competing
-        reservation makes the guard fail and nothing is written.
+        no reservation yet, still stores ``attempt_number == from_attempt``,
+        and no sibling row for the same event-scoped delivery identity already
+        represents that generation (or a newer one).  Any concurrent replay
+        generation, reclaim, lease theft, or competing reservation makes the
+        guard fail and nothing is written.
 
         Returns the reserved attempt number, or ``None`` when the guard
         failed — the caller must not invoke the transport in that case.
@@ -487,7 +594,19 @@ class _OutboxMixin:
                  AND worker_id = ?
                  AND status = 'in_progress'
                  AND active_attempt IS NULL
-                 AND attempt_number = ?""",
+                 AND attempt_number = ?
+                 AND NOT EXISTS (
+                     SELECT 1
+                       FROM delivery_outbox AS sibling
+                      WHERE sibling.outbox_id <> delivery_outbox.outbox_id
+                        AND sibling.event_id = delivery_outbox.event_id
+                        AND sibling.delivery_plan_id = delivery_outbox.delivery_plan_id
+                        AND sibling.target_adapter = delivery_outbox.target_adapter
+                        AND COALESCE(sibling.target_channel, '') =
+                            COALESCE(delivery_outbox.target_channel, '')
+                        AND COALESCE(sibling.active_attempt, sibling.attempt_number) >=
+                            delivery_outbox.attempt_number + 1
+                 )""",
             (now, now, outbox_id, worker_id, from_attempt),
         )
         if rowcount == 1:
@@ -549,10 +668,10 @@ class _OutboxMixin:
             sets.append("attempt_number = ?")
             params.append(attempt_number)
             sets.append("active_attempt = NULL")
-        elif new_status in TERMINAL_OUTBOX_STATUSES:
-            # Terminal rows never keep a live reservation.  When a dispatch
-            # was in flight (abandonment, cancellation, suppression), the
-            # reserved attempt is the one that ran — record it as final.
+        elif new_status != "in_progress":
+            # Any transition out of in_progress ends the dispatch reservation.
+            # Preserve the reserved generation as the finalized attempt and
+            # clear active_attempt atomically so the SQLite CHECK remains true.
             sets.append("attempt_number = COALESCE(active_attempt, attempt_number)")
             sets.append("active_attempt = NULL")
         if failure_kind is not None:
@@ -739,6 +858,10 @@ class _OutboxMixin:
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        attempt_number: int | None = None,
+        expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``cancelled`` (terminal).
 
@@ -754,7 +877,11 @@ class _OutboxMixin:
                 "retry_wait",
                 "queued",
             ),  # transition guard — intentionally literal
+            receipt_id=receipt_id,
+            attempt_number=attempt_number,
+            failure_kind=failure_kind,
             error_summary=error_summary,
+            expected_worker_id=expected_worker_id,
         )
 
     async def mark_outbox_abandoned(
@@ -762,6 +889,8 @@ class _OutboxMixin:
         outbox_id: str,
         error_summary: str | None = None,
         receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        attempt_number: int | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
@@ -779,6 +908,8 @@ class _OutboxMixin:
                 "queued",
             ),  # transition guard — intentionally literal
             receipt_id=receipt_id,
+            attempt_number=attempt_number,
+            failure_kind=failure_kind,
             error_summary=error_summary,
             expected_worker_id=expected_worker_id,
         )
@@ -829,7 +960,7 @@ class _OutboxMixin:
         if release_status not in CLAIMABLE_OUTBOX_STATUSES:
             raise ValueError(f"Invalid release_status: {release_status!r}")
 
-        _release_sql = "UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status = 'in_progress'"  # nosec B608 - status is hardcoded literal
+        _release_sql = "UPDATE delivery_outbox SET locked_at = NULL, lease_until = NULL, worker_id = NULL, attempt_number = COALESCE(active_attempt, attempt_number), active_attempt = NULL, status = ?, updated_at = ? WHERE outbox_id = ? AND worker_id = ? AND status = 'in_progress'"  # nosec B608 - status is hardcoded literal
         await self._write(
             _release_sql,
             (

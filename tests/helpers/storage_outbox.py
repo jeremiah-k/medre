@@ -27,6 +27,7 @@ appropriate ``mark_outbox_*`` transition method.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from medre.core.events import (
@@ -118,6 +119,110 @@ async def store_native_ref_with_parent(
     await storage.store_native_ref(ref)
 
 
+def _same_outbox_identity(left: DeliveryOutboxItem, right: DeliveryOutboxItem) -> bool:
+    """Return whether two rows belong to the same event-scoped delivery identity."""
+    return (
+        left.event_id == right.event_id
+        and left.delivery_plan_id == right.delivery_plan_id
+        and left.target_adapter == right.target_adapter
+        and (left.target_channel or None) == (right.target_channel or None)
+    )
+
+
+def _effective_outbox_attempt(item: DeliveryOutboxItem) -> int:
+    """Return the generation represented by an outbox row."""
+    return (
+        item.active_attempt if item.active_attempt is not None else item.attempt_number
+    )
+
+
+def allocate_new_outbox_generation(
+    items: dict[str, DeliveryOutboxItem],
+    candidate: DeliveryOutboxItem,
+) -> DeliveryOutboxItem:
+    """Allocate one fresh generation above all effective sibling attempts.
+
+    This mirrors SQLite's atomic replay allocator for in-memory test stores.
+    The caller is responsible for storing the returned row.
+    """
+    if candidate.active_attempt is not None:
+        raise ValueError("allocate_new_generation requires active_attempt=None")
+
+    max_attempt = 0
+    for existing in items.values():
+        if _same_outbox_identity(existing, candidate):
+            max_attempt = max(max_attempt, _effective_outbox_attempt(existing))
+    return replace(candidate, attempt_number=max_attempt + 1, active_attempt=None)
+
+
+def find_existing_outbox_generation(
+    items: dict[str, DeliveryOutboxItem],
+    candidate: DeliveryOutboxItem,
+) -> DeliveryOutboxItem | None:
+    """Mirror SQLite create-time generation reuse for in-memory fakes.
+
+    A finalized ``attempt_number`` or live ``active_attempt`` already represents
+    that generation.  Returning the existing row prevents a replay create from
+    manufacturing a sibling generation that a live retry has already reserved.
+
+    Claimable rows (``pending`` / ``retry_wait``) are reclaimed exactly as
+    SQLite's create transaction does: status, worker, and lease adopt the
+    candidate's values and stale scheduling/reservation state clears.
+    """
+    for existing in items.values():
+        if not _same_outbox_identity(existing, candidate):
+            continue
+        if candidate.attempt_number in {
+            existing.attempt_number,
+            existing.active_attempt,
+        }:
+            if existing.status in ("pending", "retry_wait"):
+                object.__setattr__(existing, "status", candidate.status or "pending")
+                object.__setattr__(existing, "worker_id", candidate.worker_id)
+                object.__setattr__(existing, "locked_at", candidate.locked_at)
+                object.__setattr__(existing, "lease_until", candidate.lease_until)
+                object.__setattr__(existing, "next_attempt_at", None)
+                object.__setattr__(existing, "active_attempt", None)
+            return existing
+    return None
+
+
+def reserve_guarded_outbox_attempt(
+    items: dict[str, DeliveryOutboxItem],
+    outbox_id: str,
+    worker_id: str,
+    from_attempt: int,
+) -> int | None:
+    """Mirror SQLite's sibling-aware guarded attempt reservation.
+
+    The next generation may be reserved only by the claimed row and only when
+    no sibling row for the same event-scoped delivery identity already
+    represents that generation or a newer one.  This keeps in-memory lifecycle
+    fakes aligned with the production replay/retry collision fence.
+    """
+    item = items.get(outbox_id)
+    if (
+        item is None
+        or item.status != "in_progress"
+        or item.worker_id != worker_id
+        or item.active_attempt is not None
+        or item.attempt_number != from_attempt
+    ):
+        return None
+
+    next_attempt = from_attempt + 1
+    for sibling in items.values():
+        if sibling.outbox_id == item.outbox_id:
+            continue
+        if not _same_outbox_identity(sibling, item):
+            continue
+        if _effective_outbox_attempt(sibling) >= next_attempt:
+            return None
+
+    object.__setattr__(item, "active_attempt", next_attempt)
+    return next_attempt
+
+
 def apply_guarded_outbox_transition(
     item: DeliveryOutboxItem,
     new_status: str,
@@ -167,7 +272,7 @@ def apply_guarded_outbox_transition(
     if attempt_number is not None:
         object.__setattr__(item, "attempt_number", attempt_number)
         object.__setattr__(item, "active_attempt", None)
-    elif new_status in TERMINAL_OUTBOX_STATUSES:
+    elif new_status != "in_progress":
         object.__setattr__(
             item,
             "attempt_number",
@@ -198,4 +303,91 @@ def apply_guarded_outbox_transition(
         object.__setattr__(item, "locked_at", None)
         object.__setattr__(item, "lease_until", None)
         object.__setattr__(item, "worker_id", None)
+    return True
+
+
+def apply_guarded_outbox_terminal(
+    item: DeliveryOutboxItem | None,
+    receipts: list[DeliveryReceipt],
+    receipt: DeliveryReceipt,
+    *,
+    attempt_receipt: DeliveryReceipt | None = None,
+    outbox_id: str,
+    attempt_number: int,
+    terminal_status: str,
+    event_id: str,
+    delivery_plan_id: str,
+    target_adapter: str,
+    target_channel: str | None,
+    failure_kind: str | None = None,
+    error_summary: str | None = None,
+    expected_worker_id: str | None = None,
+) -> bool:
+    """Mirror SQLite's guarded atomic terminal finalization for test fakes.
+
+    Validation happens before the outbox guard, matching the concrete storage
+    API. When the guard rejects, neither immutable receipts nor mutable outbox
+    authority changes. A committed transition clears the same retry and claim
+    metadata as SQLite in the terminal transaction.
+    """
+    if terminal_status not in {"dead_lettered", "cancelled", "abandoned"}:
+        raise ValueError("unsupported terminal_status")
+    if receipt.receipt_kind != "lifecycle" or receipt.status != terminal_status:
+        raise ValueError("terminal finalization requires matching lifecycle evidence")
+    if (
+        receipt.outbox_id != outbox_id
+        or receipt.event_id != event_id
+        or receipt.delivery_plan_id != delivery_plan_id
+        or receipt.target_adapter != target_adapter
+        or (receipt.target_channel or None) != (target_channel or None)
+        or receipt.attempt_number != attempt_number
+        or attempt_number < 1
+    ):
+        raise ValueError("terminal lifecycle receipt identity mismatch")
+
+    if attempt_receipt is not None and (
+        attempt_receipt.receipt_kind != "attempt"
+        or attempt_receipt.status != "failed"
+        or attempt_receipt.event_id != receipt.event_id
+        or attempt_receipt.delivery_plan_id != receipt.delivery_plan_id
+        or attempt_receipt.target_adapter != receipt.target_adapter
+        or (attempt_receipt.target_channel or None) != (receipt.target_channel or None)
+        or attempt_receipt.outbox_id != receipt.outbox_id
+        or attempt_receipt.attempt_number != receipt.attempt_number
+        or receipt.parent_receipt_id != attempt_receipt.receipt_id
+    ):
+        raise ValueError("terminal lifecycle receipt must link to failed attempt")
+
+    effective_attempt = (
+        item.active_attempt
+        if item is not None and item.active_attempt is not None
+        else item.attempt_number if item is not None else None
+    )
+    if (
+        item is None
+        or item.outbox_id != outbox_id
+        or item.event_id != event_id
+        or item.delivery_plan_id != delivery_plan_id
+        or item.target_adapter != target_adapter
+        or (item.target_channel or None) != (target_channel or None)
+        or item.status not in {"queued", "in_progress"}
+        or effective_attempt != attempt_number
+        or (expected_worker_id is not None and item.worker_id != expected_worker_id)
+    ):
+        return False
+
+    if attempt_receipt is not None:
+        receipts.append(attempt_receipt)
+    receipts.append(receipt)
+    object.__setattr__(item, "status", terminal_status)
+    object.__setattr__(item, "attempt_number", attempt_number)
+    object.__setattr__(item, "active_attempt", None)
+    object.__setattr__(item, "receipt_id", receipt.receipt_id)
+    object.__setattr__(item, "failure_kind", failure_kind)
+    object.__setattr__(item, "failure_kind_detail", None)
+    object.__setattr__(item, "error_summary", error_summary)
+    object.__setattr__(item, "next_attempt_at", None)
+    object.__setattr__(item, "worker_id", None)
+    object.__setattr__(item, "locked_at", None)
+    object.__setattr__(item, "lease_until", None)
     return True

@@ -297,9 +297,10 @@ class Test50MessageMixedDeterministicSession:
             rcpts = await temp_storage._read_all(
                 "SELECT target_adapter, status FROM delivery_receipts ORDER BY sequence"
             )
-            assert len(rcpts) == 125
+            assert len(rcpts) == 130
             assert sum(1 for r in rcpts if r["status"] == "sent") == 120
             assert sum(1 for r in rcpts if r["status"] == "failed") == 5
+            assert sum(1 for r in rcpts if r["status"] == "dead_lettered") == 5
 
             # Per-target
             mesh_r = [r for r in rcpts if r["target_adapter"] == MESH_ID]
@@ -308,16 +309,19 @@ class Test50MessageMixedDeterministicSession:
             mx_r = [r for r in rcpts if r["target_adapter"] == MX_ID]
 
             assert len(mesh_r) == 40 and all(r["status"] == "sent" for r in mesh_r)
-            assert len(mc_r) == 40
+            assert len(mc_r) == 45
             assert sum(1 for r in mc_r if r["status"] == "sent") == 35
             assert sum(1 for r in mc_r if r["status"] == "failed") == 5
+            assert sum(1 for r in mc_r if r["status"] == "dead_lettered") == 5
             assert len(lxmf_r) == 40 and all(r["status"] == "sent" for r in lxmf_r)
             assert len(mx_r) == 5 and all(r["status"] == "sent" for r in mx_r)
 
-            # No duplicate (event_id, target_adapter) pairs
+            # No duplicate dispatch attempt identities; lifecycle evidence
+            # intentionally shares the event/target with the failed attempt.
             dupes = await temp_storage._read_all(
-                "SELECT event_id, target_adapter, COUNT(*) c "
-                "FROM delivery_receipts GROUP BY event_id, target_adapter HAVING c > 1"
+                "SELECT event_id, target_adapter, attempt_number, COUNT(*) c "
+                "FROM delivery_receipts WHERE receipt_kind = 'attempt' "
+                "GROUP BY event_id, target_adapter, attempt_number HAVING c > 1"
             )
             assert len(dupes) == 0
 

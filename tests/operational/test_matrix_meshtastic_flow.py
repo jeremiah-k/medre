@@ -61,7 +61,13 @@ from medre.core.storage.backend import (
     StorageError,
 )
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
-from tests.helpers.storage_outbox import apply_guarded_outbox_transition
+from tests.helpers.storage_outbox import (
+    allocate_new_outbox_generation,
+    apply_guarded_outbox_terminal,
+    apply_guarded_outbox_transition,
+    find_existing_outbox_generation,
+    reserve_guarded_outbox_attempt,
+)
 
 # ---------------------------------------------------------------------------
 # Local fakes / helpers
@@ -164,14 +170,14 @@ class _FakeStorage:
         delivery_plan_id: str,
         target_adapter: str,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> list[DeliveryReceipt]:
         return [
             receipt
             for receipt in self._receipts
             if receipt.delivery_plan_id == delivery_plan_id
             and receipt.target_adapter == target_adapter
-            and (event_id is None or receipt.event_id == event_id)
+            and receipt.event_id == event_id
         ]
 
     async def query_receipts(self, **kwargs: Any) -> list[DeliveryReceipt]:
@@ -191,7 +197,18 @@ class _FakeStorage:
 
     # -- Outbox stubs for queued→sent correlation tests --
 
-    async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
+    async def create_outbox_item(
+        self,
+        item: DeliveryOutboxItem,
+        *,
+        allocate_new_generation: bool = False,
+    ) -> DeliveryOutboxItem:
+        if allocate_new_generation:
+            item = allocate_new_outbox_generation(self._outbox, item)
+        else:
+            existing = find_existing_outbox_generation(self._outbox, item)
+            if existing is not None:
+                return existing
         self._outbox[item.outbox_id] = item
         return item
 
@@ -204,17 +221,9 @@ class _FakeStorage:
         worker_id: str,
         from_attempt: int,
     ) -> int | None:
-        item = self._outbox.get(outbox_id)
-        if (
-            item is None
-            or item.status != "in_progress"
-            or item.worker_id != worker_id
-            or item.active_attempt is not None
-            or item.attempt_number != from_attempt
-        ):
-            return None
-        object.__setattr__(item, "active_attempt", from_attempt + 1)
-        return from_attempt + 1
+        return reserve_guarded_outbox_attempt(
+            self._outbox, outbox_id, worker_id, from_attempt
+        )
 
     async def renew_outbox_lease(
         self,
@@ -322,6 +331,10 @@ class _FakeStorage:
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        attempt_number: int | None = None,
+        expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
         if item is None:
@@ -330,6 +343,10 @@ class _FakeStorage:
             item,
             "cancelled",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            attempt_number=attempt_number,
+            receipt_id=receipt_id,
+            failure_kind=failure_kind,
+            expected_worker_id=expected_worker_id,
             error_summary=error_summary,
         )
 
@@ -338,6 +355,8 @@ class _FakeStorage:
         outbox_id: str,
         error_summary: str | None = None,
         receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        attempt_number: int | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         item = self._outbox.get(outbox_id)
@@ -347,9 +366,44 @@ class _FakeStorage:
             item,
             "abandoned",
             allowed_from=("pending", "in_progress", "retry_wait", "queued"),
+            attempt_number=attempt_number,
             receipt_id=receipt_id,
+            failure_kind=failure_kind,
             expected_worker_id=expected_worker_id,
             error_summary=error_summary,
+        )
+
+    async def finalize_outbox_terminal(
+        self,
+        receipt: DeliveryReceipt,
+        *,
+        attempt_receipt: DeliveryReceipt | None = None,
+        outbox_id: str,
+        attempt_number: int,
+        terminal_status: str,
+        event_id: str,
+        delivery_plan_id: str,
+        target_adapter: str,
+        target_channel: str | None,
+        failure_kind: str | None = None,
+        error_summary: str | None = None,
+        expected_worker_id: str | None = None,
+    ) -> bool:
+        return apply_guarded_outbox_terminal(
+            self._outbox.get(outbox_id),
+            self._receipts,
+            receipt,
+            attempt_receipt=attempt_receipt,
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+            terminal_status=terminal_status,
+            event_id=event_id,
+            delivery_plan_id=delivery_plan_id,
+            target_adapter=target_adapter,
+            target_channel=target_channel,
+            failure_kind=failure_kind,
+            error_summary=error_summary,
+            expected_worker_id=expected_worker_id,
         )
 
     async def finalize_queued_delivery(

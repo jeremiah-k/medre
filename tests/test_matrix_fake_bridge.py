@@ -52,6 +52,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.async_utils import wait_until
+from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 
 # ---------------------------------------------------------------------------
@@ -782,8 +783,7 @@ class TestMatrixBridgeErrorTaxonomy:
                 "SELECT * FROM delivery_receipts WHERE target_adapter = ?",
                 ("matrix-trans-out",),
             )
-            assert len(rows) == 1
-            assert rows[0]["status"] == "failed"
+            assert_terminal_failure_pair(rows)
         finally:
             await fake_in.stop()
             await matrix_out.stop()
@@ -839,8 +839,7 @@ class TestMatrixBridgeErrorTaxonomy:
                 "SELECT * FROM delivery_receipts WHERE target_adapter = ?",
                 ("matrix-perm-out",),
             )
-            assert len(rows) == 1
-            assert rows[0]["status"] == "failed"
+            assert_terminal_failure_pair(rows)
         finally:
             await fake_in.stop()
             await matrix_out.stop()
@@ -953,8 +952,7 @@ class TestMatrixBridgeNoChannelFallback:
                 "SELECT * FROM delivery_receipts WHERE target_adapter = ?",
                 ("matrix-noroom-out",),
             )
-            assert len(rows) == 1
-            assert rows[0]["status"] == "failed"
+            assert_terminal_failure_pair(rows)
         finally:
             await fake_in.stop()
             await matrix_out.stop()
@@ -1062,14 +1060,14 @@ class TestMatrixBridgeNoChannelFallback:
             )
             await fake_in.simulate_inbound(event)
 
-            # Exactly one receipt for the single declared target
+            # Exactly one terminal evidence chain for the single declared target
             rows = await temp_storage._read_all(
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 (event.event_id,),
             )
-            assert len(rows) == 1
-            assert rows[0]["status"] == "failed"
-            assert rows[0]["target_adapter"] == "matrix-phantom-out"
+            attempt, lifecycle = assert_terminal_failure_pair(rows)
+            assert attempt["target_adapter"] == "matrix-phantom-out"
+            assert lifecycle["target_adapter"] == "matrix-phantom-out"
         finally:
             await fake_in.stop()
             await matrix_out.stop()

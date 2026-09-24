@@ -562,7 +562,7 @@ The fallback chain is part of the `DeliveryPlan`. It is constructed at planning 
 
 ### 7.1 Opt-In
 
-Retry is **opt-in** — it is disabled by default. The `RetryWorker` only activates when a `RetryPolicy` is configured on the route or delivery plan. Without a `RetryPolicy`, transient failures are not automatically retried; they remain as `failed` receipts.
+Retry is **opt-in** — it is disabled by default. The `RetryWorker` only activates when a `RetryPolicy` is configured on the route or delivery plan. Without a `RetryPolicy`, transient failures are not automatically retried: the `failed` attempt receipt is followed by linked `dead_lettered` lifecycle evidence at the same attempt number.
 
 ### 7.2 Auto-Retried Failures
 
@@ -591,7 +591,7 @@ A non-retryable failure discovered during a retry attempt is terminal immediatel
    contribution is clamped to a 30-day scheduling maximum so an absurd hint cannot
    produce an unrepresentable timestamp. The hint cannot shorten policy backoff,
    bypass retry exhaustion, or make a permanent failure retryable.
-2. `RetryWorker` claims due outbox rows through `claim_due_outbox_items()`, loads the canonical event, reads the lifecycle-authoritative delivery status, and reconstructs the original delivery context from durable outbox metadata plus prior receipt evidence. Its direct storage surface is intentionally limited to claim/read operations; it does not inspect failure/dead-letter receipt chains or write durable lifecycle state directly. Reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, `target_identity`, `capability_level`, `delivery_strategy`, `capability_field`, `capability_reason`, and `deadline`. The route-decision keys are required durable state; missing or malformed values fail reconstruction and are abandoned rather than silently re-planned or defaulted.
+2. `RetryWorker` claims due current-generation outbox rows through `claim_due_outbox_items()`; older rows are not claimable once a sibling row represents the same or a newer effective attempt. The worker loads the canonical event, reads the lifecycle-authoritative delivery status, and reconstructs the original delivery context from durable outbox metadata plus prior receipt evidence. Its direct storage surface is intentionally limited to claim/read operations; it does not inspect failure/dead-letter receipt chains or write durable lifecycle state directly. Reconstruction preserves the original `delivery_plan_id`, `route_id`, `target_adapter`, `target_channel`, `target_identity`, `capability_level`, `delivery_strategy`, `capability_field`, `capability_reason`, and `deadline`. The route-decision keys are required durable state; missing or malformed values fail reconstruction and are abandoned rather than silently re-planned or defaulted.
 3. Before capacity acquisition or transport dispatch, the worker calls
    `DeliveryLifecycleService.reconcile_retry_claim()`. When the claimed row
    carries a live `active_attempt` reservation, this preflight inspects only
@@ -622,7 +622,7 @@ A non-retryable failure discovered during a retry attempt is terminal immediatel
 7. If delivery raises, `DeliveryLifecycleService` is the sole durable retry-classification authority. It resolves evidence for the current outbox attempt using `outbox_id` plus exact attempt/target/lineage correlation, then commits exactly one resulting outbox transition. Current-attempt receipt classification overrides generic exception inference when both exist.
 8. Durable `queued` or `sent` evidence wins over an exception raised later in the same delivery call and suppresses an immediate resend. `queued` evidence keeps the outbox non-terminal while it awaits confirmation or stale `queued` to `in_progress` reclaim. Only `sent` evidence finalizes the outbox as accepted. A `suppressed` receipt is finalized as terminal abandonment and is not counted as retry success.
 9. A retryable failure below the attempt limit returns to `retry_wait`. When the failed receipt already persisted `next_retry_at`, the outbox MUST reuse that exact timestamp so receipt evidence and scheduler state cannot drift. If no current-attempt failure receipt exists, lifecycle policy computes the backoff from the attempt number.
-10. A non-retryable current-attempt failure is dead-lettered immediately. A retryable failure at `attempt_number >= max_attempts` is dead-lettered as retry exhaustion. When `deliver_to_target` already appended a linked `dead_lettered` receipt, lifecycle reconciliation preserves that receipt as the terminal evidence link and retains its recorded `failure_kind`, falling back to `retry_exhausted` only when the receipt omits it. Missing or invalid taxonomy on persisted `failed` retry evidence is an invariant violation; reconciliation terminally repairs the outbox as `adapter_permanent` rather than leaving it indefinitely reclaimable.
+10. A non-retryable current-attempt failure is dead-lettered immediately. A retryable failure at `attempt_number >= max_attempts` is dead-lettered as retry exhaustion. Attempt failure and lifecycle terminalization keep the same dispatch attempt number: `failed` records the execution result, while linked `dead_lettered` lifecycle evidence records the state transition. The failed attempt receipt is immutable dispatch evidence and is already durable when retry finalization runs; for outbox-backed terminalization, the linked lifecycle-authority receipt and the guarded terminal outbox pointer/state transition commit atomically. Recovery may instead encounter lifecycle evidence that was already persisted before a crash and then repairs only the guarded outbox pointer. Missing or invalid taxonomy on persisted `failed` retry evidence is an invariant violation; reconciliation terminally repairs the outbox as `adapter_permanent` rather than leaving it indefinitely reclaimable.
 11. Evidence lookup and lifecycle persistence failures propagate out of
     `DeliveryLifecycleService`. Guarded transition rejection (stale attempt or
     lost claim ownership) is distinct from an I/O failure and is treated as a
@@ -686,7 +686,11 @@ class DeliveryReceipt:
     target_adapter: str = ""               # Name of the target adapter
     target_channel: str | None = None      # Target channel/room from RouteTarget
     route_id: str = ""                     # Route that produced this delivery
-    status: Literal["queued", "sent", "suppressed", "failed", "dead_lettered"] = "queued"
+    status: Literal[
+        "queued", "sent", "failed", "dead_lettered",
+        "cancelled", "abandoned", "suppressed"
+    ] = "queued"
+    receipt_kind: Literal["attempt", "lifecycle"] | None = None
     error: str | None = None               # Error message if delivery failed
     failure_kind: str | None = None        # DeliveryFailureKind value
     adapter_message_id: str | None = None  # Platform-specific message ID
@@ -706,15 +710,17 @@ class DeliveryReceipt:
     created_at: datetime = ...             # Timestamp when this receipt was created
 ```
 
-Receipt status is a string literal constrained to five values:
+Receipt status is a closed vocabulary paired with an evidence kind:
 
-| Status          | Meaning                                                                           |
-| --------------- | --------------------------------------------------------------------------------- |
-| `queued`        | Delivery enqueued for adapter execution                                           |
-| `sent`          | Adapter reported successful handoff                                               |
-| `suppressed`    | Post-planning direct-call suppression. MAY be recorded for defense-in-depth audit |
-| `failed`        | Delivery attempt failed                                                           |
-| `dead_lettered` | All retries exhausted; final terminal state                                       |
+| Status          | Kind      | Meaning                                             |
+| --------------- | --------- | --------------------------------------------------- |
+| `queued`        | attempt   | Delivery enqueued for adapter execution             |
+| `sent`          | attempt   | Adapter reported successful handoff                 |
+| `failed`        | attempt   | Delivery attempt failed                             |
+| `dead_lettered` | lifecycle | Delivery became terminally undeliverable            |
+| `cancelled`     | lifecycle | Delivery was explicitly cancelled                   |
+| `abandoned`     | lifecycle | Durable delivery execution was abandoned            |
+| `suppressed`    | lifecycle | Delivery was suppressed without a transport attempt |
 
 ### 8.2 Append-Only Semantics
 
@@ -736,6 +742,7 @@ CREATE TABLE delivery_receipts (
     target_channel TEXT,
     route_id TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
+    receipt_kind TEXT NOT NULL,
     error TEXT,
     failure_kind TEXT,
     adapter_message_id TEXT,
@@ -789,11 +796,12 @@ For the full rendering evidence semantics, payload vs evidence distinction, and 
 | `attempt_number`    | `int` (default `1`)            | 1-indexed attempt number. First attempt = 1.                   |
 | `parent_receipt_id` | `str \| None` (default `None`) | Receipt ID of the preceding attempt. `None` for first attempt. |
 
-When retries are exhausted, the receipt chain ends with a `dead_lettered` receipt:
+When a terminal lifecycle transition is caused by an attempt, it preserves the
+causative attempt number instead of inventing another dispatch generation:
 
 ```text
-rcpt-1 (attempt=1, parent=None, status=failed)
-  └→ rcpt-2 (attempt=2, parent=rcpt-1, status=dead_lettered)
+rcpt-1 (kind=attempt,   attempt=1, parent=None,   status=failed)
+  └→ rcpt-2 (kind=lifecycle, attempt=1, parent=rcpt-1, status=dead_lettered)
 ```
 
 ### 8.5 Queued-to-Sent Receipt Correlation

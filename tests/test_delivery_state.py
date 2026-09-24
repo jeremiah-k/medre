@@ -43,7 +43,15 @@ from medre.core.engine.pipeline.delivery_state import (
 class TestReceiptStatuses:
     """RECEIPT_STATUSES contains exactly the expected receipt statuses."""
 
-    EXPECTED = {"queued", "sent", "failed", "dead_lettered", "suppressed"}
+    EXPECTED = {
+        "queued",
+        "sent",
+        "failed",
+        "dead_lettered",
+        "cancelled",
+        "abandoned",
+        "suppressed",
+    }
 
     def test_all_present(self) -> None:
         assert RECEIPT_STATUSES == self.EXPECTED
@@ -123,7 +131,13 @@ class TestAdapterDeliveryStatuses:
 class TestTerminalReceiptStatus:
     """TERMINAL_RECEIPT_STATUSES and is_terminal_receipt_status."""
 
-    EXPECTED_TERMINAL = {"sent", "dead_lettered", "suppressed"}
+    EXPECTED_TERMINAL = {
+        "sent",
+        "dead_lettered",
+        "cancelled",
+        "abandoned",
+        "suppressed",
+    }
     EXPECTED_NON_TERMINAL = {"queued", "failed"}
 
     def test_terminal_set(self) -> None:
@@ -247,11 +261,14 @@ class TestReceiptTransitions:
     def test_suppressed_has_no_outgoing(self) -> None:
         assert validate_receipt_transition("suppressed", "sent") is False
 
-    def test_queued_to_failed_invalid(self) -> None:
-        assert validate_receipt_transition("queued", "failed") is False
+    @pytest.mark.parametrize("status", ["failed", "cancelled", "abandoned"])
+    def test_queued_terminal_callback_edges(self, status: str) -> None:
+        assert validate_receipt_transition("queued", status) is True
 
-    def test_failed_to_sent_invalid(self) -> None:
-        assert validate_receipt_transition("failed", "sent") is False
+    def test_failed_to_sent_is_a_retry_success(self) -> None:
+        # A retry attempt after a failed attempt legitimately produces sent
+        # attempt evidence in the same receipt chain.
+        assert validate_receipt_transition("failed", "sent") is True
 
     def test_unknown_source_returns_false(self) -> None:
         assert validate_receipt_transition("unknown", "sent") is False

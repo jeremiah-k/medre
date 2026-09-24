@@ -40,7 +40,13 @@ def _make_plan(
 def _make_receipt(
     receipt_id: str = "rcpt-001",
     status: Literal[
-        "queued", "sent", "failed", "dead_lettered", "suppressed"
+        "queued",
+        "sent",
+        "failed",
+        "dead_lettered",
+        "cancelled",
+        "abandoned",
+        "suppressed",
     ] = "failed",
     attempt_number: int = 1,
     event_id: str = "evt-001",

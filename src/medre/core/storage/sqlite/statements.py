@@ -52,12 +52,12 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 _INSERT_RECEIPT = """
 INSERT INTO delivery_receipts
     (receipt_id, event_id, delivery_plan_id, target_adapter,
-     target_channel, route_id, status, error, failure_kind, adapter_message_id,
+     target_channel, route_id, status, receipt_kind, error, failure_kind, adapter_message_id,
      next_retry_at, attempt_number, parent_receipt_id, source,
      replay_run_id, retry_max_attempts, retry_backoff_base,
      retry_max_delay, retry_jitter, rendering_evidence, outbox_id,
      confirmation_level, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _FINALIZE_QUEUED_OUTBOX_SENT = """
@@ -96,9 +96,12 @@ SET status = ?,
     error_summary = ?
 WHERE outbox_id = ?
   AND event_id = ?
+  AND delivery_plan_id = ?
   AND target_adapter = ?
+  AND target_channel IS ?
   AND ? = COALESCE(active_attempt, attempt_number)
   AND status IN ('queued', 'in_progress')
+  AND (? IS NULL OR worker_id = ?)
 """
 
 
@@ -133,44 +136,34 @@ SELECT event_id FROM native_message_refs
 WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
 """
 
-_DELIVERY_RECEIPT_LATEST_BY_CHANNEL = """
-SELECT r.* FROM delivery_receipts r
-WHERE r.delivery_plan_id = ? AND r.target_adapter = ?
-  AND r.target_channel IS ?
-  AND (
-      r.outbox_id IS NULL
-      OR EXISTS (
-          SELECT 1
-          FROM delivery_outbox o
-          WHERE o.outbox_id = r.outbox_id
-            AND o.receipt_id = r.receipt_id
-      )
-  )
-ORDER BY r.sequence DESC
-LIMIT 1
-"""
-
 _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL = """
-SELECT r.* FROM delivery_receipts r
-WHERE r.event_id = ? AND r.delivery_plan_id = ? AND r.target_adapter = ?
-  AND r.target_channel IS ?
-  AND (
-      r.outbox_id IS NULL
-      OR EXISTS (
-          SELECT 1
-          FROM delivery_outbox o
-          WHERE o.outbox_id = r.outbox_id
-            AND o.receipt_id = r.receipt_id
-      )
-  )
-ORDER BY r.sequence DESC
+WITH outbox_current AS (
+    SELECT r.*
+    FROM delivery_receipts r
+    JOIN delivery_outbox o
+      ON o.outbox_id = r.outbox_id
+     AND o.receipt_id = r.receipt_id
+    WHERE r.event_id = ? AND r.delivery_plan_id = ? AND r.target_adapter = ?
+      AND r.target_channel IS ?
+    ORDER BY o.attempt_number DESC, r.sequence DESC
+    LIMIT 1
+),
+outboxless_current AS (
+    SELECT r.*
+    FROM delivery_receipts r
+    WHERE r.event_id = ? AND r.delivery_plan_id = ? AND r.target_adapter = ?
+      AND r.target_channel IS ? AND r.outbox_id IS NULL
+    ORDER BY r.sequence DESC
+    LIMIT 1
+),
+candidates AS (
+    SELECT * FROM outbox_current
+    UNION ALL
+    SELECT * FROM outboxless_current
+)
+SELECT * FROM candidates
+ORDER BY sequence DESC
 LIMIT 1
-"""
-
-_SELECT_RECEIPTS_FOR_PLAN = """
-SELECT * FROM delivery_receipts
-WHERE delivery_plan_id = ? AND target_adapter = ?
-ORDER BY attempt_number ASC, sequence ASC
 """
 
 _SELECT_RECEIPTS_FOR_EVENT_PLAN = """

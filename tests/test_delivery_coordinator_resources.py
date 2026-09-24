@@ -10,6 +10,7 @@ import msgspec
 import pytest
 
 from medre.core.engine.pipeline import PipelineRunner
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.engine.pipeline.target_delivery import _AdapterDeliveryError
@@ -97,23 +98,28 @@ def _runner_with_receipt_result(
             skip_reason=None,
         )
 
-    async def _deliver(*args: object, **kwargs: object) -> DeliveryReceipt:
+    async def _deliver(*args: object, **kwargs: object) -> DeliveryExecutionEvidence:
+        evidence = DeliveryExecutionEvidence(
+            attempt_receipt=candidate,
+            failure_kind=failure_kind,
+            error="simulated send failure" if failure_kind is not None else None,
+        )
         if failure_kind is not None:
             raise _AdapterDeliveryError(
                 "target",
                 "simulated send failure",
-                failure_kind=failure_kind,
-                receipt=candidate,
+                evidence=evidence,
             )
-        return candidate
+        return evidence
 
     async def _finalize(*args: object, **kwargs: object) -> None:
-        finalized_receipts.append(cast(DeliveryReceipt | None, args[1]))
+        evidence = cast(DeliveryExecutionEvidence, args[1])
+        finalized_receipts.append(evidence.current_receipt)
 
     runner._outbox_manager.create_for_delivery = _create_outbox  # type: ignore[assignment]
     runner._outbox_manager.start_lease_renewal = lambda _ctx: None  # type: ignore[assignment]
     runner._outbox_manager.finalize_outcome = _finalize  # type: ignore[assignment]
-    runner.deliver_to_target = _deliver  # type: ignore[assignment]
+    runner.deliver_execution_to_target = _deliver  # type: ignore[assignment]
     return runner, finalized_receipts
 
 
@@ -159,14 +165,16 @@ async def test_capacity_release_survives_outbox_finalization_failure(
     async def _deliver(event, route, plan, **kwargs):
         order.append("deliver")
         assert runner._inflight_deliveries
-        return build_delivery_receipt(
-            event_id=event.event_id,
-            delivery_plan_id=plan.plan_id,
-            target_adapter=plan.target.adapter or "",
-            target_channel=plan.target.channel,
-            route_id=route.id,
-            status="sent",
-            outbox_id=kwargs["outbox_id"],
+        return DeliveryExecutionEvidence(
+            attempt_receipt=build_delivery_receipt(
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=plan.target.adapter or "",
+                target_channel=plan.target.channel,
+                route_id=route.id,
+                status="sent",
+                outbox_id=kwargs["outbox_id"],
+            )
         )
 
     async def _cancel_renewal(_task: object) -> None:
@@ -185,7 +193,7 @@ async def test_capacity_release_survives_outbox_finalization_failure(
     runner._outbox_manager.create_for_delivery = _create_outbox  # type: ignore[assignment]
     runner._outbox_manager.start_lease_renewal = lambda _ctx: None  # type: ignore[assignment]
     runner._outbox_manager.finalize_outcome = _finalize  # type: ignore[assignment]
-    runner.deliver_to_target = _deliver  # type: ignore[assignment]
+    runner.deliver_execution_to_target = _deliver  # type: ignore[assignment]
     monkeypatch.setattr(OutboxManager, "cancel_renewal", staticmethod(_cancel_renewal))
     monkeypatch.setattr(capacity, "release_delivery", _release)
 
@@ -214,14 +222,16 @@ async def test_delivery_without_capacity_controller_is_not_tracked_as_inflight(
 
     async def _deliver(event, route, plan, **kwargs):
         assert runner._inflight_deliveries == {}
-        return build_delivery_receipt(
-            event_id=event.event_id,
-            delivery_plan_id=plan.plan_id,
-            target_adapter=plan.target.adapter or "",
-            target_channel=plan.target.channel,
-            route_id=route.id,
-            status="sent",
-            outbox_id=kwargs["outbox_id"],
+        return DeliveryExecutionEvidence(
+            attempt_receipt=build_delivery_receipt(
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=plan.target.adapter or "",
+                target_channel=plan.target.channel,
+                route_id=route.id,
+                status="sent",
+                outbox_id=kwargs["outbox_id"],
+            )
         )
 
     async def _finalize(*args: object, **kwargs: object) -> None:
@@ -230,7 +240,7 @@ async def test_delivery_without_capacity_controller_is_not_tracked_as_inflight(
     runner._outbox_manager.create_for_delivery = _create_outbox  # type: ignore[assignment]
     runner._outbox_manager.start_lease_renewal = lambda _ctx: None  # type: ignore[assignment]
     runner._outbox_manager.finalize_outcome = _finalize  # type: ignore[assignment]
-    runner.deliver_to_target = _deliver  # type: ignore[assignment]
+    runner.deliver_execution_to_target = _deliver  # type: ignore[assignment]
 
     event = make_event(event_id="coordinator-no-capacity", source_adapter="source")
     outcomes = await runner.deliver_to_targets(event, [(_route(), _plan())])
@@ -324,7 +334,7 @@ async def test_capacity_release_targets_the_acquiring_controller_after_rewiring(
     runner._outbox_manager.create_for_delivery = _create_outbox  # type: ignore[assignment]
     runner._outbox_manager.start_lease_renewal = lambda _ctx: None  # type: ignore[assignment]
     runner._outbox_manager.finalize_outcome = _finalize  # type: ignore[assignment]
-    runner.deliver_to_target = _deliver  # type: ignore[assignment]
+    runner.deliver_execution_to_target = _deliver  # type: ignore[assignment]
 
     event = make_event(event_id="coordinator-swap", source_adapter="source")
     task = asyncio.create_task(runner.deliver_to_targets(event, [(_route(), _plan())]))

@@ -337,9 +337,14 @@ class TestTargetScopedFailures:
                 "AND target_adapter = ?",
                 ("no-deliver-001", "no-deliver"),
             )
-            assert len(rows) == 1
+            assert len(rows) == 2
+            assert rows[0]["receipt_kind"] == "attempt"
             assert rows[0]["status"] == "failed"
             assert rows[0]["error"] == "Adapter has no deliver() method"
+            assert rows[1]["receipt_kind"] == "lifecycle"
+            assert rows[1]["status"] == "dead_lettered"
+            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
+            assert rows[1]["attempt_number"] == rows[0]["attempt_number"]
         finally:
             await runner.stop()
 
@@ -401,9 +406,13 @@ class TestTargetScopedFailures:
                 "AND target_adapter = ?",
                 ("shadowed-001", "shadowed"),
             )
-            assert len(rows) == 1
+            assert len(rows) == 2
+            assert rows[0]["receipt_kind"] == "attempt"
             assert rows[0]["status"] == "failed"
             assert rows[0]["error"] == "Adapter has no deliver() method"
+            assert rows[1]["receipt_kind"] == "lifecycle"
+            assert rows[1]["status"] == "dead_lettered"
+            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
         finally:
             await runner.stop()
 
@@ -464,8 +473,12 @@ class TestTargetScopedFailures:
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("render-fail-001",),
             )
-            assert len(rows) == 1
+            assert len(rows) == 2
+            assert rows[0]["receipt_kind"] == "attempt"
             assert rows[0]["status"] == "failed"
+            assert rows[1]["receipt_kind"] == "lifecycle"
+            assert rows[1]["status"] == "dead_lettered"
+            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
         finally:
             await runner.stop()
 
@@ -707,9 +720,13 @@ class TestDeliveryFailureClassification:
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("missing-001",),
             )
-            assert len(rows) == 1
+            assert len(rows) == 2
+            assert rows[0]["receipt_kind"] == "attempt"
             assert rows[0]["status"] == "failed"
             assert "not registered" in (rows[0]["error"] or "")
+            assert rows[1]["receipt_kind"] == "lifecycle"
+            assert rows[1]["status"] == "dead_lettered"
+            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
         finally:
             await runner.stop()
 
@@ -786,9 +803,13 @@ class TestDeliveryFailureClassification:
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("deadline-001",),
             )
-            assert len(rows) == 1
+            assert len(rows) == 2
+            assert rows[0]["receipt_kind"] == "attempt"
             assert rows[0]["status"] == "failed"
             assert "deadline" in (rows[0]["error"] or "").lower()
+            assert rows[1]["receipt_kind"] == "lifecycle"
+            assert rows[1]["status"] == "dead_lettered"
+            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
         finally:
             await runner.stop()
 
@@ -869,9 +890,11 @@ class TestDeadLetter:
                 ("dead-001",),
             )
             assert len(rows) == 2
+            assert rows[0]["receipt_kind"] == "attempt"
             assert rows[0]["status"] == "failed"
+            assert rows[1]["receipt_kind"] == "lifecycle"
             assert rows[1]["status"] == "dead_lettered"
-            assert rows[1]["attempt_number"] == 2
+            assert rows[1]["attempt_number"] == rows[0]["attempt_number"]
             assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
 
             current = await temp_storage.delivery_status(
@@ -901,11 +924,13 @@ class TestDeadLetter:
         finally:
             await runner.stop()
 
-    async def test_no_dead_letter_without_retry_policy(
+    async def test_permanent_failure_dead_letters_without_retry_policy(
         self,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """Without retry_policy, no dead-letter receipt is produced."""
+        """Without retry_policy, a permanent failure still terminalizes through
+        the lifecycle-owned path: failed attempt evidence plus a linked
+        dead-letter lifecycle receipt."""
 
         class _Broken:
             adapter_id = "no-retry"
@@ -945,9 +970,16 @@ class TestDeadLetter:
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("no-retry-001",),
             )
-            # Only one receipt — no dead-letter.
-            assert len(rows) == 1
+            # Permanent failure terminalizes through the lifecycle-owned
+            # path: failed attempt evidence plus a linked dead-letter
+            # lifecycle receipt at the SAME attempt (no phantom attempt).
+            assert len(rows) == 2
+            assert rows[0]["receipt_kind"] == "attempt"
             assert rows[0]["status"] == "failed"
+            assert rows[1]["receipt_kind"] == "lifecycle"
+            assert rows[1]["status"] == "dead_lettered"
+            assert rows[1]["attempt_number"] == rows[0]["attempt_number"]
+            assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
         finally:
             await runner.stop()
 

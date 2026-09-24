@@ -63,6 +63,7 @@ from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.app import MedreApp, RuntimeState
 from medre.runtime.builder import RuntimeBuilder
 from medre.runtime.snapshot import SCHEMA_VERSION, build_runtime_snapshot
+from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 
 # ---------------------------------------------------------------------------
 # Async helpers
@@ -1078,10 +1079,9 @@ class TestRenderingContract:
             assert outcomes[0].failure_kind is not None
             assert "renderer" in (outcomes[0].error or "").lower()
 
-            # Receipt persisted with failed status.
+            # Terminal renderer failure records dispatch evidence and lifecycle authority.
             receipts = await app.storage.list_receipts_for_event(event.event_id)
-            assert len(receipts) == 1
-            assert receipts[0].status == "failed"
+            assert_terminal_failure_pair(receipts, failure_kind="renderer_failure")
         finally:
             await _clean_stop(app)
 

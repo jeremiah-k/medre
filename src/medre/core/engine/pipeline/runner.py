@@ -38,6 +38,7 @@ from medre.core.engine.pipeline.delivery_coordinator import (
     DeliveryCoordinator,
     InflightDelivery,
 )
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
     is_accepted_outcome_status as _is_accepted_outcome_status,
@@ -1483,9 +1484,14 @@ class PipelineRunner:
             Callable[[str], Awaitable[list[NativeMessageRef]]] | None
         ) = None,
         outbox_id: str | None = None,
-    ) -> DeliveryReceipt:
-        """Late-bind target delivery so controlled test hooks remain effective."""
-        return await self.deliver_to_target(
+        reserved_attempt_number: int | None = None,
+    ) -> DeliveryExecutionEvidence:
+        """Late-bind orchestration-facing target execution evidence.
+
+        Keeping this indirection preserves controlled pipeline test hooks while
+        making the coordinator depend only on the structured evidence contract.
+        """
+        return await self.deliver_execution_to_target(
             event,
             route,
             plan,
@@ -1495,6 +1501,7 @@ class PipelineRunner:
             cached_get_fn=cached_get_fn,
             cached_list_fn=cached_list_fn,
             outbox_id=outbox_id,
+            reserved_attempt_number=reserved_attempt_number,
         )
 
     async def _deliver_to_targets_fan_out(
@@ -1519,6 +1526,49 @@ class PipelineRunner:
             cached_list_fn=cached_list_fn,
         )
 
+    async def deliver_execution_to_target(
+        self,
+        event: CanonicalEvent,
+        route: Route,
+        plan: DeliveryPlan,
+        *,
+        previous_receipt: DeliveryReceipt | None = None,
+        source: str = "live",
+        replay_run_id: str | None = None,
+        cached_get_fn: Callable[[str], Awaitable[CanonicalEvent | None]] | None = None,
+        cached_list_fn: (
+            Callable[[str], Awaitable[list[NativeMessageRef]]] | None
+        ) = None,
+        outbox_id: str | None = None,
+        reserved_attempt_number: int | None = None,
+    ) -> DeliveryExecutionEvidence:
+        """Execute one target and return validated immutable evidence.
+
+        Relation enrichment remains runner-owned because it requires pipeline
+        storage/cache access. Rendering, adapter invocation, and evidence
+        construction remain owned by :class:`TargetDeliveryService`.
+        """
+        target = plan.target
+        adapter_id = target.adapter or ""
+        render_event = await self._enrich_relations_for_target(
+            event,
+            target_adapter=adapter_id,
+            target_channel=target.channel,
+            get_fn=cached_get_fn,
+            list_fn=cached_list_fn,
+        )
+        return await self._target_delivery.deliver_execution(
+            event,
+            route,
+            plan,
+            render_event=render_event,
+            previous_receipt=previous_receipt,
+            source=source,
+            replay_run_id=replay_run_id,
+            outbox_id=outbox_id,
+            reserved_attempt_number=reserved_attempt_number,
+        )
+
     async def deliver_to_target(
         self,
         event: CanonicalEvent,
@@ -1535,40 +1585,27 @@ class PipelineRunner:
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
     ) -> DeliveryReceipt:
-        """Deliver *event* to a single target adapter and record the receipt.
+        """Deliver one target and return the primary receipt for lineage callers.
 
-        Performs per-target relation enrichment (resolving target-event IDs
-        to target-adapter native refs) before delegating to
-        :class:`TargetDeliveryService` for rendering, adapter invocation,
-        receipt creation, and native-ref persistence.
-
-        The enriched ``render_event`` is passed to the service so that
-        rendering and adapter delivery use target-specific native refs,
-        while the original *event* identity is preserved for receipts.
-
-        See :meth:`TargetDeliveryService.deliver_to_target` for full
-        documentation of the delivery steps.
+        Retry/replay code intentionally consumes receipt lineage directly. The
+        orchestration path uses :meth:`deliver_execution_to_target` instead.
         """
-        target = plan.target
-        adapter_id = target.adapter or ""
-        render_event = await self._enrich_relations_for_target(
-            event,
-            target_adapter=adapter_id,
-            target_channel=target.channel,
-            get_fn=cached_get_fn,
-            list_fn=cached_list_fn,
-        )
-        return await self._target_delivery.deliver_to_target(
+        evidence = await self.deliver_execution_to_target(
             event,
             route,
             plan,
-            render_event=render_event,
             previous_receipt=previous_receipt,
             source=source,
             replay_run_id=replay_run_id,
+            cached_get_fn=cached_get_fn,
+            cached_list_fn=cached_list_fn,
             outbox_id=outbox_id,
             reserved_attempt_number=reserved_attempt_number,
         )
+        receipt = evidence.primary_receipt
+        if receipt is None:
+            raise RuntimeError("target delivery produced no receipt evidence")
+        return receipt
 
     # -- Internal helpers --------------------------------------------------
 

@@ -379,13 +379,15 @@ Always review the JSON output before sharing. Look for any field containing your
 
 ### Receipt Statuses
 
-| Status          | Meaning                                                                |
-| --------------- | ---------------------------------------------------------------------- |
-| `queued`        | Enqueued for async delivery                                            |
-| `sent`          | Adapter confirmed delivery                                             |
-| `failed`        | Delivery failed — check `failure_kind`                                 |
-| `dead_lettered` | All retries exhausted                                                  |
-| `suppressed`    | Intentionally suppressed (loop prevention, policy, capacity, shutdown) |
+| Status          | Kind      | Meaning                                                               |
+| --------------- | --------- | --------------------------------------------------------------------- |
+| `queued`        | attempt   | Enqueued for async delivery.                                          |
+| `sent`          | attempt   | Adapter confirmed delivery.                                           |
+| `failed`        | attempt   | Dispatch failed — check `failure_kind`; it may still be retryable.    |
+| `dead_lettered` | lifecycle | Retry budget exhausted or delivery became permanently undeliverable.  |
+| `cancelled`     | lifecycle | Delivery was explicitly cancelled.                                    |
+| `abandoned`     | lifecycle | Durable execution was abandoned and must not be redispatched.         |
+| `suppressed`    | lifecycle | Core/runtime suppressed delivery without recording transport success. |
 
 ### Failure Kinds
 

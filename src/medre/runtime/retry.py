@@ -92,12 +92,12 @@ class RetryWorkerStorage(Protocol):
         target_adapter: str,
         target_channel: str | None = None,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> DeliveryReceipt | None:
-        """Return current delivery status for one target, optionally event-scoped.
+        """Return current delivery status for one event-scoped target.
 
-        Retry callers should pass ``event_id`` because plan IDs can recur
-        across events. ``None`` for ``target_channel`` selects the no-channel
+        ``event_id`` is mandatory because plan IDs can recur across events.
+        ``None`` for ``target_channel`` selects the no-channel
         target, not every channel.
         """
         ...
@@ -976,7 +976,11 @@ class RetryWorker:
             self._record_lifecycle_persistence_error(
                 item,
                 lifecycle_exc,
-                attempt_number=item.attempt_number + 1,
+                attempt_number=(
+                    item.active_attempt
+                    if item.active_attempt is not None
+                    else item.attempt_number + 1
+                ),
             )
             return
 

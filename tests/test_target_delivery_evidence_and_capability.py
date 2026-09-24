@@ -15,6 +15,7 @@ import pytest
 
 from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
+    AdapterSendError,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.target_delivery import (
@@ -430,14 +431,14 @@ class TestDeadLetterOnExhaustedRetry:
         primary = storage.receipts[0]
         dead_letter = storage.receipts[1]
         assert dead_letter.parent_receipt_id == primary.receipt_id
-        assert dead_letter.attempt_number == primary.attempt_number + 1
+        assert dead_letter.attempt_number == primary.attempt_number
         assert dead_letter.target_adapter == "test_adapter"
 
     async def test_no_dead_letter_when_retries_remain(self) -> None:
         """Retry policy with remaining attempts does NOT produce a dead-letter."""
         from medre.core.planning.delivery_plan import RetryPolicy
 
-        adapter = _FakeAdapter(error=RuntimeError("transient"))
+        adapter = _FakeAdapter(error=AdapterSendError("transient", transient=True))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -659,9 +660,15 @@ class TestInvalidCapabilityDecision:
         assert err.receipt is not None
         assert err.receipt.failure_kind == DeliveryFailureKind.PLANNER_FAILURE.value
         assert err.receipt.status == "failed"
-        # Receipt was persisted.
-        assert len(storage.receipts) == 1
+        # Planner failure is normalized as attempt evidence followed by
+        # terminal lifecycle authority at the same attempt number.
+        assert len(storage.receipts) == 2
         assert storage.receipts[0] is err.receipt
+        lifecycle = storage.receipts[1]
+        assert lifecycle.receipt_kind == "lifecycle"
+        assert lifecycle.status == "dead_lettered"
+        assert lifecycle.attempt_number == err.receipt.attempt_number
+        assert lifecycle.parent_receipt_id == err.receipt.receipt_id
         # Diagnostician was notified.
         snap = diag.snapshot()
         assert "planner_failures" in snap

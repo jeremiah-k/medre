@@ -910,8 +910,8 @@ class TestRecordIdHygiene:
 
 
 class TestTargetChannelNoneVsEmpty:
-    def test_none_and_empty_not_conflated(self) -> None:
-        """Receipt with channel=None and outbox with channel="" are different targets."""
+    def test_none_and_empty_are_same_identity(self) -> None:
+        """Persistence normalizes empty and absent channels to one target."""
         f = _build(
             outbox_items=[
                 _outbox(outbox_id="ob-empty", target_channel="", status="pending"),
@@ -920,9 +920,8 @@ class TestTargetChannelNoneVsEmpty:
                 _receipt(receipt_id="r-none", target_channel=None, status="sent"),
             ],
         )
-        # They target different keys, so no cross-checking should happen
         kinds = {x.kind for x in f}
-        assert KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX not in kinds
+        assert KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX in kinds
 
     def test_both_none_same_target(self) -> None:
         """Both with channel=None → same target → cross-checked."""

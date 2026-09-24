@@ -785,6 +785,7 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
         item.outbox_id,
         error_summary="capability_suppressed",
         receipt_id="rcpt-suppressed",
+        attempt_number=1,
         expected_worker_id=item.worker_id,
     )
     assert not any(

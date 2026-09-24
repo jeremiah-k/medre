@@ -1388,3 +1388,38 @@ class TestSuppressedIncidentSummary:
         assert (
             summary["classification"] != "success"
         ), "Suppressed-only events must not be classified as 'success'"
+
+
+def test_execution_evidence_rejects_mismatched_receipt_kinds() -> None:
+    """The evidence value refuses receipts placed in the wrong kind slot."""
+    import pytest
+    from msgspec.structs import force_setattr
+
+    from medre.core.engine.pipeline.delivery_evidence import (
+        DeliveryExecutionEvidence,
+    )
+    from tests.lifecycle.conftest import _make_receipt
+
+    attempt_in_authority_slot = _make_receipt(
+        receipt_id="rcpt-kindslot-attempt",
+        status="sent",
+        attempt_number=1,
+    )
+    force_setattr(attempt_in_authority_slot, "receipt_kind", "attempt")
+
+    with pytest.raises(
+        ValueError, match="authority_receipt must have receipt_kind='lifecycle'"
+    ):
+        DeliveryExecutionEvidence(authority_receipt=attempt_in_authority_slot)
+
+    lifecycle_in_attempt_slot = _make_receipt(
+        receipt_id="rcpt-kindslot-lifecycle",
+        status="dead_lettered",
+        attempt_number=1,
+    )
+    force_setattr(lifecycle_in_attempt_slot, "receipt_kind", "lifecycle")
+
+    with pytest.raises(
+        ValueError, match="attempt_receipt must have receipt_kind='attempt'"
+    ):
+        DeliveryExecutionEvidence(attempt_receipt=lifecycle_in_attempt_slot)

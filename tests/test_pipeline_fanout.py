@@ -15,6 +15,7 @@ from medre.core.engine.pipeline import PipelineRunner
 from medre.core.observability.metrics import Diagnostician
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ---------------------------------------------------------------------------
@@ -116,12 +117,22 @@ class TestMixedFanoutClassification:
                 is DeliveryFailureKind.ADAPTER_PERMANENT
             )
 
-            # Three distinct receipts stored.
+            # Success has one attempt receipt; each terminal failure has
+            # failed-attempt evidence plus dead-letter lifecycle authority.
             rows = await temp_storage._read_all(
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("mixed-001",),
             )
-            assert len(rows) == 3
+            good_rows = [r for r in rows if r["target_adapter"] == "good"]
+            transient_rows = [r for r in rows if r["target_adapter"] == "transient"]
+            permanent_rows = [r for r in rows if r["target_adapter"] == "permanent"]
+            assert len(good_rows) == 1
+            assert (good_rows[0]["receipt_kind"], good_rows[0]["status"]) == (
+                "attempt",
+                "sent",
+            )
+            assert_terminal_failure_pair(transient_rows)
+            assert_terminal_failure_pair(permanent_rows)
         finally:
             await runner.stop()
 
@@ -275,13 +286,17 @@ class TestFanoutScaling:
             for t in targets:
                 assert snap["adapter_failures"].get(t, 0) >= 1
 
-            # 5 failed receipts
+            # Each terminal failure records a failed attempt and a linked
+            # dead-letter lifecycle receipt.
             rows = await temp_storage._read_all(
                 "SELECT * FROM delivery_receipts WHERE event_id = ?",
                 ("allfail-001",),
             )
-            assert len(rows) == 5
-            assert all(r["status"] == "failed" for r in rows)
+            assert len(rows) == 10
+            for target in targets:
+                assert_terminal_failure_pair(
+                    [r for r in rows if r["target_adapter"] == target]
+                )
         finally:
             await runner.stop()
 

@@ -570,7 +570,7 @@ Check `route_id` on the receipt or in the `delivery_state_by_target` entry. The 
 
 ### "Which target was selected?"
 
-Check `target_adapter` and `target_channel` in the receipt. The composite key `(delivery_plan_id, route_id, target_adapter, target_channel)` uniquely identifies a delivery target.
+Check `event_id`, `delivery_plan_id`, `target_adapter`, and `target_channel` in the receipt. The composite key `(event_id, delivery_plan_id, target_adapter, target_channel)` identifies the event-scoped delivery target. `route_id` is provenance describing which route produced that delivery; it is not part of lifecycle identity.
 
 ### "What plan ID was assigned?"
 
@@ -588,15 +588,17 @@ Check `capability_field` in the report dict. This identifies which adapter capab
 
 Check `status` on the receipt:
 
-| Status          | Meaning                                            |
-| --------------- | -------------------------------------------------- |
-| `sent`          | Adapter accepted the delivery                      |
-| `queued`        | Delivery enqueued, awaiting adapter confirmation   |
-| `suppressed`    | Delivery suppressed by a guard (no adapter call)   |
-| `failed`        | Delivery failed, may be retryable                  |
-| `dead_lettered` | All retries exhausted, delivery permanently failed |
+| Status          | Kind      | Meaning                                                               |
+| --------------- | --------- | --------------------------------------------------------------------- |
+| `sent`          | attempt   | Adapter accepted the delivery.                                        |
+| `queued`        | attempt   | Delivery enqueued, awaiting adapter confirmation.                     |
+| `failed`        | attempt   | Dispatch failed and may be retryable.                                 |
+| `suppressed`    | lifecycle | Core/runtime suppressed delivery without recording transport success. |
+| `dead_lettered` | lifecycle | Retry budget exhausted or delivery became permanently undeliverable.  |
+| `cancelled`     | lifecycle | Delivery was explicitly cancelled.                                    |
+| `abandoned`     | lifecycle | Durable execution was abandoned and must not be redispatched.         |
 
-Suppressed receipts (`status="suppressed"`) are distinct from failed receipts (`status="failed"`). Suppressed means a guard fired before the adapter was called. Failed means the adapter was called and returned an error.
+Lifecycle receipts do not represent additional transport sends. In the common guard-suppression case, `suppressed` means a guard fired before the adapter was called. A `failed` receipt records dispatch-attempt evidence; `dead_lettered`, `cancelled`, and `abandoned` describe lifecycle decisions rather than additional sends.
 
 ### "Why did delivery fail?"
 
@@ -613,13 +615,19 @@ Check `source` on the receipt: `"live"` or `"replay"`. For replay, `replay_run_i
 
 ### "How many retry attempts occurred?"
 
-Check `attempt_number` on the receipt chain. Each retry produces a new receipt with an incremented `attempt_number`, linked via `parent_receipt_id`. The highest `attempt_number` represents the latest attempt. A `dead_lettered` receipt means retries were exhausted.
+Check `latest_attempt_number` / `latest_attempt_status` in the delivery ledger,
+or inspect attempt receipts directly. Each actual retry dispatch increments the
+attempt number. A linked lifecycle `dead_lettered` receipt keeps the same
+causative attempt number and records the terminal transition without inventing
+another send. `lifecycle_status` is the current MEDRE-owned state.
 
 ```sql
-SELECT receipt_id, status, attempt_number, failure_kind, next_retry_at
+SELECT receipt_id, receipt_kind, status, attempt_number, parent_receipt_id,
+       failure_kind, next_retry_at
 FROM delivery_receipts
-WHERE delivery_plan_id = '<plan_id>'
-ORDER BY attempt_number;
+WHERE event_id = '<event_id>'
+  AND delivery_plan_id = '<plan_id>'
+ORDER BY attempt_number, sequence;
 ```
 
 ### "Were suppressed deliveries retried?"
@@ -760,21 +768,24 @@ instead describes abandonment of the current in-memory worker generation.
 
 State mismatch that cannot be explained by normal flow. Investigate the specific target:
 
-1. Check the receipt chain for the `delivery_plan_id`:
+1. Check the event-scoped receipt chain:
 
    ```sql
-   SELECT receipt_id, status, attempt_number, failure_kind, created_at
+   SELECT receipt_id, receipt_kind, status, attempt_number, parent_receipt_id,
+          failure_kind, created_at
    FROM delivery_receipts
-   WHERE delivery_plan_id = '<plan_id>'
-   ORDER BY attempt_number;
+   WHERE event_id = '<event_id>'
+     AND delivery_plan_id = '<plan_id>'
+   ORDER BY sequence;
    ```
 
-2. Check the outbox item status:
+2. Check the event-scoped outbox item status:
 
    ```sql
    SELECT outbox_id, status, attempt_number, updated_at
    FROM delivery_outbox
-   WHERE delivery_plan_id = '<plan_id>';
+   WHERE event_id = '<event_id>'
+     AND delivery_plan_id = '<plan_id>';
    ```
 
 3. Determine whether the outbox or receipt is the stale record. The outbox is the operational authority for current state; receipts are the immutable evidence trail.
@@ -833,10 +844,13 @@ Shared drill-down for any finding on a specific target:
 
 ```sql
 SELECT outbox_id, status, attempt_number, next_attempt_at, updated_at
-FROM delivery_outbox WHERE delivery_plan_id = '<plan_id>';
-SELECT receipt_id, status, attempt_number, sequence, failure_kind, created_at
-FROM delivery_receipts WHERE delivery_plan_id = '<plan_id>'
-ORDER BY attempt_number;
+FROM delivery_outbox
+WHERE event_id = '<event_id>' AND delivery_plan_id = '<plan_id>';
+SELECT receipt_id, receipt_kind, status, attempt_number, parent_receipt_id,
+       sequence, failure_kind, created_at
+FROM delivery_receipts
+WHERE event_id = '<event_id>' AND delivery_plan_id = '<plan_id>'
+ORDER BY sequence;
 ```
 
 Determine which record is stale: the outbox is the operational authority for

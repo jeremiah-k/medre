@@ -10,16 +10,15 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from medre.core.delivery_authority import DeliveryAuthorityResolver
+
 from .helpers import (
     _NON_TERMINAL_OUTBOX,
     _NON_TERMINAL_RECEIPT,
     _TERMINAL_OUTBOX,
     _TERMINAL_RECEIPT,
-    _build_committed_receipt_ids_by_key,
     _build_outbox_by_key,
-    _current_receipt_for_target,
     _get,
-    _target_key,
     _TargetKey,
     _worst_severity,
 )
@@ -225,16 +224,11 @@ def build_convergence_summary(
     receipt_list = list(receipts)
     outbox_list = list(outbox_items)
 
-    # --- Build target-keyed maps ------------------------------------------
-    # Outbox items: at most one per target key (latest by attempt_number).
+    # --- Build target-keyed authority -------------------------------------
+    # Outbox items: at most one displayed per target key (latest attempt),
+    # while the resolver retains committed pointers from every generation.
     outbox_by_key = _build_outbox_by_key(outbox_list)
-    committed_receipt_ids = _build_committed_receipt_ids_by_key(outbox_list)
-
-    # Receipts: group by target key.
-    receipts_by_key: dict[_TargetKey, list[Any]] = {}
-    for rec in receipt_list:
-        key = _target_key(rec)
-        receipts_by_key.setdefault(key, []).append(rec)
+    authority = DeliveryAuthorityResolver(receipt_list, outbox_list)
 
     # --- Collect all target keys (union) ----------------------------------
     def _sort_key(key: _TargetKey) -> tuple:
@@ -242,7 +236,7 @@ def build_convergence_summary(
         return (event_id, plan_id, adapter, channel or "")
 
     all_keys = sorted(
-        set(outbox_by_key.keys()) | set(receipts_by_key.keys()),
+        set(outbox_by_key.keys()) | set(authority.identities),
         key=_sort_key,
     )
 
@@ -254,16 +248,12 @@ def build_convergence_summary(
     for key in all_keys:
         event_id, plan_id, adapter, channel = key
         obx = outbox_by_key.get(key)
-        receipts_by_key.get(key, [])
-
         outbox_status = _get(obx, "status") if obx else None
         outbox_id = _get(obx, "outbox_id") if obx else None
         has_outbox = obx is not None
         plan_id_present = bool(plan_id)
 
-        latest_rec = _current_receipt_for_target(
-            receipts_by_key, key, committed_receipt_ids.get(key)
-        )
+        latest_rec = authority.current(key)
         has_receipt = latest_rec is not None
         latest_receipt_status = _get(latest_rec, "status") if latest_rec else None
         latest_receipt_id = _get(latest_rec, "receipt_id") if latest_rec else None

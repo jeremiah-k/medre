@@ -42,9 +42,23 @@
     },
     "status": {
       "type": "string",
-      "enum": ["queued", "sent", "failed", "dead_lettered", "suppressed"],
+      "enum": [
+        "queued",
+        "sent",
+        "failed",
+        "dead_lettered",
+        "cancelled",
+        "abandoned",
+        "suppressed"
+      ],
       "default": "queued",
-      "description": "Current delivery status."
+      "description": "Delivery evidence status; paired with receipt_kind."
+    },
+    "receipt_kind": {
+      "type": ["string", "null"],
+      "enum": ["attempt", "lifecycle", null],
+      "default": null,
+      "description": "Semantic evidence role. Omitted/null input is normalized from status at model construction; persisted rows are always attempt or lifecycle."
     },
     "error": {
       "type": ["string", "null"],

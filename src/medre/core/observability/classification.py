@@ -29,8 +29,15 @@ __all__ = [
 # Failure-kind categories for recovery classification.
 # ---------------------------------------------------------------------------
 
-RETRYABLE_KINDS: frozenset[str] = frozenset({"adapter_transient"})
-"""Failure kinds that are transient and may succeed on retry."""
+RETRYABLE_KINDS: frozenset[str] = frozenset({"adapter_transient", "retry_exhausted"})
+"""Failure kinds whose recovery remedy is another attempt.
+
+``adapter_transient`` may still succeed on automatic retry;
+``retry_exhausted`` means automatic retries are spent and manual replay
+is the remaining remedy — the retryable command set recommends exactly
+that. A dead-lettered receipt without a persisted kind stays
+``unknown``: ``dead_lettered`` is lifecycle authority, not a
+failure-kind signal."""
 
 PERMANENT_KINDS: frozenset[str] = frozenset(
     {
@@ -58,9 +65,10 @@ OPERATIONAL_KINDS: frozenset[str] = frozenset(
 def infer_failure_kind(error: str | None, status: str) -> str:
     """Infer a failure-kind string from receipt error and status fields.
 
-    The ``DeliveryReceipt`` struct does not persist ``failure_kind`` directly;
-    this helper reconstructs a best-effort classification from the error
-    message patterns produced by the delivery pipeline.
+    Current receipts persist ``failure_kind`` directly and callers should prefer
+    that durable value. This helper is a fallback for legacy/partial evidence
+    where the field is missing, reconstructing a best-effort classification
+    from error/status patterns only.
     """
     err = (error or "").lower()
     # Operational: capacity / shutdown / deadline
@@ -86,9 +94,12 @@ def infer_failure_kind(error: str | None, status: str) -> str:
         for s in ("timeout", "connectionerror", "connection reset", "temporary")
     ):
         return "adapter_transient"
-    # dead_lettered implies retries exhausted — was transient
+    # ``dead_lettered`` is lifecycle authority, not a failure-kind signal:
+    # it can represent exhausted transient retries or an immediately terminal
+    # permanent failure. Without a persisted kind or a recognizable error
+    # pattern, preserve that ambiguity instead of inventing retryability.
     if status == "dead_lettered":
-        return "adapter_transient"
+        return "unknown"
     # Outbox ownership skip
     if "outbox_not_owned" in err or "outbox row not owned" in err:
         return "outbox_not_owned"

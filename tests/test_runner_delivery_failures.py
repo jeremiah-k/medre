@@ -13,6 +13,7 @@ import asyncio
 import pytest
 
 from medre.core.engine.pipeline import PipelineRunner
+from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.target_delivery import (
     _AdapterDeliveryError,
     _RendererDeliveryError,
@@ -96,12 +97,15 @@ class TestDeliverOneAdapterDeliveryError:
         plan = _make_plan()
         receipt = _dummy_receipt(event.event_id, plan.plan_id)
 
-        runner.deliver_to_target = AsyncMock(  # type: ignore[assignment]
+        runner.deliver_execution_to_target = AsyncMock(  # type: ignore[assignment]
             side_effect=_AdapterDeliveryError(
                 "dest",
                 "adapter missing",
-                failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
-                receipt=receipt,
+                evidence=DeliveryExecutionEvidence(
+                    attempt_receipt=receipt,
+                    failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
+                    error="adapter missing",
+                ),
             ),
         )
         outcomes = await runner.deliver_to_targets(event, [(route, plan)])
@@ -129,13 +133,15 @@ class TestDeliverOneAdapterDeliveryError:
         import medre.core.contracts.adapter as ca
 
         original = ca.AdapterSendError("wire timeout")
-        runner.deliver_to_target = AsyncMock(  # type: ignore[assignment]
+        runner.deliver_execution_to_target = AsyncMock(  # type: ignore[assignment]
             side_effect=_AdapterDeliveryError(
                 "dest",
                 "send failed",
                 original=original,
-                failure_kind=None,
-                receipt=receipt,
+                evidence=DeliveryExecutionEvidence(
+                    attempt_receipt=receipt,
+                    error="send failed",
+                ),
             ),
         )
         outcomes = await runner.deliver_to_targets(event, [(route, plan)])
@@ -159,12 +165,14 @@ class TestDeliverOneAdapterDeliveryError:
         plan = _make_plan()
         receipt = _dummy_receipt(event.event_id, plan.plan_id)
 
-        runner.deliver_to_target = AsyncMock(  # type: ignore[assignment]
+        runner.deliver_execution_to_target = AsyncMock(  # type: ignore[assignment]
             side_effect=_AdapterDeliveryError(
                 "dest",
                 "unknown error",
-                failure_kind=None,
-                receipt=receipt,
+                evidence=DeliveryExecutionEvidence(
+                    attempt_receipt=receipt,
+                    error="unknown error",
+                ),
             ),
         )
         outcomes = await runner.deliver_to_targets(event, [(route, plan)])
@@ -196,12 +204,15 @@ class TestDeliverOneRendererDeliveryError:
         plan = _make_plan()
         receipt = _dummy_receipt(event.event_id, plan.plan_id)
 
-        runner.deliver_to_target = AsyncMock(  # type: ignore[assignment]
+        runner.deliver_execution_to_target = AsyncMock(  # type: ignore[assignment]
             side_effect=_RendererDeliveryError(
                 "dest",
                 "render failed",
-                receipt=receipt,
-                failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+                evidence=DeliveryExecutionEvidence(
+                    attempt_receipt=receipt,
+                    failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+                    error="render failed",
+                ),
             ),
         )
         outcomes = await runner.deliver_to_targets(event, [(route, plan)])
@@ -224,11 +235,14 @@ class TestDeliverOneRendererDeliveryError:
         plan = _make_plan()
         receipt = _dummy_receipt(event.event_id, plan.plan_id)
 
-        runner.deliver_to_target = AsyncMock(  # type: ignore[assignment]
+        runner.deliver_execution_to_target = AsyncMock(  # type: ignore[assignment]
             side_effect=_RendererDeliveryError(
                 "dest",
                 "render boom",
-                receipt=receipt,
+                evidence=DeliveryExecutionEvidence(
+                    attempt_receipt=receipt,
+                    error="render boom",
+                ),
             ),
         )
         outcomes = await runner.deliver_to_targets(event, [(route, plan)])
@@ -259,7 +273,7 @@ class TestDeliverOneCancelledError:
         route = _make_route()
         plan = _make_plan()
 
-        runner.deliver_to_target = AsyncMock(  # type: ignore[assignment]
+        runner.deliver_execution_to_target = AsyncMock(  # type: ignore[assignment]
             side_effect=asyncio.CancelledError(),
         )
         with pytest.raises(asyncio.CancelledError):
@@ -287,7 +301,7 @@ class TestDeliverOneGenericException:
         route = _make_route()
         plan = _make_plan()
 
-        runner.deliver_to_target = AsyncMock(  # type: ignore[assignment]
+        runner.deliver_execution_to_target = AsyncMock(  # type: ignore[assignment]
             side_effect=ValueError("something broke"),
         )
         outcomes = await runner.deliver_to_targets(event, [(route, plan)])

@@ -419,34 +419,6 @@ def decode_page_cursor(cursor: str) -> int:
     return after
 
 
-def delivery_lineage_key(receipt: DeliveryReceipt) -> tuple[str, str, str]:
-    """Return the logical delivery-identity key of *receipt*.
-
-    ``(delivery_plan_id, target_adapter, normalized target_channel)``.
-    ``event_id`` is intentionally not part of the key — callers already
-    scope by event — but plan IDs are not guaranteed unique across
-    events, so SQL-side grouping includes ``event_id`` (see
-    :meth:`StorageBackend.query_unresolved_deliveries`).  ``None`` and
-    empty-string channels normalize to ``""`` so they never split one
-    logical delivery into two lineages.
-
-    Retry **and executed-replay** receipts share the key with the live
-    delivery they re-attempt: the replay lifecycle continues the same
-    delivery (``attempt_number = max(existing) + 1``) and the storage
-    ``delivery_status`` authority selects the current receipt without
-    filtering on ``source``.  A committed successful executed replay therefore
-    resolves the original delivery's earlier failure; successes of a
-    *different* delivery (other target/channel/plan/event) never do.
-    ``replay_run_id`` is reported per receipt as provenance, never used
-    to partition one delivery.
-    """
-    return (
-        getattr(receipt, "delivery_plan_id", "") or "",
-        getattr(receipt, "target_adapter", "") or "",
-        getattr(receipt, "target_channel", None) or "",
-    )
-
-
 def attempt_source_label(source: str | None, replay_run_id: str | None) -> str:
     """Return a receipt's source with its replay run when applicable.
 
@@ -457,34 +429,6 @@ def attempt_source_label(source: str | None, replay_run_id: str | None) -> str:
     if src == "replay" and replay_run_id:
         return f"replay:{replay_run_id}"
     return src
-
-
-def resolve_delivery_outcomes(
-    receipts: list[DeliveryReceipt],
-) -> list[tuple[tuple[str, str, str], list[DeliveryReceipt]]]:
-    """Group *receipts* into logical deliveries in durable append order.
-
-    This helper is historical grouping only.  Each returned entry is
-    ``(delivery_key, receipts)`` with receipts ordered by append ``sequence``.
-    Callers that need the *current* outcome MUST consult storage lifecycle
-    authority (for SQLite, the outbox ``receipt_id`` projection exposed by
-    :meth:`StorageBackend.delivery_status`) rather than assuming the last
-    append won.  A stale worker may append immutable receipt evidence after
-    losing the guarded outbox transition; that receipt remains history but is
-    not current lifecycle state.
-    """
-    grouped: dict[tuple[str, str, str], list[DeliveryReceipt]] = {}
-    for receipt in receipts:
-        grouped.setdefault(delivery_lineage_key(receipt), []).append(receipt)
-    return [
-        (key, sorted(group, key=_receipt_append_order))
-        for key, group in grouped.items()
-    ]
-
-
-def _receipt_append_order(receipt: DeliveryReceipt) -> int:
-    """Sort key placing a delivery's receipts in durable append order."""
-    return int(getattr(receipt, "sequence", 0) or 0)
 
 
 # ---------------------------------------------------------------------------
@@ -1026,23 +970,33 @@ class StorageBackend(Protocol):
         self,
         receipt: DeliveryReceipt,
         *,
+        attempt_receipt: DeliveryReceipt | None = None,
         outbox_id: str,
         attempt_number: int,
         terminal_status: str,
         event_id: str,
+        delivery_plan_id: str,
         target_adapter: str,
+        target_channel: str | None,
         failure_kind: str | None = None,
         error_summary: str | None = None,
+        expected_worker_id: str | None = None,
     ) -> bool:
         """Atomically finalize one terminal queue outcome.
 
-        Implementations MUST commit the immutable failed receipt and the
-        guarded outbox ``queued|in_progress -> terminal_status`` transition
-        in one transaction, re-checking the exact attempt at write time
+        Implementations MUST commit an immutable lifecycle receipt whose
+        status equals ``terminal_status`` and the guarded outbox
+        ``queued|in_progress -> terminal_status`` transition
+        in one transaction. When ``attempt_receipt`` is supplied (for a
+        queue callback that newly proves the dispatch failed), that attempt
+        receipt MUST commit in the same transaction before the lifecycle
+        receipt. Implementations re-check the exact attempt at write time
         (row identity, ``attempt_number``, eligible status).  Return
         ``False`` when the guarded attempt no longer qualifies — stale
         callback, duplicate notification, or a competing attempt/state
-        change won — in which case neither write may commit.
+        change won — in which case neither write may commit. When
+        ``expected_worker_id`` is supplied, implementations MUST additionally
+        fence the transition to that current owner.
         """
         ...
 
@@ -1052,15 +1006,15 @@ class StorageBackend(Protocol):
         target_adapter: str,
         target_channel: str | None = None,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> DeliveryReceipt | None:
-        """Return the current receipt for a delivery target, optionally event-scoped.
+        """Return the event-scoped current receipt for a delivery target.
 
-        Authority: **list/get** (read-only).  For outbox-backed delivery, the
-        outbox row's committed ``receipt_id`` is current-state authority; a
-        later receipt whose guarded outbox transition was rejected remains
-        immutable historical evidence.  Outbox-less lineages retain durable
-        append order as their projection rule.
+        Authority: **list/get** (read-only). For outbox-backed delivery, exact
+        ``(outbox_id, receipt_id)`` pointer equality selects eligible evidence
+        and the outbox row's finalized attempt ranks committed generations. A
+        stale or older-generation receipt remains immutable historical evidence.
+        Outbox-less lineages retain durable append order as their projection rule.
 
         Parameters
         ----------
@@ -1075,14 +1029,14 @@ class StorageBackend(Protocol):
             target are returned.  Passing ``None`` does **not** query
             across all channels.
         event_id:
-            Optional canonical-event scope. Lifecycle callers that know the
-            event MUST supply it because plan IDs are not globally unique.
+            Canonical-event scope. It is mandatory because plan IDs are not
+            globally unique.
 
         Returns
         -------
         DeliveryReceipt | None
-            The latest-matching receipt, or ``None`` when no receipt exists
-            for the given combination.
+            The lifecycle-authoritative receipt, or ``None`` when no eligible
+            receipt exists for the given event-scoped identity.
         """
         ...
 
@@ -1091,13 +1045,12 @@ class StorageBackend(Protocol):
         delivery_plan_id: str,
         target_adapter: str,
         *,
-        event_id: str | None = None,
+        event_id: str,
     ) -> list[DeliveryReceipt]:
-        """Return receipts for a delivery plan / adapter in attempt order.
+        """Return event-scoped receipts for a plan / adapter in attempt order.
 
-        Lifecycle callers SHOULD supply ``event_id`` because plan IDs are not
-        globally unique across events. ``None`` preserves the unscoped
-        historical-query surface.
+        ``event_id`` is mandatory because plan IDs are not globally unique and
+        no delivery-lineage query may merge evidence from different events.
 
         Authority: **list/get** (read-only).  Receipts are ordered by
         ``attempt_number`` ascending so callers can walk the full receipt
@@ -1260,15 +1213,31 @@ class StorageBackend(Protocol):
     # Terminal rows are never deleted or replaced — new delivery after
     # terminal state must use new attempt identity.
 
-    async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
+    async def create_outbox_item(
+        self,
+        item: DeliveryOutboxItem,
+        *,
+        allocate_new_generation: bool = False,
+    ) -> DeliveryOutboxItem:
         """Create a new outbox item or reclaim an existing pending/retry_wait row.
 
         Authority: **create** / **claim** (reclaim pending/retry_wait).
+
+        When *allocate_new_generation* is true, storage atomically ignores the
+        candidate attempt number and inserts a new row at one greater than the
+        maximum effective attempt for the same event-scoped delivery identity.
+        That mode never reclaims an existing row and is used by explicit replay
+        so generation allocation and insertion cannot race retry reservation or
+        finalization.
 
         Production lifecycle policy:
           - Initial status MUST be ``pending`` (default) or ``in_progress``
             (pipeline claim path).  All other statuses must be reached
             through ``mark_outbox_*`` transition methods.
+          - The effective generation is represented by finalized
+            ``attempt_number`` or, while reserved, ``active_attempt``. If an
+            existing row already represents the requested generation, that row
+            is reused instead of inserting a sibling generation.
           - If an existing row has a reclaimable status (``pending`` or
             ``retry_wait``), it is reclaimed — its ``status``,
             ``worker_id``, ``locked_at``, ``lease_until``, and
@@ -1388,6 +1357,8 @@ class StorageBackend(Protocol):
 
         - ``(next_attempt_at IS NULL OR next_attempt_at <= now)``
         - ``(lease_until IS NULL OR lease_until <= now)``
+        - no sibling row for the same event-scoped delivery identity already
+          represents the same or a newer effective attempt generation.
 
         Each claimed item is set to ``status='in_progress'`` with
         ``locked_at=now``, ``lease_until=now+lease_seconds``,
@@ -1480,6 +1451,10 @@ class StorageBackend(Protocol):
         self,
         outbox_id: str,
         error_summary: str | None = None,
+        receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        attempt_number: int | None = None,
+        expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``cancelled`` (terminal).
 
@@ -1496,6 +1471,8 @@ class StorageBackend(Protocol):
         outbox_id: str,
         error_summary: str | None = None,
         receipt_id: str | None = None,
+        failure_kind: str | None = None,
+        attempt_number: int | None = None,
         expected_worker_id: str | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
@@ -1519,10 +1496,12 @@ class StorageBackend(Protocol):
         Authority: **claim** (atomic attempt-identity reservation).  The
         conditional ``UPDATE`` sets ``active_attempt = from_attempt + 1``
         only when the row is ``in_progress``, owned by *worker_id*, has no
-        existing reservation, and still stores ``attempt_number ==
-        from_attempt``.  Returns the reserved attempt number, or ``None``
-        when the guard failed (lost claim, lease theft, or a competing
-        reservation) — the caller must not invoke the transport.
+        existing reservation, still stores ``attempt_number ==
+        from_attempt``, and no sibling row for the same event-scoped delivery
+        identity already represents ``from_attempt + 1`` or a newer effective
+        generation. Returns the reserved attempt number, or ``None`` when the
+        guard failed (lost claim, lease theft, replay/sibling supersession, or
+        a competing reservation) — the caller must not invoke the transport.
         """
         ...
 

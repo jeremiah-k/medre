@@ -467,23 +467,13 @@ class TestStorageIndexes:
             {"event_id", "created_at"}
         )
 
-    async def test_receipts_plan_index(self, temp_storage: SQLiteStorage) -> None:
-        """idx_receipts_plan on delivery_receipts(delivery_plan_id, target_adapter, target_channel, attempt_number, sequence).
-
-        For composite indexes, column order matters for query planning.
-        Assert the exact ordered column list via PRAGMA index_info.
-        """
-        rows = await temp_storage._read_all(
-            "PRAGMA index_info('idx_receipts_plan')", ()
-        )
-        ordered_cols = [r["name"] for r in rows]
-        assert ordered_cols == [
-            "delivery_plan_id",
-            "target_adapter",
-            "target_channel",
-            "attempt_number",
-            "sequence",
-        ], f"Column order mismatch: {ordered_cols!r}"
+    async def test_plan_only_receipt_index_removed(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """No legacy plan-only receipt index survives event-scoped lineage APIs."""
+        indexes = await self._index_columns(temp_storage, "delivery_receipts")
+        assert "idx_receipts_plan" not in indexes
+        assert "idx_receipts_lineage" in indexes
 
     async def test_receipts_event_index(self, temp_storage: SQLiteStorage) -> None:
         """idx_receipts_event on delivery_receipts(event_id, sequence)."""

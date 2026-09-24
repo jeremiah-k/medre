@@ -256,7 +256,15 @@ class TestRetryRuntimeIntegration:
         accounting = RuntimeAccounting()
         adapters = {"transient_target": adapter}
 
-        runner = _build_runner(temp_storage, adapters, router, accounting)
+        retry_policy = RetryPolicy(max_attempts=3)
+        resolver = _FallbackResolverWithRetry(retry_policy)
+        runner = _build_runner(
+            temp_storage,
+            adapters,
+            router,
+            accounting,
+            fallback_resolver=resolver,
+        )
         await _start_adapters(adapters)
         await runner.start()
 
@@ -278,12 +286,11 @@ class TestRetryRuntimeIntegration:
                 return_value=[original_receipt],
             )
 
-            # Retry via worker
-            policy = RetryPolicy(max_attempts=3)
+            # Retry via worker using the same durable policy as the initial plan.
             worker = _RetryWorker(
                 temp_storage,
                 runner,
-                policy,
+                retry_policy,
                 accounting=accounting,
             )
             processed = await worker._process_due(datetime.now(timezone.utc))

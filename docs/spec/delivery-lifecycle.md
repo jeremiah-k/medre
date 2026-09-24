@@ -69,11 +69,11 @@ These vocabularies are defined in `delivery_state.py` (§4 of
 
 | Vocabulary                    | Constant                        | Values                                                                                              |
 | ----------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Receipt statuses              | `RECEIPT_STATUSES`              | `queued`, `sent`, `failed`, `dead_lettered`, `suppressed`                                           |
+| Receipt statuses              | `RECEIPT_STATUSES`              | `queued`, `sent`, `failed`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                 |
 | Outbox statuses               | `OUTBOX_STATUSES`               | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` |
 | Outcome statuses              | `OUTCOME_STATUSES`              | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            |
 | Adapter delivery statuses     | `ADAPTER_DELIVERY_STATUSES`     | `sent`, `enqueued`                                                                                  |
-| Terminal receipt statuses     | `TERMINAL_RECEIPT_STATUSES`     | `sent`, `dead_lettered`, `suppressed`                                                               |
+| Terminal receipt statuses     | `TERMINAL_RECEIPT_STATUSES`     | `sent`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                                     |
 | Non-terminal receipt statuses | `NON_TERMINAL_RECEIPT_STATUSES` | `queued`, `failed`                                                                                  |
 | Terminal outbox statuses      | `TERMINAL_OUTBOX_STATUSES`      | `sent`, `dead_lettered`, `cancelled`, `abandoned`                                                   |
 | Non-terminal outbox statuses  | `NON_TERMINAL_OUTBOX_STATUSES`  | `pending`, `in_progress`, `queued`, `retry_wait`                                                    |
@@ -189,8 +189,12 @@ attempt.
   deferral before dispatch (unavailable adapter, capacity rejection)
   therefore consumes no attempt and leaves no reservation.
 - The reservation is guarded on the claiming worker owning the `in_progress`
-  row with no existing reservation. A worker that lost its claim (lease
-  theft or reclaim) cannot reserve and MUST NOT invoke the transport.
+  row with no existing reservation, and on no sibling row for the same
+  event-scoped delivery identity already representing that generation or a
+  newer one. This closes the retry/replay allocation race in both write
+  orderings. A worker that lost its claim (lease theft or reclaim), or whose
+  next generation was superseded by replay, cannot reserve and MUST NOT invoke
+  the transport.
 - While the reserved dispatch runs, the worker renews the claimed row's
   lease: one awaited renewal immediately after the reservation — aborting
   transport when the claim is already lost and starting the dispatch on a
@@ -276,12 +280,37 @@ of four outcomes:
 | `cancelled`        | Item cancelled while in-flight (e.g. task cancellation) |
 | `abandoned`        | Adapter shutdown with unsent queued items remaining     |
 
-The pipeline maps adapter-reported facts to lifecycle transitions:
-`exhausted` and `permanent_failed` → `dead_lettered` outbox + `failed` receipt;
-`cancelled` → `cancelled` outbox + `failed` receipt; `abandoned` → `abandoned` outbox + `failed` receipt.
+The pipeline maps adapter-reported facts to distinct evidence layers:
+
+- `exhausted` / `permanent_failed`: append a `failed` **attempt** receipt, then
+  a linked `dead_lettered` **lifecycle** receipt at the same attempt number;
+- `cancelled`: append `cancelled` lifecycle evidence linked to the queued
+  attempt;
+- `abandoned`: append `abandoned` lifecycle evidence linked to the queued
+  attempt.
+
+For outbox-backed callbacks, any newly proven failed-attempt receipt, the
+terminal lifecycle receipt, and the terminal outbox transition MUST commit in
+one guarded storage transaction. A stale callback therefore commits none of
+those writes.
 
 Adapters MUST NOT directly mutate outbox state. They report facts; the
 pipeline decides lifecycle transitions.
+
+### 3.7 Structured Execution Evidence
+
+The target-delivery → coordinator → lifecycle boundary carries one immutable
+`DeliveryExecutionEvidence` value rather than independent receipt and failure
+parameters. It contains an optional attempt receipt, an optional lifecycle
+authority receipt, the canonical failure kind, and the error summary. When both
+receipts are present, construction MUST reject mismatched event, plan, adapter,
+channel, outbox, attempt, or parent lineage.
+
+`TargetDeliveryService` produces this evidence, `DeliveryCoordinator` transports
+it without interpreting lifecycle ownership, and `DeliveryLifecycleService`
+decides which evidence may become mutable outbox authority. Compatibility
+entry points that return a primary receipt MAY unwrap the structured value, but
+MUST NOT recreate lifecycle interpretation outside the lifecycle layer.
 
 ---
 
@@ -300,11 +329,12 @@ append order.
 
 Receipts remain the authoritative immutable evidence trail for audit,
 diagnostics, and operator inspection; the outbox pointer selects which receipt
-is the current lifecycle projection. When one live attempt appends both a
-primary `failed` receipt and its linked retry-exhaustion `dead_lettered`
-receipt, the delivery outcome MAY retain the primary failed receipt as the
-attempt result, but the guarded outbox `dead_lettered` transition MUST point at
-the linked terminal receipt. This keeps attempt evidence distinct from mutable
+is the current lifecycle projection. When one execution produces both a primary `failed` attempt receipt and linked
+terminal lifecycle evidence, the delivery outcome MAY retain the failed receipt
+as its attempt-facing result, but the guarded terminal outbox transition MUST
+point at the lifecycle receipt. For outbox-backed terminalization the lifecycle
+receipt and pointer transition commit atomically; the target-delivery layer does
+not pre-append that authority receipt. This keeps attempt evidence distinct from mutable
 lifecycle authority and prevents a terminal outbox from projecting the
 preceding non-terminal failure as current. See
 [state-machines.md](state-machines.md) §1.4.
@@ -320,9 +350,12 @@ evidence trail independently of outbox lifecycle. See
 
 ### 4.3 Causal Direction
 
-Outbox transitions drive receipt creation, never the reverse. The pipeline
-creates an outbox item before attempting adapter delivery. On completion, it
-appends a receipt and then updates the outbox. See
+The pipeline creates an outbox item before attempting adapter delivery. Attempt
+evidence may be appended before mutable-state finalization, but terminal
+lifecycle authority for an outbox-backed delivery MUST be committed atomically
+with the terminal outbox transition. This prevents a crash from persisting a
+terminal receipt that the outbox never selected, or terminal state with no
+matching lifecycle receipt. See
 [state-machines.md](state-machines.md) §3.1.
 
 ### 4.4 Projections Are Read-Only
@@ -332,6 +365,15 @@ outcome ledgers, and report dict enrichment fields are read-only projections.
 They MUST NOT drive state transitions, MUST NOT write to storage, and MUST NOT
 be treated as evidence of what happened — only receipts and outbox state are
 evidence.
+
+All current-delivery projections MUST use the same event-scoped identity
+`(event_id, delivery_plan_id, target_adapter, target_channel)` and the same
+authority rule. Outbox-backed receipts are eligible only when a matching
+outbox generation commits their `receipt_id`; outbox-less receipts remain
+eligible by durable append order. `route_id`, receipt `source`, and
+`replay_run_id` are provenance, not lifecycle-identity dimensions. The pure
+`DeliveryAuthorityResolver` is the in-memory reference implementation; SQLite
+projections MUST conform to the same vectors.
 
 ---
 
@@ -347,13 +389,17 @@ receipt rows and never modify existing receipts.
 
 ### 5.1.1 Replay Attempt Identity
 
-Replay computes the outbox attempt number as `max(existing attempt_number) + 1`
-across all outbox rows sharing the same delivery identity (delivery_plan_id,
-target_adapter, target_channel). This ensures replay never reclaims or mutates
-live rows, which have lower attempt numbers. The same ownership check that
-applies to live delivery also applies to replay: if the freshly-created outbox
-row comes back terminal, active, or owned by another worker, the pipeline skips
-delivery with `failure_kind=outbox_not_owned`.
+Replay asks storage to allocate and insert the outbox generation atomically as
+`max(existing effective_attempt) + 1` across all outbox rows sharing the same
+event-scoped delivery identity (`event_id`, `delivery_plan_id`,
+`target_adapter`, normalized `target_channel`). `effective_attempt` is the
+row's live `active_attempt` reservation when present, otherwise its finalized
+`attempt_number`. SQLite computes this value while holding the same write
+transaction that inserts the replay row. Replay therefore cannot allocate a
+generation already reserved or finalized by a concurrent retry, cannot reclaim
+a prior retry generation, and never mutates an existing live row. The same
+ownership check that applies to live delivery also applies to replay after the
+fresh row is created.
 
 ### 5.2 Replay Must Not Rewrite History
 
@@ -435,9 +481,9 @@ MUST NOT be presented as proof of delivery. See
    [state-machines.md](state-machines.md) §2.3 and the `OUTBOX_TRANSITIONS`
    table in `delivery_state.py`.
 
-4. Terminal statuses (`sent`, `dead_lettered`, `suppressed` for receipts;
-   `sent`, `dead_lettered`, `cancelled`, `abandoned` for outbox) MUST NOT have
-   outgoing transitions.
+4. Terminal statuses (`sent`, `dead_lettered`, `cancelled`, `abandoned`,
+   `suppressed` for receipts; `sent`, `dead_lettered`, `cancelled`, `abandoned`
+   for outbox) MUST NOT have outgoing transitions.
 
 5. Adapters MUST NOT directly mutate outbox rows or append receipt rows. The
    pipeline owns lifecycle transitions.

@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterable
 
+from medre.core.delivery_authority import delivery_identity
 from medre.core.engine.pipeline.delivery_state import (
     NON_TERMINAL_OUTBOX_STATUSES,
 )
@@ -433,17 +434,11 @@ def build_retry_outbox_summary(
     outbox_list = list(outbox_items)
     receipt_list = list(receipts)
 
-    # --- Build outbox-keyed set for receipt deduplication -----------------
-    # Outbox items are the authoritative operational state.  Receipts whose
-    # plan+adapter+channel match an outbox item are already represented.
-    outbox_keys: set[tuple[str, str, str | None]] = set()
-    for obx in outbox_list:
-        key = (
-            _get(obx, "delivery_plan_id") or "",
-            _get(obx, "target_adapter") or "",
-            _get(obx, "target_channel"),
-        )
-        outbox_keys.add(key)
+    # --- Build event-scoped identity set for receipt deduplication --------
+    # Outbox items are authoritative operational state only for the same
+    # canonical event + plan + target identity. Plan IDs can collide across
+    # events and therefore must never suppress another event's evidence.
+    outbox_keys = {delivery_identity(obx) for obx in outbox_list}
 
     # --- Build per-item summaries from outbox items ----------------------
     items: list[RetryOutboxItemSummary] = [
@@ -457,11 +452,7 @@ def build_retry_outbox_summary(
         if status not in _RECEIPT_ONLY_STATUSES:
             continue
         # Skip if an outbox item already covers this delivery target.
-        rcpt_key = (
-            _get(rcpt, "delivery_plan_id") or "",
-            _get(rcpt, "target_adapter") or "",
-            _get(rcpt, "target_channel"),
-        )
+        rcpt_key = delivery_identity(rcpt)
         if rcpt_key in outbox_keys:
             continue
         items.append(_build_receipt_only_summary(rcpt))
@@ -486,12 +477,8 @@ def build_retry_outbox_summary(
     failed_receipt_count = 0
     for rcpt in receipt_list:
         status = _get(rcpt, "status") or "queued"
-        rcpt_key = (
-            _get(rcpt, "delivery_plan_id") or "",
-            _get(rcpt, "target_adapter") or "",
-            _get(rcpt, "target_channel"),
-        )
-        # Skip receipts whose key is already covered by an outbox item.
+        rcpt_key = delivery_identity(rcpt)
+        # Skip receipts whose event-scoped identity is already covered by an outbox item.
         if rcpt_key in outbox_keys:
             continue
         if status == "suppressed":

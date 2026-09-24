@@ -9,12 +9,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
 
+from ...delivery_authority import DeliveryAuthorityResolver
 from .helpers import (
-    _build_committed_receipt_ids_by_key,
     _build_outbox_by_key,
     _ensure_aware,
-    _target_key,
-    _TargetKey,
 )
 from .lifecycle_checks import (
     _check_attempt_count_regression,
@@ -75,23 +73,13 @@ def build_lifecycle_convergence_findings(
 
     # -- Index structures ---------------------------------------------------
     outbox_by_key = _build_outbox_by_key(outbox_list)
-    committed_receipt_ids = _build_committed_receipt_ids_by_key(outbox_list)
+    authority = DeliveryAuthorityResolver(receipt_list, outbox_list)
+    receipts_by_key = {
+        key: list(authority.receipts_for(key)) for key in authority.identities
+    }
+    all_keys = list(authority.ordered_identities())
 
-    receipts_by_key: dict[_TargetKey, list[Any]] = {}
-    for rec in receipt_list:
-        key = _target_key(rec)
-        receipts_by_key.setdefault(key, []).append(rec)
-
-    all_keys = sorted(
-        set(outbox_by_key.keys()) | set(receipts_by_key.keys()),
-        key=lambda k: (k[0] or "", k[1] or "", k[2] or "", k[3] or ""),
-    )
-
-    findings.extend(
-        _check_target_mismatches(
-            outbox_by_key, receipts_by_key, all_keys, committed_receipt_ids
-        )
-    )
+    findings.extend(_check_target_mismatches(outbox_by_key, authority, all_keys))
     findings.extend(_check_retry_wait_outboxes(outbox_list, now))
     findings.extend(_check_retryable_without_metadata(receipt_list, outbox_by_key))
     findings.extend(

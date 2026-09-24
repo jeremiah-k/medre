@@ -676,13 +676,14 @@ Resolution order:
 
 ### 14.8.2 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by
-composite key `(delivery_plan_id, route_id, target_adapter, target_channel)`.
-For outbox-backed delivery it selects the receipt named by the authoritative
-outbox `receipt_id`; a rejected late append remains history. Receipt-only
-delivery uses durable append `sequence`. `source` and `replay_run_id` are
-provenance on the selected receipt, not grouping dimensions, so a committed
-executed replay or retry can supersede the same live delivery lineage.
+The incident summary's `delivery_state_by_target` dict uses the full
+current-delivery identity `(event_id, delivery_plan_id, target_adapter,
+target_channel)`. Empty-string and absent channels are one identity, matching
+SQLite persistence semantics. `route_id`, `source`, and `replay_run_id` are
+provenance on the selected receipt, not grouping dimensions. For outbox-backed
+delivery the shared authority resolver selects only receipts named by a matching
+outbox generation's committed `receipt_id`; rejected late appends remain
+history. Outbox-less delivery uses durable append order.
 Each target entry includes the capability-evidence fields from § 14.8.1, plus
 `source`, `replay_run_id`, `suppression_reason`, and `error`. This gives
 operators a per-target view of current capability suppression without joining
@@ -840,18 +841,18 @@ The evidence bundle is:
 
 An operator inspecting an :class:`EvidenceBundle` or a report dict from :func:`delivery_receipt_to_report_dict` can answer the following traceability questions from evidence alone, without consulting logs or source code:
 
-| Question                                  | Evidence source                                                                | Key fields                                                                                     |
-| ----------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Was this event processed?                 | `event_summary` in :class:`EvidenceBundle`                                     | `event_id`, `event_kind`, `source_adapter`                                                     |
-| Which route matched?                      | `delivery_state_by_target` entry or receipt                                    | `route_id`                                                                                     |
-| Which target was selected?                | `delivery_state_by_target` composite key                                       | `target_adapter`, `target_channel`, `target_identity` (via `delivery_plan_id`)                 |
-| What plan ID was assigned?                | `delivery_state_by_target` entry or receipt                                    | `delivery_plan_id` (deterministic via :func:`stable_delivery_plan_id`)                         |
-| What strategy was chosen?                 | `rendering_evidence` JSON on receipt, or `delivery_state_by_target` enrichment | `delivery_strategy` (`"direct"`, `"fallback_text"`, `"skip"`)                                  |
-| What capability field drove the decision? | `delivery_state_by_target` enrichment or parsed from `error`                   | `capability_field` (e.g. `reactions`, `replies`, `text`) or `None` for loop/policy suppression |
-| What is the delivery status?              | Receipt                                                                        | `status` (`"sent"`, `"queued"`, `"suppressed"`, `"failed"`, `"dead_lettered"`)                 |
-| Why did delivery fail?                    | Receipt and enrichment                                                         | `failure_kind`, `failure_kind_detail`, `error`, `suppression_reason`                           |
-| Was this a live delivery or replay?       | Receipt                                                                        | `source` (`"live"` or `"replay"`), `replay_run_id`                                             |
-| How many retry attempts occurred?         | Receipt chain                                                                  | `attempt_number`, `parent_receipt_id` (links in chain), `next_retry_at` (`None` for exhausted) |
+| Question                                  | Evidence source                                                                | Key fields                                                                                                   |
+| ----------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Was this event processed?                 | `event_summary` in :class:`EvidenceBundle`                                     | `event_id`, `event_kind`, `source_adapter`                                                                   |
+| Which route matched?                      | `delivery_state_by_target` entry or receipt                                    | `route_id`                                                                                                   |
+| Which target was selected?                | `delivery_state_by_target` composite key                                       | `target_adapter`, `target_channel`, `target_identity` (via `delivery_plan_id`)                               |
+| What plan ID was assigned?                | `delivery_state_by_target` entry or receipt                                    | `delivery_plan_id` (deterministic via :func:`stable_delivery_plan_id`)                                       |
+| What strategy was chosen?                 | `rendering_evidence` JSON on receipt, or `delivery_state_by_target` enrichment | `delivery_strategy` (`"direct"`, `"fallback_text"`, `"skip"`)                                                |
+| What capability field drove the decision? | `delivery_state_by_target` enrichment or parsed from `error`                   | `capability_field` (e.g. `reactions`, `replies`, `text`) or `None` for loop/policy suppression               |
+| What is the delivery status?              | Receipt                                                                        | `status` (`"sent"`, `"queued"`, `"failed"`, `"suppressed"`, `"dead_lettered"`, `"cancelled"`, `"abandoned"`) |
+| Why did delivery fail?                    | Receipt and enrichment                                                         | `failure_kind`, `failure_kind_detail`, `error`, `suppression_reason`                                         |
+| Was this live, retry, or replay evidence? | Receipt                                                                        | `source` (`"live"`, `"retry"`, or `"replay"`), `replay_run_id`                                               |
+| How many retry attempts occurred?         | Receipt chain                                                                  | `attempt_number`, `parent_receipt_id` (links in chain), `next_retry_at` (`None` for exhausted)               |
 
 ### 17.1 Evidence Completeness Per Pipeline Stage
 
@@ -884,12 +885,13 @@ is derived at report time from existing receipt fields:
 
 ### 17.3 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by
-composite key `(delivery_plan_id, route_id, target_adapter, target_channel)`.
-Outbox-backed delivery selects the receipt named by the outbox `receipt_id`;
-receipt-only delivery selects the latest durable append. `source` and
-`replay_run_id` describe the selected receipt; they do not partition the
-delivery lineage. Each target entry includes:
+The incident summary's `delivery_state_by_target` dict groups receipts by the
+full event-scoped delivery identity `(event_id, delivery_plan_id,
+target_adapter, target_channel)`. Empty-string and absent channels normalize to
+the same identity. `route_id`, `source`, and `replay_run_id` describe the
+selected receipt and do not partition lifecycle authority. Outbox-backed
+delivery uses committed outbox receipt pointers across all generations;
+outbox-less delivery uses durable append order. Each target entry includes:
 
 | Field                 | Source                            |
 | --------------------- | --------------------------------- |
@@ -958,40 +960,56 @@ The ledger is not a new storage schema. It is derived at query/report time from 
 - Outbox rows for in-progress or pending deliveries.
 - Event rows in `canonical_events`.
 
-The derivation logic groups receipts and outbox items by composite key `(delivery_plan_id, route_id, target_adapter, target_channel, source)`. When `delivery_plan_id` is absent, `event_id` is used as the primary grouping dimension instead. Replay run ID (`replay_run_id`) is **not** part of the grouping key — it is populated on the resulting entry only when `source == "replay"`. The highest `attempt_number` per group wins, with last-seen breaking ties.
+The derivation logic uses the shared event-scoped delivery identity
+`(event_id, delivery_plan_id, target_adapter, target_channel)`. Empty and absent
+channels normalize to one identity. Route ID, source, and replay run ID are
+provenance on the selected evidence; they never split lifecycle identity.
+
+`DeliveryAuthorityResolver` selects the authoritative receipt: outbox-backed
+receipts are eligible only when a matching outbox generation commits their
+`receipt_id`; multiple committed outbox generations are ordered by dispatch
+generation; outbox-less receipts retain append-order authority. The ledger then
+reports current mutable outbox state and latest immutable dispatch-attempt
+evidence as separate facts.
 
 ### 19.3 Ledger Fields
 
 Each ledger entry contains:
 
-| Field                    | Source                                                   | Semantics                                                                                                             |
-| ------------------------ | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `delivery_plan_id`       | Receipt                                                  | Deterministic plan ID for this delivery target.                                                                       |
-| `event_id`               | Receipt                                                  | The canonical event being delivered.                                                                                  |
-| `route_id`               | Receipt                                                  | Which route configuration triggered delivery.                                                                         |
-| `target_adapter`         | Receipt                                                  | Target adapter for delivery.                                                                                          |
-| `target_channel`         | Receipt                                                  | Target channel on the adapter.                                                                                        |
-| `delivery_strategy`      | Derived from `rendering_evidence` / `error`              | Strategy used (direct, fallback_text, skip).                                                                          |
-| `capability_field`       | Derived from `error`                                     | Capability field name that triggered suppression, or `None`.                                                          |
-| `capability_level`       | Derived from `rendering_evidence` / `error`              | Capability decision for this delivery.                                                                                |
-| `suppression_reason`     | Derived from `error`                                     | Human-readable suppression reason, if applicable.                                                                     |
-| `final_status`           | Receipt (highest `attempt_number`)                       | Terminal delivery status.                                                                                             |
-| `attempt_number`         | Receipt                                                  | Number of delivery attempts for this target.                                                                          |
-| `retry_state`            | Derived from `status` / `next_retry_at` / `failure_kind` | Derived display label: `"terminal"`, `"retryable"`, `"active"`, or `"unknown"`. Not an authoritative lifecycle state. |
-| `failure_kind`           | Receipt                                                  | Failure classification, if applicable.                                                                                |
-| `failure_taxon`          | Derived via `resolve_taxon()`                            | Resolved failure taxon, or `None`.                                                                                    |
-| `failure_taxon_category` | Derived via `taxon_category()`                           | Category of the resolved failure taxon, or `None`.                                                                    |
-| `source`                 | Receipt                                                  | `"live"`, `"retry"`, or `"replay"`.                                                                                   |
-| `replay_run_id`          | Receipt                                                  | Replay run identifier, or `None` for live.                                                                            |
-| `receipt_ids`            | Collected from all grouped records                       | Sorted list of all receipt IDs in the group.                                                                          |
-| `outbox_id`              | Outbox item                                              | Outbox row ID, if an outbox record was present, or `None`.                                                            |
-| `adapter_message_id`     | Receipt                                                  | Transport-layer message ID assigned by the adapter, or `None`.                                                        |
-| `next_retry_at`          | Receipt                                                  | Scheduled retry time (ISO-8601), or `None`.                                                                           |
-| `error`                  | Receipt / outbox `error_summary`                         | Error text from receipt or outbox error summary, or `None`.                                                           |
+| Field                        | Source                                     | Semantics                                                                                      |
+| ---------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `delivery_plan_id`           | Delivery identity                          | Plan component of the event-scoped delivery identity.                                          |
+| `event_id`                   | Delivery identity                          | Canonical event component; plan IDs never identify a delivery alone.                           |
+| `route_id`                   | Selected receipt/outbox provenance         | Route that produced the selected evidence; not lifecycle identity.                             |
+| `target_adapter`             | Delivery identity                          | Target adapter.                                                                                |
+| `target_channel`             | Delivery identity                          | Normalized target channel (`null` for no channel).                                             |
+| `lifecycle_status`           | Current outbox, else authoritative receipt | Current MEDRE-owned lifecycle state.                                                           |
+| `outbox_status`              | Current outbox generation                  | Mutable operational state, or `null` when no outbox exists.                                    |
+| `authoritative_receipt_id`   | Authority resolver                         | Receipt currently allowed to represent immutable lifecycle evidence.                           |
+| `authoritative_receipt_kind` | Authoritative receipt                      | `attempt` or `lifecycle`.                                                                      |
+| `causative_receipt_id`       | Lifecycle receipt                          | Parent attempt that caused a lifecycle transition, otherwise `null`.                           |
+| `latest_attempt_status`      | Immutable attempt history                  | Result/status of the greatest dispatch attempt generation, independent of lifecycle authority. |
+| `latest_attempt_number`      | Immutable attempt history                  | Greatest actual dispatch attempt number; lifecycle transitions never fabricate one.            |
+| `ambiguous_outcome`          | Outbox failure detail                      | `true` when recovery consumed a dispatch whose external outcome was unknown.                   |
+| `delivery_strategy`          | Rendering evidence / error                 | Strategy used (`direct`, `fallback_text`, `skip`) when derivable.                              |
+| `capability_field`           | Error                                      | Capability field that triggered suppression, or `null`.                                        |
+| `capability_level`           | Rendering evidence / error                 | Capability decision when derivable.                                                            |
+| `suppression_reason`         | Error                                      | Human-readable suppression reason, if applicable.                                              |
+| `retry_state`                | Lifecycle/retry metadata                   | Derived display label only; not mutable authority.                                             |
+| `failure_kind`               | Authoritative receipt / outbox             | Current failure classification, if applicable.                                                 |
+| `failure_taxon`              | `resolve_taxon()`                          | Resolved failure taxon, or `null`.                                                             |
+| `failure_taxon_category`     | `taxon_category()`                         | Category of the resolved taxon, or `null`.                                                     |
+| `source`                     | Selected receipt provenance                | `live`, `retry`, or `replay`; not lifecycle identity.                                          |
+| `replay_run_id`              | Selected replay receipt                    | Replay run identifier only when selected provenance is replay.                                 |
+| `receipt_ids`                | Full identity receipt history              | Sorted receipt IDs, including historical/non-authoritative evidence.                           |
+| `outbox_id`                  | Current outbox generation                  | Current operational row ID, if present.                                                        |
+| `adapter_message_id`         | Authoritative/latest attempt receipt       | Provider/native message ID when available.                                                     |
+| `next_retry_at`              | Receipt/outbox scheduling metadata         | Scheduled retry timestamp, or `null`.                                                          |
+| `error`                      | Authoritative receipt / outbox             | Current error summary, or `null`.                                                              |
 
 ### 19.4 No Additional Storage Required
 
-The ledger is a read-only projection. It does not create tables, modify schema, or write additional data. Operators can reconstruct the ledger at any time by querying `delivery_receipts` and `canonical_events`.
+The ledger is a read-only projection. It does not create tables, modify schema, or write additional data. Operators can reconstruct the ledger at any time by querying `delivery_receipts`, `delivery_outbox`, and `canonical_events`; outbox-backed authority depends on the committed outbox receipt pointer and generation.
 
 ## 20. Retry and Outbox Accountability
 

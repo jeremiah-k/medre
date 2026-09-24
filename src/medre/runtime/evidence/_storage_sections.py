@@ -252,72 +252,35 @@ async def _collect_storage_data_from_backend(
                     1 for r in receipt_dicts if r.get("status") == "sent"
                 )
 
-                # Target-keyed delivery state: group by logical target key
-                # (target_adapter, target_channel, route_id, delivery_plan_id).
-                # Receipt source/replay_run_id are provenance on the selected
-                # receipt, not lineage partitions.  Outbox-backed delivery uses
-                # the outbox receipt_id as lifecycle authority; receipt-only
-                # delivery retains durable append order.  The enriched report
-                # dicts do not carry ``outbox_id``, so each is paired with its
-                # raw receipt dict (same source list, same order) for the
-                # authority eligibility check.
-                _target_groups: dict[
-                    str, list[tuple[dict[str, object], dict[str, object]]]
-                ] = {}
-                for raw_rd, rd in zip(receipt_dicts, enriched_dicts, strict=False):
-                    comp = _json.dumps(
-                        {
-                            "delivery_plan_id": rd.get("delivery_plan_id"),
-                            "route_id": rd.get("route_id"),
-                            "target_adapter": rd.get("target_adapter"),
-                            "target_channel": rd.get("target_channel"),
-                        },
-                        sort_keys=True,
-                    )
-                    _target_groups.setdefault(comp, []).append((raw_rd, rd))
+                # Target-keyed delivery state uses the shared full delivery
+                # identity. Route ID is provenance on the selected receipt, not
+                # part of lifecycle identity; two routes that feed the same
+                # event/plan/adapter/channel resolve to one current delivery.
+                from medre.core.delivery_authority import DeliveryAuthorityResolver
 
-                _committed_receipt_ids: dict[str, set[str]] = {}
-                for item in outbox_items:
-                    comp = _json.dumps(
-                        {
-                            "delivery_plan_id": getattr(item, "delivery_plan_id", None),
-                            "route_id": getattr(item, "route_id", None),
-                            "target_adapter": getattr(item, "target_adapter", None),
-                            "target_channel": getattr(item, "target_channel", None),
-                        },
-                        sort_keys=True,
-                    )
-                    ids = _committed_receipt_ids.setdefault(comp, set())
-                    receipt_id = getattr(item, "receipt_id", None)
-                    if receipt_id:
-                        ids.add(str(receipt_id))
+                authority = DeliveryAuthorityResolver(receipts, outbox_items)
+                enriched_by_receipt_id = {
+                    str(rd.get("receipt_id") or ""): rd for rd in enriched_dicts
+                }
 
                 delivery_state_by_target: dict[str, dict[str, object]] = {}
-                for target_key, group in _target_groups.items():
-                    committed_ids = _committed_receipt_ids.get(target_key)
-                    eligible = (
-                        group
-                        if committed_ids is None
-                        else [
-                            pair
-                            for pair in group
-                            if not pair[0].get("outbox_id")
-                            or str(pair[0].get("receipt_id") or "") in committed_ids
-                        ]
-                    )
-                    if not eligible:
+                for identity in authority.ordered_identities():
+                    current = authority.current(identity)
+                    if current is None:
                         continue
-                    # Persisted receipt sequence is unique and monotonic.
-                    # created_at/receipt_id are deterministic fallbacks for
-                    # synthetic inputs whose sequence is absent or zero.
-                    best = max(
-                        eligible,
-                        key=lambda pair: (
-                            int(pair[1].get("sequence") or 0),
-                            str(pair[1].get("created_at") or ""),
-                            str(pair[1].get("receipt_id") or ""),
-                        ),
-                    )[1]
+                    receipt_id = str(getattr(current, "receipt_id", "") or "")
+                    best = enriched_by_receipt_id.get(receipt_id)
+                    if best is None:
+                        continue
+                    target_key = _json.dumps(
+                        {
+                            "event_id": identity.event_id,
+                            "delivery_plan_id": identity.delivery_plan_id,
+                            "target_adapter": identity.target_adapter,
+                            "target_channel": identity.target_channel,
+                        },
+                        sort_keys=True,
+                    )
                     delivery_state_by_target[target_key] = {
                         "target_adapter": best.get("target_adapter"),
                         "target_channel": best.get("target_channel"),

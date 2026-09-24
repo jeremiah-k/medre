@@ -140,6 +140,7 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         target_channel=row.get("target_channel"),
         route_id=row.get("route_id", ""),
         status=row["status"],  # type: ignore[arg-type]
+        receipt_kind=row.get("receipt_kind"),  # type: ignore[arg-type]
         error=row["error"],
         failure_kind=row.get("failure_kind"),
         adapter_message_id=row["adapter_message_id"],

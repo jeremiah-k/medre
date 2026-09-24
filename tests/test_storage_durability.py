@@ -189,7 +189,9 @@ class TestRepeatedOpenCloseLifecycle:
                     delivery_plan_id="plan-1",
                 )
             )
-            status = await s2.delivery_status("plan-1", "adapter_x")
+            status = await s2.delivery_status(
+                "plan-1", "adapter_x", event_id="evt-rcpt-1"
+            )
             assert status is not None
             assert status.receipt_id == "rcpt-2"
 

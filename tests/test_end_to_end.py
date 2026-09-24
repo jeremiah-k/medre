@@ -310,7 +310,9 @@ class TestFullPipeline:
                 )
                 await storage.append_receipt(receipt)
 
-            latest = await storage.delivery_status("plan-receipt", "fake_presentation")
+            latest = await storage.delivery_status(
+                "plan-receipt", "fake_presentation", event_id="receipt-evt"
+            )
             assert latest is not None
             assert latest.status == "suppressed"
 

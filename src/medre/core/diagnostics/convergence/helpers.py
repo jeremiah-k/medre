@@ -10,23 +10,25 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from medre.core.delivery_authority import (
+    DeliveryIdentity,
+    delivery_identity,
+    group_outbox_by_identity,
+    select_current_outbox,
+)
+
 from .types import ConvergenceSeverity
 
 __all__ = [
     "_get",
     "_target_key",
     "_TargetKey",
-    "_ReverseStr",
-    "_receipt_sort_key",
-    "_pick_latest_receipt",
     "_worst_severity",
     "_SEVERITY_ORDER",
     "_TERMINAL_RECEIPT",
     "_NON_TERMINAL_RECEIPT",
     "_TERMINAL_OUTBOX",
     "_NON_TERMINAL_OUTBOX",
-    "_current_receipt_for_target",
-    "_build_committed_receipt_ids_by_key",
     "_build_outbox_by_key",
     "_parse_iso_timestamp",
     "_ensure_aware",
@@ -85,149 +87,13 @@ def _to_iso(value: Any) -> str | None:
 # Group key construction
 # ---------------------------------------------------------------------------
 
-_TargetKey = tuple[str, str, str, str | None]
+_TargetKey = DeliveryIdentity
 """``(event_id, delivery_plan_id, target_adapter, target_channel)``."""
 
 
 def _target_key(obj: Any) -> _TargetKey:
-    """Build a deterministic group key from a record.
-
-    Falls back to ``""`` for missing ``delivery_plan_id`` and
-    ``target_adapter``; ``None`` is preserved for ``target_channel`` to
-    distinguish "absent" from "empty string".
-    """
-    event_id = _get(obj, "event_id") or ""
-    plan_id = _get(obj, "delivery_plan_id") or ""
-    adapter = _get(obj, "target_adapter") or ""
-    channel = _get(obj, "target_channel")
-    return (event_id, plan_id, adapter, channel)
-
-
-# ---------------------------------------------------------------------------
-# Receipt ranking — deterministic latest-selection
-# ---------------------------------------------------------------------------
-
-
-class _ReverseStr:
-    """Wrapper that reverses string comparison order for ``min()`` selection.
-
-    ``_ReverseStr("b") < _ReverseStr("a")`` so that ``min()`` picks
-    the lexicographically *latest* string value.
-    """
-
-    __slots__ = ("_value",)
-
-    def __init__(self, value: str) -> None:
-        self._value = value
-
-    def __lt__(self, other: _ReverseStr) -> bool:  # type: ignore[override]
-        return self._value > other._value
-
-    def __le__(self, other: _ReverseStr) -> bool:  # type: ignore[override]
-        return self._value >= other._value
-
-    def __gt__(self, other: _ReverseStr) -> bool:  # type: ignore[override]
-        return self._value < other._value
-
-    def __ge__(self, other: _ReverseStr) -> bool:  # type: ignore[override]
-        return self._value <= other._value
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, _ReverseStr):
-            return NotImplemented
-        return self._value == other._value
-
-    def __hash__(self) -> int:
-        return hash(self._value)
-
-    def __repr__(self) -> str:  # pragma: no cover
-        return f"_ReverseStr({self._value!r})"
-
-
-def _receipt_sort_key(rec: Any) -> tuple:
-    """Sort key for deterministic latest-receipt selection.
-
-    Used with ``min()``.  All components are arranged so that the
-    "latest" / most authoritative receipt has the *smallest* key:
-
-    * ``sequence`` — negated so later durable appends sort first.
-    * ``created_at`` — wrapped in :class:`_ReverseStr` so later
-      timestamps sort first.
-    * ``receipt_id`` — wrapped in :class:`_ReverseStr` so
-      lexicographically larger IDs sort first.
-
-    Does not rely on object identity.
-    """
-    sequence = _get(rec, "sequence") or 0
-    created_at = _to_iso(_get(rec, "created_at")) or ""
-    receipt_id = _get(rec, "receipt_id") or ""
-    return (
-        -sequence,
-        _ReverseStr(created_at),
-        _ReverseStr(receipt_id),
-    )
-
-
-def _pick_latest_receipt(receipts: list[Any]) -> Any | None:
-    """Select the latest receipt from a list by deterministic ranking.
-
-    Ranking priority (highest wins):
-    1. ``sequence`` (highest durable append position)
-    2. ``created_at`` ISO string (lexicographically latest; deterministic
-       fallback for synthetic/unpersisted inputs with equal sequence)
-    3. ``receipt_id`` (lexicographically latest fallback)
-
-    Does not rely on object identity.
-    """
-    if not receipts:
-        return None
-    return min(receipts, key=_receipt_sort_key)
-
-
-def _build_committed_receipt_ids_by_key(
-    outbox_items: list[Any],
-) -> dict[_TargetKey, set[str]]:
-    """Return committed outbox receipt IDs grouped by target key.
-
-    Every outbox generation contributes its current ``receipt_id``.  Keys are
-    retained even when no generation has committed a receipt yet so callers can
-    distinguish an outbox-backed target from a receipt-only target.
-    """
-    result: dict[_TargetKey, set[str]] = {}
-    for item in outbox_items:
-        key = _target_key(item)
-        ids = result.setdefault(key, set())
-        receipt_id = _get(item, "receipt_id")
-        if receipt_id:
-            ids.add(str(receipt_id))
-    return result
-
-
-def _current_receipt_for_target(
-    receipts_by_key: dict[_TargetKey, list[Any]],
-    key: _TargetKey,
-    committed_receipt_ids: set[str] | None,
-) -> Any | None:
-    """Select the lifecycle-authoritative receipt for one target.
-
-    ``None`` means the target has no outbox rows, so durable append order is
-    authoritative.  When outbox rows exist, an eligible receipt is either
-    outbox-less or explicitly named by one of those rows' committed
-    ``receipt_id`` pointers.  The latest eligible receipt wins.  This mirrors
-    SQLite ``delivery_status`` across multiple outbox generations and prevents
-    a late receipt whose guarded outbox transition was rejected from becoming
-    current merely because it has the largest append sequence.
-    """
-    recs = receipts_by_key.get(key, [])
-    if committed_receipt_ids is None:
-        return _pick_latest_receipt(recs)
-    eligible = [
-        rec
-        for rec in recs
-        if not _get(rec, "outbox_id")
-        or str(_get(rec, "receipt_id") or "") in committed_receipt_ids
-    ]
-    return _pick_latest_receipt(eligible)
+    """Build the shared event-scoped delivery identity for *obj*."""
+    return delivery_identity(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -257,33 +123,12 @@ def _worst_severity(severities: list[ConvergenceSeverity]) -> str | None:
 def _build_outbox_by_key(
     outbox_items: list[Any],
 ) -> dict[_TargetKey, Any]:
-    """Index outbox items by target key, keeping the highest-authority item.
-
-    When multiple outbox items share the same ``(event_id, delivery_plan_id,
-    target_adapter, target_channel)`` key, the one with the higher
-    ``attempt_number`` wins.  Ties are broken by ``outbox_id``
-    (lexicographically largest wins).
-
-    Returns a ``dict[_TargetKey, item]`` mapping.
-    """
-    outbox_by_key: dict[_TargetKey, Any] = {}
-    for obx in outbox_items:
-        key = _target_key(obx)
-        existing = outbox_by_key.get(key)
-        if existing is None:
-            outbox_by_key[key] = obx
-        else:
-            # Keep higher attempt_number; break ties by outbox_id
-            existing_attempt = _get(existing, "attempt_number") or 0
-            new_attempt = _get(obx, "attempt_number") or 0
-            if new_attempt > existing_attempt:
-                outbox_by_key[key] = obx
-            elif new_attempt == existing_attempt:
-                existing_id = _get(existing, "outbox_id") or ""
-                new_id = _get(obx, "outbox_id") or ""
-                if new_id > existing_id:
-                    outbox_by_key[key] = obx
-    return outbox_by_key
+    """Index current operational outbox generations by delivery identity."""
+    return {
+        identity: current
+        for identity, items in group_outbox_by_identity(outbox_items).items()
+        if (current := select_current_outbox(items)) is not None
+    }
 
 
 # ---------------------------------------------------------------------------

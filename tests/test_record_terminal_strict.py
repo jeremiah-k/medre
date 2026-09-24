@@ -473,14 +473,21 @@ class TestValidExhausted:
         await manager.record_terminal(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-exhausted")
-        assert len(receipts) == 1
-        assert receipts[0].status == "failed"
-        assert receipts[0].failure_kind == "adapter_transient"
-        assert receipts[0].outbox_id == "obox-exhausted"
+        assert len(receipts) == 2
+        attempt_receipt, lifecycle_receipt = receipts
+        assert attempt_receipt.receipt_kind == "attempt"
+        assert attempt_receipt.status == "failed"
+        assert attempt_receipt.failure_kind == "adapter_transient"
+        assert attempt_receipt.outbox_id == "obox-exhausted"
+        assert lifecycle_receipt.receipt_kind == "lifecycle"
+        assert lifecycle_receipt.status == "dead_lettered"
+        assert lifecycle_receipt.attempt_number == attempt_receipt.attempt_number
+        assert lifecycle_receipt.parent_receipt_id == attempt_receipt.receipt_id
 
         outbox = await temp_storage.get_outbox_item("obox-exhausted")
         assert outbox is not None
         assert outbox.status == "dead_lettered"
+        assert outbox.receipt_id == lifecycle_receipt.receipt_id
 
 
 # ===================================================================
@@ -518,13 +525,19 @@ class TestValidPermanentFailed:
         await manager.record_terminal(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-perm")
-        assert len(receipts) == 1
-        assert receipts[0].status == "failed"
-        assert receipts[0].failure_kind == "adapter_permanent"
+        assert len(receipts) == 2
+        attempt_receipt, lifecycle_receipt = receipts
+        assert attempt_receipt.receipt_kind == "attempt"
+        assert attempt_receipt.status == "failed"
+        assert attempt_receipt.failure_kind == "adapter_permanent"
+        assert lifecycle_receipt.receipt_kind == "lifecycle"
+        assert lifecycle_receipt.status == "dead_lettered"
+        assert lifecycle_receipt.parent_receipt_id == attempt_receipt.receipt_id
 
         outbox = await temp_storage.get_outbox_item("obox-perm")
         assert outbox is not None
         assert outbox.status == "dead_lettered"
+        assert outbox.receipt_id == lifecycle_receipt.receipt_id
 
 
 # ===================================================================
@@ -563,12 +576,14 @@ class TestValidCancelled:
 
         receipts = await temp_storage.list_receipts_for_event("evt-cancel")
         assert len(receipts) == 1
-        assert receipts[0].status == "failed"
+        assert receipts[0].receipt_kind == "lifecycle"
+        assert receipts[0].status == "cancelled"
         assert receipts[0].failure_kind == "adapter_transient"
 
         outbox = await temp_storage.get_outbox_item("obox-cancel")
         assert outbox is not None
         assert outbox.status == "cancelled"
+        assert outbox.receipt_id == receipts[0].receipt_id
 
 
 # ===================================================================
@@ -607,12 +622,14 @@ class TestValidAbandoned:
 
         receipts = await temp_storage.list_receipts_for_event("evt-abandon")
         assert len(receipts) == 1
-        assert receipts[0].status == "failed"
+        assert receipts[0].receipt_kind == "lifecycle"
+        assert receipts[0].status == "abandoned"
         assert receipts[0].failure_kind == "adapter_transient"
 
         outbox = await temp_storage.get_outbox_item("obox-abandon")
         assert outbox is not None
         assert outbox.status == "abandoned"
+        assert outbox.receipt_id == receipts[0].receipt_id
 
 
 # ===================================================================
@@ -651,10 +668,8 @@ class TestValidPreservesRouteId:
         await manager.record_terminal(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-route")
-        assert len(receipts) == 1
-        assert (
-            receipts[0].route_id == "route-special-42"
-        ), f"Expected route_id='route-special-42', got '{receipts[0].route_id}'"
+        assert len(receipts) == 2
+        assert {r.route_id for r in receipts} == {"route-special-42"}
 
 
 class TestMissingAttemptNumberRejected:
