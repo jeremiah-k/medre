@@ -120,7 +120,9 @@ async def test_idempotent_create_reuses_live_reservation_generation(
         event_id=event.event_id,
         target_channel=target_channel,
     )
-    assert await temp_storage.reserve_outbox_attempt(original.outbox_id, _WORKER, 1) == 2
+    assert (
+        await temp_storage.reserve_outbox_attempt(original.outbox_id, _WORKER, 1) == 2
+    )
 
     duplicate = _replay_candidate(
         outbox_id="obox-create-reservation-duplicate",
@@ -154,7 +156,9 @@ async def test_atomic_replay_allocation_advances_past_live_reservation(
         event_id=event.event_id,
         target_channel=target_channel,
     )
-    assert await temp_storage.reserve_outbox_attempt(original.outbox_id, _WORKER, 1) == 2
+    assert (
+        await temp_storage.reserve_outbox_attempt(original.outbox_id, _WORKER, 1) == 2
+    )
 
     replay = _replay_candidate(
         outbox_id="obox-atomic-replay-reserved-new",
@@ -226,7 +230,9 @@ async def test_atomic_replay_allocation_does_not_reclaim_finalized_retry(
         event_id=event.event_id,
         target_channel=target_channel,
     )
-    assert await temp_storage.reserve_outbox_attempt(original.outbox_id, _WORKER, 1) == 2
+    assert (
+        await temp_storage.reserve_outbox_attempt(original.outbox_id, _WORKER, 1) == 2
+    )
     assert await temp_storage.mark_outbox_retry_wait(
         original.outbox_id,
         next_attempt_at=_FUTURE.isoformat(),

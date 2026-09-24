@@ -56,9 +56,9 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from tests.helpers.storage_outbox import (
+    allocate_new_outbox_generation,
     apply_guarded_outbox_terminal,
     apply_guarded_outbox_transition,
-    allocate_new_outbox_generation,
     find_existing_outbox_generation,
     reserve_guarded_outbox_attempt,
 )

@@ -841,18 +841,18 @@ The evidence bundle is:
 
 An operator inspecting an :class:`EvidenceBundle` or a report dict from :func:`delivery_receipt_to_report_dict` can answer the following traceability questions from evidence alone, without consulting logs or source code:
 
-| Question                                  | Evidence source                                                                | Key fields                                                                                     |
-| ----------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Was this event processed?                 | `event_summary` in :class:`EvidenceBundle`                                     | `event_id`, `event_kind`, `source_adapter`                                                     |
-| Which route matched?                      | `delivery_state_by_target` entry or receipt                                    | `route_id`                                                                                     |
-| Which target was selected?                | `delivery_state_by_target` composite key                                       | `target_adapter`, `target_channel`, `target_identity` (via `delivery_plan_id`)                 |
-| What plan ID was assigned?                | `delivery_state_by_target` entry or receipt                                    | `delivery_plan_id` (deterministic via :func:`stable_delivery_plan_id`)                         |
-| What strategy was chosen?                 | `rendering_evidence` JSON on receipt, or `delivery_state_by_target` enrichment | `delivery_strategy` (`"direct"`, `"fallback_text"`, `"skip"`)                                  |
-| What capability field drove the decision? | `delivery_state_by_target` enrichment or parsed from `error`                   | `capability_field` (e.g. `reactions`, `replies`, `text`) or `None` for loop/policy suppression |
-| What is the delivery status?              | Receipt                                                                        | `status` (`"sent"`, `"queued"`, `"failed"`, `"suppressed"`, `"dead_lettered"`, `"cancelled"`, `"abandoned"`)                 |
-| Why did delivery fail?                    | Receipt and enrichment                                                         | `failure_kind`, `failure_kind_detail`, `error`, `suppression_reason`                           |
-| Was this live, retry, or replay evidence? | Receipt                                                                        | `source` (`"live"`, `"retry"`, or `"replay"`), `replay_run_id`                                             |
-| How many retry attempts occurred?         | Receipt chain                                                                  | `attempt_number`, `parent_receipt_id` (links in chain), `next_retry_at` (`None` for exhausted) |
+| Question                                  | Evidence source                                                                | Key fields                                                                                                   |
+| ----------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Was this event processed?                 | `event_summary` in :class:`EvidenceBundle`                                     | `event_id`, `event_kind`, `source_adapter`                                                                   |
+| Which route matched?                      | `delivery_state_by_target` entry or receipt                                    | `route_id`                                                                                                   |
+| Which target was selected?                | `delivery_state_by_target` composite key                                       | `target_adapter`, `target_channel`, `target_identity` (via `delivery_plan_id`)                               |
+| What plan ID was assigned?                | `delivery_state_by_target` entry or receipt                                    | `delivery_plan_id` (deterministic via :func:`stable_delivery_plan_id`)                                       |
+| What strategy was chosen?                 | `rendering_evidence` JSON on receipt, or `delivery_state_by_target` enrichment | `delivery_strategy` (`"direct"`, `"fallback_text"`, `"skip"`)                                                |
+| What capability field drove the decision? | `delivery_state_by_target` enrichment or parsed from `error`                   | `capability_field` (e.g. `reactions`, `replies`, `text`) or `None` for loop/policy suppression               |
+| What is the delivery status?              | Receipt                                                                        | `status` (`"sent"`, `"queued"`, `"failed"`, `"suppressed"`, `"dead_lettered"`, `"cancelled"`, `"abandoned"`) |
+| Why did delivery fail?                    | Receipt and enrichment                                                         | `failure_kind`, `failure_kind_detail`, `error`, `suppression_reason`                                         |
+| Was this live, retry, or replay evidence? | Receipt                                                                        | `source` (`"live"`, `"retry"`, or `"replay"`), `replay_run_id`                                               |
+| How many retry attempts occurred?         | Receipt chain                                                                  | `attempt_number`, `parent_receipt_id` (links in chain), `next_retry_at` (`None` for exhausted)               |
 
 ### 17.1 Evidence Completeness Per Pipeline Stage
 

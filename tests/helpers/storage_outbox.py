@@ -132,9 +132,7 @@ def _same_outbox_identity(left: DeliveryOutboxItem, right: DeliveryOutboxItem) -
 def _effective_outbox_attempt(item: DeliveryOutboxItem) -> int:
     """Return the generation represented by an outbox row."""
     return (
-        item.active_attempt
-        if item.active_attempt is not None
-        else item.attempt_number
+        item.active_attempt if item.active_attempt is not None else item.attempt_number
     )
 
 

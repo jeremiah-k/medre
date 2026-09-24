@@ -62,9 +62,9 @@ from medre.core.storage.backend import (
 )
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 from tests.helpers.storage_outbox import (
+    allocate_new_outbox_generation,
     apply_guarded_outbox_terminal,
     apply_guarded_outbox_transition,
-    allocate_new_outbox_generation,
     find_existing_outbox_generation,
     reserve_guarded_outbox_attempt,
 )

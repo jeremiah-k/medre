@@ -16,8 +16,6 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 import medre.runtime.retry as retry_module
 from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
@@ -343,8 +341,6 @@ async def test_completion_rejects_old_attempts_and_keeps_live_one(temp_storage) 
         ),
         now,
     )
-
-
 
 
 # ---------------------------------------------------------------------------
