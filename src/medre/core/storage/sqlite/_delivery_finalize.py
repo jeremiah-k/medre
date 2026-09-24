@@ -39,10 +39,12 @@ class _DeliveryFinalizationMixin:
         """Atomically persist queue-send evidence and mark its outbox sent.
 
         The transaction commits the outbound native reference, immutable sent
-        receipt, and guarded outbox transition together.  It returns ``False``
-        when the exact outbox attempt is no longer in ``queued`` or
-        ``in_progress`` state.  A native identity already mapped to another
-        canonical event is a storage-integrity error.
+        receipt, and full-identity guarded outbox transition together. It
+        returns ``False`` if the outbox identity, attempt number, or eligible
+        status no longer matches. A native identity already mapped to another
+        canonical event raises ``StorageError``; SQLite errors are also raised
+        as ``StorageError`` after rollback. Invalid receipt fields raise
+        ``ValueError`` before the transaction starts.
         """
         native_ref = command.native_ref
         receipt = command.receipt
@@ -97,11 +99,13 @@ class _DeliveryFinalizationMixin:
         full delivery identity (outbox/event/plan/adapter/channel),
         ``attempt_number``, and eligibility (status still ``queued`` or
         ``in_progress``) — then inserts the immutable lifecycle receipt and
-        transitions the row to *terminal_status* together.  It returns
-        ``False`` when the guarded attempt no longer qualifies (stale
+        transitions the row to the command's terminal status together. It
+        returns ``False`` when the guarded attempt no longer qualifies (stale
         callback, duplicate notification, or a competing attempt/state
-        change won); in that case neither write commits.  Any error rolls
-        the whole operation back.
+        change won); in that case no receipt commits. A supplied failed-attempt
+        receipt commits in the same transaction. SQLite errors roll back and
+        reach callers as ``StorageError``. Invalid receipt fields raise
+        ``ValueError`` before the transaction starts.
 
         The outbox row is linked back to its evidence receipt via
         ``receipt_id``; stale retry metadata (``failure_kind``,

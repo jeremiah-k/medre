@@ -326,13 +326,11 @@ class OutboxManager:
         This is the callback wired into
         :class:`AdapterContext.record_outbound_terminal`.
 
-        Creates a durable receipt recording the terminal outcome and
-        transitions the matching outbox item to the appropriate terminal
-        status atomically: the receipt and the outbox transition commit
-        together in one storage transaction or not at all.  Stale or
-        duplicate callbacks that lose to a competing attempt or state
-        change commit neither.  Adapters report facts; this method
-        (core/pipeline) decides the lifecycle authority mapping.
+        For an eligible callback, commits a terminal lifecycle receipt and
+        matching outbox transition atomically. A dead-lettered outcome also
+        commits failed-attempt evidence in that transaction. Stale or
+        duplicate callbacks commit nothing. Invalid callbacks and storage
+        errors return without raising to the adapter.
 
         Parameters
         ----------

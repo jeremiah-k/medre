@@ -209,12 +209,12 @@ def build_convergence_summary(
     Notes
     -----
     * Targets are grouped by ``(event_id, delivery_plan_id, target_adapter,
-      target_channel)`` with fallbacks for missing event/plan/channel.
-    * When an outbox item exists, its committed ``receipt_id`` selects the
-      current receipt.  Later append-only receipts that lost a guarded outbox
-      transition remain historical evidence and are not projected as current.
-      Receipt-only targets still use deterministic append ordering by
-      ``(sequence DESC, created_at DESC, receipt_id DESC)``.
+      target_channel)``; empty and absent channels share an identity.
+    * An outbox-backed receipt is eligible only when its exact outbox generation
+      commits its ID. The highest committed generation competes with the latest
+      outbox-less receipt by append order for current authority. Receipts from
+      outbox attempts that lost their guarded transition remain historical
+      evidence.
     * ``orphan_count`` is ``None`` until linked to an orphan report;
       ``evidence_bundle_ref`` is ``None`` until attached to an
       evidence bundle.

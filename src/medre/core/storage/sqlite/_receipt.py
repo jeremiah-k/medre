@@ -124,6 +124,8 @@ class _ReceiptMixin:
         event/plan/adapter/channel identity as historical reads. Outbox-backed
         receipts are eligible only when the matching outbox generation commits
         their receipt ID; outbox-less history retains append-order authority.
+        Return ``None`` when no receipt qualifies. Raise ``ValueError`` for an
+        incomplete identity.
         """
         if not identity.complete:
             raise ValueError("delivery status requires a complete DeliveryIdentity")
@@ -148,7 +150,9 @@ class _ReceiptMixin:
         """Return immutable history for one complete delivery identity.
 
         The channel component is part of lifecycle identity. Empty and absent
-        channels normalize to SQL ``NULL`` at persistence boundaries.
+        channels normalize to SQL ``NULL`` at persistence boundaries. Rows are
+        ordered by attempt number and append sequence; an unmatched identity
+        returns an empty list. Raise ``ValueError`` for an incomplete identity.
         """
         if not identity.complete:
             raise ValueError("receipt history requires a complete DeliveryIdentity")

@@ -328,6 +328,11 @@ class DeliveryCoordinator:
             return await self._deliver_one_scoped(ctx)
 
     async def _deliver_one_scoped(self, ctx: _DeliveryContext) -> DeliveryOutcome:
+        """Deliver one target after identity, replay, and preflight checks.
+
+        Identity and preflight rejections return before outbox creation. Any
+        capacity acquired for an owned delivery is released if execution raises.
+        """
         if not ctx.identity.complete:
             return await self._incomplete_identity_outcome(ctx)
         replay_receipts = await self._load_replay_receipts(ctx)
@@ -384,6 +389,12 @@ class DeliveryCoordinator:
         self,
         ctx: _DeliveryContext,
     ) -> list[DeliveryReceipt]:
+        """Load this delivery's history for replay, or return no history for live work.
+
+        A lookup error propagates when the replay has a run ID, preventing an
+        unchecked duplicate send. Without a run ID, lookup errors yield an
+        empty history.
+        """
         if ctx.source != "replay":
             return []
         try:

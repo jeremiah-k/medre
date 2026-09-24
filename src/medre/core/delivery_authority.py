@@ -289,6 +289,10 @@ def receipt_kind(record: Any) -> str:
 
 
 def _latest_attempt(receipts: Iterable[_T]) -> _T | None:
+    """Return the highest-numbered attempt, breaking ties by append order.
+
+    Return ``None`` when the history contains no attempt receipt.
+    """
     attempts = [receipt for receipt in receipts if receipt_kind(receipt) == "attempt"]
     if not attempts:
         return None
@@ -305,6 +309,11 @@ def _causative_receipt(
     authoritative_receipt: _T | None,
     receipts: Iterable[_T],
 ) -> _T | None:
+    """Find the loaded parent of an authoritative lifecycle receipt, if any.
+
+    Return ``None`` for attempt authority, missing parent IDs, or parents absent
+    from the supplied history.
+    """
     if (
         authoritative_receipt is None
         or receipt_kind(authoritative_receipt) != "lifecycle"
@@ -388,7 +397,11 @@ class DeliveryAuthorityResolver(Generic[_T]):
         )
 
     def resolve(self, identity: DeliveryIdentity) -> ResolvedDeliverySnapshot[_T]:
-        """Resolve history, operational state, and current authority once."""
+        """Return one identity's history, current outbox, and receipt authority.
+
+        The snapshot also includes the latest attempt and the loaded parent of
+        the authoritative lifecycle receipt, when those receipts exist.
+        """
         receipts = self.receipts_for(identity)
         outbox_items = self.outbox_for(identity)
         authority = self.authority_for(identity)
