@@ -28,8 +28,8 @@ from medre.core.storage.sqlite.statements import (
     _INSERT_RECEIPT,
     _SELECT_ALL_RECEIPTS,
     _SELECT_RECEIPTS_BY_REPLAY_RUN,
-    _SELECT_RECEIPTS_FOR_EVENT,
     _SELECT_RECEIPTS_FOR_DELIVERY,
+    _SELECT_RECEIPTS_FOR_EVENT,
 )
 
 

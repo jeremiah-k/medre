@@ -81,12 +81,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.contracts.adapter import (
     MAX_ADAPTER_RETRY_AFTER_SECONDS,
     OutboundDeliveryObservationRecord,
     OutboundNativeRefRecord,
 )
+from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_state import (
     is_terminal_outbox_status as _is_terminal_outbox_status,

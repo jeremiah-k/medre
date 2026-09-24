@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from medre.core.delivery_authority import DeliveryIdentity
-
 from medre.core.events import DeliveryReceipt
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
@@ -63,8 +62,12 @@ class TestDeliveryStatusByChannel:
             )
         )
 
-        status_a = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-distinct", "plan-ch", "adapter_ch", "channel-a"))
-        status_b = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-distinct", "plan-ch", "adapter_ch", "channel-b"))
+        status_a = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-distinct", "plan-ch", "adapter_ch", "channel-a")
+        )
+        status_b = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-distinct", "plan-ch", "adapter_ch", "channel-b")
+        )
 
         assert status_a is not None
         assert status_a.receipt_id == "rcpt-ch-a"
@@ -94,7 +97,9 @@ class TestDeliveryStatusByChannel:
             )
         )
 
-        status = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-none", "plan-none", "adapter_none", "channel-z"))
+        status = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-none", "plan-none", "adapter_none", "channel-z")
+        )
         assert status is None
 
     async def test_channel_progression_returns_latest_for_channel(
@@ -118,7 +123,9 @@ class TestDeliveryStatusByChannel:
                 )
             )
 
-        status = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-prog", "plan-prog", "adapter_prog", "channel-prog"))
+        status = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-prog", "plan-prog", "adapter_prog", "channel-prog")
+        )
         assert status is not None
         assert status.status == "suppressed"
         assert status.attempt_number == 3
@@ -142,13 +149,17 @@ class TestDeliveryStatusByChannel:
         await temp_storage.append_receipt(receipt)
 
         # Default target_channel=None returns the NULL-channel receipt.
-        status = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-null", "plan-null", "adapter_null", None))
+        status = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-null", "plan-null", "adapter_null", None)
+        )
         assert status is not None
         assert status.receipt_id == "rcpt-null-ch"
         assert status.target_channel is None
 
         # Explicit target_channel=None also returns it.
-        status2 = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-null", "plan-null", "adapter_null", None))
+        status2 = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-null", "plan-null", "adapter_null", None)
+        )
         assert status2 is not None
         assert status2.receipt_id == "rcpt-null-ch"
 
@@ -181,12 +192,16 @@ class TestDeliveryStatusByChannel:
         )
 
         # Filter for named channel returns only the named receipt.
-        status_named = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-mix", "plan-mix", "adapter_mix", "channel-named"))
+        status_named = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-mix", "plan-mix", "adapter_mix", "channel-named")
+        )
         assert status_named is not None
         assert status_named.receipt_id == "rcpt-mix-named"
 
         # Default (None) returns only the NULL-channel receipt.
-        status_null = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-mix", "plan-mix", "adapter_mix", None))
+        status_null = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-mix", "plan-mix", "adapter_mix", None)
+        )
         assert status_null is not None
         assert status_null.receipt_id == "rcpt-mix-null"
 
@@ -210,7 +225,9 @@ class TestDeliveryStatusByChannel:
         )
 
         # Querying for NULL channel should not find the named-channel receipt.
-        status = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-null-only", "plan-no", "adapter_no", None))
+        status = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-null-only", "plan-no", "adapter_no", None)
+        )
         assert status is None
 
     async def test_multiple_named_channels_remain_distinct(
@@ -242,8 +259,12 @@ class TestDeliveryStatusByChannel:
             )
         )
 
-        status_a = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-multi", "plan-multi", "adapter_multi", "channel-a"))
-        status_b = await temp_storage.delivery_status(DeliveryIdentity("evt-ch-multi", "plan-multi", "adapter_multi", "channel-b"))
+        status_a = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-multi", "plan-multi", "adapter_multi", "channel-a")
+        )
+        status_b = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-ch-multi", "plan-multi", "adapter_multi", "channel-b")
+        )
 
         assert status_a is not None
         assert status_a.receipt_id == "rcpt-ma"
@@ -281,13 +302,17 @@ class TestDeliveryStatusByChannel:
         assert rows[0]["target_channel"] is None
 
         # Querying with target_channel=None returns the receipt.
-        status = await temp_storage.delivery_status(DeliveryIdentity("evt-empty-ch", "plan-empty", "adapter_empty", None))
+        status = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-empty-ch", "plan-empty", "adapter_empty", None)
+        )
         assert status is not None
         assert status.receipt_id == "rcpt-empty"
         assert status.target_channel is None
 
         # Querying with target_channel="" also returns it (view COALESCE groups them).
-        status_empty = await temp_storage.delivery_status(DeliveryIdentity("evt-empty-ch", "plan-empty", "adapter_empty", ""))
+        status_empty = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-empty-ch", "plan-empty", "adapter_empty", "")
+        )
         assert status_empty is not None
         assert status_empty.receipt_id == "rcpt-empty"
 
@@ -322,7 +347,9 @@ class TestDeliveryStatusByChannel:
 
         # Both receipts should be in the same (NULL) channel group.
         # delivery_status with target_channel=None returns the latest (sent).
-        status = await temp_storage.delivery_status(DeliveryIdentity("evt-dup-ch", "plan-dup", "adapter_dup", None))
+        status = await temp_storage.delivery_status(
+            DeliveryIdentity("evt-dup-ch", "plan-dup", "adapter_dup", None)
+        )
         assert status is not None
         assert status.receipt_id == "rcpt-dup-empty"
         assert status.status == "sent"

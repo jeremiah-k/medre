@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from medre.core.delivery_authority import DeliveryIdentity
 from medre.config.paths import MedrePaths, resolve
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp

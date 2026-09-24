@@ -64,14 +64,17 @@ def _outbox(
 def test_delivery_identity_normalizes_empty_channel() -> None:
     expected = DeliveryIdentity("e", "p", "a", None)
     assert DeliveryIdentity("e", "p", "a", "") == expected
-    assert delivery_identity(
-        {
-            "event_id": "e",
-            "delivery_plan_id": "p",
-            "target_adapter": "a",
-            "target_channel": "",
-        }
-    ) == expected
+    assert (
+        delivery_identity(
+            {
+                "event_id": "e",
+                "delivery_plan_id": "p",
+                "target_adapter": "a",
+                "target_channel": "",
+            }
+        )
+        == expected
+    )
 
 
 def test_resolver_rejects_uncommitted_outbox_receipt() -> None:
@@ -107,8 +110,6 @@ def test_resolver_keeps_all_outbox_generations_authoritative() -> None:
     current = resolver.current(delivery_identity(receipts[0]))
     assert current is not None
     assert current["receipt_id"] == "gen-2"
-
-
 
 
 def test_resolved_snapshot_keeps_authority_attempt_and_cause_together() -> None:
@@ -279,7 +280,9 @@ async def test_sqlite_delivery_status_matches_shared_resolver(
     resolver = DeliveryAuthorityResolver(stored_receipts, stored_outbox)
     identity = DeliveryIdentity(event_id, "plan-authority-sql", "radio", "mesh")
     resolved = resolver.current(identity)
-    projected = await temp_storage.delivery_status(DeliveryIdentity(event_id, "plan-authority-sql", "radio", "mesh"))
+    projected = await temp_storage.delivery_status(
+        DeliveryIdentity(event_id, "plan-authority-sql", "radio", "mesh")
+    )
 
     assert resolved is not None
     assert projected is not None
@@ -425,7 +428,9 @@ async def test_sqlite_newer_generation_outranks_late_committed_older_generation(
     resolver = DeliveryAuthorityResolver(stored_receipts, stored_outbox)
     identity = DeliveryIdentity(event_id, plan_id, "radio", "mesh")
     resolved = resolver.current(identity)
-    projected = await temp_storage.delivery_status(DeliveryIdentity(event_id, plan_id, "radio", "mesh"))
+    projected = await temp_storage.delivery_status(
+        DeliveryIdentity(event_id, plan_id, "radio", "mesh")
+    )
 
     assert resolved is not None
     assert projected is not None

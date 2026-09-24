@@ -21,6 +21,7 @@ from medre.core.storage.sqlite.connection import (
     sync_finalize_queued_delivery,
 )
 
+
 class _DeliveryFinalizationMixin:
     """Cross-table finalization methods for ``SQLiteStorage``."""
 

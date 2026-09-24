@@ -378,8 +378,7 @@ class TestIncompleteIdentitySuppression:
 
         receipts = await temp_storage.list_receipts_for_event(event.event_id)
         assert any(
-            receipt.status == "suppressed"
-            and receipt.failure_kind == "adapter_missing"
+            receipt.status == "suppressed" and receipt.failure_kind == "adapter_missing"
             for receipt in receipts
         )
 

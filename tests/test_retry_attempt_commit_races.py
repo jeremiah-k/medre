@@ -293,7 +293,14 @@ async def test_late_rejected_receipt_remains_history_not_current(temp_storage) -
         committed_receipt.receipt_id,
         late_receipt.receipt_id,
     ]
-    current = await temp_storage.delivery_status(DeliveryIdentity(item.event_id, item.delivery_plan_id, item.target_adapter, item.target_channel))
+    current = await temp_storage.delivery_status(
+        DeliveryIdentity(
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel,
+        )
+    )
     assert current is not None
     assert current.receipt_id == committed_receipt.receipt_id
 

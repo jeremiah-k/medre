@@ -11,9 +11,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from medre.core.delivery_authority import DeliveryIdentity
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.diagnostics.convergence.summary import build_convergence_summary
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.observability.metrics import Diagnostician, EventMetrics
@@ -898,7 +898,11 @@ class TestDeadLetter:
             assert rows[1]["attempt_number"] == rows[0]["attempt_number"]
             assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
 
-            current = await temp_storage.delivery_status(DeliveryIdentity(event.event_id, outcomes[0].delivery_plan_id, "dead-target", None))
+            current = await temp_storage.delivery_status(
+                DeliveryIdentity(
+                    event.event_id, outcomes[0].delivery_plan_id, "dead-target", None
+                )
+            )
             assert current is not None
             assert current.status == "dead_lettered"
             assert current.receipt_id == rows[1]["receipt_id"]

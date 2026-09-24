@@ -394,7 +394,6 @@ generation, latest dispatch-attempt evidence, and the loaded causative receipt.
 Diagnostics and operator projections consume this resolved value rather than
 independently joining receipt authority, outbox state, and attempt history.
 
-
 ---
 
 ## 5. Replay Boundary

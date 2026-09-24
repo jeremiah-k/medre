@@ -30,15 +30,17 @@ import uuid
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from medre.core.storage.backend import TerminalOutboxFinalization
-
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
     EventMetadata,
     NativeMessageRef,
 )
-from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    StorageBackend,
+    TerminalOutboxFinalization,
+)
 
 SENTINEL_EVENT_ID: str = "__outbox_default__"
 

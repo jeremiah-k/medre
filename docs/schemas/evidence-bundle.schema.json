@@ -352,19 +352,11 @@
       "properties": {
         "status": {
           "type": "string",
-          "enum": [
-            "passed",
-            "partial",
-            "error",
-            "skipped"
-          ],
+          "enum": ["passed", "partial", "error", "skipped"],
           "description": "Section collection status."
         },
         "error": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": ["string", "null"],
           "description": "Sanitised error text for partial/error sections; null otherwise."
         },
         "data": {
@@ -383,11 +375,7 @@
           "description": "Required skip reason for skipped sections."
         }
       },
-      "required": [
-        "status",
-        "error",
-        "data"
-      ],
+      "required": ["status", "error", "data"],
       "additionalProperties": false,
       "oneOf": [
         {
@@ -403,9 +391,7 @@
             }
           },
           "not": {
-            "required": [
-              "note"
-            ]
+            "required": ["note"]
           }
         },
         {
@@ -418,9 +404,7 @@
             }
           },
           "not": {
-            "required": [
-              "note"
-            ]
+            "required": ["note"]
           }
         },
         {
@@ -436,9 +420,7 @@
             }
           },
           "not": {
-            "required": [
-              "note"
-            ]
+            "required": ["note"]
           }
         },
         {
@@ -457,9 +439,7 @@
               "minLength": 1
             }
           },
-          "required": [
-            "note"
-          ]
+          "required": ["note"]
         }
       ]
     },
@@ -617,12 +597,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "adapter_id",
-              "adapter_kind",
-              "enabled",
-              "transport"
-            ],
+            "required": ["adapter_id", "adapter_kind", "enabled", "transport"],
             "additionalProperties": false
           }
         },
@@ -741,10 +716,7 @@
           "type": "string"
         },
         "storage_path": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
       "required": [
@@ -819,10 +791,7 @@
           ]
         },
         "event_count": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 0
         },
         "incident_summary": {
@@ -846,17 +815,11 @@
           ]
         },
         "receipt_count": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 0
         },
         "delivery_observation_count": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 0
         },
         "delivery_observations_for_event": {
@@ -950,10 +913,7 @@
           ]
         },
         "convergence_truncated_warning": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         }
       },
       "required": [
@@ -999,18 +959,11 @@
               "format": "date-time"
             }
           },
-          "required": [
-            "source",
-            "collection_timestamp"
-          ],
+          "required": ["source", "collection_timestamp"],
           "additionalProperties": false
         }
       },
-      "required": [
-        "recovery_summary",
-        "recovery_ledger",
-        "snapshot_context"
-      ],
+      "required": ["recovery_summary", "recovery_ledger", "snapshot_context"],
       "additionalProperties": false
     },
     "ConvergenceSummary": {

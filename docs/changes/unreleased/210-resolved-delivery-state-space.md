@@ -26,10 +26,10 @@
 - Add an exhaustive guarded-terminalization truth table across every persisted
   outbox status, reserved in-progress state, all lifecycle terminal outcomes,
   current/finalized/future attempt identities, and worker-fence variants.
-
 - Harden the runtime evidence JSON Schema around strict section envelopes plus
-  closed config, route, storage, and recovery payload shapes. Runtime-generated config, storage-path,
-  and error bundles are schema-validated so machine drift fails tests instead
+  closed config, route, storage, and recovery payload shapes.
+  Runtime-generated config, storage-path, and error bundles are
+  schema-validated so machine drift fails tests instead
   of being silently accepted.
 - Replace the scalar-heavy terminal outbox storage call with a validated
   `TerminalOutboxFinalization` command. Lifecycle evidence is now the single

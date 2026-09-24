@@ -214,9 +214,7 @@ class TestReceiptAppendOnlyInvariant:
 
         # Verify originals are unchanged in storage.
         stored = await outbox_temp_storage.list_receipts_for_delivery(
-            DeliveryIdentity(
-                "__outbox_default__", "plan-ao", "fake_presentation", None
-            )
+            DeliveryIdentity("__outbox_default__", "plan-ao", "fake_presentation", None)
         )
         # Filter to just our original receipt_ids.
         stored_by_id = {r.receipt_id: r for r in stored}
@@ -271,9 +269,7 @@ class TestReceiptFailedToDeadLettered:
 
         # Verify the linkage.
         receipts = await outbox_temp_storage.list_receipts_for_delivery(
-            DeliveryIdentity(
-                "__outbox_default__", "plan-dl", "fake_presentation", None
-            )
+            DeliveryIdentity("__outbox_default__", "plan-dl", "fake_presentation", None)
         )
         by_id = {r.receipt_id: r for r in receipts}
 

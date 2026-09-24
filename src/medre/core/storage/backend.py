@@ -663,7 +663,9 @@ class TerminalOutboxFinalization:
         if not receipt.receipt_id:
             raise ValueError("terminal lifecycle receipt requires receipt_id")
         if not delivery_identity(receipt).complete:
-            raise ValueError("terminal lifecycle receipt requires complete delivery identity")
+            raise ValueError(
+                "terminal lifecycle receipt requires complete delivery identity"
+            )
         if receipt.attempt_number < 1:
             raise ValueError("terminal lifecycle receipt attempt_number must be >= 1")
 

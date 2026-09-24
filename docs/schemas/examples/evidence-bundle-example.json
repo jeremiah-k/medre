@@ -56,15 +56,11 @@
         },
         "routes": [
           {
-            "dest_adapters": [
-              "radio"
-            ],
+            "dest_adapters": ["radio"],
             "directionality": "one_way",
             "enabled": true,
             "route_id": "mx_to_radio",
-            "source_adapters": [
-              "matrix_main"
-            ]
+            "source_adapters": ["matrix_main"]
           }
         ],
         "runtime_name": "medre",

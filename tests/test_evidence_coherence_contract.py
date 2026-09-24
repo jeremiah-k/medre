@@ -143,6 +143,7 @@ class TestExampleValidatesAgainstSchema:
             with pytest.raises(jsonschema.ValidationError):
                 jsonschema.validate(instance=example, schema=schema)
 
+
 # ===========================================================================
 # 2. Runtime dict validates against schema (config and storage_path modes)
 # ===========================================================================

@@ -367,9 +367,12 @@ async def _seed_source_status(
     if source_status == "pending" or source_status == "in_progress":
         return item
     if source_status == "in_progress_reserved":
-        assert await storage.reserve_outbox_attempt(  # type: ignore[attr-defined]
-            item.outbox_id, "worker-a", 1
-        ) == 2
+        assert (
+            await storage.reserve_outbox_attempt(  # type: ignore[attr-defined]
+                item.outbox_id, "worker-a", 1
+            )
+            == 2
+        )
         return item
 
     transition = {

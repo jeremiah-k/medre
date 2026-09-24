@@ -293,7 +293,14 @@ class TestFinalizeOutboxOutcome:
         assert updated is not None
         assert updated.status == "dead_lettered"
         assert updated.receipt_id is not None
-        current = await temp_storage.delivery_status(DeliveryIdentity(item.event_id, item.delivery_plan_id, item.target_adapter, item.target_channel))
+        current = await temp_storage.delivery_status(
+            DeliveryIdentity(
+                item.event_id,
+                item.delivery_plan_id,
+                item.target_adapter,
+                item.target_channel,
+            )
+        )
         assert current is not None
         assert current.receipt_kind == "lifecycle"
         assert current.status == "dead_lettered"
@@ -527,7 +534,14 @@ class TestFinalizeOutboxRetryTimestampAlignment:
         assert updated is not None
         assert updated.status == "dead_lettered"
         assert updated.receipt_id is not None
-        current = await temp_storage.delivery_status(DeliveryIdentity(item.event_id, item.delivery_plan_id, item.target_adapter, item.target_channel))
+        current = await temp_storage.delivery_status(
+            DeliveryIdentity(
+                item.event_id,
+                item.delivery_plan_id,
+                item.target_adapter,
+                item.target_channel,
+            )
+        )
         assert current is not None
         assert current.status == "dead_lettered"
         assert current.receipt_kind == "lifecycle"
