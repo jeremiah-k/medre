@@ -29,41 +29,31 @@ state transitions that do not create another dispatch attempt.
 ### 1.2 Transition Graph
 
 ```text
-                        ┌──────────┐
-        (send)          │  queued  │ (queue terminal outcome)
-          ┌────────────►└────┬─────┘──────────────┐
-          │                 │                    │
-          │                 │ (queue-based        │
-          │                 │  adapter            │
-          │                 │  confirms send)     │
-          │                 ▼                    ▼
-   ┌──────────────────────┐   ┌──────────────────┐
-   │         sent         │   │      failed      │
-   └──────────────────────┘   └──────────────────┘
-    ▲   terminal                    │        │
-    │                              │        │ (cancelled / abandoned
-    │                              │        │  while queued or
-    │   (retry scheduled)          │        │  in flight)
-    │        ┌─────────────────────┘        │
-    │        ▼                              ▼
-    │   ┌──────────────────┐      ┌──────────────────┐
-    └── │      failed      │      │  cancelled,      │
-        └──────────────────┘      │  abandoned       │  ◄── terminal
-              │                   └──────────────────┘
-              │ (retries exhausted
-              │  or terminal error)
-              ▼
-        ┌──────────────────┐
-        │   dead_lettered  │ ◄── terminal
-        └──────────────────┘
+                              ┌──────────┐
+                              │  queued  │
+                              └─┬──┬───┬─┘
+                                │  │   │
+                confirms send   │  │   └──────────────► cancelled / abandoned
+                      ┌─────────┘  │                    (terminal lifecycle)
+                      ▼            │
+                ┌──────────┐       │ queue exhaustion / permanent failure
+                │   sent   │       ▼
+                └──────────┘  ┌──────────┐
+                   terminal    │  failed  │
+                               └─┬────┬───┘
+                                 │    │
+                  retry scheduled│    └──────────────► dead_lettered
+                  (next attempt) │                      lifecycle transition,
+                                 ▼                      same attempt number
+                              failed
 
-        ┌──────────────────┐
-        │    suppressed    │ ◄── terminal
-        └──────────────────┘
+                suppressed      ◄── terminal lifecycle
 ```
 
-Each delivery attempt produces a new receipt row. Receipts are never updated
-or deleted. For outbox-backed delivery, the outbox row's committed `receipt_id`
+Each dispatch attempt produces attempt evidence; lifecycle transitions may
+append linked lifecycle evidence without creating another dispatch attempt.
+Receipts are never updated or deleted. For outbox-backed delivery, the outbox
+row's committed `receipt_id`
 determines the current receipt; a later receipt whose guarded outbox transition
 was rejected remains historical evidence. Outbox-less delivery uses the latest
 append for current status. A delivery chain is identified by `event_id`, `delivery_plan_id`,

@@ -588,15 +588,17 @@ Check `capability_field` in the report dict. This identifies which adapter capab
 
 Check `status` on the receipt:
 
-| Status          | Meaning                                            |
-| --------------- | -------------------------------------------------- |
-| `sent`          | Adapter accepted the delivery                      |
-| `queued`        | Delivery enqueued, awaiting adapter confirmation   |
-| `suppressed`    | Delivery suppressed by a guard (no adapter call)   |
-| `failed`        | Delivery failed, may be retryable                  |
-| `dead_lettered` | All retries exhausted, delivery permanently failed |
+| Status          | Kind      | Meaning                                                              |
+| --------------- | --------- | -------------------------------------------------------------------- |
+| `sent`          | attempt   | Adapter accepted the delivery.                                       |
+| `queued`        | attempt   | Delivery enqueued, awaiting adapter confirmation.                    |
+| `failed`        | attempt   | Dispatch failed and may be retryable.                                |
+| `suppressed`    | lifecycle | Core/runtime suppressed delivery without recording transport success. |
+| `dead_lettered` | lifecycle | Retry budget exhausted or delivery became permanently undeliverable. |
+| `cancelled`     | lifecycle | Delivery was explicitly cancelled.                                   |
+| `abandoned`     | lifecycle | Durable execution was abandoned and must not be redispatched.        |
 
-Suppressed receipts (`status="suppressed"`) are distinct from failed receipts (`status="failed"`). Suppressed means a guard fired before the adapter was called. Failed means the adapter was called and returned an error.
+Lifecycle receipts do not represent additional transport sends. In the common guard-suppression case, `suppressed` means a guard fired before the adapter was called. A `failed` receipt records dispatch-attempt evidence; `dead_lettered`, `cancelled`, and `abandoned` describe lifecycle decisions rather than additional sends.
 
 ### "Why did delivery fail?"
 

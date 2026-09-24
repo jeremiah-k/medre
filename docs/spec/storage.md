@@ -341,7 +341,8 @@ class StorageBackend(Protocol):
     ) -> list[OutboxItem]:
         """Claim due outbox items for processing.  Items with pending,
         retry_wait, expired in_progress leases, or stale queued status
-        are eligible."""
+        are eligible only when no sibling row for the same delivery identity
+        represents the same or a newer effective attempt generation."""
         ...
 
     async def reserve_outbox_attempt(
@@ -1243,8 +1244,8 @@ Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, del
 - `get_outbox_item`: Retrieves an item by `outbox_id`.
 - `list_outbox_items`: Lists items, optionally filtered by status.
 - `list_outbox_items_for_event`: Returns all outbox items for a specific event, ordered by `created_at ASC, outbox_id ASC`. Read-only.
-- `claim_due_outbox_items`: Claims eligible items for a worker.
-- `reserve_outbox_attempt`: Reserves `attempt_number + 1` on an owned `in_progress` row.
+- `claim_due_outbox_items`: Claims eligible items for a worker only when no sibling row for the same event-scoped delivery identity represents the same or a newer effective attempt generation. Older superseded rows remain durable history and are not re-dispatched.
+- `reserve_outbox_attempt`: Reserves `attempt_number + 1` on an owned `in_progress` row only when no sibling row for the same event-scoped delivery identity already represents that generation or a newer one.
 - `mark_outbox_sent` / `mark_outbox_queued`: Guarded success transitions; return whether the transition committed.
 - `mark_outbox_retry_wait` / `mark_outbox_dead_lettered`: Guarded failure transitions; return whether the transition committed.
 - `mark_outbox_cancelled` / `mark_outbox_abandoned`: Terminal transitions; return commit status.
@@ -1273,23 +1274,29 @@ delivery uses durable append order.
 - A historical failed receipt alone is never a current failure, and dry-run
   replays append no receipt and therefore fabricate neither success nor failure.
 
-The SQLite query starts from unresolved receipt candidates and keeps only a
-candidate for which no later `sequence` exists in the same lineage. This avoids
-re-aggregating every receipt lineage for every page while preserving the same
-current-outcome semantics as the pure-Python resolver. Ordering is
-`receipt_sequence ASC` (oldest unresolved evidence first), with strict keyset
-continuation: `limit + 1` probing yields `has_more`/`next_cursor`; there is no
-`OFFSET` scan or unconditional global `COUNT`.
+The SQLite query starts from a bounded keyset window of unresolved receipt
+candidates, then applies the same two authority classes as the pure-Python
+resolver. An outbox-backed candidate is eligible only when its exact
+`(outbox_id, receipt_id)` is committed by the matching outbox row; committed
+outbox candidates are ranked by outbox `attempt_number` and then receipt
+`sequence`. Outbox-less candidates are ranked independently by append
+`sequence`, and the winning outbox-backed and outbox-less candidates are then
+compared by append sequence. This preserves generation-aware current-outcome
+semantics without re-aggregating the entire receipt history for each page.
+Ordering is `receipt_sequence ASC` (oldest unresolved evidence first), with
+strict keyset continuation: `limit + 1` probing yields
+`has_more`/`next_cursor`; there is no `OFFSET` scan or unconditional global
+`COUNT`.
 
 Pages are a live view of append-only evidence, not a snapshot.
 `since_event_time` is an inclusive bound on the **canonical event timestamp**
 (`canonical_events.timestamp`), distinct from receipt creation time. Outbox
 rows joined by `outbox_id` may only enrich disposition/retryability fields; they
-are never acceptance evidence. `idx_receipts_lineage` is an optimization for
-the full lineage predicate when present. Read-only recovery remains correct on
-a database that has not yet been reopened read-write to create that index,
-using the existing event/sequence index for the correlated later-receipt check.
-`replay_run_id` remains receipt provenance and is not part of the lineage key.
+are never acceptance evidence. `idx_receipts_lineage` is an optional optimizer;
+recovery SQL does not require or hard-code that index, so read-only recovery
+remains correct on a database that has not yet been reopened read-write to
+create it. `replay_run_id` remains receipt provenance and is not part of the
+lineage key.
 
 ## 9. Delivery Outbox Semantics
 
@@ -1513,7 +1520,7 @@ FROM delivery_outbox
 WHERE event_id = ?;
 ```
 
-An `in_progress` row with an expired lease is re-claimable by `claim_due_outbox_items()` on restart. A `queued` row is ambiguous; stale rows past `STALE_QUEUED_GRACE_SECONDS` (default 300 s) are automatically reclaimed. A `pending` or `retry_wait` row is eligible for automatic retry. Rows with no match indicate the event was stored before outbox creation and cannot be automatically retried.
+An `in_progress` row with an expired lease is re-claimable by `claim_due_outbox_items()` on restart when it is still the newest effective outbox generation for its event-scoped delivery identity. A `queued` row is ambiguous; stale rows past `STALE_QUEUED_GRACE_SECONDS` (default 300 s) are automatically reclaimed under the same generation guard. A `pending` or `retry_wait` row is eligible for automatic retry only while no sibling row represents the same or a newer effective attempt. Older superseded rows remain durable history and are not re-dispatched. Rows with no match indicate the event was stored before outbox creation and cannot be automatically retried.
 
 ### 13.6 Database Integrity Verification
 

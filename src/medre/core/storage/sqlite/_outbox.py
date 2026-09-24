@@ -107,16 +107,23 @@ class _OutboxMixin:
         now = _now_iso()
         meta_json = _encode_json(item.metadata or {})
 
+        # A live ``active_attempt`` already represents the next generation.
+        # Treat it as an existing generation during creation so a replay that
+        # computed N before a concurrent retry reserved N cannot insert a
+        # sibling row for the same generation.  This check runs inside the
+        # same BEGIN IMMEDIATE transaction as the eventual INSERT.
         select_sql = (
             "SELECT outbox_id, status FROM delivery_outbox"
             " WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?"
-            " AND target_channel IS ? AND attempt_number = ?"
+            " AND target_channel IS ?"
+            " AND (attempt_number = ? OR active_attempt = ?)"
         )
         select_params = (
             item.event_id,
             item.delivery_plan_id,
             item.target_adapter,
             item.target_channel or None,
+            item.attempt_number,
             item.attempt_number,
         )
         insert_sql = (
@@ -388,6 +395,10 @@ class _OutboxMixin:
 
         - ``(next_attempt_at IS NULL OR next_attempt_at <= now)``
         - ``(lease_until IS NULL OR lease_until <= now)``
+        - no sibling row for the same event-scoped delivery identity represents
+          the same or a newer effective attempt generation. Older generations
+          remain durable history but are not re-dispatched after replay or
+          another generation supersedes them.
 
         When moving a row to ``in_progress``, ``next_attempt_at`` is
         cleared (set to ``NULL``) since the item is no longer waiting
@@ -413,7 +424,19 @@ class _OutboxMixin:
         # Use a two-step approach: SELECT candidates, then UPDATE matching.
         # SQLite doesn't support RETURNING with ORIGIN in all configurations,
         # so we select first, then update by outbox_id.
-        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND lease_until <= ?) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 - claimable_ph is only ? placeholders, values parameterized
+        _no_newer_generation = """NOT EXISTS (
+            SELECT 1
+              FROM delivery_outbox AS sibling
+             WHERE sibling.outbox_id <> delivery_outbox.outbox_id
+               AND sibling.event_id = delivery_outbox.event_id
+               AND sibling.delivery_plan_id = delivery_outbox.delivery_plan_id
+               AND sibling.target_adapter = delivery_outbox.target_adapter
+               AND COALESCE(sibling.target_channel, '') =
+                   COALESCE(delivery_outbox.target_channel, '')
+               AND COALESCE(sibling.active_attempt, sibling.attempt_number) >=
+                   COALESCE(delivery_outbox.active_attempt, delivery_outbox.attempt_number)
+        )"""
+        _claim_sql = f"SELECT * FROM delivery_outbox WHERE (status IN ({claimable_ph}) OR (status = 'in_progress' AND lease_until <= ?) OR (status = 'queued' AND updated_at <= ?)) AND (next_attempt_at IS NULL OR next_attempt_at <= ?) AND (lease_until IS NULL OR lease_until <= ?) AND {_no_newer_generation} ORDER BY next_attempt_at ASC, created_at ASC LIMIT ?"  # nosec B608 - interpolated fragments are static SQL or ? placeholders
         rows = await self._read_all(
             _claim_sql,
             (*claimable_params, now, stale_cutoff, now, now, limit),
@@ -436,7 +459,8 @@ class _OutboxMixin:
                        OR (status = 'in_progress' AND lease_until <= ?)
                        OR (status = 'queued' AND updated_at <= ?))
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-                  AND (lease_until IS NULL OR lease_until <= ?)""",  # nosec: placeholders are only ? markers, values passed as params
+                  AND (lease_until IS NULL OR lease_until <= ?)
+                  AND {_no_newer_generation}""",  # nosec: interpolated fragments are static SQL or ? placeholders
             (
                 now,
                 lease_until,
@@ -470,9 +494,11 @@ class _OutboxMixin:
         Authority: **claim** (atomic attempt-identity reservation).  The
         conditional ``UPDATE`` commits ``active_attempt = from_attempt + 1``
         only when the row is ``in_progress``, owned by *worker_id*, carries
-        no reservation yet, and still stores ``attempt_number ==
-        from_attempt``.  Any concurrent reclaim, lease theft, or competing
-        reservation makes the guard fail and nothing is written.
+        no reservation yet, still stores ``attempt_number == from_attempt``,
+        and no sibling row for the same event-scoped delivery identity already
+        represents that generation (or a newer one).  Any concurrent replay
+        generation, reclaim, lease theft, or competing reservation makes the
+        guard fail and nothing is written.
 
         Returns the reserved attempt number, or ``None`` when the guard
         failed — the caller must not invoke the transport in that case.
@@ -487,7 +513,19 @@ class _OutboxMixin:
                  AND worker_id = ?
                  AND status = 'in_progress'
                  AND active_attempt IS NULL
-                 AND attempt_number = ?""",
+                 AND attempt_number = ?
+                 AND NOT EXISTS (
+                     SELECT 1
+                       FROM delivery_outbox AS sibling
+                      WHERE sibling.outbox_id <> delivery_outbox.outbox_id
+                        AND sibling.event_id = delivery_outbox.event_id
+                        AND sibling.delivery_plan_id = delivery_outbox.delivery_plan_id
+                        AND sibling.target_adapter = delivery_outbox.target_adapter
+                        AND COALESCE(sibling.target_channel, '') =
+                            COALESCE(delivery_outbox.target_channel, '')
+                        AND COALESCE(sibling.active_attempt, sibling.attempt_number) >=
+                            delivery_outbox.attempt_number + 1
+                 )""",
             (now, now, outbox_id, worker_id, from_attempt),
         )
         if rowcount == 1:

@@ -189,8 +189,12 @@ attempt.
   deferral before dispatch (unavailable adapter, capacity rejection)
   therefore consumes no attempt and leaves no reservation.
 - The reservation is guarded on the claiming worker owning the `in_progress`
-  row with no existing reservation. A worker that lost its claim (lease
-  theft or reclaim) cannot reserve and MUST NOT invoke the transport.
+  row with no existing reservation, and on no sibling row for the same
+  event-scoped delivery identity already representing that generation or a
+  newer one. This closes the retry/replay allocation race in both write
+  orderings. A worker that lost its claim (lease theft or reclaim), or whose
+  next generation was superseded by replay, cannot reserve and MUST NOT invoke
+  the transport.
 - While the reserved dispatch runs, the worker renews the claimed row's
   lease: one awaited renewal immediately after the reservation — aborting
   transport when the claim is already lost and starting the dispatch on a

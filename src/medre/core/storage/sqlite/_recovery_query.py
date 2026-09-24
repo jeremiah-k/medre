@@ -52,7 +52,7 @@ def _same_identity(alias: str) -> str:
 
 _OUTBOXLESS_NEWER = (
     "NOT EXISTS ("  # nosec B608 - composes only module-local fragments; values stay bound parameters
-    " SELECT 1 FROM delivery_receipts newer_outboxless INDEXED BY idx_receipts_lineage"
+    " SELECT 1 FROM delivery_receipts newer_outboxless"
     f" WHERE {_same_identity('newer_outboxless')}"
     " AND newer_outboxless.outbox_id IS NULL"
     " AND newer_outboxless.sequence > dr.sequence"
@@ -62,7 +62,7 @@ _OUTBOXLESS_NEWER = (
 _HIGHER_COMMITTED_THAN_CURRENT = (
     "NOT EXISTS ("  # nosec B608 - composes only module-local fragments; values stay bound parameters
     " SELECT 1"
-    " FROM delivery_receipts higher_receipt INDEXED BY idx_receipts_lineage"
+    " FROM delivery_receipts higher_receipt"
     " JOIN delivery_outbox higher_outbox"
     "   ON higher_outbox.outbox_id = higher_receipt.outbox_id"
     "  AND higher_outbox.receipt_id = higher_receipt.receipt_id"
@@ -79,7 +79,7 @@ _HIGHER_COMMITTED_THAN_CURRENT = (
 _LATER_WINNING_COMMITTED = (
     "NOT EXISTS ("  # nosec B608 - composes only module-local fragments; values stay bound parameters
     " SELECT 1"
-    " FROM delivery_receipts committed_receipt INDEXED BY idx_receipts_lineage"
+    " FROM delivery_receipts committed_receipt"
     " JOIN delivery_outbox candidate_outbox"
     "   ON candidate_outbox.outbox_id = committed_receipt.outbox_id"
     "  AND candidate_outbox.receipt_id = committed_receipt.receipt_id"
@@ -87,7 +87,7 @@ _LATER_WINNING_COMMITTED = (
     " AND committed_receipt.sequence > dr.sequence"
     " AND NOT EXISTS ("
     "   SELECT 1"
-    "   FROM delivery_receipts higher_receipt INDEXED BY idx_receipts_lineage"
+    "   FROM delivery_receipts higher_receipt"
     "   JOIN delivery_outbox higher_outbox"
     "     ON higher_outbox.outbox_id = higher_receipt.outbox_id"
     "    AND higher_outbox.receipt_id = higher_receipt.receipt_id"
