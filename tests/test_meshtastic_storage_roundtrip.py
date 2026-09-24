@@ -341,7 +341,7 @@ class TestMeshtasticStorageCounts:
             event_id="ce-rcpt-1",
             target_adapter="mesh-test",
             status="sent",
-            source="pipeline",
+            source="live",
             route_id="route-1",
         )
         await temp_storage.append_receipt(receipt)
