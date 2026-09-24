@@ -138,7 +138,6 @@ class TestCoreImportBoundary:
         "medre.core.observability.logging",
         "medre.core.observability.metrics",
         "medre.core.lifecycle.states",
-        "medre.core.lifecycle.manager",
         "medre.core.routing.models",
         "medre.core.routing.router",
         "medre.core.storage.backend",

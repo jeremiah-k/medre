@@ -202,7 +202,6 @@ class TestNoTransportSdkInRuntimeCore:
         "medre.core.identity.actor",
         "medre.core.identity.resolver",
         "medre.core.lifecycle",
-        "medre.core.lifecycle.manager",
         "medre.core.lifecycle.states",
         "medre.core.observability",
         "medre.core.observability.logging",

@@ -244,16 +244,19 @@ class TestNoLegacyPathProseReferences:
 
 
 # Root-level project metadata files that may declare paths into docs/. The
-# docs/ tree itself is covered by the classes above; this list covers
-# source-of-truth files at the repository root. Files that do not exist
-# are skipped at runtime, so adding one later automatically opts it in.
-_ROOT_CONFIG_FILES = [
+# docs/ tree itself is covered by the classes above. Conventional sibling
+# filenames are discovered when present so future additions opt in without
+# creating permanent skip noise for files this repository does not use.
+_ROOT_CONFIG_CANDIDATES = (
     "pyproject.toml",
     "setup.py",
     "setup.cfg",
     "tox.ini",
     "noxfile.py",
     "Makefile",
+)
+_ROOT_CONFIG_FILES = [
+    filename for filename in _ROOT_CONFIG_CANDIDATES if (_ROOT / filename).is_file()
 ]
 
 # Removal keywords — a NECESSARY but no longer SUFFICIENT signal that a line
@@ -364,9 +367,6 @@ class TestNoLegacyPathReferencesInRootConfig:
     )
     def test_no_legacy_path_references(self, filename: str) -> None:
         filepath = _ROOT / filename
-        if not filepath.is_file():
-            pytest.skip(f"{filename} not present at repository root")
-
         text = filepath.read_text(encoding="utf-8")
         failures: list[str] = []
 

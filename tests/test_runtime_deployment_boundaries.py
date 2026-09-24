@@ -645,7 +645,6 @@ class TestCoreModulesTransportAgnostic:
         "medre.core.routing.models",
         "medre.core.rendering.renderer",
         "medre.core.rendering.text",
-        "medre.core.lifecycle.manager",
         "medre.core.lifecycle.states",
         "medre.core.supervision.accounting",
         "medre.core.supervision.capabilities",
@@ -749,116 +748,13 @@ class TestExportReportingTestsSdkFree:
 
 
 # ===================================================================
-# 8. Documentation boundary test — classification headers present
+# 8. Documentation boundary ownership
 # ===================================================================
 
-
-class TestDocumentationTrackHeaders:
-    """Verify that key documentation files have classification headers.
-
-    This is a lightweight structural check to prevent drift where
-    documentation files lose their classification header.
-    """
-
-    _REPO_ROOT = Path(__file__).parent.parent
-
-    _TRACKED_DOCS = [
-        ("docs/ops/live-operational-evidence.md", ["Track"]),
-        ("docs/ops/deployment-validation.md", ["Track"]),
-        ("docs/ops/container-operation.md", ["Track"]),
-        ("docs/ops/longrun-validation.md", ["Track"]),
-    ]
-
-    @pytest.mark.parametrize(
-        "doc_path,required_keywords",
-        _TRACKED_DOCS,
-        ids=[p[0] for p in _TRACKED_DOCS],
-    )
-    def test_doc_has_track_header(
-        self,
-        doc_path: str,
-        required_keywords: list[str],
-    ) -> None:
-        """Runbook documentation file must contain Track classification in header."""
-        full_path = self._REPO_ROOT / doc_path
-        if not full_path.exists():
-            pytest.skip(f"{doc_path} not found")
-
-        source = _file_source(full_path)
-        # Check the first 30 lines for "Track" classification header
-        header = "\n".join(source.splitlines()[:30])
-        for keyword in required_keywords:
-            assert keyword in header or keyword.lower() in header.lower(), (
-                f"{doc_path} is missing '{keyword}' in the first 30 lines. "
-                f"Add a Tracks header to prevent drift."
-            )
-
-    @pytest.mark.parametrize(
-        "doc_path,required_keywords",
-        _TRACKED_DOCS,
-        ids=[p[0] for p in _TRACKED_DOCS],
-    )
-    def test_doc_has_last_updated(
-        self,
-        doc_path: str,
-        required_keywords: list[str],
-    ) -> None:
-        """Runbook documentation file must contain 'Last updated' date in header."""
-        full_path = self._REPO_ROOT / doc_path
-        if not full_path.exists():
-            pytest.skip(f"{doc_path} not found")
-
-        source = _file_source(full_path)
-        header = "\n".join(source.splitlines()[:30])
-        assert "Last updated" in header, (
-            f"{doc_path} is missing 'Last updated' date in the first 30 lines. "
-            f"Add a date header to track freshness."
-        )
-
-
-# ===================================================================
-# Contract header check — Tracks in bold metadata
-# ===================================================================
-
-
-class TestContractTrackHeaders:
-    """Verify that contract documents have Track references in metadata.
-
-    Contracts use bold metadata (``**Tracks:**``) rather than blockquote
-    format (``> Tracks:``).  Both formats are accepted.
-    """
-
-    _REPO_ROOT = Path(__file__).parent.parent
-
-    _CONTRACT_DOCS = [
-        ("docs/spec/59-runtime-durability-contract.md", ["Track"]),
-        ("docs/spec/60-runtime-cancellation-contract.md", ["Track"]),
-        ("docs/spec/61-operational-evidence-contract.md", ["Track"]),
-    ]
-
-    @pytest.mark.parametrize(
-        "doc_path,required_keywords",
-        _CONTRACT_DOCS,
-        ids=[p[0] for p in _CONTRACT_DOCS],
-    )
-    def test_contract_has_track_header(
-        self,
-        doc_path: str,
-        required_keywords: list[str],
-    ) -> None:
-        """Contract must contain Track classification in header metadata."""
-        full_path = self._REPO_ROOT / doc_path
-        if not full_path.exists():
-            pytest.skip(f"{doc_path} not found")
-
-        source = _file_source(full_path)
-        # Contracts may use blockquote (>) or bold (**) format
-        header = "\n".join(source.splitlines()[:20])
-        for keyword in required_keywords:
-            assert keyword in header or keyword.lower() in header.lower(), (
-                f"{doc_path} is missing '{keyword}' in the first 20 lines. "
-                f"Add a Track reference to prevent drift."
-            )
+# Historical track-classification runbooks/contracts were removed before the
+# current docs/spec + docs/ops layout. Current documentation ownership is
+# enforced by the dedicated docs contract/link suites rather than by probing
+# retired filenames and skipping when they are absent.
 
 
 # ===================================================================

@@ -144,8 +144,9 @@ class TestSoakFrameworkFakeOnly:
     def fake_soak_file(self, request: Any) -> Path:
         """Parametrized fixture for each fake-only soak test file."""
         path = _TESTS_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"{request.param} not found")
+        assert (
+            path.is_file()
+        ), f"configured repository test target missing: {request.param}"
         return path
 
     def test_fake_soak_files_no_transport_imports(
@@ -235,8 +236,9 @@ class TestOperationalEvidenceNoDirectSdk:
     def evidence_test_file(self, request: Any) -> Path:
         """Parametrized fixture for each evidence test file."""
         path = _TESTS_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"{request.param} not found")
+        assert (
+            path.is_file()
+        ), f"configured repository test target missing: {request.param}"
         return path
 
     def test_evidence_test_files_no_sdk_imports(
@@ -299,11 +301,12 @@ class TestCliWorkflowsRuntimeLayerOnly:
     requiring live transports.
     """
 
-    _CLI_TEST_FILES = [
-        "test_cli.py",
-        "test_operator_workflows.py",
-        "test_operator_failures.py",
-    ]
+    _CLI_TEST_FILES = sorted(
+        {
+            *(path.name for path in _TESTS_DIR.glob("test_cli_*_workflows.py")),
+            *(path.name for path in _TESTS_DIR.glob("test_operator_*.py")),
+        }
+    )
 
     _CLI_SOURCE_MODULES = [
         "medre.cli",
@@ -316,8 +319,9 @@ class TestCliWorkflowsRuntimeLayerOnly:
     def cli_test_file(self, request: Any) -> Path:
         """Parametrized fixture for each CLI test file."""
         path = _TESTS_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"{request.param} not found")
+        assert (
+            path.is_file()
+        ), f"configured repository test target missing: {request.param}"
         return path
 
     def test_cli_test_files_no_sdk_imports(
@@ -656,8 +660,9 @@ class TestDiagnosticsNoTransportCoupling:
     def diagnostics_test_file(self, request: Any) -> Path:
         """Parametrized fixture for each diagnostics test file."""
         path = _TESTS_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"{request.param} not found")
+        assert (
+            path.is_file()
+        ), f"configured repository test target missing: {request.param}"
         return path
 
     def test_diagnostics_test_files_no_sdk_imports(
