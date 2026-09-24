@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from medre.adapter_registry import get_adapter_spec
+from medre.core.delivery_authority import effective_generation
 from medre.core.lifecycle.states import AdapterState, require_valid_transition
 from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.health import (
@@ -1969,11 +1970,7 @@ class MedreApp:
                     # receipt is still persisted with attempt_number=1.
                     item = None
                 if item is not None:
-                    attempt_number = (
-                        item.active_attempt
-                        if item.active_attempt is not None
-                        else item.attempt_number
-                    )
+                    attempt_number = effective_generation(item)
             receipt = DeliveryReceipt(
                 sequence=0,
                 receipt_id=f"rcpt-{uuid.uuid4()}",

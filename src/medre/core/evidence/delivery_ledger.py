@@ -32,6 +32,7 @@ from typing import Any, Iterable
 from medre.core.delivery_authority import (
     DeliveryAuthorityResolver,
     DeliveryIdentity,
+    effective_generation,
     receipt_kind,
 )
 from medre.core.engine.pipeline.delivery_state import (
@@ -450,9 +451,7 @@ def build_delivery_outcome_ledger(
             next_retry_raw = (current_attempt or {}).get("next_retry_at") or outbox.get(
                 "next_attempt_at"
             )
-            current_attempt_number = int(
-                outbox.get("active_attempt") or outbox.get("attempt_number") or 1
-            )
+            current_attempt_number = effective_generation(outbox)
             replay_run_id = outbox.get("replay_run_id")
             if current_attempt is not None:
                 source = str(current_attempt.get("source") or "live")

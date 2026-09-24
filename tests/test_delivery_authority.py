@@ -7,7 +7,9 @@ from datetime import UTC, datetime
 from medre.core.delivery_authority import (
     DeliveryAuthorityResolver,
     DeliveryIdentity,
+    committed_receipt_for_outbox,
     delivery_identity,
+    effective_generation,
 )
 from medre.core.events import CanonicalEvent, DeliveryReceipt, EventMetadata
 from medre.core.storage.backend import DeliveryOutboxItem, TerminalOutboxFinalization
@@ -75,6 +77,31 @@ def test_delivery_identity_normalizes_empty_channel() -> None:
         )
         == expected
     )
+
+
+def test_effective_generation_prefers_active_attempt() -> None:
+    assert effective_generation({"attempt_number": 4, "active_attempt": 5}) == 5
+    assert effective_generation({"attempt_number": 4, "active_attempt": None}) == 4
+
+
+def test_committed_receipt_for_outbox_requires_exact_effective_generation() -> None:
+    outbox = {
+        "outbox_id": "ob-1",
+        "receipt_id": "r-1",
+        "attempt_number": 1,
+        "active_attempt": 2,
+    }
+    previous = _receipt("r-1", sequence=1, outbox_id="ob-1", attempt=1)
+    current = _receipt("r-1", sequence=2, outbox_id="ob-1", attempt=2)
+
+    assert committed_receipt_for_outbox(outbox, [previous]) is None
+    assert committed_receipt_for_outbox(outbox, [previous, current]) is current
+
+
+def test_committed_receipt_for_outbox_rejects_pointer_from_sibling_outbox() -> None:
+    outbox = _outbox("ob-1", receipt_id="r-1", attempt=2)
+    sibling = _receipt("r-1", sequence=1, outbox_id="ob-2", attempt=2)
+    assert committed_receipt_for_outbox(outbox, [sibling]) is None
 
 
 def test_resolver_rejects_uncommitted_outbox_receipt() -> None:

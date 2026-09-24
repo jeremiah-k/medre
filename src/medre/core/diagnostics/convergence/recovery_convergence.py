@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from medre.core.delivery_authority import committed_receipt_for_outbox
+
 from .helpers import (
     _TERMINAL_OUTBOX,
     _TERMINAL_RECEIPT,
@@ -98,14 +100,7 @@ def build_recovery_convergence_findings(
         receipt = receipts_by_id.get(str(_get(item, "receipt_id", "")))
         if receipt is None:
             return None
-        if str(_get(receipt, "outbox_id", "")) != str(_get(item, "outbox_id", "")):
-            return None
-        generation = int(
-            _get(item, "active_attempt") or _get(item, "attempt_number") or 1
-        )
-        if int(_get(receipt, "attempt_number", 1) or 1) != generation:
-            return None
-        return receipt
+        return committed_receipt_for_outbox(item, (receipt,))
 
     # -- Recovered but not progressed ---------------------------------------
     # An outbox item was reclaimed (its recovery action says so) but

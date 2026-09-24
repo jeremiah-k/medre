@@ -29,8 +29,10 @@ __all__ = [
     "ReceiptAuthority",
     "ResolvedDeliverySnapshot",
     "authority_index",
+    "committed_receipt_for_outbox",
     "delivery_identity",
     "delivery_identity_sort_key",
+    "effective_generation",
     "group_outbox_by_identity",
     "group_receipts_by_identity",
     "receipt_kind",
@@ -178,7 +180,7 @@ def group_outbox_by_identity(
     return grouped
 
 
-def _effective_generation(item: Any) -> int:
+def effective_generation(item: Any) -> int:
     """Return the reserved generation when present, else the finalized one."""
     return int(_get(item, "active_attempt") or _get(item, "attempt_number") or 1)
 
@@ -186,7 +188,7 @@ def _effective_generation(item: Any) -> int:
 def _outbox_rank(item: Any) -> tuple[int, str, str, str]:
     """Rank operational generations without relying on incidental list order."""
     return (
-        _effective_generation(item),
+        effective_generation(item),
         _iso(_get(item, "updated_at")),
         _iso(_get(item, "created_at")),
         str(_get(item, "outbox_id") or ""),
@@ -311,24 +313,24 @@ def _latest_attempt(receipts: Iterable[_T]) -> _T | None:
     )
 
 
-def _current_generation_receipt(
-    current_outbox: Any | None,
+def committed_receipt_for_outbox(
+    outbox: Any | None,
     receipts: Iterable[_T],
 ) -> _T | None:
-    """Return the receipt committed by the exact current mutable generation.
+    """Return the receipt committed by the exact supplied outbox generation.
 
-    A current outbox can retain a pointer to the previously finalized attempt
+    An outbox can retain a pointer to the previously finalized attempt
     while a retry reservation is active.  Therefore the pointer is eligible
     only when the pointed receipt also belongs to the effective generation
     (``active_attempt`` while reserved, otherwise ``attempt_number``).
     """
-    if current_outbox is None:
+    if outbox is None:
         return None
-    outbox_id = str(_get(current_outbox, "outbox_id") or "")
-    receipt_id = str(_get(current_outbox, "receipt_id") or "")
+    outbox_id = str(_get(outbox, "outbox_id") or "")
+    receipt_id = str(_get(outbox, "receipt_id") or "")
     if not outbox_id or not receipt_id:
         return None
-    generation = _effective_generation(current_outbox)
+    generation = effective_generation(outbox)
     return next(
         (
             receipt
@@ -362,7 +364,7 @@ def _current_generation_attempt(
     if not parent_id:
         return None
     outbox_id = str(_get(current_outbox, "outbox_id") or "")
-    generation = _effective_generation(current_outbox)
+    generation = effective_generation(current_outbox)
     return next(
         (
             receipt
@@ -478,7 +480,7 @@ class DeliveryAuthorityResolver(Generic[_T]):
         authority = self.authority_for(identity)
         authoritative_receipt = select_current_receipt(receipts, authority)
         current_outbox = select_current_outbox(outbox_items)
-        current_receipt = _current_generation_receipt(current_outbox, receipts)
+        current_receipt = committed_receipt_for_outbox(current_outbox, receipts)
         latest_attempt = _latest_attempt(receipts)
         return ResolvedDeliverySnapshot(
             identity=identity,

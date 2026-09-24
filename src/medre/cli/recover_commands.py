@@ -30,7 +30,10 @@ from dataclasses import asdict
 from typing import Any
 
 import medre.runtime.timeline as _timeline
-from medre.core.delivery_authority import DeliveryAuthorityResolver
+from medre.core.delivery_authority import (
+    DeliveryAuthorityResolver,
+    effective_generation,
+)
 from medre.core.observability.classification import (
     failure_category as _failure_category,
 )
@@ -191,9 +194,8 @@ async def _build_event_recovery_runbook(
                         {
                             "outbox_id": snapshot.current_outbox.outbox_id,
                             "status": snapshot.current_outbox.status,
-                            "attempt_number": (
-                                snapshot.current_outbox.active_attempt
-                                or snapshot.current_outbox.attempt_number
+                            "attempt_number": effective_generation(
+                                snapshot.current_outbox
                             ),
                         }
                         if snapshot.current_outbox is not None

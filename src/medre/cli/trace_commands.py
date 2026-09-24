@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 
 import medre.runtime.timeline as _timeline
+from medre.core.delivery_authority import effective_generation
 from medre.runtime.trace import timeline_to_json
 
 from .exit_codes import EXIT_NOT_FOUND
@@ -79,9 +80,7 @@ async def _trace_event(
                     elif etype == "outbox_generation":
                         status = data.get("status", "")
                         target = data.get("target_adapter", "")
-                        attempt = data.get("active_attempt") or data.get(
-                            "attempt_number"
-                        )
+                        attempt = effective_generation(data)
                         line = f"  {ts}  [{etype}] {status} -> {target}"
                         if data.get("target_channel"):
                             line += f" channel={data['target_channel']}"
@@ -193,9 +192,7 @@ async def _trace_replay(
                     if etype == "outbox_generation":
                         status = data.get("status", "")
                         target = data.get("target_adapter", "")
-                        attempt = data.get("active_attempt") or data.get(
-                            "attempt_number"
-                        )
+                        attempt = effective_generation(data)
                         line = f"  {ts}  [{etype}] {status} -> {target}"
                         if data.get("target_channel"):
                             line += f" channel={data['target_channel']}"
