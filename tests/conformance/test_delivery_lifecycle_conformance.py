@@ -33,6 +33,7 @@ from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
     OutboundNativeRefRecord,
 )
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_lifecycle import (
     DeliveryLifecycleService,
     DeliveryLifecycleStorage,
@@ -99,19 +100,17 @@ class _MemoryStorage:
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
         return [r for r in self._receipts if r.event_id == event_id]
 
-    async def list_receipts_for_plan(
+    async def list_receipts_for_delivery(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
         return [
-            r
-            for r in self._receipts
-            if r.delivery_plan_id == delivery_plan_id
-            and r.target_adapter == target_adapter
-            and r.event_id == event_id
+            receipt
+            for receipt in self._receipts
+            if receipt.event_id == identity.event_id
+            and receipt.delivery_plan_id == identity.delivery_plan_id
+            and receipt.target_adapter == identity.target_adapter
+            and (receipt.target_channel or None) == identity.target_channel
         ]
 
     async def store_native_ref(self, ref: NativeMessageRef) -> None:

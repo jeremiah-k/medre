@@ -10,10 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
 
 from ...delivery_authority import DeliveryAuthorityResolver
-from .helpers import (
-    _build_outbox_by_key,
-    _ensure_aware,
-)
+from .helpers import _ensure_aware
 from .lifecycle_checks import (
     _check_attempt_count_regression,
     _check_receipt_sequence_gap,
@@ -71,22 +68,18 @@ def build_lifecycle_convergence_findings(
 
     now = _ensure_aware(now_fn())
 
-    # -- Index structures ---------------------------------------------------
-    outbox_by_key = _build_outbox_by_key(outbox_list)
+    # -- Resolve each delivery once -----------------------------------------
     authority = DeliveryAuthorityResolver(receipt_list, outbox_list)
-    receipts_by_key = {
-        key: list(authority.receipts_for(key)) for key in authority.identities
-    }
-    all_keys = list(authority.ordered_identities())
+    snapshots = authority.ordered_snapshots()
 
-    findings.extend(_check_target_mismatches(outbox_by_key, authority, all_keys))
+    findings.extend(_check_target_mismatches(snapshots))
     findings.extend(_check_retry_wait_outboxes(outbox_list, now))
-    findings.extend(_check_retryable_without_metadata(receipt_list, outbox_by_key))
+    findings.extend(_check_retryable_without_metadata(snapshots))
     findings.extend(
         _check_stalled_delivery_plans(outbox_list, now, stall_threshold_seconds)
     )
-    findings.extend(_check_attempt_count_regression(receipts_by_key))
-    findings.extend(_check_receipt_sequence_gap(receipts_by_key))
+    findings.extend(_check_attempt_count_regression(snapshots))
+    findings.extend(_check_receipt_sequence_gap(snapshots))
 
     findings.sort(key=lambda f: (f.kind, f.record_id))
     return findings

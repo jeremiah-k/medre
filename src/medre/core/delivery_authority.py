@@ -27,6 +27,7 @@ __all__ = [
     "DeliveryAuthorityResolver",
     "DeliveryIdentity",
     "ReceiptAuthority",
+    "ResolvedDeliverySnapshot",
     "authority_index",
     "delivery_identity",
     "delivery_identity_sort_key",
@@ -239,6 +240,74 @@ def select_current_receipt(
     return max(candidates, key=_append_rank) if candidates else None
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedDeliverySnapshot(Generic[_T]):
+    """Resolved read model for one logical delivery identity.
+
+    The snapshot keeps immutable history and mutable lifecycle authority in one
+    value so diagnostics and operator projections do not have to repeat the
+    receipt/outbox join. ``authoritative_receipt`` answers current lifecycle
+    authority, ``current_outbox`` answers current operational state,
+    ``latest_attempt`` answers the newest transport execution, and
+    ``causative_receipt`` resolves lifecycle evidence back to the attempt it
+    names when that receipt is present in the loaded history.
+    """
+
+    identity: DeliveryIdentity
+    receipts: tuple[_T, ...]
+    outbox_items: tuple[Any, ...]
+    authoritative_receipt: _T | None
+    current_outbox: Any | None
+    latest_attempt: _T | None
+    causative_receipt: _T | None
+
+
+def _receipt_kind(record: Any) -> str:
+    kind = str(_get(record, "receipt_kind") or "")
+    if kind in {"attempt", "lifecycle"}:
+        return kind
+    return (
+        "attempt"
+        if str(_get(record, "status") or "") in {"queued", "sent", "failed"}
+        else "lifecycle"
+    )
+
+
+def _latest_attempt(receipts: Iterable[_T]) -> _T | None:
+    attempts = [receipt for receipt in receipts if _receipt_kind(receipt) == "attempt"]
+    if not attempts:
+        return None
+    return max(
+        attempts,
+        key=lambda receipt: (
+            int(_get(receipt, "attempt_number") or 1),
+            *_append_rank(receipt),
+        ),
+    )
+
+
+def _causative_receipt(
+    authoritative_receipt: _T | None,
+    receipts: Iterable[_T],
+) -> _T | None:
+    if (
+        authoritative_receipt is None
+        or _receipt_kind(authoritative_receipt) != "lifecycle"
+    ):
+        return None
+    parent_id = str(_get(authoritative_receipt, "parent_receipt_id") or "")
+    if not parent_id:
+        return None
+    return next(
+        (
+            receipt
+            for receipt in receipts
+            if str(_get(receipt, "receipt_id") or "") == parent_id
+        ),
+        None,
+    )
+
+
 class DeliveryAuthorityResolver(Generic[_T]):
     """Resolve current delivery evidence from immutable history + outbox state.
 
@@ -302,3 +371,24 @@ class DeliveryAuthorityResolver(Generic[_T]):
             self.receipts_for(identity),
             self.authority_for(identity),
         )
+
+    def resolve(self, identity: DeliveryIdentity) -> ResolvedDeliverySnapshot[_T]:
+        """Resolve history, operational state, and current authority once."""
+        receipts = self.receipts_for(identity)
+        outbox_items = self.outbox_for(identity)
+        authority = self.authority_for(identity)
+        authoritative_receipt = select_current_receipt(receipts, authority)
+        latest_attempt = _latest_attempt(receipts)
+        return ResolvedDeliverySnapshot(
+            identity=identity,
+            receipts=receipts,
+            outbox_items=outbox_items,
+            authoritative_receipt=authoritative_receipt,
+            current_outbox=select_current_outbox(outbox_items),
+            latest_attempt=latest_attempt,
+            causative_receipt=_causative_receipt(authoritative_receipt, receipts),
+        )
+
+    def ordered_snapshots(self) -> tuple[ResolvedDeliverySnapshot[_T], ...]:
+        """Return all represented deliveries as deterministic resolved snapshots."""
+        return tuple(self.resolve(identity) for identity in self.ordered_identities())

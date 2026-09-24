@@ -81,6 +81,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.contracts.adapter import (
     MAX_ADAPTER_RETRY_AFTER_SECONDS,
     OutboundDeliveryObservationRecord,
@@ -149,17 +150,11 @@ class DeliveryLifecycleStorage(Protocol):
 
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]: ...
 
-    async def list_receipts_for_plan(
+    async def list_receipts_for_delivery(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
-        """List one event's plan receipts.
-
-        Plan IDs can recur across events, so event scope is mandatory.
-        """
+        """List immutable receipt history for one complete delivery identity."""
         ...
 
     async def finalize_queued_delivery(
@@ -1812,11 +1807,7 @@ class DeliveryLifecycleService:
         ``None`` means no uncommitted attempt evidence exists and normal
         retry delivery may proceed.
         """
-        receipts = await storage.list_receipts_for_plan(
-            item.delivery_plan_id,
-            item.target_adapter,
-            event_id=item.event_id,
-        )
+        receipts = await storage.list_receipts_for_delivery(delivery_identity(item))
         if item.active_attempt is not None:
             evidence = self._retry_attempt_evidence(receipts, item, item.active_attempt)
             if evidence is not None:
@@ -1942,11 +1933,7 @@ class DeliveryLifecycleService:
         reconciliation will repair persisted attempt evidence before resend.
         """
         resolved_attempt = self._resolve_retry_attempt(item, attempt_number)
-        receipts = await storage.list_receipts_for_plan(
-            item.delivery_plan_id,
-            item.target_adapter,
-            event_id=item.event_id,
-        )
+        receipts = await storage.list_receipts_for_delivery(delivery_identity(item))
         evidence = self._retry_attempt_evidence(receipts, item, resolved_attempt)
         failure_kind = self._classify_retry_exception(error)
         error_summary = f"{type(error).__name__}: {error}"
@@ -2086,11 +2073,7 @@ class DeliveryLifecycleService:
         if current.active_attempt is not None or current.receipt_id is None:
             return None
 
-        receipts = await storage.list_receipts_for_plan(
-            item.delivery_plan_id,
-            item.target_adapter,
-            event_id=item.event_id,
-        )
+        receipts = await storage.list_receipts_for_delivery(delivery_identity(item))
         committed_receipt = next(
             (
                 candidate

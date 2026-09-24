@@ -255,13 +255,13 @@ class StorageBackend(Protocol):
         """
         ...
 
-    async def list_receipts_for_plan(
-        self, delivery_plan_id: str, target_adapter: str, *,
-        event_id: str,
+    async def list_receipts_for_delivery(
+        self, identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
-        """Return one event's plan / adapter receipts in attempt order.
+        """Return one complete delivery identity's receipts in attempt order.
 
-        ``event_id`` is mandatory because plan IDs are not globally unique.
+        The full event/plan/adapter/channel identity is required so historical
+        reads cannot merge sibling channels or unrelated canonical events.
         """
         ...
 
@@ -1215,9 +1215,11 @@ runtime startup. A clean current marker skips that redundant full scan.
 - `target_channel` is **REQUIRED** for precise lookup. When `None`, only NULL-channel receipts are considered.
 - Returns `None` when no current receipt exists.
 
-### 8.11 list_receipts_for_plan(delivery_plan_id, target_adapter, *, event_id)
+### 8.11 list_receipts_for_delivery(identity: DeliveryIdentity)
 
-- Returns receipts for one event's delivery plan / adapter in attempt order. `event_id` is mandatory; the storage contract has no plan-only lineage overload.
+- Returns immutable receipt history for exactly one `(event_id, delivery_plan_id, target_adapter, target_channel)` identity in attempt / append order.
+- The API accepts the typed full `DeliveryIdentity`; no event+plan+adapter historical overload exists because omitting channel scope can merge sibling lifecycle lineages.
+- Empty / absent channels normalize to the no-channel identity at persistence boundaries. Incomplete identities are rejected.
 
 ### 8.12 list_receipts_by_replay_run(run_id)
 
@@ -1247,6 +1249,7 @@ Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, del
 
 - `create_outbox_item`: Creates or reclaims an outbox item; replay may request atomic fresh-generation allocation (Section 9.3).
 - `get_outbox_item`: Retrieves an item by `outbox_id`.
+- `list_outbox_items_for_delivery`: Returns every durable outbox generation for one complete `DeliveryIdentity`, ordered by effective attempt generation. This is the mutable-history counterpart to `list_receipts_for_delivery`; incomplete identities are rejected.
 - `list_outbox_items`: Lists items, optionally filtered by status.
 - `list_outbox_items_for_event`: Returns all outbox items for a specific event, ordered by `created_at ASC, outbox_id ASC`. Read-only.
 - `claim_due_outbox_items`: Claims eligible items for a worker only when no sibling row for the same event-scoped delivery identity represents the same or a newer effective attempt generation. Older superseded rows remain durable history and are not re-dispatched.

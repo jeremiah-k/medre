@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import pytest
 from msgspec.structs import force_setattr
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -98,12 +99,44 @@ class TestReceipts:
         assert current.receipt_id == "rcpt-scope-a"
         assert current.status == "failed"
 
-        lineage = await temp_storage.list_receipts_for_plan(
-            "shared-plan",
-            "fake_presentation",
-            event_id="evt-scope-a",
+        lineage = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity(
+                "evt-scope-a", "shared-plan", "fake_presentation", "shared-channel"
+            )
         )
         assert [receipt.receipt_id for receipt in lineage] == ["rcpt-scope-a"]
+
+    async def test_historical_delivery_identity_isolates_sibling_channels(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        event_id = "evt-history-channels"
+        plan_id = "plan-history-channels"
+        await temp_storage.append(make_storage_event(event_id=event_id))
+        for receipt_id, channel in (
+            ("rcpt-history-a", "channel-a"),
+            ("rcpt-history-b", "channel-b"),
+            ("rcpt-history-none", None),
+        ):
+            await temp_storage.append_receipt(
+                DeliveryReceipt(
+                    receipt_id=receipt_id,
+                    event_id=event_id,
+                    delivery_plan_id=plan_id,
+                    target_adapter="radio",
+                    target_channel=channel,
+                    status="sent",
+                )
+            )
+
+        for channel, expected in (
+            ("channel-a", "rcpt-history-a"),
+            ("channel-b", "rcpt-history-b"),
+            (None, "rcpt-history-none"),
+        ):
+            history = await temp_storage.list_receipts_for_delivery(
+                DeliveryIdentity(event_id, plan_id, "radio", channel)
+            )
+            assert [receipt.receipt_id for receipt in history] == [expected]
 
     async def test_delivery_status_returns_latest_receipt(
         self, temp_storage: SQLiteStorage
@@ -393,7 +426,7 @@ class TestOrderingGuarantees:
 
 class TestReceiptLineage:
     """Receipt lineage: attempt_number, parent_receipt_id persistence
-    and ordering via list_receipts_for_plan.
+    and ordering via list_receipts_for_delivery.
     """
 
     async def test_receipt_attempt_number_persisted(
@@ -459,9 +492,9 @@ class TestReceiptLineage:
         )
         await temp_storage.append_receipt(r3)
 
-        # list_receipts_for_plan returns all in attempt order.
-        receipts = await temp_storage.list_receipts_for_plan(
-            "plan-chain", "adapter_b", event_id="evt-chain"
+        # list_receipts_for_delivery returns all in attempt order.
+        receipts = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("evt-chain", "plan-chain", "adapter_b", None)
         )
         assert len(receipts) == 3
         assert [r.attempt_number for r in receipts] == [1, 2, 3]
@@ -470,12 +503,14 @@ class TestReceiptLineage:
         assert receipts[2].parent_receipt_id == "rcpt-chain-2"
         assert receipts[2].status == "dead_lettered"
 
-    async def test_list_receipts_for_plan_empty(
+    async def test_list_receipts_for_delivery_empty(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """list_receipts_for_plan returns empty list for unknown plan."""
-        receipts = await temp_storage.list_receipts_for_plan(
-            "nonexistent-plan", "nonexistent-adapter", event_id="evt-missing-lineage"
+        """list_receipts_for_delivery returns empty list for unknown plan."""
+        receipts = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity(
+                "evt-missing-lineage", "nonexistent-plan", "nonexistent-adapter", None
+            )
         )
         assert receipts == []
 
@@ -528,11 +563,11 @@ class TestReceiptLineage:
         await temp_storage.append_receipt(r_a)
         await temp_storage.append_receipt(r_b)
 
-        receipts_a = await temp_storage.list_receipts_for_plan(
-            "plan-indep", "adapter_a", event_id="evt-indep"
+        receipts_a = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("evt-indep", "plan-indep", "adapter_a", None)
         )
-        receipts_b = await temp_storage.list_receipts_for_plan(
-            "plan-indep", "adapter_b", event_id="evt-indep"
+        receipts_b = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("evt-indep", "plan-indep", "adapter_b", None)
         )
         assert len(receipts_a) == 1
         assert len(receipts_b) == 1
@@ -881,7 +916,7 @@ class TestReceiptSourceReplayRunId:
     async def test_list_receipts_preserves_source_fields(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """list_receipts_for_plan preserves source and replay_run_id."""
+        """list_receipts_for_delivery preserves source and replay_run_id."""
         event = make_storage_event(event_id="evt-list-rcpt")
         await temp_storage.append(event)
 
@@ -908,8 +943,8 @@ class TestReceiptSourceReplayRunId:
         await temp_storage.append_receipt(r1)
         await temp_storage.append_receipt(r2)
 
-        receipts = await temp_storage.list_receipts_for_plan(
-            "plan-list", "adapter_d", event_id="evt-list-rcpt"
+        receipts = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("evt-list-rcpt", "plan-list", "adapter_d", None)
         )
         assert len(receipts) == 2
         assert receipts[0].source == "live"

@@ -166,9 +166,10 @@ ORDER BY sequence DESC
 LIMIT 1
 """
 
-_SELECT_RECEIPTS_FOR_EVENT_PLAN = """
+_SELECT_RECEIPTS_FOR_DELIVERY = """
 SELECT * FROM delivery_receipts
 WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?
+  AND target_channel IS ?
 ORDER BY attempt_number ASC, sequence ASC
 """
 

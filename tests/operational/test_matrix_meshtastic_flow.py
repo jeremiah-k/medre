@@ -33,6 +33,7 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
 )
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleStorage
 from medre.core.engine.pipeline.runner import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
@@ -165,19 +166,17 @@ class _FakeStorage:
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
         return [r for r in self._receipts if r.event_id == event_id]
 
-    async def list_receipts_for_plan(
+    async def list_receipts_for_delivery(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
         return [
             receipt
             for receipt in self._receipts
-            if receipt.delivery_plan_id == delivery_plan_id
-            and receipt.target_adapter == target_adapter
-            and receipt.event_id == event_id
+            if receipt.event_id == identity.event_id
+            and receipt.delivery_plan_id == identity.delivery_plan_id
+            and receipt.target_adapter == identity.target_adapter
+            and (receipt.target_channel or None) == identity.target_channel
         ]
 
     async def query_receipts(self, **kwargs: Any) -> list[DeliveryReceipt]:

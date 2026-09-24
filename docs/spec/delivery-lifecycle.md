@@ -375,6 +375,14 @@ eligible by durable append order. `route_id`, receipt `source`, and
 `DeliveryAuthorityResolver` is the in-memory reference implementation; SQLite
 projections MUST conform to the same vectors.
 
+`ResolvedDeliverySnapshot` is the canonical in-memory read model for one full
+`DeliveryIdentity`. It carries immutable receipt history, every loaded outbox
+generation, the lifecycle-authoritative receipt, current operational outbox
+generation, latest dispatch-attempt evidence, and the loaded causative receipt.
+Diagnostics and operator projections consume this resolved value rather than
+independently joining receipt authority, outbox state, and attempt history.
+
+
 ---
 
 ## 5. Replay Boundary

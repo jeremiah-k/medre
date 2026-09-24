@@ -32,7 +32,6 @@ from typing import Any, Iterable
 from medre.core.delivery_authority import (
     DeliveryAuthorityResolver,
     DeliveryIdentity,
-    delivery_identity_sort_key,
 )
 from medre.core.engine.pipeline.delivery_state import (
     NON_TERMINAL_OUTBOX_STATUSES,
@@ -263,20 +262,6 @@ def _receipt_kind(receipt: dict[str, Any]) -> str:
     )
 
 
-def _latest_attempt(receipts: list[dict[str, Any]]) -> dict[str, Any] | None:
-    attempts = [receipt for receipt in receipts if _receipt_kind(receipt) == "attempt"]
-    if not attempts:
-        return None
-    return max(
-        attempts,
-        key=lambda receipt: (
-            int(receipt.get("attempt_number") or 1),
-            int(receipt.get("sequence") or 0),
-            _to_iso_or_none(receipt.get("created_at")) or "",
-            str(receipt.get("receipt_id") or ""),
-        ),
-    )
-
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -433,11 +418,12 @@ def build_delivery_outcome_ledger(
     status_counts: dict[str, int] = {}
     taxon_counts: dict[str, int] = {}
 
-    for identity in sorted(resolver.identities, key=delivery_identity_sort_key):
-        history = list(resolver.receipts_for(identity))
-        authority = resolver.current(identity)
-        outbox = resolver.current_outbox(identity)
-        latest_attempt = _latest_attempt(history)
+    for snapshot in resolver.ordered_snapshots():
+        identity = snapshot.identity
+        history = list(snapshot.receipts)
+        authority = snapshot.authoritative_receipt
+        outbox = snapshot.current_outbox
+        latest_attempt = snapshot.latest_attempt
 
         authority_kind = _receipt_kind(authority) if authority is not None else None
         lifecycle_status = str(
@@ -487,7 +473,8 @@ def build_delivery_outcome_ledger(
             authoritative_receipt_id=(authority or {}).get("receipt_id"),
             authoritative_receipt_kind=authority_kind,
             causative_receipt_id=(
-                (authority or {}).get("parent_receipt_id")
+                (snapshot.causative_receipt or {}).get("receipt_id")
+                or (authority or {}).get("parent_receipt_id")
                 if authority_kind == "lifecycle"
                 else None
             ),

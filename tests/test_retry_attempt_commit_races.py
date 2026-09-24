@@ -64,7 +64,7 @@ async def test_lifecycle_reconciles_same_attempt_sent_after_queued_cas_loss() ->
             receipt_id="rcpt-terminal-2",
         )
     )
-    storage.list_receipts_for_plan = AsyncMock(
+    storage.list_receipts_for_delivery = AsyncMock(
         return_value=[
             DeliveryReceipt(
                 receipt_id="rcpt-terminal-2",
@@ -112,7 +112,7 @@ async def test_lifecycle_reconciles_same_attempt_error_terminal_after_queued_cas
             failure_kind="adapter_permanent",
         )
     )
-    storage.list_receipts_for_plan = AsyncMock(
+    storage.list_receipts_for_delivery = AsyncMock(
         return_value=[
             DeliveryReceipt(
                 receipt_id="rcpt-terminal-2",
@@ -161,7 +161,7 @@ async def test_lifecycle_does_not_reconcile_terminal_without_committed_receipt()
             receipt_id=None,
         )
     )
-    storage.list_receipts_for_plan = AsyncMock()
+    storage.list_receipts_for_delivery = AsyncMock()
 
     assert (
         await lifecycle.reconcile_retry_success_commit_rejection(
@@ -171,7 +171,7 @@ async def test_lifecycle_does_not_reconcile_terminal_without_committed_receipt()
         )
         is None
     )
-    storage.list_receipts_for_plan.assert_not_awaited()
+    storage.list_receipts_for_delivery.assert_not_awaited()
 
 
 async def test_lifecycle_does_not_reconcile_different_attempt_after_cas_loss() -> None:
@@ -371,7 +371,7 @@ async def test_lifecycle_reconciles_cancelled_lifecycle_receipt_after_cas_loss()
             failure_kind="adapter_permanent",
         )
     )
-    storage.list_receipts_for_plan = AsyncMock(
+    storage.list_receipts_for_delivery = AsyncMock(
         return_value=[
             DeliveryReceipt(
                 receipt_id="rcpt-cancelled-2",
@@ -418,7 +418,7 @@ async def test_lifecycle_reconciles_abandoned_lifecycle_receipt_after_cas_loss()
             failure_kind="capacity_rejection",
         )
     )
-    storage.list_receipts_for_plan = AsyncMock(
+    storage.list_receipts_for_delivery = AsyncMock(
         return_value=[
             DeliveryReceipt(
                 receipt_id="rcpt-abandoned-2",

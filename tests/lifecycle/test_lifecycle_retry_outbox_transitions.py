@@ -272,7 +272,7 @@ async def test_retry_claim_reconciliation_dead_letters_malformed_failure_kind(
         outbox_id=item.outbox_id,
     )
     storage = AsyncMock(spec=StorageBackend)
-    storage.list_receipts_for_plan.return_value = [malformed]
+    storage.list_receipts_for_delivery.return_value = [malformed]
 
     result = await lifecycle.reconcile_retry_claim(
         storage,
@@ -331,7 +331,7 @@ async def test_retry_claim_reconciliation_preserves_dead_letter_failure_kind() -
         outbox_id=item.outbox_id,
     )
     storage = AsyncMock(spec=StorageBackend)
-    storage.list_receipts_for_plan.return_value = [failed, dead]
+    storage.list_receipts_for_delivery.return_value = [failed, dead]
 
     result = await lifecycle.reconcile_retry_claim(
         storage,

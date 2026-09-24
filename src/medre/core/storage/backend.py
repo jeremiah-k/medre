@@ -16,6 +16,7 @@ from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.events import (
     CanonicalEvent,
     DeliveryObservation,
@@ -1040,21 +1041,16 @@ class StorageBackend(Protocol):
         """
         ...
 
-    async def list_receipts_for_plan(
+    async def list_receipts_for_delivery(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
-        """Return event-scoped receipts for a plan / adapter in attempt order.
+        """Return one delivery identity's immutable receipt history.
 
-        ``event_id`` is mandatory because plan IDs are not globally unique and
-        no delivery-lineage query may merge evidence from different events.
-
-        Authority: **list/get** (read-only).  Receipts are ordered by
-        ``attempt_number`` ascending so callers can walk the full receipt
-        lineage.
+        Authority: **list/get** (read-only). ``DeliveryIdentity`` is the
+        complete lifecycle key, including normalized channel scope, so
+        historical reads cannot merge sibling channels, adapters, plans, or
+        canonical events. Receipts are ordered by attempt then append sequence.
         """
         ...
 
@@ -1264,23 +1260,15 @@ class StorageBackend(Protocol):
         """
         ...
 
-    async def get_outbox_item_for_delivery(
+    async def list_outbox_items_for_delivery(
         self,
-        event_id: str,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None,
-        status: str | None = None,
-    ) -> DeliveryOutboxItem | None:
-        """Retrieve an outbox item by its delivery target key.
+        identity: DeliveryIdentity,
+    ) -> list[DeliveryOutboxItem]:
+        """Return all mutable/terminal generations for one delivery identity.
 
-        Authority: **list/get** (read-only).  Performs a targeted SELECT matching *event_id*,
-        *delivery_plan_id*, *target_adapter*, *target_channel*
-        (using ``IS`` for proper ``NULL`` handling) and optionally
-        *status*.  Returns the first match or ``None``.
-
-        This replaces the O(n) scan previously needed to locate an
-        outbox item for a specific delivery target.
+        Authority: **list/get** (read-only). Rows are ordered by effective
+        attempt generation, then creation identity, so callers receive the full
+        operational history without reconstructing the lifecycle key.
         """
         ...
 

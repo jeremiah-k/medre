@@ -17,9 +17,7 @@ from .helpers import (
     _NON_TERMINAL_RECEIPT,
     _TERMINAL_OUTBOX,
     _TERMINAL_RECEIPT,
-    _build_outbox_by_key,
     _get,
-    _TargetKey,
     _worst_severity,
 )
 from .types import (
@@ -224,36 +222,25 @@ def build_convergence_summary(
     receipt_list = list(receipts)
     outbox_list = list(outbox_items)
 
-    # --- Build target-keyed authority -------------------------------------
-    # Outbox items: at most one displayed per target key (latest attempt),
-    # while the resolver retains committed pointers from every generation.
-    outbox_by_key = _build_outbox_by_key(outbox_list)
+    # --- Resolve each target once ------------------------------------------
     authority = DeliveryAuthorityResolver(receipt_list, outbox_list)
-
-    # --- Collect all target keys (union) ----------------------------------
-    def _sort_key(key: _TargetKey) -> tuple:
-        event_id, plan_id, adapter, channel = key
-        return (event_id, plan_id, adapter, channel or "")
-
-    all_keys = sorted(
-        set(outbox_by_key.keys()) | set(authority.identities),
-        key=_sort_key,
-    )
+    snapshots = authority.ordered_snapshots()
 
     # --- Classify each target ---------------------------------------------
     targets: list[DeliveryTargetConvergence] = []
     severities: list[ConvergenceSeverity] = []
     global_warnings: list[str] = []
 
-    for key in all_keys:
+    for snapshot in snapshots:
+        key = snapshot.identity
         event_id, plan_id, adapter, channel = key
-        obx = outbox_by_key.get(key)
+        obx = snapshot.current_outbox
         outbox_status = _get(obx, "status") if obx else None
         outbox_id = _get(obx, "outbox_id") if obx else None
         has_outbox = obx is not None
         plan_id_present = bool(plan_id)
 
-        latest_rec = authority.current(key)
+        latest_rec = snapshot.authoritative_receipt
         has_receipt = latest_rec is not None
         latest_receipt_status = _get(latest_rec, "status") if latest_rec else None
         latest_receipt_id = _get(latest_rec, "receipt_id") if latest_rec else None

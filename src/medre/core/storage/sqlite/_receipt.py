@@ -7,7 +7,7 @@ Authority surface:
     AUTOINCREMENT) provides strict chronological ordering.  No update-receipt
     or delete-receipt method exists by design.
   - delivery_status:              **list/get** (read-only).
-  - list_receipts_for_plan:       **list/get** (read-only).
+  - list_receipts_for_delivery:   **list/get** (read-only).
   - list_receipts_by_replay_run:  **list/get** (read-only).
   - list_receipts_for_event:      **list/get** (read-only).
   - list_all_receipts:            **list/get** (read-only).
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_state import RECEIPT_STATUSES
 from medre.core.events import DELIVERY_CONFIRMATION_LEVEL_VALUES, DeliveryReceipt
 from medre.core.storage.sqlite.serde import _row_to_receipt
@@ -28,7 +29,7 @@ from medre.core.storage.sqlite.statements import (
     _SELECT_ALL_RECEIPTS,
     _SELECT_RECEIPTS_BY_REPLAY_RUN,
     _SELECT_RECEIPTS_FOR_EVENT,
-    _SELECT_RECEIPTS_FOR_EVENT_PLAN,
+    _SELECT_RECEIPTS_FOR_DELIVERY,
 )
 
 
@@ -169,25 +170,27 @@ class _ReceiptMixin:
         row = await self._read_one(sql, params)
         return _row_to_receipt(row) if row else None
 
-    async def list_receipts_for_plan(
+    async def list_receipts_for_delivery(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
-        """Return one event's plan / adapter receipts in attempt order.
+        """Return immutable history for one complete delivery identity.
 
-        Authority: **list/get** (read-only). Receipts are ordered by
-        ``attempt_number`` ascending (then ``sequence`` as tiebreaker) so
-        callers can walk the full receipt lineage from first attempt to last.
-        Event scope is mandatory because plan IDs are not globally unique.
+        The channel component is part of lifecycle identity. Empty and absent
+        channels normalize to SQL ``NULL`` at persistence boundaries.
         """
+        if not identity.complete:
+            raise ValueError("receipt history requires a complete DeliveryIdentity")
         rows = await self._read_all(
-            _SELECT_RECEIPTS_FOR_EVENT_PLAN,
-            (event_id, delivery_plan_id, target_adapter),
+            _SELECT_RECEIPTS_FOR_DELIVERY,
+            (
+                identity.event_id,
+                identity.delivery_plan_id,
+                identity.target_adapter,
+                identity.target_channel or None,
+            ),
         )
-        return [_row_to_receipt(r) for r in rows]
+        return [_row_to_receipt(row) for row in rows]
 
     async def list_receipts_by_replay_run(
         self,

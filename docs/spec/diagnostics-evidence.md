@@ -965,12 +965,13 @@ The derivation logic uses the shared event-scoped delivery identity
 channels normalize to one identity. Route ID, source, and replay run ID are
 provenance on the selected evidence; they never split lifecycle identity.
 
-`DeliveryAuthorityResolver` selects the authoritative receipt: outbox-backed
-receipts are eligible only when a matching outbox generation commits their
-`receipt_id`; multiple committed outbox generations are ordered by dispatch
-generation; outbox-less receipts retain append-order authority. The ledger then
-reports current mutable outbox state and latest immutable dispatch-attempt
-evidence as separate facts.
+`DeliveryAuthorityResolver` resolves each identity to one
+`ResolvedDeliverySnapshot`: outbox-backed receipts are eligible only when a
+matching outbox generation commits their `receipt_id`; multiple committed
+outbox generations are ordered by dispatch generation; outbox-less receipts
+retain append-order authority. The same snapshot exposes current mutable outbox
+state, latest immutable dispatch-attempt evidence, and loaded causative evidence,
+so the ledger does not independently rebuild those joins.
 
 ### 19.3 Ledger Fields
 
@@ -1149,12 +1150,14 @@ Severity ordering: `safe` < `degraded` < `inconsistent`. The `worst_severity` fi
 ### 21.4 Classification Rules
 
 Targets are grouped by `(event_id, delivery_plan_id, target_adapter, target_channel)`. `event_id` is required for storage-wide convergence because plan IDs are not globally unique across events.
-Receipts linked to an outbox are eligible only when their own outbox row points
-at that `receipt_id`; outbox-less receipts are also eligible. The latest eligible
-receipt is selected deterministically by `(sequence DESC, created_at DESC,
-receipt_id DESC)`. A later receipt whose guarded outbox transition was rejected
+Convergence diagnostics consume the same `ResolvedDeliverySnapshot` read model
+as the delivery ledger. Outbox-backed receipts are eligible only when their exact
+outbox generation commits that `receipt_id`; committed generations are ranked
+from mutable outbox attempt state rather than from receipt claims. Outbox-less
+evidence retains durable append ordering. After each authority class chooses one
+candidate, append order determines which class most recently changed observable
+lifecycle state. A later receipt whose guarded outbox transition was rejected
 remains historical evidence.
-`attempt_number` records lineage and does not override lifecycle authority.
 
 **`safe`** classification:
 

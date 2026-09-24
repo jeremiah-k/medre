@@ -126,7 +126,7 @@ class TestRetryShutdown:
         storage.claim_due_outbox_items = AsyncMock(return_value=[outbox_item])
         storage.get = AsyncMock(return_value=event)
         storage.delivery_status = AsyncMock(return_value=None)
-        storage.list_receipts_for_plan = AsyncMock(return_value=[])
+        storage.list_receipts_for_delivery = AsyncMock(return_value=[])
         storage.count_outbox_by_status = AsyncMock(return_value={})
         storage.reserve_outbox_attempt = AsyncMock(return_value=2)
         storage.renew_outbox_lease = AsyncMock(return_value=True)

@@ -141,7 +141,7 @@ def build_recovery_convergence_findings(
                     item = outbox_by_id.get(outbox_id)
                     if item is not None:
                         target_key = _target_key(item)
-                        latest = authority.current(target_key)
+                        latest = authority.resolve(target_key).authoritative_receipt
                         if latest is not None:
                             latest_status = str(_get(latest, "status", ""))
                             if (
@@ -223,7 +223,7 @@ def build_recovery_convergence_findings(
                 if oid not in recovered_outbox_ids_terminal:
                     continue
                 target_key = _target_key(item)
-                latest = authority.current(target_key)
+                latest = authority.resolve(target_key).authoritative_receipt
                 if latest is not None:
                     latest_status = str(_get(latest, "status", "")).lower()
                     if latest_status not in _TERMINAL_RECEIPT:

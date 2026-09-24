@@ -17,7 +17,6 @@ from medre.core.delivery_authority import DeliveryAuthorityResolver
 from .helpers import (
     _NON_TERMINAL_OUTBOX,
     _NON_TERMINAL_RECEIPT,
-    _build_outbox_by_key,
     _get,
     _worst_severity,
 )
@@ -110,9 +109,9 @@ def build_orphan_report(
         if rid:
             receipt_by_id[rid] = rec
 
-    # --- Index lifecycle authority by full target identity ----------------
-    outbox_by_key = _build_outbox_by_key(outbox_list)
+    # --- Resolve lifecycle authority by full target identity ---------------
     authority = DeliveryAuthorityResolver(receipt_list, outbox_list)
+    snapshots = authority.ordered_snapshots()
 
     # --- 1. Orphaned outbox (event_id not in known_event_ids) -------------
     if known_event_ids is not None:
@@ -248,12 +247,15 @@ def build_orphan_report(
                 )
 
     # --- 4. Dead-lettered outbox with retryable receipt -------------------
-    for key, obx in outbox_by_key.items():
-        outbox_status = _get(obx, "status")
+    for snapshot in snapshots:
+        obx = snapshot.current_outbox
+        if obx is None:
+            continue
+        outbox_status = _get(obx, "status") or ""
         if outbox_status != "dead_lettered":
             continue
 
-        latest_rec = authority.current(key)
+        latest_rec = snapshot.authoritative_receipt
         if latest_rec is None:
             continue
 
