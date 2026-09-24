@@ -236,9 +236,11 @@ class StorageBackend(Protocol):
 
         The command carries the outbound native ref and immutable sent receipt;
         identity, outbox_id, and attempt generation are derived from the
-        receipt rather than repeated as mutable scalars. The exact full-identity
-        outbox transition to sent MUST commit in one transaction. If the guard
-        no longer matches, return False and commit none of those writes.
+        receipt rather than repeated as mutable scalars. The native ref MUST
+        agree with that receipt on event, adapter, normalized channel, and
+        adapter message ID. The exact full-identity outbox transition to sent
+        MUST commit in one transaction. If the guard no longer matches, return
+        False and commit none of those writes.
         """
         ...
 
@@ -1625,9 +1627,10 @@ This section states which code owns each table's rows, who may create/mutate/del
    A delayed queue callback that proves send acceptance MUST finalize its
    outbound native ref, supplemental `sent` receipt, and exact
    outbox-attempt transition in one storage transaction. Storage MUST
-   re-check `outbox_id`, `attempt_number`, and finalizable status inside
-   that transaction. A failed guard or failed insert MUST leave all three
-   categories unchanged.
+   re-check the exact `(event_id, delivery_plan_id, target_adapter,
+   normalized target_channel, outbox_id, attempt_number)` identity and
+   finalizable status inside that transaction. A failed guard or failed insert
+   MUST leave all three categories unchanged.
 
 6. **`delivery_observations` are append-only post-handoff evidence.** Adapters
    report asynchronous transport facts through the runtime callback; core

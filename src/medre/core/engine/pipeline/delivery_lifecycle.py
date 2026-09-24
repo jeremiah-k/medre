@@ -1327,7 +1327,11 @@ class DeliveryLifecycleService:
             id=f"nref-outbound-{uuid.uuid4()}",
             event_id=record.event_id,
             adapter=record.adapter,
-            native_channel_id=record.native_channel_id,
+            native_channel_id=(
+                record.native_channel_id
+                if record.native_channel_id is not None
+                else validated_outbox.target_channel
+            ),
             native_message_id=record.native_message_id,
             native_thread_id=record.native_thread_id,
             native_relation_id=record.native_relation_id,

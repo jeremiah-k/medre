@@ -540,6 +540,7 @@ def test_terminal_finalization_command_validates_evidence_shape(
     ("case", "message"),
     [
         ("kind", "attempt evidence"),
+        ("missing_receipt_id", "attempt_receipt requires receipt_id"),
         ("status", "status='failed'"),
         ("lineage", "same delivery attempt as attempt_receipt"),
     ],
@@ -587,6 +588,9 @@ async def test_terminal_finalization_validates_attempt_receipt_linkage(
             outbox_id=lifecycle.outbox_id,
             attempt_number=1,
         )
+    elif case == "missing_receipt_id":
+        force_setattr(attempt, "receipt_id", "")
+        force_setattr(lifecycle, "parent_receipt_id", "")
     elif case == "status":
         attempt = build_delivery_receipt(
             receipt_id=lifecycle.parent_receipt_id or "rcpt-contract-parent",

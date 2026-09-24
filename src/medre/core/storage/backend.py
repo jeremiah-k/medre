@@ -611,6 +611,10 @@ class QueuedDeliveryFinalization:
             raise ValueError("native_ref.event_id must match receipt.event_id")
         if native_ref.adapter != receipt.target_adapter:
             raise ValueError("native_ref.adapter must match receipt.target_adapter")
+        if (native_ref.native_channel_id or None) != self.identity.target_channel:
+            raise ValueError(
+                "native_ref.native_channel_id must match receipt.target_channel"
+            )
         if native_ref.native_message_id != receipt.adapter_message_id:
             raise ValueError(
                 "native_ref.native_message_id must match receipt.adapter_message_id"
@@ -674,6 +678,8 @@ class TerminalOutboxFinalization:
             return
         if attempt.receipt_kind != "attempt":
             raise ValueError("attempt_receipt must be attempt evidence")
+        if not attempt.receipt_id:
+            raise ValueError("terminal attempt_receipt requires receipt_id")
         if attempt.status != "failed":
             raise ValueError("terminal attempt_receipt must have status='failed'")
         if (

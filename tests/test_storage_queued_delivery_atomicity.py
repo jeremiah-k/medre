@@ -106,6 +106,11 @@ def _sent_evidence(
         ({"event_id": "evt-other"}, {}, "event_id must match"),
         ({"adapter": "other"}, {}, "adapter must match"),
         (
+            {"native_channel_id": "1"},
+            {},
+            "native_channel_id must match",
+        ),
+        (
             {"native_message_id": "pkt-other"},
             {},
             "native_message_id must match",
@@ -158,6 +163,7 @@ async def test_finalize_queued_delivery_guards_full_outbox_identity(
         native_ref = msgspec.structs.replace(native_ref, adapter="mesh-other")
         sent = msgspec.structs.replace(sent, target_adapter="mesh-other")
     elif case == "channel":
+        native_ref = msgspec.structs.replace(native_ref, native_channel_id="1")
         sent = msgspec.structs.replace(sent, target_channel="1")
     elif case == "attempt":
         sent = msgspec.structs.replace(sent, attempt_number=2)

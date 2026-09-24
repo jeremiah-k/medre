@@ -33,6 +33,7 @@ __all__ = [
     "delivery_identity_sort_key",
     "group_outbox_by_identity",
     "group_receipts_by_identity",
+    "receipt_kind",
     "select_current_outbox",
     "select_current_receipt",
 ]
@@ -275,7 +276,8 @@ class ResolvedDeliverySnapshot(Generic[_T]):
     causative_receipt: _T | None
 
 
-def _receipt_kind(record: Any) -> str:
+def receipt_kind(record: Any) -> str:
+    """Return explicit receipt kind, inferring legacy mapping inputs by status."""
     kind = str(_get(record, "receipt_kind") or "")
     if kind in {"attempt", "lifecycle"}:
         return kind
@@ -287,7 +289,7 @@ def _receipt_kind(record: Any) -> str:
 
 
 def _latest_attempt(receipts: Iterable[_T]) -> _T | None:
-    attempts = [receipt for receipt in receipts if _receipt_kind(receipt) == "attempt"]
+    attempts = [receipt for receipt in receipts if receipt_kind(receipt) == "attempt"]
     if not attempts:
         return None
     return max(
@@ -305,7 +307,7 @@ def _causative_receipt(
 ) -> _T | None:
     if (
         authoritative_receipt is None
-        or _receipt_kind(authoritative_receipt) != "lifecycle"
+        or receipt_kind(authoritative_receipt) != "lifecycle"
     ):
         return None
     parent_id = str(_get(authoritative_receipt, "parent_receipt_id") or "")

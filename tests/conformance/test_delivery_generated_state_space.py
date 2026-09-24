@@ -426,6 +426,7 @@ async def test_terminalization_guard_truth_table_is_exhaustive(
             item.outbox_id
         )
         assert current is not None
+        current = replace(current)
         effective_attempt = current.active_attempt or current.attempt_number
         attempt_number = {
             "effective": effective_attempt,
@@ -554,6 +555,7 @@ async def test_queued_sent_finalization_fences_full_delivery_identity(
         item.outbox_id
     )
     assert before is not None
+    before = replace(before)
     list_receipts = generated_storage.list_receipts_for_event  # type: ignore[attr-defined]
     receipts_before = await list_receipts(item.event_id)
 

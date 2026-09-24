@@ -41,3 +41,12 @@
   receipt + outbox commit by the full delivery identity, not only outbox ID and
   attempt number, so internally coherent evidence for the wrong sibling target
   cannot finalize the row.
+
+- Review hardening makes the finalization evidence contract single-source in
+  the remaining edge cases: queued-to-sent native refs must agree with their
+  immutable receipt on normalized channel as well as event/adapter/message,
+  callbacks that omit channel materialize the validated outbox target channel,
+  and optional failed-attempt terminal evidence must carry a non-empty receipt
+  ID. Generated memory-backend rejection tests snapshot mutable outbox rows
+  before operations so in-place fake mutations cannot make negative assertions
+  vacuous. Receipt-kind classification is shared with the authority resolver.

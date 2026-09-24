@@ -32,6 +32,7 @@ from typing import Any, Iterable
 from medre.core.delivery_authority import (
     DeliveryAuthorityResolver,
     DeliveryIdentity,
+    receipt_kind,
 )
 from medre.core.engine.pipeline.delivery_state import (
     NON_TERMINAL_OUTBOX_STATUSES,
@@ -250,18 +251,6 @@ def _make_group_key(identity: DeliveryIdentity) -> str:
     )
 
 
-def _receipt_kind(receipt: dict[str, Any]) -> str:
-    """Return explicit kind, inferring legacy/dict inputs from status."""
-    kind = receipt.get("receipt_kind")
-    if kind in {"attempt", "lifecycle"}:
-        return str(kind)
-    return (
-        "attempt"
-        if receipt.get("status") in {"queued", "sent", "failed"}
-        else "lifecycle"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -424,7 +413,7 @@ def build_delivery_outcome_ledger(
         outbox = snapshot.current_outbox
         latest_attempt = snapshot.latest_attempt
 
-        authority_kind = _receipt_kind(authority) if authority is not None else None
+        authority_kind = receipt_kind(authority) if authority is not None else None
         lifecycle_status = str(
             (outbox or {}).get("status") or (authority or {}).get("status") or "unknown"
         )

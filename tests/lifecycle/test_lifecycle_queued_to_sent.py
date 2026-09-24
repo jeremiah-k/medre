@@ -173,6 +173,8 @@ class TestSameChannelRetryLineageRegression:
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-a2"
         assert sent[0].attempt_number == 2
+        assert await temp_storage.resolve_native_ref("m", "0", "pkt-a") == "evt-001"
+        assert await temp_storage.resolve_native_ref("m", None, "pkt-a") is None
 
     async def test_plan_id_no_channel_same_plan_multiple_channels_skip(
         self,

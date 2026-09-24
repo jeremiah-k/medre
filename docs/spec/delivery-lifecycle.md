@@ -171,9 +171,12 @@ Meshtastic radio, MeshCore, LXMF). They are not public API.
 After correlation succeeds, storage receives one validated
 `QueuedDeliveryFinalization` command. The sent receipt is the source of the
 event-scoped delivery identity, outbox ID, and attempt generation; the outbound
-native reference must name the same event/adapter/message. Storage MUST then
-re-check the full `(event, plan, adapter, channel, outbox, attempt)` identity and
-atomically commit three facts: the outbound native-message reference, the new
+native reference must name the same event/adapter/normalized-channel/message. If
+the callback omits its channel after exact outbox correlation, core fills that
+field from the validated outbox target before constructing the command. Storage
+MUST then re-check the full
+`(event, plan, adapter, channel, outbox, attempt)` identity and atomically commit
+three facts: the outbound native-message reference, the new
 immutable `sent` receipt, and the outbox transition to `sent`. If the guarded
 outbox row is no longer finalizable, or any insert fails, none of those writes
 may commit. The unavoidable external-send-to-database boundary remains an
