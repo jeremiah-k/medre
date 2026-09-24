@@ -196,8 +196,12 @@ async def _inject_scenario(
                 delivery_acquire_timeout_seconds=0.1,
             ),
         )
-        await small_cc._delivery_sem.acquire()
-        small_cc._delivery_current = 1
+        acquired = await small_cc.acquire_delivery()
+        if not acquired:
+            return "Could not reserve synthetic delivery capacity"
+        # Tag the exact controller/reservation owned by this synthetic
+        # scenario so cleanup can never release unrelated runtime work.
+        small_cc._run_session_synthetic_capacity_slot = True
         app._capacity_controller = small_cc
         pipeline.set_capacity_controller(small_cc)
 
@@ -244,6 +248,18 @@ async def _inject_scenario(
         await app.refresh_live_health()
 
     return None
+
+
+async def _cleanup_scenario(app: MedreApp, scenario: str) -> None:
+    """Release synthetic scenario-owned resources before runtime shutdown."""
+    if scenario != "capacity_rejection":
+        return
+    cc = app._capacity_controller
+    if cc is None or not getattr(cc, "_run_session_synthetic_capacity_slot", False):
+        return
+    if cc.delivery_current > 0:
+        await cc.release_delivery()
+    cc._run_session_synthetic_capacity_slot = False
 
 
 def _observed_failure_kind(

@@ -48,6 +48,7 @@ from .evidence import (
 )
 from .report import _LIMITATIONS, _build_cross_linked_commands
 from .scenario import (
+    _cleanup_scenario,
     _expected_failure_kind,
     _inject_scenario,
     _observed_failure_kind,
@@ -414,6 +415,13 @@ async def run_bridge_session(
         all_native_refs.extend(refs)
 
     # -- Step 6: Graceful shutdown ------------------------------------------
+    # Failure scenarios may own synthetic runtime resources used only to
+    # force a deterministic outcome. Release those before production drain
+    # accounting so shutdown does not wait on test-only work.
+    try:
+        await _cleanup_scenario(app, scenario)
+    except Exception as exc:
+        collection_errors.append(f"Scenario cleanup error: {exc}")
     try:
         await app.stop()
     except Exception as exc:

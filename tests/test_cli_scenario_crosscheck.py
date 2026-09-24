@@ -58,6 +58,69 @@ async def test_capacity_rejection_missing_pipeline_preserves_capacity_state() ->
     assert app._capacity_controller is original_capacity
 
 
+@pytest.mark.asyncio
+async def test_capacity_rejection_cleanup_releases_synthetic_slot() -> None:
+    """Synthetic capacity exhaustion must not leak into runtime shutdown drain."""
+    from types import SimpleNamespace
+
+    from medre.runtime.run_session.scenario import _cleanup_scenario, _inject_scenario
+
+    class _Pipeline:
+        def __init__(self) -> None:
+            self.capacity = None
+
+        def set_capacity_controller(self, controller) -> None:
+            self.capacity = controller
+
+    pipeline = _Pipeline()
+    app = SimpleNamespace(
+        _capacity_controller=object(),
+        pipeline_runner=pipeline,
+        adapters={},
+    )
+
+    error = await _inject_scenario(  # type: ignore[arg-type]
+        app,
+        "capacity_rejection",
+        "source",
+    )
+
+    assert error is None
+    assert app._capacity_controller.delivery_current == 1
+    assert pipeline.capacity is app._capacity_controller
+    assert app._capacity_controller._run_session_synthetic_capacity_slot is True
+
+    await _cleanup_scenario(app, "capacity_rejection")  # type: ignore[arg-type]
+
+    assert app._capacity_controller.delivery_current == 0
+    assert app._capacity_controller._run_session_synthetic_capacity_slot is False
+
+
+@pytest.mark.asyncio
+async def test_capacity_rejection_cleanup_does_not_release_unowned_capacity() -> None:
+    """Failed/partial scenario setup must not release real runtime work."""
+    from types import SimpleNamespace
+
+    from medre.config.model import RuntimeLimits
+    from medre.core.supervision.capacity import CapacityController
+    from medre.runtime.run_session.scenario import _cleanup_scenario
+
+    controller = CapacityController(
+        RuntimeLimits(
+            max_inflight_deliveries=1,
+            max_inflight_replay_events=1,
+            delivery_acquire_timeout_seconds=0.1,
+        )
+    )
+    assert await controller.acquire_delivery() is True
+    app = SimpleNamespace(_capacity_controller=controller)
+
+    await _cleanup_scenario(app, "capacity_rejection")  # type: ignore[arg-type]
+
+    assert controller.delivery_current == 1
+    await controller.release_delivery()
+
+
 def test_capacity_rejection_interpretation_matches_durable_evidence() -> None:
     """Operator guidance must describe the persisted suppression receipt."""
     from medre.runtime.run_session.scenario import _operator_interpretation
