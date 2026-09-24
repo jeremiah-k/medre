@@ -76,6 +76,10 @@ SET status = 'sent',
     receipt_id = ?,
     error_summary = NULL
 WHERE outbox_id = ?
+  AND event_id = ?
+  AND delivery_plan_id = ?
+  AND target_adapter = ?
+  AND target_channel IS ?
   AND ? = COALESCE(active_attempt, attempt_number)
   AND status IN ('queued', 'in_progress')
 """

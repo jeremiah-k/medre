@@ -830,11 +830,13 @@ The correlation algorithm in `finalize_queued_delivery`:
    `receipt.attempt_number == record.attempt_number`. The two-key match
    preserves the stale-safe invariant end-to-end. No plan-id-only or
    heuristic fallback exists.
-6. **Atomic finalization** — if all validations pass, storage re-checks
-   the exact outbox attempt and commits the outbound native ref, one
-   `sent` receipt, and the outbox `sent` transition in a single
-   transaction. A stale guard or persistence failure commits none of the
-   three.
+6. **Atomic finalization** — if all validations pass, the pipeline builds one
+   `QueuedDeliveryFinalization` command. Storage derives the event-scoped
+   identity, outbox ID, and attempt from its sent receipt, re-checks the full
+   `(event, plan, adapter, channel, outbox, attempt)` guard, and commits the
+   outbound native ref, one `sent` receipt, and the outbox `sent` transition in
+   a single transaction. A stale guard, identity mismatch, or persistence
+   failure commits none of the three.
 
 #### 8.5.2 Invariant: Exact Outbox Correlation
 

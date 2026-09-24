@@ -598,7 +598,6 @@ class OutboxManager:
                 TerminalOutboxFinalization(
                     lifecycle_receipt=receipt,
                     attempt_receipt=failed_attempt,
-                    error_summary=error_msg[:200] if error_msg else None,
                 )
             )
             if not committed:

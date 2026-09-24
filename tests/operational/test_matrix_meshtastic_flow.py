@@ -59,6 +59,7 @@ from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import (
     ConversationMembership,
     DeliveryOutboxItem,
+    QueuedDeliveryFinalization,
     StorageError,
     TerminalOutboxFinalization,
 )
@@ -385,15 +386,14 @@ class _FakeStorage:
 
     async def finalize_queued_delivery(
         self,
-        native_ref: NativeMessageRef,
-        receipt: DeliveryReceipt,
-        *,
-        outbox_id: str,
-        attempt_number: int,
+        command: QueuedDeliveryFinalization,
     ) -> bool:
         """In-memory mirror of the atomic storage contract: guarded outbox
         transition plus native ref plus sent receipt, or nothing."""
-        item = self._outbox.get(outbox_id)
+        native_ref = command.native_ref
+        receipt = command.receipt
+        identity_key = command.identity
+        item = self._outbox.get(command.outbox_id)
         if item is None:
             return False
         effective_attempt = (
@@ -403,12 +403,12 @@ class _FakeStorage:
         )
         if (
             item.status not in ("queued", "in_progress")
-            or effective_attempt != attempt_number
+            or effective_attempt != command.attempt_number
             or item.event_id != native_ref.event_id
-            or receipt.event_id != item.event_id
-            or receipt.outbox_id != outbox_id
-            or receipt.attempt_number != attempt_number
-            or receipt.status != "sent"
+            or item.event_id != identity_key.event_id
+            or item.delivery_plan_id != identity_key.delivery_plan_id
+            or item.target_adapter != identity_key.target_adapter
+            or (item.target_channel or None) != identity_key.target_channel
         ):
             return False
 
@@ -429,7 +429,7 @@ class _FakeStorage:
         await self.append_receipt(receipt)
         object.__setattr__(item, "status", "sent")
         object.__setattr__(item, "receipt_id", receipt.receipt_id)
-        object.__setattr__(item, "attempt_number", attempt_number)
+        object.__setattr__(item, "attempt_number", command.attempt_number)
         object.__setattr__(item, "active_attempt", None)
         object.__setattr__(item, "locked_at", None)
         object.__setattr__(item, "lease_until", None)
@@ -522,7 +522,7 @@ async def test_fake_storage_finalization_preserves_missing_native_channel_identi
 
     with pytest.raises(StorageError):
         await storage.finalize_queued_delivery(
-            native_ref, receipt, outbox_id="obox-conflict", attempt_number=1
+            QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
         )
 
     assert outbox.status == "queued"
@@ -566,7 +566,7 @@ async def test_fake_storage_finalization_rejects_mismatched_receipt_attempt() ->
     )
 
     committed = await storage.finalize_queued_delivery(
-        native_ref, receipt, outbox_id="obox-attempt", attempt_number=1
+        QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
     )
 
     assert committed is False

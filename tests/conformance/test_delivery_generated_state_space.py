@@ -16,8 +16,12 @@ from typing import Literal
 import pytest
 
 from medre.core.engine.pipeline.delivery_state import OUTBOX_STATUSES
-from medre.core.events import DeliveryReceipt
-from medre.core.storage.backend import DeliveryOutboxItem, TerminalOutboxFinalization
+from medre.core.events import DeliveryReceipt, NativeMessageRef
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    QueuedDeliveryFinalization,
+    TerminalOutboxFinalization,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.conformance.test_delivery_lifecycle_conformance import _MemoryStorage
 from tests.helpers.storage_outbox import admit_event
@@ -478,3 +482,87 @@ async def test_terminalization_guard_truth_table_is_exhaustive(
         else:
             assert after == current
             assert after_receipts == before_receipts
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    ("outbox", "event", "plan", "adapter", "channel", "attempt"),
+)
+async def test_queued_sent_finalization_fences_full_delivery_identity(
+    generated_storage: object,
+    mismatch: str,
+) -> None:
+    """Both backends reject coherent sent evidence for a sibling identity."""
+    item = _new_item(
+        outbox_id=f"obox-queued-fence-{mismatch}",
+        event_id=f"evt-queued-fence-{mismatch}",
+    )
+    await _admit(generated_storage, item)
+    assert await generated_storage.mark_outbox_queued(  # type: ignore[attr-defined]
+        item.outbox_id,
+        attempt_number=1,
+        expected_worker_id="worker-a",
+    )
+
+    event_id = item.event_id
+    plan_id = item.delivery_plan_id
+    adapter = item.target_adapter
+    channel = item.target_channel
+    outbox_id = item.outbox_id
+    attempt_number = 1
+    if mismatch == "outbox":
+        outbox_id = f"{item.outbox_id}-other"
+    elif mismatch == "event":
+        event_id = f"{item.event_id}-other"
+    elif mismatch == "plan":
+        plan_id = f"{item.delivery_plan_id}-other"
+    elif mismatch == "adapter":
+        adapter = f"{item.target_adapter}-other"
+    elif mismatch == "channel":
+        channel = f"{item.target_channel}-other"
+    elif mismatch == "attempt":
+        attempt_number = 2
+
+    native_message_id = f"native-queued-fence-{mismatch}"
+    native_ref = NativeMessageRef(
+        id=f"nref-queued-fence-{mismatch}",
+        event_id=event_id,
+        adapter=adapter,
+        native_channel_id=channel,
+        native_message_id=native_message_id,
+        native_thread_id=None,
+        native_relation_id=None,
+        direction="outbound",
+    )
+    receipt = DeliveryReceipt(
+        receipt_id=f"rcpt-queued-fence-{mismatch}",
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter=adapter,
+        target_channel=channel,
+        route_id=item.route_id,
+        status="sent",
+        receipt_kind="attempt",
+        adapter_message_id=native_message_id,
+        outbox_id=outbox_id,
+        attempt_number=attempt_number,
+    )
+    before = await generated_storage.get_outbox_item(  # type: ignore[attr-defined]
+        item.outbox_id
+    )
+    assert before is not None
+    list_receipts = generated_storage.list_receipts_for_event  # type: ignore[attr-defined]
+    receipts_before = await list_receipts(item.event_id)
+
+    finalize_queued = generated_storage.finalize_queued_delivery  # type: ignore[attr-defined]
+    committed = await finalize_queued(
+        QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
+    )
+
+    assert committed is False
+    after = await generated_storage.get_outbox_item(  # type: ignore[attr-defined]
+        item.outbox_id
+    )
+    assert after == before
+    receipts_after = await list_receipts(item.event_id)
+    assert receipts_after == receipts_before

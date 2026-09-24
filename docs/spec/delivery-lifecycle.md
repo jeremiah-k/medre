@@ -168,7 +168,11 @@ The correlation strategy for `finalize_queued_delivery` is exact only:
 MUST NOT appear in rendered payloads sent to external platforms (Matrix,
 Meshtastic radio, MeshCore, LXMF). They are not public API.
 
-After correlation succeeds, storage MUST re-check the exact outbox attempt and
+After correlation succeeds, storage receives one validated
+`QueuedDeliveryFinalization` command. The sent receipt is the source of the
+event-scoped delivery identity, outbox ID, and attempt generation; the outbound
+native reference must name the same event/adapter/message. Storage MUST then
+re-check the full `(event, plan, adapter, channel, outbox, attempt)` identity and
 atomically commit three facts: the outbound native-message reference, the new
 immutable `sent` receipt, and the outbox transition to `sent`. If the guarded
 outbox row is no longer finalizable, or any insert fails, none of those writes
@@ -297,10 +301,10 @@ those writes.
 That transaction crosses the storage boundary as one validated
 `TerminalOutboxFinalization` command. The lifecycle receipt carries the exact
 delivery identity and generation being terminalized; status, identity, attempt,
-and failure kind are derived from it rather than repeated as independently
-mutable storage arguments. This keeps orchestration evidence and storage
-authority structurally incapable of disagreeing before the compare-and-set
-guard is evaluated.
+failure kind, and the bounded mutable outbox error summary are derived from it
+rather than repeated as independently mutable storage arguments. This keeps
+orchestration evidence and storage authority structurally incapable of
+disagreeing before the compare-and-set guard is evaluated.
 
 Adapters MUST NOT directly mutate outbox state. They report facts; the
 pipeline decides lifecycle transitions.

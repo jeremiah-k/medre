@@ -6,8 +6,11 @@ import sqlite3
 import threading
 from typing import TYPE_CHECKING, Any
 
-from medre.core.events import DeliveryReceipt, NativeMessageRef
-from medre.core.storage.backend import StorageError, TerminalOutboxFinalization
+from medre.core.storage.backend import (
+    QueuedDeliveryFinalization,
+    StorageError,
+    TerminalOutboxFinalization,
+)
 from medre.core.storage.sqlite._native_ref import (
     _native_ref_identity,
     _native_ref_insert_params,
@@ -28,41 +31,9 @@ class _DeliveryFinalizationMixin:
 
         async def _run_in_thread(self, func: Any, *args: Any, **kwargs: Any) -> Any: ...
 
-    @staticmethod
-    def _validate_queued_delivery_finalization(
-        native_ref: NativeMessageRef,
-        receipt: DeliveryReceipt,
-        outbox_id: str,
-        attempt_number: int,
-    ) -> None:
-        if native_ref.direction != "outbound":
-            raise ValueError(
-                "queued delivery finalization requires an outbound native ref"
-            )
-        if receipt.status != "sent":
-            raise ValueError("queued delivery finalization requires a sent receipt")
-        if native_ref.event_id != receipt.event_id:
-            raise ValueError("native_ref.event_id must match receipt.event_id")
-        if native_ref.adapter != receipt.target_adapter:
-            raise ValueError("native_ref.adapter must match receipt.target_adapter")
-        if native_ref.native_message_id != receipt.adapter_message_id:
-            raise ValueError(
-                "native_ref.native_message_id must match receipt.adapter_message_id"
-            )
-        if receipt.outbox_id != outbox_id:
-            raise ValueError("receipt.outbox_id must match outbox_id")
-        if receipt.attempt_number != attempt_number:
-            raise ValueError("receipt.attempt_number must match attempt_number")
-        if attempt_number < 1:
-            raise ValueError("attempt_number must be >= 1")
-
     async def finalize_queued_delivery(
         self,
-        native_ref: NativeMessageRef,
-        receipt: DeliveryReceipt,
-        *,
-        outbox_id: str,
-        attempt_number: int,
+        command: QueuedDeliveryFinalization,
     ) -> bool:
         """Atomically persist queue-send evidence and mark its outbox sent.
 
@@ -72,9 +43,9 @@ class _DeliveryFinalizationMixin:
         ``in_progress`` state.  A native identity already mapped to another
         canonical event is a storage-integrity error.
         """
-        self._validate_queued_delivery_finalization(
-            native_ref, receipt, outbox_id, attempt_number
-        )
+        native_ref = command.native_ref
+        receipt = command.receipt
+        identity = command.identity
         receipt_params = _receipt_insert_params(receipt)
         native_identity = _native_ref_identity(native_ref)
         native_params = _native_ref_insert_params(native_ref)
@@ -83,8 +54,12 @@ class _DeliveryFinalizationMixin:
             transition_time,
             transition_time,
             receipt.receipt_id,
-            outbox_id,
-            attempt_number,
+            command.outbox_id,
+            identity.event_id,
+            identity.delivery_plan_id,
+            identity.target_adapter,
+            identity.target_channel,
+            command.attempt_number,
         )
 
         db = self._require_db()

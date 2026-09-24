@@ -230,14 +230,15 @@ class StorageBackend(Protocol):
         ...
 
     async def finalize_queued_delivery(
-        self, native_ref: NativeMessageRef, receipt: DeliveryReceipt, *,
-        outbox_id: str, attempt_number: int,
+        self, command: QueuedDeliveryFinalization,
     ) -> bool:
         """Atomically finalize one queue-backed delivery attempt.
 
-        The outbound native ref, immutable sent receipt, and exact outbox
-        transition to sent MUST commit in one transaction.  If the outbox
-        guard no longer matches, return False and commit none of those writes.
+        The command carries the outbound native ref and immutable sent receipt;
+        identity, outbox_id, and attempt generation are derived from the
+        receipt rather than repeated as mutable scalars. The exact full-identity
+        outbox transition to sent MUST commit in one transaction. If the guard
+        no longer matches, return False and commit none of those writes.
         """
         ...
 

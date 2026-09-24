@@ -308,7 +308,6 @@ async def test_terminal_finalization_is_atomic_and_same_attempt(
         TerminalOutboxFinalization(
             lifecycle_receipt=terminal,
             attempt_receipt=attempt,
-            error_summary="transport failed",
         )
     )
     assert committed

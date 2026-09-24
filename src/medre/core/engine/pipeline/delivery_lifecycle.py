@@ -106,7 +106,11 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
     RetryPolicy,
 )
-from medre.core.storage.backend import DeliveryOutboxItem, TerminalOutboxFinalization
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    QueuedDeliveryFinalization,
+    TerminalOutboxFinalization,
+)
 
 # ---------------------------------------------------------------------------
 # Logger
@@ -159,11 +163,7 @@ class DeliveryLifecycleStorage(Protocol):
 
     async def finalize_queued_delivery(
         self,
-        native_ref: NativeMessageRef,
-        receipt: DeliveryReceipt,
-        *,
-        outbox_id: str,
-        attempt_number: int,
+        command: QueuedDeliveryFinalization,
     ) -> bool: ...
 
     async def finalize_outbox_terminal(
@@ -1328,10 +1328,10 @@ class DeliveryLifecycleService:
             created_at=now,
         )
         committed = await storage.finalize_queued_delivery(
-            native_ref,
-            supplemental,
-            outbox_id=validated_outbox.outbox_id,
-            attempt_number=supplemental.attempt_number,
+            QueuedDeliveryFinalization(
+                native_ref=native_ref,
+                receipt=supplemental,
+            )
         )
         if not committed:
             self._log.warning(
@@ -1639,7 +1639,6 @@ class DeliveryLifecycleService:
                 committed = await storage.finalize_outbox_terminal(
                     TerminalOutboxFinalization(
                         lifecycle_receipt=lifecycle_receipt,
-                        error_summary=error_summary,
                         expected_worker_id=item.worker_id,
                     )
                 )
@@ -2182,7 +2181,6 @@ class DeliveryLifecycleService:
                 committed = await storage.finalize_outbox_terminal(
                     TerminalOutboxFinalization(
                         lifecycle_receipt=authority,
-                        error_summary=error_summary,
                         expected_worker_id=expected_worker_id,
                     )
                 )

@@ -575,6 +575,65 @@ class DeliveryOutboxItem:
 
 
 @dataclass(frozen=True, slots=True)
+class QueuedDeliveryFinalization:
+    """Validated command for one atomic queued-to-sent commit.
+
+    The sent receipt is the source of truth for delivery identity, outbox
+    generation, and adapter message identity. The native reference supplies
+    the durable transport lookup for that same message. Callers therefore do
+    not repeat ``outbox_id`` or ``attempt_number`` as independent scalars that
+    can disagree with the evidence being committed.
+    """
+
+    native_ref: NativeMessageRef
+    receipt: DeliveryReceipt
+
+    def __post_init__(self) -> None:
+        receipt = self.receipt
+        native_ref = self.native_ref
+        if native_ref.direction != "outbound":
+            raise ValueError(
+                "queued delivery finalization requires an outbound native ref"
+            )
+        if receipt.receipt_kind != "attempt" or receipt.status != "sent":
+            raise ValueError(
+                "queued delivery finalization requires sent attempt evidence"
+            )
+        if not receipt.receipt_id:
+            raise ValueError("queued sent receipt requires receipt_id")
+        if not receipt.outbox_id:
+            raise ValueError("queued sent receipt requires outbox_id")
+        if not delivery_identity(receipt).complete:
+            raise ValueError("queued sent receipt requires complete delivery identity")
+        if receipt.attempt_number < 1:
+            raise ValueError("queued sent receipt attempt_number must be >= 1")
+        if native_ref.event_id != receipt.event_id:
+            raise ValueError("native_ref.event_id must match receipt.event_id")
+        if native_ref.adapter != receipt.target_adapter:
+            raise ValueError("native_ref.adapter must match receipt.target_adapter")
+        if native_ref.native_message_id != receipt.adapter_message_id:
+            raise ValueError(
+                "native_ref.native_message_id must match receipt.adapter_message_id"
+            )
+
+    @property
+    def identity(self) -> DeliveryIdentity:
+        """Full event-scoped identity derived from sent evidence."""
+        return delivery_identity(self.receipt)
+
+    @property
+    def outbox_id(self) -> str:
+        """Outbox row guarded by this command."""
+        assert self.receipt.outbox_id is not None
+        return self.receipt.outbox_id
+
+    @property
+    def attempt_number(self) -> int:
+        """Exact outbox generation guarded by this command."""
+        return self.receipt.attempt_number
+
+
+@dataclass(frozen=True, slots=True)
 class TerminalOutboxFinalization:
     """Validated command for one atomic terminal outbox commit.
 
@@ -588,7 +647,6 @@ class TerminalOutboxFinalization:
 
     lifecycle_receipt: DeliveryReceipt
     attempt_receipt: DeliveryReceipt | None = None
-    error_summary: str | None = None
     expected_worker_id: str | None = None
 
     def __post_init__(self) -> None:
@@ -602,6 +660,8 @@ class TerminalOutboxFinalization:
             )
         if not receipt.outbox_id:
             raise ValueError("terminal lifecycle receipt requires outbox_id")
+        if not receipt.receipt_id:
+            raise ValueError("terminal lifecycle receipt requires receipt_id")
         if not delivery_identity(receipt).complete:
             raise ValueError("terminal lifecycle receipt requires complete delivery identity")
         if receipt.attempt_number < 1:
@@ -650,6 +710,12 @@ class TerminalOutboxFinalization:
     def failure_kind(self) -> str | None:
         """Failure classification derived from lifecycle evidence."""
         return self.lifecycle_receipt.failure_kind
+
+    @property
+    def error_summary(self) -> str | None:
+        """Mutable outbox summary derived from immutable lifecycle evidence."""
+        error = self.lifecycle_receipt.error
+        return error[:512] if error else None
 
 
 # ---------------------------------------------------------------------------
@@ -1030,17 +1096,13 @@ class StorageBackend(Protocol):
 
     async def finalize_queued_delivery(
         self,
-        native_ref: NativeMessageRef,
-        receipt: DeliveryReceipt,
-        *,
-        outbox_id: str,
-        attempt_number: int,
+        command: QueuedDeliveryFinalization,
     ) -> bool:
         """Atomically finalize one queue-backed delivery attempt.
 
         Implementations MUST commit the outbound native ref, sent receipt, and
-        exact outbox ``queued|in_progress -> sent`` transition in one
-        transaction.  Return ``False`` when the guarded outbox attempt is no
+        exact full-identity outbox ``queued|in_progress -> sent`` transition in
+        one transaction. Return ``False`` when the guarded outbox attempt is no
         longer finalizable; in that case none of the three writes may commit.
         """
         ...

@@ -33,6 +33,7 @@ from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.events import NativeMessageRef
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
+    QueuedDeliveryFinalization,
     StorageError,
     TerminalOutboxFinalization,
 )
@@ -320,10 +321,7 @@ async def test_storage_guard_rejects_stale_attempt_number(
         attempt_number=1,
     )
     committed = await temp_storage.finalize_outbox_terminal(
-        TerminalOutboxFinalization(
-            lifecycle_receipt=stale_receipt,
-            error_summary="stale attempt",
-        )
+        TerminalOutboxFinalization(lifecycle_receipt=stale_receipt)
     )
     assert committed is False
 
@@ -386,10 +384,7 @@ async def test_duplicate_receipt_id_rolls_back_transition(
     )
     with pytest.raises(StorageError):
         await temp_storage.finalize_outbox_terminal(
-            TerminalOutboxFinalization(
-                lifecycle_receipt=colliding_receipt,
-                error_summary="collide",
-            )
+            TerminalOutboxFinalization(lifecycle_receipt=colliding_receipt)
         )
 
     # Rollback proof: the transition did not survive the failed insert.
@@ -490,6 +485,7 @@ async def test_duplicate_exhausted_notifications_commit_once(
         ("receipt_kind", "lifecycle evidence"),
         ("nonterminal_status", "error-terminal lifecycle status"),
         ("missing_outbox", "requires outbox_id"),
+        ("missing_receipt_id", "requires receipt_id"),
         ("incomplete_identity", "complete delivery identity"),
         ("nonpositive_attempt", "attempt_number must be >= 1"),
     ],
@@ -527,6 +523,8 @@ def test_terminal_finalization_command_validates_evidence_shape(
         force_setattr(receipt, "status", "sent")
     elif case == "missing_outbox":
         force_setattr(receipt, "outbox_id", None)
+    elif case == "missing_receipt_id":
+        force_setattr(receipt, "receipt_id", "")
     elif case == "incomplete_identity":
         force_setattr(receipt, "target_adapter", "")
     elif case == "nonpositive_attempt":
@@ -691,16 +689,38 @@ async def test_terminal_finalization_preserves_storage_error(
         )
 
 
+def test_terminal_finalization_derives_error_summary_from_lifecycle_receipt() -> None:
+    """Mutable outbox error text cannot diverge from immutable evidence."""
+    error = "x" * 600
+    receipt = build_delivery_receipt(
+        receipt_id="rcpt-terminal-summary",
+        event_id="evt-terminal-summary",
+        delivery_plan_id="plan-terminal-summary",
+        target_adapter="mesh-1",
+        target_channel="0",
+        route_id="route-1",
+        status="dead_lettered",
+        receipt_kind="lifecycle",
+        error=error,
+        failure_kind="adapter_transient",
+        outbox_id="obox-terminal-summary",
+        attempt_number=1,
+    )
+
+    command = TerminalOutboxFinalization(lifecycle_receipt=receipt)
+
+    assert command.error_summary == error[:512]
+
+
 @pytest.mark.parametrize(
     ("case", "message"),
     [
         ("direction", "outbound native ref"),
-        ("status", "sent receipt"),
+        ("status", "sent attempt evidence"),
         ("event", "native_ref.event_id must match"),
         ("adapter", "native_ref.adapter must match"),
         ("message_id", "native_ref.native_message_id must match"),
-        ("outbox", "receipt.outbox_id must match"),
-        ("attempt", "receipt.attempt_number must match"),
+        ("outbox", "requires outbox_id"),
         ("nonpositive_attempt", "attempt_number must be >= 1"),
     ],
 )
@@ -732,9 +752,6 @@ async def test_queued_finalization_validates_native_and_attempt_identity(
         outbox_id="obox-queued-contract",
         attempt_number=1,
     )
-    outbox_id = "obox-queued-contract"
-    attempt_number = 1
-
     if case == "direction":
         ref_kwargs["direction"] = "inbound"
     elif case == "status":
@@ -757,20 +774,14 @@ async def test_queued_finalization_validates_native_and_attempt_identity(
     elif case == "message_id":
         ref_kwargs["native_message_id"] = "native-other"
     elif case == "outbox":
-        outbox_id = "obox-other"
-    elif case == "attempt":
-        attempt_number = 2
+        force_setattr(receipt, "outbox_id", None)
     elif case == "nonpositive_attempt":
         force_setattr(receipt, "attempt_number", 0)
-        attempt_number = 0
 
     native_ref = NativeMessageRef(**ref_kwargs)
     with pytest.raises(ValueError, match=message):
         await temp_storage.finalize_queued_delivery(
-            native_ref,
-            receipt,
-            outbox_id=outbox_id,
-            attempt_number=attempt_number,
+            QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
         )
 
 
@@ -831,10 +842,7 @@ async def test_queued_finalization_rejects_conflicting_native_identity_atomicall
         match="Native identity already maps to a different canonical event",
     ):
         await temp_storage.finalize_queued_delivery(
-            candidate_ref,
-            receipt,
-            outbox_id=item.outbox_id,
-            attempt_number=1,
+            QueuedDeliveryFinalization(native_ref=candidate_ref, receipt=receipt)
         )
 
     row = await temp_storage.get_outbox_item(item.outbox_id)
@@ -886,8 +894,5 @@ async def test_queued_finalization_wraps_raw_sqlite_error(
 
     with pytest.raises(StorageError, match="Queued delivery finalization failed"):
         await temp_storage.finalize_queued_delivery(
-            native_ref,
-            receipt,
-            outbox_id=receipt.outbox_id or "",
-            attempt_number=1,
+            QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
         )

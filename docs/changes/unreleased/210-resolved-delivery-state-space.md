@@ -26,5 +26,12 @@
   of being silently accepted.
 - Replace the scalar-heavy terminal outbox storage call with a validated
   `TerminalOutboxFinalization` command. Lifecycle evidence is now the single
-  source of identity, generation, terminal status, and failure classification;
-  optional failed-attempt evidence is lineage-checked before storage is called.
+  source of identity, generation, terminal status, failure classification, and
+  mutable outbox error summary; optional failed-attempt evidence is
+  lineage-checked before storage is called.
+- Apply the same command-shape rule to queued-to-sent finalization with
+  `QueuedDeliveryFinalization`. SQLite now fences that atomic native-ref + sent
+  receipt + outbox commit by the full delivery identity, not only outbox ID and
+  attempt number, so internally coherent evidence for the wrong sibling target
+  cannot finalize the row.
+
