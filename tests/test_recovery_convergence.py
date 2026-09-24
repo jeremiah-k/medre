@@ -566,9 +566,7 @@ class TestReclaimedThenTerminal:
             recovery_run_id="run-old-terminal",
             startup_timestamp=None,
             actions=(
-                _make_action(
-                    outbox_id="ob-old-terminal", ownership_action="reclaimed"
-                ),
+                _make_action(outbox_id="ob-old-terminal", ownership_action="reclaimed"),
             ),
             generated_at="2026-05-31T12:00:00+00:00",
         )

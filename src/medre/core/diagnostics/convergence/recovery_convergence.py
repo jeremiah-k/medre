@@ -98,9 +98,7 @@ def build_recovery_convergence_findings(
         receipt = receipts_by_id.get(str(_get(item, "receipt_id", "")))
         if receipt is None:
             return None
-        if str(_get(receipt, "outbox_id", "")) != str(
-            _get(item, "outbox_id", "")
-        ):
+        if str(_get(receipt, "outbox_id", "")) != str(_get(item, "outbox_id", "")):
             return None
         generation = int(
             _get(item, "active_attempt") or _get(item, "attempt_number") or 1
