@@ -264,10 +264,11 @@ async def _collect_storage_data_from_backend(
                 }
 
                 delivery_state_by_target: dict[str, dict[str, object]] = {}
-                for identity in authority.ordered_identities():
-                    current = authority.current(identity)
+                for snapshot in authority.ordered_snapshots():
+                    current = snapshot.authoritative_receipt
                     if current is None:
                         continue
+                    identity = snapshot.identity
                     receipt_id = str(getattr(current, "receipt_id", "") or "")
                     best = enriched_by_receipt_id.get(receipt_id)
                     if best is None:

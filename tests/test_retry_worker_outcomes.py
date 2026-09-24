@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from medre.config.paths import MedrePaths, resolve
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.app import MedreApp
@@ -735,7 +736,7 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     storage = MagicMock()
     storage.get = AsyncMock(return_value=object())
     storage.delivery_status = AsyncMock(return_value=None)
-    storage.list_receipts_for_plan = AsyncMock(return_value=[])
+    storage.list_receipts_for_delivery = AsyncMock(return_value=[])
     storage.reserve_outbox_attempt = AsyncMock(return_value=2)
     storage.renew_outbox_lease = AsyncMock(return_value=True)
     storage.mark_outbox_abandoned = AsyncMock(return_value=True)
@@ -773,10 +774,12 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     await worker._retry_outbox_item(item)
 
     storage.delivery_status.assert_awaited_once_with(
-        item.delivery_plan_id,
-        item.target_adapter,
-        item.target_channel,
-        event_id=item.event_id,
+        DeliveryIdentity(
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel,
+        )
     )
     assert worker.state.processed == 1
     assert worker.state.succeeded == 0

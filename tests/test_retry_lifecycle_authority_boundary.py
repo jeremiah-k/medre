@@ -95,10 +95,10 @@ def test_retry_failure_evidence_queries_live_in_lifecycle_authority() -> None:
 
     assert "_check_dead_lettered" not in retry_source
     assert "self._storage.list_receipts_for_event" not in retry_source
-    assert "self._storage.list_receipts_for_plan" not in retry_source
+    assert "self._storage.list_receipts_for_delivery" not in retry_source
     assert "finalize_retry_attempt_error" in lifecycle_source
     assert "reconcile_retry_claim" in lifecycle_source
-    assert "storage.list_receipts_for_plan" in lifecycle_source
+    assert "storage.list_receipts_for_delivery" in lifecycle_source
 
 
 def test_retry_worker_retains_operational_orchestration_authority() -> None:

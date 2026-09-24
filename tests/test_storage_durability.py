@@ -25,6 +25,7 @@ from typing import Literal, cast
 
 import pytest
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.replay.engine import ReplayEngine
 from medre.core.engine.replay.types import ReplayMode, ReplayRequest
 from medre.core.events import (
@@ -190,7 +191,7 @@ class TestRepeatedOpenCloseLifecycle:
                 )
             )
             status = await s2.delivery_status(
-                "plan-1", "adapter_x", event_id="evt-rcpt-1"
+                DeliveryIdentity("evt-rcpt-1", "plan-1", "adapter_x", None)
             )
             assert status is not None
             assert status.receipt_id == "rcpt-2"

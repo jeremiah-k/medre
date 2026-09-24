@@ -33,6 +33,7 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
 )
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleStorage
 from medre.core.engine.pipeline.runner import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
@@ -58,7 +59,9 @@ from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import (
     ConversationMembership,
     DeliveryOutboxItem,
+    QueuedDeliveryFinalization,
     StorageError,
+    TerminalOutboxFinalization,
 )
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 from tests.helpers.storage_outbox import (
@@ -165,19 +168,17 @@ class _FakeStorage:
     async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
         return [r for r in self._receipts if r.event_id == event_id]
 
-    async def list_receipts_for_plan(
+    async def list_receipts_for_delivery(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
         return [
             receipt
             for receipt in self._receipts
-            if receipt.delivery_plan_id == delivery_plan_id
-            and receipt.target_adapter == target_adapter
-            and receipt.event_id == event_id
+            if receipt.event_id == identity.event_id
+            and receipt.delivery_plan_id == identity.delivery_plan_id
+            and receipt.target_adapter == identity.target_adapter
+            and (receipt.target_channel or None) == identity.target_channel
         ]
 
     async def query_receipts(self, **kwargs: Any) -> list[DeliveryReceipt]:
@@ -375,48 +376,24 @@ class _FakeStorage:
 
     async def finalize_outbox_terminal(
         self,
-        receipt: DeliveryReceipt,
-        *,
-        attempt_receipt: DeliveryReceipt | None = None,
-        outbox_id: str,
-        attempt_number: int,
-        terminal_status: str,
-        event_id: str,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None,
-        failure_kind: str | None = None,
-        error_summary: str | None = None,
-        expected_worker_id: str | None = None,
+        command: TerminalOutboxFinalization,
     ) -> bool:
         return apply_guarded_outbox_terminal(
-            self._outbox.get(outbox_id),
+            self._outbox.get(command.outbox_id),
             self._receipts,
-            receipt,
-            attempt_receipt=attempt_receipt,
-            outbox_id=outbox_id,
-            attempt_number=attempt_number,
-            terminal_status=terminal_status,
-            event_id=event_id,
-            delivery_plan_id=delivery_plan_id,
-            target_adapter=target_adapter,
-            target_channel=target_channel,
-            failure_kind=failure_kind,
-            error_summary=error_summary,
-            expected_worker_id=expected_worker_id,
+            command,
         )
 
     async def finalize_queued_delivery(
         self,
-        native_ref: NativeMessageRef,
-        receipt: DeliveryReceipt,
-        *,
-        outbox_id: str,
-        attempt_number: int,
+        command: QueuedDeliveryFinalization,
     ) -> bool:
         """In-memory mirror of the atomic storage contract: guarded outbox
         transition plus native ref plus sent receipt, or nothing."""
-        item = self._outbox.get(outbox_id)
+        native_ref = command.native_ref
+        receipt = command.receipt
+        identity_key = command.identity
+        item = self._outbox.get(command.outbox_id)
         if item is None:
             return False
         effective_attempt = (
@@ -426,12 +403,12 @@ class _FakeStorage:
         )
         if (
             item.status not in ("queued", "in_progress")
-            or effective_attempt != attempt_number
+            or effective_attempt != command.attempt_number
             or item.event_id != native_ref.event_id
-            or receipt.event_id != item.event_id
-            or receipt.outbox_id != outbox_id
-            or receipt.attempt_number != attempt_number
-            or receipt.status != "sent"
+            or item.event_id != identity_key.event_id
+            or item.delivery_plan_id != identity_key.delivery_plan_id
+            or item.target_adapter != identity_key.target_adapter
+            or (item.target_channel or None) != identity_key.target_channel
         ):
             return False
 
@@ -452,7 +429,7 @@ class _FakeStorage:
         await self.append_receipt(receipt)
         object.__setattr__(item, "status", "sent")
         object.__setattr__(item, "receipt_id", receipt.receipt_id)
-        object.__setattr__(item, "attempt_number", attempt_number)
+        object.__setattr__(item, "attempt_number", command.attempt_number)
         object.__setattr__(item, "active_attempt", None)
         object.__setattr__(item, "locked_at", None)
         object.__setattr__(item, "lease_until", None)
@@ -545,7 +522,7 @@ async def test_fake_storage_finalization_preserves_missing_native_channel_identi
 
     with pytest.raises(StorageError):
         await storage.finalize_queued_delivery(
-            native_ref, receipt, outbox_id="obox-conflict", attempt_number=1
+            QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
         )
 
     assert outbox.status == "queued"
@@ -589,7 +566,7 @@ async def test_fake_storage_finalization_rejects_mismatched_receipt_attempt() ->
     )
 
     committed = await storage.finalize_queued_delivery(
-        native_ref, receipt, outbox_id="obox-attempt", attempt_number=1
+        QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
     )
 
     assert committed is False

@@ -110,7 +110,7 @@ def test_delivery_coordinator_does_not_write_storage_state_directly() -> None:
         ):
             storage_calls.add(node.func.attr)
 
-    assert storage_calls == {"list_receipts_for_event"}
+    assert storage_calls == {"list_receipts_for_delivery"}
 
 
 def test_capacity_release_is_outermost_owned_delivery_cleanup() -> None:
@@ -147,6 +147,25 @@ def test_preflight_order_is_explicit_and_stable() -> None:
         "_policy_outcome",
         "_capability_outcome",
         "_plan_skip_outcome",
+    ]
+
+
+def test_incomplete_identity_gate_precedes_lifecycle_entry() -> None:
+    """Adapterless targets are suppressed before replay reads or outbox work."""
+    tree = ast.parse(_COORDINATOR.read_text(encoding="utf-8"))
+    scoped = _function(tree, "_deliver_one_scoped")
+    awaited_checks = sorted(
+        (
+            (call.lineno, call.value.func.attr)
+            for call in ast.walk(scoped)
+            if isinstance(call, ast.Await)
+            and isinstance(call.value, ast.Call)
+            and isinstance(call.value.func, ast.Attribute)
+        )
+    )
+    assert [name for _, name in awaited_checks[:2]] == [
+        "_incomplete_identity_outcome",
+        "_load_replay_receipts",
     ]
 
 

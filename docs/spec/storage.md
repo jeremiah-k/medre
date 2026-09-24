@@ -230,38 +230,39 @@ class StorageBackend(Protocol):
         ...
 
     async def finalize_queued_delivery(
-        self, native_ref: NativeMessageRef, receipt: DeliveryReceipt, *,
-        outbox_id: str, attempt_number: int,
+        self, command: QueuedDeliveryFinalization,
     ) -> bool:
         """Atomically finalize one queue-backed delivery attempt.
 
-        The outbound native ref, immutable sent receipt, and exact outbox
-        transition to sent MUST commit in one transaction.  If the outbox
-        guard no longer matches, return False and commit none of those writes.
+        The command carries the outbound native ref and immutable sent receipt;
+        identity, outbox_id, and attempt generation are derived from the
+        receipt rather than repeated as mutable scalars. The native ref MUST
+        agree with that receipt on event, adapter, normalized channel, and
+        adapter message ID. The exact full-identity outbox transition to sent
+        MUST commit in one transaction. If the guard no longer matches, return
+        False and commit none of those writes.
         """
         ...
 
     async def delivery_status(
-        self, delivery_plan_id: str, target_adapter: str,
-        target_channel: str | None = None, *, event_id: str,
+        self, identity: DeliveryIdentity,
     ) -> DeliveryReceipt | None:
-        """Return the current receipt for a delivery target.
+        """Return current authority for one complete delivery identity.
 
         Outbox-backed delivery uses the outbox row's committed receipt_id;
         rejected late receipts remain historical. Outbox-less delivery uses
-        durable append order. When target_channel is None, only NULL-channel
-        receipts are considered. ``event_id`` is mandatory because plan IDs
-        are not globally unique.
+        durable append order. The typed identity carries event, plan, adapter,
+        and normalized channel scope as one indivisible lifecycle key.
         """
         ...
 
-    async def list_receipts_for_plan(
-        self, delivery_plan_id: str, target_adapter: str, *,
-        event_id: str,
+    async def list_receipts_for_delivery(
+        self, identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
-        """Return one event's plan / adapter receipts in attempt order.
+        """Return one complete delivery identity's receipts in attempt order.
 
-        ``event_id`` is mandatory because plan IDs are not globally unique.
+        The full event/plan/adapter/channel identity is required so historical
+        reads cannot merge sibling channels or unrelated canonical events.
         """
         ...
 
@@ -994,9 +995,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
 
 This closes the SQLite `NULL != NULL` gap without collapsing independent events that reuse a plan ID.
 
-Current-delivery lookups are always event-scoped. `delivery_status(...)` requires
-`event_id`; the storage contract intentionally has no plan-only overload because
-plan IDs may be reused by independent canonical events.
+Current-delivery lookups use the same complete typed `DeliveryIdentity` as
+historical reads. The storage contract intentionally has no scalar or plan-only
+overload because event, plan, adapter, and normalized channel together define one
+lifecycle identity.
 
 The outbox also carries `idx_outbox_lineage` over
 `(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), attempt_number)`.
@@ -1114,6 +1116,12 @@ Multi-table operations **MUST** be atomic:
   `receipt_id`/terminal status in one guarded transaction. The guard MUST match
   event, plan, adapter, channel, outbox, effective attempt, and current owner
   when an owner is supplied.
+- The terminal write boundary **MUST** accept one validated
+  `TerminalOutboxFinalization` command. Its lifecycle receipt is authoritative
+  for delivery identity, terminal status, outbox ID, attempt number, and failure
+  classification; callers MUST NOT provide parallel scalar copies of those
+  fields. Optional newly-proven failed-attempt evidence MUST identify the same
+  delivery/outbox/attempt and be the lifecycle receipt's direct parent.
 - If any write in a batch fails, the database state **MUST** remain unchanged.
 
 SQLite transactions are atomic. An event write either completes fully or not at all. A receipt write is a separate transaction from the event write, which means:
@@ -1207,17 +1215,20 @@ runtime startup. A clean current marker skips that redundant full scan.
   handoffs record the strongest fact actually proven and never infer end-to-end
   delivery from lifecycle status.
 
-### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel, *, event_id)
+### 8.10 delivery_status(identity: DeliveryIdentity)
 
-- Returns the lifecycle-authoritative receipt for the given event-scoped target. `event_id` is mandatory because plan IDs are not globally unique across events; there is no plan-only current-delivery overload.
+- Returns the lifecycle-authoritative receipt for exactly one complete `(event_id, delivery_plan_id, target_adapter, target_channel)` identity; there is no scalar or plan-only current-delivery overload.
 - For outbox-backed delivery, the exact `(outbox_id, receipt_id)` pointer is eligibility authority and the outbox row's finalized `attempt_number` is generation authority. A later append from an older committed generation or a stale worker cannot outrank a newer committed generation.
 - For outbox-less delivery, greatest durable append `sequence` remains the projection rule. After one candidate is chosen from each authority class, greatest `sequence` decides which class most recently changed observable lifecycle state.
-- `target_channel` is **REQUIRED** for precise lookup. When `None`, only NULL-channel receipts are considered.
+- The identity normalizes empty / absent channels to one no-channel key; `None` selects only NULL-channel receipts, never all channels.
+- Incomplete identities are rejected.
 - Returns `None` when no current receipt exists.
 
-### 8.11 list_receipts_for_plan(delivery_plan_id, target_adapter, *, event_id)
+### 8.11 list_receipts_for_delivery(identity: DeliveryIdentity)
 
-- Returns receipts for one event's delivery plan / adapter in attempt order. `event_id` is mandatory; the storage contract has no plan-only lineage overload.
+- Returns immutable receipt history for exactly one `(event_id, delivery_plan_id, target_adapter, target_channel)` identity in attempt / append order.
+- The API accepts the typed full `DeliveryIdentity`; no event+plan+adapter historical overload exists because omitting channel scope can merge sibling lifecycle lineages.
+- Empty / absent channels normalize to the no-channel identity at persistence boundaries. Incomplete identities are rejected.
 
 ### 8.12 list_receipts_by_replay_run(run_id)
 
@@ -1247,6 +1258,7 @@ Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, del
 
 - `create_outbox_item`: Creates or reclaims an outbox item; replay may request atomic fresh-generation allocation (Section 9.3).
 - `get_outbox_item`: Retrieves an item by `outbox_id`.
+- `list_outbox_items_for_delivery`: Returns every durable outbox generation for one complete `DeliveryIdentity`, ordered by effective attempt generation. This is the mutable-history counterpart to `list_receipts_for_delivery`; incomplete identities are rejected.
 - `list_outbox_items`: Lists items, optionally filtered by status.
 - `list_outbox_items_for_event`: Returns all outbox items for a specific event, ordered by `created_at ASC, outbox_id ASC`. Read-only.
 - `claim_due_outbox_items`: Claims eligible items for a worker only when no sibling row for the same event-scoped delivery identity represents the same or a newer effective attempt generation. Older superseded rows remain durable history and are not re-dispatched.
@@ -1615,9 +1627,10 @@ This section states which code owns each table's rows, who may create/mutate/del
    A delayed queue callback that proves send acceptance MUST finalize its
    outbound native ref, supplemental `sent` receipt, and exact
    outbox-attempt transition in one storage transaction. Storage MUST
-   re-check `outbox_id`, `attempt_number`, and finalizable status inside
-   that transaction. A failed guard or failed insert MUST leave all three
-   categories unchanged.
+   re-check the exact `(event_id, delivery_plan_id, target_adapter,
+   normalized target_channel, outbox_id, attempt_number)` identity and
+   finalizable status inside that transaction. A failed guard or failed insert
+   MUST leave all three categories unchanged.
 
 6. **`delivery_observations` are append-only post-handoff evidence.** Adapters
    report asynchronous transport facts through the runtime callback; core

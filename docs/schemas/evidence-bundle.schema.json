@@ -73,22 +73,22 @@
       "description": "Collected evidence sections.",
       "properties": {
         "config_summary": {
-          "$ref": "#/$defs/EvidenceSection"
+          "$ref": "#/$defs/ConfigSummarySection"
         },
         "route_validation": {
-          "$ref": "#/$defs/EvidenceSection"
+          "$ref": "#/$defs/RouteValidationSection"
         },
         "diagnostics_snapshot": {
-          "$ref": "#/$defs/EvidenceSection"
+          "$ref": "#/$defs/DiagnosticsSnapshotSection"
         },
         "live_health": {
-          "$ref": "#/$defs/EvidenceSection"
+          "$ref": "#/$defs/LiveHealthSection"
         },
         "storage": {
-          "$ref": "#/$defs/EvidenceSection"
+          "$ref": "#/$defs/StorageEvidenceSection"
         },
         "recovery": {
-          "$ref": "#/$defs/EvidenceSection"
+          "$ref": "#/$defs/RecoveryEvidenceSection"
         }
       },
       "additionalProperties": false
@@ -347,7 +347,7 @@
     },
     "EvidenceSection": {
       "title": "EvidenceSection",
-      "description": "A single evidence section with status, optional error, and optional data.",
+      "description": "Strict status envelope shared by all evidence sections. Successful sections carry object data; error/skipped sections carry null data; partial sections may retain partial object data or null.",
       "type": "object",
       "properties": {
         "status": {
@@ -357,17 +357,614 @@
         },
         "error": {
           "type": ["string", "null"],
-          "description": "Error message if the section encountered an error."
+          "description": "Sanitised error text for partial/error sections; null otherwise."
         },
         "data": {
-          "description": "Section payload data. Null when unavailable or skipped."
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object"
+            }
+          ],
+          "description": "Section payload object, or null when unavailable."
         },
         "note": {
-          "type": ["string", "null"],
-          "description": "Explanatory note (e.g. skip reason)."
+          "type": "string",
+          "description": "Required skip reason for skipped sections."
         }
       },
-      "required": ["status", "error", "data"]
+      "required": ["status", "error", "data"],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "passed"
+            },
+            "error": {
+              "type": "null"
+            },
+            "data": {
+              "type": "object"
+            }
+          },
+          "not": {
+            "required": ["note"]
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "partial"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "not": {
+            "required": ["note"]
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "error"
+            },
+            "error": {
+              "type": "string"
+            },
+            "data": {
+              "type": "null"
+            }
+          },
+          "not": {
+            "required": ["note"]
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "skipped"
+            },
+            "error": {
+              "type": "null"
+            },
+            "data": {
+              "type": "null"
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["note"]
+        }
+      ]
+    },
+    "ConfigSummarySection": {
+      "title": "ConfigSummarySection",
+      "allOf": [
+        {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        {
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/ConfigSummaryData"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "RouteValidationSection": {
+      "title": "RouteValidationSection",
+      "allOf": [
+        {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        {
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/RouteValidationData"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "DiagnosticsSnapshotSection": {
+      "title": "DiagnosticsSnapshotSection",
+      "allOf": [
+        {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        {
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "LiveHealthSection": {
+      "title": "LiveHealthSection",
+      "allOf": [
+        {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        {
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "StorageEvidenceSection": {
+      "title": "StorageEvidenceSection",
+      "allOf": [
+        {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        {
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/StorageEvidenceData"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "RecoveryEvidenceSection": {
+      "title": "RecoveryEvidenceSection",
+      "allOf": [
+        {
+          "$ref": "#/$defs/EvidenceSection"
+        },
+        {
+          "properties": {
+            "data": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/RecoveryEvidenceData"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ConfigSummaryData": {
+      "title": "ConfigSummaryData",
+      "type": "object",
+      "properties": {
+        "adapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "adapter_id": {
+                "type": "string"
+              },
+              "adapter_kind": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "transport": {
+                "type": "string"
+              }
+            },
+            "required": ["adapter_id", "adapter_kind", "enabled", "transport"],
+            "additionalProperties": false
+          }
+        },
+        "env_overrides_applied": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "delivery_acquire_timeout_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "max_inflight_deliveries": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_inflight_replay_events": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "shutdown_drain_timeout_seconds": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "logging_level": {
+          "type": "string"
+        },
+        "paths": {
+          "type": "object",
+          "properties": {
+            "config_dir": {
+              "type": "string"
+            },
+            "config_file": {
+              "type": "string"
+            },
+            "state_dir": {
+              "type": "string"
+            },
+            "data_dir": {
+              "type": "string"
+            },
+            "cache_dir": {
+              "type": "string"
+            },
+            "log_dir": {
+              "type": "string"
+            },
+            "database_path": {
+              "type": "string"
+            },
+            "adapter_state_root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "config_dir",
+            "config_file",
+            "state_dir",
+            "data_dir",
+            "cache_dir",
+            "log_dir",
+            "database_path",
+            "adapter_state_root"
+          ],
+          "additionalProperties": false
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "dest_adapters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "directionality": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "route_id": {
+                "type": "string"
+              },
+              "source_adapters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "dest_adapters",
+              "directionality",
+              "enabled",
+              "route_id",
+              "source_adapters"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "runtime_name": {
+          "type": "string"
+        },
+        "storage_backend": {
+          "type": "string"
+        },
+        "storage_path": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": [
+        "adapters",
+        "env_overrides_applied",
+        "limits",
+        "logging_level",
+        "paths",
+        "routes",
+        "runtime_name",
+        "storage_backend",
+        "storage_path"
+      ],
+      "additionalProperties": false
+    },
+    "RouteValidationData": {
+      "title": "RouteValidationData",
+      "type": "object",
+      "properties": {
+        "route_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "route_enabled": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "route_errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "route_warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "route_count",
+        "route_enabled",
+        "route_errors",
+        "route_warnings",
+        "valid"
+      ],
+      "additionalProperties": false
+    },
+    "StorageEvidenceData": {
+      "title": "StorageEvidenceData",
+      "description": "Stable top-level machine shape of sections.storage.data. Nested event/timeline/report payloads retain their own contracts.",
+      "type": "object",
+      "properties": {
+        "db_exists": {
+          "type": "boolean"
+        },
+        "db_path": {
+          "type": "string"
+        },
+        "event": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "event_count": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "incident_summary": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "native_refs_for_event": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "receipt_count": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "delivery_observation_count": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "delivery_observations_for_event": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "replay_run_receipts": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "timeline": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "replay_timeline": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "delivery_outcome_ledger": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "retry_outbox_summary": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "lifecycle_convergence_report": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/LifecycleConvergenceReport"
+            }
+          ]
+        },
+        "convergence_summary": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ConvergenceSummary"
+            }
+          ]
+        },
+        "orphan_report": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/OrphanReport"
+            }
+          ]
+        },
+        "convergence_truncated_warning": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": [
+        "db_exists",
+        "db_path",
+        "event",
+        "event_count",
+        "incident_summary",
+        "native_refs_for_event",
+        "receipt_count",
+        "delivery_observation_count",
+        "delivery_observations_for_event",
+        "replay_run_receipts",
+        "timeline",
+        "replay_timeline",
+        "delivery_outcome_ledger",
+        "retry_outbox_summary",
+        "lifecycle_convergence_report",
+        "convergence_summary",
+        "orphan_report",
+        "convergence_truncated_warning"
+      ],
+      "additionalProperties": false
+    },
+    "RecoveryEvidenceData": {
+      "title": "RecoveryEvidenceData",
+      "type": "object",
+      "properties": {
+        "recovery_summary": {
+          "$ref": "#/$defs/RecoverySummary"
+        },
+        "recovery_ledger": {
+          "$ref": "#/$defs/StartupRecoveryLedger"
+        },
+        "snapshot_context": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "const": "storage_snapshot"
+            },
+            "collection_timestamp": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": ["source", "collection_timestamp"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["recovery_summary", "recovery_ledger", "snapshot_context"],
+      "additionalProperties": false
     },
     "ConvergenceSummary": {
       "title": "ConvergenceSummary",

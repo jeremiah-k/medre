@@ -16,6 +16,7 @@ from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
+from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.events import (
     CanonicalEvent,
     DeliveryObservation,
@@ -573,6 +574,171 @@ class DeliveryOutboxItem:
         return _get_is_claimable_outbox_status()(self.status)
 
 
+@dataclass(frozen=True, slots=True)
+class QueuedDeliveryFinalization:
+    """Validated command for one atomic queued-to-sent commit.
+
+    The sent receipt is the source of truth for delivery identity, outbox
+    generation, and adapter message identity. The native reference supplies
+    the durable transport lookup for that same message. Callers therefore do
+    not repeat ``outbox_id`` or ``attempt_number`` as independent scalars that
+    can disagree with the evidence being committed.
+    """
+
+    native_ref: NativeMessageRef
+    receipt: DeliveryReceipt
+
+    def __post_init__(self) -> None:
+        """Reject evidence that cannot identify the same outbound sent attempt.
+
+        Raise ``ValueError`` for an invalid sent receipt, an incomplete delivery
+        identity or generation, or a native reference that disagrees with the
+        receipt's event, adapter, channel, or message ID.
+        """
+        receipt = self.receipt
+        native_ref = self.native_ref
+        if native_ref.direction != "outbound":
+            raise ValueError(
+                "queued delivery finalization requires an outbound native ref"
+            )
+        if receipt.receipt_kind != "attempt" or receipt.status != "sent":
+            raise ValueError(
+                "queued delivery finalization requires sent attempt evidence"
+            )
+        if not receipt.receipt_id:
+            raise ValueError("queued sent receipt requires receipt_id")
+        if not receipt.outbox_id:
+            raise ValueError("queued sent receipt requires outbox_id")
+        if not delivery_identity(receipt).complete:
+            raise ValueError("queued sent receipt requires complete delivery identity")
+        if receipt.attempt_number < 1:
+            raise ValueError("queued sent receipt attempt_number must be >= 1")
+        if native_ref.event_id != receipt.event_id:
+            raise ValueError("native_ref.event_id must match receipt.event_id")
+        if native_ref.adapter != receipt.target_adapter:
+            raise ValueError("native_ref.adapter must match receipt.target_adapter")
+        if (native_ref.native_channel_id or None) != self.identity.target_channel:
+            raise ValueError(
+                "native_ref.native_channel_id must match receipt.target_channel"
+            )
+        if native_ref.native_message_id != receipt.adapter_message_id:
+            raise ValueError(
+                "native_ref.native_message_id must match receipt.adapter_message_id"
+            )
+
+    @property
+    def identity(self) -> DeliveryIdentity:
+        """Full event-scoped identity derived from sent evidence."""
+        return delivery_identity(self.receipt)
+
+    @property
+    def outbox_id(self) -> str:
+        """Outbox row guarded by this command."""
+        assert self.receipt.outbox_id is not None
+        return self.receipt.outbox_id
+
+    @property
+    def attempt_number(self) -> int:
+        """Exact outbox generation guarded by this command."""
+        return self.receipt.attempt_number
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalOutboxFinalization:
+    """Validated command for one atomic terminal outbox commit.
+
+    The lifecycle receipt is the source of truth for delivery identity,
+    terminal status, outbox generation, failure classification, and immutable
+    evidence.  Callers therefore cannot provide parallel scalar identity fields
+    that disagree with the evidence being committed.  ``attempt_receipt`` is
+    present only when this transaction is also introducing the causative failed
+    dispatch attempt.
+    """
+
+    lifecycle_receipt: DeliveryReceipt
+    attempt_receipt: DeliveryReceipt | None = None
+    expected_worker_id: str | None = None
+
+    def __post_init__(self) -> None:
+        """Reject terminal evidence without a valid delivery and attempt link.
+
+        Raise ``ValueError`` unless the lifecycle receipt identifies a complete,
+        positive-numbered terminal outbox attempt. A supplied failed-attempt
+        receipt must identify that same attempt, and the lifecycle receipt must
+        name it as its direct parent.
+        """
+        receipt = self.lifecycle_receipt
+        if receipt.receipt_kind != "lifecycle":
+            raise ValueError("terminal outbox finalization requires lifecycle evidence")
+        if receipt.status not in {"dead_lettered", "cancelled", "abandoned"}:
+            raise ValueError(
+                "terminal outbox finalization requires an error-terminal lifecycle "
+                f"status, got {receipt.status!r}"
+            )
+        if not receipt.outbox_id:
+            raise ValueError("terminal lifecycle receipt requires outbox_id")
+        if not receipt.receipt_id:
+            raise ValueError("terminal lifecycle receipt requires receipt_id")
+        if not delivery_identity(receipt).complete:
+            raise ValueError(
+                "terminal lifecycle receipt requires complete delivery identity"
+            )
+        if receipt.attempt_number < 1:
+            raise ValueError("terminal lifecycle receipt attempt_number must be >= 1")
+
+        attempt = self.attempt_receipt
+        if attempt is None:
+            return
+        if attempt.receipt_kind != "attempt":
+            raise ValueError("attempt_receipt must be attempt evidence")
+        if not attempt.receipt_id:
+            raise ValueError("terminal attempt_receipt requires receipt_id")
+        if attempt.status != "failed":
+            raise ValueError("terminal attempt_receipt must have status='failed'")
+        if (
+            delivery_identity(attempt) != delivery_identity(receipt)
+            or attempt.outbox_id != receipt.outbox_id
+            or attempt.attempt_number != receipt.attempt_number
+            or receipt.parent_receipt_id != attempt.receipt_id
+        ):
+            raise ValueError(
+                "terminal lifecycle receipt must be linked to the same delivery "
+                "attempt as attempt_receipt"
+            )
+
+    @property
+    def identity(self) -> DeliveryIdentity:
+        """Full event-scoped identity derived from lifecycle evidence."""
+        return delivery_identity(self.lifecycle_receipt)
+
+    @property
+    def outbox_id(self) -> str:
+        """Outbox row guarded by this command."""
+        assert self.lifecycle_receipt.outbox_id is not None
+        return self.lifecycle_receipt.outbox_id
+
+    @property
+    def attempt_number(self) -> int:
+        """Exact outbox generation guarded by this command."""
+        return self.lifecycle_receipt.attempt_number
+
+    @property
+    def terminal_status(self) -> str:
+        """Terminal outbox status derived from lifecycle evidence."""
+        return self.lifecycle_receipt.status
+
+    @property
+    def failure_kind(self) -> str | None:
+        """Failure classification derived from lifecycle evidence."""
+        return self.lifecycle_receipt.failure_kind
+
+    @property
+    def error_summary(self) -> str | None:
+        """Return up to 512 error characters for the outbox, or ``None``."""
+        error = self.lifecycle_receipt.error
+        return error[:512] if error else None
+
+
 # ---------------------------------------------------------------------------
 # Guarantees
 # ---------------------------------------------------------------------------
@@ -951,110 +1117,64 @@ class StorageBackend(Protocol):
 
     async def finalize_queued_delivery(
         self,
-        native_ref: NativeMessageRef,
-        receipt: DeliveryReceipt,
-        *,
-        outbox_id: str,
-        attempt_number: int,
+        command: QueuedDeliveryFinalization,
     ) -> bool:
         """Atomically finalize one queue-backed delivery attempt.
 
         Implementations MUST commit the outbound native ref, sent receipt, and
-        exact outbox ``queued|in_progress -> sent`` transition in one
-        transaction.  Return ``False`` when the guarded outbox attempt is no
+        exact full-identity outbox ``queued|in_progress -> sent`` transition in
+        one transaction. Return ``False`` when the guarded outbox attempt is no
         longer finalizable; in that case none of the three writes may commit.
         """
         ...
 
     async def finalize_outbox_terminal(
         self,
-        receipt: DeliveryReceipt,
-        *,
-        attempt_receipt: DeliveryReceipt | None = None,
-        outbox_id: str,
-        attempt_number: int,
-        terminal_status: str,
-        event_id: str,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None,
-        failure_kind: str | None = None,
-        error_summary: str | None = None,
-        expected_worker_id: str | None = None,
+        command: TerminalOutboxFinalization,
     ) -> bool:
         """Atomically finalize one terminal queue outcome.
 
         Implementations MUST commit an immutable lifecycle receipt whose
-        status equals ``terminal_status`` and the guarded outbox
-        ``queued|in_progress -> terminal_status`` transition
-        in one transaction. When ``attempt_receipt`` is supplied (for a
+        status determines the guarded outbox ``queued|in_progress -> terminal``
+        transition in one transaction. When ``command.attempt_receipt`` is
+        supplied (for a
         queue callback that newly proves the dispatch failed), that attempt
         receipt MUST commit in the same transaction before the lifecycle
         receipt. Implementations re-check the exact attempt at write time
         (row identity, ``attempt_number``, eligible status).  Return
         ``False`` when the guarded attempt no longer qualifies — stale
         callback, duplicate notification, or a competing attempt/state
-        change won — in which case neither write may commit. When
-        ``expected_worker_id`` is supplied, implementations MUST additionally
-        fence the transition to that current owner.
+        change won — in which case neither write may commit. When the command
+        carries ``expected_worker_id``, implementations MUST additionally fence
+        the transition to that current owner.
         """
         ...
 
     async def delivery_status(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> DeliveryReceipt | None:
-        """Return the event-scoped current receipt for a delivery target.
+        """Return the lifecycle-authoritative receipt for one delivery identity.
 
-        Authority: **list/get** (read-only). For outbox-backed delivery, exact
-        ``(outbox_id, receipt_id)`` pointer equality selects eligible evidence
-        and the outbox row's finalized attempt ranks committed generations. A
-        stale or older-generation receipt remains immutable historical evidence.
-        Outbox-less lineages retain durable append order as their projection rule.
-
-        Parameters
-        ----------
-        delivery_plan_id:
-            The delivery plan to look up.
-        target_adapter:
-            The target adapter to filter on.
-        target_channel:
-            Channel name to match.  When a named channel is passed, only
-            receipts with that exact channel value are returned.  When
-            ``None`` (default), only receipts with a NULL (no-channel)
-            target are returned.  Passing ``None`` does **not** query
-            across all channels.
-        event_id:
-            Canonical-event scope. It is mandatory because plan IDs are not
-            globally unique.
-
-        Returns
-        -------
-        DeliveryReceipt | None
-            The lifecycle-authoritative receipt, or ``None`` when no eligible
-            receipt exists for the given event-scoped identity.
+        Authority: **list/get** (read-only). ``DeliveryIdentity`` is the same
+        complete event-scoped key used by historical reads and resolved
+        snapshots. For outbox-backed delivery, exact ``(outbox_id, receipt_id)``
+        pointer equality selects eligible evidence and mutable outbox generation
+        ranks committed attempts. Outbox-less lineages retain durable append
+        order as their projection rule.
         """
         ...
 
-    async def list_receipts_for_plan(
+    async def list_receipts_for_delivery(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
-        """Return event-scoped receipts for a plan / adapter in attempt order.
+        """Return one delivery identity's immutable receipt history.
 
-        ``event_id`` is mandatory because plan IDs are not globally unique and
-        no delivery-lineage query may merge evidence from different events.
-
-        Authority: **list/get** (read-only).  Receipts are ordered by
-        ``attempt_number`` ascending so callers can walk the full receipt
-        lineage.
+        Authority: **list/get** (read-only). ``DeliveryIdentity`` is the
+        complete lifecycle key, including normalized channel scope, so
+        historical reads cannot merge sibling channels, adapters, plans, or
+        canonical events. Receipts are ordered by attempt then append sequence.
         """
         ...
 
@@ -1264,23 +1384,15 @@ class StorageBackend(Protocol):
         """
         ...
 
-    async def get_outbox_item_for_delivery(
+    async def list_outbox_items_for_delivery(
         self,
-        event_id: str,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None,
-        status: str | None = None,
-    ) -> DeliveryOutboxItem | None:
-        """Retrieve an outbox item by its delivery target key.
+        identity: DeliveryIdentity,
+    ) -> list[DeliveryOutboxItem]:
+        """Return all mutable/terminal generations for one delivery identity.
 
-        Authority: **list/get** (read-only).  Performs a targeted SELECT matching *event_id*,
-        *delivery_plan_id*, *target_adapter*, *target_channel*
-        (using ``IS`` for proper ``NULL`` handling) and optionally
-        *status*.  Returns the first match or ``None``.
-
-        This replaces the O(n) scan previously needed to locate an
-        outbox item for a specific delivery target.
+        Authority: **list/get** (read-only). Rows are ordered by effective
+        attempt generation, then creation identity, so callers receive the full
+        operational history without reconstructing the lifecycle key.
         """
         ...
 

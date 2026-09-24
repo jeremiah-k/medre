@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.planning.delivery_plan import (
@@ -293,10 +294,12 @@ class TestFinalizeOutboxOutcome:
         assert updated.status == "dead_lettered"
         assert updated.receipt_id is not None
         current = await temp_storage.delivery_status(
-            item.delivery_plan_id,
-            item.target_adapter,
-            item.target_channel,
-            event_id=item.event_id,
+            DeliveryIdentity(
+                item.event_id,
+                item.delivery_plan_id,
+                item.target_adapter,
+                item.target_channel,
+            )
         )
         assert current is not None
         assert current.receipt_kind == "lifecycle"
@@ -532,10 +535,12 @@ class TestFinalizeOutboxRetryTimestampAlignment:
         assert updated.status == "dead_lettered"
         assert updated.receipt_id is not None
         current = await temp_storage.delivery_status(
-            item.delivery_plan_id,
-            item.target_adapter,
-            item.target_channel,
-            event_id=item.event_id,
+            DeliveryIdentity(
+                item.event_id,
+                item.delivery_plan_id,
+                item.target_adapter,
+                item.target_channel,
+            )
         )
         assert current is not None
         assert current.status == "dead_lettered"

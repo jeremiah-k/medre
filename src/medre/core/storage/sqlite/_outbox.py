@@ -3,7 +3,7 @@
 Authority surface:
   - create_outbox_item:         **create** / **claim** (reclaim pending/retry_wait).
   - get_outbox_item:            **list/get** (read-only).
-  - get_outbox_item_for_delivery: **list/get** (read-only).
+  - list_outbox_items_for_delivery: **list/get** (read-only).
   - list_outbox_items:          **list/get** (read-only).
   - list_all_outbox_items:      **list/get** (read-only).
   - list_outbox_items_for_event: **list/get** (read-only).
@@ -34,6 +34,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Any
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_state import (
     CLAIMABLE_OUTBOX_STATUSES,
     OUTBOX_STATUSES,
@@ -356,40 +357,31 @@ class _OutboxMixin:
             return None
         return _row_to_outbox_item(row)
 
-    async def get_outbox_item_for_delivery(
+    async def list_outbox_items_for_delivery(
         self,
-        event_id: str,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None,
-        status: str | None = None,
-    ) -> DeliveryOutboxItem | None:
-        """Retrieve an outbox item by its delivery target key.
+        identity: DeliveryIdentity,
+    ) -> list[DeliveryOutboxItem]:
+        """Return all outbox generations for a complete delivery identity.
 
-        Authority: **list/get** (read-only).  Performs a targeted SELECT matching *event_id*,
-        *delivery_plan_id*, *target_adapter*, *target_channel*
-        (using ``IS`` for proper ``NULL`` handling) and optionally
-        *status*.  Returns the first match or ``None``.
+        Rows are ordered by effective attempt, creation time, and outbox ID.
+        Raise ``ValueError`` for an incomplete identity.
         """
-        clauses = [
-            "event_id = ?",
-            "delivery_plan_id = ?",
-            "target_adapter = ?",
-            "target_channel IS ?",
-        ]
-        channel = target_channel or None
-        params: list[Any] = [event_id, delivery_plan_id, target_adapter, channel]
-        if status is not None:
-            clauses.append("status = ?")
-            params.append(status)
-        where = " AND ".join(clauses)
-        row = await self._read_one(
-            f"SELECT * FROM delivery_outbox WHERE {where} LIMIT 1",  # nosec: where clause built from hardcoded identifiers only, values via ? params
-            tuple(params),
+        if not identity.complete:
+            raise ValueError("outbox history requires a complete DeliveryIdentity")
+        rows = await self._read_all(
+            "SELECT * FROM delivery_outbox "
+            "WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ? "
+            "AND target_channel IS ? "
+            "ORDER BY COALESCE(active_attempt, attempt_number) ASC, "
+            "created_at ASC, outbox_id ASC",
+            (
+                identity.event_id,
+                identity.delivery_plan_id,
+                identity.target_adapter,
+                identity.target_channel or None,
+            ),
         )
-        if row is None:
-            return None
-        return _row_to_outbox_item(row)
+        return [_row_to_outbox_item(row) for row in rows]
 
     async def list_outbox_items(
         self,

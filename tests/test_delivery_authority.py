@@ -10,7 +10,7 @@ from medre.core.delivery_authority import (
     delivery_identity,
 )
 from medre.core.events import CanonicalEvent, DeliveryReceipt, EventMetadata
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import DeliveryOutboxItem, TerminalOutboxFinalization
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import admit_event
 
@@ -62,14 +62,19 @@ def _outbox(
 
 
 def test_delivery_identity_normalizes_empty_channel() -> None:
-    assert delivery_identity(
-        {
-            "event_id": "e",
-            "delivery_plan_id": "p",
-            "target_adapter": "a",
-            "target_channel": "",
-        }
-    ) == DeliveryIdentity("e", "p", "a", None)
+    expected = DeliveryIdentity("e", "p", "a", None)
+    assert DeliveryIdentity("e", "p", "a", "") == expected
+    assert (
+        delivery_identity(
+            {
+                "event_id": "e",
+                "delivery_plan_id": "p",
+                "target_adapter": "a",
+                "target_channel": "",
+            }
+        )
+        == expected
+    )
 
 
 def test_resolver_rejects_uncommitted_outbox_receipt() -> None:
@@ -105,6 +110,58 @@ def test_resolver_keeps_all_outbox_generations_authoritative() -> None:
     current = resolver.current(delivery_identity(receipts[0]))
     assert current is not None
     assert current["receipt_id"] == "gen-2"
+
+
+def test_resolved_snapshot_keeps_authority_attempt_and_cause_together() -> None:
+    failed = _receipt(
+        "attempt-1",
+        sequence=1,
+        outbox_id="obox-1",
+        status="failed",
+        attempt=1,
+    )
+    terminal = _receipt(
+        "terminal-1",
+        sequence=2,
+        outbox_id="obox-1",
+        status="dead_lettered",
+        attempt=1,
+    )
+    terminal["parent_receipt_id"] = failed["receipt_id"]
+    outbox = _outbox("obox-1", receipt_id="terminal-1", attempt=1)
+    resolver = DeliveryAuthorityResolver([failed, terminal], [outbox])
+    identity = delivery_identity(failed)
+
+    snapshot = resolver.resolve(identity)
+
+    assert snapshot.identity == identity
+    assert snapshot.receipts == (failed, terminal)
+    assert snapshot.outbox_items == (outbox,)
+    assert snapshot.current_outbox is outbox
+    assert snapshot.authoritative_receipt is terminal
+    assert snapshot.latest_attempt is failed
+    assert snapshot.causative_receipt is failed
+
+
+def test_resolved_snapshot_does_not_invent_missing_causative_history() -> None:
+    terminal = _receipt(
+        "terminal-only",
+        sequence=2,
+        outbox_id="obox-1",
+        status="dead_lettered",
+        attempt=1,
+    )
+    terminal["parent_receipt_id"] = "attempt-not-loaded"
+    resolver = DeliveryAuthorityResolver(
+        [terminal],
+        [_outbox("obox-1", receipt_id="terminal-only")],
+    )
+
+    snapshot = resolver.resolve(delivery_identity(terminal))
+
+    assert snapshot.authoritative_receipt is terminal
+    assert snapshot.latest_attempt is None
+    assert snapshot.causative_receipt is None
 
 
 def test_newer_generation_outranks_late_append_from_older_generation() -> None:
@@ -224,16 +281,79 @@ async def test_sqlite_delivery_status_matches_shared_resolver(
     identity = DeliveryIdentity(event_id, "plan-authority-sql", "radio", "mesh")
     resolved = resolver.current(identity)
     projected = await temp_storage.delivery_status(
-        "plan-authority-sql",
-        "radio",
-        "mesh",
-        event_id=event_id,
+        DeliveryIdentity(event_id, "plan-authority-sql", "radio", "mesh")
     )
 
     assert resolved is not None
     assert projected is not None
     assert resolved.receipt_id == "auth-gen-2"
     assert projected.receipt_id == resolved.receipt_id
+
+
+async def test_sqlite_delivery_history_uses_exact_full_identity(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event_id = "evt-authority-history"
+    plan_id = "plan-authority-history"
+    await admit_event(temp_storage, event_id)
+
+    generations = [
+        DeliveryOutboxItem(
+            outbox_id="obox-history-mesh-1",
+            event_id=event_id,
+            route_id="route-history",
+            delivery_plan_id=plan_id,
+            target_adapter="radio",
+            target_channel="mesh",
+            attempt_number=1,
+            status="in_progress",
+        ),
+        DeliveryOutboxItem(
+            outbox_id="obox-history-mesh-2",
+            event_id=event_id,
+            route_id="route-history",
+            delivery_plan_id=plan_id,
+            target_adapter="radio",
+            target_channel="mesh",
+            attempt_number=2,
+            status="in_progress",
+        ),
+        DeliveryOutboxItem(
+            outbox_id="obox-history-other",
+            event_id=event_id,
+            route_id="route-history",
+            delivery_plan_id=plan_id,
+            target_adapter="radio",
+            target_channel="other",
+            attempt_number=1,
+            status="in_progress",
+        ),
+    ]
+    for item in generations:
+        await temp_storage.create_outbox_item(item)
+
+    identity = DeliveryIdentity(event_id, plan_id, "radio", "mesh")
+    history = await temp_storage.list_outbox_items_for_delivery(identity)
+
+    assert [item.outbox_id for item in history] == [
+        "obox-history-mesh-1",
+        "obox-history-mesh-2",
+    ]
+    assert [item.attempt_number for item in history] == [1, 2]
+
+
+async def test_sqlite_delivery_reads_reject_incomplete_identity(
+    temp_storage: SQLiteStorage,
+) -> None:
+    import pytest
+
+    identity = DeliveryIdentity("", "plan", "radio", "mesh")
+    with pytest.raises(ValueError, match="complete DeliveryIdentity"):
+        await temp_storage.delivery_status(identity)
+    with pytest.raises(ValueError, match="complete DeliveryIdentity"):
+        await temp_storage.list_receipts_for_delivery(identity)
+    with pytest.raises(ValueError, match="complete DeliveryIdentity"):
+        await temp_storage.list_outbox_items_for_delivery(identity)
 
 
 async def test_sqlite_newer_generation_outranks_late_committed_older_generation(
@@ -309,10 +429,7 @@ async def test_sqlite_newer_generation_outranks_late_committed_older_generation(
     identity = DeliveryIdentity(event_id, plan_id, "radio", "mesh")
     resolved = resolver.current(identity)
     projected = await temp_storage.delivery_status(
-        plan_id,
-        "radio",
-        "mesh",
-        event_id=event_id,
+        DeliveryIdentity(event_id, plan_id, "radio", "mesh")
     )
 
     assert resolved is not None
@@ -400,15 +517,7 @@ async def test_recovery_scan_prefers_newer_failed_generation_over_late_older_ter
     )
     await temp_storage.append_receipt(older_failed)
     assert await temp_storage.finalize_outbox_terminal(
-        older_terminal,
-        outbox_id=older.outbox_id,
-        attempt_number=1,
-        terminal_status="dead_lettered",
-        event_id=event_id,
-        delivery_plan_id=plan_id,
-        target_adapter="radio",
-        target_channel="mesh",
-        failure_kind="adapter_permanent",
+        TerminalOutboxFinalization(lifecycle_receipt=older_terminal)
     )
 
     page = await temp_storage.query_unresolved_deliveries()
@@ -478,15 +587,7 @@ async def test_recovery_scan_prefers_newer_terminal_generation_over_late_older_f
     )
     await temp_storage.append_receipt(newer_failed)
     assert await temp_storage.finalize_outbox_terminal(
-        newer_terminal,
-        outbox_id=newer.outbox_id,
-        attempt_number=2,
-        terminal_status="dead_lettered",
-        event_id=event_id,
-        delivery_plan_id=plan_id,
-        target_adapter="radio",
-        target_channel="mesh",
-        failure_kind="adapter_permanent",
+        TerminalOutboxFinalization(lifecycle_receipt=newer_terminal)
     )
 
     older_failed = DeliveryReceipt(

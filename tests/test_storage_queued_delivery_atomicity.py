@@ -8,7 +8,11 @@ import msgspec
 import pytest
 
 from medre.core.events import DeliveryReceipt, NativeMessageRef
-from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    QueuedDeliveryFinalization,
+    StorageError,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import admit_event, append_receipt_with_parent
 
@@ -94,33 +98,32 @@ def _sent_evidence(
     (
         "native_updates",
         "receipt_updates",
-        "outbox_id",
-        "attempt_number",
         "message",
     ),
     [
-        ({"direction": "inbound"}, {}, OUTBOX_ID, 1, "outbound native ref"),
-        ({}, {"status": "failed"}, OUTBOX_ID, 1, "sent receipt"),
-        ({"event_id": "evt-other"}, {}, OUTBOX_ID, 1, "event_id must match"),
-        ({"adapter": "other"}, {}, OUTBOX_ID, 1, "adapter must match"),
+        ({"direction": "inbound"}, {}, "outbound native ref"),
+        ({}, {"status": "failed"}, "sent attempt evidence"),
+        ({"event_id": "evt-other"}, {}, "event_id must match"),
+        ({"adapter": "other"}, {}, "adapter must match"),
+        (
+            {"native_channel_id": "1"},
+            {},
+            "native_channel_id must match",
+        ),
         (
             {"native_message_id": "pkt-other"},
             {},
-            OUTBOX_ID,
-            1,
             "native_message_id must match",
         ),
-        ({}, {"outbox_id": "obox-other"}, OUTBOX_ID, 1, "outbox_id must match"),
-        ({}, {"attempt_number": 2}, OUTBOX_ID, 1, "attempt_number must match"),
-        ({}, {"attempt_number": 0}, OUTBOX_ID, 0, "attempt_number must be >= 1"),
+        ({}, {"outbox_id": None}, "requires outbox_id"),
+        ({}, {"receipt_id": ""}, "requires receipt_id"),
+        ({}, {"attempt_number": 0}, "attempt_number must be >= 1"),
     ],
 )
 async def test_finalize_queued_delivery_rejects_invalid_evidence(
     temp_storage: SQLiteStorage,
     native_updates: dict[str, object],
     receipt_updates: dict[str, object],
-    outbox_id: str,
-    attempt_number: int,
     message: str,
 ) -> None:
     native_ref, sent = _sent_evidence()
@@ -129,11 +132,53 @@ async def test_finalize_queued_delivery_rejects_invalid_evidence(
 
     with pytest.raises(ValueError, match=message):
         await temp_storage.finalize_queued_delivery(
-            candidate_ref,
-            candidate_receipt,
-            outbox_id=outbox_id,
-            attempt_number=attempt_number,
+            QueuedDeliveryFinalization(
+                native_ref=candidate_ref,
+                receipt=candidate_receipt,
+            )
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    ["outbox", "event", "plan", "adapter", "channel", "attempt"],
+)
+async def test_finalize_queued_delivery_guards_full_outbox_identity(
+    temp_storage: SQLiteStorage,
+    case: str,
+) -> None:
+    queued = await _seed_queued_attempt(temp_storage)
+    native_ref, sent = _sent_evidence(native_id=f"pkt-wrong-{case}")
+
+    if case == "outbox":
+        sent = msgspec.structs.replace(sent, outbox_id="obox-other")
+    elif case == "event":
+        await admit_event(temp_storage, "evt-other")
+        native_ref = msgspec.structs.replace(native_ref, event_id="evt-other")
+        sent = msgspec.structs.replace(sent, event_id="evt-other")
+    elif case == "plan":
+        sent = msgspec.structs.replace(sent, delivery_plan_id="plan-other")
+    elif case == "adapter":
+        native_ref = msgspec.structs.replace(native_ref, adapter="mesh-other")
+        sent = msgspec.structs.replace(sent, target_adapter="mesh-other")
+    elif case == "channel":
+        native_ref = msgspec.structs.replace(native_ref, native_channel_id="1")
+        sent = msgspec.structs.replace(sent, target_channel="1")
+    elif case == "attempt":
+        sent = msgspec.structs.replace(sent, attempt_number=2)
+
+    committed = await temp_storage.finalize_queued_delivery(
+        QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
+    )
+
+    assert committed is False
+    row = await temp_storage.get_outbox_item(OUTBOX_ID)
+    assert row is not None
+    assert row.status == "queued"
+    assert row.receipt_id == queued.receipt_id
+    receipts = await temp_storage.list_receipts_for_event(EVENT_ID)
+    assert [receipt.receipt_id for receipt in receipts] == [queued.receipt_id]
 
 
 @pytest.mark.asyncio
@@ -144,10 +189,7 @@ async def test_finalize_queued_delivery_commits_all_evidence(
     native_ref, sent = _sent_evidence()
 
     committed = await temp_storage.finalize_queued_delivery(
-        native_ref,
-        sent,
-        outbox_id=OUTBOX_ID,
-        attempt_number=1,
+        QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
     )
 
     assert committed is True
@@ -176,10 +218,7 @@ async def test_finalize_queued_delivery_stale_guard_commits_nothing(
     native_ref, sent = _sent_evidence(native_id="pkt-stale")
 
     committed = await temp_storage.finalize_queued_delivery(
-        native_ref,
-        sent,
-        outbox_id=OUTBOX_ID,
-        attempt_number=1,
+        QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
     )
 
     assert committed is False
@@ -216,10 +255,7 @@ async def test_finalize_queued_delivery_receipt_failure_rolls_back_all_tables(
 
     with pytest.raises(StorageError):
         await temp_storage.finalize_queued_delivery(
-            native_ref,
-            sent,
-            outbox_id=OUTBOX_ID,
-            attempt_number=1,
+            QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
         )
 
     assert (
@@ -255,10 +291,7 @@ async def test_finalize_queued_delivery_rejects_conflicting_native_identity(
 
     with pytest.raises(StorageError, match="different canonical event"):
         await temp_storage.finalize_queued_delivery(
-            native_ref,
-            sent,
-            outbox_id=OUTBOX_ID,
-            attempt_number=1,
+            QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
         )
 
     outbox = await temp_storage.get_outbox_item(OUTBOX_ID)
@@ -292,10 +325,7 @@ async def test_finalize_queued_delivery_native_ref_id_collision_rolls_back(
 
     with pytest.raises(StorageError):
         await temp_storage.finalize_queued_delivery(
-            native_ref,
-            sent,
-            outbox_id=OUTBOX_ID,
-            attempt_number=1,
+            QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
         )
 
     assert (

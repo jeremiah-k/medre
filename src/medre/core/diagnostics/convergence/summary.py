@@ -17,9 +17,7 @@ from .helpers import (
     _NON_TERMINAL_RECEIPT,
     _TERMINAL_OUTBOX,
     _TERMINAL_RECEIPT,
-    _build_outbox_by_key,
     _get,
-    _TargetKey,
     _worst_severity,
 )
 from .types import (
@@ -211,12 +209,12 @@ def build_convergence_summary(
     Notes
     -----
     * Targets are grouped by ``(event_id, delivery_plan_id, target_adapter,
-      target_channel)`` with fallbacks for missing event/plan/channel.
-    * When an outbox item exists, its committed ``receipt_id`` selects the
-      current receipt.  Later append-only receipts that lost a guarded outbox
-      transition remain historical evidence and are not projected as current.
-      Receipt-only targets still use deterministic append ordering by
-      ``(sequence DESC, created_at DESC, receipt_id DESC)``.
+      target_channel)``; empty and absent channels share an identity.
+    * An outbox-backed receipt is eligible only when its exact outbox generation
+      commits its ID. The highest committed generation competes with the latest
+      outbox-less receipt by append order for current authority. Receipts from
+      outbox attempts that lost their guarded transition remain historical
+      evidence.
     * ``orphan_count`` is ``None`` until linked to an orphan report;
       ``evidence_bundle_ref`` is ``None`` until attached to an
       evidence bundle.
@@ -224,36 +222,28 @@ def build_convergence_summary(
     receipt_list = list(receipts)
     outbox_list = list(outbox_items)
 
-    # --- Build target-keyed authority -------------------------------------
-    # Outbox items: at most one displayed per target key (latest attempt),
-    # while the resolver retains committed pointers from every generation.
-    outbox_by_key = _build_outbox_by_key(outbox_list)
+    # --- Resolve each target once ------------------------------------------
     authority = DeliveryAuthorityResolver(receipt_list, outbox_list)
-
-    # --- Collect all target keys (union) ----------------------------------
-    def _sort_key(key: _TargetKey) -> tuple:
-        event_id, plan_id, adapter, channel = key
-        return (event_id, plan_id, adapter, channel or "")
-
-    all_keys = sorted(
-        set(outbox_by_key.keys()) | set(authority.identities),
-        key=_sort_key,
-    )
+    snapshots = authority.ordered_snapshots()
 
     # --- Classify each target ---------------------------------------------
     targets: list[DeliveryTargetConvergence] = []
     severities: list[ConvergenceSeverity] = []
     global_warnings: list[str] = []
 
-    for key in all_keys:
-        event_id, plan_id, adapter, channel = key
-        obx = outbox_by_key.get(key)
+    for snapshot in snapshots:
+        identity = snapshot.identity
+        event_id = identity.event_id
+        plan_id = identity.delivery_plan_id
+        adapter = identity.target_adapter
+        channel = identity.target_channel
+        obx = snapshot.current_outbox
         outbox_status = _get(obx, "status") if obx else None
         outbox_id = _get(obx, "outbox_id") if obx else None
         has_outbox = obx is not None
         plan_id_present = bool(plan_id)
 
-        latest_rec = authority.current(key)
+        latest_rec = snapshot.authoritative_receipt
         has_receipt = latest_rec is not None
         latest_receipt_status = _get(latest_rec, "status") if latest_rec else None
         latest_receipt_id = _get(latest_rec, "receipt_id") if latest_rec else None

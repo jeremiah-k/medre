@@ -13,6 +13,7 @@ import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.diagnostics.convergence.summary import build_convergence_summary
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.observability.metrics import Diagnostician, EventMetrics
@@ -898,9 +899,9 @@ class TestDeadLetter:
             assert rows[1]["parent_receipt_id"] == rows[0]["receipt_id"]
 
             current = await temp_storage.delivery_status(
-                outcomes[0].delivery_plan_id,
-                "dead-target",
-                event_id=event.event_id,
+                DeliveryIdentity(
+                    event.event_id, outcomes[0].delivery_plan_id, "dead-target", None
+                )
             )
             assert current is not None
             assert current.status == "dead_lettered"

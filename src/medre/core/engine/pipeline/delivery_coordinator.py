@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Protocol, TypeVar, cast
 
 from medre.core.contracts.adapter import AdapterContract
+from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
@@ -188,6 +189,16 @@ class _DeliveryContext:
     def adapter_id(self) -> str:
         return self.target.adapter or ""
 
+    @property
+    def identity(self) -> DeliveryIdentity:
+        """Complete lifecycle identity for this one target delivery."""
+        return DeliveryIdentity(
+            self.event.event_id,
+            self.plan.plan_id,
+            self.adapter_id,
+            self.target.channel or None,
+        )
+
     def elapsed_ms(self) -> float:
         return (time.monotonic() - self.started_at) * 1000.0
 
@@ -317,6 +328,13 @@ class DeliveryCoordinator:
             return await self._deliver_one_scoped(ctx)
 
     async def _deliver_one_scoped(self, ctx: _DeliveryContext) -> DeliveryOutcome:
+        """Deliver one target after identity, replay, and preflight checks.
+
+        Identity and preflight rejections return before outbox creation. Any
+        capacity acquired for an owned delivery is released if execution raises.
+        """
+        if not ctx.identity.complete:
+            return await self._incomplete_identity_outcome(ctx)
         replay_receipts = await self._load_replay_receipts(ctx)
         preflight = await self._preflight_outcome(ctx, replay_receipts)
         if preflight is not None:
@@ -371,10 +389,16 @@ class DeliveryCoordinator:
         self,
         ctx: _DeliveryContext,
     ) -> list[DeliveryReceipt]:
+        """Load this delivery's history for replay, or return no history for live work.
+
+        A lookup error propagates when the replay has a run ID, preventing an
+        unchecked duplicate send. Without a run ID, lookup errors yield an
+        empty history.
+        """
         if ctx.source != "replay":
             return []
         try:
-            return await self._storage.list_receipts_for_event(ctx.event.event_id)
+            return await self._storage.list_receipts_for_delivery(ctx.identity)
         except Exception:
             # Same-run suppression is a safety boundary: if a non-empty run ID
             # cannot be checked, fail closed rather than duplicate delivery.
@@ -389,6 +413,43 @@ class DeliveryCoordinator:
                 exc_info=True,
             )
             return []
+
+    async def _incomplete_identity_outcome(
+        self,
+        ctx: _DeliveryContext,
+    ) -> DeliveryOutcome:
+        """Suppress a target that cannot hold a delivery identity.
+
+        Storage rejects incomplete identities for lifecycle reads and both
+        finalization commands, so an outbox row created for one could never
+        reach a terminal state and would be reclaimed forever. A target
+        without an adapter is permanently undeliverable; record that failure
+        and stop before capacity acquisition or outbox creation.
+        """
+        error = (
+            f"incomplete delivery identity: target_adapter={ctx.adapter_id!r}; "
+            "a target without an adapter cannot enter the outbox lifecycle"
+        )
+        self._log.warning(
+            "Suppressing delivery with incomplete identity: "
+            "route_id=%s event_id=%s plan_id=%s target_adapter=%r",
+            ctx.route.id,
+            ctx.event.event_id,
+            ctx.plan.plan_id,
+            ctx.adapter_id,
+        )
+        receipt = await self._persist_suppression(
+            ctx,
+            failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
+            error=error,
+        )
+        return self._build_outcome(
+            ctx,
+            status="skipped",
+            failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
+            receipt=receipt,
+            error=error,
+        )
 
     async def _preflight_outcome(
         self,
@@ -419,9 +480,6 @@ class DeliveryCoordinator:
         prior_accepted = any(
             receipt.source == "replay"
             and receipt.replay_run_id == ctx.replay_run_id
-            and receipt.delivery_plan_id == ctx.plan.plan_id
-            and receipt.target_adapter == ctx.adapter_id
-            and (receipt.target_channel or None) == (ctx.target.channel or None)
             and receipt.status in {"queued", "sent"}
             for receipt in replay_receipts
         )
@@ -930,7 +988,9 @@ class DeliveryCoordinator:
         if receipt is None or receipt.sequence > 0:
             return receipt
         try:
-            receipts = await self._storage.list_receipts_for_event(receipt.event_id)
+            receipts = await self._storage.list_receipts_for_delivery(
+                delivery_identity(receipt)
+            )
         except Exception:
             self._log.debug(
                 "Failed to reload persisted delivery receipt: receipt_id=%s",

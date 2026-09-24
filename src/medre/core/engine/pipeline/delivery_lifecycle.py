@@ -86,6 +86,7 @@ from medre.core.contracts.adapter import (
     OutboundDeliveryObservationRecord,
     OutboundNativeRefRecord,
 )
+from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_state import (
     is_terminal_outbox_status as _is_terminal_outbox_status,
@@ -105,7 +106,11 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
     RetryPolicy,
 )
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    QueuedDeliveryFinalization,
+    TerminalOutboxFinalization,
+)
 
 # ---------------------------------------------------------------------------
 # Logger
@@ -147,45 +152,26 @@ class DeliveryLifecycleStorage(Protocol):
         """
         ...
 
-    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]: ...
-
-    async def list_receipts_for_plan(
+    async def list_receipts_for_delivery(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
-        """List one event's plan receipts.
-
-        Plan IDs can recur across events, so event scope is mandatory.
-        """
+        """List immutable receipt history for one complete delivery identity."""
         ...
 
     async def finalize_queued_delivery(
         self,
-        native_ref: NativeMessageRef,
-        receipt: DeliveryReceipt,
-        *,
-        outbox_id: str,
-        attempt_number: int,
-    ) -> bool: ...
+        command: QueuedDeliveryFinalization,
+    ) -> bool:
+        """Commit sent evidence and the guarded outbox transition atomically.
+
+        Return ``False`` if the outbox generation can no longer be finalized.
+        """
+        ...
 
     async def finalize_outbox_terminal(
         self,
-        receipt: DeliveryReceipt,
-        *,
-        attempt_receipt: DeliveryReceipt | None = None,
-        outbox_id: str,
-        attempt_number: int,
-        terminal_status: str,
-        event_id: str,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None,
-        failure_kind: str | None = None,
-        error_summary: str | None = None,
-        expected_worker_id: str | None = None,
+        command: TerminalOutboxFinalization,
     ) -> bool:
         """Atomically append terminal evidence and advance outbox authority."""
         ...
@@ -1073,8 +1059,9 @@ class DeliveryLifecycleService:
         Finally, the method builds the outbound native ref and immutable sent
         receipt, then asks storage to commit those facts together with the
         exact outbox ``queued|in_progress -> sent`` transition in one
-        transaction. The storage transaction re-checks outbox ID, attempt
-        number, and status so a concurrent reclaim cannot partially commit.
+        transaction. The storage transaction re-checks the complete delivery
+        identity, outbox ID, attempt number, and status so a concurrent reclaim
+        or sibling-target mismatch cannot partially commit.
 
         If no matching ``"queued"`` receipt is found (e.g. a non-queued
         adapter), the method returns silently.
@@ -1088,18 +1075,6 @@ class DeliveryLifecycleService:
         now:
             Timestamp for the new receipt.
         """
-        try:
-            existing = await storage.list_receipts_for_event(record.event_id)
-        except Exception:
-            self._log.exception(
-                "Failed to list receipts for supplemental queued->sent: "
-                "event_id=%s adapter=%s native_channel_id=%s",
-                record.event_id,
-                record.adapter,
-                record.native_channel_id,
-            )
-            return
-
         queued_receipt: DeliveryReceipt | None = None
         # Track the validated outbox item for exact transition below.
         validated_outbox: DeliveryOutboxItem | None = None
@@ -1213,6 +1188,27 @@ class DeliveryLifecycleService:
                     outbox_item.attempt_number,
                     outbox_item.active_attempt,
                     record.event_id,
+                )
+                return
+
+            # Historical lookup is scoped to the complete lifecycle identity
+            # carried by the authoritative outbox row.  Event-wide scans can
+            # merge sibling channels or targets and make exact callback
+            # correlation depend on later ad-hoc filtering.
+            try:
+                existing = await storage.list_receipts_for_delivery(
+                    delivery_identity(outbox_item)
+                )
+            except Exception:
+                self._log.exception(
+                    "Failed to list delivery receipt history for supplemental "
+                    "queued->sent: outbox_id=%s event_id=%s plan_id=%s "
+                    "adapter=%s channel=%s",
+                    record.outbox_id,
+                    outbox_item.event_id,
+                    outbox_item.delivery_plan_id,
+                    outbox_item.target_adapter,
+                    outbox_item.target_channel,
                 )
                 return
 
@@ -1336,7 +1332,11 @@ class DeliveryLifecycleService:
             id=f"nref-outbound-{uuid.uuid4()}",
             event_id=record.event_id,
             adapter=record.adapter,
-            native_channel_id=record.native_channel_id,
+            native_channel_id=(
+                record.native_channel_id
+                if record.native_channel_id is not None
+                else validated_outbox.target_channel
+            ),
             native_message_id=record.native_message_id,
             native_thread_id=record.native_thread_id,
             native_relation_id=record.native_relation_id,
@@ -1345,10 +1345,10 @@ class DeliveryLifecycleService:
             created_at=now,
         )
         committed = await storage.finalize_queued_delivery(
-            native_ref,
-            supplemental,
-            outbox_id=validated_outbox.outbox_id,
-            attempt_number=supplemental.attempt_number,
+            QueuedDeliveryFinalization(
+                native_ref=native_ref,
+                receipt=supplemental,
+            )
         )
         if not committed:
             self._log.warning(
@@ -1654,17 +1654,10 @@ class DeliveryLifecycleService:
                     failure_kind=terminal_kind,
                 )
                 committed = await storage.finalize_outbox_terminal(
-                    lifecycle_receipt,
-                    outbox_id=item.outbox_id,
-                    attempt_number=attempt_number,
-                    terminal_status="dead_lettered",
-                    event_id=item.event_id,
-                    delivery_plan_id=item.delivery_plan_id,
-                    target_adapter=item.target_adapter,
-                    target_channel=item.target_channel,
-                    failure_kind=terminal_kind,
-                    error_summary=error_summary,
-                    expected_worker_id=item.worker_id,
+                    TerminalOutboxFinalization(
+                        lifecycle_receipt=lifecycle_receipt,
+                        expected_worker_id=item.worker_id,
+                    )
                 )
                 receipt_id = lifecycle_receipt.receipt_id
             else:
@@ -1812,11 +1805,7 @@ class DeliveryLifecycleService:
         ``None`` means no uncommitted attempt evidence exists and normal
         retry delivery may proceed.
         """
-        receipts = await storage.list_receipts_for_plan(
-            item.delivery_plan_id,
-            item.target_adapter,
-            event_id=item.event_id,
-        )
+        receipts = await storage.list_receipts_for_delivery(delivery_identity(item))
         if item.active_attempt is not None:
             evidence = self._retry_attempt_evidence(receipts, item, item.active_attempt)
             if evidence is not None:
@@ -1942,11 +1931,7 @@ class DeliveryLifecycleService:
         reconciliation will repair persisted attempt evidence before resend.
         """
         resolved_attempt = self._resolve_retry_attempt(item, attempt_number)
-        receipts = await storage.list_receipts_for_plan(
-            item.delivery_plan_id,
-            item.target_adapter,
-            event_id=item.event_id,
-        )
+        receipts = await storage.list_receipts_for_delivery(delivery_identity(item))
         evidence = self._retry_attempt_evidence(receipts, item, resolved_attempt)
         failure_kind = self._classify_retry_exception(error)
         error_summary = f"{type(error).__name__}: {error}"
@@ -2086,11 +2071,7 @@ class DeliveryLifecycleService:
         if current.active_attempt is not None or current.receipt_id is None:
             return None
 
-        receipts = await storage.list_receipts_for_plan(
-            item.delivery_plan_id,
-            item.target_adapter,
-            event_id=item.event_id,
-        )
+        receipts = await storage.list_receipts_for_delivery(delivery_identity(item))
         committed_receipt = next(
             (
                 candidate
@@ -2215,17 +2196,10 @@ class DeliveryLifecycleService:
                         f"{authority.status!r}"
                     )
                 committed = await storage.finalize_outbox_terminal(
-                    authority,
-                    outbox_id=outbox_id,
-                    attempt_number=authority.attempt_number,
-                    terminal_status=authority.status,
-                    event_id=authority.event_id,
-                    delivery_plan_id=authority.delivery_plan_id,
-                    target_adapter=authority.target_adapter,
-                    target_channel=authority.target_channel,
-                    failure_kind=(failure_kind.value if failure_kind else None),
-                    error_summary=error_summary,
-                    expected_worker_id=expected_worker_id,
+                    TerminalOutboxFinalization(
+                        lifecycle_receipt=authority,
+                        expected_worker_id=expected_worker_id,
+                    )
                 )
 
             elif attempt is not None and attempt.status == "queued":

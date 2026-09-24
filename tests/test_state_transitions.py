@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
@@ -212,8 +213,8 @@ class TestReceiptAppendOnlyInvariant:
             )
 
         # Verify originals are unchanged in storage.
-        stored = await outbox_temp_storage.list_receipts_for_plan(
-            "plan-ao", "fake_presentation", event_id="__outbox_default__"
+        stored = await outbox_temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("__outbox_default__", "plan-ao", "fake_presentation", None)
         )
         # Filter to just our original receipt_ids.
         stored_by_id = {r.receipt_id: r for r in stored}
@@ -267,8 +268,8 @@ class TestReceiptFailedToDeadLettered:
         await outbox_temp_storage.append_receipt(dead_lettered)
 
         # Verify the linkage.
-        receipts = await outbox_temp_storage.list_receipts_for_plan(
-            "plan-dl", "fake_presentation", event_id="__outbox_default__"
+        receipts = await outbox_temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("__outbox_default__", "plan-dl", "fake_presentation", None)
         )
         by_id = {r.receipt_id: r for r in receipts}
 

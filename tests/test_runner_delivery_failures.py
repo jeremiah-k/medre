@@ -337,3 +337,50 @@ def _dummy_receipt(event_id: str, plan_id: str) -> object:
         ),
         attempt_number=1,
     )
+
+
+# ===================================================================
+# Incomplete delivery identity suppression
+# ===================================================================
+
+
+class TestIncompleteIdentitySuppression:
+    """A target without an adapter is suppressed before outbox creation.
+
+    Storage rejects incomplete delivery identities for lifecycle reads and
+    finalization commands, so an outbox row for one could never reach a
+    terminal state. The coordinator must stop the delivery before capacity
+    acquisition and record the permanent failure instead.
+    """
+
+    async def test_adapterless_target_is_suppressed_without_outbox_row(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        runner = _make_runner(temp_storage)
+        event = make_event(event_id="evt-no-adapter", source_adapter="src")
+        await temp_storage.append(event)
+        route = _make_route()
+        plan = DeliveryPlan(
+            plan_id="plan-no-adapter",
+            event_id=event.event_id,
+            target=RouteTarget(adapter=None),
+            primary_strategy=DeliveryStrategy(method="direct"),
+        )
+
+        outcomes = await runner.deliver_to_targets(event, [(route, plan)])
+
+        assert len(outcomes) == 1
+        outcome = outcomes[0]
+        assert outcome.status == "skipped"
+        assert outcome.failure_kind == DeliveryFailureKind.ADAPTER_MISSING
+        assert outcome.target_adapter == ""
+
+        receipts = await temp_storage.list_receipts_for_event(event.event_id)
+        assert any(
+            receipt.status == "suppressed" and receipt.failure_kind == "adapter_missing"
+            for receipt in receipts
+        )
+
+        outbox_rows = await temp_storage.list_outbox_items_for_event(event.event_id)
+        assert outbox_rows == []

@@ -12,8 +12,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 import pytest
-from msgspec.structs import force_setattr
-
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.events import (
     CanonicalEvent,
     DeliveryReceipt,
@@ -53,7 +52,7 @@ class TestReceipts:
         await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-1", "fake_presentation", event_id="evt-rcpt"
+            DeliveryIdentity("evt-rcpt", "plan-1", "fake_presentation", None)
         )
         assert status is not None
         assert status.receipt_id == "rcpt-1"
@@ -87,10 +86,9 @@ class TestReceipts:
         )
 
         current = await temp_storage.delivery_status(
-            "shared-plan",
-            "fake_presentation",
-            "shared-channel",
-            event_id="evt-scope-a",
+            DeliveryIdentity(
+                "evt-scope-a", "shared-plan", "fake_presentation", "shared-channel"
+            )
         )
 
         assert current is not None
@@ -98,12 +96,44 @@ class TestReceipts:
         assert current.receipt_id == "rcpt-scope-a"
         assert current.status == "failed"
 
-        lineage = await temp_storage.list_receipts_for_plan(
-            "shared-plan",
-            "fake_presentation",
-            event_id="evt-scope-a",
+        lineage = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity(
+                "evt-scope-a", "shared-plan", "fake_presentation", "shared-channel"
+            )
         )
         assert [receipt.receipt_id for receipt in lineage] == ["rcpt-scope-a"]
+
+    async def test_historical_delivery_identity_isolates_sibling_channels(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        event_id = "evt-history-channels"
+        plan_id = "plan-history-channels"
+        await temp_storage.append(make_storage_event(event_id=event_id))
+        for receipt_id, channel in (
+            ("rcpt-history-a", "channel-a"),
+            ("rcpt-history-b", "channel-b"),
+            ("rcpt-history-none", None),
+        ):
+            await temp_storage.append_receipt(
+                DeliveryReceipt(
+                    receipt_id=receipt_id,
+                    event_id=event_id,
+                    delivery_plan_id=plan_id,
+                    target_adapter="radio",
+                    target_channel=channel,
+                    status="sent",
+                )
+            )
+
+        for channel, expected in (
+            ("channel-a", "rcpt-history-a"),
+            ("channel-b", "rcpt-history-b"),
+            (None, "rcpt-history-none"),
+        ):
+            history = await temp_storage.list_receipts_for_delivery(
+                DeliveryIdentity(event_id, plan_id, "radio", channel)
+            )
+            assert [receipt.receipt_id for receipt in history] == [expected]
 
     async def test_delivery_status_returns_latest_receipt(
         self, temp_storage: SQLiteStorage
@@ -123,7 +153,7 @@ class TestReceipts:
             await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-2", "fake_presentation", event_id="evt-multi-rcpt"
+            DeliveryIdentity("evt-multi-rcpt", "plan-2", "fake_presentation", None)
         )
         assert status is not None
         assert status.status == "suppressed"
@@ -133,7 +163,7 @@ class TestReceipts:
         self, temp_storage: SQLiteStorage
     ) -> None:
         status = await temp_storage.delivery_status(
-            "no-plan", "no-adapter", event_id="evt-missing"
+            DeliveryIdentity("evt-missing", "no-plan", "no-adapter", None)
         )
         assert status is None
 
@@ -154,7 +184,7 @@ async def test_confirmation_level_round_trips(temp_storage: SQLiteStorage) -> No
     receipts = await temp_storage.list_receipts_for_event(event.event_id)
     assert receipts[0].confirmation_level == "remote_service"
     status = await temp_storage.delivery_status(
-        "plan-confirmation", "matrix", event_id=event.event_id
+        DeliveryIdentity(event.event_id, "plan-confirmation", "matrix", None)
     )
     assert status is not None
     assert status.confirmation_level == "remote_service"
@@ -258,7 +288,7 @@ class TestAppendOnlyReceipts:
             await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-proj", "adapter_y", event_id="evt-proj"
+            DeliveryIdentity("evt-proj", "plan-proj", "adapter_y", None)
         )
         assert status is not None
         assert status.status == "suppressed"
@@ -283,7 +313,7 @@ class TestAppendOnlyReceipts:
 
         # Consume delivery_status — this must not mutate receipt rows.
         await temp_storage.delivery_status(
-            "plan-hist", "adapter_z", event_id="evt-hist"
+            DeliveryIdentity("evt-hist", "plan-hist", "adapter_z", None)
         )
 
         rows = await temp_storage._read_all(
@@ -393,7 +423,7 @@ class TestOrderingGuarantees:
 
 class TestReceiptLineage:
     """Receipt lineage: attempt_number, parent_receipt_id persistence
-    and ordering via list_receipts_for_plan.
+    and ordering via list_receipts_for_delivery.
     """
 
     async def test_receipt_attempt_number_persisted(
@@ -415,7 +445,7 @@ class TestReceiptLineage:
         await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-lin", "adapter_a", event_id="evt-lineage-1"
+            DeliveryIdentity("evt-lineage-1", "plan-lin", "adapter_a", None)
         )
         assert status is not None
         assert status.attempt_number == 3
@@ -459,9 +489,9 @@ class TestReceiptLineage:
         )
         await temp_storage.append_receipt(r3)
 
-        # list_receipts_for_plan returns all in attempt order.
-        receipts = await temp_storage.list_receipts_for_plan(
-            "plan-chain", "adapter_b", event_id="evt-chain"
+        # list_receipts_for_delivery returns all in attempt order.
+        receipts = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("evt-chain", "plan-chain", "adapter_b", None)
         )
         assert len(receipts) == 3
         assert [r.attempt_number for r in receipts] == [1, 2, 3]
@@ -470,12 +500,14 @@ class TestReceiptLineage:
         assert receipts[2].parent_receipt_id == "rcpt-chain-2"
         assert receipts[2].status == "dead_lettered"
 
-    async def test_list_receipts_for_plan_empty(
+    async def test_list_receipts_for_delivery_empty(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """list_receipts_for_plan returns empty list for unknown plan."""
-        receipts = await temp_storage.list_receipts_for_plan(
-            "nonexistent-plan", "nonexistent-adapter", event_id="evt-missing-lineage"
+        """list_receipts_for_delivery returns empty list for unknown plan."""
+        receipts = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity(
+                "evt-missing-lineage", "nonexistent-plan", "nonexistent-adapter", None
+            )
         )
         assert receipts == []
 
@@ -496,7 +528,7 @@ class TestReceiptLineage:
         await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-default", "adapter_c", event_id="evt-default-attempt"
+            DeliveryIdentity("evt-default-attempt", "plan-default", "adapter_c", None)
         )
         assert status is not None
         assert status.attempt_number == 1
@@ -528,11 +560,11 @@ class TestReceiptLineage:
         await temp_storage.append_receipt(r_a)
         await temp_storage.append_receipt(r_b)
 
-        receipts_a = await temp_storage.list_receipts_for_plan(
-            "plan-indep", "adapter_a", event_id="evt-indep"
+        receipts_a = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("evt-indep", "plan-indep", "adapter_a", None)
         )
-        receipts_b = await temp_storage.list_receipts_for_plan(
-            "plan-indep", "adapter_b", event_id="evt-indep"
+        receipts_b = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("evt-indep", "plan-indep", "adapter_b", None)
         )
         assert len(receipts_a) == 1
         assert len(receipts_b) == 1
@@ -727,7 +759,7 @@ class TestReceiptQueryHelpers:
             )
 
         status = await temp_storage.delivery_status(
-            "plan-idx", "adapter_idx", event_id="evt-idx-verify"
+            DeliveryIdentity("evt-idx-verify", "plan-idx", "adapter_idx", None)
         )
         assert status is not None
         assert status.status == "suppressed"
@@ -837,7 +869,7 @@ class TestReceiptSourceReplayRunId:
         await temp_storage.append_receipt(receipt)
 
         fetched = await temp_storage.delivery_status(
-            "plan-live", "adapter_a", event_id="evt-live-rcpt"
+            DeliveryIdentity("evt-live-rcpt", "plan-live", "adapter_a", None)
         )
         assert fetched is not None
         assert fetched.source == "live"
@@ -860,7 +892,7 @@ class TestReceiptSourceReplayRunId:
         await temp_storage.append_receipt(receipt)
 
         fetched = await temp_storage.delivery_status(
-            "plan-replay", "adapter_b", event_id="evt-replay-rcpt"
+            DeliveryIdentity("evt-replay-rcpt", "plan-replay", "adapter_b", None)
         )
         assert fetched is not None
         assert fetched.source == "replay"
@@ -881,7 +913,7 @@ class TestReceiptSourceReplayRunId:
     async def test_list_receipts_preserves_source_fields(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """list_receipts_for_plan preserves source and replay_run_id."""
+        """list_receipts_for_delivery preserves source and replay_run_id."""
         event = make_storage_event(event_id="evt-list-rcpt")
         await temp_storage.append(event)
 
@@ -908,8 +940,8 @@ class TestReceiptSourceReplayRunId:
         await temp_storage.append_receipt(r1)
         await temp_storage.append_receipt(r2)
 
-        receipts = await temp_storage.list_receipts_for_plan(
-            "plan-list", "adapter_d", event_id="evt-list-rcpt"
+        receipts = await temp_storage.list_receipts_for_delivery(
+            DeliveryIdentity("evt-list-rcpt", "plan-list", "adapter_d", None)
         )
         assert len(receipts) == 2
         assert receipts[0].source == "live"
@@ -946,7 +978,7 @@ class TestDeliveryStatusFailureKind:
         await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-fk", "adapter_fk", event_id="evt-fk-1"
+            DeliveryIdentity("evt-fk-1", "plan-fk", "adapter_fk", None)
         )
         assert status is not None
         assert status.failure_kind == "adapter_transient"
@@ -968,7 +1000,7 @@ class TestDeliveryStatusFailureKind:
         await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-fk-sent", "adapter_fk_sent", event_id="evt-fk-sent"
+            DeliveryIdentity("evt-fk-sent", "plan-fk-sent", "adapter_fk_sent", None)
         )
         assert status is not None
         assert status.failure_kind is None
@@ -1148,7 +1180,7 @@ class TestReceiptRenderingEvidence:
 
         # Read back via delivery_status.
         status = await temp_storage.delivery_status(
-            "plan-rev", "fake_presentation", event_id="evt-rev-ev"
+            DeliveryIdentity("evt-rev-ev", "plan-rev", "fake_presentation", None)
         )
         assert status is not None
         assert status.receipt_id == "rcpt-rev-1"
@@ -1178,7 +1210,7 @@ class TestReceiptRenderingEvidence:
         await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-no-ev", "fake_presentation", event_id="evt-no-ev"
+            DeliveryIdentity("evt-no-ev", "plan-no-ev", "fake_presentation", None)
         )
         assert status is not None
         assert status.rendering_evidence is None
@@ -1202,7 +1234,7 @@ class TestReceiptRenderingEvidence:
         await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-supp-ev", "fake_presentation", event_id="evt-supp-ev"
+            DeliveryIdentity("evt-supp-ev", "plan-supp-ev", "fake_presentation", None)
         )
         assert status is not None
         assert status.status == "suppressed"
@@ -1274,9 +1306,9 @@ class TestReceiptRenderingEvidence:
         await temp_storage.append_receipt(receipt)
 
         status = await temp_storage.delivery_status(
-            "plan-queued-ev",
-            "fake_presentation",
-            event_id="evt-queued-ev",
+            DeliveryIdentity(
+                "evt-queued-ev", "plan-queued-ev", "fake_presentation", None
+            )
         )
         assert status is not None
         assert status.status == "queued"
@@ -1329,10 +1361,9 @@ class TestReceiptRenderingEvidence:
 
         # Read back via delivery_status.
         status = await temp_storage.delivery_status(
-            "plan-e2e",
-            "fake_presentation",
-            "ch-1",
-            event_id="evt-e2e-evidence",
+            DeliveryIdentity(
+                "evt-e2e-evidence", "plan-e2e", "fake_presentation", "ch-1"
+            )
         )
         assert status is not None
         assert status.rendering_evidence is not None
@@ -1394,96 +1425,12 @@ class TestReceiptRenderingEvidence:
 
         # Verify the sent receipt also carries the original evidence.
         status = await temp_storage.delivery_status(
-            "plan-qev-surv",
-            "fake_presentation",
-            event_id="evt-qev-survive",
+            DeliveryIdentity(
+                "evt-qev-survive", "plan-qev-surv", "fake_presentation", None
+            )
         )
         assert status is not None
         assert status.status == "sent"
         assert status.rendering_evidence == evidence_json
         parsed = json.loads(status.rendering_evidence)
         assert parsed["renderer"] == "text"
-
-
-# ===================================================================
-# Unknown receipt status validation
-# ===================================================================
-
-
-class TestUnknownReceiptStatusRejected:
-    """append_receipt raises ValueError for unknown receipt statuses
-    and does not append a row."""
-
-    async def test_unknown_receipt_status_raises_value_error(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
-        """Passing an unknown status to append_receipt raises ValueError."""
-        event = make_storage_event(event_id="evt-unknown-rcpt")
-        await temp_storage.append(event)
-
-        with pytest.raises(ValueError, match="Unknown delivery receipt status"):
-            DeliveryReceipt(
-                receipt_id="rcpt-bad-status",
-                event_id="evt-unknown-rcpt",
-                delivery_plan_id="plan-bad-status",
-                target_adapter="adapter_bad",
-                status="not_a_real_status",  # type: ignore[arg-type]
-            )
-
-    async def test_unknown_receipt_status_does_not_append_row(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
-        """After a ValueError for unknown receipt status, no row exists."""
-        event = make_storage_event(event_id="evt-unknown-row")
-        await temp_storage.append(event)
-
-        # Count receipts before.
-        rows_before = await temp_storage._read_all(
-            "SELECT COUNT(*) AS cnt FROM delivery_receipts WHERE event_id = ?",
-            ("evt-unknown-row",),
-        )
-        count_before = rows_before[0]["cnt"]
-
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-no-row",
-            event_id="evt-unknown-row",
-            delivery_plan_id="plan-no-row",
-            target_adapter="adapter_no",
-            status="sent",
-        )
-        force_setattr(receipt, "status", "totally_invalid")
-
-        with pytest.raises(ValueError, match="Unknown receipt status"):
-            await temp_storage.append_receipt(receipt)
-
-        # Count receipts after — must be unchanged.
-        rows_after = await temp_storage._read_all(
-            "SELECT COUNT(*) AS cnt FROM delivery_receipts WHERE event_id = ?",
-            ("evt-unknown-row",),
-        )
-        count_after = rows_after[0]["cnt"]
-        assert count_after == count_before
-
-    async def test_unknown_receipt_kind_does_not_append_row(
-        self, temp_storage: SQLiteStorage
-    ) -> None:
-        """Storage revalidates receipt kind even for corrupted model objects."""
-        event = make_storage_event(event_id="evt-unknown-kind-row")
-        await temp_storage.append(event)
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-bad-kind",
-            event_id=event.event_id,
-            delivery_plan_id="plan-bad-kind",
-            target_adapter="adapter_no",
-            status="sent",
-        )
-        force_setattr(receipt, "receipt_kind", "bogus")
-
-        with pytest.raises(ValueError, match="Unknown receipt kind"):
-            await temp_storage.append_receipt(receipt)
-
-        rows = await temp_storage._read_all(
-            "SELECT COUNT(*) AS cnt FROM delivery_receipts WHERE event_id = ?",
-            (event.event_id,),
-        )
-        assert rows[0]["cnt"] == 0

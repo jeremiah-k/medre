@@ -7,9 +7,9 @@ structures and returns a list of :class:`OrphanFinding`.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable
 
-from medre.core.delivery_authority import DeliveryAuthorityResolver
+from medre.core.delivery_authority import ResolvedDeliverySnapshot
 
 from .helpers import (
     _NON_TERMINAL_OUTBOX,
@@ -17,15 +17,7 @@ from .helpers import (
     _TERMINAL_OUTBOX,
 )
 from .helpers import _TERMINAL_RECEIPT as _TERMINAL_RECEIPT_FOR_MISMATCH
-from .helpers import (
-    _ensure_aware,
-    _get,
-    _parse_iso_timestamp,
-    _safe_record_id,
-    _target_key,
-    _TargetKey,
-    _to_iso,
-)
+from .helpers import _ensure_aware, _get, _parse_iso_timestamp, _safe_record_id, _to_iso
 from .types import (
     KIND_ATTEMPT_COUNT_REGRESSION,
     KIND_NEXT_RETRY_IN_PAST,
@@ -81,16 +73,15 @@ _NORMAL_NON_TERMINAL_COMBOS = frozenset(
 
 
 def _check_target_mismatches(
-    outbox_by_key: dict[_TargetKey, Any],
-    authority: DeliveryAuthorityResolver[Any],
-    all_keys: list[_TargetKey],
+    snapshots: Iterable[ResolvedDeliverySnapshot[Any]],
 ) -> list[OrphanFinding]:
-    """Detect terminal/non-terminal and status mismatches between outbox and receipt."""
+    """Detect terminal/non-terminal and status mismatches from resolved deliveries."""
     findings: list[OrphanFinding] = []
 
-    for key in all_keys:
-        obx = outbox_by_key.get(key)
-        current_rec = authority.current(key)
+    for snapshot in snapshots:
+        key = snapshot.identity
+        obx = snapshot.current_outbox
+        current_rec = snapshot.authoritative_receipt
 
         has_outbox = obx is not None
         has_receipt = current_rec is not None
@@ -307,55 +298,41 @@ def _check_retry_wait_outboxes(
 
 
 def _check_retryable_without_metadata(
-    receipt_list: list[Any],
-    outbox_by_key: dict[_TargetKey, Any],
+    snapshots: Iterable[ResolvedDeliverySnapshot[Any]],
 ) -> list[OrphanFinding]:
-    """Check failed receipts with transient failure_kind but missing retry metadata."""
+    """Check retryable failed receipts against the resolved delivery state."""
     findings: list[OrphanFinding] = []
 
-    for rec in receipt_list:
-        rec_status = str(_get(rec, "status", "") or "").lower()
-        if rec_status != "failed":
-            continue
-
-        receipt_id = _safe_record_id(_get(rec, "receipt_id"))
-
-        # Determine if the receipt looks retryable
-        failure_kind = str(_get(rec, "failure_kind", "") or "").lower()
-        is_transient = failure_kind == "adapter_transient"
-
-        # Check if there's a matching non-terminal outbox for this receipt's target
-        key = _target_key(rec)
-        obx = outbox_by_key.get(key)
-        has_matching_non_terminal_outbox = (
+    for snapshot in snapshots:
+        obx = snapshot.current_outbox
+        has_non_terminal_outbox = (
             obx is not None
             and str(_get(obx, "status", "") or "").lower() in _NON_TERMINAL_OUTBOX
         )
+        for rec in snapshot.receipts:
+            rec_status = str(_get(rec, "status", "") or "").lower()
+            if rec_status != "failed":
+                continue
 
-        is_retryable = is_transient or has_matching_non_terminal_outbox
-        if not is_retryable:
-            continue
+            receipt_id = _safe_record_id(_get(rec, "receipt_id"))
+            failure_kind = str(_get(rec, "failure_kind", "") or "").lower()
+            if failure_kind != "adapter_transient" and not has_non_terminal_outbox:
+                continue
 
-        # Check for missing retry metadata
-        next_retry_at = _get(rec, "next_retry_at")
-        has_next_retry = bool(next_retry_at)
+            missing_fields: list[str] = []
+            if not _get(rec, "next_retry_at"):
+                missing_fields.append("next_retry_at")
+            for field_name in _RETRY_POLICY_FIELDS:
+                val = _get(rec, field_name)
+                if val is None or val == "":
+                    missing_fields.append(field_name)
 
-        missing_fields: list[str] = []
-        if not has_next_retry:
-            missing_fields.append("next_retry_at")
-        for field_name in _RETRY_POLICY_FIELDS:
-            val = _get(rec, field_name)
-            if val is None or val == "":
-                missing_fields.append(field_name)
-
-        if missing_fields:
-            rid = receipt_id
-            if rid:
+            if receipt_id and missing_fields:
                 findings.append(
                     OrphanFinding(
                         kind=KIND_RETRYABLE_WITHOUT_RETRY_METADATA,
                         severity="degraded",
-                        record_id=rid,
+                        record_id=receipt_id,
                         record_type="receipt",
                         details=(
                             f"Failed receipt {receipt_id!r} appears retryable "
@@ -436,12 +413,13 @@ def _check_stalled_delivery_plans(
 
 
 def _check_attempt_count_regression(
-    receipts_by_key: dict[_TargetKey, list[Any]],
+    snapshots: Iterable[ResolvedDeliverySnapshot[Any]],
 ) -> list[OrphanFinding]:
     """Check for attempt_number decreasing in later receipts."""
     findings: list[OrphanFinding] = []
 
-    for _key, recs in receipts_by_key.items():
+    for snapshot in snapshots:
+        recs = snapshot.receipts
         if len(recs) < 2:
             continue
 
@@ -490,12 +468,13 @@ def _check_attempt_count_regression(
 
 
 def _check_receipt_sequence_gap(
-    receipts_by_key: dict[_TargetKey, list[Any]],
+    snapshots: Iterable[ResolvedDeliverySnapshot[Any]],
 ) -> list[OrphanFinding]:
     """Check for gaps in receipt sequence numbers."""
     findings: list[OrphanFinding] = []
 
-    for _key, recs in receipts_by_key.items():
+    for snapshot in snapshots:
+        recs = snapshot.receipts
         if len(recs) < 2:
             continue
 

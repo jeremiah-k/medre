@@ -12,7 +12,11 @@ from dataclasses import dataclass
 import pytest
 
 from medre.core.events import DeliveryReceipt
-from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    StorageError,
+    TerminalOutboxFinalization,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.conformance.test_delivery_lifecycle_conformance import _MemoryStorage
 from tests.helpers.storage_outbox import admit_event
@@ -301,17 +305,10 @@ async def test_terminal_finalization_is_atomic_and_same_attempt(
     )
 
     committed = await lifecycle_storage.finalize_outbox_terminal(  # type: ignore[attr-defined]
-        terminal,
-        attempt_receipt=attempt,
-        outbox_id=item.outbox_id,
-        attempt_number=1,
-        terminal_status="dead_lettered",
-        event_id=event_id,
-        delivery_plan_id="plan-model",
-        target_adapter="radio",
-        target_channel="mesh",
-        failure_kind="adapter_permanent",
-        error_summary="transport failed",
+        TerminalOutboxFinalization(
+            lifecycle_receipt=terminal,
+            attempt_receipt=attempt,
+        )
     )
     assert committed
     assert await _receipt_ids(lifecycle_storage, event_id) == [
@@ -340,17 +337,10 @@ async def test_terminal_identity_mismatch_commits_nothing(
         channel="other-channel",
     )
 
-    with pytest.raises(ValueError):
-        await lifecycle_storage.finalize_outbox_terminal(  # type: ignore[attr-defined]
-            terminal,
-            outbox_id=item.outbox_id,
-            attempt_number=1,
-            terminal_status="cancelled",
-            event_id=event_id,
-            delivery_plan_id="plan-model",
-            target_adapter="radio",
-            target_channel="mesh",
-        )
+    committed = await lifecycle_storage.finalize_outbox_terminal(  # type: ignore[attr-defined]
+        TerminalOutboxFinalization(lifecycle_receipt=terminal)
+    )
+    assert not committed
 
     assert await _receipt_ids(lifecycle_storage, event_id) == []
     assert (await _snapshot(lifecycle_storage, item.outbox_id)).status == "in_progress"
@@ -383,14 +373,7 @@ async def test_stale_terminal_attempt_after_new_reservation_commits_nothing(
     )
 
     committed = await lifecycle_storage.finalize_outbox_terminal(  # type: ignore[attr-defined]
-        stale,
-        outbox_id=item.outbox_id,
-        attempt_number=1,
-        terminal_status="abandoned",
-        event_id=event_id,
-        delivery_plan_id="plan-model",
-        target_adapter="radio",
-        target_channel="mesh",
+        TerminalOutboxFinalization(lifecycle_receipt=stale)
     )
     assert not committed
     assert await _receipt_ids(lifecycle_storage, event_id) == []

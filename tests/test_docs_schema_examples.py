@@ -296,13 +296,7 @@ class TestEvidenceBundleSchemaNewFields:
             "recovery_summary": None,
             "runtime_started": False,
             "schema_version": 1,
-            "sections": {
-                "config_summary": {
-                    "status": "passed",
-                    "error": None,
-                    "data": {"adapter_count": 0},
-                },
-            },
+            "sections": {},
             "shutdown_evidence": None,
             "status": "passed",
         }

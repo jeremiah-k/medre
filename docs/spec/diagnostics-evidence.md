@@ -298,7 +298,7 @@ The `collect_evidence_bundle()` function assembles a comprehensive evidence bund
 | `status`                       | `str`          | Overall status: `"passed"`, `"partial"`, or `"error"`.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `sections`                     | `dict`         | Per-section evidence data (see § 7.1).                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `errors`                       | `list[str]`    | Accumulated error strings from section collection.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `limitations`                  | `list[str]`    | Fixed list of evidence limitations (see § 7.2).                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `limitations`                  | `list[str]`    | Fixed list of evidence limitations (see § 7.3).                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `collected_at`                 | `str`          | ISO 8601 timestamp of collection.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `generated_at`                 | `str`          | ISO 8601 timestamp of bundle generation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `command`                      | `str`          | Always `"evidence"`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -324,15 +324,20 @@ The dual-location pattern exists for operator convenience — the top-level keys
 
 ### 7.1 Sections
 
-Each section follows the pattern `{"status": str, "error": str or None, "data": Any or None}`.
+Each section uses a closed machine envelope. The only envelope keys are
+`status`, `error`, `data`, and the skipped-only `note`. `passed` sections MUST
+carry object `data` and `error=null`; `error` sections MUST carry `data=null` and
+a string `error`; `skipped` sections MUST carry `data=null`, `error=null`, and a
+non-empty `note`; `partial` sections MUST carry a string `error` and MAY retain
+partial object data or use `null`. Extra envelope fields are invalid.
 
 | Section                | Statuses                                        | Semantics                                                                                        |
 | ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `config_summary`       | `"passed"`, `"error"`                           | Loaded config metadata, adapter counts, route counts.                                            |
-| `route_validation`     | `"passed"`, `"partial"`, `"error"`              | Route eligibility validation results.                                                            |
-| `diagnostics_snapshot` | `"passed"`, `"error"`                           | Build-time diagnostics snapshot (no runtime start).                                              |
+| `config_summary`       | `"passed"`, `"error"`, `"skipped"`              | Loaded config metadata, adapter counts, route counts.                                            |
+| `route_validation`     | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Route eligibility validation results.                                                            |
+| `diagnostics_snapshot` | `"passed"`, `"error"`, `"skipped"`              | Build-time diagnostics snapshot (no runtime start).                                              |
 | `live_health`          | `"passed"`, `"partial"`, `"skipped"`            | Live adapter health after `refresh_live_health()`. Skipped unless requested.                     |
-| `storage`              | `"passed"`, `"partial"`, `"error"`              | Storage backend evidence: receipts, post-handoff observations, incident summaries, outbox state. |
+| `storage`              | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Storage backend evidence: receipts, post-handoff observations, incident summaries, outbox state. |
 | `recovery`             | `"passed"`, `"partial"`, `"error"`, `"skipped"` | Startup recovery ownership diagnostics and ledger data.                                          |
 
 Status computation:
@@ -340,7 +345,22 @@ Status computation:
 - All sections `"passed"` or `"skipped"` → overall `"passed"`.
 - Any section `"partial"` or mixed `"error"`/`"skipped"` → overall `"partial"`.
 
-### 7.2 Fixed Limitations
+### 7.2 Machine schema and payload closure
+
+`docs/schemas/evidence-bundle.schema.json` is the normative machine schema for
+the runtime `medre evidence` dict. The schema closes the section envelopes and
+the top-level payload shapes for `config_summary`, `route_validation`,
+`storage`, and `recovery`. Nested domain reports keep their dedicated schemas or
+model contracts. The schema example and runtime-generated config-backed,
+storage-path, and config-error bundles MUST validate against the same schema.
+
+The machine schema is independent of the per-event core `EvidenceBundle` model
+in §16. The two surfaces serve different consumers; changing one MUST NOT
+silently reinterpret the other. `schema_version` is frozen at `1` during
+pre-release; incompatible machine-contract changes update the schema, example,
+and tests in the same change without advancing the version.
+
+### 7.3 Fixed Limitations
 
 The evidence bundle always includes these limitation statements:
 
@@ -734,15 +754,18 @@ Queue callbacks MUST carry both `outbox_id` and `attempt_number`. Callbacks miss
 When `outbox_id` is present on the outbound ref,
 `finalize_queued_delivery()` performs an exact match against the corresponding
 outbox item's `queued` receipt. This is deterministic regardless of how many
-overlapping deliveries share the same adapter and channel.
+overlapping deliveries share the same adapter and channel. The subsequent
+atomic storage commit receives one `QueuedDeliveryFinalization` command and
+re-fences the row by the full `(event, plan, adapter, channel, outbox, attempt)`
+identity before writing the native ref, sent receipt, or outbox transition.
 
 ### 15.3 Evidence Signals
 
 | Signal                             | Source                     | Meaning                                                                                                                                                      |
 | ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Supplemental `sent` receipt        | `finalize_queued_delivery` | Queued receipt was successfully correlated via `outbox_id` and finalized                                                                                     |
+| Supplemental `sent` receipt        | `finalize_queued_delivery` | Queued receipt was successfully correlated and the full-identity storage guard finalized                                                                     |
 | No supplemental receipt created    | `finalize_queued_delivery` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                                       |
-| Replay-lineage finalize            | `finalize_queued_delivery` | Replay-sourced queued receipt finalized via the exact row/attempt match; its replay lineage is carried onto the `sent` receipt (logged as debug)             |
+| Replay-lineage finalize            | `finalize_queued_delivery` | Replay-sourced queued receipt finalized via the exact row/attempt correlation plus full-identity storage fence; its replay lineage is carried onto `sent`    |
 | Missing outbox_id on callback      | `finalize_queued_delivery` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                                                           |
 | Missing attempt_number on callback | `finalize_queued_delivery` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                                                      |
 | Delivery-plan metadata absent      | `finalize_queued_delivery` | `delivery_plan_id` validation field absent on outbound ref; exact correlation proceeds via `outbox_id` + `attempt_number` but validation is degraded/skipped |
@@ -752,12 +775,13 @@ overlapping deliveries share the same adapter and channel.
 1. Queue callbacks MUST carry `outbox_id` and `attempt_number`. Callbacks missing `outbox_id` or `attempt_number` are hard-rejected (no receipt created, no heuristic fallback).
 2. `outbox_id` is used for exact receipt selection — the lifecycle service matches the outbox item's `queued` receipt directly. `delivery_plan_id` is NOT the correlation selector.
 3. `delivery_plan_id` is validated against the outbox item's `delivery_plan_id` when present. A mismatch causes the callback to be rejected. When absent, correlation proceeds via `outbox_id` but validation is skipped. Missing `delivery_plan_id` on an otherwise valid callback (outbox_id + attempt_number present and matching) is NOT a correlation failure — it is degraded validation metadata only.
-4. All ambiguous correlation skips and hard-rejections for missing `outbox_id` or `attempt_number` MUST log at warning level. Missing `delivery_plan_id` validation skips on otherwise valid callbacks MAY remain at debug level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, outbox_id, attempt_number, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
-5. The `delivery_plan_id` on `OutboundNativeRefRecord` is a validation field. It is not stored in `native_message_refs` storage and is not used for receipt selection.
-6. Local queue-acceptance evidence confirms that the local node accepted the
+4. After correlation, storage MUST derive delivery identity, outbox ID, and attempt generation from the immutable sent receipt in `QueuedDeliveryFinalization` and MUST compare the full event/plan/adapter/channel/outbox/attempt identity before committing.
+5. All ambiguous correlation skips and hard-rejections for missing `outbox_id` or `attempt_number` MUST log at warning level. Missing `delivery_plan_id` validation skips on otherwise valid callbacks MAY remain at debug level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, outbox_id, attempt_number, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
+6. The `delivery_plan_id` on `OutboundNativeRefRecord` is a validation field. It is not stored in `native_message_refs` storage and is not used for receipt selection.
+7. Local queue-acceptance evidence confirms that the local node accepted the
    packet. It does not confirm RF delivery. See § 11 for non-guarantees.
-7. A replay-sourced queued receipt (`source="replay"`) is finalized exactly like a live candidate when the callback matches the validated authoritative outbox row by exact `outbox_id` + `attempt_number`. The selected receipt's durable `source` / `replay_run_id` lineage is the trusted attempt provenance — the same recovery the terminal-failure path uses — and is carried onto the supplemental `sent` receipt. Replay-only selection is logged at debug level, never as a correlation warning. When malformed history offers duplicates across sources for the same row and attempt, non-replay candidates are preferred. Callbacks failing row validation — stale attempt, terminal or reclaimed row — are rejected regardless of candidate source.
-8. If `delivery_plan_id` is absent on a callback but `outbox_id` and `attempt_number` are present and valid, that is NOT a correlation failure. The callback is processed normally; only the delivery_plan_id validation is skipped.
+8. A replay-sourced queued receipt (`source="replay"`) is finalized exactly like a live candidate when the callback matches the validated authoritative outbox row by exact `outbox_id` + `attempt_number`. The selected receipt's durable `source` / `replay_run_id` lineage is the trusted attempt provenance — the same recovery the terminal-failure path uses — and is carried onto the supplemental `sent` receipt. Replay-only selection is logged at debug level, never as a correlation warning. When malformed history offers duplicates across sources for the same row and attempt, non-replay candidates are preferred. Callbacks failing row validation — stale attempt, terminal or reclaimed row — are rejected regardless of candidate source.
+9. If `delivery_plan_id` is absent on a callback but `outbox_id` and `attempt_number` are present and valid, that is NOT a correlation failure. The callback is processed normally; only the delivery_plan_id validation is skipped.
 
 ## 16. Evidence Bundle Model
 
@@ -965,12 +989,13 @@ The derivation logic uses the shared event-scoped delivery identity
 channels normalize to one identity. Route ID, source, and replay run ID are
 provenance on the selected evidence; they never split lifecycle identity.
 
-`DeliveryAuthorityResolver` selects the authoritative receipt: outbox-backed
-receipts are eligible only when a matching outbox generation commits their
-`receipt_id`; multiple committed outbox generations are ordered by dispatch
-generation; outbox-less receipts retain append-order authority. The ledger then
-reports current mutable outbox state and latest immutable dispatch-attempt
-evidence as separate facts.
+`DeliveryAuthorityResolver` resolves each identity to one
+`ResolvedDeliverySnapshot`: outbox-backed receipts are eligible only when a
+matching outbox generation commits their `receipt_id`; multiple committed
+outbox generations are ordered by dispatch generation; outbox-less receipts
+retain append-order authority. The same snapshot exposes current mutable outbox
+state, latest immutable dispatch-attempt evidence, and loaded causative evidence,
+so the ledger does not independently rebuild those joins.
 
 ### 19.3 Ledger Fields
 
@@ -1149,12 +1174,14 @@ Severity ordering: `safe` < `degraded` < `inconsistent`. The `worst_severity` fi
 ### 21.4 Classification Rules
 
 Targets are grouped by `(event_id, delivery_plan_id, target_adapter, target_channel)`. `event_id` is required for storage-wide convergence because plan IDs are not globally unique across events.
-Receipts linked to an outbox are eligible only when their own outbox row points
-at that `receipt_id`; outbox-less receipts are also eligible. The latest eligible
-receipt is selected deterministically by `(sequence DESC, created_at DESC,
-receipt_id DESC)`. A later receipt whose guarded outbox transition was rejected
+Convergence diagnostics consume the same `ResolvedDeliverySnapshot` read model
+as the delivery ledger. Outbox-backed receipts are eligible only when their exact
+outbox generation commits that `receipt_id`; committed generations are ranked
+from mutable outbox attempt state rather than from receipt claims. Outbox-less
+evidence retains durable append ordering. After each authority class chooses one
+candidate, append order determines which class most recently changed observable
+lifecycle state. A later receipt whose guarded outbox transition was rejected
 remains historical evidence.
-`attempt_number` records lineage and does not override lifecycle authority.
 
 **`safe`** classification:
 

@@ -168,8 +168,15 @@ The correlation strategy for `finalize_queued_delivery` is exact only:
 MUST NOT appear in rendered payloads sent to external platforms (Matrix,
 Meshtastic radio, MeshCore, LXMF). They are not public API.
 
-After correlation succeeds, storage MUST re-check the exact outbox attempt and
-atomically commit three facts: the outbound native-message reference, the new
+After correlation succeeds, storage receives one validated
+`QueuedDeliveryFinalization` command. The sent receipt is the source of the
+event-scoped delivery identity, outbox ID, and attempt generation; the outbound
+native reference must name the same event/adapter/normalized-channel/message. If
+the callback omits its channel after exact outbox correlation, core fills that
+field from the validated outbox target before constructing the command. Storage
+MUST then re-check the full
+`(event, plan, adapter, channel, outbox, attempt)` identity and atomically commit
+three facts: the outbound native-message reference, the new
 immutable `sent` receipt, and the outbox transition to `sent`. If the guarded
 outbox row is no longer finalizable, or any insert fails, none of those writes
 may commit. The unavoidable external-send-to-database boundary remains an
@@ -294,6 +301,14 @@ terminal lifecycle receipt, and the terminal outbox transition MUST commit in
 one guarded storage transaction. A stale callback therefore commits none of
 those writes.
 
+That transaction crosses the storage boundary as one validated
+`TerminalOutboxFinalization` command. The lifecycle receipt carries the exact
+delivery identity and generation being terminalized; status, identity, attempt,
+failure kind, and the bounded mutable outbox error summary are derived from it
+rather than repeated as independently mutable storage arguments. This keeps
+orchestration evidence and storage authority structurally incapable of
+disagreeing before the compare-and-set guard is evaluated.
+
 Adapters MUST NOT directly mutate outbox state. They report facts; the
 pipeline decides lifecycle transitions.
 
@@ -374,6 +389,13 @@ eligible by durable append order. `route_id`, receipt `source`, and
 `replay_run_id` are provenance, not lifecycle-identity dimensions. The pure
 `DeliveryAuthorityResolver` is the in-memory reference implementation; SQLite
 projections MUST conform to the same vectors.
+
+`ResolvedDeliverySnapshot` is the canonical in-memory read model for one full
+`DeliveryIdentity`. It carries immutable receipt history, every loaded outbox
+generation, the lifecycle-authoritative receipt, current operational outbox
+generation, latest dispatch-attempt evidence, and the loaded causative receipt.
+Diagnostics and operator projections consume this resolved value rather than
+independently joining receipt authority, outbox state, and attempt history.
 
 ---
 

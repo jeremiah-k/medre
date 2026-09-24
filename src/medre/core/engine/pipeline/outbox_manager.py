@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from medre.core.contracts.adapter import QueueTerminalRecord
+from medre.core.delivery_authority import delivery_identity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
@@ -26,7 +27,11 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.routing.models import Route, RouteTarget
-from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    StorageBackend,
+    TerminalOutboxFinalization,
+)
 
 # -- Constants --
 
@@ -321,13 +326,11 @@ class OutboxManager:
         This is the callback wired into
         :class:`AdapterContext.record_outbound_terminal`.
 
-        Creates a durable receipt recording the terminal outcome and
-        transitions the matching outbox item to the appropriate terminal
-        status atomically: the receipt and the outbox transition commit
-        together in one storage transaction or not at all.  Stale or
-        duplicate callbacks that lose to a competing attempt or state
-        change commit neither.  Adapters report facts; this method
-        (core/pipeline) decides the lifecycle authority mapping.
+        For an eligible callback, commits a terminal lifecycle receipt and
+        matching outbox transition atomically. A dead-lettered outcome also
+        commits failed-attempt evidence in that transaction. Stale or
+        duplicate callbacks commit nothing. Invalid callbacks and storage
+        errors return without raising to the adapter.
 
         Parameters
         ----------
@@ -511,16 +514,16 @@ class OutboxManager:
             # stored number).
             _attempt_number: int = effective_attempt
 
-            # Recover queued-receipt lineage: look up the queued receipt
-            # for the same (outbox_id, attempt_number) to inherit its
-            # source, replay_run_id, and parent_receipt_id so terminal
-            # outcomes preserve retry/replay lineage.
+            # Recover queued-receipt lineage from this exact delivery identity,
+            # then match the authoritative outbox generation.  Keeping sibling
+            # targets outside the query makes lineage ownership structural
+            # rather than an ad-hoc filter over event-wide history.
             _queued_source: str = "live"
             _queued_replay_run_id: str | None = None
             _queued_receipt_id: str | None = None
             try:
-                _all_receipts = await self._storage.list_receipts_for_event(
-                    record.event_id,
+                _all_receipts = await self._storage.list_receipts_for_delivery(
+                    delivery_identity(existing_item),
                 )
                 for _r in _all_receipts:
                     if (
@@ -591,17 +594,10 @@ class OutboxManager:
             # transaction. A stale/duplicate callback therefore commits none
             # of them.
             committed = await self._storage.finalize_outbox_terminal(
-                receipt,
-                attempt_receipt=failed_attempt,
-                outbox_id=record.outbox_id,
-                attempt_number=_attempt_number,
-                terminal_status=outbox_terminal,
-                event_id=record.event_id,
-                delivery_plan_id=_enriched_plan_id,
-                target_adapter=record.adapter,
-                target_channel=_enriched_channel,
-                failure_kind=failure_kind,
-                error_summary=error_msg[:200] if error_msg else None,
+                TerminalOutboxFinalization(
+                    lifecycle_receipt=receipt,
+                    attempt_receipt=failed_attempt,
+                )
             )
             if not committed:
                 self._log.warning(

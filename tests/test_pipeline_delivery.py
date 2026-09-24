@@ -14,6 +14,7 @@ import pytest
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import AdapterCapabilities
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata, NativeRef
 from medre.core.events.bus import EventBus
@@ -716,8 +717,10 @@ class TestReceiptLineageInPipeline:
         try:
             await runner.handle_ingress(event)
 
-            await temp_storage.list_receipts_for_plan(
-                "attempt-route__target__0", "target", event_id="attempt-001"
+            await temp_storage.list_receipts_for_delivery(
+                DeliveryIdentity(
+                    "attempt-001", "attempt-route__target__0", "target", None
+                )
             )
             # May not match due to plan_id format; query all receipts.
             rows = await temp_storage._read_all(

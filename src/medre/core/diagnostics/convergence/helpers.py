@@ -13,8 +13,6 @@ from typing import Any
 from medre.core.delivery_authority import (
     DeliveryIdentity,
     delivery_identity,
-    group_outbox_by_identity,
-    select_current_outbox,
 )
 
 from .types import ConvergenceSeverity
@@ -29,7 +27,6 @@ __all__ = [
     "_NON_TERMINAL_RECEIPT",
     "_TERMINAL_OUTBOX",
     "_NON_TERMINAL_OUTBOX",
-    "_build_outbox_by_key",
     "_parse_iso_timestamp",
     "_ensure_aware",
     "_safe_record_id",
@@ -113,22 +110,6 @@ def _worst_severity(severities: list[ConvergenceSeverity]) -> str | None:
         return None
     worst = max(severities, key=lambda s: _SEVERITY_ORDER[s])
     return worst.value
-
-
-# ---------------------------------------------------------------------------
-# Outbox-by-key deduplication
-# ---------------------------------------------------------------------------
-
-
-def _build_outbox_by_key(
-    outbox_items: list[Any],
-) -> dict[_TargetKey, Any]:
-    """Index current operational outbox generations by delivery identity."""
-    return {
-        identity: current
-        for identity, items in group_outbox_by_identity(outbox_items).items()
-        if (current := select_current_outbox(items)) is not None
-    }
 
 
 # ---------------------------------------------------------------------------
