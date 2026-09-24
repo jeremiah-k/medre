@@ -244,7 +244,9 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         ``None`` for the first attempt.  Together with
         ``attempt_number`` this provides an explicit receipt lineage.
     source:
-        Origin of this receipt: ``"live"``, ``"retry"``, or ``"replay"``.
+        Dispatch mechanism that produced this receipt: ``"live"``, ``"retry"``,
+        or ``"replay"``. Replay origin is carried independently by
+        ``replay_run_id``.
     replay_run_id:
         Durable replay execution provenance when this delivery lineage began
         from a named replay run.  It is populated on the initial

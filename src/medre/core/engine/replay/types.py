@@ -217,8 +217,9 @@ class ReplayRouteAttribution:
     alongside the route-target pairs.  This preserves route attribution
     without altering the canonical event schema.
 
-    Determinism guarantee: for the same stored event and route
-    configuration, the attribution is identical across replay runs.
+    Determinism guarantee: for the same stored event and route configuration,
+    route-derived attribution is identical across replay runs. The
+    operator-supplied ``run_id`` is execution provenance and may differ.
 
     Attributes
     ----------
@@ -239,8 +240,10 @@ class ReplayRouteAttribution:
     run_id:
         Operator-assigned identifier for the replay execution that
         produced this attribution.  Empty string when not provided.
-        Use this to correlate replay runs and deduplicate at the
-        application layer.
+        Use this to correlate replay runs. For side-effecting replay, a
+        non-empty run ID is durably claimed per delivery identity at outbox
+        admission; attribution itself is descriptive and does not perform
+        deduplication.
     """
 
     route_ids: tuple[str, ...] = ()
