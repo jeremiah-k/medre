@@ -12,8 +12,9 @@ requirements defined in ``docs/spec/conformance.md``.
    ``parent_event_id`` and lineage are reserved for future
    enrich/transform implementation.
 4. Records delivery receipts for every delivery attempt (append-only).
-5. Derives current delivery status from the latest receipt, not by mutating
-   receipt rows.
+5. Derives current delivery status without mutating receipt rows: outbox-backed
+   delivery follows the committed outbox receipt pointer, while outbox-less
+   delivery follows durable append order.
 6. Evaluates route policy at the correct stage. Delivery-stage policy is a
    reserved extension point with zero current implementation.
 7. Supports replay without modifying existing events.
@@ -29,6 +30,7 @@ import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events import (
     DeliveryReceipt,
@@ -347,13 +349,13 @@ class TestDeliveryReceipts:
 
 
 # ---------------------------------------------------------------------------
-# §3.2 Requirement 5: Delivery status from latest receipt
+# §3.2 Requirement 5: Lifecycle-authoritative delivery status
 # ---------------------------------------------------------------------------
 
 
 class TestDeliveryStatusFromReceipt:
-    """§3.2.5: Derives current delivery status from the latest receipt, not
-    by mutating receipt rows."""
+    """§3.2.5: Derives current delivery status from lifecycle authority
+    without mutating immutable receipt rows."""
 
     async def test_receipt_is_frozen_immutable(
         self,
@@ -377,8 +379,8 @@ class TestDeliveryStatusFromReceipt:
         temp_storage: SQLiteStorage,
         fake_presentation: FakePresentationAdapter,
     ) -> None:
-        """§3.2.5: Multiple deliveries produce append-only receipts; status
-        is derived from the latest."""
+        """§3.2.5: Multiple deliveries produce append-only receipts and
+        current status is resolved independently for each delivery identity."""
         # Use a route with two targets so one ingress produces two deliveries.
         second_target = FakeTransportAdapter(
             adapter_id="sink",
@@ -427,12 +429,29 @@ class TestDeliveryStatusFromReceipt:
                     f"{rcpt.sequence} <= first {first_seq} (§3.2.5)"
                 )
 
-            # The latest receipt status is the current status.
-            latest = ordered_receipts[-1]
-            assert latest.status in {
-                "sent",
-                "queued",
-            }, f"Unexpected latest receipt status: {latest.status!r}"
+            # Current status is resolved per complete delivery identity.  The
+            # append order across sibling targets is immutable history, not a
+            # single event-wide lifecycle authority.
+            identities = {
+                DeliveryIdentity(
+                    receipt.event_id,
+                    receipt.delivery_plan_id,
+                    receipt.target_adapter,
+                    receipt.target_channel,
+                )
+                for receipt in receipts
+            }
+            assert len(identities) >= 2
+            for identity in identities:
+                current = await temp_storage.delivery_status(identity)
+                assert current is not None
+                assert current.status in {"sent", "queued"}
+                assert DeliveryIdentity(
+                    current.event_id,
+                    current.delivery_plan_id,
+                    current.target_adapter,
+                    current.target_channel,
+                ) == identity
         finally:
             await runner.stop()
 

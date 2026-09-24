@@ -206,14 +206,16 @@ mechanisms:
    suppression, fallback rendering, and budget enforcement coverage remains
    synthetic even though the same production planner path is exercised.
 
-3. **Replay same-run suppression is not a concurrency-safe exactly-once primitive.**
-   A non-empty replay run ID suppresses targets with durable prior acceptance evidence
-   for that same run, plan, and target, but concurrent executions can race before
-   either acceptance receipt commits.
+3. **Replay same-run admission is atomic, but transport delivery is not exactly-once.**
+   A non-empty replay run ID durably claims one outbox generation per delivery
+   identity, so concurrent executions sharing one database cannot create sibling
+   same-run dispatches. Distinct/empty run IDs remain repeatable, and ambiguous
+   transport handoff followed by retry/recovery can still redispatch.
 
-4. **Some replay pre-filter evidence remains in-memory only.** Target-level same-run
-   duplicate suppression is durable, while capability-filter diagnostics that never
-   create a target receipt remain part of the replay result only.
+4. **Some replay pre-filter evidence remains in-memory only.** Same-run duplicate
+   execution is represented by the durable outbox claim plus the replay result, not
+   by a synthetic lifecycle receipt. Capability-filter diagnostics that never create
+   a target receipt likewise remain part of the replay result only.
 
 5. **`RenderingContext.capability_policy` is reserved and unpopulated.** No
    production code path currently sets this field.

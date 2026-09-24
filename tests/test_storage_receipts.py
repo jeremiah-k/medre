@@ -273,7 +273,7 @@ class TestAppendOnlyReceipts:
     async def test_delivery_status_is_projection_not_mutable(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """delivery_status returns the latest receipt via MAX(sequence) projection."""
+        """Outbox-less delivery_status follows durable append order."""
         event = make_storage_event(event_id="evt-proj")
         await temp_storage.append(event)
 

@@ -327,7 +327,7 @@ the JSON snapshot schema.
 | `receipts` — status, failure_kind, attempt_number, parent_receipt_id | Full delivery lifecycle. `attempt_number > 1` with `parent_receipt_id` chain indicates retry.                         |
 | `receipts` — route_id                                                | Which route triggered the delivery                                                                                    |
 | `native-ref` — native_message_id, resolves_to                        | Maps transport-native IDs to canonical events                                                                         |
-| `receipts --replay-run` — source="replay", replay_run_id             | Distinguishes replay from live. Multiple entries across different `replay_run_id` values = multiple BEST_EFFORT runs. |
+| `receipts --replay-run` — replay_run_id                              | Groups one replay-origin lineage, including later `source="retry"` attempts. Different run IDs identify distinct named BEST_EFFORT executions. |
 
 ## Fake Bridge Smoke: Running the Tests
 
@@ -609,9 +609,9 @@ Check these fields together:
 - `suppression_reason` — human-readable reason parsed from the error text
 - `error` — the raw error message
 
-### "Was this a live delivery or replay?"
+### "Was this live, replay, or a retry from replay?"
 
-Check `source` on the receipt: `"live"` or `"replay"`. For replay, `replay_run_id` identifies the specific replay run.
+Read `source` and `replay_run_id` independently. `source` is the dispatch mechanism (`"live"`, `"replay"`, or `"retry"`). A non-null `replay_run_id` records replay origin and is preserved on later retry attempts, so a replay-origin retry has `source="retry"` plus the original run ID.
 
 ### "How many retry attempts occurred?"
 
@@ -730,7 +730,7 @@ The convergence summary has three fields to check first:
 | ----------------- | ---------------------------------------------------------------------------------- |
 | `worst_severity`  | If `"inconsistent"`, investigate the targets with that severity.                   |
 | `severity_counts` | How many targets at each level. Any non-zero `inconsistent` count needs attention. |
-| `targets`         | Per-target details with `outbox_status`, `latest_receipt_status`, and `warnings`.  |
+| `targets`         | Per-target details with `outbox_status`, `current_receipt_status`, and `warnings`.  |
 
 ### Per-Target Details
 
@@ -738,7 +738,7 @@ Each target in the convergence summary includes:
 
 - `event_id`, `delivery_plan_id`, `target_adapter`, `target_channel`: identifies the logical delivery target; event identity matters in global summaries because plan IDs are not globally unique.
 - `outbox_status`: the outbox item status (or `null` if no outbox item).
-- `latest_receipt_status`: the highest-authority receipt status (or `null` if no receipt).
+- `current_receipt_status`: the receipt committed by the current outbox generation; when no outbox exists, the current immutable authority (or `null` if neither exists).
 - `severity`: `safe`, `degraded`, or `inconsistent`.
 - `warnings`: human-readable messages explaining why this severity was assigned.
 

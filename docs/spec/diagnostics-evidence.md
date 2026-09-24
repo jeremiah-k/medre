@@ -628,19 +628,22 @@ Rendering evidence is structured to support replay inspection. The frozen, deter
 **Current status:** Replay execution **is** implemented as an operator-initiated,
 in-memory runtime operation (see `medre.core.engine.replay`). Replay re-processes
 stored canonical events through selected pipeline stages via the `ReplayEngine`. It is
-**not** a durable job system — there is no automatic crash resume, no replay job
-queue, and no exactly-once delivery guarantee. Replay receipts carry
-`source="replay"` and `replay_run_id` for audit traceability. `RenderingEvidence` on
-delivery receipts strengthens post-hoc diagnostics but does not itself replay
-payloads.
+**not** a durable job system — there is no automatic replay-request resume or
+separate replay job queue, and no exactly-once delivery guarantee. For a non-empty
+run ID, each dispatchable target atomically persists the run ID on its normal outbox
+generation before dispatch; normal retry/recovery can therefore finish already-admitted
+work after a crash. Replay receipts carry `replay_run_id` for audit traceability
+(initial dispatches use `source="replay"`; later replay-origin retries use
+`source="retry"`). `RenderingEvidence` on delivery receipts strengthens post-hoc
+diagnostics but does not itself replay payloads.
 
 **What replay execution provides:**
 
 - Operator-initiated re-processing of historical canonical events through the pipeline.
 - Five behavioural modes: `STRICT`, `RE_RENDER`, `RE_ROUTE`, `BEST_EFFORT`, `DRY_RUN`.
-- `BEST_EFFORT` mode delivers to adapters through the normal delivery spine (`PipelineRunner` → `TargetDeliveryService` → `DeliveryLifecycleService`), producing real delivery receipts tagged `source="replay"`.
+- `BEST_EFFORT` mode delivers to adapters through the normal delivery spine (`PipelineRunner` → `TargetDeliveryService` → `DeliveryLifecycleService`), producing real initial delivery receipts tagged `source="replay"` plus `replay_run_id`; any later RetryWorker attempts use `source="retry"` and preserve that run ID.
 - Deterministic loop prevention and replay route attribution.
-- In-memory execution: no durable replay job queue, no automatic resume after crash.
+- In-memory request iteration: no durable replay job queue or automatic request resume after crash; already-admitted delivery targets remain in the normal durable outbox.
 
 **What replay execution does _not_ provide:**
 
@@ -648,9 +651,9 @@ payloads.
   `RE_RENDER` requires at least one such receipt; once evidence exists, it restores
   the available context and uses defined fallbacks for missing optional evidence fields.
 - Cross-process or cross-restart replay-job recovery.
-- An exactly-once delivery guarantee. A non-empty run ID suppresses targets with
-  visible acceptance evidence from the same run, but different/empty run IDs and
-  concurrent same-run races may redeliver.
+- An exactly-once transport-delivery guarantee. A non-empty run ID atomically
+  claims one target generation in durable storage, but different/empty run IDs and
+  ambiguous transport attempts later retried/recovered may redeliver.
 
 Evidence completeness for post-hoc inspection and deterministic re-rendering given identical context are supported by the frozen nature of the data structures. Replay isolation from live delivery is guaranteed by the `source` and `replay_run_id` tagging on receipts.
 
@@ -700,19 +703,20 @@ The incident summary's `delivery_state_by_target` dict uses the full
 current-delivery identity `(event_id, delivery_plan_id, target_adapter,
 target_channel)`. Empty-string and absent channels are one identity, matching
 SQLite persistence semantics. `route_id`, `source`, and `replay_run_id` are
-provenance on the selected receipt, not grouping dimensions. For outbox-backed
-delivery the shared authority resolver selects only receipts named by a matching
-outbox generation's committed `receipt_id`; rejected late appends remain
-history. Outbox-less delivery uses durable append order.
+provenance rather than grouping dimensions. The target view is a compatibility
+projection of the shared delivery outcome ledger, so it never performs an
+independent authority selection. For an outbox-backed delivery its lifecycle,
+attempt number, dispatch source, replay origin, failure, and message evidence all
+come from the same current execution generation. Older authoritative receipts
+remain history and cannot donate fields to a newer receipt-less generation.
+Outbox-less delivery uses immutable receipt authority.
 Each target entry includes the capability-evidence fields from § 14.8.1, plus
-`source`, `replay_run_id`, `suppression_reason`, and `error`. This gives
-operators a per-target view of current capability suppression without joining
-back to individual receipts.
+`source`, `replay_run_id`, `suppression_reason`, and `error`.
 
 | Field                | Present? | Source                          |
 | -------------------- | -------- | ------------------------------- |
-| `source`             | Yes      | Receipt `source` field          |
-| `replay_run_id`      | Yes      | Receipt `replay_run_id` field   |
+| `source`             | Yes      | Current-generation dispatch source |
+| `replay_run_id`      | Yes      | Current-generation replay origin   |
 | `suppression_reason` | Yes      | Derived per § 14.8.1            |
 | `capability_field`   | Yes      | Derived per § 14.8.1            |
 | `capability_level`   | Yes      | Derived per § 14.8.1            |
@@ -765,7 +769,7 @@ identity before writing the native ref, sent receipt, or outbox transition.
 | ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Supplemental `sent` receipt        | `finalize_queued_delivery` | Queued receipt was successfully correlated and the full-identity storage guard finalized                                                                     |
 | No supplemental receipt created    | `finalize_queued_delivery` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                                       |
-| Replay-lineage finalize            | `finalize_queued_delivery` | Replay-sourced queued receipt finalized via the exact row/attempt correlation plus full-identity storage fence; its replay lineage is carried onto `sent`    |
+| Replay-lineage finalize            | `finalize_queued_delivery` | Replay-origin queued receipt finalized via the exact row/attempt correlation plus full-identity storage fence; its replay lineage is carried onto `sent`    |
 | Missing outbox_id on callback      | `finalize_queued_delivery` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                                                           |
 | Missing attempt_number on callback | `finalize_queued_delivery` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                                                      |
 | Delivery-plan metadata absent      | `finalize_queued_delivery` | `delivery_plan_id` validation field absent on outbound ref; exact correlation proceeds via `outbox_id` + `attempt_number` but validation is degraded/skipped |
@@ -780,7 +784,7 @@ identity before writing the native ref, sent receipt, or outbox transition.
 6. The `delivery_plan_id` on `OutboundNativeRefRecord` is a validation field. It is not stored in `native_message_refs` storage and is not used for receipt selection.
 7. Local queue-acceptance evidence confirms that the local node accepted the
    packet. It does not confirm RF delivery. See § 11 for non-guarantees.
-8. A replay-sourced queued receipt (`source="replay"`) is finalized exactly like a live candidate when the callback matches the validated authoritative outbox row by exact `outbox_id` + `attempt_number`. The selected receipt's durable `source` / `replay_run_id` lineage is the trusted attempt provenance — the same recovery the terminal-failure path uses — and is carried onto the supplemental `sent` receipt. Replay-only selection is logged at debug level, never as a correlation warning. When malformed history offers duplicates across sources for the same row and attempt, non-replay candidates are preferred. Callbacks failing row validation — stale attempt, terminal or reclaimed row — are rejected regardless of candidate source.
+8. A replay-origin queued receipt (`replay_run_id IS NOT NULL`, with `source="replay"` initially or `source="retry"` on later attempts) is finalized exactly like a live candidate when the callback matches the validated authoritative outbox row by exact `outbox_id` + `attempt_number`. The selected receipt's durable `source` / `replay_run_id` lineage is the trusted attempt provenance — the same recovery the terminal-failure path uses — and is carried onto the supplemental `sent` receipt. Replay-only selection is logged at debug level, never as a correlation warning. When malformed history offers duplicates across sources for the same row and attempt, non-replay candidates are preferred. Callbacks failing row validation — stale attempt, terminal or reclaimed row — are rejected regardless of candidate source.
 9. If `delivery_plan_id` is absent on a callback but `outbox_id` and `attempt_number` are present and valid, that is NOT a correlation failure. The callback is processed normally; only the delivery_plan_id validation is skipped.
 
 ## 16. Evidence Bundle Model
@@ -799,7 +803,7 @@ The `EvidenceBundle` is a first-class, frozen, read-only model that aggregates a
 | `delivery_receipts`            | `tuple[ReceiptSummary, …]` | Ordered by `sequence` (append order). (`to_dict()` produces a JSON array.)                              |
 | `native_refs`                  | `tuple[dict, …]`           | Ordered by `created_at`, then `id`. (`to_dict()` produces a JSON array.)                                |
 | `outbox_items`                 | `tuple[dict, …]`           | Ordered by `created_at`, then `outbox_id`. (`to_dict()` produces a JSON array.)                         |
-| `replay_run_ids`               | `tuple[str, …]`            | Sorted distinct `replay_run_id` values from receipts. (`to_dict()` produces a JSON array.)              |
+| `replay_run_ids`               | `tuple[str, …]`            | Sorted distinct durable `replay_run_id` values from receipts or admitted outbox generations. (`to_dict()` produces a JSON array.) |
 | `sources_seen`                 | `tuple[str, …]`            | Sorted distinct `source` values from receipts. (`to_dict()` produces a JSON array.)                     |
 | `warnings`                     | `tuple[str, …]`            | Deterministic insertion-order warnings collected during assembly. (`to_dict()` produces a JSON array.)  |
 | `generated_at`                 | `str`                      | ISO 8601 timestamp of bundle generation.                                                                |
@@ -840,9 +844,9 @@ The collector MUST NOT crash on invalid JSON.
 
 ### 16.6 Replay/Source Aggregation
 
-Replay and source information is aggregated from receipt records:
+Replay origin and dispatch-source information come from distinct durable facts:
 
-- `replay_run_ids`: sorted distinct non-`None` `replay_run_id` values across all receipts.
+- `replay_run_ids`: sorted distinct non-empty `replay_run_id` values across receipts and admitted outbox generations.
 - `sources_seen`: sorted distinct `source` values across all receipts.
 
 ### 16.7 Graceful Degradation
@@ -909,18 +913,19 @@ is derived at report time from existing receipt fields:
 
 ### 17.3 delivery_state_by_target Enrichment
 
-The incident summary's `delivery_state_by_target` dict groups receipts by the
-full event-scoped delivery identity `(event_id, delivery_plan_id,
-target_adapter, target_channel)`. Empty-string and absent channels normalize to
-the same identity. `route_id`, `source`, and `replay_run_id` describe the
-selected receipt and do not partition lifecycle authority. Outbox-backed
-delivery uses committed outbox receipt pointers across all generations;
-outbox-less delivery uses durable append order. Each target entry includes:
+The incident summary's `delivery_state_by_target` dict is a compatibility
+projection of the delivery outcome ledger grouped by the full event-scoped
+identity `(event_id, delivery_plan_id, target_adapter, target_channel)`.
+Empty-string and absent channels normalize to the same identity. `route_id`,
+`source`, and `replay_run_id` are current-generation provenance and do not
+partition lifecycle authority. Outbox-backed delivery uses the current mutable
+generation plus its exact attempt evidence; outbox-less delivery uses immutable
+receipt authority. Each target entry includes:
 
 | Field                 | Source                            |
 | --------------------- | --------------------------------- |
-| `source`              | Receipt `source` field            |
-| `replay_run_id`       | Receipt `replay_run_id` field     |
+| `source`              | Current-generation dispatch source |
+| `replay_run_id`       | Current-generation replay origin    |
 | `suppression_reason`  | Derived per § 17.2                |
 | `capability_field`    | Derived per § 17.2                |
 | `capability_level`    | Derived per § 17.2                |
@@ -933,9 +938,11 @@ outbox-less delivery uses durable append order. Each target entry includes:
 | `attempt_number`      | Selected receipt `attempt_number` |
 
 When live, retry, and replay receipts exist for the same target, they share one
-`delivery_state_by_target` entry. The entry reports the lifecycle-authoritative
-receipt when an outbox exists, otherwise the latest durable append; its
-`source` and `replay_run_id` describe the provenance of that selected receipt.
+`delivery_state_by_target` entry. If an outbox exists, the entry reports the
+current outbox generation even before that generation has produced a receipt;
+older receipt fields are never mixed into it. Without an outbox, immutable
+receipt authority supplies the view. `source` is the current dispatch mechanism
+and `replay_run_id` is orthogonal replay-origin provenance.
 
 ## 18. Adapter Status Lifecycle
 
@@ -1012,7 +1019,13 @@ Each ledger entry contains:
 | `outbox_status`              | Current outbox generation                  | Mutable operational state, or `null` when no outbox exists.                                    |
 | `authoritative_receipt_id`   | Authority resolver                         | Receipt currently allowed to represent immutable lifecycle evidence.                           |
 | `authoritative_receipt_kind` | Authoritative receipt                      | `attempt` or `lifecycle`.                                                                      |
+| `current_receipt_id`         | Current outbox generation                  | Exact receipt committed by the current mutable generation, or `null` when none is committed.  |
+| `current_receipt_kind`       | Current outbox generation                  | `attempt` or `lifecycle` for the exact current-generation receipt, otherwise `null`.           |
+| `current_receipt_status`     | Current outbox generation                  | Status of the exact current-generation receipt, otherwise `null`.                              |
 | `causative_receipt_id`       | Lifecycle receipt                          | Parent attempt that caused a lifecycle transition, otherwise `null`.                           |
+| `current_attempt_receipt_id` | Current outbox generation                  | Attempt receipt for the current generation, or `null` before that generation emits evidence.   |
+| `current_attempt_status`     | Current outbox generation                  | Dispatch status for the current generation, or `null` before its first receipt.                 |
+| `current_attempt_number`     | Current generation                         | Effective current generation (`active_attempt` while reserved, otherwise finalized attempt).    |
 | `latest_attempt_status`      | Immutable attempt history                  | Result/status of the greatest dispatch attempt generation, independent of lifecycle authority. |
 | `latest_attempt_number`      | Immutable attempt history                  | Greatest actual dispatch attempt number; lifecycle transitions never fabricate one.            |
 | `ambiguous_outcome`          | Outbox failure detail                      | `true` when recovery consumed a dispatch whose external outcome was unknown.                   |
@@ -1021,16 +1034,16 @@ Each ledger entry contains:
 | `capability_level`           | Rendering evidence / error                 | Capability decision when derivable.                                                            |
 | `suppression_reason`         | Error                                      | Human-readable suppression reason, if applicable.                                              |
 | `retry_state`                | Lifecycle/retry metadata                   | Derived display label only; not mutable authority.                                             |
-| `failure_kind`               | Authoritative receipt / outbox             | Current failure classification, if applicable.                                                 |
+| `failure_kind`               | Current attempt / outbox                   | Current-generation failure classification, if applicable.                                      |
 | `failure_taxon`              | `resolve_taxon()`                          | Resolved failure taxon, or `null`.                                                             |
 | `failure_taxon_category`     | `taxon_category()`                         | Category of the resolved taxon, or `null`.                                                     |
-| `source`                     | Selected receipt provenance                | `live`, `retry`, or `replay`; not lifecycle identity.                                          |
-| `replay_run_id`              | Selected replay receipt                    | Replay run identifier only when selected provenance is replay.                                 |
+| `source`                     | Current generation                         | Dispatch mechanism: `live`, `retry`, or `replay`; not lifecycle identity.                      |
+| `replay_run_id`              | Current generation                         | Replay-origin run identifier; it may accompany `source="replay"` or a later `source="retry"`. |
 | `receipt_ids`                | Full identity receipt history              | Sorted receipt IDs, including historical/non-authoritative evidence.                           |
 | `outbox_id`                  | Current outbox generation                  | Current operational row ID, if present.                                                        |
-| `adapter_message_id`         | Authoritative/latest attempt receipt       | Provider/native message ID when available.                                                     |
-| `next_retry_at`              | Receipt/outbox scheduling metadata         | Scheduled retry timestamp, or `null`.                                                          |
-| `error`                      | Authoritative receipt / outbox             | Current error summary, or `null`.                                                              |
+| `adapter_message_id`         | Current attempt receipt                    | Provider/native message ID for the current generation, when available.                         |
+| `next_retry_at`              | Current attempt/outbox scheduling metadata | Scheduled retry timestamp, or `null`.                                                          |
+| `error`                      | Current attempt/outbox                     | Current-generation error summary, or `null`.                                                   |
 
 ### 19.4 No Additional Storage Required
 
@@ -1239,9 +1252,9 @@ Operators use convergence diagnostics output to identify and manually address st
 | `target_adapter`        | `str`           | Adapter name.                                                                          |
 | `target_channel`        | `str or None`   | Channel identifier.                                                                    |
 | `outbox_status`         | `str or None`   | Outbox item status, or `None` if no outbox item.                                       |
-| `latest_receipt_status` | `str or None`   | Current lifecycle-authoritative receipt status; field name retained for compatibility. |
-| `latest_receipt_id`     | `str or None`   | Current lifecycle-authoritative receipt ID; field name retained for compatibility.     |
-| `latest_attempt_number` | `int or None`   | Attempt number of the current lifecycle-authoritative receipt.                         |
+| `current_receipt_status` | `str or None`   | Receipt status committed by the current outbox generation; with no outbox, current immutable authority. |
+| `current_receipt_id`     | `str or None`   | Receipt ID under the same current-generation rule; `null` before a fresh generation commits evidence. |
+| `current_attempt_number` | `int or None`   | Attempt number of `current_receipt_id`, or `null` before the current generation commits receipt evidence. |
 | `severity`              | `str`           | One of `safe`, `degraded`, `inconsistent`.                                             |
 | `warnings`              | `tuple[str, …]` | Per-target diagnostic messages.                                                        |
 | `outbox_id`             | `str or None`   | Outbox item ID.                                                                        |
@@ -1360,7 +1373,8 @@ A `RecoveryOwnershipAction` is a frozen dataclass capturing a single recovery de
 | `ownership_action`  | `str`         | `RecoveryOwnershipStatus` value.                                                                                         |
 | `reason`            | `str`         | Human-readable explanation.                                                                                              |
 | `worker_identity`   | `str or None` | Worker identity, if known.                                                                                               |
-| `recovery_source`   | `str`         | `RecoverySource` value.                                                                                                  |
+| `recovery_source`   | `str`         | `RecoverySource` value identifying the subsystem performing recovery/diagnostics.                                        |
+| `replay_run_id`     | `str or None` | Durable replay-origin run ID from the outbox generation, orthogonal to `recovery_source`.                                |
 | `timestamp`         | `str`         | ISO-8601 when the action was recorded.                                                                                   |
 | `delivery_plan_id`  | `str`         | Delivery plan this outbox item targets.                                                                                  |
 | `event_id`          | `str`         | Canonical event this outbox item delivers.                                                                               |
@@ -1415,7 +1429,7 @@ Four recovery-specific finding kinds extend the convergence diagnostics system. 
 1. **No live_service or hardware tier validation**: All recovery evidence is synthetic/conformance tier. No real restart cycles with real adapters have been validated.
 2. **Per-event collector has no BootSummary access**: The per-event `EvidenceCollector` cannot access `BootSummary.recovery_run_id` or `startup_timestamp`. Recovery evidence from the per-event collector is limited to classification without full startup context. Full startup-scoped recovery evidence is available through the runtime evidence bundle's `recovery` section.
 3. **Recovery source inference defaults to snapshot_diagnostics**: Without an explicit `recovery_source` or `startup_timestamp`, the builder infers `snapshot_diagnostics`. Callers that need `retry_worker_recovery` must provide it explicitly via the `recovery_source` parameter. This is correct for diagnostic purposes but requires callers to be aware of the default.
-4. **Replay recovery tracking requires receipt evidence**: Outbox items with replay-sourced receipts (`source="replay"`) are detectable through receipt evidence. `recovery_source="replay_execution"` is reserved and not currently produced (see § 22.3).
+4. **Replay origin is provenance, not recovery ownership**: Named replay origin is durable on admitted outbox generations and is copied to each recovery action as `replay_run_id`. Startup/retry recovery keep their actual `recovery_source`; `recovery_source="replay_execution"` remains reserved for a future subsystem that itself performs replay-specific recovery ownership actions (see § 22.3).
 
 ## 23. Lifecycle Delivery Convergence Diagnostics
 

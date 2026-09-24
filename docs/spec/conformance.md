@@ -276,7 +276,7 @@ asserts all of the following for its fixtures:
    `PipelineRunner` with fake adapters — unsupported event kinds are
    filtered to `status="skipped"` with `capability_suppressed` error;
    fallback-capable events remain deliverable. Replay requests carry
-   `run_id`; receipt-level `source="replay"` and `replay_run_id`
+   `run_id`; receipt-level replay origin is carried by `replay_run_id` while `source` records the current dispatch mechanism
    tagging is asserted in integration-level tests with real pipeline
    components.
 
@@ -359,16 +359,16 @@ The following behaviors have synthetic-tier test coverage but lack `live_service
    live-service or hardware test proves thread degradation across a real endpoint.
    Native thread emission is intentionally not advertised.
 
-3. **Replay run suppression is idempotent, not exactly-once.** A non-empty replay
-   `run_id` durably suppresses a target after a prior `queued`/`sent` receipt for the
-   same run/plan/target is visible. Concurrent executions using the same run ID can
-   still race before either acceptance receipt commits. Empty and different run IDs
-   remain intentionally repeatable.
+3. **Replay run admission is idempotent, not transport exactly-once.** A non-empty
+   `run_id` atomically claims one durable target generation across concurrent
+   executions sharing a database. Empty/different run IDs remain intentionally
+   repeatable, and ambiguous transport attempts may still be redispatched by
+   retry/recovery.
 
 4. **Some replay pre-filter evidence remains result-local.** Capability pre-filter
-   diagnostics that do not reach a target delivery/suppression receipt remain in the
-   in-memory replay result. Target-level same-run duplicate suppression is persisted
-   as `replay_duplicate_suppressed` evidence.
+   diagnostics that do not reach a target delivery remain in the in-memory replay
+   result. Same-run duplicate execution is represented by the durable outbox claim
+   and the replay result; it does not append synthetic lifecycle evidence.
 
 5. **`capability_policy` is reserved and unpopulated.**
    `RenderingContext.capability_policy` defaults to `None` and is not set by the
@@ -481,7 +481,7 @@ A conforming implementation detects exactly ten finding kinds: `orphaned_outbox`
 ### 9.4 Replay/Live Separation Conformance
 
 1. Queued callback source selection prefers non-replay (`"live"`, `"retry"`) candidates over `"replay"` candidates when multiple matching queued receipts exist.
-2. Replay-sourced queued candidates finalize through the same exact `outbox_id` + `attempt_number` correlation as live candidates, against the authoritative outbox row validated first; the selected receipt's durable `source` / `replay_run_id` lineage is carried onto the supplemental `sent` receipt, and replay-only selection is logged at debug level. When duplicates across sources exist for the same row and attempt, non-replay candidates are preferred. A callback that does not match the validated outbox row is rejected regardless of candidate source.
+2. Replay-origin queued candidates finalize through the same exact `outbox_id` + `attempt_number` correlation as live candidates, against the authoritative outbox row validated first; the selected receipt's durable `source` / `replay_run_id` lineage is carried onto the supplemental `sent` receipt, and replay-only selection is logged at debug level. When duplicates across sources exist for the same row and attempt, non-replay candidates are preferred. A callback that does not match the validated outbox row is rejected regardless of candidate source.
 3. Replay does not mutate live recovery state (receipts, outbox items, retry state).
 
 ### 9.5 Startup Ownership Conformance
@@ -502,7 +502,7 @@ A conforming implementation satisfies:
 
 4. **Recovery diagnostics are read-only**: Classification and builder functions SHALL NOT mutate outbox items or receipts. They SHALL NOT perform I/O or access storage.
 
-5. **Replay is not recovery**: `recovery_source="replay_execution"` is reserved for future replay recovery ownership actions. Replay-origin recovery SHALL NOT be conflated with startup or retry-worker recovery. Current replay separation is represented by replay receipts (source/replay_run_id), not by recovery ownership actions. Startup recovery diagnostics MUST NOT classify replay-sourced activity as startup or retry-worker recovery.
+5. **Replay is not recovery**: `recovery_source="replay_execution"` is reserved for future replay recovery ownership actions. Replay-origin recovery SHALL NOT be conflated with startup or retry-worker recovery. Current replay separation is represented by durable `replay_run_id` provenance plus per-attempt `source`, not by recovery ownership actions. Startup recovery diagnostics MUST NOT infer recovery ownership from replay origin.
 
 6. **Recovery is not proof of delivery**: Recovery actions document outbox transitions, not delivery confirmations. The `ownership_action` values reference claim statuses, not delivery statuses. Terminal outbox statuses (`sent`, `dead_lettered`) are classified as `unrecoverable` and SHALL NOT be presented as requiring recovery.
 

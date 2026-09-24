@@ -698,7 +698,7 @@ class DeliveryReceipt:
     attempt_number: int = 1                # 1-indexed attempt number
     parent_receipt_id: str | None = None   # Receipt ID of preceding attempt
     source: str = "live"                   # "live", "retry", or "replay"
-    replay_run_id: str | None = None       # Replay run ID when source="replay"
+    replay_run_id: str | None = None       # Replay-origin run ID; preserved on retry
     retry_max_attempts: int | None = None  # Persisted retry policy: max attempts
     retry_backoff_base: float | None = None # Persisted retry policy: backoff base
     retry_max_delay: float | None = None   # Persisted retry policy: max delay

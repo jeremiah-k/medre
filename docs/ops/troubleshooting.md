@@ -19,7 +19,7 @@ MEDRE does not provide automated remediation, per-adapter restart, or self-heali
 | Deadline exceeded     | 0         | `failed` attempt + linked `dead_lettered` lifecycle (DEADLINE_EXCEEDED)                                                                   | No                         | delivery plan timestamps                         |
 | Shutdown rejection    | 0         | `DeliveryReceipt`: `suppressed` (`failure_kind="shutdown_rejection"`, `error="shutdown_drain_timeout"` or `"delivery_rejected_shutdown"`) | No                         | `outbound_failed` counter                        |
 | Replay capacity       | 0         | `error` (replay_capacity_exceeded)                                                                                                        | No                         | `capacity_rejections` counter                    |
-| Replay duplicate      | 0         | `sent` (multiple receipts, source=replay)                                                                                                 | N/A (by design)            | receipt `replay_run_id`                          |
+| Replay repeat         | 0         | Same non-empty run converges on one durable target generation; different/empty run IDs may produce additional sends                      | N/A (by design)            | outbox/receipt `replay_run_id`                   |
 | Capability suppressed | 0         | `skipped` + `suppressed` receipt for routed events                                                                                        | No                         | receipt `failure_kind`, `error` field            |
 | Loop prevented        | 0         | `suppressed` receipt persisted                                                                                                            | No                         | `loop_prevented` counter, RouteStats             |
 | Degraded live health  | 0         | N/A                                                                                                                                       | No                         | `health.live_health.adapters[]`                  |
@@ -756,8 +756,9 @@ never change retry scheduling, worker behavior, or storage state.
 5. **Automatic route reconfiguration.** Route changes require a restart.
 6. **Delivery ordering guarantees.** Events are matched in route registration order, but async delivery means actual outbound ordering depends on transport latency.
 7. **Global replay deduplication.** Different or empty replay run IDs may deliver
-   matching events again. A non-empty run ID suppresses visible accepted targets
-   only within that same run; concurrent same-run executions can still race.
+   matching events again. A non-empty run ID atomically owns one target generation
+   in the shared storage database, but ambiguous transport retry/recovery remains
+   at-least-once rather than exactly-once.
 8. **Persistent queue.** Runtime execution state (counters, gauges, route stats) is in-memory only. SQLite receipt and outbox evidence persists across restarts. In-flight adapter deliveries abandoned after drain timeout produce `suppressed` receipts with `failure_kind="shutdown_rejection"` and `error="shutdown_drain_timeout"`; non-terminal outbox items survive shutdown as resumable work.
 
 ## Support Bundles
