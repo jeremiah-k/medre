@@ -294,6 +294,14 @@ terminal lifecycle receipt, and the terminal outbox transition MUST commit in
 one guarded storage transaction. A stale callback therefore commits none of
 those writes.
 
+That transaction crosses the storage boundary as one validated
+`TerminalOutboxFinalization` command. The lifecycle receipt carries the exact
+delivery identity and generation being terminalized; status, identity, attempt,
+and failure kind are derived from it rather than repeated as independently
+mutable storage arguments. This keeps orchestration evidence and storage
+authority structurally incapable of disagreeing before the compare-and-set
+guard is evaluated.
+
 Adapters MUST NOT directly mutate outbox state. They report facts; the
 pipeline decides lifecycle transitions.
 

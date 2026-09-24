@@ -31,7 +31,11 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.events import NativeMessageRef
-from medre.core.storage.backend import DeliveryOutboxItem, StorageError
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    StorageError,
+    TerminalOutboxFinalization,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import (
     admit_event,
@@ -316,16 +320,10 @@ async def test_storage_guard_rejects_stale_attempt_number(
         attempt_number=1,
     )
     committed = await temp_storage.finalize_outbox_terminal(
-        stale_receipt,
-        outbox_id="obox-late",
-        attempt_number=1,
-        terminal_status="dead_lettered",
-        event_id="evt-late",
-        delivery_plan_id="plan-late",
-        target_adapter="mesh-1",
-        target_channel="0",
-        failure_kind="adapter_transient",
-        error_summary="stale attempt",
+        TerminalOutboxFinalization(
+            lifecycle_receipt=stale_receipt,
+            error_summary="stale attempt",
+        )
     )
     assert committed is False
 
@@ -388,16 +386,10 @@ async def test_duplicate_receipt_id_rolls_back_transition(
     )
     with pytest.raises(StorageError):
         await temp_storage.finalize_outbox_terminal(
-            colliding_receipt,
-            outbox_id="obox-rb",
-            attempt_number=1,
-            terminal_status="dead_lettered",
-            event_id="evt-rb",
-            delivery_plan_id="plan-rb",
-            target_adapter="mesh-1",
-            target_channel="0",
-            failure_kind="adapter_transient",
-            error_summary="collide",
+            TerminalOutboxFinalization(
+                lifecycle_receipt=colliding_receipt,
+                error_summary="collide",
+            )
         )
 
     # Rollback proof: the transition did not survive the failed insert.
@@ -495,24 +487,18 @@ async def test_duplicate_exhausted_notifications_commit_once(
 @pytest.mark.parametrize(
     ("case", "message"),
     [
-        ("terminal_status", "error-terminal status"),
         ("receipt_kind", "lifecycle evidence"),
-        ("receipt_status", "must match terminal_status"),
-        ("outbox_id", "receipt.outbox_id must match"),
-        ("event_id", "receipt.event_id must match"),
-        ("delivery_plan_id", "receipt.delivery_plan_id must match"),
-        ("target_adapter", "receipt.target_adapter must match"),
-        ("target_channel", "receipt.target_channel must match"),
-        ("attempt_number", "receipt.attempt_number must match"),
+        ("nonterminal_status", "error-terminal lifecycle status"),
+        ("missing_outbox", "requires outbox_id"),
+        ("incomplete_identity", "complete delivery identity"),
         ("nonpositive_attempt", "attempt_number must be >= 1"),
     ],
 )
-async def test_terminal_finalization_validates_full_delivery_identity(
-    temp_storage: SQLiteStorage,
+def test_terminal_finalization_command_validates_evidence_shape(
     case: str,
     message: str,
 ) -> None:
-    """Malformed terminal evidence is rejected before the SQLite transaction."""
+    """The command rejects malformed evidence before any storage call exists."""
     receipt = build_delivery_receipt(
         receipt_id="rcpt-contract-terminal",
         event_id="evt-contract-terminal",
@@ -525,19 +511,7 @@ async def test_terminal_finalization_validates_full_delivery_identity(
         outbox_id="obox-contract-terminal",
         attempt_number=1,
     )
-    kwargs = {
-        "outbox_id": "obox-contract-terminal",
-        "attempt_number": 1,
-        "terminal_status": "dead_lettered",
-        "event_id": "evt-contract-terminal",
-        "delivery_plan_id": "plan-contract-terminal",
-        "target_adapter": "mesh-1",
-        "target_channel": "0",
-    }
-
-    if case == "terminal_status":
-        kwargs["terminal_status"] = "sent"
-    elif case == "receipt_kind":
+    if case == "receipt_kind":
         receipt = build_delivery_receipt(
             receipt_id="rcpt-contract-attempt",
             event_id="evt-contract-terminal",
@@ -549,26 +523,19 @@ async def test_terminal_finalization_validates_full_delivery_identity(
             outbox_id="obox-contract-terminal",
             attempt_number=1,
         )
-    elif case == "receipt_status":
-        kwargs["terminal_status"] = "cancelled"
-    elif case in {
-        "outbox_id",
-        "event_id",
-        "delivery_plan_id",
-        "target_adapter",
-        "target_channel",
-    }:
-        kwargs[case] = "different"
-    elif case == "attempt_number":
-        kwargs["attempt_number"] = 2
+    elif case == "nonterminal_status":
+        force_setattr(receipt, "status", "sent")
+    elif case == "missing_outbox":
+        force_setattr(receipt, "outbox_id", None)
+    elif case == "incomplete_identity":
+        force_setattr(receipt, "target_adapter", "")
     elif case == "nonpositive_attempt":
         force_setattr(receipt, "attempt_number", 0)
-        kwargs["attempt_number"] = 0
     else:  # pragma: no cover - parametrization exhaustiveness guard
         raise AssertionError(case)
 
     with pytest.raises(ValueError, match=message):
-        await temp_storage.finalize_outbox_terminal(receipt, **kwargs)
+        TerminalOutboxFinalization(lifecycle_receipt=receipt)
 
 
 @pytest.mark.parametrize(
@@ -576,7 +543,7 @@ async def test_terminal_finalization_validates_full_delivery_identity(
     [
         ("kind", "attempt evidence"),
         ("status", "status='failed'"),
-        ("lineage", "must be linked to attempt_receipt"),
+        ("lineage", "same delivery attempt as attempt_receipt"),
     ],
 )
 async def test_terminal_finalization_validates_attempt_receipt_linkage(
@@ -648,16 +615,9 @@ async def test_terminal_finalization_validates_attempt_receipt_linkage(
         )
 
     with pytest.raises(ValueError, match=message):
-        await temp_storage.finalize_outbox_terminal(
-            lifecycle,
+        TerminalOutboxFinalization(
+            lifecycle_receipt=lifecycle,
             attempt_receipt=attempt,
-            outbox_id="obox-contract-link",
-            attempt_number=1,
-            terminal_status="dead_lettered",
-            event_id="evt-contract-link",
-            delivery_plan_id="plan-contract-link",
-            target_adapter="mesh-1",
-            target_channel="0",
         )
 
 
@@ -692,14 +652,7 @@ async def test_terminal_finalization_wraps_raw_sqlite_error(
 
     with pytest.raises(StorageError, match="Terminal outbox finalization failed"):
         await temp_storage.finalize_outbox_terminal(
-            receipt,
-            outbox_id=receipt.outbox_id or "",
-            attempt_number=1,
-            terminal_status="dead_lettered",
-            event_id=receipt.event_id,
-            delivery_plan_id=receipt.delivery_plan_id,
-            target_adapter=receipt.target_adapter,
-            target_channel=receipt.target_channel,
+            TerminalOutboxFinalization(lifecycle_receipt=receipt)
         )
 
 
@@ -734,14 +687,7 @@ async def test_terminal_finalization_preserves_storage_error(
 
     with pytest.raises(StorageError, match="injected typed terminal failure"):
         await temp_storage.finalize_outbox_terminal(
-            receipt,
-            outbox_id=receipt.outbox_id or "",
-            attempt_number=1,
-            terminal_status="dead_lettered",
-            event_id=receipt.event_id,
-            delivery_plan_id=receipt.delivery_plan_id,
-            target_adapter=receipt.target_adapter,
-            target_channel=receipt.target_channel,
+            TerminalOutboxFinalization(lifecycle_receipt=receipt)
         )
 
 

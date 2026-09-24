@@ -106,7 +106,7 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
     RetryPolicy,
 )
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import DeliveryOutboxItem, TerminalOutboxFinalization
 
 # ---------------------------------------------------------------------------
 # Logger
@@ -168,19 +168,7 @@ class DeliveryLifecycleStorage(Protocol):
 
     async def finalize_outbox_terminal(
         self,
-        receipt: DeliveryReceipt,
-        *,
-        attempt_receipt: DeliveryReceipt | None = None,
-        outbox_id: str,
-        attempt_number: int,
-        terminal_status: str,
-        event_id: str,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None,
-        failure_kind: str | None = None,
-        error_summary: str | None = None,
-        expected_worker_id: str | None = None,
+        command: TerminalOutboxFinalization,
     ) -> bool:
         """Atomically append terminal evidence and advance outbox authority."""
         ...
@@ -1649,17 +1637,11 @@ class DeliveryLifecycleService:
                     failure_kind=terminal_kind,
                 )
                 committed = await storage.finalize_outbox_terminal(
-                    lifecycle_receipt,
-                    outbox_id=item.outbox_id,
-                    attempt_number=attempt_number,
-                    terminal_status="dead_lettered",
-                    event_id=item.event_id,
-                    delivery_plan_id=item.delivery_plan_id,
-                    target_adapter=item.target_adapter,
-                    target_channel=item.target_channel,
-                    failure_kind=terminal_kind,
-                    error_summary=error_summary,
-                    expected_worker_id=item.worker_id,
+                    TerminalOutboxFinalization(
+                        lifecycle_receipt=lifecycle_receipt,
+                        error_summary=error_summary,
+                        expected_worker_id=item.worker_id,
+                    )
                 )
                 receipt_id = lifecycle_receipt.receipt_id
             else:
@@ -2198,17 +2180,11 @@ class DeliveryLifecycleService:
                         f"{authority.status!r}"
                     )
                 committed = await storage.finalize_outbox_terminal(
-                    authority,
-                    outbox_id=outbox_id,
-                    attempt_number=authority.attempt_number,
-                    terminal_status=authority.status,
-                    event_id=authority.event_id,
-                    delivery_plan_id=authority.delivery_plan_id,
-                    target_adapter=authority.target_adapter,
-                    target_channel=authority.target_channel,
-                    failure_kind=(failure_kind.value if failure_kind else None),
-                    error_summary=error_summary,
-                    expected_worker_id=expected_worker_id,
+                    TerminalOutboxFinalization(
+                        lifecycle_receipt=authority,
+                        error_summary=error_summary,
+                        expected_worker_id=expected_worker_id,
+                    )
                 )
 
             elif attempt is not None and attempt.status == "queued":

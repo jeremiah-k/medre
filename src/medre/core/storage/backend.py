@@ -16,7 +16,7 @@ from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
-from medre.core.delivery_authority import DeliveryIdentity
+from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.events import (
     CanonicalEvent,
     DeliveryObservation,
@@ -574,6 +574,84 @@ class DeliveryOutboxItem:
         return _get_is_claimable_outbox_status()(self.status)
 
 
+@dataclass(frozen=True, slots=True)
+class TerminalOutboxFinalization:
+    """Validated command for one atomic terminal outbox commit.
+
+    The lifecycle receipt is the source of truth for delivery identity,
+    terminal status, outbox generation, failure classification, and immutable
+    evidence.  Callers therefore cannot provide parallel scalar identity fields
+    that disagree with the evidence being committed.  ``attempt_receipt`` is
+    present only when this transaction is also introducing the causative failed
+    dispatch attempt.
+    """
+
+    lifecycle_receipt: DeliveryReceipt
+    attempt_receipt: DeliveryReceipt | None = None
+    error_summary: str | None = None
+    expected_worker_id: str | None = None
+
+    def __post_init__(self) -> None:
+        receipt = self.lifecycle_receipt
+        if receipt.receipt_kind != "lifecycle":
+            raise ValueError("terminal outbox finalization requires lifecycle evidence")
+        if receipt.status not in {"dead_lettered", "cancelled", "abandoned"}:
+            raise ValueError(
+                "terminal outbox finalization requires an error-terminal lifecycle "
+                f"status, got {receipt.status!r}"
+            )
+        if not receipt.outbox_id:
+            raise ValueError("terminal lifecycle receipt requires outbox_id")
+        if not delivery_identity(receipt).complete:
+            raise ValueError("terminal lifecycle receipt requires complete delivery identity")
+        if receipt.attempt_number < 1:
+            raise ValueError("terminal lifecycle receipt attempt_number must be >= 1")
+
+        attempt = self.attempt_receipt
+        if attempt is None:
+            return
+        if attempt.receipt_kind != "attempt":
+            raise ValueError("attempt_receipt must be attempt evidence")
+        if attempt.status != "failed":
+            raise ValueError("terminal attempt_receipt must have status='failed'")
+        if (
+            delivery_identity(attempt) != delivery_identity(receipt)
+            or attempt.outbox_id != receipt.outbox_id
+            or attempt.attempt_number != receipt.attempt_number
+            or receipt.parent_receipt_id != attempt.receipt_id
+        ):
+            raise ValueError(
+                "terminal lifecycle receipt must be linked to the same delivery "
+                "attempt as attempt_receipt"
+            )
+
+    @property
+    def identity(self) -> DeliveryIdentity:
+        """Full event-scoped identity derived from lifecycle evidence."""
+        return delivery_identity(self.lifecycle_receipt)
+
+    @property
+    def outbox_id(self) -> str:
+        """Outbox row guarded by this command."""
+        assert self.lifecycle_receipt.outbox_id is not None
+        return self.lifecycle_receipt.outbox_id
+
+    @property
+    def attempt_number(self) -> int:
+        """Exact outbox generation guarded by this command."""
+        return self.lifecycle_receipt.attempt_number
+
+    @property
+    def terminal_status(self) -> str:
+        """Terminal outbox status derived from lifecycle evidence."""
+        return self.lifecycle_receipt.status
+
+    @property
+    def failure_kind(self) -> str | None:
+        """Failure classification derived from lifecycle evidence."""
+        return self.lifecycle_receipt.failure_kind
+
+
 # ---------------------------------------------------------------------------
 # Guarantees
 # ---------------------------------------------------------------------------
@@ -969,35 +1047,23 @@ class StorageBackend(Protocol):
 
     async def finalize_outbox_terminal(
         self,
-        receipt: DeliveryReceipt,
-        *,
-        attempt_receipt: DeliveryReceipt | None = None,
-        outbox_id: str,
-        attempt_number: int,
-        terminal_status: str,
-        event_id: str,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None,
-        failure_kind: str | None = None,
-        error_summary: str | None = None,
-        expected_worker_id: str | None = None,
+        command: TerminalOutboxFinalization,
     ) -> bool:
         """Atomically finalize one terminal queue outcome.
 
         Implementations MUST commit an immutable lifecycle receipt whose
-        status equals ``terminal_status`` and the guarded outbox
-        ``queued|in_progress -> terminal_status`` transition
-        in one transaction. When ``attempt_receipt`` is supplied (for a
+        status determines the guarded outbox ``queued|in_progress -> terminal``
+        transition in one transaction. When ``command.attempt_receipt`` is
+        supplied (for a
         queue callback that newly proves the dispatch failed), that attempt
         receipt MUST commit in the same transaction before the lifecycle
         receipt. Implementations re-check the exact attempt at write time
         (row identity, ``attempt_number``, eligible status).  Return
         ``False`` when the guarded attempt no longer qualifies — stale
         callback, duplicate notification, or a competing attempt/state
-        change won — in which case neither write may commit. When
-        ``expected_worker_id`` is supplied, implementations MUST additionally
-        fence the transition to that current owner.
+        change won — in which case neither write may commit. When the command
+        carries ``expected_worker_id``, implementations MUST additionally fence
+        the transition to that current owner.
         """
         ...
 

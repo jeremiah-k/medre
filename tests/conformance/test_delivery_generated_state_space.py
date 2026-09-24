@@ -17,7 +17,7 @@ import pytest
 
 from medre.core.engine.pipeline.delivery_state import OUTBOX_STATUSES
 from medre.core.events import DeliveryReceipt
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import DeliveryOutboxItem, TerminalOutboxFinalization
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.conformance.test_delivery_lifecycle_conformance import _MemoryStorage
 from tests.helpers.storage_outbox import admit_event
@@ -304,15 +304,10 @@ async def _apply_operation(
         attempt_number=candidate,
     )
     return await storage.finalize_outbox_terminal(  # type: ignore[attr-defined]
-        receipt,
-        outbox_id=item.outbox_id,
-        attempt_number=candidate,
-        terminal_status=terminal_status,
-        event_id=item.event_id,
-        delivery_plan_id=item.delivery_plan_id,
-        target_adapter=item.target_adapter,
-        target_channel=item.target_channel,
-        expected_worker_id=model.worker_id,
+        TerminalOutboxFinalization(
+            lifecycle_receipt=receipt,
+            expected_worker_id=model.worker_id,
+        )
     )
 
 
@@ -454,15 +449,10 @@ async def test_terminalization_guard_truth_table_is_exhaustive(
             and (worker_fence is None or current.worker_id == worker_fence)
         )
         committed = await generated_storage.finalize_outbox_terminal(  # type: ignore[attr-defined]
-            receipt,
-            outbox_id=item.outbox_id,
-            attempt_number=attempt_number,
-            terminal_status=terminal_status,
-            event_id=item.event_id,
-            delivery_plan_id=item.delivery_plan_id,
-            target_adapter=item.target_adapter,
-            target_channel=item.target_channel,
-            expected_worker_id=worker_fence,
+            TerminalOutboxFinalization(
+                lifecycle_receipt=receipt,
+                expected_worker_id=worker_fence,
+            )
         )
         assert committed is expected, (
             source,

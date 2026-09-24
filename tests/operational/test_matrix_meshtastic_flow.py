@@ -60,6 +60,7 @@ from medre.core.storage.backend import (
     ConversationMembership,
     DeliveryOutboxItem,
     StorageError,
+    TerminalOutboxFinalization,
 )
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 from tests.helpers.storage_outbox import (
@@ -374,35 +375,12 @@ class _FakeStorage:
 
     async def finalize_outbox_terminal(
         self,
-        receipt: DeliveryReceipt,
-        *,
-        attempt_receipt: DeliveryReceipt | None = None,
-        outbox_id: str,
-        attempt_number: int,
-        terminal_status: str,
-        event_id: str,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None,
-        failure_kind: str | None = None,
-        error_summary: str | None = None,
-        expected_worker_id: str | None = None,
+        command: TerminalOutboxFinalization,
     ) -> bool:
         return apply_guarded_outbox_terminal(
-            self._outbox.get(outbox_id),
+            self._outbox.get(command.outbox_id),
             self._receipts,
-            receipt,
-            attempt_receipt=attempt_receipt,
-            outbox_id=outbox_id,
-            attempt_number=attempt_number,
-            terminal_status=terminal_status,
-            event_id=event_id,
-            delivery_plan_id=delivery_plan_id,
-            target_adapter=target_adapter,
-            target_channel=target_channel,
-            failure_kind=failure_kind,
-            error_summary=error_summary,
-            expected_worker_id=expected_worker_id,
+            command,
         )
 
     async def finalize_queued_delivery(

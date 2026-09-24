@@ -24,3 +24,7 @@
   closed config, route, storage, and recovery payload shapes. Runtime-generated config, storage-path,
   and error bundles are schema-validated so machine drift fails tests instead
   of being silently accepted.
+- Replace the scalar-heavy terminal outbox storage call with a validated
+  `TerminalOutboxFinalization` command. Lifecycle evidence is now the single
+  source of identity, generation, terminal status, and failure classification;
+  optional failed-attempt evidence is lineage-checked before storage is called.

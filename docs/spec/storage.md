@@ -1114,6 +1114,12 @@ Multi-table operations **MUST** be atomic:
   `receipt_id`/terminal status in one guarded transaction. The guard MUST match
   event, plan, adapter, channel, outbox, effective attempt, and current owner
   when an owner is supplied.
+- The terminal write boundary **MUST** accept one validated
+  `TerminalOutboxFinalization` command. Its lifecycle receipt is authoritative
+  for delivery identity, terminal status, outbox ID, attempt number, and failure
+  classification; callers MUST NOT provide parallel scalar copies of those
+  fields. Optional newly-proven failed-attempt evidence MUST identify the same
+  delivery/outbox/attempt and be the lifecycle receipt's direct parent.
 - If any write in a batch fails, the database state **MUST** remain unchanged.
 
 SQLite transactions are atomic. An event write either completes fully or not at all. A receipt write is a separate transaction from the event write, which means:

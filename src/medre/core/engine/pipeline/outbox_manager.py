@@ -26,7 +26,11 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.routing.models import Route, RouteTarget
-from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    StorageBackend,
+    TerminalOutboxFinalization,
+)
 
 # -- Constants --
 
@@ -591,17 +595,11 @@ class OutboxManager:
             # transaction. A stale/duplicate callback therefore commits none
             # of them.
             committed = await self._storage.finalize_outbox_terminal(
-                receipt,
-                attempt_receipt=failed_attempt,
-                outbox_id=record.outbox_id,
-                attempt_number=_attempt_number,
-                terminal_status=outbox_terminal,
-                event_id=record.event_id,
-                delivery_plan_id=_enriched_plan_id,
-                target_adapter=record.adapter,
-                target_channel=_enriched_channel,
-                failure_kind=failure_kind,
-                error_summary=error_msg[:200] if error_msg else None,
+                TerminalOutboxFinalization(
+                    lifecycle_receipt=receipt,
+                    attempt_receipt=failed_attempt,
+                    error_summary=error_msg[:200] if error_msg else None,
+                )
             )
             if not committed:
                 self._log.warning(

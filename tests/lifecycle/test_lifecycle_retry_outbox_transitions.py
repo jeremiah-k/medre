@@ -288,15 +288,16 @@ async def test_retry_claim_reconciliation_dead_letters_malformed_failure_kind(
     # committed with it, rather than re-marking with the failed receipt.
     storage.finalize_outbox_terminal.assert_awaited_once()
     call = storage.finalize_outbox_terminal.await_args
-    lifecycle_receipt = call.args[0]
+    command = call.args[0]
+    lifecycle_receipt = command.lifecycle_receipt
     assert lifecycle_receipt.receipt_kind == "lifecycle"
     assert lifecycle_receipt.status == "dead_lettered"
     assert lifecycle_receipt.attempt_number == 2
     assert lifecycle_receipt.parent_receipt_id == malformed.receipt_id
     assert result.receipt_id == lifecycle_receipt.receipt_id
-    assert call.kwargs["terminal_status"] == "dead_lettered"
-    assert call.kwargs["attempt_number"] == 2
-    assert call.kwargs["expected_worker_id"] is None
+    assert command.terminal_status == "dead_lettered"
+    assert command.attempt_number == 2
+    assert command.expected_worker_id is None
 
 
 async def test_retry_claim_reconciliation_preserves_dead_letter_failure_kind() -> None:

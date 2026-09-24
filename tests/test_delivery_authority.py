@@ -10,7 +10,7 @@ from medre.core.delivery_authority import (
     delivery_identity,
 )
 from medre.core.events import CanonicalEvent, DeliveryReceipt, EventMetadata
-from medre.core.storage.backend import DeliveryOutboxItem
+from medre.core.storage.backend import DeliveryOutboxItem, TerminalOutboxFinalization
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage_outbox import admit_event
 
@@ -518,15 +518,7 @@ async def test_recovery_scan_prefers_newer_failed_generation_over_late_older_ter
     )
     await temp_storage.append_receipt(older_failed)
     assert await temp_storage.finalize_outbox_terminal(
-        older_terminal,
-        outbox_id=older.outbox_id,
-        attempt_number=1,
-        terminal_status="dead_lettered",
-        event_id=event_id,
-        delivery_plan_id=plan_id,
-        target_adapter="radio",
-        target_channel="mesh",
-        failure_kind="adapter_permanent",
+        TerminalOutboxFinalization(lifecycle_receipt=older_terminal)
     )
 
     page = await temp_storage.query_unresolved_deliveries()
@@ -596,15 +588,7 @@ async def test_recovery_scan_prefers_newer_terminal_generation_over_late_older_f
     )
     await temp_storage.append_receipt(newer_failed)
     assert await temp_storage.finalize_outbox_terminal(
-        newer_terminal,
-        outbox_id=newer.outbox_id,
-        attempt_number=2,
-        terminal_status="dead_lettered",
-        event_id=event_id,
-        delivery_plan_id=plan_id,
-        target_adapter="radio",
-        target_channel="mesh",
-        failure_kind="adapter_permanent",
+        TerminalOutboxFinalization(lifecycle_receipt=newer_terminal)
     )
 
     older_failed = DeliveryReceipt(
