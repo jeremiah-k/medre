@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import medre.runtime.retry as retry_module
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import (
     DeliveryLifecycleService,
@@ -292,12 +293,7 @@ async def test_late_rejected_receipt_remains_history_not_current(temp_storage) -
         committed_receipt.receipt_id,
         late_receipt.receipt_id,
     ]
-    current = await temp_storage.delivery_status(
-        item.delivery_plan_id,
-        item.target_adapter,
-        item.target_channel,
-        event_id=item.event_id,
-    )
+    current = await temp_storage.delivery_status(DeliveryIdentity(item.event_id, item.delivery_plan_id, item.target_adapter, item.target_channel))
     assert current is not None
     assert current.receipt_id == committed_receipt.receipt_id
 

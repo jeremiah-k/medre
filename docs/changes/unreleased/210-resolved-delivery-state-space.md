@@ -4,7 +4,9 @@
   `DeliveryIdentity`: receipt history now includes channel scope, and outbox
   history exposes every durable generation for the same exact identity.
   Incomplete historical identities are rejected instead of silently widening
-  a query.
+  a query. Current authority uses the same `delivery_status(DeliveryIdentity)`
+  contract, removing the last scalar event/plan/adapter/channel lookup surface;
+  the value object itself normalizes empty and absent channel identities.
 - Introduce `ResolvedDeliverySnapshot` as the shared read model joining one
   delivery's immutable receipts, outbox generations, lifecycle authority,
   current operational generation, latest dispatch attempt, and loaded
@@ -39,4 +41,3 @@
   receipt + outbox commit by the full delivery identity, not only outbox ID and
   attempt number, so internally coherent evidence for the wrong sibling target
   cannot finalize the row.
-

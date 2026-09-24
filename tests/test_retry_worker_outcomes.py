@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.config.paths import MedrePaths, resolve
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.supervision.capacity import CapacityController
@@ -773,10 +774,12 @@ async def test_retry_worker_does_not_report_suppressed_receipt_as_success(
     await worker._retry_outbox_item(item)
 
     storage.delivery_status.assert_awaited_once_with(
-        item.delivery_plan_id,
-        item.target_adapter,
-        item.target_channel,
-        event_id=item.event_id,
+        DeliveryIdentity(
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel,
+        )
     )
     assert worker.state.processed == 1
     assert worker.state.succeeded == 0

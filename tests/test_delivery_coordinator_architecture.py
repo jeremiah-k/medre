@@ -150,6 +150,25 @@ def test_preflight_order_is_explicit_and_stable() -> None:
     ]
 
 
+def test_incomplete_identity_gate_precedes_lifecycle_entry() -> None:
+    """Adapterless targets are suppressed before replay reads or outbox work."""
+    tree = ast.parse(_COORDINATOR.read_text(encoding="utf-8"))
+    scoped = _function(tree, "_deliver_one_scoped")
+    awaited_checks = sorted(
+        (
+            (call.lineno, call.value.func.attr)
+            for call in ast.walk(scoped)
+            if isinstance(call, ast.Await)
+            and isinstance(call.value, ast.Call)
+            and isinstance(call.value.func, ast.Attribute)
+        )
+    )
+    assert [name for _, name in awaited_checks[:2]] == [
+        "_incomplete_identity_outcome",
+        "_load_replay_receipts",
+    ]
+
+
 def test_outbox_cleanup_is_inside_capacity_owned_boundary() -> None:
     """Lease cancellation and outbox finalization are unconditional siblings."""
     tree = ast.parse(_COORDINATOR.read_text(encoding="utf-8"))

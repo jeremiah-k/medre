@@ -232,8 +232,11 @@ def build_convergence_summary(
     global_warnings: list[str] = []
 
     for snapshot in snapshots:
-        key = snapshot.identity
-        event_id, plan_id, adapter, channel = key
+        identity = snapshot.identity
+        event_id = identity.event_id
+        plan_id = identity.delivery_plan_id
+        adapter = identity.target_adapter
+        channel = identity.target_channel
         obx = snapshot.current_outbox
         outbox_status = _get(obx, "status") if obx else None
         outbox_id = _get(obx, "outbox_id") if obx else None

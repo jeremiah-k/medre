@@ -328,6 +328,8 @@ class DeliveryCoordinator:
             return await self._deliver_one_scoped(ctx)
 
     async def _deliver_one_scoped(self, ctx: _DeliveryContext) -> DeliveryOutcome:
+        if not ctx.identity.complete:
+            return await self._incomplete_identity_outcome(ctx)
         replay_receipts = await self._load_replay_receipts(ctx)
         preflight = await self._preflight_outcome(ctx, replay_receipts)
         if preflight is not None:
@@ -400,6 +402,43 @@ class DeliveryCoordinator:
                 exc_info=True,
             )
             return []
+
+    async def _incomplete_identity_outcome(
+        self,
+        ctx: _DeliveryContext,
+    ) -> DeliveryOutcome:
+        """Suppress a target that cannot hold a delivery identity.
+
+        Storage rejects incomplete identities for lifecycle reads and both
+        finalization commands, so an outbox row created for one could never
+        reach a terminal state and would be reclaimed forever. A target
+        without an adapter is permanently undeliverable; record that failure
+        and stop before capacity acquisition or outbox creation.
+        """
+        error = (
+            f"incomplete delivery identity: target_adapter={ctx.adapter_id!r}; "
+            "a target without an adapter cannot enter the outbox lifecycle"
+        )
+        self._log.warning(
+            "Suppressing delivery with incomplete identity: "
+            "route_id=%s event_id=%s plan_id=%s target_adapter=%r",
+            ctx.route.id,
+            ctx.event.event_id,
+            ctx.plan.plan_id,
+            ctx.adapter_id,
+        )
+        receipt = await self._persist_suppression(
+            ctx,
+            failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
+            error=error,
+        )
+        return self._build_outcome(
+            ctx,
+            status="skipped",
+            failure_kind=DeliveryFailureKind.ADAPTER_MISSING,
+            receipt=receipt,
+            error=error,
+        )
 
     async def _preflight_outcome(
         self,

@@ -243,16 +243,14 @@ class StorageBackend(Protocol):
         ...
 
     async def delivery_status(
-        self, delivery_plan_id: str, target_adapter: str,
-        target_channel: str | None = None, *, event_id: str,
+        self, identity: DeliveryIdentity,
     ) -> DeliveryReceipt | None:
-        """Return the current receipt for a delivery target.
+        """Return current authority for one complete delivery identity.
 
         Outbox-backed delivery uses the outbox row's committed receipt_id;
         rejected late receipts remain historical. Outbox-less delivery uses
-        durable append order. When target_channel is None, only NULL-channel
-        receipts are considered. ``event_id`` is mandatory because plan IDs
-        are not globally unique.
+        durable append order. The typed identity carries event, plan, adapter,
+        and normalized channel scope as one indivisible lifecycle key.
         """
         ...
 
@@ -995,9 +993,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
 
 This closes the SQLite `NULL != NULL` gap without collapsing independent events that reuse a plan ID.
 
-Current-delivery lookups are always event-scoped. `delivery_status(...)` requires
-`event_id`; the storage contract intentionally has no plan-only overload because
-plan IDs may be reused by independent canonical events.
+Current-delivery lookups use the same complete typed `DeliveryIdentity` as
+historical reads. The storage contract intentionally has no scalar or plan-only
+overload because event, plan, adapter, and normalized channel together define one
+lifecycle identity.
 
 The outbox also carries `idx_outbox_lineage` over
 `(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), attempt_number)`.
@@ -1214,12 +1213,13 @@ runtime startup. A clean current marker skips that redundant full scan.
   handoffs record the strongest fact actually proven and never infer end-to-end
   delivery from lifecycle status.
 
-### 8.10 delivery_status(delivery_plan_id, target_adapter, target_channel, *, event_id)
+### 8.10 delivery_status(identity: DeliveryIdentity)
 
-- Returns the lifecycle-authoritative receipt for the given event-scoped target. `event_id` is mandatory because plan IDs are not globally unique across events; there is no plan-only current-delivery overload.
+- Returns the lifecycle-authoritative receipt for exactly one complete `(event_id, delivery_plan_id, target_adapter, target_channel)` identity; there is no scalar or plan-only current-delivery overload.
 - For outbox-backed delivery, the exact `(outbox_id, receipt_id)` pointer is eligibility authority and the outbox row's finalized `attempt_number` is generation authority. A later append from an older committed generation or a stale worker cannot outrank a newer committed generation.
 - For outbox-less delivery, greatest durable append `sequence` remains the projection rule. After one candidate is chosen from each authority class, greatest `sequence` decides which class most recently changed observable lifecycle state.
-- `target_channel` is **REQUIRED** for precise lookup. When `None`, only NULL-channel receipts are considered.
+- The identity normalizes empty / absent channels to one no-channel key; `None` selects only NULL-channel receipts, never all channels.
+- Incomplete identities are rejected.
 - Returns `None` when no current receipt exists.
 
 ### 8.11 list_receipts_for_delivery(identity: DeliveryIdentity)

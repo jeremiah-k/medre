@@ -9,6 +9,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
 from medre.core.contracts.adapter import AdapterCapabilities
@@ -310,9 +311,7 @@ class TestFullPipeline:
                 )
                 await storage.append_receipt(receipt)
 
-            latest = await storage.delivery_status(
-                "plan-receipt", "fake_presentation", event_id="receipt-evt"
-            )
+            latest = await storage.delivery_status(DeliveryIdentity("receipt-evt", "plan-receipt", "fake_presentation", None))
             assert latest is not None
             assert latest.status == "suppressed"
 

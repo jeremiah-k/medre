@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from medre.runtime.events import EventBuffer
 
 from medre.config.model import RetryConfig
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_lifecycle import (
     RetryAttemptCommitRejected,
     RetryAttemptFinalization,
@@ -88,18 +89,9 @@ class RetryWorkerStorage(Protocol):
 
     async def delivery_status(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> DeliveryReceipt | None:
-        """Return current delivery status for one event-scoped target.
-
-        ``event_id`` is mandatory because plan IDs can recur across events.
-        ``None`` for ``target_channel`` selects the no-channel
-        target, not every channel.
-        """
+        """Return current delivery authority for one complete identity."""
         ...
 
 
@@ -919,10 +911,12 @@ class RetryWorker:
             return
 
         previous_receipt = await self._storage.delivery_status(
-            item.delivery_plan_id,
-            item.target_adapter,
-            item.target_channel,
-            event_id=item.event_id,
+            DeliveryIdentity(
+                item.event_id,
+                item.delivery_plan_id,
+                item.target_adapter,
+                item.target_channel,
+            )
         )
 
         # Reconstruct the delivery context (route + plan + retry policy)

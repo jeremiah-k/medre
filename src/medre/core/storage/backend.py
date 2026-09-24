@@ -1131,41 +1131,16 @@ class StorageBackend(Protocol):
 
     async def delivery_status(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> DeliveryReceipt | None:
-        """Return the event-scoped current receipt for a delivery target.
+        """Return the lifecycle-authoritative receipt for one delivery identity.
 
-        Authority: **list/get** (read-only). For outbox-backed delivery, exact
-        ``(outbox_id, receipt_id)`` pointer equality selects eligible evidence
-        and the outbox row's finalized attempt ranks committed generations. A
-        stale or older-generation receipt remains immutable historical evidence.
-        Outbox-less lineages retain durable append order as their projection rule.
-
-        Parameters
-        ----------
-        delivery_plan_id:
-            The delivery plan to look up.
-        target_adapter:
-            The target adapter to filter on.
-        target_channel:
-            Channel name to match.  When a named channel is passed, only
-            receipts with that exact channel value are returned.  When
-            ``None`` (default), only receipts with a NULL (no-channel)
-            target are returned.  Passing ``None`` does **not** query
-            across all channels.
-        event_id:
-            Canonical-event scope. It is mandatory because plan IDs are not
-            globally unique.
-
-        Returns
-        -------
-        DeliveryReceipt | None
-            The lifecycle-authoritative receipt, or ``None`` when no eligible
-            receipt exists for the given event-scoped identity.
+        Authority: **list/get** (read-only). ``DeliveryIdentity`` is the same
+        complete event-scoped key used by historical reads and resolved
+        snapshots. For outbox-backed delivery, exact ``(outbox_id, receipt_id)``
+        pointer equality selects eligible evidence and mutable outbox generation
+        ranks committed attempts. Outbox-less lineages retain durable append
+        order as their projection rule.
         """
         ...
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Generic, Iterable, NamedTuple, TypeVar
+from typing import Any, Generic, Iterable, TypeVar
 
 __all__ = [
     "DeliveryAuthorityResolver",
@@ -61,13 +61,26 @@ def _normalized_channel(value: Any) -> str | None:
     return str(value)
 
 
-class DeliveryIdentity(NamedTuple):
-    """Full event-scoped identity of one logical delivery target."""
+@dataclass(frozen=True, slots=True)
+class DeliveryIdentity:
+    """Full event-scoped identity of one logical delivery target.
+
+    Empty and absent channels are the same lifecycle identity throughout
+    storage and in-memory authority resolution, so normalize that distinction
+    when the value object is constructed rather than at individual call sites.
+    """
 
     event_id: str
     delivery_plan_id: str
     target_adapter: str
     target_channel: str | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "target_channel",
+            _normalized_channel(self.target_channel),
+        )
 
     @property
     def complete(self) -> bool:

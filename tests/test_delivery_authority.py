@@ -62,6 +62,8 @@ def _outbox(
 
 
 def test_delivery_identity_normalizes_empty_channel() -> None:
+    expected = DeliveryIdentity("e", "p", "a", None)
+    assert DeliveryIdentity("e", "p", "a", "") == expected
     assert delivery_identity(
         {
             "event_id": "e",
@@ -69,7 +71,7 @@ def test_delivery_identity_normalizes_empty_channel() -> None:
             "target_adapter": "a",
             "target_channel": "",
         }
-    ) == DeliveryIdentity("e", "p", "a", None)
+    ) == expected
 
 
 def test_resolver_rejects_uncommitted_outbox_receipt() -> None:
@@ -277,12 +279,7 @@ async def test_sqlite_delivery_status_matches_shared_resolver(
     resolver = DeliveryAuthorityResolver(stored_receipts, stored_outbox)
     identity = DeliveryIdentity(event_id, "plan-authority-sql", "radio", "mesh")
     resolved = resolver.current(identity)
-    projected = await temp_storage.delivery_status(
-        "plan-authority-sql",
-        "radio",
-        "mesh",
-        event_id=event_id,
-    )
+    projected = await temp_storage.delivery_status(DeliveryIdentity(event_id, "plan-authority-sql", "radio", "mesh"))
 
     assert resolved is not None
     assert projected is not None
@@ -342,12 +339,14 @@ async def test_sqlite_delivery_history_uses_exact_full_identity(
     assert [item.attempt_number for item in history] == [1, 2]
 
 
-async def test_sqlite_historical_reads_reject_incomplete_identity(
+async def test_sqlite_delivery_reads_reject_incomplete_identity(
     temp_storage: SQLiteStorage,
 ) -> None:
     import pytest
 
     identity = DeliveryIdentity("", "plan", "radio", "mesh")
+    with pytest.raises(ValueError, match="complete DeliveryIdentity"):
+        await temp_storage.delivery_status(identity)
     with pytest.raises(ValueError, match="complete DeliveryIdentity"):
         await temp_storage.list_receipts_for_delivery(identity)
     with pytest.raises(ValueError, match="complete DeliveryIdentity"):
@@ -426,12 +425,7 @@ async def test_sqlite_newer_generation_outranks_late_committed_older_generation(
     resolver = DeliveryAuthorityResolver(stored_receipts, stored_outbox)
     identity = DeliveryIdentity(event_id, plan_id, "radio", "mesh")
     resolved = resolver.current(identity)
-    projected = await temp_storage.delivery_status(
-        plan_id,
-        "radio",
-        "mesh",
-        event_id=event_id,
-    )
+    projected = await temp_storage.delivery_status(DeliveryIdentity(event_id, plan_id, "radio", "mesh"))
 
     assert resolved is not None
     assert projected is not None

@@ -116,56 +116,27 @@ class _ReceiptMixin:
 
     async def delivery_status(
         self,
-        delivery_plan_id: str,
-        target_adapter: str,
-        target_channel: str | None = None,
-        *,
-        event_id: str,
+        identity: DeliveryIdentity,
     ) -> DeliveryReceipt | None:
-        """Return the event-scoped current receipt for a delivery target.
+        """Return current authority for one complete delivery identity.
 
-        Authority: **list/get** (read-only).  Queries the ``delivery_receipts``
-        base table directly (rather than the ``delivery_status`` view) so that
-        NULL and empty-string channel values are handled robustly without
-        relying on the view's ``COALESCE(target_channel, '')`` grouping.
-        Outbox-backed receipts are eligible only when the matching outbox row
-        names their ``receipt_id`` as the committed lifecycle outcome.  This
-        keeps a late receipt from a stale worker as history instead of letting
-        append order overwrite current delivery status.
-
-        Parameters
-        ----------
-        delivery_plan_id:
-            The delivery plan to look up.
-        target_adapter:
-            The target adapter to filter on.
-        target_channel:
-            Channel name to match.  When a named channel is passed, only
-            receipts with that exact channel value are returned.  When
-            ``None`` (default), only receipts with a NULL (no-channel)
-            target are returned.  Passing ``None`` does **not** query
-            across all channels.
-        event_id:
-            Canonical event scope. It is mandatory because plan IDs are not
-            globally unique and no current-delivery lookup may identify a
-            delivery by plan/target alone.
-
-        Returns
-        -------
-        DeliveryReceipt | None
-            The current matching receipt, or ``None`` when no committed receipt exists
-            for the given combination.
+        Authority: **list/get** (read-only). The query uses the same typed
+        event/plan/adapter/channel identity as historical reads. Outbox-backed
+        receipts are eligible only when the matching outbox generation commits
+        their receipt ID; outbox-less history retains append-order authority.
         """
+        if not identity.complete:
+            raise ValueError("delivery status requires a complete DeliveryIdentity")
         sql = _DELIVERY_RECEIPT_LATEST_BY_EVENT_CHANNEL
         params = (
-            event_id,
-            delivery_plan_id,
-            target_adapter,
-            target_channel or None,
-            event_id,
-            delivery_plan_id,
-            target_adapter,
-            target_channel or None,
+            identity.event_id,
+            identity.delivery_plan_id,
+            identity.target_adapter,
+            identity.target_channel or None,
+            identity.event_id,
+            identity.delivery_plan_id,
+            identity.target_adapter,
+            identity.target_channel or None,
         )
         row = await self._read_one(sql, params)
         return _row_to_receipt(row) if row else None
