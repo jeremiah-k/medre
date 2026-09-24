@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline import PipelineRunner
+from medre.core.engine.pipeline.delivery_coordinator import _DeliveryContext
 from medre.core.events import DeliveryReceipt
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
@@ -205,6 +207,112 @@ async def test_same_replay_run_suppresses_already_accepted_target(
     assert current is not None
     assert current.receipt_id == "rcpt-replay-accepted"
     assert current.status == accepted_status
+
+
+async def test_same_replay_run_durable_claim_skips_before_capacity(
+    temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    event = make_event(event_id="core-reliability-replay-claim", source_adapter="src")
+    await temp_storage.append(event)
+    target = RouteTarget(adapter="dest", channel="room")
+    route = Route(
+        id="route-replay-claim",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-replay-claim",
+        event_id=event.event_id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={
+                "dest": FakePresentationAdapter(adapter_id="dest", channel="room")
+            },
+        )
+    )
+    claim = await runner._outbox_manager.create_for_delivery(
+        event,
+        route,
+        plan,
+        target,
+        "dest",
+        source="replay",
+        replay_run_id="run-claimed",
+    )
+    assert claim.replay_duplicate is False
+
+    acquire = AsyncMock(side_effect=AssertionError("capacity must not be consulted"))
+    monkeypatch.setattr(
+        runner._delivery_coordinator, "_acquire_capacity_or_reject", acquire
+    )
+
+    outcomes = await runner._deliver_to_targets_fan_out(
+        event, [(route, plan)], source="replay", replay_run_id="run-claimed"
+    )
+
+    assert outcomes[0].status == "skipped"
+    assert outcomes[0].failure_kind is not None
+    assert outcomes[0].failure_kind.value == "replay_duplicate_suppressed"
+    assert outcomes[0].failure_kind_detail == "replay_run_claimed:in_progress"
+    acquire.assert_not_awaited()
+    assert await temp_storage.list_receipts_for_event(event.event_id) == []
+
+
+async def test_replay_origin_retry_is_not_treated_as_replay_duplicate(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event = make_event(event_id="core-reliability-retry-origin", source_adapter="src")
+    await temp_storage.append(event)
+    target = RouteTarget(adapter="dest", channel="room")
+    route = Route(
+        id="route-retry-origin",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-retry-origin",
+        event_id=event.event_id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(
+            storage=temp_storage, router=Router(routes=[route]), adapters={}
+        )
+    )
+    await runner._outbox_manager.create_for_delivery(
+        event,
+        route,
+        plan,
+        target,
+        "dest",
+        source="replay",
+        replay_run_id="run-retry-origin",
+    )
+    ctx = _DeliveryContext(
+        event=event,
+        route=route,
+        plan=plan,
+        source="retry",
+        replay_run_id="run-retry-origin",
+        cached_get_fn=None,
+        cached_list_fn=None,
+        started_at=time.monotonic(),
+    )
+
+    assert (
+        await runner._delivery_coordinator._replay_duplicate_outcome(ctx, None) is None
+    )
 
 
 async def test_stale_same_run_receipt_does_not_override_current_authority(

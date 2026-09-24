@@ -117,11 +117,9 @@ async def _build_event_recovery_runbook(
     # Build the shared event-scoped lifecycle-authority index. Plan IDs may
     # recur across events, so current delivery identity always includes the
     # canonical event even in this event-scoped runbook.
-    outbox_items: list[Any] = []
-    try:
-        outbox_items = list(await storage.list_outbox_items_for_event(event_id))
-    except Exception:
-        outbox_items = []
+    # Reuse the timeline's outbox snapshot so recovery projections cannot mix
+    # two storage states if delivery progresses during runbook construction.
+    outbox_items: list[Any] = list(tl_result.get("outbox_items") or [])
     authority = DeliveryAuthorityResolver(receipts, outbox_items)
 
     # Identify currently-failed lineages and classify by failure_kind.
@@ -448,18 +446,28 @@ def _print_event_runbook(runbook: dict[str, Any]) -> None:
     historical = runbook.get("historical_failures", [])
     if historical:
         print(
-            f"  Historical failures superseded by a later receipt "
+            f"  Historical failures superseded by later delivery state "
             f"({len(historical)}):"
         )
         for hf in historical:
             label = hf["target_adapter"]
             if hf.get("target_channel"):
                 label += f"/{hf['target_channel']}"
-            sup = hf["superseded_by"]
+            sup = hf.get("superseded_by")
+            if not sup:
+                superseding = "unknown current state"
+            elif sup.get("receipt_id"):
+                superseding = f"receipt {sup['receipt_id']} ({sup['status']})"
+            elif sup.get("outbox_id"):
+                superseding = (
+                    f"outbox generation {sup['outbox_id']} "
+                    f"attempt {sup['attempt_number']} ({sup['status']})"
+                )
+            else:
+                superseding = "unknown current state"
             print(
                 f"    {label}: attempt {hf['attempt_number']} "
-                f"{hf['status']} — superseded by receipt "
-                f"{sup['receipt_id']} ({sup['status']})"
+                f"{hf['status']} — superseded by {superseding}"
             )
     if runbook.get("recommended_commands"):
         print()

@@ -40,3 +40,13 @@
   treats current mutable generations independently from older immutable
   authority.
 - Align stale-claim recovery with diagnostics by reclaiming `in_progress` rows whose lease is missing or expired, preserving named replay provenance through the RetryWorker path.
+
+- Harden review-time edge cases around durable named-run claims: duplicates now
+  consult an existing outbox claim before mutable preflight/capacity decisions,
+  row-scoped recovery diagnostics cannot borrow evidence from sibling
+  generations, and terminal queue callbacks preserve replay provenance during
+  the in-progress callback race without guessing finalized-row provenance.
+- Keep operator projections snapshot-consistent and generation-aware: replay
+  traces distinguish terminal outbox-only runs from admitted work, evidence and
+  recovery reuse the event timeline's outbox snapshot, and human recovery output
+  renders either receipt- or outbox-shaped supersession authority safely.

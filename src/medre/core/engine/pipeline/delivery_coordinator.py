@@ -510,7 +510,19 @@ class DeliveryCoordinator:
         ctx: _DeliveryContext,
         replay_authority: DeliveryReceipt | None,
     ) -> DeliveryOutcome | None:
-        if not ctx.replay_run_id or replay_authority is None:
+        if ctx.source != "replay" or not ctx.replay_run_id:
+            return None
+        claims = await self._storage.list_outbox_items_for_delivery(ctx.identity)
+        claim = next(
+            (item for item in claims if item.replay_run_id == ctx.replay_run_id),
+            None,
+        )
+        if claim is not None:
+            return self._build_replay_duplicate_outcome(
+                ctx,
+                detail=f"replay_run_claimed:{claim.status}",
+            )
+        if replay_authority is None:
             return None
         if replay_authority.replay_run_id != ctx.replay_run_id:
             return None

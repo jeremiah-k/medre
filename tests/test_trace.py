@@ -19,6 +19,7 @@ from medre.core.events import (
     EventRelation,
     NativeMessageRef,
 )
+from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
@@ -453,6 +454,28 @@ class TestAssembleReplayTimeline:
 
         result = assemble_replay_timeline("run-partial", [receipt], {})
         assert result["status"] == "partial"
+
+    def test_terminal_outbox_without_receipt_is_complete(self) -> None:
+        from medre.runtime.trace import assemble_replay_timeline
+
+        event = _make_event(event_id="evt-terminal-outbox")
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-terminal-outbox",
+            event_id=event.event_id,
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="dest_adapter",
+            status="cancelled",
+            replay_run_id="run-terminal-outbox",
+        )
+
+        result = assemble_replay_timeline(
+            "run-terminal-outbox", [], {event.event_id: event}, [outbox]
+        )
+
+        assert result["status"] == "complete"
+        assert result["outbox_count"] == 1
+        assert result["receipt_count"] == 0
 
     def test_event_summary_included(self) -> None:
         """Timeline includes event_summary entries when events are cached."""

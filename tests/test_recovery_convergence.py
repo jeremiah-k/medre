@@ -176,6 +176,55 @@ class TestRecoveredNotProgressed:
         finding = next(f for f in findings if f.kind == KIND_RECOVERED_NOT_PROGRESSED)
         assert finding.extra["current_receipt_status"] == "queued"
 
+    def test_newer_sibling_generation_does_not_supply_recovered_receipt(self) -> None:
+        outbox = [
+            _make_outbox(
+                outbox_id="ob-old",
+                status="sent",
+                attempt_number=1,
+                receipt_id="r-old-sent",
+            ),
+            _make_outbox(
+                outbox_id="ob-new",
+                status="queued",
+                attempt_number=2,
+                receipt_id="r-new-queued",
+            ),
+        ]
+        receipts = [
+            _make_receipt(
+                receipt_id="r-old-sent",
+                status="sent",
+                attempt_number=1,
+                outbox_id="ob-old",
+            ),
+            _make_receipt(
+                receipt_id="r-new-queued",
+                status="queued",
+                attempt_number=2,
+                sequence=2,
+                outbox_id="ob-new",
+            ),
+        ]
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-old",
+            startup_timestamp=None,
+            actions=(
+                _make_action(
+                    outbox_id="ob-old",
+                    ownership_action="recoverable",
+                    prior_status="queued",
+                ),
+            ),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox, receipts=receipts, recovery_ledger=ledger
+        )
+
+        assert KIND_RECOVERED_NOT_PROGRESSED not in {f.kind for f in findings}
+
     def test_storage_object_outbox_uses_committed_receipt_pointer(self) -> None:
         """Storage objects use committed receipt IDs without membership errors."""
         outbox = [
@@ -482,6 +531,53 @@ class TestReclaimedThenTerminal:
         assert KIND_RECLAIMED_THEN_TERMINAL in kinds
         f = next(f for f in findings if f.kind == KIND_RECLAIMED_THEN_TERMINAL)
         assert f.severity == "inconsistent"
+
+    def test_newer_sibling_generation_does_not_supply_terminal_receipt(self) -> None:
+        outbox = [
+            _make_outbox(
+                outbox_id="ob-old-terminal",
+                status="dead_lettered",
+                attempt_number=1,
+                receipt_id="r-old-terminal",
+            ),
+            _make_outbox(
+                outbox_id="ob-new-queued",
+                status="queued",
+                attempt_number=2,
+                receipt_id="r-new-queued",
+            ),
+        ]
+        receipts = [
+            _make_receipt(
+                receipt_id="r-old-terminal",
+                status="dead_lettered",
+                attempt_number=1,
+                outbox_id="ob-old-terminal",
+            ),
+            _make_receipt(
+                receipt_id="r-new-queued",
+                status="queued",
+                attempt_number=2,
+                sequence=2,
+                outbox_id="ob-new-queued",
+            ),
+        ]
+        ledger = StartupRecoveryLedger(
+            recovery_run_id="run-old-terminal",
+            startup_timestamp=None,
+            actions=(
+                _make_action(
+                    outbox_id="ob-old-terminal", ownership_action="reclaimed"
+                ),
+            ),
+            generated_at="2026-05-31T12:00:00+00:00",
+        )
+
+        findings = build_recovery_convergence_findings(
+            outbox_items=outbox, receipts=receipts, recovery_ledger=ledger
+        )
+
+        assert KIND_RECLAIMED_THEN_TERMINAL not in {f.kind for f in findings}
 
     def test_not_flagged_without_ledger(self) -> None:
         """Without a recovery ledger, reclaimed_then_terminal must NOT fire."""

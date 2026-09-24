@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from medre.core.contracts.adapter import QueueTerminalRecord
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
@@ -269,6 +270,111 @@ async def test_outbox_manager_reports_atomic_same_run_duplicate(
     assert duplicate.replay_duplicate is True
     assert duplicate.outbox_id == first.outbox_id
     assert duplicate.skip_reason == "replay_run_claimed:in_progress"
+
+
+async def test_replay_terminal_callback_before_queued_receipt_preserves_origin(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event = make_event(event_id="evt-replay-terminal-race", source_adapter="src")
+    await temp_storage.append(event)
+    target = RouteTarget(adapter="dest", channel="room")
+    route = Route(
+        id="route-replay-terminal-race",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-replay-terminal-race",
+        event_id=event.event_id,
+        route_id=route.id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+    manager = OutboxManager(temp_storage, DeliveryLifecycleService())
+    claim = await manager.create_for_delivery(
+        event,
+        route,
+        plan,
+        target,
+        "dest",
+        source="replay",
+        replay_run_id="run-terminal-race",
+    )
+
+    await manager.record_terminal(
+        QueueTerminalRecord(
+            event_id=event.event_id,
+            adapter="dest",
+            outcome="permanent_failed",
+            outbox_id=claim.outbox_id,
+            delivery_plan_id=plan.plan_id,
+            attempt_number=claim.attempt_number,
+            native_channel_id="room",
+            error="adapter rejected queued send",
+        )
+    )
+
+    receipts = await temp_storage.list_receipts_for_delivery(
+        DeliveryIdentity(event.event_id, plan.plan_id, "dest", "room")
+    )
+    assert [receipt.status for receipt in receipts] == ["failed", "dead_lettered"]
+    assert all(receipt.source == "replay" for receipt in receipts)
+    assert all(receipt.replay_run_id == "run-terminal-race" for receipt in receipts)
+
+
+async def test_finalized_replay_row_without_queued_receipt_rejects_terminal_callback(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event = make_event(event_id="evt-replay-missing-queued", source_adapter="src")
+    await temp_storage.append(event)
+    target = RouteTarget(adapter="dest", channel="room")
+    route = Route(
+        id="route-replay-missing-queued",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-replay-missing-queued",
+        event_id=event.event_id,
+        route_id=route.id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+    manager = OutboxManager(temp_storage, DeliveryLifecycleService())
+    claim = await manager.create_for_delivery(
+        event,
+        route,
+        plan,
+        target,
+        "dest",
+        source="replay",
+        replay_run_id="run-missing-queued",
+    )
+    assert await temp_storage.mark_outbox_queued(
+        claim.outbox_id, attempt_number=claim.attempt_number
+    )
+
+    await manager.record_terminal(
+        QueueTerminalRecord(
+            event_id=event.event_id,
+            adapter="dest",
+            outcome="permanent_failed",
+            outbox_id=claim.outbox_id,
+            delivery_plan_id=plan.plan_id,
+            attempt_number=claim.attempt_number,
+            native_channel_id="room",
+            error="late queue failure",
+        )
+    )
+
+    row = await temp_storage.get_outbox_item(claim.outbox_id)
+    assert row is not None
+    assert row.status == "queued"
+    assert await temp_storage.list_receipts_for_event(event.event_id) == []
 
 
 async def test_retry_preserves_originating_replay_run_provenance(

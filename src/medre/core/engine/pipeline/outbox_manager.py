@@ -582,6 +582,24 @@ class OutboxManager:
                     record.outbox_id,
                 )
 
+            if _queued_receipt_id is None and existing_item.replay_run_id:
+                if existing_item.status != "in_progress":
+                    self._log.warning(
+                        "No queued receipt for finalized replay-origin "
+                        "outbox_id=%s; rejecting terminal callback rather "
+                        "than guessing dispatch provenance",
+                        record.outbox_id,
+                    )
+                    return
+                # A terminal callback can race the queued-receipt append while
+                # the durable row is still in_progress. In that narrow window
+                # the row itself proves replay origin, and active_attempt
+                # distinguishes a RetryWorker reservation from initial replay.
+                _queued_source = (
+                    "retry" if existing_item.active_attempt is not None else "replay"
+                )
+                _queued_replay_run_id = existing_item.replay_run_id
+
             # Enrich receipt fields from the validated outbox item when
             # available — the outbox row is the authoritative source for
             # delivery_plan_id, target_channel, and route_id.

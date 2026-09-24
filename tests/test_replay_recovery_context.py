@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from medre.cli.recover_commands import _build_event_recovery_runbook
+from medre.cli.recover_commands import (
+    _build_event_recovery_runbook,
+    _print_event_runbook,
+)
 
 
 class _FakeEvent:
@@ -146,10 +149,11 @@ async def test_replay_context_tracks_retry_dispatch_origin() -> None:
 
 @pytest.mark.asyncio
 async def test_admitted_replay_run_is_visible_before_first_receipt() -> None:
+    storage = _storage(
+        outbox_items=[_FakeOutbox(replay_run_id="run-admitted", status="pending")]
+    )
     runbook = await _build_event_recovery_runbook(
-        _storage(
-            outbox_items=[_FakeOutbox(replay_run_id="run-admitted", status="pending")]
-        ),
+        storage,
         "evt-1",
         storage_path="/nonexistent",
     )
@@ -162,10 +166,13 @@ async def test_admitted_replay_run_is_visible_before_first_receipt() -> None:
             "outbox_statuses": ["pending"],
         }
     ]
+    storage.list_outbox_items_for_event.assert_awaited_once_with("evt-1")
 
 
 @pytest.mark.asyncio
-async def test_fresh_replay_generation_moves_older_failure_to_history() -> None:
+async def test_fresh_replay_generation_moves_older_failure_to_history(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     runbook = await _build_event_recovery_runbook(
         _storage(
             receipts=[
@@ -212,3 +219,7 @@ async def test_fresh_replay_generation_moves_older_failure_to_history() -> None:
             "outbox_statuses": ["pending"],
         }
     ]
+
+    _print_event_runbook(runbook)
+    output = capsys.readouterr().out
+    assert "superseded by outbox generation ob-replay attempt 2 (pending)" in output

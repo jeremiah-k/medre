@@ -132,22 +132,9 @@ async def _collect_storage_data_from_backend(
                 ]
                 data["timeline"] = tl_result["timeline_entries"]
 
-                # --- Load outbox items for this event (if backend supports) ---
-                outbox_items: list[Any] = []
-                _list_outbox = getattr(storage, "list_outbox_items_for_event", None)
-                if callable(_list_outbox):
-                    try:
-                        from collections.abc import Coroutine as _Coroutine
-                        from typing import cast as _cast
-
-                        outbox_items = await _cast(
-                            _Coroutine[Any, Any, list[Any]],
-                            _list_outbox(event_id),
-                        )
-                    except Exception:
-                        # cleanup-silent: best-effort outbox enrichment;
-                        # remaining convergence queries continue with [].
-                        outbox_items = []
+                # Reuse the event timeline's outbox snapshot so every derived
+                # section describes the same storage read.
+                outbox_items: list[Any] = list(tl_result.get("outbox_items") or [])
 
                 # Compact incident summary using shared classification.
                 from medre.core.observability.classification import (

@@ -178,13 +178,15 @@ def group_outbox_by_identity(
     return grouped
 
 
+def _effective_generation(item: Any) -> int:
+    """Return the reserved generation when present, else the finalized one."""
+    return int(_get(item, "active_attempt") or _get(item, "attempt_number") or 1)
+
+
 def _outbox_rank(item: Any) -> tuple[int, str, str, str]:
     """Rank operational generations without relying on incidental list order."""
-    effective_attempt = int(
-        _get(item, "active_attempt") or _get(item, "attempt_number") or 1
-    )
     return (
-        effective_attempt,
+        _effective_generation(item),
         _iso(_get(item, "updated_at")),
         _iso(_get(item, "created_at")),
         str(_get(item, "outbox_id") or ""),
@@ -326,11 +328,7 @@ def _current_generation_receipt(
     receipt_id = str(_get(current_outbox, "receipt_id") or "")
     if not outbox_id or not receipt_id:
         return None
-    generation = int(
-        _get(current_outbox, "active_attempt")
-        or _get(current_outbox, "attempt_number")
-        or 1
-    )
+    generation = _effective_generation(current_outbox)
     return next(
         (
             receipt
@@ -364,7 +362,7 @@ def _current_generation_attempt(
     if not parent_id:
         return None
     outbox_id = str(_get(current_outbox, "outbox_id") or "")
-    generation = int(_get(current_outbox, "attempt_number") or 1)
+    generation = _effective_generation(current_outbox)
     return next(
         (
             receipt

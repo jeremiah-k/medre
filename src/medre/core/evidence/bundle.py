@@ -97,7 +97,7 @@ class EvidenceBundle(msgspec.Struct, frozen=True):
     replay_run_ids:
         Sorted list of distinct durable ``replay_run_id`` values seen on
         receipts or admitted outbox generations.
-        Derived from ``delivery_receipts`` rows.
+        Derived from ``delivery_receipts`` and ``delivery_outbox`` rows.
     sources_seen:
         Sorted list of distinct ``source`` values seen on receipts.
         Derived from ``delivery_receipts`` rows.

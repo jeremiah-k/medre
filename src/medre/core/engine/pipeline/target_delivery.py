@@ -63,6 +63,7 @@ from medre.core.events.canonical import (
 from medre.core.events.delivery import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
     DeliveryConfirmationLevel,
+    DeliverySource,
     normalize_delivery_provenance,
 )
 from medre.core.observability.correlation import correlation_scope
@@ -418,7 +419,7 @@ class TargetDeliveryService:
         *,
         render_event: CanonicalEvent | None = None,
         previous_receipt: DeliveryReceipt | None = None,
-        source: str = "live",
+        source: DeliverySource = "live",
         replay_run_id: str | None = None,
         outbox_id: str | None = None,
         reserved_attempt_number: int | None = None,
@@ -972,7 +973,7 @@ class TargetDeliveryService:
         failure_kind: DeliveryFailureKind,
         attempt_number: int,
         parent_receipt_id: str | None,
-        source: str,
+        source: DeliverySource,
         replay_run_id: str | None,
         outbox_id: str | None,
         next_retry_at: datetime | None = None,

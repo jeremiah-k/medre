@@ -332,7 +332,7 @@ def assemble_replay_timeline(
     ]
     if missing:
         status = "partial"
-    elif outbox_items and not receipts:
+    elif outbox_items and not receipts and active_outbox:
         status = "admitted"
     elif active_outbox:
         status = "active"
