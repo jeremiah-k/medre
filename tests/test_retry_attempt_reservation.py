@@ -400,6 +400,17 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
     assert row.attempt_number == 2
     assert row.active_attempt is None
 
+    receipts = await temp_storage.list_receipts_for_event(event.event_id)
+    terminal_attempt = next(
+        receipt
+        for receipt in receipts
+        if receipt.outbox_id == item.outbox_id
+        and receipt.attempt_number == 2
+        and receipt.status == "failed"
+    )
+    assert terminal_attempt.source == "retry"
+    assert terminal_attempt.replay_run_id is None
+
     # A late terminal callback for the superseded attempt commits nothing.
     stale_committed = await manager.record_terminal(
         QueueTerminalRecord(

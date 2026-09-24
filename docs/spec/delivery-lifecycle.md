@@ -403,10 +403,11 @@ independently joining receipt authority, outbox state, and attempt history.
 
 ### 5.1 Replay Creates New Attempts
 
-Replay re-processes stored canonical events through the pipeline. Accepted replay
-delivery attempts produce receipt rows with `source="replay"` and a
-`replay_run_id`. A non-empty run ID durably claims one outbox generation for the
-full delivery identity, so concurrent executions of that same run converge on one
+Replay re-processes stored canonical events through the pipeline. Accepted initial
+replay delivery attempts produce receipt rows with `source="replay"`; named runs also
+carry a `replay_run_id`, which later `source="retry"` attempts preserve. A non-empty
+run ID durably claims one outbox generation for the full delivery identity, so
+concurrent executions of that same run converge on one
 dispatch generation. Within one runtime process, `DeliveryCoordinator` also serializes
 the exact `(DeliveryIdentity, replay_run_id)` before capacity admission. That local gate
 prevents an in-process duplicate from timing out on capacity and manufacturing an
@@ -455,8 +456,13 @@ attempt before any candidate is selected (see
 own durable `source` / `replay_run_id` lineage is the trusted provenance for
 that one attempt, so a replay-origin candidate is finalized exactly like a
 live one and its replay lineage is carried onto the supplemental `sent`
-receipt. When malformed history offers duplicate queued receipts across
-sources for the same row and attempt (a row is single-sourced in normal
+receipt. If a terminal callback arrives while the authoritative row is still
+`in_progress` and before that queued receipt is visible, `active_attempt` is
+durable proof of RetryWorker dispatch; absent a reservation, a non-empty
+`replay_run_id` is durable proof of initial named-replay dispatch. A finalized
+replay-origin row with no matching queued receipt is rejected rather than
+guessing provenance. When malformed history offers duplicate queued receipts
+across sources for the same row and attempt (a row is single-sourced in normal
 operation), non-replay candidates are preferred. Callbacks that do not match
 the validated row — stale attempts, terminal or reclaimed rows — are still
 rejected with a warning; replay isolation never overrides row validation. See

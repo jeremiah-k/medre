@@ -50,3 +50,8 @@
   traces distinguish terminal outbox-only runs from admitted work, evidence and
   recovery reuse the event timeline's outbox snapshot, and human recovery output
   renders either receipt- or outbox-shaped supersession authority safely.
+- Preserve dispatch provenance when a queue terminal callback wins the narrow
+  race before its queued receipt is appended: a durable `active_attempt`
+  reservation identifies RetryWorker dispatch, while a named replay claim
+  identifies initial replay dispatch. Finalized replay-origin rows still reject
+  missing-lineage callbacks rather than guessing provenance.

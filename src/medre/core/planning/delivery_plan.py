@@ -457,7 +457,7 @@ class RetryExecutor:
         error:
             Human-readable error description.
         source:
-            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
+            Dispatch mechanism: ``"live"``, ``"retry"``, or ``"replay"``.
         replay_run_id:
             Replay-origin run identifier. Present on the initial replay
             attempt and preserved when a RetryWorker attempt uses
@@ -532,7 +532,7 @@ class RetryExecutor:
         error:
             Human-readable error description.
         source:
-            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
+            Dispatch mechanism: ``"live"``, ``"retry"``, or ``"replay"``.
         replay_run_id:
             Replay-origin run identifier. Present on the initial replay
             attempt and preserved when a RetryWorker attempt uses
