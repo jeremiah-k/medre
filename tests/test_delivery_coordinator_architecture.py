@@ -110,7 +110,13 @@ def test_delivery_coordinator_does_not_write_storage_state_directly() -> None:
         ):
             storage_calls.add(node.func.attr)
 
-    assert storage_calls == {"delivery_status", "list_receipts_for_delivery"}
+    # All three are identity-scoped reads; every persistence transition stays
+    # delegated to the lifecycle/outbox authorities.
+    assert storage_calls == {
+        "delivery_status",
+        "list_outbox_items_for_delivery",
+        "list_receipts_for_delivery",
+    }
 
 
 def test_capacity_release_is_outermost_owned_delivery_cleanup() -> None:
