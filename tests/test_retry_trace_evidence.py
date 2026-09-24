@@ -113,6 +113,7 @@ def _make_dead_letter_receipt(
         route_id="route-1",
         status="dead_lettered",
         error="Retry exhausted",
+        failure_kind="retry_exhausted",
         attempt_number=attempt_number,
         parent_receipt_id=parent_receipt_id,
         created_at=created_at or datetime.now(timezone.utc) + timedelta(seconds=2),
@@ -280,12 +281,15 @@ class TestRetryTraceEvidence:
         dead_lettered = [r for r in r_b if r.status == "dead_lettered"]
         assert len(dead_lettered) == 1
 
-        # Dead-lettered is inferred as adapter_transient (was retriable)
-        kind_b = infer_failure_kind(
+        # The durable failure_kind wins over status-based inference:
+        # production dead letters carry retry_exhausted, and manual replay
+        # is the retryable remedy. A kindless dead letter would stay
+        # unknown — the status alone never invents retryability.
+        kind_b = dead_lettered[0].failure_kind or infer_failure_kind(
             dead_lettered[0].error,
             dead_lettered[0].status,
         )
-        assert kind_b == "adapter_transient"
+        assert kind_b == "retry_exhausted"
         # But the receipt status tells us it's exhausted
         assert dead_lettered[0].status == "dead_lettered"
 

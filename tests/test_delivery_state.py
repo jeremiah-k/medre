@@ -265,8 +265,10 @@ class TestReceiptTransitions:
     def test_queued_terminal_callback_edges(self, status: str) -> None:
         assert validate_receipt_transition("queued", status) is True
 
-    def test_failed_to_sent_invalid(self) -> None:
-        assert validate_receipt_transition("failed", "sent") is False
+    def test_failed_to_sent_is_a_retry_success(self) -> None:
+        # A retry attempt after a failed attempt legitimately produces sent
+        # attempt evidence in the same receipt chain.
+        assert validate_receipt_transition("failed", "sent") is True
 
     def test_unknown_source_returns_false(self) -> None:
         assert validate_receipt_transition("unknown", "sent") is False

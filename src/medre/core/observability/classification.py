@@ -29,8 +29,15 @@ __all__ = [
 # Failure-kind categories for recovery classification.
 # ---------------------------------------------------------------------------
 
-RETRYABLE_KINDS: frozenset[str] = frozenset({"adapter_transient"})
-"""Failure kinds that are transient and may succeed on retry."""
+RETRYABLE_KINDS: frozenset[str] = frozenset({"adapter_transient", "retry_exhausted"})
+"""Failure kinds whose recovery remedy is another attempt.
+
+``adapter_transient`` may still succeed on automatic retry;
+``retry_exhausted`` means automatic retries are spent and manual replay
+is the remaining remedy — the retryable command set recommends exactly
+that. A dead-lettered receipt without a persisted kind stays
+``unknown``: ``dead_lettered`` is lifecycle authority, not a
+failure-kind signal."""
 
 PERMANENT_KINDS: frozenset[str] = frozenset(
     {

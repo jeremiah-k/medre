@@ -164,6 +164,10 @@ def find_existing_outbox_generation(
     A finalized ``attempt_number`` or live ``active_attempt`` already represents
     that generation.  Returning the existing row prevents a replay create from
     manufacturing a sibling generation that a live retry has already reserved.
+
+    Claimable rows (``pending`` / ``retry_wait``) are reclaimed exactly as
+    SQLite's create transaction does: status, worker, and lease adopt the
+    candidate's values and stale scheduling/reservation state clears.
     """
     for existing in items.values():
         if not _same_outbox_identity(existing, candidate):
@@ -172,6 +176,13 @@ def find_existing_outbox_generation(
             existing.attempt_number,
             existing.active_attempt,
         }:
+            if existing.status in ("pending", "retry_wait"):
+                object.__setattr__(existing, "status", candidate.status or "pending")
+                object.__setattr__(existing, "worker_id", candidate.worker_id)
+                object.__setattr__(existing, "locked_at", candidate.locked_at)
+                object.__setattr__(existing, "lease_until", candidate.lease_until)
+                object.__setattr__(existing, "next_attempt_at", None)
+                object.__setattr__(existing, "active_attempt", None)
             return existing
     return None
 

@@ -45,7 +45,9 @@ state transitions that do not create another dispatch attempt.
                   retry scheduled│    └──────────────► dead_lettered
                   (next attempt) │                      lifecycle transition,
                                  ▼                      same attempt number
-                              failed
+                     failed / queued / sent
+                     (retry attempt fails,
+                      enqueues, or succeeds)
 
                 suppressed      ◄── terminal lifecycle
 ```
@@ -80,6 +82,8 @@ outbox-less chains, durable append order remains the projection rule.
 | `queued`                   | `cancelled`              | Queue terminal callback reports cancellation   |
 | `queued`                   | `abandoned`              | Queue terminal callback reports abandonment    |
 | `failed`                   | `failed`                 | Retry attempt also fails                       |
+| `failed`                   | `queued`                 | Retry attempt accepted by queue-based adapter  |
+| `failed`                   | `sent`                   | Retry attempt succeeds                         |
 | `failed`                   | `dead_lettered`          | Retry exhausted                                |
 
 Receipts with `parent_receipt_id = None` are initial attempts. A new dispatch

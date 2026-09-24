@@ -145,7 +145,9 @@ ADAPTER_DELIVERY_STATUSES: frozenset[str] = frozenset({"sent", "enqueued"})
 #: to ``failed`` again when a retry attempt also fails.
 RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
     "queued": frozenset({"sent", "failed", "cancelled", "abandoned"}),
-    "failed": frozenset({"dead_lettered", "failed"}),
+    # A retry dispatch after a failed attempt produces new attempt
+    # evidence: failed again, enqueued, or sent.
+    "failed": frozenset({"dead_lettered", "failed", "queued", "sent"}),
     # sent, dead_lettered, cancelled, abandoned, suppressed are terminal.
 }
 
@@ -297,15 +299,13 @@ def validate_outbox_transition(source: str, target: str) -> bool:
 
 
 def is_valid_queued_to_sent_transition(source_status: str) -> bool:
-    """Return ``True`` if *source_status* may transition to ``sent``.
+    """Return ``True`` if *source_status* is a queued receipt.
 
-    Delegates to ``validate_receipt_transition(source_status, "sent")``.
-    Under the current :data:`RECEIPT_TRANSITIONS` table, only ``"queued"``
-    has ``"sent"`` as a legal target, so this helper effectively answers
-    "is *source_status* ``queued``?" — but the check is table-driven so
-    it stays correct if future receipt transitions to ``sent`` are added.
-
-    Used by the queued→sent supplemental receipt correlation path in
-    :class:`~medre.core.engine.pipeline.delivery_lifecycle.DeliveryLifecycleService`.
+    The supplemental queued→sent correlation path upgrades exactly one
+    queued receipt; a ``failed`` receipt may later coexist with ``sent``
+    in the same chain (a retry attempt succeeded), but only the queued
+    candidate may be upgraded. This stays literal rather than delegating
+    to :data:`RECEIPT_TRANSITIONS`, whose ``failed → sent`` retry edge is
+    about chain adjacency, not supplemental upgrades.
     """
-    return validate_receipt_transition(source_status, "sent")
+    return source_status == "queued"
