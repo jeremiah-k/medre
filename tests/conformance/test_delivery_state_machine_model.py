@@ -181,6 +181,69 @@ async def test_reserved_attempt_and_owner_fences_never_regress_identity(
     assert final.receipt_id == "committed-attempt-2"
 
 
+async def test_sibling_generation_blocks_stale_reservation(
+    lifecycle_storage: object,
+) -> None:
+    """Both backends reject a reservation already represented by a sibling row."""
+    event_id = "evt-model-sibling-generation"
+    original = _item(
+        outbox_id="obox-model-sibling-original",
+        event_id=event_id,
+        attempt=1,
+        worker_id="worker-a",
+    )
+    sibling = _item(
+        outbox_id="obox-model-sibling-newer",
+        event_id=event_id,
+        attempt=2,
+        worker_id="worker-b",
+    )
+    await _admit(lifecycle_storage, original)
+    await _admit(lifecycle_storage, sibling)
+
+    reserved = await lifecycle_storage.reserve_outbox_attempt(  # type: ignore[attr-defined]
+        original.outbox_id,
+        "worker-a",
+        1,
+    )
+    assert reserved is None
+    assert await _snapshot(lifecycle_storage, original.outbox_id) == _Snapshot(
+        "in_progress", 1, None, None, "worker-a"
+    )
+
+
+async def test_live_reservation_blocks_sibling_generation_create(
+    lifecycle_storage: object,
+) -> None:
+    """Both backends reuse a live reservation instead of creating its sibling."""
+    event_id = "evt-model-create-after-reserve"
+    original = _item(
+        outbox_id="obox-model-create-original",
+        event_id=event_id,
+        attempt=1,
+        worker_id="worker-a",
+    )
+    await _admit(lifecycle_storage, original)
+    reserved = await lifecycle_storage.reserve_outbox_attempt(  # type: ignore[attr-defined]
+        original.outbox_id,
+        "worker-a",
+        1,
+    )
+    assert reserved == 2
+
+    sibling = _item(
+        outbox_id="obox-model-create-sibling",
+        event_id=event_id,
+        attempt=2,
+        worker_id="worker-b",
+    )
+    resolved = await lifecycle_storage.create_outbox_item(sibling)  # type: ignore[attr-defined]
+    assert resolved.outbox_id == original.outbox_id
+    assert await _snapshot(lifecycle_storage, original.outbox_id) == _Snapshot(
+        "in_progress", 1, 2, None, "worker-a"
+    )
+
+
 async def test_terminal_finalization_is_atomic_and_same_attempt(
     lifecycle_storage: object,
 ) -> None:

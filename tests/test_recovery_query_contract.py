@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 
 import pytest
 
@@ -15,6 +16,7 @@ from medre.core.storage.sqlite._recovery_query import (
     _validate_page_limit,
 )
 from medre.core.storage.sqlite.schema import _INDEXES
+from medre.core.storage.sqlite.storage import SQLiteStorage
 
 
 def test_lineage_index_matches_current_outcome_grouping() -> None:
@@ -50,7 +52,7 @@ def test_recovery_scan_is_receipt_keyset_bounded() -> None:
     assert "dr.sequence > ?" in sql
     assert sql.index("LIMIT ?") < sql.index("), candidate_window AS (")
     assert sql.index("), candidate_window AS (") < sql.index("NOT EXISTS")
-    assert "INDEXED BY idx_receipts_lineage" in sql
+    assert "INDEXED BY idx_receipts_lineage" not in sql
     assert "NOT EXISTS" in sql
     assert "GROUP BY" not in sql
     assert "OFFSET" not in sql
@@ -71,6 +73,29 @@ def test_since_scope_filters_the_same_event_lineage() -> None:
     assert "FROM delivery_receipts dr NOT INDEXED" in sql
     where_clause = _candidate_where_clause(sql)
     assert "replay_run_id" not in where_clause
+
+
+async def test_readonly_recovery_does_not_require_lineage_index(tmp_path) -> None:
+    """Read-only recovery stays valid before the optional lineage index exists."""
+    db_path = tmp_path / "recovery-no-lineage-index.db"
+    storage = SQLiteStorage(str(db_path))
+    await storage.initialize()
+    await storage.close()
+
+    raw = sqlite3.connect(db_path)
+    try:
+        raw.execute("DROP INDEX idx_receipts_lineage")
+        raw.commit()
+    finally:
+        raw.close()
+
+    readonly = await SQLiteStorage.open_readonly(str(db_path))
+    try:
+        page = await readonly.query_unresolved_deliveries(limit=3)
+        assert page.items == []
+        assert page.has_more is False
+    finally:
+        await readonly.close()
 
 
 class _RecoveryReadStub(_RecoveryQueryMixin):

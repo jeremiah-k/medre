@@ -167,23 +167,29 @@ async def test_terminal_attempt_prefers_the_reserved_generation(temp_storage) ->
             worker_id="worker-c",
         )
     )
-    AsyncMock(wraps=temp_storage.get_outbox_item)
+    original_get = temp_storage.get_outbox_item
+    spy = AsyncMock(wraps=original_get)
+    temp_storage.get_outbox_item = spy  # type: ignore[method-assign]
     evidence = DeliveryExecutionEvidence(
         failure_kind=DeliveryFailureKind.ADAPTER_PERMANENT,
         error="no dispatch evidence survived",
     )
 
-    committed = await lifecycle.finalize_outbox_outcome(
-        temp_storage,
-        outbox_id="obox-reserved-attempt",
-        outbox_created=True,
-        evidence=evidence,
-        retry_policy=None,
-        reserved_attempt_number=3,
-        expected_worker_id="worker-c",
-    )
+    try:
+        committed = await lifecycle.finalize_outbox_outcome(
+            temp_storage,
+            outbox_id="obox-reserved-attempt",
+            outbox_created=True,
+            evidence=evidence,
+            retry_policy=None,
+            reserved_attempt_number=3,
+            expected_worker_id="worker-c",
+        )
+        assert committed is True
+        spy.assert_not_awaited()
+    finally:
+        temp_storage.get_outbox_item = original_get  # type: ignore[method-assign]
 
-    assert committed is True
     row = await temp_storage.get_outbox_item("obox-reserved-attempt")
     assert row is not None
     assert row.status == "dead_lettered"

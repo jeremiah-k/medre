@@ -16,6 +16,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 import medre.runtime.retry as retry_module
 from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
@@ -340,6 +342,79 @@ async def test_completion_rejects_old_attempts_and_keeps_live_one(temp_storage) 
             event_id=event.event_id, outbox_id=item.outbox_id, attempt_number=2
         ),
         now,
+    )
+
+
+@pytest.mark.parametrize("target_channel", [None, "aa" * 16])
+async def test_reservation_rejects_generation_already_held_by_sibling(
+    temp_storage, target_channel: str | None
+) -> None:
+    """A retry cannot reserve a generation already represented by replay."""
+    event = await _seed_event(temp_storage, "evt-sibling-generation")
+    original = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-sibling-original",
+        event_id=event.event_id,
+        target_channel=target_channel,
+    )
+    sibling = DeliveryOutboxItem(
+        outbox_id="obox-sibling-replay",
+        event_id=event.event_id,
+        route_id="route-reservation",
+        delivery_plan_id=_PLAN_ID,
+        target_adapter="lxmf-main",
+        target_channel=target_channel,
+        attempt_number=2,
+        status="in_progress",
+        worker_id="replay-worker",
+    )
+    await temp_storage.create_outbox_item(sibling)
+
+    assert (
+        await temp_storage.reserve_outbox_attempt(original.outbox_id, _WORKER, 1)
+        is None
+    )
+    row = await temp_storage.get_outbox_item(original.outbox_id)
+    assert row is not None
+    assert row.active_attempt is None
+
+
+@pytest.mark.parametrize("target_channel", [None, "aa" * 16])
+async def test_create_reuses_live_reservation_generation(
+    temp_storage, target_channel: str | None
+) -> None:
+    """Replay creation cannot insert a sibling for a concurrently reserved attempt."""
+    event = await _seed_event(temp_storage, "evt-create-reservation-race")
+    original = await _seed_outbox(
+        temp_storage,
+        outbox_id="obox-create-reservation-original",
+        event_id=event.event_id,
+        target_channel=target_channel,
+    )
+    assert await temp_storage.reserve_outbox_attempt(original.outbox_id, _WORKER, 1) == 2
+
+    replay = DeliveryOutboxItem(
+        outbox_id="obox-create-reservation-replay",
+        event_id=event.event_id,
+        route_id="route-reservation",
+        delivery_plan_id=_PLAN_ID,
+        target_adapter="lxmf-main",
+        target_channel=target_channel,
+        attempt_number=2,
+        status="in_progress",
+        worker_id="replay-worker",
+    )
+    resolved = await temp_storage.create_outbox_item(replay)
+
+    assert resolved.outbox_id == original.outbox_id
+    rows = await temp_storage.list_outbox_items_for_event(event.event_id)
+    assert [row.outbox_id for row in rows] == [original.outbox_id]
+    assert await temp_storage.mark_outbox_retry_wait(
+        original.outbox_id,
+        next_attempt_at=_FUTURE.isoformat(),
+        failure_kind="adapter_transient",
+        attempt_number=2,
+        expected_worker_id=_WORKER,
     )
 
 

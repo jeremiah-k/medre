@@ -34,6 +34,7 @@ from medre.core.events.canonical import (
 from medre.core.observability.metrics import Diagnostician
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 
 # ---------------------------------------------------------------------------
 # Local fakes
@@ -60,16 +61,7 @@ def _assert_terminal_failure_chain(
     failure_kind: DeliveryFailureKind,
 ) -> None:
     """Assert normalized failed-attempt -> dead-letter lifecycle evidence."""
-    assert len(receipts) == 2
-    attempt, lifecycle = receipts
-    assert attempt.receipt_kind == "attempt"
-    assert attempt.status == "failed"
-    assert attempt.failure_kind == failure_kind.value
-    assert lifecycle.receipt_kind == "lifecycle"
-    assert lifecycle.status == "dead_lettered"
-    assert lifecycle.failure_kind == failure_kind.value
-    assert lifecycle.attempt_number == attempt.attempt_number
-    assert lifecycle.parent_receipt_id == attempt.receipt_id
+    assert_terminal_failure_pair(receipts, failure_kind=failure_kind.value)
 
 
 class _FakeRenderingPipeline:

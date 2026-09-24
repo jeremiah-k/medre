@@ -58,6 +58,8 @@ from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from tests.helpers.storage_outbox import (
     apply_guarded_outbox_terminal,
     apply_guarded_outbox_transition,
+    find_existing_outbox_generation,
+    reserve_guarded_outbox_attempt,
 )
 
 # ---------------------------------------------------------------------------
@@ -200,6 +202,9 @@ class _MemoryStorage:
         )
 
     async def create_outbox_item(self, item: DeliveryOutboxItem) -> DeliveryOutboxItem:
+        existing = find_existing_outbox_generation(self._outbox, item)
+        if existing is not None:
+            return existing
         self._outbox[item.outbox_id] = item
         return item
 
@@ -212,17 +217,9 @@ class _MemoryStorage:
         worker_id: str,
         from_attempt: int,
     ) -> int | None:
-        item = self._outbox.get(outbox_id)
-        if (
-            item is None
-            or item.status != "in_progress"
-            or item.worker_id != worker_id
-            or item.active_attempt is not None
-            or item.attempt_number != from_attempt
-        ):
-            return None
-        object.__setattr__(item, "active_attempt", from_attempt + 1)
-        return from_attempt + 1
+        return reserve_guarded_outbox_attempt(
+            self._outbox, outbox_id, worker_id, from_attempt
+        )
 
     async def renew_outbox_lease(
         self,

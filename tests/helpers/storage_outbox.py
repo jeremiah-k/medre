@@ -118,6 +118,81 @@ async def store_native_ref_with_parent(
     await storage.store_native_ref(ref)
 
 
+def _same_outbox_identity(left: DeliveryOutboxItem, right: DeliveryOutboxItem) -> bool:
+    """Return whether two rows belong to the same event-scoped delivery identity."""
+    return (
+        left.event_id == right.event_id
+        and left.delivery_plan_id == right.delivery_plan_id
+        and left.target_adapter == right.target_adapter
+        and (left.target_channel or None) == (right.target_channel or None)
+    )
+
+
+def _effective_outbox_attempt(item: DeliveryOutboxItem) -> int:
+    """Return the generation represented by an outbox row."""
+    return (
+        item.active_attempt
+        if item.active_attempt is not None
+        else item.attempt_number
+    )
+
+
+def find_existing_outbox_generation(
+    items: dict[str, DeliveryOutboxItem],
+    candidate: DeliveryOutboxItem,
+) -> DeliveryOutboxItem | None:
+    """Mirror SQLite create-time generation reuse for in-memory fakes.
+
+    A finalized ``attempt_number`` or live ``active_attempt`` already represents
+    that generation.  Returning the existing row prevents a replay create from
+    manufacturing a sibling generation that a live retry has already reserved.
+    """
+    for existing in items.values():
+        if not _same_outbox_identity(existing, candidate):
+            continue
+        if candidate.attempt_number in {
+            existing.attempt_number,
+            existing.active_attempt,
+        }:
+            return existing
+    return None
+
+
+def reserve_guarded_outbox_attempt(
+    items: dict[str, DeliveryOutboxItem],
+    outbox_id: str,
+    worker_id: str,
+    from_attempt: int,
+) -> int | None:
+    """Mirror SQLite's sibling-aware guarded attempt reservation.
+
+    The next generation may be reserved only by the claimed row and only when
+    no sibling row for the same event-scoped delivery identity already
+    represents that generation or a newer one.  This keeps in-memory lifecycle
+    fakes aligned with the production replay/retry collision fence.
+    """
+    item = items.get(outbox_id)
+    if (
+        item is None
+        or item.status != "in_progress"
+        or item.worker_id != worker_id
+        or item.active_attempt is not None
+        or item.attempt_number != from_attempt
+    ):
+        return None
+
+    next_attempt = from_attempt + 1
+    for sibling in items.values():
+        if sibling.outbox_id == item.outbox_id:
+            continue
+        if not _same_outbox_identity(sibling, item):
+            continue
+        if _effective_outbox_attempt(sibling) >= next_attempt:
+            return None
+
+    object.__setattr__(item, "active_attempt", next_attempt)
+    return next_attempt
+
 def apply_guarded_outbox_transition(
     item: DeliveryOutboxItem,
     new_status: str,

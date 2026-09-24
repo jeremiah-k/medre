@@ -352,7 +352,7 @@ class TestSameAdapterTwoChannels:
 
 
 # ===================================================================
-# 3. Same adapter, same channel, different route_ids → two entries
+# 3. Same adapter, same channel, different route_ids → one identity entry
 # ===================================================================
 
 
