@@ -152,8 +152,6 @@ class DeliveryLifecycleStorage(Protocol):
         """
         ...
 
-    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]: ...
-
     async def list_receipts_for_delivery(
         self,
         identity: DeliveryIdentity,
@@ -1056,8 +1054,9 @@ class DeliveryLifecycleService:
         Finally, the method builds the outbound native ref and immutable sent
         receipt, then asks storage to commit those facts together with the
         exact outbox ``queued|in_progress -> sent`` transition in one
-        transaction. The storage transaction re-checks outbox ID, attempt
-        number, and status so a concurrent reclaim cannot partially commit.
+        transaction. The storage transaction re-checks the complete delivery
+        identity, outbox ID, attempt number, and status so a concurrent reclaim
+        or sibling-target mismatch cannot partially commit.
 
         If no matching ``"queued"`` receipt is found (e.g. a non-queued
         adapter), the method returns silently.
@@ -1071,18 +1070,6 @@ class DeliveryLifecycleService:
         now:
             Timestamp for the new receipt.
         """
-        try:
-            existing = await storage.list_receipts_for_event(record.event_id)
-        except Exception:
-            self._log.exception(
-                "Failed to list receipts for supplemental queued->sent: "
-                "event_id=%s adapter=%s native_channel_id=%s",
-                record.event_id,
-                record.adapter,
-                record.native_channel_id,
-            )
-            return
-
         queued_receipt: DeliveryReceipt | None = None
         # Track the validated outbox item for exact transition below.
         validated_outbox: DeliveryOutboxItem | None = None
@@ -1196,6 +1183,27 @@ class DeliveryLifecycleService:
                     outbox_item.attempt_number,
                     outbox_item.active_attempt,
                     record.event_id,
+                )
+                return
+
+            # Historical lookup is scoped to the complete lifecycle identity
+            # carried by the authoritative outbox row.  Event-wide scans can
+            # merge sibling channels or targets and make exact callback
+            # correlation depend on later ad-hoc filtering.
+            try:
+                existing = await storage.list_receipts_for_delivery(
+                    delivery_identity(outbox_item)
+                )
+            except Exception:
+                self._log.exception(
+                    "Failed to list delivery receipt history for supplemental "
+                    "queued->sent: outbox_id=%s event_id=%s plan_id=%s "
+                    "adapter=%s channel=%s",
+                    record.outbox_id,
+                    outbox_item.event_id,
+                    outbox_item.delivery_plan_id,
+                    outbox_item.target_adapter,
+                    outbox_item.target_channel,
                 )
                 return
 

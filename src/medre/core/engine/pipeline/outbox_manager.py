@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from medre.core.contracts.adapter import QueueTerminalRecord
+from medre.core.delivery_authority import delivery_identity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
@@ -515,16 +516,16 @@ class OutboxManager:
             # stored number).
             _attempt_number: int = effective_attempt
 
-            # Recover queued-receipt lineage: look up the queued receipt
-            # for the same (outbox_id, attempt_number) to inherit its
-            # source, replay_run_id, and parent_receipt_id so terminal
-            # outcomes preserve retry/replay lineage.
+            # Recover queued-receipt lineage from this exact delivery identity,
+            # then match the authoritative outbox generation.  Keeping sibling
+            # targets outside the query makes lineage ownership structural
+            # rather than an ad-hoc filter over event-wide history.
             _queued_source: str = "live"
             _queued_replay_run_id: str | None = None
             _queued_receipt_id: str | None = None
             try:
-                _all_receipts = await self._storage.list_receipts_for_event(
-                    record.event_id,
+                _all_receipts = await self._storage.list_receipts_for_delivery(
+                    delivery_identity(existing_item),
                 )
                 for _r in _all_receipts:
                     if (

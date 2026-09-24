@@ -110,7 +110,7 @@ def test_delivery_coordinator_does_not_write_storage_state_directly() -> None:
         ):
             storage_calls.add(node.func.attr)
 
-    assert storage_calls == {"list_receipts_for_event"}
+    assert storage_calls == {"list_receipts_for_delivery"}
 
 
 def test_capacity_release_is_outermost_owned_delivery_cleanup() -> None:

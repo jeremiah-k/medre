@@ -76,8 +76,10 @@ class _ReceiptStorage:
     def __init__(self, receipt: DeliveryReceipt) -> None:
         self.receipt = receipt
 
-    async def list_receipts_for_event(self, event_id: str) -> list[DeliveryReceipt]:
-        assert event_id == self.receipt.event_id
+    async def list_receipts_for_delivery(self, identity) -> list[DeliveryReceipt]:
+        from medre.core.delivery_authority import delivery_identity
+
+        assert identity == delivery_identity(self.receipt)
         return [self.receipt]
 
 

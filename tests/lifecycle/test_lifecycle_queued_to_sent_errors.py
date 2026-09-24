@@ -34,19 +34,46 @@ class TestAppendQueuedToSentErrorPaths:
         temp_storage: StorageBackend,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """storage.list_receipts_for_event raises → logged, returns."""
+        """Exact delivery-history lookup failure is logged and returns."""
         from unittest.mock import AsyncMock, patch
 
         lifecycle = _make_lifecycle()
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-list-err",
+                status="queued",
+                event_id="evt-list-err",
+                adapter="mesh-1",
+                outbox_id="obox-list-err",
+            ),
+        )
+        await create_outbox_item_with_parent(
+            temp_storage,
+            DeliveryOutboxItem(
+                outbox_id="obox-list-err",
+                event_id="evt-list-err",
+                route_id="route-001",
+                delivery_plan_id="plan-001",
+                target_adapter="mesh-1",
+                target_channel=None,
+                status="in_progress",
+                attempt_number=1,
+            ),
+        )
+        await temp_storage.mark_outbox_queued("obox-list-err")
         record = OutboundNativeRefRecord(
             event_id="evt-list-err",
             adapter="mesh-1",
             native_channel_id=None,
             native_message_id="pkt",
+            delivery_plan_id="plan-001",
+            outbox_id="obox-list-err",
+            attempt_number=1,
         )
         with patch.object(
             temp_storage,
-            "list_receipts_for_event",
+            "list_receipts_for_delivery",
             AsyncMock(side_effect=RuntimeError("db fail")),
         ):
             await lifecycle.finalize_queued_delivery(
@@ -54,7 +81,7 @@ class TestAppendQueuedToSentErrorPaths:
                 record=record,
                 now=datetime.now(timezone.utc),
             )
-        assert "Failed to list receipts" in caplog.text
+        assert "Failed to list delivery receipt history" in caplog.text
 
     async def test_channel_mismatch_skips_supplemental(
         self,

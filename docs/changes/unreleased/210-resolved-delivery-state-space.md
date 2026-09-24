@@ -12,6 +12,11 @@
 - Move delivery ledger, runtime evidence, and convergence diagnostics onto the
   resolved snapshot so those consumers no longer rebuild partial authority /
   outbox / attempt joins independently.
+- Scope exact operational history reads to `DeliveryIdentity` as well:
+  queued-to-sent callback correlation, queue-terminal lineage recovery,
+  replay same-run suppression, and post-insert receipt readback no longer scan
+  every receipt for the canonical event and then reconstruct target identity
+  with local filters.
 - Add model-generated lifecycle state-space conformance across the in-memory
   backend and SQLite, covering every operation edge reachable from the claimed
   execution state rather than relying only on hand-picked adversarial
