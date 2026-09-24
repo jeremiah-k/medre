@@ -837,7 +837,7 @@ After `best_effort` replay, check for replay-created retry receipts:
 -- Receipt evidence that replay produced a retry schedule; not current due work.
 SELECT receipt_id, event_id, status, next_retry_at, source, replay_run_id
 FROM delivery_receipts
-WHERE source = 'replay' AND next_retry_at IS NOT NULL;
+WHERE replay_run_id IS NOT NULL AND next_retry_at IS NOT NULL;
 ```
 
 If replay-created retry receipts appear and duplicate delivery is a concern,
@@ -847,7 +847,7 @@ receipt rows:
 - Filter replay-origin rows at query time:
   ```sql
   SELECT * FROM delivery_receipts
-  WHERE source <> 'replay' OR source IS NULL;
+  WHERE replay_run_id IS NULL;
   ```
 - Narrow replay scope before running replay (use `--route-ids`, `--target-adapters`, or `--limit`).
 - Leave `next_retry_at` values intact — `delivery_receipts` rows are append-only evidence.
@@ -890,7 +890,7 @@ receipt rows:
 
 ## Replay and Live Delivery Separation
 
-Replay and live delivery are isolated by the `source` field on receipts (`"live"`, `"retry"`, `"replay"`). This separation is enforced at correlation time:
+Dispatch mechanism and replay origin are represented independently: `source` records `"live"`, `"replay"`, or `"retry"`, while a non-null `replay_run_id` identifies replay-origin lineage across later retries. Exact delivery identity and outbox generation remain the correlation authority:
 
 ### Queued Callback Correlation
 
@@ -898,7 +898,7 @@ When a queue-based adapter callback arrives to confirm a queued delivery (queued
 
 `delivery_plan_id` and `native_channel_id` are validation metadata only. They are checked against the outbox row when present, but they are never used as correlation selectors. No plan/channel latest-candidate fallback exists.
 
-Replay-origin receipts (`replay_run_id IS NOT NULL`) are not allowed to mutate unrelated recovery state unless they match the exact trusted outbox lineage. The initial replay dispatch uses `source="replay"`; later replay-origin attempts may use `source="retry"`. Because queued callbacks correlate by exact `outbox_id` + `attempt_number` against the authoritative outbox row (validated for status, event, adapter, plan, channel, and attempt before selection), a matching queued receipt is finalized exactly like a live one: the supplemental `sent` receipt carries the row's durable `source` / `replay_run_id` lineage and the outbox transitions `queued` to `sent`. Only the matching row transitions — replay origin never authorizes another row — and callbacks that fail row validation (stale attempt, terminal or reclaimed row) are still rejected with a warning. Replay-only selection is logged at debug level; the former operator-visible skip warning no longer occurs.
+Replay-origin receipts (`replay_run_id IS NOT NULL`) are not allowed to mutate unrelated recovery state unless they match the exact trusted outbox lineage. The initial replay dispatch uses `source="replay"`; later replay-origin attempts may use `source="retry"`. Because queued callbacks correlate by exact `outbox_id` + `attempt_number` against the authoritative outbox row (validated for status, event, adapter, plan, channel, and attempt before selection), a matching queued receipt is finalized exactly like a live one: the supplemental `sent` receipt inherits dispatch `source` and `replay_run_id` from that exact queued receipt, while the outbox row independently carries durable replay-origin provenance. The outbox transitions `queued` to `sent`. Only the matching row transitions — replay origin never authorizes another row — and callbacks that fail row validation (stale attempt, terminal or reclaimed row) are still rejected with a warning. Replay-only selection is logged at debug level; the former operator-visible skip warning no longer occurs.
 
 ### Uncorrelated Queued Outbox Items
 

@@ -12,8 +12,9 @@ and re-transmitting the replayed content over RF.
 
 The queued→sent correlation now trusts the already-validated exact
 row/attempt match: a replay-sourced queued receipt is finalized exactly like
-a live one, carrying its durable `source`/`replay_run_id` lineage (the same
-recovery the terminal failure path always used). The interim mechanism that
+a live one, inheriting dispatch `source` and `replay_run_id` from the exact
+queued receipt while the outbox row independently preserves replay origin (the
+same correlation authority the terminal failure path uses). The interim mechanism that
 closed such rows after the teardown drain by inferring per-attempt success
 from aggregate queue state is removed — delivery truth is recorded only by
 real terminal callbacks through the single lifecycle authority, and the

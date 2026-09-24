@@ -276,9 +276,9 @@ asserts all of the following for its fixtures:
    `PipelineRunner` with fake adapters — unsupported event kinds are
    filtered to `status="skipped"` with `capability_suppressed` error;
    fallback-capable events remain deliverable. Replay requests carry
-   `run_id`; receipt-level replay origin is carried by `replay_run_id` while `source` records the current dispatch mechanism
-   tagging is asserted in integration-level tests with real pipeline
-   components.
+   `run_id`. Receipt-level replay origin is carried by `replay_run_id`, and
+   `source` records the current dispatch mechanism. Integration-level tests
+   with real pipeline components assert this provenance.
 
 ### 6.5 Conformance Test Modules
 

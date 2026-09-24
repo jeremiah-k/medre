@@ -321,7 +321,7 @@ LIMIT 50;
 
 -- Replay duplicate risk assessment
 SELECT e.event_id,
-       COUNT(CASE WHEN r.source = 'live' THEN 1 END) AS live_dispatches,
+       COUNT(CASE WHEN r.source = 'live' AND r.receipt_kind = 'attempt' THEN 1 END) AS live_dispatches,
        COUNT(CASE WHEN r.replay_run_id IS NOT NULL THEN 1 END) AS replay_origin_receipts
 FROM canonical_events e
 JOIN delivery_receipts r ON e.event_id = r.event_id
