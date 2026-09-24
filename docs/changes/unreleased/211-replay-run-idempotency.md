@@ -13,6 +13,11 @@
   appending a synthetic outbox-less suppression receipt. This preserves the
   accepted delivery as current lifecycle authority when a replay command is
   repeated.
+- Serialize an exact named-run delivery identity inside one MEDRE process before
+  capacity admission. This closes the local race where a duplicate could otherwise
+  time out on capacity before the winner created its outbox claim and persist an
+  unrelated suppression receipt. The gate is process-local ordering only; the
+  transactional outbox claim remains the cross-process authority.
 - Preserve replay origin across RetryWorker dispatch. The retry attempt keeps
   `source="retry"` while carrying the originating `replay_run_id`, making
   dispatch mechanism and replay provenance independently observable in receipt

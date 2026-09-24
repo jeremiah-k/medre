@@ -280,7 +280,10 @@ re-raised afterwards so pipeline and storage cleanup always execute.
   events only. Durable outbox/retry state transitions are owned by the
   delivery lifecycle authority (see [delivery-lifecycle.md](delivery-lifecycle.md)).
   Durable double-process protection is the outbox claim (`worker_id` +
-  `lease_until`), not process-local state.
+  `lease_until`), not process-local state. Named replay uses one additional
+  process-local exact-run gate only to order duplicate admission before capacity;
+  its durable cross-process idempotency authority is still the transactional
+  `(DeliveryIdentity, replay_run_id)` outbox claim.
 - The pipeline runner delegates per-target orchestration to
   `DeliveryCoordinator`; the coordinator sequences preflight, capacity,
   outbox, enrichment, target delivery, and finalization, and does not

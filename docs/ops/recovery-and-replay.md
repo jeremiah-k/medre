@@ -692,7 +692,11 @@ ORDER BY replay_run_id;
 Replay remains repeatable across different runs, but a non-empty replay `run_id`
 atomically claims one durable outbox generation per target identity. Concurrent
 executions using that same run ID and storage database therefore converge on one
-dispatch generation even before receipt evidence is visible. Empty run IDs remain
+dispatch generation even before receipt evidence is visible. In one running MEDRE
+process, exact same-run target executions are additionally serialized before capacity
+admission so a local duplicate cannot become a capacity-suppression lifecycle event
+while the winner is still establishing its durable claim. The durable outbox claim,
+not that process-local gate, remains the cross-process authority. Empty run IDs remain
 intentionally repeatable. This is idempotent replay admission, not exactly-once
 transport delivery: an ambiguous handoff may still be redispatched by retry/recovery.
 

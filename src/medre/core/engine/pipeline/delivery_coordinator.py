@@ -23,6 +23,7 @@ import time
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Protocol, TypeVar, cast
+from weakref import WeakValueDictionary
 
 from medre.core.contracts.adapter import AdapterContract
 from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
@@ -250,6 +251,9 @@ class DeliveryCoordinator:
         self._route_stats = route_stats
         self._runtime_accounting = runtime_accounting
         self._capacity_controller: CapacityController | None = None
+        self._named_replay_locks: WeakValueDictionary[
+            tuple[DeliveryIdentity, str], asyncio.Lock
+        ] = WeakValueDictionary()
 
     def set_capacity_controller(self, controller: CapacityController) -> None:
         """Use *controller* for delivery admission and release."""
@@ -333,13 +337,33 @@ class DeliveryCoordinator:
             return await self._deliver_one_scoped(ctx)
 
     async def _deliver_one_scoped(self, ctx: _DeliveryContext) -> DeliveryOutcome:
-        """Deliver one target after identity, replay, and preflight checks.
+        """Deliver one target with exact-run local admission serialization.
 
-        Identity and preflight rejections return before outbox creation. Any
-        capacity acquired for an owned delivery is released if execution raises.
+        The durable outbox claim is the cross-process idempotency authority for a
+        named replay.  Within one process, however, duplicate executions can race
+        before either reaches outbox admission (for example while competing for
+        capacity).  Serialize only the exact ``(DeliveryIdentity, replay_run_id)``
+        pair so a local duplicate reaches preflight/outbox admission after the
+        first execution has established durable state instead of manufacturing an
+        unrelated capacity-suppression receipt.  Weak lock values avoid retaining
+        completed replay keys indefinitely.
         """
         if not ctx.identity.complete:
             return await self._incomplete_identity_outcome(ctx)
+        if ctx.source == "replay" and ctx.replay_run_id:
+            key = (ctx.identity, ctx.replay_run_id)
+            lock = self._named_replay_locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._named_replay_locks[key] = lock
+            async with lock:
+                return await self._deliver_one_after_replay_gate(ctx)
+        return await self._deliver_one_after_replay_gate(ctx)
+
+    async def _deliver_one_after_replay_gate(
+        self, ctx: _DeliveryContext
+    ) -> DeliveryOutcome:
+        """Run preflight, capacity admission, and owned delivery execution."""
         replay_authority = await self._load_replay_authority(ctx)
         preflight = await self._preflight_outcome(ctx, replay_authority)
         if preflight is not None:

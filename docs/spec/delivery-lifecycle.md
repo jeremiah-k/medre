@@ -407,13 +407,18 @@ Replay re-processes stored canonical events through the pipeline. Accepted repla
 delivery attempts produce receipt rows with `source="replay"` and a
 `replay_run_id`. A non-empty run ID durably claims one outbox generation for the
 full delivery identity, so concurrent executions of that same run converge on one
-dispatch generation. Before outbox admission, the lifecycle-authoritative receipt is
-used as the fast-path proof that the same named run already resolved that target; raw
-historical receipts are never idempotency authority. Different or empty run IDs remain
-repeatable. A duplicate same-run execution returns a skipped outcome without appending
-a lifecycle receipt because no new delivery generation was created. Preflight-only
-suppressions create no outbox generation, so two truly concurrent executions can still
-append equivalent suppression evidence; they cannot double-dispatch the transport.
+dispatch generation. Within one runtime process, `DeliveryCoordinator` also serializes
+the exact `(DeliveryIdentity, replay_run_id)` before capacity admission. That local gate
+prevents an in-process duplicate from timing out on capacity and manufacturing an
+outbox-less suppression receipt before the winning execution establishes durable state.
+It is an ordering aid only: the outbox transaction remains the cross-process idempotency
+authority. Before outbox admission, the lifecycle-authoritative receipt is used as the
+fast-path proof that the same named run already resolved that target; raw historical
+receipts are never idempotency authority. Different or empty run IDs remain repeatable.
+A duplicate same-run execution returns a skipped outcome without appending a lifecycle
+receipt because no new delivery generation was created. Preflight-only suppressions
+that occur before named-run admission create no outbox generation and remain ordinary
+lifecycle evidence.
 
 ### 5.1.1 Replay Attempt Identity
 

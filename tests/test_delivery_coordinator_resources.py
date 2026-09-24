@@ -9,6 +9,7 @@ from typing import cast
 import msgspec
 import pytest
 
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
@@ -123,6 +124,112 @@ def _runner_with_receipt_result(
     runner._outbox_manager.finalize_outcome = _finalize  # type: ignore[assignment]
     runner.deliver_execution_to_target = _deliver  # type: ignore[assignment]
     return runner, finalized_receipts
+
+
+async def test_named_replay_duplicate_serializes_before_capacity_admission(
+    temp_storage: StorageBackend,
+) -> None:
+    """Exact local replay duplicates cannot manufacture capacity suppression."""
+    runner = _runner(temp_storage)
+    capacity = CapacityController(
+        _Limits(delivery_acquire_timeout_seconds=0.02)
+    )
+    runner.set_capacity_controller(capacity)
+    event = make_event(event_id="coordinator-event", source_adapter="source")
+    await temp_storage.append(event)
+
+    delivery_started = asyncio.Event()
+    release_delivery = asyncio.Event()
+    create_calls = 0
+    deliver_calls = 0
+
+    async def _create_outbox(*args: object, **kwargs: object) -> OutboxContext:
+        nonlocal create_calls
+        create_calls += 1
+        if create_calls == 1:
+            return OutboxContext(
+                outbox_id="obox-local-replay-gate",
+                created=True,
+                pipeline_worker="pipeline:first",
+                skip_reason=None,
+                attempt_number=1,
+            )
+        return OutboxContext(
+            outbox_id="obox-local-replay-gate",
+            created=False,
+            pipeline_worker="pipeline:duplicate",
+            skip_reason="replay_run_claimed:in_progress",
+            attempt_number=1,
+            replay_duplicate=True,
+        )
+
+    async def _deliver(event, route, plan, **kwargs):
+        nonlocal deliver_calls
+        deliver_calls += 1
+        delivery_started.set()
+        await release_delivery.wait()
+        return DeliveryExecutionEvidence(
+            attempt_receipt=build_delivery_receipt(
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=plan.target.adapter or "",
+                target_channel=plan.target.channel,
+                route_id=route.id,
+                status="sent",
+                source="replay",
+                replay_run_id="run-local-gate",
+                attempt_number=kwargs["reserved_attempt_number"],
+                outbox_id=kwargs["outbox_id"],
+            )
+        )
+
+    async def _finalize(*args: object, **kwargs: object) -> None:
+        return None
+
+    runner._outbox_manager.create_for_delivery = _create_outbox  # type: ignore[assignment]
+    runner._outbox_manager.start_lease_renewal = lambda _ctx: None  # type: ignore[assignment]
+    runner._outbox_manager.finalize_outcome = _finalize  # type: ignore[assignment]
+    runner.deliver_execution_to_target = _deliver  # type: ignore[assignment]
+
+    first = asyncio.create_task(
+        runner.deliver_to_targets(
+            event,
+            [(_route(), _plan())],
+            source="replay",
+            replay_run_id="run-local-gate",
+        )
+    )
+    await delivery_started.wait()
+    duplicate = asyncio.create_task(
+        runner.deliver_to_targets(
+            event,
+            [(_route(), _plan())],
+            source="replay",
+            replay_run_id="run-local-gate",
+        )
+    )
+
+    # Longer than the capacity-acquire timeout: without exact-run local
+    # serialization the duplicate would finish by persisting capacity
+    # suppression.  The gate keeps it pending until the winner releases.
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(asyncio.shield(duplicate), timeout=0.05)
+    release_delivery.set()
+    first_outcomes, duplicate_outcomes = await asyncio.gather(first, duplicate)
+
+    assert first_outcomes[0].status == "success"
+    assert duplicate_outcomes[0].status == "skipped"
+    assert (
+        duplicate_outcomes[0].failure_kind
+        == DeliveryFailureKind.REPLAY_DUPLICATE_SUPPRESSED
+    )
+    assert create_calls == 2
+    assert deliver_calls == 1
+    assert runner._delivery_rejection_count == 0
+    identity = DeliveryIdentity(
+        event.event_id, _plan().plan_id, "target", None
+    )
+    assert await temp_storage.list_receipts_for_delivery(identity) == []
 
 
 async def test_capacity_released_when_outbox_creation_is_cancelled(
