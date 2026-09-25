@@ -322,9 +322,7 @@ class MeshtasticOutboundQueue:
                 ("attempt_number", attempt_number, attempt_provenance.attempt_number),
             ):
                 if value is not None and value != expected:
-                    raise ValueError(
-                        f"{name} contradicts immutable attempt_provenance"
-                    )
+                    raise ValueError(f"{name} contradicts immutable attempt_provenance")
             event_id = attempt_provenance.event_id
             delivery_plan_id = attempt_provenance.delivery_plan_id
             outbox_id = attempt_provenance.outbox_id

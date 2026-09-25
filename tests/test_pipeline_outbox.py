@@ -14,8 +14,8 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.capacity import CapacityController
-from tests.helpers.delivery_callbacks import make_terminal_record
 from tests.helpers.async_utils import wait_until
+from tests.helpers.delivery_callbacks import make_terminal_record
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ---------------------------------------------------------------------------
@@ -1265,7 +1265,6 @@ class TestRecordTerminalAttemptNumber:
         """Outbox item at attempt_number=3 → terminal receipt has attempt_number=3."""
         from datetime import datetime, timezone
 
-        from medre.core.contracts.adapter import QueueTerminalRecord
         from medre.core.engine.pipeline.delivery_lifecycle import (
             DeliveryLifecycleService,
         )

@@ -18,7 +18,6 @@ import logging
 
 import pytest
 
-from medre.core.contracts.adapter import QueueTerminalRecord
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem

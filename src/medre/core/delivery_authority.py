@@ -204,7 +204,9 @@ def delivery_attempt_provenance_mismatch(
     """
     outbox_id = str(_get(item, "outbox_id") or "")
     if outbox_id != provenance.outbox_id:
-        return f"outbox_id mismatch: callback={provenance.outbox_id!r} row={outbox_id!r}"
+        return (
+            f"outbox_id mismatch: callback={provenance.outbox_id!r} row={outbox_id!r}"
+        )
 
     expected_identity = DeliveryIdentity(
         provenance.event_id,

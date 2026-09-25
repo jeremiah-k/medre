@@ -389,9 +389,9 @@ def _apply_attempt_provenance_mirrors(
     """Validate callback mirrors and populate them from immutable provenance."""
     if provenance is None:
         return
-    if getattr(record, "event_id") != provenance.event_id:
+    if record.event_id != provenance.event_id:
         raise ValueError(f"{owner}.event_id contradicts attempt_provenance")
-    if getattr(record, "adapter") != provenance.target_adapter:
+    if record.adapter != provenance.target_adapter:
         raise ValueError(f"{owner}.adapter contradicts attempt_provenance")
     for name, expected in (
         ("delivery_plan_id", provenance.delivery_plan_id),

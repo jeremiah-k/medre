@@ -21,7 +21,6 @@ from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
     OutboundDeliveryObservationRecord,
     OutboundNativeRefRecord,
-    QueueTerminalRecord,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager

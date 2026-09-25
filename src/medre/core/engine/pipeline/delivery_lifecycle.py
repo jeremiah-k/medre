@@ -1106,9 +1106,7 @@ class DeliveryLifecycleService:
 
             provenance = record.attempt_provenance
             if provenance is not None:
-                mismatch = delivery_attempt_provenance_mismatch(
-                    provenance, outbox_item
-                )
+                mismatch = delivery_attempt_provenance_mismatch(provenance, outbox_item)
                 if mismatch is not None:
                     self._log.warning(
                         "Queued delivery callback rejected: contradictory attempt "

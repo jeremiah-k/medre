@@ -295,7 +295,6 @@ class TestUnknownTerminalOutcome:
         temp_storage: SQLiteStorage,
     ) -> None:
         """An unrecognized outcome string produces no receipt and no outbox mutation."""
-        from medre.core.contracts.adapter import QueueTerminalRecord
         from medre.core.engine.pipeline.delivery_lifecycle import (
             DeliveryLifecycleService,
         )
@@ -354,7 +353,6 @@ class TestAttemptNumberAuthority:
         temp_storage: SQLiteStorage,
     ) -> None:
         """When existing_item is present, its attempt_number is used."""
-        from medre.core.contracts.adapter import QueueTerminalRecord
         from medre.core.engine.pipeline.delivery_lifecycle import (
             DeliveryLifecycleService,
         )
@@ -418,7 +416,6 @@ class TestCancelledAndAbandonedTransitions:
         temp_storage: SQLiteStorage,
     ) -> None:
         """record_terminal with outcome='cancelled' transitions outbox to cancelled."""
-        from medre.core.contracts.adapter import QueueTerminalRecord
         from medre.core.engine.pipeline.delivery_lifecycle import (
             DeliveryLifecycleService,
         )
@@ -470,7 +467,6 @@ class TestCancelledAndAbandonedTransitions:
         temp_storage: SQLiteStorage,
     ) -> None:
         """record_terminal with outcome='abandoned' transitions outbox to abandoned."""
-        from medre.core.contracts.adapter import QueueTerminalRecord
         from medre.core.engine.pipeline.delivery_lifecycle import (
             DeliveryLifecycleService,
         )

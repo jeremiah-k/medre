@@ -33,9 +33,7 @@ def make_terminal_record(
             target_channel=(
                 provenance_channel
                 if provenance_channel is not None
-                else native_channel_id
-                if native_channel_id is not None
-                else "0"
+                else native_channel_id if native_channel_id is not None else "0"
             ),
             outbox_id=outbox_id,
             attempt_number=attempt_number,

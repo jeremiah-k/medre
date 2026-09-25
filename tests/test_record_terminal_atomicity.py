@@ -259,9 +259,7 @@ async def test_terminal_callback_rejects_contradictory_queued_receipt_provenance
     row = await temp_storage.get_outbox_item("obox-lineage-contradiction")
     assert row is not None
     assert row.status == "queued"
-    receipts = await temp_storage.list_receipts_for_event(
-        "evt-lineage-contradiction"
-    )
+    receipts = await temp_storage.list_receipts_for_event("evt-lineage-contradiction")
     assert [receipt.receipt_id for receipt in receipts] == [
         "rcpt-lineage-contradiction"
     ]

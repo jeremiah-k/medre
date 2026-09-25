@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord, QueueTerminalRecord
+from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS

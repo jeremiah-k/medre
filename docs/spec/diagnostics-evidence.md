@@ -769,15 +769,15 @@ adapters, but built-in asynchronous adapters carry the envelope.
 
 ### 15.3 Evidence Signals
 
-| Signal | Meaning |
-| --- | --- |
-| Supplemental `sent` receipt | Native-ref callback matched the exact outbox generation and full-identity storage fence. |
-| Terminal attempt/lifecycle receipt | Queue terminal callback carried an envelope matching durable outbox authority. |
-| Callback before queued receipt | Valid envelope remains authoritative; missing queued receipt is not used to guess source/run provenance. |
-| Envelope/row contradiction | Callback is rejected; no lifecycle mutation is committed. |
-| Envelope/queued-receipt contradiction | Callback is rejected rather than selecting a preferred lineage. |
-| Missing terminal `attempt_provenance` | Queue terminal callback is hard-rejected. |
-| Stale generation | Callback is rejected against the outbox effective generation. |
+| Signal                                | Meaning                                                                                                  |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Supplemental `sent` receipt           | Native-ref callback matched the exact outbox generation and full-identity storage fence.                 |
+| Terminal attempt/lifecycle receipt    | Queue terminal callback carried an envelope matching durable outbox authority.                           |
+| Callback before queued receipt        | Valid envelope remains authoritative; missing queued receipt is not used to guess source/run provenance. |
+| Envelope/row contradiction            | Callback is rejected; no lifecycle mutation is committed.                                                |
+| Envelope/queued-receipt contradiction | Callback is rejected rather than selecting a preferred lineage.                                          |
+| Missing terminal `attempt_provenance` | Queue terminal callback is hard-rejected.                                                                |
+| Stale generation                      | Callback is rejected against the outbox effective generation.                                            |
 
 ### 15.4 Normative Requirements
 
@@ -794,7 +794,7 @@ adapters, but built-in asynchronous adapters carry the envelope.
    reconstructed from the mutable row or from timing.
 7. Contradictory callback/row/receipt provenance MUST fail closed.
 8. Storage MUST retain its full `(event, plan, adapter, channel, outbox,
-   attempt)` atomic finalization fence after callback validation.
+attempt)` atomic finalization fence after callback validation.
 9. Local queue/transport acceptance remains local evidence only; it does not
    imply end-to-end recipient delivery.
 
