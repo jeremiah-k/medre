@@ -17,7 +17,7 @@ from medre.core.contracts.adapter import QueueTerminalRecord
 from medre.core.delivery_authority import (
     delivery_attempt_provenance_mismatch,
     delivery_attempt_receipt_provenance_mismatch,
-    delivery_identity,
+    receipts_for_attempt,
     queued_receipts_for_attempt,
 )
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
@@ -444,6 +444,22 @@ class OutboxManager:
                 )
                 return
 
+            # ``native_channel_id`` is transport-reported evidence rather than
+            # a provenance mirror, but queue terminal callbacks historically
+            # required it to agree with the admitted target when supplied. Do
+            # not let the envelope migration weaken that independent fence.
+            if record.native_channel_id is not None and (
+                record.native_channel_id or None
+            ) != (existing_item.target_channel or None):
+                self._log.warning(
+                    "Terminal outcome rejected: native_channel_id mismatch for "
+                    "outbox_id=%s callback=%r row=%r",
+                    provenance.outbox_id,
+                    record.native_channel_id,
+                    existing_item.target_channel,
+                )
+                return
+
             if existing_item.status not in ("queued", "in_progress"):
                 self._log.warning(
                     "Terminal outcome rejected: outbox_id=%s has status=%s which "
@@ -455,14 +471,18 @@ class OutboxManager:
 
             _attempt_number = provenance.attempt_number
 
-            # Read immutable queued evidence only for parent linkage. If an exact
-            # queued receipt already exists, its lineage must agree with the
-            # callback envelope. A missing receipt is a valid pre-append race and
-            # no longer causes source/replay provenance to be reconstructed.
-            _queued_receipt_id: str | None = None
+            # Read all immutable evidence for this outbox generation for
+            # provenance validation. Queued evidence is then used only for
+            # parent/retry linkage. A missing receipt is a valid pre-append race
+            # and no longer causes source/replay provenance to be reconstructed.
+            queued_receipt: DeliveryReceipt | None = None
             try:
-                _all_receipts = await self._storage.list_receipts_for_delivery(
-                    delivery_identity(existing_item),
+                _all_receipts = await self._storage.list_receipts_for_outbox(
+                    provenance.outbox_id,
+                )
+                _attempt_receipts = receipts_for_attempt(
+                    provenance,
+                    _all_receipts,
                 )
                 _queued_matches = queued_receipts_for_attempt(
                     provenance,
@@ -470,21 +490,21 @@ class OutboxManager:
                 )
             except Exception:
                 self._log.warning(
-                    "Could not read queued-receipt lineage for outbox_id=%s; "
+                    "Could not read attempt receipt lineage for outbox_id=%s; "
                     "rejecting terminal callback rather than committing "
-                    "incomplete parent linkage validation",
+                    "incomplete provenance/linkage validation",
                     provenance.outbox_id,
                 )
                 return
 
-            for queued_receipt in _queued_matches:
+            for attempt_receipt in _attempt_receipts:
                 receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
                     provenance,
-                    queued_receipt,
+                    attempt_receipt,
                 )
                 if receipt_mismatch is not None:
                     self._log.warning(
-                        "Terminal outcome rejected: queued receipt provenance "
+                        "Terminal outcome rejected: immutable receipt provenance "
                         "contradicts callback for outbox_id=%s attempt=%d: %s",
                         provenance.outbox_id,
                         _attempt_number,
@@ -500,7 +520,6 @@ class OutboxManager:
                         receipt.receipt_id,
                     ),
                 )
-                _queued_receipt_id = queued_receipt.receipt_id
 
             # Enrich receipt fields from the validated outbox item when
             # available — the outbox row is the authoritative source for
@@ -513,7 +532,9 @@ class OutboxManager:
             # receives a failed attempt receipt. Cancellation/abandonment are
             # lifecycle-only transitions and do not manufacture a failure.
             failed_attempt: DeliveryReceipt | None = None
-            lifecycle_parent_id = _queued_receipt_id
+            lifecycle_parent_id = (
+                queued_receipt.receipt_id if queued_receipt is not None else None
+            )
             if outbox_terminal == "dead_lettered":
                 failed_attempt = build_delivery_receipt(
                     event_id=record.event_id,
@@ -527,28 +548,64 @@ class OutboxManager:
                     failure_kind=failure_kind,
                     source=provenance.source,
                     replay_run_id=provenance.replay_run_id,
-                    parent_receipt_id=_queued_receipt_id,
+                    parent_receipt_id=lifecycle_parent_id,
+                    retry_max_attempts=(
+                        queued_receipt.retry_max_attempts
+                        if queued_receipt is not None
+                        else None
+                    ),
+                    retry_backoff_base=(
+                        queued_receipt.retry_backoff_base
+                        if queued_receipt is not None
+                        else None
+                    ),
+                    retry_max_delay=(
+                        queued_receipt.retry_max_delay
+                        if queued_receipt is not None
+                        else None
+                    ),
+                    retry_jitter=(
+                        queued_receipt.retry_jitter
+                        if queued_receipt is not None
+                        else None
+                    ),
                     outbox_id=record.outbox_id,
                     attempt_number=_attempt_number,
                 )
                 lifecycle_parent_id = failed_attempt.receipt_id
 
-            receipt = build_delivery_receipt(
-                event_id=record.event_id,
-                delivery_plan_id=_enriched_plan_id,
-                target_adapter=record.adapter,
-                target_channel=_enriched_channel,
-                route_id=existing_item.route_id,
-                status=outbox_terminal,
-                receipt_kind="lifecycle",
-                error=error_msg,
-                failure_kind=failure_kind,
-                source=provenance.source,
-                replay_run_id=provenance.replay_run_id,
-                parent_receipt_id=lifecycle_parent_id,
-                outbox_id=record.outbox_id,
-                attempt_number=_attempt_number,
-            )
+            # Reuse the lifecycle constructor whenever immutable attempt
+            # evidence exists so retry-policy lineage is inherited exactly as
+            # it is for synchronous failures. Rendering evidence remains on the
+            # queued parent by design; the parent chain preserves that link.
+            terminal_parent = failed_attempt or queued_receipt
+            if terminal_parent is not None:
+                receipt = self._lifecycle.build_terminal_lifecycle_receipt(
+                    terminal_parent,
+                    status=outbox_terminal,
+                    error=error_msg,
+                    failure_kind=failure_kind,
+                )
+            else:
+                # Callback-before-receipt is valid. The immutable envelope is
+                # sufficient for identity/source authority, but unavailable
+                # queued-only retry/rendering context must not be invented.
+                receipt = build_delivery_receipt(
+                    event_id=record.event_id,
+                    delivery_plan_id=_enriched_plan_id,
+                    target_adapter=record.adapter,
+                    target_channel=_enriched_channel,
+                    route_id=existing_item.route_id,
+                    status=outbox_terminal,
+                    receipt_kind="lifecycle",
+                    error=error_msg,
+                    failure_kind=failure_kind,
+                    source=provenance.source,
+                    replay_run_id=provenance.replay_run_id,
+                    parent_receipt_id=lifecycle_parent_id,
+                    outbox_id=record.outbox_id,
+                    attempt_number=_attempt_number,
+                )
             # Commit any newly-proven failed-attempt evidence, terminal
             # lifecycle evidence, and the outbox transition in one guarded
             # transaction. A stale/duplicate callback therefore commits none

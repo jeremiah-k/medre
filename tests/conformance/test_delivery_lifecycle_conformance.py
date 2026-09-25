@@ -120,6 +120,17 @@ class _MemoryStorage:
             and (receipt.target_channel or None) == identity.target_channel
         ]
 
+    async def list_receipts_for_outbox(
+        self,
+        outbox_id: str,
+    ) -> list[DeliveryReceipt]:
+        if not isinstance(outbox_id, str) or not outbox_id.strip():
+            raise ValueError("receipt outbox history requires a non-empty outbox_id")
+        return sorted(
+            (r for r in self._receipts if r.outbox_id == outbox_id),
+            key=lambda r: (r.attempt_number, r.sequence or 0),
+        )
+
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
         self._native_refs.append(ref)
 

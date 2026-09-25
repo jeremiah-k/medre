@@ -1046,6 +1046,40 @@ class TestProvenanceAuthoritativeCorrelation:
         assert row is not None
         assert row.status == "queued"
 
+    async def test_provenance_callback_rejects_corrupt_receipt_identity(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Outbox-scoped receipt reads must expose malformed plan identity."""
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-prov-wrong-plan",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="wrong-plan",
+                source="replay",
+                replay_run_id="run-b",
+                outbox_id="obox-prov",
+                attempt_number=1,
+            ),
+        )
+        await self._seed_replay_row(temp_storage)
+        lifecycle = _make_lifecycle()
+
+        await lifecycle.finalize_queued_delivery(
+            temp_storage,
+            record=self._record(self._provenance(outbox_id="obox-prov")),
+            now=datetime.now(tz=timezone.utc),
+        )
+
+        receipts = await temp_storage.list_receipts_for_event("evt-001")
+        assert [r.receipt_id for r in receipts] == ["rcpt-prov-wrong-plan"]
+        row = await temp_storage.get_outbox_item("obox-prov")
+        assert row is not None
+        assert row.status == "queued"
+
     async def test_provenance_callback_finalizes_with_envelope_lineage(
         self,
         temp_storage: StorageBackend,

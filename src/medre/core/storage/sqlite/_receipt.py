@@ -8,6 +8,7 @@ Authority surface:
     or delete-receipt method exists by design.
   - delivery_status:              **list/get** (read-only).
   - list_receipts_for_delivery:   **list/get** (read-only).
+  - list_receipts_for_outbox:     **list/get** (read-only).
   - list_receipts_by_replay_run:  **list/get** (read-only).
   - list_receipts_for_event:      **list/get** (read-only).
   - list_all_receipts:            **list/get** (read-only).
@@ -35,6 +36,7 @@ from medre.core.storage.sqlite.statements import (
     _SELECT_RECEIPTS_BY_REPLAY_RUN,
     _SELECT_RECEIPTS_FOR_DELIVERY,
     _SELECT_RECEIPTS_FOR_EVENT,
+    _SELECT_RECEIPTS_FOR_OUTBOX,
 )
 
 
@@ -173,6 +175,24 @@ class _ReceiptMixin:
                 identity.target_channel or None,
             ),
         )
+        return [_row_to_receipt(row) for row in rows]
+
+    async def list_receipts_for_outbox(
+        self,
+        outbox_id: str,
+    ) -> list[DeliveryReceipt]:
+        """Return immutable receipt history for one exact outbox generation.
+
+        ``outbox_id`` is the narrowest durable correlation key available to
+        asynchronous delivery callbacks.  This read intentionally does not
+        pre-filter by event/plan/adapter/channel identity: callers validating
+        callback provenance must be able to observe and reject a receipt whose
+        identity fields are themselves corrupt rather than filtering that
+        contradiction out of sight.
+        """
+        if not isinstance(outbox_id, str) or not outbox_id.strip():
+            raise ValueError("receipt outbox history requires a non-empty outbox_id")
+        rows = await self._read_all(_SELECT_RECEIPTS_FOR_OUTBOX, (outbox_id,))
         return [_row_to_receipt(row) for row in rows]
 
     async def list_receipts_by_replay_run(

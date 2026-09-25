@@ -347,6 +347,7 @@ class TestWrongChannelRejected:
             event_id="evt-channel",
             adapter="mesh-1",
             native_channel_id="99",
+            provenance_channel="0",
             outbox_id="obox-ch-mismatch",
             outcome="exhausted",
             attempt_number=1,
@@ -356,7 +357,7 @@ class TestWrongChannelRejected:
 
         receipts = await temp_storage.list_receipts_for_event("evt-channel")
         assert len(receipts) == 0
-        assert "delivery identity mismatch" in caplog.text
+        assert "native_channel_id mismatch" in caplog.text
 
 
 # ===================================================================

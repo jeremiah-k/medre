@@ -208,6 +208,64 @@ async def test_observation_rejects_contradictory_queued_receipt_provenance(
     assert await temp_storage.count_delivery_observations() == 0
 
 
+async def test_observation_rejects_corrupt_queued_receipt_identity(
+    temp_storage,
+) -> None:
+    """Outbox-scoped history exposes malformed identity instead of hiding it."""
+    await _seed_attempt(temp_storage, status="queued")
+    await temp_storage.append_receipt(
+        DeliveryReceipt(
+            receipt_id="receipt-observation-wrong-plan",
+            event_id="evt-observation-1",
+            delivery_plan_id="wrong-plan",
+            target_adapter="lxmf-main",
+            target_channel="aa" * 16,
+            route_id="route-observation",
+            status="queued",
+            attempt_number=1,
+            source="live",
+            outbox_id="outbox-observation-1",
+        )
+    )
+    lifecycle = DeliveryLifecycleService()
+
+    assert not await lifecycle.record_delivery_observation(
+        temp_storage,
+        _record(attempt_provenance=_provenance()),
+        datetime.now(timezone.utc),
+    )
+    assert await temp_storage.count_delivery_observations() == 0
+
+
+async def test_observation_rejects_contradictory_sent_attempt_evidence(
+    temp_storage,
+) -> None:
+    """LXMF-style observations validate existing sent attempt provenance too."""
+    await _seed_attempt(temp_storage, status="sent")
+    await temp_storage.append_receipt(
+        DeliveryReceipt(
+            receipt_id="receipt-observation-sent-replay",
+            event_id="evt-observation-1",
+            delivery_plan_id="plan-observation",
+            target_adapter="lxmf-main",
+            target_channel="aa" * 16,
+            route_id="route-observation",
+            status="sent",
+            attempt_number=1,
+            source="replay",
+            outbox_id="outbox-observation-1",
+        )
+    )
+    lifecycle = DeliveryLifecycleService()
+
+    assert not await lifecycle.record_delivery_observation(
+        temp_storage,
+        _record(attempt_provenance=_provenance()),
+        datetime.now(timezone.utc),
+    )
+    assert await temp_storage.count_delivery_observations() == 0
+
+
 async def test_observation_with_provenance_fails_closed_on_receipt_history_error(
     temp_storage,
     monkeypatch,
@@ -215,7 +273,7 @@ async def test_observation_with_provenance_fails_closed_on_receipt_history_error
     await _seed_attempt(temp_storage, status="queued")
     monkeypatch.setattr(
         temp_storage,
-        "list_receipts_for_delivery",
+        "list_receipts_for_outbox",
         AsyncMock(side_effect=RuntimeError("receipt history unavailable")),
     )
     lifecycle = DeliveryLifecycleService()

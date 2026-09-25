@@ -1211,6 +1211,20 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_receipts_for_outbox(
+        self,
+        outbox_id: str,
+    ) -> list[DeliveryReceipt]:
+        """Return immutable receipt history for one exact outbox ID.
+
+        Authority: **list/get** (read-only). This query is intentionally scoped
+        only by ``outbox_id`` so provenance validation can observe contradictory
+        event/plan/adapter/channel fields instead of losing malformed evidence
+        to a wider identity predicate. Receipts are ordered by attempt then
+        append sequence. Raise ``ValueError`` for an empty outbox ID.
+        """
+        ...
+
     async def list_receipts_by_replay_run(
         self,
         run_id: str,

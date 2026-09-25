@@ -93,6 +93,7 @@ from medre.core.delivery_authority import (
     delivery_attempt_receipt_provenance_mismatch,
     delivery_identity,
     effective_generation,
+    receipts_for_attempt,
     queued_receipts_for_attempt,
 )
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
@@ -165,6 +166,13 @@ class DeliveryLifecycleStorage(Protocol):
         identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
         """List immutable receipt history for one complete delivery identity."""
+        ...
+
+    async def list_receipts_for_outbox(
+        self,
+        outbox_id: str,
+    ) -> list[DeliveryReceipt]:
+        """List immutable receipt history for one exact outbox ID."""
         ...
 
     async def finalize_queued_delivery(
@@ -636,7 +644,10 @@ class DeliveryLifecycleService:
 
         The transition preserves the causative attempt number. It is not a new
         dispatch generation and therefore never increments ``attempt_number``.
-        Retry/rendering provenance is inherited from the causative receipt.
+        Retry-policy provenance is inherited from the causative receipt.
+        Rendering evidence remains on its immutable sent/queued receipt and is
+        reachable through the parent chain rather than duplicated onto a
+        terminal lifecycle receipt.
         """
         return build_delivery_receipt(
             event_id=previous_receipt.event_id,
@@ -992,32 +1003,33 @@ class DeliveryLifecycleService:
             )
             return False
 
-        # Immutable queued evidence, when present, must agree with the exact
-        # provenance envelope before later transport confirmation is admitted.
-        # A callback may legitimately beat the queued-receipt append, so an
-        # empty history is not an error; a failed history read or contradictory
-        # matching receipt is.  This is the same authority rule used by queue
-        # terminalization and queued->sent finalization.
+        # Immutable evidence for this exact outbox generation, when present,
+        # must agree with the provenance envelope before later transport
+        # confirmation is admitted. A callback may legitimately beat the
+        # first attempt-receipt append, so an empty history is not an error; a
+        # failed history read or contradictory matching receipt is. This is the
+        # same authority rule used by queue terminalization and queued->sent
+        # finalization.
         if provenance is not None:
             try:
-                receipts = await storage.list_receipts_for_delivery(
-                    delivery_identity(outbox)
+                receipts = await storage.list_receipts_for_outbox(
+                    provenance.outbox_id
                 )
             except Exception:
                 self._log.exception(
-                    "Failed to list queued receipt history for delivery "
+                    "Failed to list attempt receipt history for delivery "
                     "observation: outbox_id=%s",
                     record.outbox_id,
                 )
                 return False
-            for receipt in queued_receipts_for_attempt(provenance, receipts):
+            for receipt in receipts_for_attempt(provenance, receipts):
                 receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
                     provenance,
                     receipt,
                 )
                 if receipt_mismatch is not None:
                     self._log.warning(
-                        "Rejecting delivery observation with contradictory queued "
+                        "Rejecting delivery observation with contradictory immutable "
                         "receipt provenance: outbox_id=%s attempt=%d %s",
                         provenance.outbox_id,
                         provenance.attempt_number,
@@ -1249,13 +1261,13 @@ class DeliveryLifecycleService:
                 )
                 return
 
-            # Historical lookup is scoped to the complete lifecycle identity
-            # carried by the authoritative outbox row.  Event-wide scans can
-            # merge sibling channels or targets and make exact callback
-            # correlation depend on later ad-hoc filtering.
+            # Historical lookup is scoped to the authoritative outbox ID,
+            # deliberately before identity validation. Event/plan/adapter/channel
+            # fields are facts being checked and therefore must not be query
+            # predicates that could hide contradictory immutable evidence.
             try:
-                existing = await storage.list_receipts_for_delivery(
-                    delivery_identity(outbox_item)
+                existing = await storage.list_receipts_for_outbox(
+                    record.outbox_id
                 )
             except Exception:
                 self._log.exception(
@@ -1277,12 +1289,16 @@ class DeliveryLifecycleService:
             # validated against the full provenance envelope below so corrupt
             # identity/source fields cannot disappear through pre-filtering.
             if provenance is not None:
-                outbox_matches = list(queued_receipts_for_attempt(provenance, existing))
+                attempt_receipts = receipts_for_attempt(provenance, existing)
+                outbox_matches = list(
+                    queued_receipts_for_attempt(provenance, attempt_receipts)
+                )
             else:
                 outbox_matches = [
                     r
                     for r in existing
                     if r.status == "queued"
+                    and delivery_identity(r) == delivery_identity(outbox_item)
                     and r.target_adapter == record.adapter
                     and r.outbox_id == record.outbox_id
                     and r.attempt_number == record.attempt_number
@@ -1304,8 +1320,11 @@ class DeliveryLifecycleService:
             if provenance is not None:
                 # Callback provenance is authoritative. Queued evidence supplies
                 # immutable parent linkage and retry/render fields only, and must
-                # agree with the envelope when already present.
-                for candidate in outbox_matches:
+                # agree with the envelope when already present. Validate every
+                # immutable receipt for the exact outbox generation before
+                # selecting the queued parent so contradictory sent/failed
+                # evidence cannot coexist unnoticed.
+                for candidate in attempt_receipts:
                     receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
                         provenance,
                         candidate,

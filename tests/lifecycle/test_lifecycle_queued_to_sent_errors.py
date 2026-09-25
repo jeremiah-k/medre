@@ -73,7 +73,7 @@ class TestAppendQueuedToSentErrorPaths:
         )
         with patch.object(
             temp_storage,
-            "list_receipts_for_delivery",
+            "list_receipts_for_outbox",
             AsyncMock(side_effect=RuntimeError("db fail")),
         ):
             await lifecycle.finalize_queued_delivery(

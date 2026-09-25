@@ -42,6 +42,7 @@ __all__ = [
     "effective_generation",
     "group_outbox_by_identity",
     "group_receipts_by_identity",
+    "receipts_for_attempt",
     "queued_receipts_for_attempt",
     "receipt_kind",
     "select_current_outbox",
@@ -252,10 +253,10 @@ def delivery_attempt_receipt_provenance_mismatch(
 ) -> str | None:
     """Return why immutable receipt evidence contradicts *provenance*.
 
-    Queue-backed callbacks may race the append of their queued attempt receipt.
-    When that immutable evidence already exists, it must describe the same
-    delivery identity, generation, dispatch source, and replay origin as the
-    envelope frozen before adapter hand-off.  Receipt evidence is validation
+    Asynchronous callbacks may race the append of attempt evidence. When
+    immutable evidence for the same outbox generation already exists, it must
+    describe the same delivery identity, dispatch source, and replay origin as
+    the envelope frozen before adapter hand-off. Receipt evidence is validation
     input only; it never reconstructs callback provenance.
     """
     receipt_outbox_id = str(_get(receipt, "outbox_id") or "")
@@ -315,9 +316,27 @@ def queued_receipts_for_attempt(
     """
     return tuple(
         receipt
-        for receipt in receipts
+        for receipt in receipts_for_attempt(provenance, receipts)
         if _get(receipt, "status") == "queued"
-        and str(_get(receipt, "outbox_id") or "") == provenance.outbox_id
+    )
+
+
+def receipts_for_attempt(
+    provenance: DeliveryAttemptProvenance,
+    receipts: Iterable[_T],
+) -> tuple[_T, ...]:
+    """Return immutable evidence carrying the envelope's stable attempt key.
+
+    Selection intentionally uses only ``outbox_id`` and ``attempt_number``.
+    Every selected record must subsequently pass
+    :func:`delivery_attempt_receipt_provenance_mismatch`; filtering by the
+    identity/source fields under validation would make corrupted evidence
+    invisible to the authority fence.
+    """
+    return tuple(
+        receipt
+        for receipt in receipts
+        if str(_get(receipt, "outbox_id") or "") == provenance.outbox_id
         and int(_get(receipt, "attempt_number") or 0) == provenance.attempt_number
     )
 

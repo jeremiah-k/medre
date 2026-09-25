@@ -7,6 +7,7 @@ import pytest
 from medre.core.delivery_authority import (
     delivery_attempt_provenance_mismatch,
     delivery_attempt_receipt_provenance_mismatch,
+    receipts_for_attempt,
     queued_receipts_for_attempt,
 )
 from medre.core.events import DeliveryAttemptProvenance
@@ -206,6 +207,22 @@ def test_queued_receipt_matching_does_not_hide_identity_corruption() -> None:
     mismatch = delivery_attempt_receipt_provenance_mismatch(
         _provenance(),
         matches[0],
+    )
+    assert mismatch is not None
+    assert "receipt delivery identity mismatch" in mismatch
+
+
+def test_attempt_receipt_matching_includes_nonqueued_evidence() -> None:
+    queued = _receipt()
+    sent = _receipt(status="sent", target_channel="wrong-channel")
+    other = _receipt(outbox_id="other-outbox")
+
+    matches = receipts_for_attempt(_provenance(), [queued, sent, other])
+
+    assert matches == (queued, sent)
+    mismatch = delivery_attempt_receipt_provenance_mismatch(
+        _provenance(),
+        matches[1],
     )
     assert mismatch is not None
     assert "receipt delivery identity mismatch" in mismatch

@@ -142,6 +142,11 @@ async def test_exhausted_from_queued_outbox(
             source="replay",
             replay_run_id="replay-42",
             parent_receipt_id="rcpt-original",
+            retry_max_attempts=5,
+            retry_backoff_base=2.0,
+            retry_max_delay=45.0,
+            retry_jitter=True,
+            rendering_evidence='{"delivery_strategy":"direct"}',
             outbox_id="obox-q-ex",
             attempt_number=1,
         ),
@@ -169,11 +174,23 @@ async def test_exhausted_from_queued_outbox(
     assert receipt.source == "replay"
     assert receipt.replay_run_id == "replay-42"
     assert receipt.parent_receipt_id == "rcpt-queued-ex"
+    assert receipt.retry_max_attempts == 5
+    assert receipt.retry_backoff_base == 2.0
+    assert receipt.retry_max_delay == 45.0
+    assert receipt.retry_jitter is True
+    # Rendering evidence remains on the immutable queued parent; the failed
+    # attempt links to it rather than duplicating render evidence onto a
+    # failure receipt.
+    assert receipt.rendering_evidence is None
     terminal = [r for r in receipts if r.status == "dead_lettered"]
     assert len(terminal) == 1
     assert terminal[0].receipt_kind == "lifecycle"
     assert terminal[0].attempt_number == receipt.attempt_number
     assert terminal[0].parent_receipt_id == receipt.receipt_id
+    assert terminal[0].retry_max_attempts == 5
+    assert terminal[0].retry_backoff_base == 2.0
+    assert terminal[0].retry_max_delay == 45.0
+    assert terminal[0].retry_jitter is True
 
     outbox = await temp_storage.get_outbox_item("obox-q-ex")
     assert outbox is not None
@@ -200,7 +217,7 @@ async def test_terminal_callback_rejects_lineage_read_failure(
 
     monkeypatch.setattr(
         temp_storage,
-        "list_receipts_for_delivery",
+        "list_receipts_for_outbox",
         _raise_lineage_read,
     )
 
@@ -262,6 +279,53 @@ async def test_terminal_callback_rejects_contradictory_queued_receipt_provenance
     receipts = await temp_storage.list_receipts_for_event("evt-lineage-contradiction")
     assert [receipt.receipt_id for receipt in receipts] == [
         "rcpt-lineage-contradiction"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_terminal_callback_rejects_corrupt_queued_receipt_identity(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Outbox-scoped validation must see malformed receipt identity fields."""
+    await _create_outbox(
+        temp_storage,
+        outbox_id="obox-lineage-identity-corrupt",
+        event_id="evt-lineage-identity-corrupt",
+        delivery_plan_id="plan-lineage-identity-corrupt",
+    )
+    await append_receipt_with_parent(
+        temp_storage,
+        build_delivery_receipt(
+            receipt_id="rcpt-lineage-identity-corrupt",
+            event_id="evt-lineage-identity-corrupt",
+            delivery_plan_id="wrong-plan",
+            target_adapter="mesh-1",
+            target_channel="0",
+            route_id="route-1",
+            status="queued",
+            source="live",
+            outbox_id="obox-lineage-identity-corrupt",
+            attempt_number=1,
+        ),
+    )
+
+    manager = _make_manager(temp_storage)
+    await manager.record_terminal(
+        _terminal_record(
+            outbox_id="obox-lineage-identity-corrupt",
+            event_id="evt-lineage-identity-corrupt",
+            delivery_plan_id="plan-lineage-identity-corrupt",
+        )
+    )
+
+    row = await temp_storage.get_outbox_item("obox-lineage-identity-corrupt")
+    assert row is not None
+    assert row.status == "queued"
+    receipts = await temp_storage.list_receipts_for_event(
+        "evt-lineage-identity-corrupt"
+    )
+    assert [receipt.receipt_id for receipt in receipts] == [
+        "rcpt-lineage-identity-corrupt"
     ]
 
 

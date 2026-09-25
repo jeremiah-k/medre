@@ -481,6 +481,16 @@ class TestStorageIndexes:
         assert "idx_receipts_event" in indexes
         assert indexes["idx_receipts_event"] == frozenset({"event_id", "sequence"})
 
+    async def test_receipts_outbox_attempt_index(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Exact callback evidence reads have an outbox/generation index."""
+        indexes = await self._index_columns(temp_storage, "delivery_receipts")
+        assert "idx_receipts_outbox_attempt" in indexes
+        assert indexes["idx_receipts_outbox_attempt"] == frozenset(
+            {"outbox_id", "attempt_number", "sequence"}
+        )
+
     async def test_receipts_source_index(self, temp_storage: SQLiteStorage) -> None:
         """idx_receipts_source on delivery_receipts(source, replay_run_id)."""
         indexes = await self._index_columns(temp_storage, "delivery_receipts")
