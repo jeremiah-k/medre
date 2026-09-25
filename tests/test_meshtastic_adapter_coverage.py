@@ -15,6 +15,7 @@ from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
 )
 from tests.helpers.meshtastic import make_meshtastic_config
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 
 # ===================================================================
 # stop() session delegation
@@ -167,25 +168,55 @@ class TestRecordDelayedOutboundRefGuard:
 
     async def test_native_message_id_none_raises_runtime_error(self) -> None:
         """Raises RuntimeError when delivery.native_message_id is None."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+
+        from medre.core.contracts.adapter import AdapterContext
+        from medre.core.events.bus import EventBus
+
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
-
-        delivery = AdapterDeliveryResult(
-            native_message_id=None,
-            native_channel_id="0",
-            delivery_note="test",
+        ctx = AdapterContext(
+            adapter_id="mesh-1",
+            event_bus=EventBus(),
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.guard"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            record_outbound_native_ref=AsyncMock(),
         )
-        queue_result = QueueDeliveryResult(
-            item={"payload": {"text": "hello"}},
-            delivery_result=delivery,
-        )
-
-        with pytest.raises(RuntimeError, match="native_message_id must be non-None"):
-            await adapter._record_delayed_outbound_ref(
-                result=queue_result,
-                event_id="evt-1",
-                delivery=delivery,
+        await adapter.start(ctx)
+        try:
+            delivery = AdapterDeliveryResult(
+                native_message_id=None,
+                native_channel_id="0",
+                delivery_note="test",
             )
+            queue_result = QueueDeliveryResult(
+                item={
+                    "payload": {"text": "hello"},
+                    "attempt_provenance": make_attempt_provenance(
+                        event_id="evt-1",
+                        target_adapter="mesh-1",
+                        outbox_id="obox-guard",
+                        attempt_number=1,
+                        target_channel="0",
+                    ),
+                },
+                delivery_result=delivery,
+            )
+
+            with pytest.raises(
+                RuntimeError, match="native_message_id must be non-None"
+            ):
+                await adapter._record_delayed_outbound_ref(
+                    result=queue_result,
+                    event_id="evt-1",
+                    delivery=delivery,
+                )
+        finally:
+            await adapter.stop()
 
 
 # ===================================================================
