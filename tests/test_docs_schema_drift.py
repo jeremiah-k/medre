@@ -210,9 +210,9 @@ def test_delivery_result_schema_rejects_whitespace_only_native_ids() -> None:
         "note": "",
         "metadata": {},
     }
-    assert list(validator.iter_errors(payload)), (
-        "whitespace-only native IDs must be rejected"
-    )
+    assert list(
+        validator.iter_errors(payload)
+    ), "whitespace-only native IDs must be rejected"
 
 
 def test_delivery_result_schema_rejects_native_message_on_deferred_handoff() -> None:
@@ -229,12 +229,14 @@ def test_delivery_result_schema_rejects_native_message_on_deferred_handoff() -> 
         "note": "",
         "metadata": {},
     }
-    assert list(validator.iter_errors(payload)), (
-        "deferred hand-off must not claim a native_message_id"
-    )
+    assert list(
+        validator.iter_errors(payload)
+    ), "deferred hand-off must not claim a native_message_id"
 
 
-def test_delivery_result_schema_rejects_strong_confirmation_on_deferred_handoff() -> None:
+def test_delivery_result_schema_rejects_strong_confirmation_on_deferred_handoff() -> (
+    None
+):
     """Deferred admission cannot claim evidence beyond local queue acceptance."""
     from jsonschema import Draft202012Validator
 
@@ -248,6 +250,6 @@ def test_delivery_result_schema_rejects_strong_confirmation_on_deferred_handoff(
         "note": "",
         "metadata": {},
     }
-    assert list(validator.iter_errors(payload)), (
-        "deferred hand-off must not claim remote-service confirmation"
-    )
+    assert list(
+        validator.iter_errors(payload)
+    ), "deferred hand-off must not claim remote-service confirmation"

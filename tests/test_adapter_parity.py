@@ -81,6 +81,7 @@ def _make_rendering_result(
         payload=payload or {"text": "hello"},
     )
 
+
 def _make_deferred_rendering_result(
     *,
     adapter_id: str,
@@ -578,7 +579,9 @@ class TestRealAdapterDeliverErrors:
             side_effect=MeshtasticSendError("radio busy")
         )
 
-        result = _make_deferred_rendering_result(adapter_id="parity_mt2", payload={"text": "hello", "channel_index": 0})
+        result = _make_deferred_rendering_result(
+            adapter_id="parity_mt2", payload={"text": "hello", "channel_index": 0}
+        )
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
@@ -596,7 +599,9 @@ class TestRealAdapterDeliverErrors:
             side_effect=ConnectionError("no radio")
         )
 
-        result = _make_deferred_rendering_result(adapter_id="parity_mt3", payload={"text": "hello", "channel_index": 0})
+        result = _make_deferred_rendering_result(
+            adapter_id="parity_mt3", payload={"text": "hello", "channel_index": 0}
+        )
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
@@ -733,7 +738,9 @@ class TestRealAdapterHandoffResultShape:
         # enqueue returns normally for queue-based delivery
         adapter._queue.enqueue = AsyncMock()  # type: ignore[assignment]
 
-        result = _make_deferred_rendering_result(adapter_id="shape_mt", payload={"text": "hi", "channel_index": 0})
+        result = _make_deferred_rendering_result(
+            adapter_id="shape_mt", payload={"text": "hi", "channel_index": 0}
+        )
         dr = await adapter.deliver(result)
         assert dr is not None
         assert isinstance(dr.native_channel_id, str)

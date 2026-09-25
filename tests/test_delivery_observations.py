@@ -599,6 +599,7 @@ async def test_runner_record_post_handoff_observation_forfeits_after_retry(
         for record in caplog.records
     )
 
+
 async def test_deferred_completion_repair_failure_does_not_reclassify_commit(
     temp_storage, caplog
 ) -> None:
@@ -656,4 +657,7 @@ async def test_deferred_completion_repair_failure_does_not_reclassify_commit(
         in message
         for message in messages
     )
-    assert not any("Failed to finalize deferred adapter hand-off" in message for message in messages)
+    assert not any(
+        "Failed to finalize deferred adapter hand-off" in message
+        for message in messages
+    )

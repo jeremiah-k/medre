@@ -441,8 +441,7 @@ class MeshtasticAdapter(AdapterContract):
         # uncorrelatable queue item that core can never finalize safely.
         if result.attempt_provenance is None:
             raise AdapterPermanentError(
-                "deferred Meshtastic delivery requires immutable "
-                "attempt_provenance"
+                "deferred Meshtastic delivery requires immutable " "attempt_provenance"
             )
         if self.ctx is None or self.ctx.report_delivery_feedback is None:
             raise AdapterPermanentError(

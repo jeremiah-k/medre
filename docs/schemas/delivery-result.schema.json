@@ -7,48 +7,33 @@
   "properties": {
     "disposition": {
       "type": "string",
-      "enum": [
-        "transport_handoff",
-        "deferred"
-      ],
+      "enum": ["transport_handoff", "deferred"],
       "default": "transport_handoff",
       "description": "Synchronous hand-off disposition. 'transport_handoff' means the adapter reached its external transport boundary during deliver(); 'deferred' means work was accepted locally and later facts arrive through DeliveryFeedback."
     },
     "native_message_id": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "default": null,
       "description": "Platform-native message ID when known at synchronous hand-off. Deferred results cannot claim one.",
       "minLength": 1,
       "pattern": ".*\\S.*"
     },
     "native_channel_id": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "default": null,
       "description": "Platform-resolved native channel/room/conversation ID when supplied by the transport. This is evidence, not route identity.",
       "minLength": 1,
       "pattern": ".*\\S.*"
     },
     "native_thread_id": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "default": null,
       "description": "Platform-native thread or parent identifier when supplied by the transport.",
       "minLength": 1,
       "pattern": ".*\\S.*"
     },
     "native_relation_id": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": ["string", "null"],
       "default": null,
       "description": "Platform-native related-entity identifier when supplied by the transport.",
       "minLength": 1,
@@ -115,9 +100,7 @@
             "const": "deferred"
           }
         },
-        "required": [
-          "disposition"
-        ]
+        "required": ["disposition"]
       },
       "then": {
         "properties": {
@@ -125,10 +108,7 @@
             "type": "null"
           },
           "confirmation_level": {
-            "enum": [
-              "unknown",
-              "local_queue"
-            ]
+            "enum": ["unknown", "local_queue"]
           }
         }
       }

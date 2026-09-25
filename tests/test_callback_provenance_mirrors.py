@@ -59,7 +59,9 @@ def test_deferred_handoff_cannot_claim_native_message_id() -> None:
 
 
 def test_deferred_handoff_cannot_claim_transport_confirmation() -> None:
-    with pytest.raises(ValueError, match="cannot claim confirmation beyond local queue"):
+    with pytest.raises(
+        ValueError, match="cannot claim confirmation beyond local queue"
+    ):
         AdapterHandoffResult(
             disposition="deferred",
             confirmation_level="local_transport",

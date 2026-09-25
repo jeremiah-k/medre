@@ -16,7 +16,6 @@ from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
 )
 from medre.adapters.meshtastic.session import MeshtasticSession
-from medre.core.rendering.renderer import RenderingResult
 from tests.helpers.meshtastic import (
     make_meshtastic_config,
     make_meshtastic_rendering_result,

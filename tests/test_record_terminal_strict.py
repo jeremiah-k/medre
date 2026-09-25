@@ -170,7 +170,9 @@ class TestQueuedReceiptAuthorityRequired:
         row = await temp_storage.get_outbox_item("obox-queued-no-evidence")
         assert row is not None
         assert row.status == "queued"
-        assert await temp_storage.list_receipts_for_event("evt-queued-no-evidence") == []
+        assert (
+            await temp_storage.list_receipts_for_event("evt-queued-no-evidence") == []
+        )
         assert "no matching immutable queued attempt evidence" in caplog.text
 
 
