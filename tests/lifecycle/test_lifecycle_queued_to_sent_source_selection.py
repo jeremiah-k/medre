@@ -19,6 +19,7 @@ from medre.core.contracts.adapter import OutboundNativeRefRecord, QueueTerminalR
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
+from tests.helpers.delivery_callbacks import make_terminal_record
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
@@ -751,8 +752,12 @@ class TestReplayQueuedTerminalCorrelation:
             target_channel="0",
             status="in_progress",
             attempt_number=attempt_number,
+            dispatch_source=source,  # type: ignore[arg-type]
+            replay_run_id=replay_run_id,
         )
-        await create_outbox_item_with_parent(storage, item)
+        await create_outbox_item_with_parent(
+            storage, item, allocate_new_generation=replay_run_id is not None
+        )
         await storage.mark_outbox_queued(outbox_id)
 
     async def test_replay_native_ref_closes_only_its_exact_row(
@@ -866,7 +871,7 @@ class TestReplayQueuedTerminalCorrelation:
         )
 
         await manager.record_terminal(
-            QueueTerminalRecord(
+            make_terminal_record(
                 event_id="evt-001",
                 adapter="m",
                 outcome="permanent_failed",
@@ -875,6 +880,8 @@ class TestReplayQueuedTerminalCorrelation:
                 attempt_number=1,
                 native_channel_id="0",
                 error="permanent RF encode failure",
+                source="replay",
+                replay_run_id="run-9",
             )
         )
 

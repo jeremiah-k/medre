@@ -8,6 +8,7 @@ and cancelled/abandoned outbox transitions.
 from __future__ import annotations
 
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.delivery_callbacks import make_terminal_record
 from tests.helpers.pipeline import make_event
 from tests.helpers.storage_outbox import (
     admit_event,
@@ -317,7 +318,7 @@ class TestUnknownTerminalOutcome:
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
 
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-unknown-001",
             adapter="mesh-1",
             outcome="exhausted",  # valid but we'll use a different one below
@@ -375,7 +376,7 @@ class TestAttemptNumberAuthority:
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
 
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-attempt-existing",
             adapter="mesh-1",
             outcome="exhausted",
@@ -439,7 +440,7 @@ class TestCancelledAndAbandonedTransitions:
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
 
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-cancelled-001",
             adapter="mesh-1",
             outcome="cancelled",
@@ -491,7 +492,7 @@ class TestCancelledAndAbandonedTransitions:
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
 
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-abandoned-001",
             adapter="mesh-1",
             outcome="abandoned",

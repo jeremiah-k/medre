@@ -23,6 +23,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.delivery_callbacks import make_terminal_record
 from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 # -- Helpers --
@@ -77,7 +78,7 @@ class TestNoOutboxIdRejected:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-no-obox",
             adapter="mesh-1",
             outbox_id=None,
@@ -89,7 +90,7 @@ class TestNoOutboxIdRejected:
 
         receipts = await temp_storage.list_receipts_for_event("evt-no-obox")
         assert len(receipts) == 0
-        assert "no outbox_id" in caplog.text
+        assert "missing attempt_provenance" in caplog.text
 
 
 # ===================================================================
@@ -107,7 +108,7 @@ class TestMissingOutboxRowRejected:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-missing",
             adapter="mesh-1",
             outbox_id="obox-nonexistent",
@@ -148,7 +149,7 @@ class TestTerminalOutboxStatusRejected:
         await temp_storage.mark_outbox_sent("obox-sent")
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-sent",
             adapter="mesh-1",
             outbox_id="obox-sent",
@@ -189,7 +190,7 @@ class TestRetryWaitStatusRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-rw",
             adapter="mesh-1",
             outbox_id="obox-rw",
@@ -226,7 +227,7 @@ class TestPendingStatusRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-pending",
             adapter="mesh-1",
             outbox_id="obox-pending",
@@ -264,7 +265,7 @@ class TestWrongEventIdRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-wrong",
             adapter="mesh-1",
             outbox_id="obox-evt-mismatch",
@@ -278,7 +279,7 @@ class TestWrongEventIdRejected:
         receipts_wrong = await temp_storage.list_receipts_for_event("evt-wrong")
         assert len(receipts_correct) == 0
         assert len(receipts_wrong) == 0
-        assert "event_id" in caplog.text
+        assert "delivery identity mismatch" in caplog.text
 
 
 # ===================================================================
@@ -304,7 +305,7 @@ class TestWrongAdapterRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-adapter",
             adapter="mesh-wrong",
             outbox_id="obox-adapter-mismatch",
@@ -316,7 +317,7 @@ class TestWrongAdapterRejected:
 
         receipts = await temp_storage.list_receipts_for_event("evt-adapter")
         assert len(receipts) == 0
-        assert "target_adapter" in caplog.text
+        assert "delivery identity mismatch" in caplog.text
 
 
 # ===================================================================
@@ -343,7 +344,7 @@ class TestWrongChannelRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-channel",
             adapter="mesh-1",
             native_channel_id="99",
@@ -356,7 +357,7 @@ class TestWrongChannelRejected:
 
         receipts = await temp_storage.list_receipts_for_event("evt-channel")
         assert len(receipts) == 0
-        assert "target_channel" in caplog.text
+        assert "delivery identity mismatch" in caplog.text
 
 
 # ===================================================================
@@ -383,7 +384,7 @@ class TestWrongPlanRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-plan",
             adapter="mesh-1",
             outbox_id="obox-plan-mismatch",
@@ -396,7 +397,7 @@ class TestWrongPlanRejected:
 
         receipts = await temp_storage.list_receipts_for_event("evt-plan")
         assert len(receipts) == 0
-        assert "delivery_plan_id" in caplog.text
+        assert "delivery identity mismatch" in caplog.text
 
 
 # ===================================================================
@@ -423,7 +424,7 @@ class TestWrongAttemptNumberRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-attempt",
             adapter="mesh-1",
             outbox_id="obox-attempt-mismatch",
@@ -435,7 +436,7 @@ class TestWrongAttemptNumberRejected:
 
         receipts = await temp_storage.list_receipts_for_event("evt-attempt")
         assert len(receipts) == 0
-        assert "attempt_number" in caplog.text
+        assert "attempt generation mismatch" in caplog.text
 
 
 # ===================================================================
@@ -461,7 +462,7 @@ class TestValidExhausted:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-exhausted",
             adapter="mesh-1",
             outbox_id="obox-exhausted",
@@ -513,7 +514,7 @@ class TestValidPermanentFailed:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-perm",
             adapter="mesh-1",
             outbox_id="obox-perm",
@@ -563,7 +564,7 @@ class TestValidCancelled:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-cancel",
             adapter="mesh-1",
             outbox_id="obox-cancel",
@@ -609,7 +610,7 @@ class TestValidAbandoned:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-abandon",
             adapter="mesh-1",
             outbox_id="obox-abandon",
@@ -656,7 +657,7 @@ class TestValidPreservesRouteId:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-route",
             adapter="mesh-1",
             outbox_id="obox-route",
@@ -686,7 +687,7 @@ class TestMissingAttemptNumberRejected:
             event_id="evt-no-attempt",
         )
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-no-attempt",
             adapter="mesh-1",
             outbox_id="obox-no-attempt",
@@ -710,7 +711,7 @@ class TestMissingAttemptNumberRejected:
         )
         await temp_storage.mark_outbox_queued("obox-no-attempt-mut")
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-no-attempt-mut",
             adapter="mesh-1",
             outbox_id="obox-no-attempt-mut",
@@ -735,7 +736,7 @@ class TestMissingAttemptNumberRejected:
             event_id="evt-no-attempt-log",
         )
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-no-attempt-log",
             adapter="mesh-1",
             outbox_id="obox-no-attempt-log",
@@ -745,4 +746,4 @@ class TestMissingAttemptNumberRejected:
         with caplog.at_level(logging.WARNING):
             await manager.record_terminal(record)
 
-        assert "missing attempt_number" in caplog.text
+        assert "missing attempt_provenance" in caplog.text

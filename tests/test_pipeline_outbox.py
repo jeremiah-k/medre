@@ -14,6 +14,7 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.capacity import CapacityController
+from tests.helpers.delivery_callbacks import make_terminal_record
 from tests.helpers.async_utils import wait_until
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
@@ -1307,7 +1308,7 @@ class TestRecordTerminalAttemptNumber:
         )
         await outbox_temp_storage.create_outbox_item(outbox_item)
 
-        record = QueueTerminalRecord(
+        record = make_terminal_record(
             event_id="evt-terminal-attempt",
             adapter="mesh-1",
             native_channel_id="0",
@@ -1330,7 +1331,7 @@ class TestRecordTerminalAttemptNumber:
         assert (
             len(receipts) == 0
         ), "Mismatched attempt_number must be rejected, not silently corrected"
-        assert "attempt_number" in caplog.text
+        assert "attempt generation mismatch" in caplog.text
 
         # Outbox must remain in_progress (not mutated by rejected callback).
         outbox = await outbox_temp_storage.get_outbox_item("obox-attempt-3")

@@ -33,6 +33,7 @@ from medre.core.events.canonical import (
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.retry import RetryWorker
+from tests.helpers.delivery_callbacks import make_terminal_record
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -359,7 +360,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
     manager = OutboxManager(temp_storage, DeliveryLifecycleService())
     receipts_before = len(await temp_storage.list_receipts_for_event(event.event_id))
     await manager.record_terminal(
-        QueueTerminalRecord(
+        make_terminal_record(
             event_id=event.event_id,
             adapter="lxmf-main",
             outcome="permanent_failed",
@@ -381,7 +382,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
     )
 
     committed = await manager.record_terminal(
-        QueueTerminalRecord(
+        make_terminal_record(
             event_id=event.event_id,
             adapter="lxmf-main",
             outcome="permanent_failed",
@@ -390,6 +391,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
             attempt_number=2,
             native_channel_id="aa" * 16,
             error="send rejected",
+            source="retry",
         )
     )
     assert committed is None  # record_terminal returns None; state speaks below
@@ -413,7 +415,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
 
     # A late terminal callback for the superseded attempt commits nothing.
     stale_committed = await manager.record_terminal(
-        QueueTerminalRecord(
+        make_terminal_record(
             event_id=event.event_id,
             adapter="lxmf-main",
             outcome="cancelled",

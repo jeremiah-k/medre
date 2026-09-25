@@ -38,6 +38,7 @@ from medre.core.storage.backend import (
     TerminalOutboxFinalization,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.delivery_callbacks import make_terminal_record
 from tests.helpers.storage_outbox import (
     admit_event,
     append_receipt_with_parent,
@@ -61,6 +62,8 @@ async def _create_outbox(
     event_id: str,
     delivery_plan_id: str,
     attempt_number: int = 1,
+    dispatch_source: str = "live",
+    replay_run_id: str | None = None,
 ) -> DeliveryOutboxItem:
     """Create an in_progress outbox row, then hand it to the adapter-local
     queue the way the production pipeline does (in_progress -> queued)."""
@@ -73,8 +76,12 @@ async def _create_outbox(
         target_channel="0",
         attempt_number=attempt_number,
         status="in_progress",
+        dispatch_source=dispatch_source,
+        replay_run_id=replay_run_id,
     )
-    await create_outbox_item_with_parent(storage, item)
+    await create_outbox_item_with_parent(
+        storage, item, allocate_new_generation=replay_run_id is not None
+    )
     await storage.mark_outbox_queued(outbox_id)
     return item
 
@@ -86,8 +93,10 @@ def _terminal_record(
     delivery_plan_id: str,
     outcome: str = "exhausted",
     attempt_number: int = 1,
+    source: str = "live",
+    replay_run_id: str | None = None,
 ) -> QueueTerminalRecord:
-    return QueueTerminalRecord(
+    return make_terminal_record(
         event_id=event_id,
         adapter="mesh-1",
         outbox_id=outbox_id,
@@ -96,6 +105,8 @@ def _terminal_record(
         native_channel_id="0",
         outcome=outcome,
         error="budget exhausted",
+        source=source,  # type: ignore[arg-type]
+        replay_run_id=replay_run_id,
     )
 
 
@@ -114,6 +125,8 @@ async def test_exhausted_from_queued_outbox(
         outbox_id="obox-q-ex",
         event_id="evt-q-ex",
         delivery_plan_id="plan-q-ex",
+        dispatch_source="replay",
+        replay_run_id="replay-42",
     )
     # The hand-off produced a queued receipt carrying replay lineage.
     await append_receipt_with_parent(
@@ -140,6 +153,8 @@ async def test_exhausted_from_queued_outbox(
             outbox_id="obox-q-ex",
             event_id="evt-q-ex",
             delivery_plan_id="plan-q-ex",
+            source="replay",
+            replay_run_id="replay-42",
         )
     )
 
@@ -205,6 +220,54 @@ async def test_terminal_callback_rejects_lineage_read_failure(
 
 
 @pytest.mark.asyncio
+async def test_terminal_callback_rejects_contradictory_queued_receipt_provenance(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Existing queued evidence must agree with the callback envelope."""
+    await _create_outbox(
+        temp_storage,
+        outbox_id="obox-lineage-contradiction",
+        event_id="evt-lineage-contradiction",
+        delivery_plan_id="plan-lineage-contradiction",
+    )
+    await append_receipt_with_parent(
+        temp_storage,
+        build_delivery_receipt(
+            receipt_id="rcpt-lineage-contradiction",
+            event_id="evt-lineage-contradiction",
+            delivery_plan_id="plan-lineage-contradiction",
+            target_adapter="mesh-1",
+            target_channel="0",
+            route_id="route-1",
+            status="queued",
+            source="replay",
+            outbox_id="obox-lineage-contradiction",
+            attempt_number=1,
+        ),
+    )
+
+    manager = _make_manager(temp_storage)
+    await manager.record_terminal(
+        _terminal_record(
+            outbox_id="obox-lineage-contradiction",
+            event_id="evt-lineage-contradiction",
+            delivery_plan_id="plan-lineage-contradiction",
+            source="live",
+        )
+    )
+
+    row = await temp_storage.get_outbox_item("obox-lineage-contradiction")
+    assert row is not None
+    assert row.status == "queued"
+    receipts = await temp_storage.list_receipts_for_event(
+        "evt-lineage-contradiction"
+    )
+    assert [receipt.receipt_id for receipt in receipts] == [
+        "rcpt-lineage-contradiction"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_retry_source_survives_queued_receipt_race(
     temp_storage: SQLiteStorage,
 ) -> None:
@@ -247,6 +310,7 @@ async def test_retry_source_survives_queued_receipt_race(
             event_id=item.event_id,
             delivery_plan_id=item.delivery_plan_id,
             attempt_number=2,
+            source="retry",
         )
     )
 

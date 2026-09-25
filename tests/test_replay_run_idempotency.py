@@ -31,6 +31,7 @@ from medre.core.routing import Route, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
+from tests.helpers.delivery_callbacks import make_terminal_record
 from tests.helpers.pipeline import make_event
 from tests.helpers.storage_outbox import admit_event
 
@@ -304,7 +305,7 @@ async def test_replay_terminal_callback_before_queued_receipt_preserves_origin(
     )
 
     await manager.record_terminal(
-        QueueTerminalRecord(
+        make_terminal_record(
             event_id=event.event_id,
             adapter="dest",
             outcome="permanent_failed",
@@ -313,6 +314,8 @@ async def test_replay_terminal_callback_before_queued_receipt_preserves_origin(
             attempt_number=claim.attempt_number,
             native_channel_id="room",
             error="adapter rejected queued send",
+            source="replay",
+            replay_run_id="run-terminal-race",
         )
     )
 
@@ -364,7 +367,7 @@ async def test_unnamed_replay_terminal_callback_before_queued_receipt_preserves_
     assert row.replay_run_id is None
 
     await manager.record_terminal(
-        QueueTerminalRecord(
+        make_terminal_record(
             event_id=event.event_id,
             adapter="dest",
             outcome="permanent_failed",
@@ -373,6 +376,7 @@ async def test_unnamed_replay_terminal_callback_before_queued_receipt_preserves_
             attempt_number=claim.attempt_number,
             native_channel_id="room",
             error="adapter rejected unnamed replay send",
+            source="replay",
         )
     )
 
@@ -423,7 +427,7 @@ async def test_finalized_unnamed_replay_without_queued_receipt_preserves_source(
     assert queued_row.replay_run_id is None
 
     await manager.record_terminal(
-        QueueTerminalRecord(
+        make_terminal_record(
             event_id=event.event_id,
             adapter="dest",
             outcome="permanent_failed",
@@ -432,6 +436,7 @@ async def test_finalized_unnamed_replay_without_queued_receipt_preserves_source(
             attempt_number=claim.attempt_number,
             native_channel_id="room",
             error="late queue failure",
+            source="replay",
         )
     )
 
