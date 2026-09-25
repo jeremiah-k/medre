@@ -767,9 +767,11 @@ callback that races ahead of queued-receipt persistence does not lose its
 source/run identity because those facts come from the envelope, not from receipt
 timing.
 
-For queue terminal callbacks the envelope is mandatory. Delayed native-ref and
-delivery-observation records retain scalar-only compatibility for custom/legacy
-adapters, but built-in asynchronous adapters carry the envelope.
+Every asynchronous callback record — queue terminal, delayed native-ref, and
+delivery observation — requires the envelope; records without it are rejected
+at construction. Outbox-less direct hand-off emits no durable post-handoff
+callback evidence because no durable attempt authority exists to attribute it
+to.
 
 ### 15.3 Evidence Signals
 
@@ -780,7 +782,7 @@ adapters, but built-in asynchronous adapters carry the envelope.
 | Callback before queued receipt           | Valid envelope remains authoritative; missing queued receipt is not used to guess source/run provenance. |
 | Envelope/row contradiction               | Callback is rejected; no lifecycle mutation is committed.                                                |
 | Envelope/immutable-receipt contradiction | Callback is rejected rather than selecting a preferred lineage.                                          |
-| Missing terminal `attempt_provenance`    | Queue terminal callback is hard-rejected.                                                                |
+| Missing callback `attempt_provenance`    | The asynchronous callback record cannot be constructed.                                                  |
 | Stale generation                         | Callback is rejected against the outbox effective generation.                                            |
 
 ### 15.4 Normative Requirements

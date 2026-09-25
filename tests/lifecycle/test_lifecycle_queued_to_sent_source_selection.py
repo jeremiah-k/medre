@@ -532,6 +532,8 @@ class TestReplayQueuedTerminalCorrelation:
                     attempt_number=1,
                     delivery_plan_id="plan-shared",
                     target_channel="0",
+                    source="replay",
+                    replay_run_id="run-9",
                 ),
                 event_id="evt-001",
                 adapter="m",

@@ -917,7 +917,8 @@ Built-in asynchronous adapters carry immutable `attempt_provenance` across the
 transport/session boundary and echo it unchanged. The transport session MAY
 carry this value as opaque caller-owned context, but it **MUST NOT** interpret
 or mutate core lifecycle identity. Scalar `outbox_id`, `attempt_number`, and
-`delivery_plan_id` are mirrors when the envelope is present.
+`delivery_plan_id` are compatibility mirrors populated from the envelope,
+which every asynchronous callback record requires.
 
 Core validates the observation against the authoritative outbox row and every
 immutable receipt already carrying the exact outbox ID/generation. That receipt
