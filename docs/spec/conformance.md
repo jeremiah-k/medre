@@ -482,7 +482,7 @@ A conforming implementation detects exactly ten finding kinds: `orphaned_outbox`
 
 1. Before asynchronous adapter hand-off, delivery code freezes exact delivery identity, outbox generation, dispatch `source`, and optional `replay_run_id` in `DeliveryAttemptProvenance`; built-in asynchronous callbacks echo that envelope unchanged.
 2. Callback provenance is validated against the authoritative outbox row and every already-persisted receipt carrying the same `outbox_id`/attempt generation. Receipt history used for this fence MUST be loaded by `outbox_id` before validating event/plan/adapter/channel fields, so malformed immutable evidence cannot disappear through pre-filtering. A queued receipt may supply parent/render/retry linkage but MUST NOT override the envelope's source/run lineage. Missing receipt evidence MUST NOT trigger mutable-row or timing-based source reconstruction. Contradictory callback/row/receipt provenance is rejected.
-3. Every asynchronous callback record — queue terminal, delayed native-ref, and post-handoff observation — carries `attempt_provenance`; records without it are rejected at construction.
+3. Every asynchronous callback record — queue terminal, delayed native-ref, and post-handoff observation — carries `attempt_provenance`; records without it are rejected at construction. Outbox-less/direct sends have no durable attempt envelope, so built-in adapters do not emit these asynchronous evidence callbacks for them.
 4. Replay does not mutate live recovery state (receipts, outbox items, retry state).
 
 ### 9.5 Startup Ownership Conformance

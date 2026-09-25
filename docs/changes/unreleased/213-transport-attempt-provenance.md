@@ -29,3 +29,6 @@
   and observation records reject construction without `attempt_provenance`, the legacy
   source-preference selector for envelope-less callbacks is removed, and the supplemental
   sent receipt always carries the envelope's dispatch provenance.
+- Make asynchronous callback provenance structurally required and suppress
+  post-handoff evidence for outbox-less/direct async sends instead of constructing
+  callback records without durable attempt authority.

@@ -867,7 +867,7 @@ class OutboundNativeRefRecord:
     delivery_plan_id:   str | None = None
     outbox_id:          str | None = None
     attempt_number:     int | None = None
-    attempt_provenance: DeliveryAttemptProvenance | None = None
+    attempt_provenance: DeliveryAttemptProvenance
     metadata:           Mapping[str, object] = field(default_factory=dict)
 ```
 
@@ -897,8 +897,14 @@ class OutboundDeliveryObservationRecord:
     confirmation_level: DeliveryConfirmationLevel = "unknown"
     error: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
-    attempt_provenance: DeliveryAttemptProvenance | None = None
+    attempt_provenance: DeliveryAttemptProvenance
 ```
+
+Outbox-less/direct sends may still use an asynchronous transport internally, but
+they have no durable attempt envelope. Built-in adapters **MUST NOT** fabricate
+terminal, delayed-native-reference, or delivery-observation evidence for those
+sends; post-handoff callback evidence is emitted only for an outbox-backed
+attempt carrying exact `DeliveryAttemptProvenance`.
 
 Built-in asynchronous adapters carry immutable `attempt_provenance` across the
 transport/session boundary and echo it unchanged. The transport session MAY

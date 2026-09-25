@@ -197,6 +197,9 @@ race. Every asynchronous callback record — terminal, queued-to-sent, and
 observation — requires the envelope; records without it are rejected at
 construction, and the supplemental sent receipt carries the envelope's
 dispatch provenance rather than any queued-receipt preference.
+Outbox-less/direct sends do not have such an envelope and therefore **MUST NOT**
+emit these asynchronous durable-evidence callbacks; transport work may still
+complete, but no callback lineage may be invented after hand-off.
 
 Renderer output identity is validated before every adapter hand-off, including
 direct/outbox-less delivery where no attempt envelope exists. A renderer result
