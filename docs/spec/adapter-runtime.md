@@ -601,6 +601,12 @@ The rendering boundary is strictly enforced:
 - No adapter **SHALL** perform rendering logic.
 - No renderer **SHALL** deliver.
 - Adapters **MUST NOT** re-render, reformat, or inspect the event kind to decide formatting inside `deliver()`.
+- Before adapter hand-off, the pipeline **MUST** verify that the returned
+  `RenderingResult` carries the requested event ID, target adapter, and
+  normalized target channel. This identity fence applies even to direct/
+  outbox-less delivery where no `DeliveryAttemptProvenance` envelope exists.
+  A contradictory result is a renderer failure and **MUST NOT** reach the
+  adapter.
 
 ### 10.4 Payload Ownership Boundary
 
@@ -900,16 +906,18 @@ carry this value as opaque caller-owned context, but it **MUST NOT** interpret
 or mutate core lifecycle identity. Scalar `outbox_id`, `attempt_number`, and
 `delivery_plan_id` are mirrors when the envelope is present.
 
-Core validates the observation against the authoritative outbox row and, when
-an exact queued attempt receipt already exists, requires that immutable receipt
-to agree with the callback envelope's identity, generation, dispatch source,
-and replay origin before appending to the delivery-observation ledger. Receipt
-history read failures fail closed. A callback may legitimately precede the
-queued-receipt append, so absence of that receipt is not itself a rejection.
-The adapter never writes storage directly. A terminal transport observation
-therefore cannot retroactively turn a locally successful MEDRE handoff into a
-failed receipt, and a later `delivered` observation cannot rewrite a receipt
-into a stronger lifecycle state.
+Core validates the observation against the authoritative outbox row and every
+immutable receipt already carrying the exact outbox ID/generation. That receipt
+history is loaded by `outbox_id` before identity/source validation so malformed
+event/plan/adapter/channel evidence cannot be hidden by the read used to verify
+it. Each matching-generation receipt must agree with the callback envelope's
+identity, generation, dispatch source, and replay origin before an observation
+is appended. Receipt-history read failures fail closed. A callback may
+legitimately precede the first attempt-receipt append, so absence of receipt
+evidence is not itself a rejection. The adapter never writes storage directly.
+A terminal transport observation therefore cannot retroactively turn a locally
+successful MEDRE handoff into a failed receipt, and a later `delivered`
+observation cannot rewrite a receipt into a stronger lifecycle state.
 
 ### 17.5 Callback Isolation
 

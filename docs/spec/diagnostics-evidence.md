@@ -756,12 +756,16 @@ hand-off, containing the complete delivery identity, `outbox_id`, effective
 asynchronous adapters carry that object outside the wire payload and echo it on
 callbacks.
 
-Core validates the envelope against durable outbox identity/generation and,
-when queued receipt evidence already exists, requires that receipt's source/run
-provenance to agree. The queued receipt is then used for immutable parent, retry,
-and rendering linkage. A callback that races ahead of queued-receipt persistence
-does not lose its source/run identity because those facts come from the envelope,
-not from receipt timing.
+Core validates the envelope against durable outbox identity/generation and every
+immutable receipt already carrying that exact `outbox_id`/attempt generation.
+Receipt history is read by `outbox_id` before identity/source validation so a
+malformed receipt cannot disappear through pre-filtering. A queued receipt is
+then used for immutable parent, retry, and rendering linkage. Retry policy is
+copied forward into terminal attempt/lifecycle evidence; rendering evidence
+stays on the queued parent and remains reachable through that parent chain. A
+callback that races ahead of queued-receipt persistence does not lose its
+source/run identity because those facts come from the envelope, not from receipt
+timing.
 
 For queue terminal callbacks the envelope is mandatory. Delayed native-ref and
 delivery-observation records retain scalar-only compatibility for custom/legacy
@@ -775,7 +779,7 @@ adapters, but built-in asynchronous adapters carry the envelope.
 | Terminal attempt/lifecycle receipt    | Queue terminal callback carried an envelope matching durable outbox authority.                           |
 | Callback before queued receipt        | Valid envelope remains authoritative; missing queued receipt is not used to guess source/run provenance. |
 | Envelope/row contradiction            | Callback is rejected; no lifecycle mutation is committed.                                                |
-| Envelope/queued-receipt contradiction | Callback is rejected rather than selecting a preferred lineage.                                          |
+| Envelope/immutable-receipt contradiction | Callback is rejected rather than selecting a preferred lineage.                                        |
 | Missing terminal `attempt_provenance` | Queue terminal callback is hard-rejected.                                                                |
 | Stale generation                      | Callback is rejected against the outbox effective generation.                                            |
 
@@ -788,14 +792,18 @@ adapters, but built-in asynchronous adapters carry the envelope.
 3. Core MUST validate delivery identity, outbox ID, effective generation,
    dispatch source, and named replay run against durable authority.
 4. Queue terminal callbacks without `attempt_provenance` MUST be rejected.
-5. Existing queued receipts are immutable validation/parent-linkage evidence;
-   they MUST NOT override callback provenance.
+5. Existing receipts for the exact outbox generation are immutable validation
+   evidence and MUST NOT override callback provenance. Queued receipts
+   additionally provide parent/retry/rendering linkage.
 6. Missing queued-receipt evidence MUST NOT cause source/replay provenance to be
    reconstructed from the mutable row or from timing.
 7. Contradictory callback/row/receipt provenance MUST fail closed.
-8. Storage MUST retain its full `(event, plan, adapter, channel, outbox,
-attempt)` atomic finalization fence after callback validation.
-9. Local queue/transport acceptance remains local evidence only; it does not
+8. Receipt-history reads used to validate callback provenance MUST be scoped by
+   exact `outbox_id` before validating event/plan/adapter/channel identity,
+   generation, dispatch source, and replay origin.
+9. Storage MUST retain its full `(event, plan, adapter, channel, outbox,
+   attempt)` atomic finalization fence after callback validation.
+10. Local queue/transport acceptance remains local evidence only; it does not
    imply end-to-end recipient delivery.
 
 ## 16. Evidence Bundle Model

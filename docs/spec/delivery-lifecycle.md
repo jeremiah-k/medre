@@ -160,8 +160,11 @@ outbox row before accepting callback evidence:
    while reserved, otherwise the finalized attempt number);
 3. durable dispatch `source` and named `replay_run_id`, when present on the row,
    MUST agree with the envelope; and
-4. any already-persisted queued receipt for that exact row/generation MUST
-   carry the same source/replay provenance.
+4. every already-persisted receipt carrying that exact `outbox_id`/generation
+   MUST agree with the envelope's full delivery identity, dispatch source, and
+   replay origin. Receipt-history validation MUST be scoped by `outbox_id`
+   before checking those fields so malformed identity evidence cannot disappear
+   through the query used to validate it.
 
 `RenderingResult.outbox_id`, `delivery_plan_id`, and `attempt_number` and the
 equivalent callback fields remain compatibility/diagnostic mirrors. When an
@@ -169,23 +172,34 @@ attempt envelope is present they are populated from it and contradictory values
 are rejected. They are not an alternate lineage authority.
 
 For queue terminal callbacks, `attempt_provenance` is required. A callback
-without it is hard-rejected. A queued receipt is used only for immutable
-`parent_receipt_id`/render/retry linkage when it is already available. If the
-terminal callback arrives before the queued receipt append, core may still
-commit the terminal outcome from the validated envelope. It MUST NOT reconstruct
-`source` or `replay_run_id` from callback timing, missing receipt evidence, or a
-mutable-row fallback. Contradictory row/receipt/callback provenance fails
-closed.
+without it is hard-rejected. When a terminal callback supplies a native channel,
+that channel MUST independently match the admitted outbox target; transport
+evidence is not allowed to contradict the envelope merely because it is not a
+scalar provenance mirror. A queued receipt is used only for immutable
+`parent_receipt_id`/render/retry linkage when it is already available. Retry
+policy fields are inherited onto terminal attempt/lifecycle evidence; rendering
+evidence remains on the immutable queued parent and is reachable through the
+parent chain rather than copied onto failure receipts. If the terminal callback
+arrives before the queued receipt append, core may still commit the terminal
+outcome from the validated envelope. It MUST NOT reconstruct `source` or
+`replay_run_id` from callback timing, missing receipt evidence, or a mutable-row
+fallback. Contradictory row/receipt/callback provenance fails closed.
 
 Delayed native-reference and post-handoff observation callbacks from built-in
 asynchronous adapters also carry the same envelope and validate it against the
-outbox row. When immutable queued receipt evidence for that exact generation is
+outbox row. When immutable receipt evidence for that exact outbox generation is
 already present, those callbacks MUST also reject any receipt whose delivery
 identity, generation, dispatch source, or replay origin contradicts the
-envelope. Failure to load receipt history fails closed; absence of the queued
-receipt remains a valid callback-before-receipt race. Their existing scalar-only
-path remains a compatibility boundary for custom/legacy adapters; built-in
-asynchronous adapters do not rely on it.
+envelope. Receipt-history reads for this check MUST be scoped by `outbox_id`, not
+by identity fields being validated. Failure to load receipt history fails
+closed; absence of receipt evidence remains a valid callback-before-receipt
+race. Their existing scalar-only path remains a compatibility boundary for
+custom/legacy adapters; built-in asynchronous adapters do not rely on it.
+
+Renderer output identity is validated before every adapter hand-off, including
+direct/outbox-less delivery where no attempt envelope exists. A renderer result
+whose event ID, target adapter, or normalized target channel contradicts the
+requested delivery is a renderer failure and MUST NOT reach the adapter.
 
 After queued-to-sent correlation succeeds, storage receives one validated
 `QueuedDeliveryFinalization` command. The sent receipt supplies the event-scoped
@@ -473,15 +487,18 @@ envelope unchanged.
 
 Core validates the callback envelope against the authoritative outbox row for
 status, event, adapter, plan, channel, attempt generation, dispatch source, and
-named replay run. If an exact queued receipt already exists, its source/run must
-agree and it supplies parent/render/retry linkage only. If a terminal callback
-wins the queued-receipt append race, the validated envelope remains sufficient
-lineage authority; MEDRE does not infer live/replay/retry origin from row state
-or receipt timing. A queued-receipt history read failure still fails closed.
-Callbacks that do not match the validated row — stale attempts, contradictory
-provenance, terminal or reclaimed rows — are rejected; replay isolation never
-overrides row validation. See [diagnostics-evidence.md](diagnostics-evidence.md)
-§15 for the full requirement set.
+named replay run. Every immutable receipt already carrying the same
+`outbox_id`/generation must also agree with the envelope. That history is loaded
+by `outbox_id` before identity/source validation so malformed evidence cannot be
+hidden by the read used to verify it. A queued receipt supplies
+parent/render/retry linkage only. If a terminal callback wins the first
+attempt-receipt append race, the validated envelope remains sufficient lineage
+authority; MEDRE does not infer live/replay/retry origin from row state or
+receipt timing. A receipt-history read failure still fails closed. Callbacks
+that do not match the validated row — stale attempts, contradictory provenance,
+terminal or reclaimed rows — are rejected; replay isolation never overrides row
+validation. See [diagnostics-evidence.md](diagnostics-evidence.md) §15 for the
+full requirement set.
 
 ### 5.4 Replay Non-Guarantees
 
