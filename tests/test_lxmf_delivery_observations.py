@@ -12,6 +12,7 @@ from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.session import LxmfDeliveryState, LxmfSession
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.contracts.adapter import AdapterContext
+from medre.core.events import DeliveryAttemptProvenance
 from medre.core.rendering.renderer import RenderingResult
 from tests.helpers.async_utils import wait_until
 
@@ -35,6 +36,16 @@ async def test_lxmf_terminal_callback_preserves_exact_attempt_context() -> None:
     )
     await adapter.start(_context(callback))
     try:
+        provenance = DeliveryAttemptProvenance(
+            event_id="evt-lxmf-observation",
+            delivery_plan_id="plan-lxmf-observation",
+            target_adapter="lxmf-observation",
+            target_channel="aa" * 16,
+            outbox_id="outbox-lxmf-observation",
+            attempt_number=3,
+            source="replay",
+            replay_run_id="run-lxmf-observation",
+        )
         result = RenderingResult(
             event_id="evt-lxmf-observation",
             target_adapter="lxmf-observation",
@@ -43,9 +54,7 @@ async def test_lxmf_terminal_callback_preserves_exact_attempt_context() -> None:
                 "content": "hello",
                 "destination_hash": "aa" * 16,
             },
-            delivery_plan_id="plan-lxmf-observation",
-            outbox_id="outbox-lxmf-observation",
-            attempt_number=3,
+            attempt_provenance=provenance,
         )
         delivered = await adapter.deliver(result)
         assert delivered is not None
@@ -66,6 +75,9 @@ async def test_lxmf_terminal_callback_preserves_exact_attempt_context() -> None:
         assert record.delivery_plan_id == "plan-lxmf-observation"
         assert record.outbox_id == "outbox-lxmf-observation"
         assert record.attempt_number == 3
+        assert record.attempt_provenance is provenance
+        assert record.attempt_provenance.source == "replay"
+        assert record.attempt_provenance.replay_run_id == "run-lxmf-observation"
         assert record.native_channel_id == "aa" * 16
         assert record.native_message_id == message_hash
         assert record.state == "delivered"
