@@ -12,7 +12,7 @@ Meshtastic-specific sleeping.
 * **No ``send_fn``**: dequeues one item and returns ``None`` (fake mode).
 * **With ``send_fn``**: dequeues, applies pacing delay, calls the async
   *send_fn*, and returns a :class:`QueueDeliveryResult` with the
-  dequeued item and the :class:`AdapterDeliveryResult` containing the
+  dequeued item and the :class:`AdapterHandoffResult` containing the
   native packet ID if available.
 
 Failure semantics
@@ -74,13 +74,12 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Any, Awaitable, Callable, Literal
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.packet_snapshot import json_safe
-from medre.core.contracts.adapter import AdapterDeliveryResult
+from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.events.delivery import DeliveryAttemptProvenance
 
 _logger = logging.getLogger(__name__)
@@ -94,7 +93,7 @@ class QueueDeliveryResult:
     """Immutable result of processing one queued item through send.
 
     Bundles the dequeued item (carrying ``event_id`` and other metadata
-    outside the radio payload) with the :class:`AdapterDeliveryResult`
+    outside the radio payload) with the :class:`AdapterHandoffResult`
     returned by the send function.  This allows callers (e.g.
     :class:`MeshtasticAdapter._process_queue`) to correlate the canonical
     event ID with the native message ID obtained from the platform.
@@ -104,13 +103,13 @@ class QueueDeliveryResult:
     item:
         The dequeued item dict with ``payload``, ``channel_index``, and
         optionally ``event_id`` keys.
-    delivery_result:
+    handoff:
         The adapter delivery result populated with the native packet ID
         and metadata.
     """
 
     item: dict[str, Any]
-    delivery_result: AdapterDeliveryResult
+    handoff: AdapterHandoffResult
 
 
 @dataclass(frozen=True)
@@ -120,8 +119,7 @@ class QueueTerminalResult:
     Returned by :meth:`MeshtasticOutboundQueue.process_one` when a dequeued
     item cannot be delivered and will not be retried.  The caller (typically
     :class:`~medre.adapters.meshtastic.adapter.MeshtasticAdapter`) uses this
-    to report the terminal outcome to core via
-    :class:`~medre.core.contracts.adapter.QueueTerminalRecord`.
+    to report the terminal outcome to core as a deferred hand-off failure.
 
     Attributes
     ----------
@@ -289,15 +287,13 @@ class MeshtasticOutboundQueue:
             Stored outside the payload so it is never sent to the radio.
         delivery_plan_id:
             Optional delivery-plan identity and validation metadata.
-            Propagated through the queue item into
-            :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`
-            and validated against the authoritative outbox row when
-            present.  Not sufficient for queued callback correlation —
+            Propagated through the queue item in the immutable attempt provenance
+            and validated against the authoritative outbox row when present.  Not sufficient for queued callback correlation —
             exact correlation uses outbox_id + attempt_number.
         outbox_id:
             Internal outbox item correlation key.  Propagated through
-            the queue item into delayed callback records for exact
-            outbox-level correlation.  When non-``None``,
+            the queue item into delayed delivery feedback for exact
+            outbox-level correlation. When non-``None``,
             ``attempt_provenance`` is mandatory so durable work can never
             enter the asynchronous queue without exact callback authority.
             **Not wire metadata.**
@@ -305,7 +301,7 @@ class MeshtasticOutboundQueue:
             Compatibility mirror of the delivery generation.
         attempt_provenance:
             Immutable attempt identity and dispatch provenance. Stored only in
-            the queue item and echoed on asynchronous callback records; never
+            the queue item and echoed on asynchronous delivery feedback; never
             serialized into the radio-facing payload.
 
         Raises
@@ -402,7 +398,7 @@ class MeshtasticOutboundQueue:
         When *send_fn* is provided, the method dequeues one item, applies
         the configured pacing delay, calls *send_fn* with the dequeued
         item, and returns a :class:`QueueDeliveryResult` containing both
-        the dequeued item and an :class:`AdapterDeliveryResult`
+        the dequeued item and an :class:`AdapterHandoffResult`
         populated with the native packet ID (if the send result exposes
         one).
 
@@ -535,17 +531,14 @@ class MeshtasticOutboundQueue:
                 **snapshot,
                 "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION,
             }
-        metadata = MappingProxyType(metadata_dict)
-
-        delivery_result = AdapterDeliveryResult(
+        handoff = AdapterHandoffResult(
             native_message_id=native_id,
             native_channel_id=str(channel_index),
-            delivery_status="sent",
             confirmation_level="local_transport",
-            metadata=metadata,
+            metadata=metadata_dict,
         )
 
-        return QueueDeliveryResult(item=item, delivery_result=delivery_result)
+        return QueueDeliveryResult(item=item, handoff=handoff)
 
     def _handle_transient_failure(
         self, item: dict[str, Any], *, error: str | None = None
@@ -864,7 +857,7 @@ def _packet_snapshot(result: Any) -> dict[str, object]:
     -------
     dict
         Safe key-value pairs suitable for
-        :class:`AdapterDeliveryResult` metadata.
+        :class:`AdapterHandoffResult` metadata.
     """
     if result is None:
         return {}

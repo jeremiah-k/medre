@@ -47,7 +47,6 @@ def _make_context():
 
     return AdapterContext(
         adapter_id="meshtastic-nosdk-test",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.meshtastic-nosdk"),
         clock=lambda: datetime.now(timezone.utc),
@@ -172,7 +171,7 @@ class TestMeshtasticNoSdkLifecycle:
                 await _bounded(adapter.stop())
 
     async def test_fake_deliver_enqueues_no_mtjk(self):
-        """deliver() enqueues and returns AdapterDeliveryResult without mtjk."""
+        """deliver() enqueues and returns AdapterHandoffResult without mtjk."""
 
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
@@ -185,9 +184,9 @@ class TestMeshtasticNoSdkLifecycle:
                 await _bounded(adapter.start(ctx))
                 result_obj = _make_rendering_result(text="fake deliver test")
                 delivery = await _bounded(adapter.deliver(result_obj))
-                # Fake mode returns AdapterDeliveryResult (not None)
+                # Fake mode returns AdapterHandoffResult (not None)
                 assert delivery is not None
-                assert delivery.delivery_note == "locally enqueued"
+                assert delivery.note == "locally enqueued"
                 assert delivery.native_channel_id == "0"
                 # native_message_id is None for queued delivery
                 assert delivery.native_message_id is None
@@ -600,7 +599,7 @@ class TestMeshtasticDeliverLifecycle:
         result_obj = _make_rendering_result(text="pre-start deliver")
         delivery = await _bounded(adapter.deliver(result_obj))
         assert delivery is not None
-        assert delivery.delivery_note == "locally enqueued"
+        assert delivery.note == "locally enqueued"
 
     async def test_deliver_after_stop_still_works_fake(self):
         """In fake mode, deliver() after stop() still enqueues.
@@ -623,7 +622,7 @@ class TestMeshtasticDeliverLifecycle:
         result_obj = _make_rendering_result(text="post-stop deliver")
         delivery = await _bounded(adapter.deliver(result_obj))
         assert delivery is not None
-        assert delivery.delivery_note == "locally enqueued"
+        assert delivery.note == "locally enqueued"
 
     async def test_deliver_increments_queue_pending(self):
         """After deliver(), queue_pending reflects the enqueued items."""
@@ -659,7 +658,7 @@ class TestMeshtasticDeliverLifecycle:
         result_obj = _make_rendering_result(text="after multi-stop")
         delivery = await _bounded(adapter.deliver(result_obj))
         assert delivery is not None
-        assert delivery.delivery_note == "locally enqueued"
+        assert delivery.note == "locally enqueued"
 
 
 # ---------------------------------------------------------------------------

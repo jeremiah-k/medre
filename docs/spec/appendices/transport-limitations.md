@@ -181,7 +181,7 @@ The following abstractions are genuinely transport-neutral:
 - `NativeMetadata.data` dict
 - `max_text_bytes` / `max_text_chars` capability declarations
 - Adapter-owned pacing queues
-- `AdapterDeliveryResult` with adapter-internal ID extraction
+- `AdapterHandoffResult` with transport-provided native ID extraction
 - `AdapterRole` enum
 - `IdentityResolver` native-to-canonical mapping
 
@@ -219,9 +219,9 @@ mechanisms:
 
 5. **`RenderingContext.capability_policy` is reserved and unpopulated.** No
    production code path currently sets this field.
-6. **`delivery_receipts` semantics differ by transport.** Matrix declares
-   `delivery_receipts=true`, meaning homeserver ACK only. LXMF still declares
-   `delivery_receipts=false`: its initial receipt proves local LXMRouter handoff,
+6. **Delivery evidence strength differs by transport.** Matrix synchronous hand-off
+   normally proves homeserver acceptance. LXMF initial hand-off proves local
+   LXMRouter acceptance, while later SDK delivery states are post-hand-off observations,
    while later callback-emitted terminal provider states are persisted
    separately as post-handoff delivery observations. Neither mechanism implies
    end-to-end recipient acknowledgement; evidence levels are normative in

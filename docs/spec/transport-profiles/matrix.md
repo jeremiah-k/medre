@@ -51,11 +51,9 @@ Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-cap
 | edits             | `"unsupported"` |
 | deletes           | `"unsupported"` |
 | attachments       | `False`         |
-| delivery_receipts | `True`          |
 | store_and_forward | `False`         |
 | direct_messages   | `True`          |
 | channels          | `True`          |
-| async_delivery    | `True`          |
 | topic_rooms       | `True`          |
 
 ---
@@ -203,7 +201,7 @@ The Matrix renderer (`MatrixRenderer`) produces:
 ## Native Reference Format
 
 - **Inbound native ref:** `NativeRef(adapter=<id>, native_channel_id=<room_id>, native_message_id=<event_id>)`
-- **Outbound native ref:** Returned from `deliver()` as `AdapterDeliveryResult.native_message_id` (the Matrix `event_id` from `RoomSendResponse`).
+- **Outbound native ref:** Returned from `deliver()` as `AdapterHandoffResult.native_message_id` (the Matrix `event_id` from `RoomSendResponse`).
 - **Deterministic transaction ID:** `medre_<sha256[:32]>` computed from `result.event_id + target_adapter + target_channel + room_id`. The homeserver deduplicates within its transaction-ID window.
 
 ---

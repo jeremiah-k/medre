@@ -95,7 +95,6 @@ def _dm_packet(
 def _make_context(adapter_id: str, publish: Any) -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=publish,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -143,8 +142,8 @@ async def _admission_stack(temp_storage: SQLiteStorage):
             fallback_resolver=FallbackResolver(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters={MC_IN: in_adapter, MC_OUT: out_adapter},
-            event_bus=EventBus(),
             rendering_pipeline=rp,
+            event_bus=EventBus(),
         )
     )
     await runner.start()

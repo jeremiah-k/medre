@@ -33,7 +33,6 @@ def make_adapter_context(adapter_id: str, runner: PipelineRunner) -> AdapterCont
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=runner.handle_ingress,
         logger=logging.getLogger(f"test.bridge.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),

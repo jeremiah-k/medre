@@ -985,7 +985,6 @@ class TestMeshtasticInboundLifecycleGuard:
 
         ctx = AdapterContext(
             adapter_id="late-pkt",
-            event_bus=None,
             publish_inbound=_collect,
             logger=logging.getLogger("test.late_pkt"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1055,7 +1054,6 @@ class TestMeshtasticInboundLifecycleGuard:
 
         ctx = AdapterContext(
             adapter_id="drain-fut",
-            event_bus=None,
             publish_inbound=_collect,
             logger=logging.getLogger("test.drain_fut"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1104,7 +1102,6 @@ class TestMeshtasticInboundLifecycleGuard:
 
         ctx = AdapterContext(
             adapter_id="async-guard",
-            event_bus=None,
             publish_inbound=_collect,
             logger=logging.getLogger("test.async_guard"),
             clock=lambda: datetime.now(timezone.utc),

@@ -149,7 +149,6 @@ def _make_adapter_context(
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=_publish,
         logger=logging.getLogger(f"test.cross_adapter.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -182,9 +181,9 @@ def _make_pipeline_config(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters,
-        event_bus=EventBus(),
         rendering_pipeline=rp,
         runtime_accounting=runtime_accounting,
+        event_bus=EventBus(),
     )
 
 
@@ -321,16 +320,16 @@ class TestCrossAdapterArtifactRun:
                     "and session is connected"
                 )
                 assert (
-                    send_result.delivery_result is not None
+                    send_result.handoff is not None
                 ), "expected delivery_result to be present"
                 assert (
-                    send_result.delivery_result.native_message_id is not None
+                    send_result.handoff.native_message_id is not None
                 ), "send_one() should return a real packet ID from meshtasticd"
                 logger.info(
                     "Cross-adapter outbound (manual): native_message_id=%s "
                     "native_channel_id=%s",
-                    send_result.delivery_result.native_message_id,
-                    send_result.delivery_result.native_channel_id,
+                    send_result.handoff.native_message_id,
+                    send_result.handoff.native_channel_id,
                 )
             else:
                 logger.info(
@@ -362,10 +361,10 @@ class TestCrossAdapterArtifactRun:
             mesh_native_id: str | None = None
             if (
                 send_result is not None
-                and send_result.delivery_result is not None
-                and send_result.delivery_result.native_message_id is not None
+                and send_result.handoff is not None
+                and send_result.handoff.native_message_id is not None
             ):
-                mesh_native_id = send_result.delivery_result.native_message_id
+                mesh_native_id = send_result.handoff.native_message_id
                 mesh_out_ref = await temp_storage.resolve_native_ref(
                     adapter="cross-mesh-target",
                     native_channel_id="0",

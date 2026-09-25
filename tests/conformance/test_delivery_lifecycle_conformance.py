@@ -31,8 +31,7 @@ import pytest
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
-    AdapterDeliveryResult,
-    OutboundNativeRefRecord,
+    AdapterHandoffResult,
 )
 from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline.delivery_lifecycle import (
@@ -57,12 +56,15 @@ from medre.core.rendering.renderer import RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.storage.backend import (
+    DeferredHandoffFinalization,
     DeliveryOutboxItem,
-    QueuedDeliveryFinalization,
     StorageError,
     TerminalOutboxFinalization,
 )
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 from tests.helpers.storage_outbox import (
     allocate_new_outbox_generation,
     apply_guarded_outbox_terminal,
@@ -139,9 +141,9 @@ class _MemoryStorage:
         """Return the number of stored native refs."""
         return len(self._native_refs)
 
-    async def finalize_queued_delivery(
+    async def finalize_deferred_handoff(
         self,
-        command: QueuedDeliveryFinalization,
+        command: DeferredHandoffFinalization,
     ) -> bool:
         native_ref = command.native_ref
         receipt = command.receipt
@@ -497,8 +499,8 @@ async def test_memory_storage_rejects_conflicting_native_identity() -> None:
     )
 
     with pytest.raises(StorageError):
-        await storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
+        await storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(native_ref=native_ref, receipt=receipt)
         )
 
     assert outbox.status == "queued"
@@ -641,7 +643,7 @@ class TestDeliveryLifecycleConformance:
         await storage.mark_outbox_queued(outbox_id)
 
         # Simulate the queued->sent callback
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=event_id,
                 target_adapter="mesh_conf",
@@ -658,7 +660,7 @@ class TestDeliveryLifecycleConformance:
             outbox_id=outbox_id,
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(storage, record, now)
+        await lifecycle.finalize_deferred_handoff(storage, record, now)
 
         receipts = await storage.list_receipts_for_event(event_id)
         assert len(receipts) == 2
@@ -709,7 +711,7 @@ class TestDeliveryLifecycleConformance:
         await storage.create_outbox_item(outbox_item)
         await storage.mark_outbox_queued(outbox_id)
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=event_id,
                 target_adapter="mesh_conf",
@@ -726,7 +728,7 @@ class TestDeliveryLifecycleConformance:
             outbox_id=outbox_id,
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(storage, record, now)
+        await lifecycle.finalize_deferred_handoff(storage, record, now)
 
         receipts = await storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"][0]
@@ -765,16 +767,16 @@ class TestDeliveryLifecycleConformance:
 
 
 class _FakeQueuedAdapter:
-    """Minimal adapter that returns delivery_status='enqueued' for queued
+    """Minimal adapter that returns disposition='deferred' for queued
     delivery conformance tests.
 
     Informal duck-type contract (mirrors TargetDeliveryService expectations):
       - ``adapter_id``: str identifier used for adapter lookup.
       - ``platform``: str platform name.
       - ``_capabilities``: AdapterCapabilities instance.
-      - ``deliver(result) -> AdapterDeliveryResult``: async, accepts a
-        RenderingResult and returns an AdapterDeliveryResult with
-        delivery_status='enqueued'.
+      - ``deliver(result) -> AdapterHandoffResult``: async, accepts a
+        RenderingResult and returns an AdapterHandoffResult with
+        disposition='deferred'.
     """
 
     adapter_id: str = "queued_adapter"
@@ -789,13 +791,13 @@ class _FakeQueuedAdapter:
         self.adapter_id = adapter_id
         self.delivered_payloads: list[RenderingResult] = []
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         self.delivered_payloads.append(result)
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=None,
             native_channel_id=result.target_channel,
-            delivery_status="enqueued",
-            delivery_note="queued for async delivery",
+            disposition="deferred",
+            note="queued for async delivery",
         )
 
 

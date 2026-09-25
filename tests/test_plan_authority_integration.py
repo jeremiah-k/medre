@@ -22,7 +22,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.core.contracts.adapter import AdapterDeliveryResult
+from medre.core.contracts.adapter import AdapterHandoffResult
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.target_delivery import TargetDeliveryService
 from medre.core.events.canonical import (
@@ -87,8 +87,8 @@ class _FakeAdapter:
     adapter_id: str = "plan_auth_adapter"
     platform: str = "test"
 
-    async def deliver(self, rendering_result: Any) -> AdapterDeliveryResult:
-        return AdapterDeliveryResult(native_message_id="$plan-auth-msg")
+    async def deliver(self, rendering_result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult(native_message_id="$plan-auth-msg")
 
 
 class _FakeStorage:

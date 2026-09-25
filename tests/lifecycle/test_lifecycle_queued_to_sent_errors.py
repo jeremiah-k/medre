@@ -11,9 +11,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 from tests.helpers.storage_outbox import (
     admit_event,
     append_receipt_with_parent,
@@ -23,12 +25,12 @@ from tests.helpers.storage_outbox import (
 from .conftest import _make_lifecycle, _make_receipt
 
 # ===================================================================
-# finalize_queued_delivery — error paths
+# finalize_deferred_handoff — error paths
 # ===================================================================
 
 
 class TestAppendQueuedToSentErrorPaths:
-    """Error paths in finalize_queued_delivery."""
+    """Error paths in finalize_deferred_handoff."""
 
     async def test_list_receipts_error_logged(
         self,
@@ -63,7 +65,7 @@ class TestAppendQueuedToSentErrorPaths:
             ),
         )
         await temp_storage.mark_outbox_queued("obox-list-err")
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-list-err",
                 target_adapter="mesh-1",
@@ -85,12 +87,15 @@ class TestAppendQueuedToSentErrorPaths:
             "list_receipts_for_outbox",
             AsyncMock(side_effect=RuntimeError("db fail")),
         ):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=datetime.now(timezone.utc),
             )
-        assert "Failed to list delivery receipt history" in caplog.text
+        assert (
+            "Failed to list receipt history for deferred hand-off completion"
+            in caplog.text
+        )
 
     async def test_lost_outbox_guard_logged_not_raised(
         self,
@@ -127,7 +132,7 @@ class TestAppendQueuedToSentErrorPaths:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-supp-err")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -146,14 +151,14 @@ class TestAppendQueuedToSentErrorPaths:
         )
         with patch.object(
             temp_storage,
-            "finalize_queued_delivery",
+            "finalize_deferred_handoff",
             AsyncMock(return_value=False),
         ):
             # Must not raise even though the atomic transaction reported
             # that the guarded attempt was no longer finalizable.
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=datetime.now(timezone.utc),
             )
         assert "lost its outbox guard" in caplog.text
@@ -193,7 +198,7 @@ class TestAppendQueuedToSentErrorPaths:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-supp-err")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -212,13 +217,13 @@ class TestAppendQueuedToSentErrorPaths:
         )
         with patch.object(
             temp_storage,
-            "finalize_queued_delivery",
+            "finalize_deferred_handoff",
             AsyncMock(side_effect=StorageError("finalization txn failed")),
         ):
             with pytest.raises(StorageError, match="finalization txn failed"):
-                await lifecycle.finalize_queued_delivery(
+                await lifecycle.finalize_deferred_handoff(
                     temp_storage,
-                    record=record,
+                    feedback=record,
                     now=datetime.now(timezone.utc),
                 )
 
@@ -278,7 +283,7 @@ class TestAppendQueuedToSentErrorPaths:
             ),
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-attempt-filter",
                 target_adapter="m",
@@ -295,9 +300,9 @@ class TestAppendQueuedToSentErrorPaths:
             outbox_id="obox-attempt-filter",
             attempt_number=2,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=datetime.now(timezone.utc),
         )
 

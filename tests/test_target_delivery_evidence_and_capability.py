@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from medre.core.contracts.adapter import (
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterSendError,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
@@ -97,13 +97,13 @@ class _FakeAdapter:
 
     def __init__(
         self,
-        result: AdapterDeliveryResult | None = None,
+        result: AdapterHandoffResult | None = None,
         error: Exception | None = None,
     ) -> None:
         self._result = result
         self._error = error
 
-    async def deliver(self, rendering_result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, rendering_result: Any) -> AdapterHandoffResult | None:
         if self._error is not None:
             raise self._error
         return self._result
@@ -267,7 +267,7 @@ class TestRenderingEvidencePropagation:
             payload={"text": "hello"},
             rendering_evidence=evidence,
         )
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$mid"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$mid"))
         pipeline = _FakeRenderingPipeline(result=result)
         svc, storage = _make_service(
             adapters={"test_adapter": adapter},
@@ -501,7 +501,7 @@ class TestCapabilityLevelPropagation:
             _capabilities: AdapterCapabilities = caps
 
             async def deliver(self, rendering_result: Any) -> Any:
-                return AdapterDeliveryResult(native_message_id="$cap-msg")
+                return AdapterHandoffResult(native_message_id="$cap-msg")
 
         return _CapAdapter(), caps
 
@@ -632,7 +632,7 @@ class TestInvalidCapabilityDecision:
 
     async def test_invalid_capability_level_planner_failure(self) -> None:
         """Invalid capability_level from delivery plan produces PLANNER_FAILURE."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         pipeline = _FakeRenderingPipeline(
             result=RenderingResult(
                 event_id="evt-001",
@@ -717,10 +717,10 @@ class TestPipelineRunnerDelegation:
         config = PipelineConfig(
             storage=temp_storage,
             router=router,
+            event_bus=EventBus(),
             fallback_resolver=FallbackResolver(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters={"dest": adapter},
-            event_bus=EventBus(),
         )
         runner = PipelineRunner(config)
         await runner.start()
@@ -775,10 +775,10 @@ class TestPipelineRunnerDelegation:
         config = PipelineConfig(
             storage=temp_storage,
             router=router,
+            event_bus=EventBus(),
             fallback_resolver=FallbackResolver(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters={},  # No adapters registered.
-            event_bus=EventBus(),
         )
         runner = PipelineRunner(config)
         await runner.start()
@@ -946,7 +946,7 @@ class TestRenderingBoundaryNoPayloadMutation:
 
             async def deliver(self, rendering_result: Any) -> Any:
                 self.delivered_payloads.append(dict(rendering_result.payload))
-                return AdapterDeliveryResult(
+                return AdapterHandoffResult(
                     native_message_id="$delivered-001",
                     native_channel_id="ch-0",
                 )
@@ -1036,7 +1036,7 @@ class TestOutboundNativeRefNullChannel:
         """Adapter returning native_channel_id=None produces a stored
         NativeMessageRef with NULL channel."""
 
-        adapter_result = AdapterDeliveryResult(
+        adapter_result = AdapterHandoffResult(
             native_message_id="lxmf-hash-001",
             native_channel_id=None,
         )
@@ -1079,7 +1079,7 @@ class TestOutboundNativeRefNullChannel:
         before storage as native ref metadata."""
         from types import MappingProxyType
 
-        adapter_result = AdapterDeliveryResult(
+        adapter_result = AdapterHandoffResult(
             native_message_id="msg-proxy",
             native_channel_id="0",
             metadata=MappingProxyType(

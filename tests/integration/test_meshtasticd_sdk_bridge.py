@@ -129,7 +129,6 @@ def _make_context(adapter_id: str = "sdk-bridge") -> AdapterContext:
     """Build an AdapterContext wired to a mock publish_inbound."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger(f"test.sdk_bridge.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -246,15 +245,15 @@ class TestMeshtasticdSdkBridge:
             # Local enqueue accepted; no native_message_id yet.
             assert delivery is not None
             assert delivery.native_message_id is None
-            assert delivery.delivery_note == "locally enqueued"
+            assert delivery.note == "locally enqueued"
             assert adapter.queue.pending_count == 1
 
             # send_one dequeues and sends via real sendText.
             send_result = await adapter.send_one()
             assert send_result is not None
-            assert send_result.delivery_result is not None
-            assert send_result.delivery_result.native_message_id is not None
-            assert send_result.delivery_result.native_channel_id == "0"
+            assert send_result.handoff is not None
+            assert send_result.handoff.native_message_id is not None
+            assert send_result.handoff.native_channel_id == "0"
             assert adapter.queue.pending_count == 0
 
             # Queue diagnostics reflect the successful send.
@@ -272,7 +271,7 @@ class TestMeshtasticdSdkBridge:
                         "outbound_path": "real_sendText",
                         "inbound_path": "none",
                         "cross_transport_proof": "partial",
-                        "native_message_id": send_result.delivery_result.native_message_id,
+                        "native_message_id": send_result.handoff.native_message_id,
                         "queue_sent": adapter.queue.total_sent,
                         "queue_failed": adapter.queue.total_failed,
                         "limitations": [
@@ -348,15 +347,14 @@ class TestMeshtasticdSdkBridge:
                     "sdk-bridge-in": mesh_adapter,
                     "sdk-bridge-fake-out": fake_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
 
         ctx = AdapterContext(
             adapter_id="sdk-bridge-in",
-            event_bus=None,
             publish_inbound=runner.handle_ingress,
             logger=logging.getLogger("test.sdk_bridge.sdk-bridge-in"),
             clock=lambda: datetime.now(timezone.utc),
@@ -520,7 +518,6 @@ class TestMeshtasticdSdkBridge:
 
         ctx = AdapterContext(
             adapter_id="sdk-inject-recv",
-            event_bus=None,
             publish_inbound=capture_inbound,
             logger=logging.getLogger("test.sdk_bridge.sdk-inject-recv"),
             clock=lambda: datetime.now(timezone.utc),

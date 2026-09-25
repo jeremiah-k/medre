@@ -222,7 +222,6 @@ def _make_context():
 
     return AdapterContext(
         adapter_id="meshcore-live-smoke",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.meshcore-live"),
         clock=lambda: datetime.now(timezone.utc),

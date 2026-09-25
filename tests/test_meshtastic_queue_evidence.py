@@ -121,7 +121,6 @@ class TestAdapterDeliverOnFullQueue:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext, AdapterSendError
-        from medre.core.events.bus import EventBus
         from medre.core.rendering.renderer import RenderingResult
 
         config = MeshtasticConfig(
@@ -131,7 +130,6 @@ class TestAdapterDeliverOnFullQueue:
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="test-full",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -269,13 +267,11 @@ class TestAdapterDiagnosticsQueueStats:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="diag-test", connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="diag-test",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -329,13 +325,11 @@ class TestAdapterDiagnosticsClassifierCounters:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="cls-test", connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="cls-test",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -376,13 +370,11 @@ class TestAdapterDiagnosticsClassifierCounters:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="cls-zero", connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="cls-zero",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -409,13 +401,11 @@ class TestAdapterDiagnosticsClassifierCounters:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="rej-test", connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="rej-test",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -506,28 +496,27 @@ class TestQueueLifecycleFailureKindDetail:
         )
         assert detail == "meshtastic_queue_rejected"
 
-    def test_delivery_status_distinguishes_enqueued(self) -> None:
-        """AdapterDeliveryResult.delivery_status field distinguishes
-        enqueued from sent."""
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+    def test_handoff_disposition_distinguishes_deferred(self) -> None:
+        """AdapterHandoffResult.disposition distinguishes deferred from transport hand-off."""
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
-        enqueued = AdapterDeliveryResult(
+        enqueued = AdapterHandoffResult(
             native_message_id=None,
-            delivery_status="enqueued",
-            delivery_note="locally enqueued",
+            disposition="deferred",
+            note="locally enqueued",
         )
-        sent = AdapterDeliveryResult(
+        sent = AdapterHandoffResult(
             native_message_id="123",
-            delivery_status="sent",
+            disposition="transport_handoff",
         )
-        assert enqueued.delivery_status == "enqueued"
-        assert sent.delivery_status == "sent"
+        assert enqueued.disposition == "deferred"
+        assert sent.disposition == "transport_handoff"
         assert enqueued.native_message_id is None
         assert sent.native_message_id == "123"
 
-    def test_default_delivery_status_is_sent(self) -> None:
-        """AdapterDeliveryResult.delivery_status defaults to 'sent'."""
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+    def test_default_disposition_is_transport_handoff(self) -> None:
+        """AdapterHandoffResult.disposition defaults to 'transport_handoff'."""
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
-        result = AdapterDeliveryResult(native_message_id="42")
-        assert result.delivery_status == "sent"
+        result = AdapterHandoffResult(native_message_id="42")
+        assert result.disposition == "transport_handoff"

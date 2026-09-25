@@ -51,8 +51,8 @@ def _make_pipeline_config(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters or {},
-        event_bus=event_bus or EventBus(),
         rendering_pipeline=pipeline,
+        event_bus=event_bus or EventBus(),
     )
 
 
@@ -370,7 +370,6 @@ def _make_adapter_context_for_pipeline(
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=runner.handle_ingress,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -424,8 +423,8 @@ class TestMatrixPlatformRendererSelection:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"chat-source": in_adapter, "chat-service": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()

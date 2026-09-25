@@ -141,7 +141,6 @@ async def test_simulate_inbound_publish_failure_no_dedup_key(
     ctx_base = make_adapter_context("mc-dedup-test")
     ctx_fail = AdapterContext(
         adapter_id="mc-dedup-test",
-        event_bus=None,
         publish_inbound=failing_publish,
         logger=ctx_base.logger,
         clock=ctx_base.clock,
@@ -254,7 +253,6 @@ async def test_on_message_async_publish_failure_rolls_back_dedup(
     ctx_base = make_adapter_context("mc-dedup-test")
     ctx_fail = AdapterContext(
         adapter_id="mc-dedup-test",
-        event_bus=None,
         publish_inbound=failing_publish,
         logger=ctx_base.logger,
         clock=ctx_base.clock,

@@ -5,7 +5,7 @@ These tests verify that:
   input types in ``deliver()`` (not ``TypeError``).
 - Both fake and real adapters raise ``AdapterSendError(transient=True)`` for
   transient failure conditions.
-- ``AdapterDeliveryResult`` fields are consistent between fake and real
+- ``AdapterHandoffResult`` fields are consistent between fake and real
   adapters for each transport pair.
 - ``start()``, ``stop()``, ``health_check()``, ``diagnostics()`` have
   consistent signatures across each pair.
@@ -34,7 +34,7 @@ from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterSendError,
@@ -55,7 +55,6 @@ async def _collect_inbound(event: Any) -> None:
 def _make_ctx(adapter_id: str = "test_adapter") -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=_collect_inbound,
         logger=logging.getLogger(f"test.parity.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -298,12 +297,12 @@ class TestFakeAdapterTransientError:
 
 
 # ---------------------------------------------------------------------------
-# 4. Fake adapter AdapterDeliveryResult field parity
+# 4. Fake adapter AdapterHandoffResult field parity
 # ---------------------------------------------------------------------------
 
 
-class TestFakeAdapterDeliveryResultFields:
-    """Verify AdapterDeliveryResult fields from fake adapters."""
+class TestFakeAdapterHandoffResultFields:
+    """Verify AdapterHandoffResult fields from fake adapters."""
 
     @pytest.mark.asyncio
     async def test_matrix_returns_delivery_result(self) -> None:
@@ -312,7 +311,7 @@ class TestFakeAdapterDeliveryResultFields:
         result = _make_rendering_result(target_channel="!room:server")
         dr = await adapter.deliver(result)
         assert dr is not None
-        assert isinstance(dr, AdapterDeliveryResult)
+        assert isinstance(dr, AdapterHandoffResult)
         assert isinstance(dr.native_message_id, str)
         assert dr.native_message_id.startswith("$fake_")
         assert dr.native_channel_id == "!room:server"
@@ -324,15 +323,15 @@ class TestFakeAdapterDeliveryResultFields:
         result = _make_rendering_result(payload={"text": "hello", "channel_index": 1})
         dr = await adapter.deliver(result)
         assert dr is not None
-        assert isinstance(dr, AdapterDeliveryResult)
+        assert isinstance(dr, AdapterHandoffResult)
         assert isinstance(dr.native_message_id, str)
         assert dr.native_channel_id == "1"
-        # delivery_note must be a top-level field, not embedded in metadata
-        assert isinstance(dr.delivery_note, str)
-        assert dr.delivery_note != ""
-        # metadata should contain meshcore namespace, NOT delivery_note
+        # note must be a top-level field, not embedded in metadata
+        assert isinstance(dr.note, str)
+        assert dr.note != ""
+        # metadata should contain meshcore namespace, NOT note
         assert "meshcore" in dr.metadata
-        assert "delivery_note" not in dr.metadata
+        assert "note" not in dr.metadata
         assert "delivery_status" not in dr.metadata
 
     @pytest.mark.asyncio
@@ -342,7 +341,7 @@ class TestFakeAdapterDeliveryResultFields:
         result = _make_rendering_result(payload={"text": "hello", "channel_index": 2})
         dr = await adapter.deliver(result)
         assert dr is not None
-        assert isinstance(dr, AdapterDeliveryResult)
+        assert isinstance(dr, AdapterHandoffResult)
         assert isinstance(dr.native_message_id, str)
         assert dr.native_channel_id == "2"
 
@@ -360,7 +359,7 @@ class TestFakeAdapterDeliveryResultFields:
         )
         dr = await adapter.deliver(result)
         assert dr is not None
-        assert isinstance(dr, AdapterDeliveryResult)
+        assert isinstance(dr, AdapterHandoffResult)
         assert isinstance(dr.native_message_id, str)
         assert "lxmf" in dr.metadata
         assert "delivery_state" in dr.metadata["lxmf"]
@@ -652,13 +651,13 @@ class TestRealAdapterDeliverErrors:
 # ---------------------------------------------------------------------------
 
 
-class TestRealAdapterDeliveryResultShape:
-    """Verify AdapterDeliveryResult fields from real adapters with mocked
+class TestRealAdapterHandoffResultShape:
+    """Verify AdapterHandoffResult fields from real adapters with mocked
     sessions."""
 
     @pytest.mark.asyncio
     async def test_meshcore_real_deliver_result(self) -> None:
-        """MeshCore real adapter returns proper AdapterDeliveryResult."""
+        """MeshCore real adapter returns proper AdapterHandoffResult."""
         from medre.adapters.meshcore.adapter import MeshCoreAdapter
 
         config = MeshCoreConfig(adapter_id="shape_mc", connection_type="fake")
@@ -684,15 +683,15 @@ class TestRealAdapterDeliveryResultShape:
         assert dr is not None
         assert dr.native_message_id == "pkt-42"
         assert dr.native_channel_id == "3"
-        assert isinstance(dr.delivery_note, str)
-        assert dr.delivery_note != ""
+        assert isinstance(dr.note, str)
+        assert dr.note != ""
         assert "meshcore" in dr.metadata
-        assert "delivery_note" not in dr.metadata
+        assert "note" not in dr.metadata
         assert "delivery_status" not in dr.metadata
 
     @pytest.mark.asyncio
     async def test_meshtastic_real_deliver_result(self) -> None:
-        """Meshtastic real adapter returns AdapterDeliveryResult with delivery_note."""
+        """Meshtastic real adapter returns AdapterHandoffResult with note."""
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
         config = MeshtasticConfig(adapter_id="shape_mt", connection_type="fake")
@@ -706,12 +705,12 @@ class TestRealAdapterDeliveryResultShape:
         dr = await adapter.deliver(result)
         assert dr is not None
         assert isinstance(dr.native_channel_id, str)
-        assert isinstance(dr.delivery_note, str)
-        assert dr.delivery_note != ""
+        assert isinstance(dr.note, str)
+        assert dr.note != ""
 
     @pytest.mark.asyncio
     async def test_lxmf_real_deliver_result(self) -> None:
-        """LXMF real adapter returns AdapterDeliveryResult with lxmf metadata."""
+        """LXMF real adapter returns AdapterHandoffResult with lxmf metadata."""
         from medre.adapters.lxmf.adapter import LxmfAdapter
         from medre.adapters.lxmf.session import LxmfDeliveryState, LxmfSession
 

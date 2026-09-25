@@ -33,14 +33,18 @@ from medre.adapters.meshtastic.queue import (
 )
 from medre.core.contracts.adapter import (
     AdapterContext,
-    OutboundNativeRefRecord,
-    QueueTerminalRecord,
+)
+from medre.core.contracts.delivery import (
+    DeferredHandoffFailed,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
@@ -95,7 +99,7 @@ def _make_receipt(
 
 def _make_adapter_ctx(
     adapter_id: str = "mesh-test",
-    record_outbound_terminal: Any = None,
+    report_delivery_feedback: Any = None,
 ) -> AdapterContext:
     """Build a real AdapterContext for testing the adapter's queue methods."""
     _events: list[Any] = []
@@ -105,12 +109,11 @@ def _make_adapter_ctx(
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=_publish_inbound,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
-        record_outbound_terminal=record_outbound_terminal,
+        report_delivery_feedback=report_delivery_feedback,
     )
 
 
@@ -187,7 +190,7 @@ class TestStaleCallbackRejection:
             error_summary="exhausted",
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -204,9 +207,9 @@ class TestStaleCallbackRejection:
             ),
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=now,
             )
 
@@ -216,7 +219,7 @@ class TestStaleCallbackRejection:
         assert len(sent) == 0
 
         # Stale callback warning logged.
-        assert "Stale callback rejected" in caplog.text
+        assert "Deferred hand-off completion rejected" in caplog.text
         assert "dead_lettered" in caplog.text
 
     @pytest.mark.asyncio
@@ -253,7 +256,7 @@ class TestStaleCallbackRejection:
         await temp_storage.mark_outbox_queued("obox-sent")
         await temp_storage.mark_outbox_sent("obox-sent")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -270,16 +273,16 @@ class TestStaleCallbackRejection:
             ),
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=now,
             )
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
-        assert "Stale callback rejected" in caplog.text
+        assert "Deferred hand-off completion rejected" in caplog.text
 
     @pytest.mark.asyncio
     async def test_cancelled_outbox_rejects_callback(
@@ -315,7 +318,7 @@ class TestStaleCallbackRejection:
         await temp_storage.mark_outbox_queued("obox-cancel")
         await temp_storage.mark_outbox_cancelled("obox-cancel")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -332,16 +335,16 @@ class TestStaleCallbackRejection:
             ),
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=now,
             )
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
-        assert "Stale callback rejected" in caplog.text
+        assert "Deferred hand-off completion rejected" in caplog.text
 
     @pytest.mark.asyncio
     async def test_abandoned_outbox_rejects_callback(
@@ -377,7 +380,7 @@ class TestStaleCallbackRejection:
         await temp_storage.mark_outbox_queued("obox-abandon")
         await temp_storage.mark_outbox_abandoned("obox-abandon")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -394,16 +397,16 @@ class TestStaleCallbackRejection:
             ),
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=now,
             )
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
-        assert "Stale callback rejected" in caplog.text
+        assert "Deferred hand-off completion rejected" in caplog.text
 
 
 class TestStaleCallbackAfterRetryReclaim:
@@ -487,7 +490,7 @@ class TestStaleCallbackAfterRetryReclaim:
         await temp_storage.mark_outbox_queued("obox-b")
 
         # --- Stale callback A arrives late ---
-        stale_record = OutboundNativeRefRecord(
+        stale_record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-retry",
                 target_adapter="mesh-1",
@@ -505,20 +508,20 @@ class TestStaleCallbackAfterRetryReclaim:
             attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=stale_record,
+                feedback=stale_record,
                 now=now,
             )
 
-        # Stale callback rejected: obox-a is retry_wait, not queued/in_progress.
+        # Deferred hand-off completion rejected: obox-a is retry_wait, not queued/in_progress.
         stale_receipts = await temp_storage.list_receipts_for_event("evt-retry")
         stale_sent = [r for r in stale_receipts if r.status == "sent"]
         assert len(stale_sent) == 0
-        assert "Stale callback rejected" in caplog.text
+        assert "Deferred hand-off completion rejected" in caplog.text
 
         # --- Fresh callback B arrives ---
-        fresh_record = OutboundNativeRefRecord(
+        fresh_record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-retry",
                 target_adapter="mesh-1",
@@ -535,9 +538,9 @@ class TestStaleCallbackAfterRetryReclaim:
             outbox_id="obox-b",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=fresh_record,
+            feedback=fresh_record,
             now=now,
         )
 
@@ -566,8 +569,8 @@ class TestStaleCallbackAfterRetryReclaim:
 class TestTerminalOutcomeExhausted:
     """Verify MeshtasticOutboundQueue.process_one returns
     QueueTerminalResult(outcome="exhausted") when retry budget is
-    exhausted, and the adapter's _report_queue_terminal constructs the
-    correct QueueTerminalRecord."""
+    exhausted, and the adapter's _report_deferred_failure constructs the
+    correct DeferredHandoffFailed."""
 
     @pytest.mark.asyncio
     async def test_exhausted_after_max_transient_retries(self) -> None:
@@ -615,11 +618,11 @@ class TestTerminalOutcomeExhausted:
         assert queue.queue_depth == 0
 
     @pytest.mark.asyncio
-    async def test_report_queue_terminal_constructs_correct_record(self) -> None:
-        """_report_queue_terminal builds QueueTerminalRecord with correct fields.
+    async def test_report_deferred_failure_constructs_correct_record(self) -> None:
+        """_report_deferred_failure builds DeferredHandoffFailed with correct fields.
 
         Uses a real MeshtasticAdapter in fake mode to exercise the actual
-        _report_queue_terminal method.  The record_outbound_terminal callback
+        _report_deferred_failure method.  The report_delivery_feedback callback
         captures the record for assertion.
         """
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
@@ -631,14 +634,14 @@ class TestTerminalOutcomeExhausted:
         )
         adapter = MeshtasticAdapter(config)
 
-        captured_records: list[QueueTerminalRecord] = []
+        captured_records: list[DeferredHandoffFailed] = []
 
-        async def _on_terminal(rec: QueueTerminalRecord) -> None:
+        async def _on_terminal(rec: DeferredHandoffFailed) -> None:
             captured_records.append(rec)
 
         ctx = _make_adapter_ctx(
             adapter_id="mesh-test",
-            record_outbound_terminal=_on_terminal,
+            report_delivery_feedback=_on_terminal,
         )
         await adapter.start(ctx)
         try:
@@ -664,15 +667,15 @@ class TestTerminalOutcomeExhausted:
                 outcome="exhausted",
                 error="radio timeout after 3 attempts",
             )
-            await adapter._report_queue_terminal(terminal)
+            await adapter._report_deferred_failure(terminal)
 
             assert len(captured_records) == 1
             rec = captured_records[0]
-            assert rec.event_id == "evt-term"
-            assert rec.adapter == "mesh-test"
-            assert rec.outbox_id == "obox-term"
-            assert rec.delivery_plan_id == "plan-term"
-            assert rec.attempt_number == 2
+            assert rec.attempt_provenance.event_id == "evt-term"
+            assert rec.attempt_provenance.target_adapter == "mesh-test"
+            assert rec.attempt_provenance.outbox_id == "obox-term"
+            assert rec.attempt_provenance.delivery_plan_id == "plan-term"
+            assert rec.attempt_provenance.attempt_number == 2
             assert rec.native_channel_id == "3"
             assert rec.outcome == "exhausted"
             assert rec.error == "radio timeout after 3 attempts"
@@ -717,7 +720,7 @@ class TestTerminalOutcomeExhausted:
 
 
 class TestExactOutboxIdCorrelation:
-    """Verify finalize_queued_delivery correlates exactly via outbox_id
+    """Verify finalize_deferred_handoff correlates exactly via outbox_id
     and transitions the outbox from queued to sent."""
 
     @pytest.mark.asyncio
@@ -755,7 +758,7 @@ class TestExactOutboxIdCorrelation:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-exact")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh-1",
@@ -772,9 +775,9 @@ class TestExactOutboxIdCorrelation:
             outbox_id="obox-exact",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -837,7 +840,7 @@ class TestExactOutboxIdCorrelation:
         await temp_storage.mark_outbox_queued("obox-plan-a")
 
         # Record targets obox-plan-a explicitly — must NOT match plan-b.
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh-1",
@@ -854,9 +857,9 @@ class TestExactOutboxIdCorrelation:
             outbox_id="obox-plan-a",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -893,7 +896,7 @@ class TestExactOutboxIdCorrelation:
             ),
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -910,16 +913,16 @@ class TestExactOutboxIdCorrelation:
             ),
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=now,
             )
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
-        assert "Stale callback" in caplog.text
+        assert "Deferred hand-off completion rejected" in caplog.text
         assert "obox-nonexistent" in caplog.text
 
 
@@ -929,7 +932,7 @@ class TestExactOutboxIdCorrelation:
 
 
 class TestDuplicateCallbackIdempotent:
-    """Verify that a second finalize_queued_delivery with the same
+    """Verify that a second finalize_deferred_handoff with the same
     outbox_id does not create a duplicate receipt or crash."""
 
     @pytest.mark.asyncio
@@ -967,7 +970,7 @@ class TestDuplicateCallbackIdempotent:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-dup")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh-1",
@@ -986,9 +989,9 @@ class TestDuplicateCallbackIdempotent:
         )
 
         # First call: should succeed.
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -999,9 +1002,9 @@ class TestDuplicateCallbackIdempotent:
 
         # Second call with same outbox_id: should be a no-op (stale).
         with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=now,
             )
 
@@ -1012,7 +1015,7 @@ class TestDuplicateCallbackIdempotent:
         assert sent[0].adapter_message_id == "pkt-dup-1"
 
         # Stale-callback protection kicked in on second call.
-        assert "Stale callback rejected" in caplog.text
+        assert "Deferred hand-off completion rejected" in caplog.text
 
     @pytest.mark.asyncio
     async def test_second_callback_no_crash_different_native_id(
@@ -1049,7 +1052,7 @@ class TestDuplicateCallbackIdempotent:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-dup2")
 
-        record1 = OutboundNativeRefRecord(
+        record1 = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-002",
                 target_adapter="mesh-1",
@@ -1066,14 +1069,14 @@ class TestDuplicateCallbackIdempotent:
             outbox_id="obox-dup2",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record1,
+            feedback=record1,
             now=now,
         )
 
         # Second callback with different native_message_id.
-        record2 = OutboundNativeRefRecord(
+        record2 = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-002",
                 target_adapter="mesh-1",
@@ -1091,9 +1094,9 @@ class TestDuplicateCallbackIdempotent:
             attempt_number=1,
         )
         # Must not raise.
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record2,
+            feedback=record2,
             now=now,
         )
 
@@ -1195,7 +1198,7 @@ class TestCancellationReporting:
     @pytest.mark.asyncio
     async def test_report_cancelled_and_drain_produces_correct_records(self) -> None:
         """_report_cancelled_and_drain reports cancelled (in-flight) and
-        abandoned (remaining) via record_outbound_terminal callback."""
+        abandoned (remaining) via report_delivery_feedback callback."""
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
@@ -1205,14 +1208,14 @@ class TestCancellationReporting:
         )
         adapter = MeshtasticAdapter(config)
 
-        captured: list[QueueTerminalRecord] = []
+        captured: list[DeferredHandoffFailed] = []
 
-        async def _on_terminal(rec: QueueTerminalRecord) -> None:
+        async def _on_terminal(rec: DeferredHandoffFailed) -> None:
             captured.append(rec)
 
         ctx = _make_adapter_ctx(
             adapter_id="mesh-cancel",
-            record_outbound_terminal=_on_terminal,
+            report_delivery_feedback=_on_terminal,
         )
         await adapter.start(ctx)
         try:
@@ -1273,12 +1276,12 @@ class TestCancellationReporting:
             abandoned_recs = [r for r in captured if r.outcome == "abandoned"]
 
             assert len(cancelled_recs) == 1
-            assert cancelled_recs[0].event_id == "evt-inflight"
-            assert cancelled_recs[0].outbox_id == "obox-inflight"
-            assert cancelled_recs[0].adapter == "mesh-cancel"
+            assert cancelled_recs[0].attempt_provenance.event_id == "evt-inflight"
+            assert cancelled_recs[0].attempt_provenance.outbox_id == "obox-inflight"
+            assert cancelled_recs[0].attempt_provenance.target_adapter == "mesh-cancel"
 
             assert len(abandoned_recs) == 2
-            abandoned_ids = {r.event_id for r in abandoned_recs}
+            abandoned_ids = {r.attempt_provenance.event_id for r in abandoned_recs}
             assert abandoned_ids == {"evt-rem1", "evt-rem2"}
         finally:
             await adapter.stop(timeout=1.0)
@@ -1372,7 +1375,7 @@ class TestCorrelationIdNotInPayload:
 
         result = await queue.process_one(send_fn=_fake_send)
         assert isinstance(result, QueueDeliveryResult)
-        assert result.delivery_result.native_message_id == "pkt-pure-99"
+        assert result.handoff.native_message_id == "pkt-pure-99"
 
         # Item metadata is accessible on the result.
         assert result.item["outbox_id"] == "obox-pure"

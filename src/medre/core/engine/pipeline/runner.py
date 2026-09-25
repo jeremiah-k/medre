@@ -27,18 +27,15 @@ from typing import (
 
 import msgspec
 
-from medre.core.contracts.adapter import (
-    AdapterCapabilities,
-    AdapterContract,
-    OutboundDeliveryObservationRecord,
-    OutboundNativeRefRecord,
-)
+from medre.core.contracts.adapter import AdapterCapabilities, AdapterContract
+from medre.core.contracts.delivery import DeliveryFeedback
 from medre.core.engine.phases import PipelinePhase
 from medre.core.engine.pipeline.delivery_coordinator import (
     DeliveryCoordinator,
     InflightDelivery,
 )
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
+from medre.core.engine.pipeline.delivery_feedback import DeliveryFeedbackDispatcher
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
     is_accepted_outcome_status as _is_accepted_outcome_status,
@@ -276,6 +273,13 @@ class PipelineRunner:
         self._outbox_manager = OutboxManager(
             storage=config.storage,
             lifecycle=self._lifecycle,
+        )
+        self._delivery_feedback = DeliveryFeedbackDispatcher(
+            storage=config.storage,
+            lifecycle=self._lifecycle,
+            outbox_manager=self._outbox_manager,
+            native_ref_persisted_fn=self._repair_conversation_after_native_ref,
+            logger=self._log,
         )
         self._target_delivery = TargetDeliveryService(
             adapters=config.adapters,
@@ -1183,84 +1187,9 @@ class PipelineRunner:
                 event_id,
             )
 
-    async def _record_delivery_observation(
-        self, record: OutboundDeliveryObservationRecord
-    ) -> None:
-        """Persist post-handoff adapter evidence without mutating lifecycle.
-
-        Adapter callbacks are fire-once side evidence: a terminal state the
-        SDK already emitted is not re-delivered, so the first persistence
-        attempt gets one immediate re-try after yielding the loop — enough for
-        transient storage contention such as an in-flight write on the
-        executor.  A failure on the re-try is logged rather than raised into
-        transport callback machinery and the observation is forfeited;
-        replaying the same callback elsewhere is safe because lifecycle
-        derives a deterministic observation ID.
-        """
-        for attempt in (1, 2):
-            try:
-                await self._lifecycle.record_delivery_observation(
-                    self._config.storage,
-                    record=record,
-                    now=datetime.now(tz=timezone.utc),
-                )
-                return
-            except Exception:
-                if attempt == 2:
-                    self._log.exception(
-                        "Failed to persist delivery observation: event_id=%s "
-                        "adapter=%s state=%s outbox_id=%s attempt=%s",
-                        record.event_id,
-                        record.adapter,
-                        record.state,
-                        record.outbox_id,
-                        record.attempt_number,
-                    )
-                else:
-                    await asyncio.sleep(0)
-
-    async def _record_outbound_native_ref(
-        self, record: OutboundNativeRefRecord
-    ) -> None:
-        """Atomically finalize a delayed queue-backed outbound send.
-
-        Queue adapters call this after the external SDK returns a real native
-        message ID.  Core validates exact outbox/attempt correlation and then
-        commits the outbound native ref, supplemental ``sent`` receipt, and
-        outbox terminal transition in one storage transaction.
-
-        Callback failures are logged rather than raised into the adapter queue
-        drain; stale callbacks commit no finalization evidence.
-        """
-        if not record.native_message_id:
-            return
-
-        try:
-            await self._finalize_queued_delivery(
-                record=record,
-                now=datetime.now(tz=timezone.utc),
-            )
-            await self._repair_conversation_after_native_ref(record.event_id)
-        except Exception:
-            self._log.exception(
-                "Failed to finalize delayed outbound delivery: "
-                "event_id=%s adapter=%s native_message_id=%s",
-                record.event_id,
-                record.adapter,
-                record.native_message_id,
-            )
-
-    async def _finalize_queued_delivery(
-        self,
-        record: OutboundNativeRefRecord,
-        now: datetime,
-    ) -> None:
-        """Delegate queue-backed finalization to lifecycle authority."""
-        await self._lifecycle.finalize_queued_delivery(
-            self._config.storage,
-            record=record,
-            now=now,
-        )
+    async def _record_delivery_feedback(self, feedback: DeliveryFeedback) -> None:
+        """Route one asynchronous adapter fact through the unified boundary."""
+        await self._delivery_feedback.record(feedback)
 
     # -- Stage 3-4: Routing + Planning -------------------------------------
 

@@ -579,7 +579,7 @@ class TestMeshCoreOutboundNativeRefs:
     """Outbound delivery uses adapter-provided IDs, not fabricated ones."""
 
     async def test_fake_adapter_returns_delivery_result_with_native_id(self) -> None:
-        """Fake adapter returns AdapterDeliveryResult with deterministic native_message_id."""
+        """Fake adapter returns AdapterHandoffResult with deterministic native_message_id."""
         config = MeshCoreConfig(adapter_id="meshcore-1")
         adapter = FakeMeshCoreAdapter(config)
         result = RenderingResult(

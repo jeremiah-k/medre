@@ -66,7 +66,6 @@ class TestCapabilitySuppressionReceipt:
             edits="native",
             deletes="native",
             attachments=False,
-            delivery_receipts=True,
         )
 
         route = Route(
@@ -201,7 +200,6 @@ class TestCapabilitySuppressionReceipt:
             edits="native",
             deletes="native",
             attachments=False,
-            delivery_receipts=True,
         )
 
         route = Route(
@@ -259,7 +257,6 @@ class TestCapabilitySuppressionReceipt:
             edits="native",
             deletes="native",
             attachments=False,
-            delivery_receipts=True,
         )
 
         route = Route(
@@ -326,7 +323,6 @@ class TestCapabilitySuppressionReceipt:
             edits="native",
             deletes="native",
             attachments=False,
-            delivery_receipts=True,
         )
 
         unsupported_adapter = FakePresentationAdapter(adapter_id="dest_unsupported")
@@ -337,7 +333,6 @@ class TestCapabilitySuppressionReceipt:
             edits="native",
             deletes="native",
             attachments=False,
-            delivery_receipts=True,
         )
 
         route = Route(
@@ -1159,10 +1154,10 @@ class TestMaxTextBytesThreading:
         config = PipelineConfig(
             storage=temp_storage,
             router=router,
+            event_bus=EventBus(),
             fallback_resolver=FallbackResolver(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters={"dest": adapter},
-            event_bus=EventBus(),
             rendering_pipeline=pipeline,
         )
         runner = PipelineRunner(config)
@@ -1219,10 +1214,10 @@ class TestMaxTextBytesThreading:
         config = PipelineConfig(
             storage=temp_storage,
             router=router,
+            event_bus=EventBus(),
             fallback_resolver=FallbackResolver(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters={"dest": adapter},
-            event_bus=EventBus(),
             rendering_pipeline=pipeline,
         )
         runner = PipelineRunner(config)

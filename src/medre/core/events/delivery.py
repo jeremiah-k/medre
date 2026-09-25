@@ -66,10 +66,10 @@ class DeliveryAttemptProvenance:
     """Immutable identity and dispatch provenance for one delivery attempt.
 
     The delivery pipeline creates this envelope at the point where the exact
-    outbox generation and dispatch mechanism are known. Queue-backed adapters
-    carry the same value through asynchronous hand-off and echo it on callback
-    records. Core validates it against durable outbox authority instead of
-    reconstructing callback lineage from receipt timing.
+    outbox generation and dispatch mechanism are known. Deferred adapters
+    carry the same value through asynchronous hand-off and echo it on unified
+    delivery feedback. Core validates it against durable outbox authority
+    instead of reconstructing lineage from receipt timing.
     """
 
     event_id: str

@@ -20,12 +20,11 @@ from tests.helpers.async_utils import wait_until
 def _context(callback: AsyncMock) -> AdapterContext:
     return AdapterContext(
         adapter_id="lxmf-observation",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.lxmf-observation"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
-        record_delivery_observation=callback,
+        report_delivery_feedback=callback,
     )
 
 
@@ -92,10 +91,10 @@ async def test_lxmf_terminal_callback_preserves_exact_attempt_context() -> None:
 
         await wait_until(lambda: callback.await_count == 1, timeout=1.0)
         record = callback.await_args.args[0]
-        assert record.event_id == "evt-lxmf-observation"
-        assert record.delivery_plan_id == "plan-lxmf-observation"
-        assert record.outbox_id == "outbox-lxmf-observation"
-        assert record.attempt_number == 3
+        assert record.attempt_provenance.event_id == "evt-lxmf-observation"
+        assert record.attempt_provenance.delivery_plan_id == "plan-lxmf-observation"
+        assert record.attempt_provenance.outbox_id == "outbox-lxmf-observation"
+        assert record.attempt_provenance.attempt_number == 3
         assert record.attempt_provenance is provenance
         assert record.attempt_provenance.source == "replay"
         assert record.attempt_provenance.replay_run_id == "run-lxmf-observation"

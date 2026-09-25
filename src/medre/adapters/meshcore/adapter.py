@@ -45,7 +45,6 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from collections import OrderedDict
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -70,12 +69,12 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
 )
+from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.supervision.diagnostic_contract import sanitize_diagnostic_mapping
 
@@ -92,14 +91,12 @@ _MESHCORE_CAPS_BASE = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=False,
-    delivery_receipts=False,
     store_and_forward=False,
     # direct_messages=False: MEDRE does not initiate outbound DMs. Inbound
     # PRIV packets are still relayed (relay != DM initiation). See
     # packet_classifier.py for the relay-side note.
     direct_messages=False,
     channels=True,
-    async_delivery=True,
     mesh_routing=True,
     max_text_bytes=512,
     max_text_chars=None,
@@ -407,7 +404,7 @@ class MeshCoreAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Deliver a pre-rendered payload via the session for local acceptance.
 
         The *result.payload* is expected to be a MeshCore-ready content
@@ -427,7 +424,7 @@ class MeshCoreAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult | None
+        AdapterHandoffResult | None
             ``None`` for fake mode; delivery result for real modes.
 
         Raises
@@ -448,9 +445,12 @@ class MeshCoreAdapter(AdapterContract):
                 f"the inbound path."
             )
 
-        # Fake mode: no real delivery result.
+        # Fake mode explicitly models a successful synthetic transport hand-off.
         if self._config.connection_type == "fake":
-            return None
+            return AdapterHandoffResult(
+                confirmation_level="unknown",
+                note="fake MeshCore transport hand-off",
+            )
 
         # Real mode: delegate to session.
         if self._session is None:
@@ -458,7 +458,9 @@ class MeshCoreAdapter(AdapterContract):
 
         payload = result.payload
         if not isinstance(payload, dict):
-            return None
+            raise AdapterPermanentError(
+                "MeshCore renderer produced a non-mapping payload"
+            )
 
         text = payload.get("text", "")
         channel_index = payload.get("channel_index")
@@ -486,38 +488,31 @@ class MeshCoreAdapter(AdapterContract):
         except (TimeoutError, ConnectionError, OSError) as exc:
             raise AdapterSendError(str(exc), transient=True) from exc
 
-        if native_id is None:
-            return None
-
         if resolved_channel_index is not None:
-            delivery_note = (
+            handoff_note = (
                 "MeshCore: channel send local-accepted only (no ACK protocol)"
             )
         else:
-            delivery_note = (
+            handoff_note = (
                 "MeshCore: DM sent with expected_ack captured as native_id; "
                 "delivery confirmation not tracked"
             )
 
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=native_id,
             native_channel_id=(
                 str(resolved_channel_index)
                 if resolved_channel_index is not None
                 else None
             ),
-            delivery_note=delivery_note,
+            note=handoff_note,
             confirmation_level="local_transport",
-            metadata=MappingProxyType(
-                {
-                    "meshcore": MappingProxyType(
-                        {
-                            "schema_version": MESHCORE_NATIVE_SCHEMA_VERSION,
-                            "local_acceptance": True,
-                        }
-                    ),
-                }
-            ),
+            metadata={
+                "meshcore": {
+                    "schema_version": MESHCORE_NATIVE_SCHEMA_VERSION,
+                    "local_acceptance": True,
+                },
+            },
         )
 
     # -- Inbound callback ---------------------------------------------------

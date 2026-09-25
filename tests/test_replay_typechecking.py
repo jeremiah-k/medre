@@ -313,10 +313,10 @@ class TestReplayEngineConstruction:
         engine = ReplayEngine(
             storage=storage,
             pipeline=pipeline,
-            event_bus=event_bus,
             diagnostician=diagnostician,
             capacity_controller=capacity_controller,
             accounting=accounting,
+            event_bus=event_bus,
         )
         assert engine is not None
 
@@ -331,10 +331,10 @@ class TestReplayEngineConstruction:
         engine = ReplayEngine(
             storage=storage,
             pipeline=None,
-            event_bus=None,
             diagnostician=None,
             capacity_controller=None,
             accounting=None,
+            event_bus=None,
         )
         assert engine is not None
 

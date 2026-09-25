@@ -34,7 +34,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
@@ -76,11 +76,9 @@ _FAKE_MATRIX_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=False,
-    delivery_receipts=True,
     store_and_forward=False,
     direct_messages=True,
     channels=True,
-    async_delivery=True,
     topic_rooms=True,
 )
 
@@ -178,7 +176,7 @@ class FakeMatrixAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Accept an outbound rendered payload for delivery.
 
         This adapter consumes :class:`RenderingResult` only.  Passing a
@@ -192,7 +190,7 @@ class FakeMatrixAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult
+        AdapterHandoffResult
             Native delivery metadata with a deterministic Matrix-like
             event ID derived from the rendering result's ``event_id``.
 
@@ -211,8 +209,8 @@ class FakeMatrixAdapter(AdapterContract):
         _trim(self.delivered_payloads)
         # Deterministic Matrix-like event ID for test verification.
         fake_event_id = f"$fake_{result.event_id}"
-        channel_id = result.target_channel or ""
-        return AdapterDeliveryResult(
+        channel_id = result.target_channel
+        return AdapterHandoffResult(
             native_message_id=fake_event_id,
             native_channel_id=channel_id,
         )

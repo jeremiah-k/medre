@@ -19,7 +19,7 @@ from medre.adapters.meshcore.session import MeshCoreSession
 from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
@@ -338,9 +338,9 @@ class TestFakeMeshCoreAdapterDeliver:
         delivery = await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0] is result
-        # Fake adapter returns AdapterDeliveryResult with deterministic ID
+        # Fake adapter returns AdapterHandoffResult with deterministic ID
         assert delivery is not None
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id is not None
         assert delivery.native_channel_id == "0"
 
@@ -454,7 +454,6 @@ class TestMeshCoreAdapterDelivery:
 
         ctx = AdapterContext(
             adapter_id="meshcore-1",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=__import__("logging").getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -463,7 +462,8 @@ class TestMeshCoreAdapterDelivery:
         await adapter.start(ctx)
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
-        assert delivery is None
+        assert delivery.disposition == "transport_handoff"
+        assert delivery.native_message_id is None
 
     async def test_deliver_rejects_canonical_event(self) -> None:
         config = _make_config(connection_type="fake")
@@ -568,9 +568,9 @@ class TestHonestDeliverySemantics:
         meshcore_metadata = delivery.metadata["meshcore"]
         assert meshcore_metadata["schema_version"] == MESHCORE_NATIVE_SCHEMA_VERSION
         assert meshcore_metadata["local_acceptance"] is True
-        # delivery_note is a top-level field on AdapterDeliveryResult, not in metadata
-        assert isinstance(delivery.delivery_note, str)
-        assert delivery.delivery_note != ""
+        # note is a top-level field on AdapterHandoffResult, not in metadata
+        assert isinstance(delivery.note, str)
+        assert delivery.note != ""
 
     async def test_fake_adapter_no_false_delivery_claim(self) -> None:
         """metadata must not say 'delivered' or 'confirmed'."""
@@ -590,7 +590,6 @@ class TestHonestDeliverySemantics:
 
         ctx = AdapterContext(
             adapter_id="meshcore-1",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=__import__("logging").getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -599,7 +598,8 @@ class TestHonestDeliverySemantics:
         await adapter.start(ctx)
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
-        assert delivery is None
+        assert delivery.disposition == "transport_handoff"
+        assert delivery.native_message_id is None
 
     async def test_real_adapter_real_mode_honest_delivery_status(
         self, make_adapter_context
@@ -782,7 +782,7 @@ class TestMalformedSDKResponse:
 
 
 # ===================================================================
-# Error mapping and delivery_note (lines 412-433)
+# Error mapping and note (lines 412-433)
 # ===================================================================
 
 
@@ -795,7 +795,7 @@ class TestAdapterErrorMapping:
     - MeshCoreSendError permanent → AdapterPermanentError (line 414, 417-418)
     - TimeoutError/ConnectionError/OSError → AdapterSendError(transient=True) (line 419-420)
     - native_id None → return None (line 422-423)
-    - delivery_note for channel vs DM (lines 425-433)
+    - note for channel vs DM (lines 425-433)
     """
 
     async def _make_adapter_with_mock_session(
@@ -943,8 +943,10 @@ class TestAdapterErrorMapping:
 
         await session.stop()
 
-    async def test_native_id_none_returns_none(self, make_adapter_context) -> None:
-        """When session.send_text returns None, adapter returns None."""
+    async def test_native_id_none_reports_local_handoff(
+        self, make_adapter_context
+    ) -> None:
+        """Missing native ID does not erase a successful local hand-off."""
         from unittest.mock import AsyncMock
 
         adapter, session = await self._make_adapter_with_mock_session(
@@ -956,12 +958,13 @@ class TestAdapterErrorMapping:
             payload={"text": "test", "contact_id": "abc", "channel_index": None}
         )
         delivery = await adapter.deliver(result)
-        assert delivery is None
+        assert delivery.disposition == "transport_handoff"
+        assert delivery.native_message_id is None
 
         await session.stop()
 
-    async def test_channel_delivery_note(self, make_adapter_context) -> None:
-        """Channel send returns delivery_note mentioning 'channel send'."""
+    async def test_channel_note(self, make_adapter_context) -> None:
+        """Channel send returns note mentioning 'channel send'."""
         from unittest.mock import AsyncMock
 
         adapter, session = await self._make_adapter_with_mock_session(
@@ -976,12 +979,12 @@ class TestAdapterErrorMapping:
         assert delivery is not None
         assert delivery.native_message_id == "pkt-42"
         assert delivery.native_channel_id == "3"
-        assert "channel send" in delivery.delivery_note
+        assert "channel send" in delivery.note
 
         await session.stop()
 
-    async def test_dm_delivery_note(self, make_adapter_context) -> None:
-        """DM send (no channel_index) returns delivery_note mentioning 'DM sent'."""
+    async def test_dm_note(self, make_adapter_context) -> None:
+        """DM send (no channel_index) returns note mentioning 'DM sent'."""
         from unittest.mock import AsyncMock
 
         adapter, session = await self._make_adapter_with_mock_session(
@@ -996,7 +999,7 @@ class TestAdapterErrorMapping:
         assert delivery is not None
         assert delivery.native_message_id == "pkt-dm-01"
         assert delivery.native_channel_id is None
-        assert "DM sent" in delivery.delivery_note
+        assert "DM sent" in delivery.note
 
         await session.stop()
 
@@ -1074,8 +1077,7 @@ class TestMeshCoreDeliveryMetadataJSONSafe:
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
         assert delivery is not None
-        # MappingProxyType is not directly JSON-serializable, but the
-        # nested values must all be JSON-safe primitives when unwrapped.
+        # Frozen metadata is dict-compatible but immutable; values remain JSON-safe.
         meta_dict = dict(delivery.metadata)
         meshcore_dict = dict(meta_dict["meshcore"])
         json_bytes = json.dumps(meshcore_dict)
@@ -1083,15 +1085,15 @@ class TestMeshCoreDeliveryMetadataJSONSafe:
         assert parsed["local_acceptance"] is True
 
     async def test_metadata_meshcore_namespace_is_frozen(self) -> None:
-        """Inner meshcore metadata is a frozen MappingProxyType."""
-        from types import MappingProxyType
-
+        """Inner meshcore metadata is deeply immutable."""
         adapter = FakeMeshCoreAdapter()
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
         assert delivery is not None
         inner = delivery.metadata["meshcore"]
-        assert isinstance(inner, MappingProxyType)
+        assert isinstance(inner, dict)
+        with pytest.raises(TypeError):
+            inner["mutate"] = True
         with pytest.raises(TypeError):
             inner["extra"] = "bad"  # type: ignore[misc]
 

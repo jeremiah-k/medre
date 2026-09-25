@@ -18,9 +18,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import medre.runtime.retry as retry_module
 from medre.core.contracts.adapter import (
-    AdapterDeliveryResult,
-    OutboundDeliveryObservationRecord,
-    OutboundNativeRefRecord,
+    AdapterHandoffResult,
+)
+from medre.core.contracts.delivery import (
+    PostHandoffObservation,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
@@ -34,7 +35,9 @@ from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.retry import RetryWorker
 from tests.helpers.delivery_callbacks import (
     make_attempt_provenance,
-    make_terminal_record,
+    make_deferred_completion,
+    make_deferred_failure,
+    make_post_handoff_observation,
 )
 
 # ---------------------------------------------------------------------------
@@ -144,8 +147,8 @@ def _observation_record(
     attempt_number: int,
     state: str = "delivered",
     source: str = "live",
-) -> OutboundDeliveryObservationRecord:
-    return OutboundDeliveryObservationRecord(
+) -> PostHandoffObservation:
+    return make_post_handoff_observation(
         attempt_provenance=make_attempt_provenance(
             event_id=event_id,
             target_adapter="lxmf-main",
@@ -283,7 +286,7 @@ async def test_reserved_attempt_is_admissible_throughout_handoff(temp_storage) -
     assert claimed.attempt_number == 1
 
     # Before dispatch begins, the prior attempt is still the live identity.
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _observation_record(
             event_id=event.event_id, outbox_id=item.outbox_id, attempt_number=1
@@ -297,7 +300,7 @@ async def test_reserved_attempt_is_admissible_throughout_handoff(temp_storage) -
     now = datetime.now(timezone.utc)
     # The reserved attempt's callback is admitted mid-handoff, even though
     # the row still stores attempt 1 and no finalization has committed.
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _observation_record(
             event_id=event.event_id,
@@ -308,7 +311,7 @@ async def test_reserved_attempt_is_admissible_throughout_handoff(temp_storage) -
         now,
     )
     # The superseded attempt's callback is rejected from reservation onward.
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _observation_record(
             event_id=event.event_id,
@@ -345,14 +348,14 @@ async def test_completion_rejects_old_attempts_and_keeps_live_one(temp_storage) 
 
     lifecycle = DeliveryLifecycleService()
     now = datetime.now(timezone.utc)
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _observation_record(
             event_id=event.event_id, outbox_id=item.outbox_id, attempt_number=1
         ),
         now,
     )
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _observation_record(
             event_id=event.event_id,
@@ -379,8 +382,8 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
 
     manager = OutboxManager(temp_storage, DeliveryLifecycleService())
     receipts_before = len(await temp_storage.list_receipts_for_event(event.event_id))
-    await manager.record_terminal(
-        make_terminal_record(
+    await manager.record_deferred_failure(
+        make_deferred_failure(
             event_id=event.event_id,
             adapter="lxmf-main",
             outcome="permanent_failed",
@@ -401,8 +404,8 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
         receipts_before
     )
 
-    committed = await manager.record_terminal(
-        make_terminal_record(
+    committed = await manager.record_deferred_failure(
+        make_deferred_failure(
             event_id=event.event_id,
             adapter="lxmf-main",
             outcome="permanent_failed",
@@ -434,8 +437,8 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
     assert terminal_attempt.replay_run_id is None
 
     # A late terminal callback for the superseded attempt commits nothing.
-    stale_committed = await manager.record_terminal(
-        make_terminal_record(
+    stale_committed = await manager.record_deferred_failure(
+        make_deferred_failure(
             event_id=event.event_id,
             adapter="lxmf-main",
             outcome="cancelled",
@@ -690,9 +693,9 @@ async def test_queued_to_sent_commits_reserved_attempt(temp_storage) -> None:
 
     lifecycle = DeliveryLifecycleService()
     receipts_before = len(await temp_storage.list_receipts_for_event(event.event_id))
-    await lifecycle.finalize_queued_delivery(
+    await lifecycle.finalize_deferred_handoff(
         temp_storage,
-        OutboundNativeRefRecord(
+        make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=event.event_id,
                 target_adapter="lxmf-main",
@@ -722,9 +725,9 @@ async def test_queued_to_sent_commits_reserved_attempt(temp_storage) -> None:
         receipts_before
     )
 
-    await lifecycle.finalize_queued_delivery(
+    await lifecycle.finalize_deferred_handoff(
         temp_storage,
-        OutboundNativeRefRecord(
+        make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=event.event_id,
                 target_adapter="lxmf-main",
@@ -754,9 +757,9 @@ async def test_queued_to_sent_commits_reserved_attempt(temp_storage) -> None:
 
     # A stale queued→sent callback for attempt 1 is rejected outright.
     receipts_before = len(await temp_storage.list_receipts_for_event(event.event_id))
-    await lifecycle.finalize_queued_delivery(
+    await lifecycle.finalize_deferred_handoff(
         temp_storage,
-        OutboundNativeRefRecord(
+        make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=event.event_id,
                 target_adapter="lxmf-main",
@@ -1262,7 +1265,7 @@ async def test_reserved_attempt_overrides_lineage_stamp() -> None:
 
         async def deliver(self, rendering_result):
             self.stamped = rendering_result
-            return AdapterDeliveryResult(
+            return AdapterHandoffResult(
                 native_message_id="native-reserved",
                 native_channel_id=None,
             )

@@ -18,14 +18,13 @@ import logging
 
 import pytest
 
-from medre.core.contracts.adapter import QueueTerminalRecord
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.delivery_callbacks import (
     make_attempt_provenance,
-    make_terminal_record,
+    make_deferred_failure,
 )
 from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
@@ -81,7 +80,7 @@ class TestMissingOutboxRowRejected:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-missing",
             adapter="mesh-1",
             outbox_id="obox-nonexistent",
@@ -89,7 +88,7 @@ class TestMissingOutboxRowRejected:
             error="budget exhausted",
         )
         with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+            await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-missing")
         assert len(receipts) == 0
@@ -122,14 +121,14 @@ class TestTerminalOutboxStatusRejected:
         await temp_storage.mark_outbox_sent("obox-sent")
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-sent",
             adapter="mesh-1",
             outbox_id="obox-sent",
             outcome="exhausted",
         )
         with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+            await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-sent")
         assert len(receipts) == 0
@@ -163,7 +162,7 @@ class TestRetryWaitStatusRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-rw",
             adapter="mesh-1",
             outbox_id="obox-rw",
@@ -171,7 +170,7 @@ class TestRetryWaitStatusRejected:
             attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+            await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-rw")
         assert len(receipts) == 0
@@ -200,7 +199,7 @@ class TestPendingStatusRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-pending",
             adapter="mesh-1",
             outbox_id="obox-pending",
@@ -208,7 +207,7 @@ class TestPendingStatusRejected:
             attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+            await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-pending")
         assert len(receipts) == 0
@@ -238,7 +237,7 @@ class TestWrongEventIdRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-wrong",
             adapter="mesh-1",
             outbox_id="obox-evt-mismatch",
@@ -246,7 +245,7 @@ class TestWrongEventIdRejected:
             attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+            await manager.record_deferred_failure(record)
 
         receipts_correct = await temp_storage.list_receipts_for_event("evt-correct")
         receipts_wrong = await temp_storage.list_receipts_for_event("evt-wrong")
@@ -278,7 +277,7 @@ class TestWrongAdapterRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-adapter",
             adapter="mesh-wrong",
             outbox_id="obox-adapter-mismatch",
@@ -286,7 +285,7 @@ class TestWrongAdapterRejected:
             attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+            await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-adapter")
         assert len(receipts) == 0
@@ -316,7 +315,7 @@ class TestNativeChannelEvidence:
         )
 
         manager = _make_manager(temp_storage)
-        record = QueueTerminalRecord(
+        record = make_deferred_failure(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-channel",
                 target_adapter="mesh-1",
@@ -331,7 +330,7 @@ class TestNativeChannelEvidence:
             outcome="exhausted",
             attempt_number=1,
         )
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-channel")
         assert [receipt.status for receipt in receipts] == ["failed", "dead_lettered"]
@@ -365,7 +364,7 @@ class TestWrongPlanRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-plan",
             adapter="mesh-1",
             outbox_id="obox-plan-mismatch",
@@ -374,7 +373,7 @@ class TestWrongPlanRejected:
             attempt_number=1,
         )
         with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+            await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-plan")
         assert len(receipts) == 0
@@ -405,7 +404,7 @@ class TestWrongAttemptNumberRejected:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-attempt",
             adapter="mesh-1",
             outbox_id="obox-attempt-mismatch",
@@ -413,7 +412,7 @@ class TestWrongAttemptNumberRejected:
             outcome="exhausted",
         )
         with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+            await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-attempt")
         assert len(receipts) == 0
@@ -443,7 +442,7 @@ class TestValidExhausted:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-exhausted",
             adapter="mesh-1",
             outbox_id="obox-exhausted",
@@ -452,7 +451,7 @@ class TestValidExhausted:
             error="budget exhausted",
             attempt_number=1,
         )
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-exhausted")
         assert len(receipts) == 2
@@ -495,7 +494,7 @@ class TestValidPermanentFailed:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-perm",
             adapter="mesh-1",
             outbox_id="obox-perm",
@@ -504,7 +503,7 @@ class TestValidPermanentFailed:
             error="permanent failure",
             attempt_number=1,
         )
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-perm")
         assert len(receipts) == 2
@@ -545,7 +544,7 @@ class TestValidCancelled:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-cancel",
             adapter="mesh-1",
             outbox_id="obox-cancel",
@@ -554,7 +553,7 @@ class TestValidCancelled:
             error="cancelled in-flight",
             attempt_number=1,
         )
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-cancel")
         assert len(receipts) == 1
@@ -591,7 +590,7 @@ class TestValidAbandoned:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-abandon",
             adapter="mesh-1",
             outbox_id="obox-abandon",
@@ -600,7 +599,7 @@ class TestValidAbandoned:
             error="shutdown drain",
             attempt_number=1,
         )
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-abandon")
         assert len(receipts) == 1
@@ -638,7 +637,7 @@ class TestValidPreservesRouteId:
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-route",
             adapter="mesh-1",
             outbox_id="obox-route",
@@ -647,7 +646,7 @@ class TestValidPreservesRouteId:
             error="budget exhausted",
             attempt_number=1,
         )
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-route")
         assert len(receipts) == 2
@@ -659,7 +658,7 @@ class TestTerminalRecordRequiresExactAttempt:
 
     def test_record_without_envelope_is_rejected_at_construction(self) -> None:
         with pytest.raises(TypeError, match="attempt_provenance"):
-            QueueTerminalRecord(
+            make_deferred_failure(
                 event_id="evt-strict",
                 adapter="mesh-1",
                 outcome="exhausted",

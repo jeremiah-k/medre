@@ -41,7 +41,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -118,7 +118,7 @@ class _StubAdapter(AdapterContract):
             health="healthy",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
         return None
 
 
@@ -148,7 +148,7 @@ class _FailingStartAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
         return None
 
 
@@ -181,7 +181,7 @@ class _HealthReportingAdapter(AdapterContract):
             health=self._health,
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
         return None
 
 

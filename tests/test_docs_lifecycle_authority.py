@@ -3,7 +3,7 @@
 Cheap guardrails verifying lifecycle authority docs/code alignment and
 adapter metadata naming conventions.  These tests catch drift between
 spec documents and the authoritative status vocabularies in
-``delivery_state.py``, and prevent ``delivery_status`` from leaking
+``delivery_state.py``, and prevent ``disposition`` from leaking
 into adapter metadata dicts.
 
 Lifecycle authority additions:
@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 
+from medre.core.contracts.delivery import ADAPTER_HANDOFF_DISPOSITION_VALUES
 from medre.core.engine.pipeline.delivery_state import (
     ACCEPTED_OUTCOME_STATUSES,
-    ADAPTER_DELIVERY_STATUSES,
     CLAIMABLE_OUTBOX_STATUSES,
     NON_TERMINAL_OUTBOX_STATUSES,
     NON_TERMINAL_RECEIPT_STATUSES,
@@ -121,14 +121,14 @@ def _resolve_name_to_dict_literal(call_node: ast.AST, name: str) -> ast.Dict | N
 def _parse_adapter_results(
     source: str, filename: str
 ) -> list[tuple[str | None, dict[str, str]]]:
-    """Parse ``AdapterDeliveryResult(...)`` calls from *source*.
+    """Parse ``AdapterHandoffResult(...)`` calls from *source*.
 
-    Returns a list of ``(delivery_status_value, metadata_keys)`` tuples.
+    Returns a list of ``(disposition_value, metadata_keys)`` tuples.
     Only literal keyword arguments are captured; dynamic values are
     recorded as ``None``.
 
-    *delivery_status_value* is the string literal passed as the
-    ``delivery_status`` keyword, or ``None`` if absent / non-literal.
+    *disposition_value* is the string literal passed as the
+    ``disposition`` keyword, or ``None`` if absent / non-literal.
 
     *metadata_keys* maps each key found in the ``metadata=MappingProxyType({...})``
     argument to its string value (or ``"<non-literal>"`` if not a string
@@ -146,12 +146,12 @@ def _parse_adapter_results(
         if not isinstance(node, ast.Call):
             continue
 
-        # Match AdapterDeliveryResult(...) calls
+        # Match AdapterHandoffResult(...) calls
         func = node.func
         is_target = False
-        if isinstance(func, ast.Name) and func.id == "AdapterDeliveryResult":
+        if isinstance(func, ast.Name) and func.id == "AdapterHandoffResult":
             is_target = True
-        elif isinstance(func, ast.Attribute) and func.attr == "AdapterDeliveryResult":
+        elif isinstance(func, ast.Attribute) and func.attr == "AdapterHandoffResult":
             is_target = True
 
         if not is_target:
@@ -161,8 +161,8 @@ def _parse_adapter_results(
         meta_keys: dict[str, str] = {}
 
         for kw in node.keywords:
-            # Extract delivery_status keyword
-            if kw.arg == "delivery_status" and isinstance(kw.value, ast.Constant):
+            # Extract disposition keyword
+            if kw.arg == "disposition" and isinstance(kw.value, ast.Constant):
                 if isinstance(kw.value.value, str):
                     ds_value = kw.value.value
 
@@ -273,17 +273,17 @@ class TestOutcomeStatusAlignment:
 
 
 # ===========================================================================
-# 3. Adapter delivery_status literal scan
+# 3. Adapter disposition literal scan
 # ===========================================================================
 
 
-class TestAdapterDeliveryStatusLiterals:
-    """Adapter source ``AdapterDeliveryResult(delivery_status=...)`` values
-    must belong to ``ADAPTER_DELIVERY_STATUSES``."""
+class TestAdapterHandoffDispositionLiterals:
+    """Adapter source ``AdapterHandoffResult(disposition=...)`` values
+    must belong to ``ADAPTER_HANDOFF_DISPOSITION_VALUES``."""
 
     @pytest.fixture
     def scanned_literals(self) -> list[tuple[str, str | None]]:
-        """Scan adapter source for delivery_status literals.
+        """Scan adapter source for disposition literals.
 
         Returns list of ``(file_path, literal_value)`` tuples.
         """
@@ -295,20 +295,23 @@ class TestAdapterDeliveryStatusLiterals:
                 found.append((str(py_file.relative_to(_ROOT)), ds_value))
         return found
 
-    def test_adapter_delivery_status_values_are_known(
+    def test_adapter_disposition_values_are_known(
         self, scanned_literals: list[tuple[str, str | None]]
     ) -> None:
-        """Every explicit delivery_status literal in adapter source must
-        be in ADAPTER_DELIVERY_STATUSES."""
+        """Every explicit disposition literal in adapter source must
+        be in ADAPTER_HANDOFF_DISPOSITION_VALUES."""
         unknown: list[str] = []
         for filepath, ds_value in scanned_literals:
-            if ds_value is not None and ds_value not in ADAPTER_DELIVERY_STATUSES:
-                unknown.append(f"{filepath}: delivery_status={ds_value!r}")
+            if (
+                ds_value is not None
+                and ds_value not in ADAPTER_HANDOFF_DISPOSITION_VALUES
+            ):
+                unknown.append(f"{filepath}: disposition={ds_value!r}")
 
         assert not unknown, (
-            "Unknown adapter delivery_status values found:\n"
+            "Unknown adapter disposition values found:\n"
             + "\n".join(f"  {u}" for u in unknown)
-            + f"\nAllowed: {sorted(ADAPTER_DELIVERY_STATUSES)}"
+            + f"\nAllowed: {sorted(ADAPTER_HANDOFF_DISPOSITION_VALUES)}"
         )
 
 
@@ -318,10 +321,10 @@ class TestAdapterDeliveryStatusLiterals:
 
 
 class TestAdapterMetadataNaming:
-    """Adapter metadata dicts must not use ``delivery_status`` as a key.
+    """Adapter metadata dicts must not use ``disposition`` as a key.
 
-    The ``delivery_status`` keyword is reserved for
-    ``AdapterDeliveryResult.delivery_status`` (the top-level field).
+    The ``disposition`` keyword is reserved for
+    ``AdapterHandoffResult.disposition`` (the top-level field).
     Adapter-level status evidence in metadata must use transport-namespaced
     keys (e.g. ``metadata["meshcore"]``, ``metadata["lxmf"]``) rather than
     bare ``adapter_status`` or ``adapter_*`` names, to avoid namespace
@@ -330,58 +333,56 @@ class TestAdapterMetadataNaming:
 
     @pytest.fixture
     def metadata_violations(self) -> list[str]:
-        """Scan adapter source for metadata dicts with ``delivery_status`` key."""
+        """Scan adapter source for metadata dicts with ``disposition`` key."""
         violations: list[str] = []
         for py_file, results in _parsed_delivery_results(ADAPTERS_DIR):
             for _ds_value, meta_keys in results:
                 has_adapter_prefixed = any(k.startswith("adapter_") for k in meta_keys)
-                if "delivery_status" in meta_keys or has_adapter_prefixed:
+                if "disposition" in meta_keys or has_adapter_prefixed:
                     violations.append(
                         f"{py_file.relative_to(_ROOT)}: metadata contains "
-                        f"reserved top-level key(s) {sorted(k for k in meta_keys if k == 'delivery_status' or k.startswith('adapter_'))} "
+                        f"reserved top-level key(s) {sorted(k for k in meta_keys if k == 'disposition' or k.startswith('adapter_'))} "
                         f"— use transport namespacing (e.g. metadata['meshcore']) instead"
                     )
         return violations
 
-    def test_no_delivery_status_in_metadata(
-        self, metadata_violations: list[str]
-    ) -> None:
-        """Adapter metadata dicts must not contain ``delivery_status`` key."""
+    def test_no_disposition_in_metadata(self, metadata_violations: list[str]) -> None:
+        """Adapter metadata dicts must not contain ``disposition`` key."""
         assert (
             not metadata_violations
-        ), "Adapter metadata 'delivery_status' key violations:\n" + "\n".join(
+        ), "Adapter metadata 'disposition' key violations:\n" + "\n".join(
             f"  {v}" for v in metadata_violations
         )
 
 
 class TestTestMockMetadataNaming:
-    """Test mocks constructing ``AdapterDeliveryResult`` must not use
-    ``delivery_status`` as a metadata key — same rule as adapters."""
+    """Test mocks constructing ``AdapterHandoffResult`` must not use
+    ``disposition`` as a metadata key — same rule as adapters."""
 
     @pytest.fixture
     def test_mock_violations(self) -> list[str]:
-        """Scan test source for AdapterDeliveryResult metadata dicts with
-        ``delivery_status`` key."""
+        """Scan test source for AdapterHandoffResult metadata dicts with
+        ``disposition`` key."""
         test_dir = _ROOT / "tests"
         violations: list[str] = []
         for py_file, results in _parsed_delivery_results(test_dir):
             for _ds_value, meta_keys in results:
                 has_adapter_prefixed = any(k.startswith("adapter_") for k in meta_keys)
-                if "delivery_status" in meta_keys or has_adapter_prefixed:
+                if "disposition" in meta_keys or has_adapter_prefixed:
                     violations.append(
                         f"{py_file.relative_to(_ROOT)}: metadata contains "
-                        f"reserved top-level key(s) {sorted(k for k in meta_keys if k == 'delivery_status' or k.startswith('adapter_'))} "
+                        f"reserved top-level key(s) {sorted(k for k in meta_keys if k == 'disposition' or k.startswith('adapter_'))} "
                         f"— use transport namespacing (e.g. metadata['meshtastic']) instead"
                     )
         return violations
 
-    def test_no_delivery_status_in_test_mocks(
+    def test_no_disposition_in_test_mocks(
         self, test_mock_violations: list[str]
     ) -> None:
-        """Test mock metadata dicts must not contain ``delivery_status`` key."""
+        """Test mock metadata dicts must not contain ``disposition`` key."""
         assert (
             not test_mock_violations
-        ), "Test mock metadata 'delivery_status' key violations:\n" + "\n".join(
+        ), "Test mock metadata 'disposition' key violations:\n" + "\n".join(
             f"  {v}" for v in test_mock_violations
         )
 
@@ -392,7 +393,7 @@ class TestTestMockMetadataNaming:
 
 
 #: Bare keys that are ambiguous at the top level of adapter metadata.
-#: ``delivery_status`` is already covered by TestAdapterMetadataNaming and
+#: ``disposition`` is already covered by TestAdapterMetadataNaming and
 #: TestTestMockMetadataNaming above.  This set catches the remaining
 #: ambiguous bare names that could collide with pipeline-level concepts.
 _AMBIGUOUS_METADATA_KEYS: frozenset[str] = frozenset({"status", "state"})
@@ -468,7 +469,7 @@ class TestAmbiguousTopLevelMetadataKeys:
 
 class TestMeshCoreMetadataRegression:
     """MeshCore adapter metadata must use ``meshcore`` namespace key, not
-    ``delivery_status`` or ``adapter_status``."""
+    ``disposition`` or ``adapter_status``."""
 
     def test_meshcore_uses_meshcore_namespace(self) -> None:
         """MeshCore real adapter metadata uses ``meshcore`` namespace key."""
@@ -479,14 +480,14 @@ class TestMeshCoreMetadataRegression:
         source = meshcore_path.read_text("utf-8")
         results = _parse_adapter_results(source, str(meshcore_path))
 
-        # Must have at least one AdapterDeliveryResult with metadata
+        # Must have at least one AdapterHandoffResult with metadata
         meshcore_ns_found = False
         for _ds_value, meta_keys in results:
             if "meshcore" in meta_keys:
                 meshcore_ns_found = True
-            # Should never have delivery_status in metadata
-            assert "delivery_status" not in meta_keys, (
-                "MeshCore adapter metadata uses 'delivery_status' key "
+            # Should never have disposition in metadata
+            assert "disposition" not in meta_keys, (
+                "MeshCore adapter metadata uses 'disposition' key "
                 "instead of 'meshcore' namespace"
             )
             assert "adapter_status" not in meta_keys, (
@@ -496,7 +497,7 @@ class TestMeshCoreMetadataRegression:
 
         assert meshcore_ns_found, (
             "MeshCore adapter does not use 'meshcore' namespace in any "
-            "AdapterDeliveryResult metadata"
+            "AdapterHandoffResult metadata"
         )
 
     def test_meshcore_fake_uses_meshcore_namespace(self) -> None:
@@ -512,8 +513,8 @@ class TestMeshCoreMetadataRegression:
         for _ds_value, meta_keys in results:
             if "meshcore" in meta_keys:
                 meshcore_ns_found = True
-            assert "delivery_status" not in meta_keys, (
-                "MeshCore fake adapter metadata uses 'delivery_status' "
+            assert "disposition" not in meta_keys, (
+                "MeshCore fake adapter metadata uses 'disposition' "
                 "instead of 'meshcore' namespace"
             )
             assert "adapter_status" not in meta_keys, (
@@ -523,7 +524,7 @@ class TestMeshCoreMetadataRegression:
 
         assert meshcore_ns_found, (
             "MeshCore fake adapter does not use 'meshcore' namespace in any "
-            "AdapterDeliveryResult metadata"
+            "AdapterHandoffResult metadata"
         )
 
 
@@ -829,46 +830,23 @@ class TestLifecycleEvidenceAttemptIdentity:
 
 
 # ===========================================================================
-# 10. delivery-result schema contract: delivery_status wording
+# 10. delivery-result schema contract: disposition wording
 # ===========================================================================
 
 
-class TestDeliveryStatusWording:
-    """delivery-result.schema.json must describe delivery_status as adapter
-    delivery fact, not lifecycle state."""
+class TestHandoffDispositionSchema:
+    """Adapter hand-off schema must use the closed process-local disposition."""
 
-    def test_schema_delivery_status_says_adapter_delivery_fact(self) -> None:
-        """delivery-result.schema.json delivery_status description must
-        contain 'adapter delivery fact'."""
+    def test_schema_disposition_is_closed_and_not_lifecycle_state(self) -> None:
         import json
 
         schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
         schema = json.loads(schema_path.read_text("utf-8"))
-        desc = schema["properties"]["delivery_status"]["description"]
-        assert "adapter delivery fact" in desc.lower(), (
-            "delivery-result.schema.json delivery_status description must "
-            "say 'adapter delivery fact', got: " + desc
-        )
-
-    def test_schema_delivery_status_not_lifecycle_state(self) -> None:
-        """delivery-result.schema.json delivery_status description must not
-        define it AS a lifecycle state. Saying 'not lifecycle state' is fine."""
-        import json
-
-        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
-        schema = json.loads(schema_path.read_text("utf-8"))
-        desc = schema["properties"]["delivery_status"]["description"]
-        desc_lower = desc.lower()
-        # The description must say "adapter delivery fact" as the primary definition.
-        assert (
-            "adapter delivery fact" in desc_lower
-        ), "delivery_status must be defined as 'adapter delivery fact'"
-        # It must NOT say something like "lifecycle state: 'sent'" as the definition.
-        # But "not the final lifecycle state" or "not lifecycle authority" is acceptable.
-        assert not desc_lower.startswith("adapter-level lifecycle state"), (
-            "delivery_status must not be defined as starting with "
-            "'adapter-level lifecycle state'"
-        )
+        disposition = schema["properties"]["disposition"]
+        assert set(disposition["enum"]) == {"transport_handoff", "deferred"}
+        desc = disposition["description"].lower()
+        assert "hand-off" in desc or "handoff" in desc
+        assert "lifecycle" not in desc or "not" in schema["description"].lower()
 
 
 # ===========================================================================
@@ -933,24 +911,20 @@ class TestMetadataNamespacing:
 
 
 # ===========================================================================
-# 12. LXMF profile contract: delivery_status, unmapped, no unknown
+# 12. LXMF profile contract: handoff disposition, unmapped, no unknown
 # ===========================================================================
 
 
 class TestLxmfProfileContract:
-    """LXMF transport profile must use correct delivery_status semantics
-    and 'unmapped' (not 'unknown') for unrecognised states."""
+    """LXMF profile must use hand-off semantics and stable state vocabulary."""
 
     _LXMF_MD = _ROOT / "docs" / "spec" / "transport-profiles" / "lxmf.md"
 
-    def test_lxmf_delivery_status_is_sent_for_handoff(self) -> None:
-        """LXMF profile must state delivery_status is 'sent' for local
-        LXMRouter handoff."""
+    def test_lxmf_uses_transport_handoff_for_local_router_acceptance(self) -> None:
+        """LXMF local-router acceptance is a transport hand-off fact."""
         content = _read(self._LXMF_MD)
-        assert "delivery_status" in content and "sent" in content, (
-            "LXMF profile must describe delivery_status='sent' for local "
-            "LXMRouter handoff"
-        )
+        assert "AdapterHandoffResult" in content
+        assert "transport_handoff" in content
 
     def test_lxmf_no_unknown_state(self) -> None:
         """LXMF delivery state table must not use 'unknown' — use 'unmapped'."""
@@ -980,25 +954,25 @@ class TestLxmfProfileContract:
 
     def test_lxmf_delivery_state_in_metadata_not_status(self) -> None:
         """LXMF profile must state LXMF delivery state is in
-        metadata['lxmf']['delivery_state'], not delivery_status."""
+        metadata['lxmf']['delivery_state'], not disposition."""
         content = _read(self._LXMF_MD)
         assert 'metadata["lxmf"]["delivery_state"]' in content, (
             "LXMF profile must state that LXMF delivery state is in "
-            'metadata["lxmf"]["delivery_state"], not delivery_status'
+            'metadata["lxmf"]["delivery_state"], not disposition'
         )
 
-    def test_lxmf_no_delivery_status_equals_lxmf_state_claim(self) -> None:
-        """LXMF profile must NOT claim delivery_status equals LXMF delivery state."""
+    def test_lxmf_no_disposition_equals_lxmf_state_claim(self) -> None:
+        """LXMF profile must NOT claim disposition equals LXMF delivery state."""
         content = _read(self._LXMF_MD)
-        # The profile should not conflate delivery_status with LXMF state
+        # The profile should not conflate disposition with LXMF state
         bad_patterns = [
-            "delivery_status is the LXMF",
-            "delivery_status equals",
-            "delivery_status reflects LXMF",
+            "disposition is the LXMF",
+            "disposition equals",
+            "disposition reflects LXMF",
         ]
         for pattern in bad_patterns:
             assert pattern not in content, (
-                f"LXMF profile must not claim delivery_status equals LXMF "
+                f"LXMF profile must not claim disposition equals LXMF "
                 f"delivery state (found '{pattern}')"
             )
 
@@ -1065,23 +1039,6 @@ class TestSection24RetryWording:
         ), "§24 rule 6 must mention AdapterPermanentError on exhaustion"
 
 
-class TestSchemaDeliveryStatusEnum:
-    """delivery-result.schema.json must restrict delivery_status to sent/enqueued."""
-
-    def test_schema_has_delivery_status_enum(self) -> None:
-        """delivery_status must have an enum restricting to sent and enqueued."""
-        import json
-
-        schema_path = _ROOT / "docs" / "schemas" / "delivery-result.schema.json"
-        schema = json.loads(schema_path.read_text("utf-8"))
-        ds = schema["properties"]["delivery_status"]
-        assert "enum" in ds, "delivery_status must have an enum constraint"
-        assert set(ds["enum"]) == {
-            "sent",
-            "enqueued",
-        }, f"delivery_status enum must be ['sent', 'enqueued'], got {ds['enum']}"
-
-
 class TestSchemaMetadataPropertyNames:
     """delivery-result.schema.json metadata must guard legacy top-level keys
     via propertyNames."""
@@ -1096,7 +1053,13 @@ class TestSchemaMetadataPropertyNames:
         assert "propertyNames" in meta, "metadata must have propertyNames guard"
         # The propertyNames.not.enum must include the reserved keys
         not_enum = meta["propertyNames"].get("not", {}).get("enum", [])
-        expected_reserved = {"delivery_status", "adapter_status", "status", "state"}
+        expected_reserved = {
+            "disposition",
+            "confirmation_level",
+            "native_message_id",
+            "status",
+            "state",
+        }
         missing = expected_reserved - set(not_enum)
         assert (
             not missing

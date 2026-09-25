@@ -71,7 +71,6 @@ import concurrent.futures
 import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -104,13 +103,15 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    OutboundNativeRefRecord,
-    QueueTerminalRecord,
+)
+from medre.core.contracts.delivery import (
+    AdapterHandoffResult,
+    DeferredHandoffCompleted,
+    DeferredHandoffFailed,
 )
 from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.policies.startup_backlog_suppress import (
@@ -163,11 +164,9 @@ class MeshtasticAdapter(AdapterContract):
             deletes="unsupported",
             attachments=False,
             metadata_fields=True,
-            delivery_receipts=False,
             store_and_forward=False,
             direct_messages=False,
             channels=True,
-            async_delivery=True,
             mesh_routing=True,
             max_text_chars=None,
             max_text_bytes=config.max_text_bytes,
@@ -378,15 +377,16 @@ class MeshtasticAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Enqueue a pre-rendered payload for paced delivery.
 
         The *result.payload* is expected to be a Meshtastic-ready content
         dict already rendered by
         :class:`~medre.adapters.meshtastic.renderer.MeshtasticRenderer`.
 
-        For fake mode, the payload is enqueued and ``None`` is returned.
-        For real modes, the payload is enqueued for queue-based delivery.
+        The payload is accepted into the local queue and the returned hand-off
+        result has ``disposition="deferred"``.  Later transport completion or
+        failure is reported through the unified delivery-feedback callback.
 
         .. note::
 
@@ -404,8 +404,8 @@ class MeshtasticAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult | None
-            ``None`` in fake mode (send is async via queue).
+        AdapterHandoffResult
+            A deferred hand-off result after local queue admission.
 
         Raises
         ------
@@ -460,26 +460,22 @@ class MeshtasticAdapter(AdapterContract):
         except (TimeoutError, ConnectionError, OSError) as exc:
             raise AdapterSendError(str(exc), transient=True) from exc
 
-        # Queue-based enqueue accepted locally.  Actual send is async via
-        # queue.process_one.  No native message ID is available yet.
-        # delivery_status="enqueued" signals to the pipeline that this
-        # receipt should be recorded as "queued" rather than "sent";
-        # a supplemental "sent" receipt will be appended later when the
-        # queue drain produces a real native_message_id.
-        return AdapterDeliveryResult(
+        # Queue admission succeeded locally. Actual transport hand-off is
+        # asynchronous via queue.process_one(), so no native message ID is
+        # available yet. The closed ``deferred`` disposition tells core to
+        # record queued attempt evidence; later feedback finalizes the hand-off.
+        return AdapterHandoffResult(
             native_message_id=None,
             native_channel_id=str(channel_index),
-            delivery_note="locally enqueued",
-            delivery_status="enqueued",
+            disposition="deferred",
+            note="locally enqueued",
             confirmation_level="local_queue",
-            metadata=MappingProxyType(
-                {
-                    "meshtastic": {
-                        "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION,
-                        "channel_index": channel_index,
-                    }
+            metadata={
+                "meshtastic": {
+                    "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION,
+                    "channel_index": channel_index,
                 }
-            ),
+            },
         )
 
     # -- Inbound callback ---------------------------------------------------
@@ -1017,7 +1013,7 @@ class MeshtasticAdapter(AdapterContract):
         :meth:`_on_packet` via ``run_coroutine_threadsafe`` — cancelling
         any that haven't started yet and suppressing results from those
         still in flight.  Then awaits tracked :class:`asyncio.Task`
-        instances (terminal / native-ref callbacks) with a bounded timeout.
+        instances (deferred delivery feedback) with a bounded timeout.
 
         Completed tasks have their exceptions observed and logged.  If any
         tasks are still pending after the timeout, they are explicitly
@@ -1152,15 +1148,14 @@ class MeshtasticAdapter(AdapterContract):
         Calls :meth:`send_one` in a loop; sleeps when the queue is empty
         or on transient errors.
 
-        After each successful send that yields a real native message ID,
-        records a delayed outbound :class:`OutboundNativeRefRecord` via
-        the ``record_outbound_native_ref`` callback on
-        :class:`AdapterContext` (if wired).  Callback failures are
+        After each successful transport hand-off, reports a
+        :class:`~medre.core.contracts.delivery.DeferredHandoffCompleted`
+        through the unified delivery-feedback callback. Callback failures are
         caught and logged so they never crash the queue drain.
 
         When :meth:`send_one` returns a :class:`QueueTerminalResult`
-        (exhausted or permanent failure), reports the terminal outcome
-        to core via the ``record_outbound_terminal`` callback.  On
+        (exhausted or permanent failure), reports a
+        :class:`~medre.core.contracts.delivery.DeferredHandoffFailed`.  On
         cancellation or shutdown, the in-flight cancelled item is reported.
         Remaining queued items are drained and reported as abandoned only
         when there is evidence the drain task was actively processing work.
@@ -1180,60 +1175,49 @@ class MeshtasticAdapter(AdapterContract):
                         continue
 
                     if isinstance(result, QueueTerminalResult):
-                        # Shield the terminal callback so stop() cancelling
-                        # _drain_task cannot abort the report for an item
-                        # already dequeued from the queue.  The inner task
-                        # is tracked so that stop()/_drain_background_tasks
-                        # can await it if the drain task is cancelled mid-callback.
+                        # Shield feedback so stop() cancellation cannot abort
+                        # reporting an item already dequeued from the queue.
                         cb_task = asyncio.ensure_future(
-                            self._report_queue_terminal(result)
+                            self._report_deferred_failure(result)
                         )
                         try:
                             await asyncio.shield(cb_task)
                         except asyncio.CancelledError:
-                            _evt = result.item.get("event_id") or ""
+                            event_id = str(result.item.get("event_id") or "")
                             self._observe_callback_task(
                                 cb_task,
-                                "terminal",
-                                _evt,
+                                "deferred-failure",
+                                event_id,
                             )
                             raise
                         continue
 
-                    # Record delayed outbound native ref when both
-                    # event_id and native_message_id are available.
-                    event_id = result.item.get("event_id")
-                    delivery = result.delivery_result
+                    # A successful queue send reached the radio transport
+                    # boundary. Report completion even when the SDK did not
+                    # assign a native message ID; native identity is optional.
                     if (
-                        event_id
-                        and delivery.native_message_id
-                        and self.ctx is not None
-                        and self.ctx.record_outbound_native_ref is not None
+                        self.ctx is not None
+                        and self.ctx.report_delivery_feedback is not None
                     ):
+                        event_id = str(result.item.get("event_id") or "")
                         try:
-                            # Shield the native-ref callback for the same
-                            # reason as _report_queue_terminal above.  The
-                            # inner task is tracked so that stop() can drain
-                            # it even if the drain task is cancelled mid-callback.
                             cb_task = asyncio.ensure_future(
-                                self._record_delayed_outbound_ref(
-                                    result, event_id, delivery
-                                )
+                                self._report_deferred_completion(result)
                             )
                             try:
                                 await asyncio.shield(cb_task)
                             except asyncio.CancelledError:
                                 self._observe_callback_task(
                                     cb_task,
-                                    "native-ref",
-                                    event_id or "",
+                                    "deferred-completion",
+                                    event_id,
                                 )
                                 raise
                         except Exception:
                             if self.ctx is not None:
                                 self.ctx.logger.exception(
-                                    "MeshtasticAdapter %s: error recording "
-                                    "delayed outbound native ref for event_id=%s",
+                                    "MeshtasticAdapter %s: error reporting "
+                                    "deferred hand-off completion for event_id=%s",
                                     self.adapter_id,
                                     event_id,
                                 )
@@ -1261,8 +1245,9 @@ class MeshtasticAdapter(AdapterContract):
 
         Outbox-less queue work can still be useful in standalone/direct adapter
         mode, but it has no durable authority for asynchronous MEDRE evidence.
-        Such work is sent without emitting a callback record. Missing or invalid
-        provenance on outbox-backed work is an internal contract violation and
+        Such work is sent without emitting durable delivery feedback. Missing
+        or invalid provenance on outbox-backed work is an internal contract
+        violation and
         likewise fails closed without crashing the queue/shutdown task.
         """
         provenance = item.get("attempt_provenance")
@@ -1310,70 +1295,39 @@ class MeshtasticAdapter(AdapterContract):
             )
         return None
 
-    async def _report_queue_terminal(self, result: QueueTerminalResult) -> None:
-        """Report a terminal queue outcome to core.
-
-        Constructs a :class:`QueueTerminalRecord` from the terminal
-        result and calls the ``record_outbound_terminal`` callback.
-        Failures are caught and logged so they never crash the queue
-        drain loop.
-
-        Parameters
-        ----------
-        result:
-            The terminal result from :meth:`send_one`.
-        """
-        callback = self.ctx.record_outbound_terminal if self.ctx is not None else None
+    async def _report_deferred_failure(self, result: QueueTerminalResult) -> None:
+        """Report one terminal failure for a previously deferred attempt."""
+        callback = self.ctx.report_delivery_feedback if self.ctx is not None else None
         if callback is None:
             return
         provenance = self._callback_attempt_provenance(
-            result.item, callback_kind="terminal"
+            result.item, callback_kind="deferred-failure"
         )
         if provenance is None:
             return
-        record = QueueTerminalRecord(
-            event_id=provenance.event_id,
-            adapter=self.adapter_id,
-            outbox_id=provenance.outbox_id,
-            delivery_plan_id=provenance.delivery_plan_id,
-            attempt_number=provenance.attempt_number,
+        channel = result.item.get("channel_index")
+        feedback = DeferredHandoffFailed(
             attempt_provenance=provenance,
-            native_channel_id=(
-                str(ch) if (ch := result.item.get("channel_index")) is not None else ""
-            ),
             outcome=result.outcome,
+            native_channel_id=str(channel) if channel is not None else None,
             error=result.error,
         )
         try:
-            await callback(record)
+            await callback(feedback)
         except Exception:
             if self.ctx is not None:
                 self.ctx.logger.exception(
-                    "MeshtasticAdapter %s: error reporting terminal "
-                    "queue outcome for event_id=%s outcome=%s",
+                    "MeshtasticAdapter %s: error reporting deferred failure "
+                    "for event_id=%s outcome=%s",
                     self.adapter_id,
-                    record.event_id,
-                    record.outcome,
+                    provenance.event_id,
+                    feedback.outcome,
                 )
 
     async def _report_cancelled_and_drain(self) -> None:
-        """Report the in-flight cancelled item and drain remaining items.
+        """Report in-flight cancellation and abandon orphaned deferred work."""
+        callback = self.ctx.report_delivery_feedback if self.ctx is not None else None
 
-        Called when the queue drain task catches CancelledError.  Retrieves
-        the in-flight item that was being processed when cancellation
-        occurred (via :meth:`pop_cancelled_item`) and reports it as
-        ``"cancelled"``.
-
-        Only drains remaining queued items when there is evidence the
-        drain task was actively processing work (a cancelled in-flight
-        item exists).  When no item was in-flight the drain task was
-        cancelled before doing any work (e.g. immediately after start());
-        remaining items are left in the queue so they survive across the
-        stop boundary for the next start() cycle.
-        """
-        callback = self.ctx.record_outbound_terminal if self.ctx is not None else None
-
-        # Report the in-flight cancelled item.
         cancelled_item = self._queue.pop_cancelled_item()
         if cancelled_item is not None:
             if (
@@ -1385,33 +1339,22 @@ class MeshtasticAdapter(AdapterContract):
                 )
                 is not None
             ):
-                record = QueueTerminalRecord(
-                    event_id=provenance.event_id,
-                    adapter=self.adapter_id,
-                    outbox_id=provenance.outbox_id,
-                    delivery_plan_id=provenance.delivery_plan_id,
-                    attempt_number=provenance.attempt_number,
+                channel = cancelled_item.get("channel_index")
+                feedback = DeferredHandoffFailed(
                     attempt_provenance=provenance,
-                    native_channel_id=(
-                        str(ch)
-                        if (ch := cancelled_item.get("channel_index")) is not None
-                        else ""
-                    ),
                     outcome="cancelled",
+                    native_channel_id=str(channel) if channel is not None else None,
                     error="queue drain task cancelled while item was in-flight",
                 )
                 try:
-                    cb_task = asyncio.ensure_future(callback(record))
+                    cb_task = asyncio.ensure_future(callback(feedback))
                     try:
                         await asyncio.shield(cb_task)
                     except asyncio.CancelledError:
-                        # stop() is cancelling us — observe the shielded
-                        # task so its exception (if any) is not lost, then
-                        # re-raise so shutdown can progress.
                         self._observe_callback_task(
                             cb_task,
                             "cancelled",
-                            record.event_id,
+                            provenance.event_id,
                         )
                         raise
                 except Exception:
@@ -1420,11 +1363,12 @@ class MeshtasticAdapter(AdapterContract):
                             "MeshtasticAdapter %s: error reporting cancelled "
                             "item for event_id=%s",
                             self.adapter_id,
-                            record.event_id,
+                            provenance.event_id,
                         )
 
-            # Drain remaining items as abandoned — the drain task was
-            # actively processing, so all remaining work is orphaned.
+            # An in-flight cancellation means this drain task was actively
+            # processing work. Remaining local items are therefore orphaned by
+            # shutdown and must be reported as abandoned.
             remaining = self._queue.drain_all()
             if callback is not None:
                 for item in remaining:
@@ -1433,30 +1377,24 @@ class MeshtasticAdapter(AdapterContract):
                     )
                     if provenance is None:
                         continue
-                    record = QueueTerminalRecord(
-                        event_id=provenance.event_id,
-                        adapter=self.adapter_id,
-                        outbox_id=provenance.outbox_id,
-                        delivery_plan_id=provenance.delivery_plan_id,
-                        attempt_number=provenance.attempt_number,
+                    channel = item.get("channel_index")
+                    feedback = DeferredHandoffFailed(
                         attempt_provenance=provenance,
-                        native_channel_id=(
-                            str(ch)
-                            if (ch := item.get("channel_index")) is not None
-                            else ""
-                        ),
                         outcome="abandoned",
+                        native_channel_id=(
+                            str(channel) if channel is not None else None
+                        ),
                         error="adapter shutdown with unsent queued items",
                     )
                     try:
-                        cb_task = asyncio.ensure_future(callback(record))
+                        cb_task = asyncio.ensure_future(callback(feedback))
                         try:
                             await asyncio.shield(cb_task)
                         except asyncio.CancelledError:
                             self._observe_callback_task(
                                 cb_task,
                                 "abandoned",
-                                record.event_id,
+                                provenance.event_id,
                             )
                             raise
                     except Exception:
@@ -1465,46 +1403,25 @@ class MeshtasticAdapter(AdapterContract):
                                 "MeshtasticAdapter %s: error reporting abandoned "
                                 "item for event_id=%s",
                                 self.adapter_id,
-                                record.event_id,
+                                provenance.event_id,
                             )
-            else:
-                # No callback — just drain silently.
-                self._queue.drain_all()
 
-    async def _record_delayed_outbound_ref(
+    async def _report_deferred_completion(
         self,
         result: QueueDeliveryResult,
-        event_id: str,
-        delivery: AdapterDeliveryResult,
     ) -> None:
-        """Build and record an :class:`OutboundNativeRefRecord`.
-
-        Assembles metadata from the queued payload and the delivery
-        result, excluding private/internal keys and keeping only
-        JSON-safe values.
-
-        Parameters
-        ----------
-        result:
-            The queue delivery result containing the dequeued item.
-        event_id:
-            The canonical event ID associated with this send.
-        delivery:
-            The adapter delivery result with native IDs and metadata.
-        """
-        callback = self.ctx.record_outbound_native_ref if self.ctx else None
+        """Report successful radio hand-off for one exact queued attempt."""
+        callback = self.ctx.report_delivery_feedback if self.ctx else None
         if callback is None:
             return
         provenance = self._callback_attempt_provenance(
-            result.item, callback_kind="native-ref"
+            result.item, callback_kind="deferred-completion"
         )
         if provenance is None:
             return
 
-        # Build enriched metadata from delivery result + payload context.
+        handoff = result.handoff
         send_meta: dict[str, object] = {}
-
-        # Merge delivery metadata into the ``meshtastic`` namespace.
         meshtastic_meta: dict[str, object] = {}
         transport_keys = {
             "id",
@@ -1515,66 +1432,48 @@ class MeshtasticAdapter(AdapterContract):
             "reaction_id",
             "to",
         }
-        for k, v in (delivery.metadata or {}).items():
-            if k == "meshtastic" and isinstance(v, Mapping):
-                for nested_key, nested_value in v.items():
+        for key, value in handoff.metadata.items():
+            if key == "meshtastic" and isinstance(value, Mapping):
+                for nested_key, nested_value in value.items():
                     if nested_key != "schema_version":
                         meshtastic_meta[nested_key] = nested_value
-            elif k in transport_keys:
-                meshtastic_meta[k] = v
+            elif key in transport_keys:
+                meshtastic_meta[key] = value
             else:
-                # Delivery metadata from SDK/fake boundaries is normalized
-                # under the Meshtastic namespace before persistence.
-                meshtastic_meta[k] = v
-        # Add useful send context from the queued payload into the
-        # meshtastic namespace (transport-specific data must live
-        # under metadata[<transport>]).
+                meshtastic_meta[key] = value
+
         payload = result.item.get("payload", {})
-        text = payload.get("text")
-        if text is not None:
-            meshtastic_meta["text"] = str(text)
-        channel_name = payload.get("channel_name")
-        if channel_name is not None and channel_name != "":
-            meshtastic_meta["channel_name"] = str(channel_name)
-        reply_id = payload.get("reply_id")
-        if reply_id is not None:
-            meshtastic_meta["reply_id"] = reply_id
-        emoji = payload.get("emoji")
-        if emoji is not None:
-            meshtastic_meta["emoji"] = emoji
+        if isinstance(payload, Mapping):
+            text = payload.get("text")
+            if text is not None:
+                meshtastic_meta["text"] = str(text)
+            channel_name = payload.get("channel_name")
+            if channel_name not in (None, ""):
+                meshtastic_meta["channel_name"] = str(channel_name)
+            reply_id = payload.get("reply_id")
+            if reply_id is not None:
+                meshtastic_meta["reply_id"] = reply_id
+            emoji = payload.get("emoji")
+            if emoji is not None:
+                meshtastic_meta["emoji"] = emoji
 
-        # The persisted namespace version is owned by this adapter, not by
-        # delivery-result metadata supplied by an SDK or test boundary.
         meshtastic_meta["schema_version"] = MESHTASTIC_NATIVE_SCHEMA_VERSION
-
-        # Always carry the transport key so the record is self-identifying
-        # even when no Meshtastic-specific metadata is available.
         send_meta["meshtastic"] = meshtastic_meta
-
-        # Caller guarantees native_message_id is non-None, but the type
-        # checker cannot see the guard in _process_queue through the
-        # method boundary.
-        if delivery.native_message_id is None:
-            raise RuntimeError(
-                "delivery.native_message_id must be non-None when recording "
-                "delayed outbound ref"
-            )
-
-        record = OutboundNativeRefRecord(
-            event_id=provenance.event_id,
-            adapter=self.adapter_id,
-            native_channel_id=delivery.native_channel_id,
-            native_message_id=delivery.native_message_id,
-            native_thread_id=delivery.native_thread_id,
-            native_relation_id=delivery.native_relation_id,
-            delivery_plan_id=provenance.delivery_plan_id,
-            outbox_id=provenance.outbox_id,
-            attempt_number=provenance.attempt_number,
-            confirmation_level=delivery.confirmation_level,
-            attempt_provenance=provenance,
+        completed_handoff = AdapterHandoffResult(
+            native_message_id=handoff.native_message_id,
+            native_channel_id=handoff.native_channel_id,
+            native_thread_id=handoff.native_thread_id,
+            native_relation_id=handoff.native_relation_id,
+            confirmation_level=handoff.confirmation_level,
+            note=handoff.note,
             metadata=send_meta,
         )
-        await callback(record)
+        await callback(
+            DeferredHandoffCompleted(
+                attempt_provenance=provenance,
+                handoff=completed_handoff,
+            )
+        )
 
     @property
     def queue_health(self) -> dict[str, Any]:

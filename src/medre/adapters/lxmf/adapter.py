@@ -17,7 +17,7 @@ The adapter supports connection types configured via
 ``"fake"``
     No real client.  Used for testing without hardware.  Inbound
     simulation via :meth:`simulate_inbound`; outbound via :meth:`deliver`
-    returns an :class:`AdapterDeliveryResult` with honest
+    returns an :class:`AdapterHandoffResult` with honest
     ``outbound``/``pending`` delivery semantics.
 
 ``"reticulum"``
@@ -42,7 +42,6 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -62,12 +61,14 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    OutboundDeliveryObservationRecord,
+)
+from medre.core.contracts.delivery import (
+    AdapterHandoffResult,
+    PostHandoffObservation,
 )
 from medre.core.events.delivery import (
     DELIVERY_OBSERVATION_STATE_VALUES,
@@ -87,11 +88,9 @@ _LXMF_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=True,
-    delivery_receipts=False,
     store_and_forward=True,
     direct_messages=True,
     channels=False,
-    async_delivery=True,
     identity_encryption=True,
     mesh_routing=True,
     max_text_bytes=None,
@@ -570,21 +569,21 @@ class LxmfAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Enqueue a pre-rendered payload for paced delivery.
 
         The *result.payload* is expected to be an LXMF-ready content
         dict already rendered by
         :class:`~medre.adapters.lxmf.renderer.LxmfRenderer`.
 
-        In fake mode, returns an :class:`AdapterDeliveryResult` with a
+        In fake mode, returns an :class:`AdapterHandoffResult` with a
         deterministic native_message_id and pending delivery state.
 
         In real mode, sends via the session's LXMF router and returns
         an honest result with the LXMF message hash and delivery state.
 
-        **Honest delivery semantics**: the ``delivery_status`` is
-        ``"sent"`` meaning the adapter handed the message to the
+        **Honest delivery semantics**: the hand-off disposition is
+        ``"transport_handoff"`` once the adapter gives the message to the
         LXMRouter (local acceptance).  This does **not** mean the
         message was confirmed delivered to the recipient.  LXMF
         delivery is asynchronous and multi-hop; the actual delivery
@@ -599,8 +598,8 @@ class LxmfAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult | None
-            Delivery result with native message ID and state metadata.
+        AdapterHandoffResult
+            Handoff result with native message ID and state metadata.
 
         Raises
         ------
@@ -626,7 +625,7 @@ class LxmfAdapter(AdapterContract):
 
         payload = result.payload
         if not isinstance(payload, dict):
-            return None
+            raise AdapterPermanentError("LXMF renderer produced a non-mapping payload")
 
         content = payload.get("content", "")
         title = payload.get("title", "")
@@ -635,7 +634,9 @@ class LxmfAdapter(AdapterContract):
         fields = payload.get("fields")
 
         if not content and not title:
-            return None
+            raise AdapterPermanentError(
+                "LXMF renderer produced an empty title/content payload"
+            )
 
         delivery_context = (
             _LxmfDeliveryObservationContext(
@@ -668,22 +669,18 @@ class LxmfAdapter(AdapterContract):
             str(delivery_method) if delivery_method else None
         ) or self._config.default_delivery_method
 
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=native_id,
             native_channel_id=str(destination_hash) if destination_hash else None,
-            delivery_note="accepted by LXMRouter — async delivery pending",
+            note="accepted by LXMRouter — async delivery pending",
             confirmation_level="local_queue",
-            metadata=MappingProxyType(
-                {
-                    "lxmf": MappingProxyType(
-                        {
-                            "schema_version": LXMF_NATIVE_SCHEMA_VERSION,
-                            "delivery_state": delivery_state.value,
-                            "delivery_method": resolved_delivery_method,
-                        }
-                    ),
-                }
-            ),
+            metadata={
+                "lxmf": {
+                    "schema_version": LXMF_NATIVE_SCHEMA_VERSION,
+                    "delivery_state": delivery_state.value,
+                    "delivery_method": resolved_delivery_method,
+                },
+            },
         )
 
     # -- Inbound callback ---------------------------------------------------
@@ -813,7 +810,7 @@ class LxmfAdapter(AdapterContract):
                 state,
             )
 
-        callback = self.ctx.record_delivery_observation if self.ctx else None
+        callback = self.ctx.report_delivery_feedback if self.ctx else None
         if callback is None or not isinstance(
             delivery_context, _LxmfDeliveryObservationContext
         ):
@@ -825,18 +822,13 @@ class LxmfAdapter(AdapterContract):
         if state != "delivered":
             error = f"LXMF reported terminal delivery state {state}"
         provenance = delivery_context.attempt_provenance
-        record = OutboundDeliveryObservationRecord(
-            event_id=provenance.event_id,
-            adapter=self.adapter_id,
+        record = PostHandoffObservation(
+            attempt_provenance=provenance,
             state=state,  # type: ignore[arg-type]
-            outbox_id=provenance.outbox_id,
-            attempt_number=provenance.attempt_number,
-            delivery_plan_id=provenance.delivery_plan_id,
             native_channel_id=delivery_context.native_channel_id,
             native_message_id=message_hash,
             confirmation_level="unknown",
             error=error,
-            attempt_provenance=provenance,
             metadata={
                 "lxmf": {
                     "schema_version": LXMF_NATIVE_SCHEMA_VERSION,
@@ -844,14 +836,14 @@ class LxmfAdapter(AdapterContract):
                 }
             },
         )
-        task = asyncio.create_task(self._record_delivery_observation(callback, record))
+        task = asyncio.create_task(self._report_delivery_feedback(callback, record))
         task.add_done_callback(self._observation_tasks.discard)
         self._observation_tasks.add(task)
 
-    async def _record_delivery_observation(
+    async def _report_delivery_feedback(
         self,
         callback: Any,
-        record: OutboundDeliveryObservationRecord,
+        record: PostHandoffObservation,
     ) -> None:
         """Report post-handoff evidence without leaking callback failures.
 
@@ -870,8 +862,8 @@ class LxmfAdapter(AdapterContract):
                     "LxmfAdapter %s: failed to record delivery observation "
                     "for outbox_id=%s attempt=%s state=%s",
                     self.adapter_id,
-                    record.outbox_id,
-                    record.attempt_number,
+                    record.attempt_provenance.outbox_id,
+                    record.attempt_provenance.attempt_number,
                     record.state,
                 )
 

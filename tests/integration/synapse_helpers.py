@@ -269,7 +269,6 @@ def make_context(adapter_id: str = "synapse-bridge-bot") -> AdapterContext:
     """Build an AdapterContext wired to a mock publish_inbound."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(UTC),

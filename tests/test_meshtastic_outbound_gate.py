@@ -30,7 +30,6 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterSendError,
 )
-from medre.core.events.bus import EventBus
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     RetryExecutor,
@@ -46,7 +45,6 @@ from medre.runtime.reporting import _derive_failure_kind_detail
 def _make_ctx(adapter_id: str = "test-gate") -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=EventBus(),
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test"),
         clock=lambda: datetime.now(timezone.utc),
@@ -144,8 +142,8 @@ class TestDefaultEnabledPassesNormalPath:
             result = _make_result()
             delivery = await adapter.deliver(result)
             assert delivery is not None
-            assert delivery.delivery_note == "locally enqueued"
-            assert delivery.delivery_status == "enqueued"
+            assert delivery.note == "locally enqueued"
+            assert delivery.disposition == "deferred"
             assert adapter._queue.queue_depth == 1
         finally:
             await adapter.stop()

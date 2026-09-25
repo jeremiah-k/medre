@@ -398,7 +398,7 @@ class TestMeshtasticOutboundNativeRefs:
     """Outbound delivery uses adapter-provided IDs, not fabricated ones."""
 
     async def test_fake_adapter_returns_delivery_result_with_native_id(self) -> None:
-        """Fake adapter returns AdapterDeliveryResult with deterministic native_message_id."""
+        """Fake adapter returns AdapterHandoffResult with deterministic native_message_id."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = FakeMeshtasticAdapter(config)
         result = RenderingResult(
@@ -413,8 +413,8 @@ class TestMeshtasticOutboundNativeRefs:
         assert delivery.native_channel_id == "0"
 
     async def test_real_adapter_returns_delivery_result_when_queue_based(self) -> None:
-        """Real MeshtasticAdapter.deliver() returns AdapterDeliveryResult with
-        delivery_note='locally enqueued' and native_message_id=None (queue-based)."""
+        """Real MeshtasticAdapter.deliver() returns AdapterHandoffResult with
+        note='locally enqueued' and native_message_id=None (queue-based)."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = MeshtasticAdapter(config)
         result = RenderingResult(
@@ -427,7 +427,7 @@ class TestMeshtasticOutboundNativeRefs:
         # Queue-based adapter: returns result with no native_message_id
         assert delivery is not None
         assert delivery.native_message_id is None
-        assert delivery.delivery_note == "locally enqueued"
+        assert delivery.note == "locally enqueued"
 
 
 # ===================================================================
@@ -520,7 +520,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         await adapter.stop()
 
     async def test_real_adapter_deliver_does_not_send(self) -> None:
-        """Real adapter deliver() only enqueues — returns delivery_note, no native ID."""
+        """Real adapter deliver() only enqueues — returns note, no native ID."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = MeshtasticAdapter(config)
         result = RenderingResult(
@@ -533,7 +533,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         # Queue-based: returns result with no native_message_id
         assert delivery is not None
         assert delivery.native_message_id is None
-        assert delivery.delivery_note == "locally enqueued"
+        assert delivery.note == "locally enqueued"
         # But the payload is in the queue
         assert adapter.queue.pending_count == 1
 

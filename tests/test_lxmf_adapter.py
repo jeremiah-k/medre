@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from types import MappingProxyType
 
 import pytest
 
@@ -18,7 +17,7 @@ from medre.adapters.lxmf.errors import LxmfConnectionError
 from medre.adapters.lxmf.event_shape import LXMF_NATIVE_SCHEMA_VERSION
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.contracts.adapter import (
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
@@ -282,10 +281,10 @@ class TestLxmfAdapterLifecycle:
         await adapter.start(ctx)
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
-        # In fake mode via session, deliver now returns an AdapterDeliveryResult
+        # In fake mode via session, deliver now returns an AdapterHandoffResult
         # with pending state (not None).
         assert delivery is not None
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id is not None
         assert delivery.metadata["lxmf"]["delivery_state"] in (
             "outbound",
@@ -475,10 +474,12 @@ class TestFakeLxmfAdapterDeliver:
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0] is result
         assert delivery is not None
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id is not None
         lxmf_metadata = delivery.metadata["lxmf"]
-        assert isinstance(lxmf_metadata, MappingProxyType)
+        assert isinstance(lxmf_metadata, dict)
+        with pytest.raises(TypeError):
+            lxmf_metadata["mutate"] = True
         assert lxmf_metadata["schema_version"] == LXMF_NATIVE_SCHEMA_VERSION
 
     async def test_deliver_returns_deterministic_message_id(self) -> None:
@@ -1451,8 +1452,8 @@ class TestLxmfAdapterDeliverHonestDeliverySemantics:
     async def test_deliver_returns_sent_status_with_honest_note(
         self, make_adapter_context
     ) -> None:
-        """deliver() returns delivery_status='sent' (local acceptance) with
-        an honest delivery_note explaining async delivery is pending."""
+        """deliver() returns disposition='transport_handoff' (local acceptance) with
+        an honest note explaining async delivery is pending."""
         config = _make_config(connection_type="fake")
         adapter = LxmfAdapter(config)
         ctx = make_adapter_context("lxmf-1")
@@ -1469,10 +1470,10 @@ class TestLxmfAdapterDeliverHonestDeliverySemantics:
         delivery = await adapter.deliver(result)
 
         assert delivery is not None
-        assert delivery.delivery_status == "sent"
-        assert delivery.delivery_note != ""
-        assert "accepted" in delivery.delivery_note.lower()
-        assert "async" in delivery.delivery_note.lower()
+        assert delivery.disposition == "transport_handoff"
+        assert delivery.note != ""
+        assert "accepted" in delivery.note.lower()
+        assert "async" in delivery.note.lower()
         assert delivery.metadata["lxmf"]["delivery_state"] == "outbound"
 
         await adapter.stop()

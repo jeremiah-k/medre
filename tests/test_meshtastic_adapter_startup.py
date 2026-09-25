@@ -26,7 +26,6 @@ def _make_ctx(adapter_id: str = "mesh-1"):
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=_make_logger(adapter_id),
         clock=lambda: datetime.now(timezone.utc),

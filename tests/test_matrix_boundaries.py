@@ -22,7 +22,7 @@ from medre.adapters.matrix.errors import MatrixSendError
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterPermanentError,
     AdapterSendError,
 )
@@ -169,7 +169,7 @@ class TestMatrixBoundaries:
             metadata={"renderer": "matrix"},
         )
         delivery = await adapter.deliver(result)
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         # Must use the adapter-provided ID, not a synthetic one
         assert delivery.native_message_id == "$fake_evt-out-001"
         assert delivery.native_channel_id == "!room:server"
@@ -477,7 +477,7 @@ class TestMatrixDeliveryNioResponseHardening:
             payload={"msgtype": "m.text", "body": "hello"},
         )
         delivery = await adapter.deliver(result)
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id == "$good-evt-001"
         assert delivery.native_channel_id == "!room:server"
 

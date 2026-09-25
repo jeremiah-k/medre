@@ -924,7 +924,6 @@ class MedreApp:
 
                     ctx = AdapterContext(
                         adapter_id=adapter_id,
-                        event_bus=self.event_bus,
                         publish_inbound=self._make_publish_inbound(),
                         admit_inbound=(
                             self._make_admit_inbound()
@@ -944,9 +943,7 @@ class MedreApp:
                         logger=logging.getLogger(f"medre.adapters.{adapter_id}"),
                         clock=_utc_now,
                         shutdown_event=self.shutdown_event,
-                        record_outbound_native_ref=self.pipeline_runner._record_outbound_native_ref,
-                        record_outbound_terminal=self.pipeline_runner._outbox_manager.record_terminal,
-                        record_delivery_observation=self.pipeline_runner._record_delivery_observation,
+                        report_delivery_feedback=self.pipeline_runner._record_delivery_feedback,
                     )
                     await adapter.start(ctx)
                     elapsed = _monotonic_ms() - t0

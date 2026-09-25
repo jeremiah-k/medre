@@ -107,7 +107,6 @@ def _make_adapter_context_for_pipeline(
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=_publish,
         logger=logging.getLogger(f"test.run_session.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -133,9 +132,9 @@ def _make_pipeline_config(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters or {},
-        event_bus=event_bus or EventBus(),
         rendering_pipeline=rp,
         runtime_accounting=runtime_accounting,
+        event_bus=event_bus or EventBus(),
     )
 
 

@@ -27,9 +27,6 @@ from medre.adapters.meshtastic.queue import (
     QueueTerminalResult,
 )
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.core.contracts.adapter import (
-    OutboundNativeRefRecord,
-)
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.events.canonical import (
     DeliveryReceipt,
@@ -39,7 +36,10 @@ from medre.core.rendering.renderer import (
 )
 from medre.core.routing.models import RouteSource
 from medre.core.storage.backend import DeliveryOutboxItem
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 
 # Reuse helpers from the flow module.
 from tests.operational.test_matrix_meshtastic_flow import (
@@ -70,7 +70,7 @@ class TestQueuedReceiptCreation:
         lifecycle = DeliveryLifecycleService(logger=logging.getLogger("test"))
         diagnostician = Diagnostician()
 
-        # Build an adapter that returns delivery_status="enqueued" to simulate
+        # Build an adapter that returns disposition="deferred" to simulate
         # a queue-based adapter (like MeshtasticOutboundQueue).
         config = _make_meshtastic_config()
         mesh_adapter = FakeMeshtasticAdapter(config)
@@ -83,15 +83,15 @@ class TestQueuedReceiptCreation:
         ) -> Any:
             from types import MappingProxyType
 
-            from medre.core.contracts.adapter import AdapterDeliveryResult
+            from medre.core.contracts.adapter import AdapterHandoffResult
 
             _enqueued_calls.append(result)
             # Return result with enqueued status to trigger queued receipt.
-            return AdapterDeliveryResult(
+            return AdapterHandoffResult(
                 native_message_id=None,
                 native_channel_id=str(result.payload.get("channel_index", 0)),
                 metadata=MappingProxyType({"meshtastic": {"queue_status": "enqueued"}}),
-                delivery_status="enqueued",
+                disposition="deferred",
             )
 
         mesh_adapter.deliver = _enqueued_deliver  # type: ignore[assignment]
@@ -203,7 +203,7 @@ class TestQueuedReceiptCreation:
 
 class TestQueuedSentCorrelation:
     """outbox_id correlates queued receipts to supplemental sent
-    receipts via DeliveryLifecycleService.finalize_queued_delivery."""
+    receipts via DeliveryLifecycleService.finalize_deferred_handoff."""
 
     @pytest.mark.asyncio
     async def test_exact_plan_id_and_channel_finds_queued_receipt(self) -> None:
@@ -240,7 +240,7 @@ class TestQueuedSentCorrelation:
         await storage.create_outbox_item(outbox_item)
         await storage.mark_outbox_queued(outbox_id)
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-1",
                 target_adapter="test_mesh",
@@ -259,8 +259,8 @@ class TestQueuedSentCorrelation:
             attempt_number=1,
         )
 
-        await lifecycle.finalize_queued_delivery(
-            storage, record=record, now=datetime.now(timezone.utc)
+        await lifecycle.finalize_deferred_handoff(
+            storage, feedback=record, now=datetime.now(timezone.utc)
         )
 
         # Queued receipt still exists.
@@ -315,7 +315,7 @@ class TestQueuedSentCorrelation:
         await storage.create_outbox_item(outbox_item)
         await storage.mark_outbox_queued(outbox_id)
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-2",
                 target_adapter="test_mesh",
@@ -334,8 +334,8 @@ class TestQueuedSentCorrelation:
             attempt_number=1,
         )
 
-        await lifecycle.finalize_queued_delivery(
-            storage, record=record, now=datetime.now(timezone.utc)
+        await lifecycle.finalize_deferred_handoff(
+            storage, feedback=record, now=datetime.now(timezone.utc)
         )
 
         sent = [r for r in storage._receipts if r.status == "sent"][0]
@@ -393,7 +393,7 @@ class TestQueuedSentCorrelation:
         await storage.create_outbox_item(outbox_item)
         await storage.mark_outbox_queued(outbox_id)
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-3",
                 target_adapter="test_mesh",
@@ -412,8 +412,8 @@ class TestQueuedSentCorrelation:
             attempt_number=2,
         )
 
-        await lifecycle.finalize_queued_delivery(
-            storage, record=record, now=datetime.now(timezone.utc)
+        await lifecycle.finalize_deferred_handoff(
+            storage, feedback=record, now=datetime.now(timezone.utc)
         )
 
         sent = [r for r in storage._receipts if r.status == "sent"]
@@ -533,7 +533,7 @@ class TestQueueDiagnostics:
 
         result = await queue.process_one(send_fn=_send)
         assert result is not None
-        assert result.delivery_result.native_message_id == "1"
+        assert result.handoff.native_message_id == "1"
         assert queue.total_sent == 1
         assert queue.total_dequeued == 1
 

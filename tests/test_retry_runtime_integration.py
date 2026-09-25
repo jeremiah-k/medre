@@ -17,7 +17,7 @@ from medre.adapters.fakes.presentation import (
 )
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
 )
 from medre.core.engine.pipeline import PipelineRunner
 from medre.core.events.canonical import (
@@ -88,7 +88,7 @@ class _TransientThenSucceedAdapter(FakePresentationAdapter):
         self._fail_count = fail_count
         self._call_count: int = 0
 
-    async def deliver(self, result) -> AdapterDeliveryResult | None:
+    async def deliver(self, result) -> AdapterHandoffResult | None:
         self._call_count += 1
         if self._call_count <= self._fail_count:
             raise ConnectionError(
@@ -107,7 +107,7 @@ class _AlwaysPermanentFailAdapter(FakePresentationAdapter):
     def __init__(self, adapter_id: str = "permanent_fail_adapter") -> None:
         super().__init__(adapter_id=adapter_id)
 
-    async def deliver(self, result) -> AdapterDeliveryResult | None:
+    async def deliver(self, result) -> AdapterHandoffResult | None:
         raise ValueError(f"Permanent failure from {self.adapter_id}: bad payload")
 
 

@@ -19,7 +19,7 @@ Test categories
    FakeMeshtasticAdapter publishes an inbound event through PipelineRunner;
    the pipeline renders via MeshtasticRenderer and calls the real
    MeshtasticAdapter.deliver(), which enqueues locally and returns
-   ``AdapterDeliveryResult(native_message_id=None)``.  Tests verify
+   ``AdapterHandoffResult(native_message_id=None)``.  Tests verify
    the "locally enqueued" receipt is recorded but no outbound native ref
    is stored (because the queue-based adapter has no native message ID yet).
 """
@@ -107,8 +107,8 @@ class TestMeshtasticInboundToFakeOutbound:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"mesh-real-in": mesh_adapter, "fake-out": fake_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -179,8 +179,8 @@ class TestMeshtasticInboundToFakeOutbound:
                     "bridge-mesh-in2": mesh_adapter,
                     "bridge-fake-out2": fake_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -248,8 +248,8 @@ class TestMeshtasticInboundToFakeOutbound:
                     "bridge-mesh-in3": mesh_adapter,
                     "bridge-fake-out3": fake_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -319,8 +319,8 @@ class TestMeshtasticInboundToFakeOutbound:
                     "bridge-mesh-receipt": mesh_adapter,
                     "bridge-fake-receipt": fake_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -370,8 +370,8 @@ class TestMeshtasticInboundToFakeOutbound:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"bridge-meta-in": mesh_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=RenderingPipeline(),
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -446,8 +446,8 @@ class TestMeshtasticInboundToFakeOutbound:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"bridge-ch-in": mesh_adapter, "bridge-ch-out": fake_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -520,8 +520,8 @@ class TestMeshtasticInboundToFakeOutbound:
                     "bridge-reply-in": mesh_adapter,
                     "bridge-reply-out": fake_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -570,7 +570,7 @@ class TestFakeInboundToMeshtasticOutbound:
     (local enqueue) through PipelineRunner.
 
     The real MeshtasticAdapter.deliver() enqueues to the internal queue
-    and returns AdapterDeliveryResult(native_message_id=None).  Tests
+    and returns AdapterHandoffResult(native_message_id=None).  Tests
     verify the pipeline records a "sent" receipt but does NOT store an
     outbound native ref (because the queue-based adapter has no native
     message ID yet).
@@ -626,8 +626,8 @@ class TestFakeInboundToMeshtasticOutbound:
                     "bridge-fake-in": fake_in_adapter,
                     "bridge-mesh-out": mesh_out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -637,7 +637,6 @@ class TestFakeInboundToMeshtasticOutbound:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="bridge-mesh-out",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.bridge-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
@@ -658,8 +657,8 @@ class TestFakeInboundToMeshtasticOutbound:
     async def test_local_enqueue_returns_no_native_id(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """MeshtasticAdapter.deliver() returns AdapterDeliveryResult with
-        native_message_id=None and delivery_note='locally enqueued'."""
+        """MeshtasticAdapter.deliver() returns AdapterHandoffResult with
+        native_message_id=None and note='locally enqueued'."""
         mesh_config = MeshtasticConfig(
             adapter_id="bridge-enqueue-id", connection_type="fake"
         )
@@ -676,7 +675,7 @@ class TestFakeInboundToMeshtasticOutbound:
         assert delivery is not None
         assert delivery.native_message_id is None
         assert delivery.native_channel_id == "0"
-        assert delivery.delivery_note == "locally enqueued"
+        assert delivery.note == "locally enqueued"
 
     async def test_sent_receipt_without_outbound_native_ref(
         self, temp_storage: SQLiteStorage
@@ -725,8 +724,8 @@ class TestFakeInboundToMeshtasticOutbound:
                     "bridge-fake-nref": fake_in_adapter,
                     "bridge-mesh-nref": mesh_out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -736,7 +735,6 @@ class TestFakeInboundToMeshtasticOutbound:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="bridge-mesh-nref",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.bridge-mesh-nref"),
                 clock=lambda: datetime.now(timezone.utc),
@@ -814,8 +812,8 @@ class TestFakeInboundToMeshtasticOutbound:
                     "bridge-fake-qh": fake_in_adapter,
                     "bridge-mesh-qh": mesh_out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -825,7 +823,6 @@ class TestFakeInboundToMeshtasticOutbound:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="bridge-mesh-qh",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.bridge-mesh-qh"),
                 clock=lambda: datetime.now(timezone.utc),
@@ -893,8 +890,8 @@ class TestFakeInboundToMeshtasticOutbound:
                     "bridge-fake-rend": fake_in_adapter,
                     "bridge-mesh-rend": mesh_out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         # PipelineRunner.start() populates platform registry from adapters.
@@ -905,7 +902,6 @@ class TestFakeInboundToMeshtasticOutbound:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="bridge-mesh-rend",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.bridge-mesh-rend"),
                 clock=lambda: datetime.now(timezone.utc),
@@ -979,9 +975,9 @@ class TestFakeInboundToMeshtasticOutbound:
                     "bridge-fake-acc": fake_in_adapter,
                     "bridge-mesh-acc": mesh_out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
                 runtime_accounting=accounting,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -991,7 +987,6 @@ class TestFakeInboundToMeshtasticOutbound:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="bridge-mesh-acc",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.bridge-mesh-acc"),
                 clock=lambda: datetime.now(timezone.utc),

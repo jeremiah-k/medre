@@ -170,7 +170,6 @@ def test_receive_callback_adapter_boundary_uses_threadsafe_coroutine_submission(
     adapter._started = True
     adapter.ctx = AdapterContext(
         adapter_id="mesh-reference",
-        event_bus=None,
         publish_inbound=MagicMock(),
         logger=logging.getLogger("test.meshtastic.reference"),
         clock=lambda: datetime.now(UTC),
@@ -222,7 +221,6 @@ async def test_receive_generation_is_revalidated_before_publish() -> None:
     publish = AsyncMock()
     adapter.ctx = AdapterContext(
         adapter_id="mesh-reference",
-        event_bus=None,
         publish_inbound=publish,
         logger=logging.getLogger("test.meshtastic.reference.interleave"),
         clock=lambda: datetime.now(UTC),

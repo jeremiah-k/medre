@@ -47,7 +47,6 @@ def _make_adapter_context_for_pipeline(adapter_id: str, runner: PipelineRunner):
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=runner.handle_ingress,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -169,8 +168,8 @@ class TestLxmfPipelineIntegration:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"lxmf-in": in_adapter, "local-lxmf": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -216,8 +215,8 @@ class TestLxmfPipelineIntegration:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"lxmf-fields-in": in_adapter, "lxmf-fields-out": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -267,8 +266,8 @@ class TestLxmfNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"lxmf-inbound": adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -317,8 +316,8 @@ class TestLxmfNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"lxmf-in": in_adapter, "lxmf-out": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -371,8 +370,8 @@ class TestLxmfNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"lxmf-fail-in": in_adapter, "lxmf-fail-out": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -418,8 +417,8 @@ class TestLxmfNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"lxmf-dup": adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -509,8 +508,8 @@ class TestLxmfPlatformRendererSelection:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"field-node": in_adapter, "rnode-out": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()

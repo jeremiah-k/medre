@@ -1,4 +1,4 @@
-"""Tests for outbox-strict field validations in finalize_queued_delivery.
+"""Tests for outbox-strict field validations in finalize_deferred_handoff.
 
 Validates that adapter, delivery_plan_id, native_channel_id, and
 attempt_number on the callback record are checked against the authoritative
@@ -13,10 +13,12 @@ from datetime import datetime, timezone
 import pytest
 from msgspec.structs import replace
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 
 from .conftest import _make_lifecycle, _make_receipt
 
@@ -125,7 +127,7 @@ class TestFieldMismatchRejected:
             plan_id="plan-correct",
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="__outbox_default__",
                 target_adapter="mesh-1",
@@ -142,9 +144,9 @@ class TestFieldMismatchRejected:
             outbox_id="obox-plan-mismatch",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             outbox_temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -171,7 +173,7 @@ class TestFieldMismatchRejected:
             plan_id="plan-ch",
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="__outbox_default__",
                 target_adapter="mesh-1",
@@ -188,9 +190,9 @@ class TestFieldMismatchRejected:
             outbox_id="obox-ch-mismatch",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             outbox_temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -218,7 +220,7 @@ class TestFieldMismatchRejected:
             plan_id="plan-adapt",
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="__outbox_default__",
                 target_adapter="wrong-adapter",
@@ -235,9 +237,9 @@ class TestFieldMismatchRejected:
             outbox_id="obox-adapter-mismatch",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             outbox_temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -266,7 +268,7 @@ class TestFieldMismatchRejected:
             attempt_number=2,
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="__outbox_default__",
                 target_adapter="mesh-1",
@@ -283,9 +285,9 @@ class TestFieldMismatchRejected:
             outbox_id="obox-attempt-mismatch",
             attempt_number=5,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             outbox_temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -338,7 +340,7 @@ class TestExactOutboxSelection:
         )
 
         # Callback targets obox-second → should only match rcpt-second.
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="__outbox_default__",
                 target_adapter="mesh-1",
@@ -355,9 +357,9 @@ class TestExactOutboxSelection:
             outbox_id="obox-second",
             attempt_number=2,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             outbox_temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -405,7 +407,7 @@ class TestExactCallbackHappyPath:
             attempt_number=1,
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="__outbox_default__",
                 target_adapter="mesh-1",
@@ -422,9 +424,9 @@ class TestExactCallbackHappyPath:
             outbox_id="obox-valid",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             outbox_temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -462,7 +464,7 @@ class TestExactCallbackHappyPath:
             attempt_number=1,
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="__outbox_default__",
                 target_adapter="mesh-1",
@@ -481,18 +483,18 @@ class TestExactCallbackHappyPath:
         )
 
         # First call — should create supplemental sent receipt.
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             outbox_temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
         # Second call — the original queued receipt is gone (replaced by
         # sent), so the candidate filter `r.status == "queued"` won't
         # match it.  A second supplemental receipt should NOT be created.
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             outbox_temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 

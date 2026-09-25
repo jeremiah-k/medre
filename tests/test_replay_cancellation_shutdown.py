@@ -180,9 +180,9 @@ async def test_cancelled_during_replay_stage(cancel_env) -> None:
         replay = ReplayEngine(
             storage=env.storage,
             pipeline=env.pipeline,
-            event_bus=env.app.event_bus,
             diagnostician=env.app.diagnostician,
             accounting=accounting,
+            event_bus=env.app.event_bus,
         )
 
         request = ReplayRequest(
@@ -255,10 +255,10 @@ async def test_shutdown_during_replay(cancel_env) -> None:
     replay = ReplayEngine(
         storage=env.storage,
         pipeline=env.pipeline,
-        event_bus=env.app.event_bus,
         diagnostician=env.app.diagnostician,
         capacity_controller=cc,
         accounting=accounting,
+        event_bus=env.app.event_bus,
     )
 
     # Block the first event's delivery so we can trigger shutdown mid-replay.
@@ -354,9 +354,9 @@ async def test_replay_capacity_slot_released_on_exception(
     replay = ReplayEngine(
         storage=env.storage,
         pipeline=env.pipeline,
-        event_bus=env.app.event_bus,
         diagnostician=env.app.diagnostician,
         capacity_controller=cc,
+        event_bus=env.app.event_bus,
     )
 
     # Block the secondary adapter so replay stalls.
@@ -454,8 +454,8 @@ async def test_cancel_stops_event_iteration(cancel_env) -> None:
     replay = ReplayEngine(
         storage=env.storage,
         pipeline=env.pipeline,
-        event_bus=env.app.event_bus,
         diagnostician=env.app.diagnostician,
+        event_bus=env.app.event_bus,
     )
 
     request = ReplayRequest(mode=ReplayMode.STRICT)
@@ -493,8 +493,8 @@ async def test_cancel_before_replay_starts(cancel_env) -> None:
     replay = ReplayEngine(
         storage=env.storage,
         pipeline=env.pipeline,
-        event_bus=env.app.event_bus,
         diagnostician=env.app.diagnostician,
+        event_bus=env.app.event_bus,
     )
 
     # Cancel before starting iteration.
@@ -524,8 +524,8 @@ async def test_cancel_is_idempotent(cancel_env) -> None:
     replay = ReplayEngine(
         storage=env.storage,
         pipeline=env.pipeline,
-        event_bus=env.app.event_bus,
         diagnostician=env.app.diagnostician,
+        event_bus=env.app.event_bus,
     )
 
     assert not replay.is_cancelled
@@ -566,8 +566,8 @@ async def test_cancel_mid_event_skips_remaining_stages(cancel_env) -> None:
     replay = ReplayEngine(
         storage=env.storage,
         pipeline=env.pipeline,
-        event_bus=env.app.event_bus,
         diagnostician=env.app.diagnostician,
+        event_bus=env.app.event_bus,
     )
 
     request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)
@@ -615,8 +615,8 @@ async def test_reset_cancellation_allows_new_replay(cancel_env) -> None:
     replay = ReplayEngine(
         storage=env.storage,
         pipeline=env.pipeline,
-        event_bus=env.app.event_bus,
         diagnostician=env.app.diagnostician,
+        event_bus=env.app.event_bus,
     )
 
     # Cancel and verify no results.
@@ -661,8 +661,8 @@ async def test_best_effort_cancel_skips_deliver(cancel_env) -> None:
     replay = ReplayEngine(
         storage=env.storage,
         pipeline=env.pipeline,
-        event_bus=env.app.event_bus,
         diagnostician=env.app.diagnostician,
+        event_bus=env.app.event_bus,
     )
 
     request = ReplayRequest(mode=ReplayMode.BEST_EFFORT)

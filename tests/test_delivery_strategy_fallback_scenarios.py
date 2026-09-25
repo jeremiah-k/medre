@@ -449,7 +449,6 @@ class TestFallbackTextEvidenceRecording:
             edits="native",
             deletes="native",
             attachments=False,
-            delivery_receipts=True,
         )
 
         route = Route(
@@ -505,7 +504,6 @@ class TestFallbackTextEvidenceRecording:
             edits="native",
             deletes="native",
             attachments=False,
-            delivery_receipts=True,
         )
 
         route = Route(

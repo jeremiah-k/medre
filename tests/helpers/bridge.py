@@ -30,7 +30,6 @@ def make_adapter_context(
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=runner.handle_ingress,
         logger=logging.getLogger(f"test.bridge.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -63,10 +62,10 @@ def make_pipeline_config(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters or {},
-        event_bus=event_bus or EventBus(),
         rendering_pipeline=rp,
         runtime_accounting=accounting,
         route_stats=route_stats,
+        event_bus=event_bus or EventBus(),
     )
 
 

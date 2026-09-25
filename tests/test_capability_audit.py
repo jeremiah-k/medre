@@ -4,9 +4,8 @@ authoritative runtime truth and do not overclaim.
 Machine-checked capability conformance proof across all four adapters
 and their JSON capability declarations: fake capabilities, JSON capability
 files, and source-declared capability surfaces must agree, with no
-overclaims.  Historical note: a point-in-time audit found 88 declarations
-(4 adapters × 22 fields) all passing with 0 overclaims; these tests keep
-that finding locked in place.
+overclaims. The field count is intentionally locked so adding or removing
+planning capabilities requires an explicit audit update.
 
 Evidence tiers: ``fake_pipeline`` (tier 1) and ``fake_adapter_callback`` (tier 2).
 No network, no hardware, no optional SDK dependencies for fake-adapter checks.
@@ -16,13 +15,13 @@ runs cleanly in reduced-dependency environments.
 Covers:
 - Triplicate conformance: JSON profile == real adapter code == fake adapter
   for every capability field on every transport.
-- PC focus fields: delivery_receipts, reactions, edits, threading,
-  room/channel discovery, membership visibility, attachment support,
-  history retrieval, read receipts, typing indicators, presence.
-- Semantic honesty: LXMF delivery_receipts=False despite SDK delivery state,
-  Matrix delivery_receipts=True as server-ACK only, MeshCore E2EE vs
-  identity_encryption, Meshtastic store_and_forward vs firmware support.
-- Audit summary invariant: 4 × 22 = 88, zero overclaims.
+- Planning/presentation focus fields: reactions, edits, threading, room/channel
+  discovery, membership visibility, attachment support, history retrieval,
+  typing indicators, presence, and payload limits.
+- Delivery timing/evidence semantics are deliberately absent from this model;
+  ``AdapterHandoffResult`` and ``DeliveryFeedback`` own those runtime facts.
+- Semantic honesty: MeshCore E2EE vs identity_encryption and Meshtastic
+  store_and_forward vs firmware support.
 """
 
 from __future__ import annotations
@@ -45,10 +44,11 @@ from medre.core.contracts.adapter import AdapterCapabilities
 TRANSPORTS = ("matrix", "meshtastic", "meshcore", "lxmf")
 
 FIELD_COUNT = len(dataclass_fields(AdapterCapabilities))
-# 22 fields as of the audit date.
-assert FIELD_COUNT == 22, (
-    f"AdapterCapabilities has {FIELD_COUNT} fields, expected 22. "
-    "Update this test and the audit document together."
+# Delivery timing/evidence traits are intentionally not planning capabilities.
+EXPECTED_CAPABILITY_FIELDS = 19
+assert FIELD_COUNT == EXPECTED_CAPABILITY_FIELDS, (
+    f"AdapterCapabilities has {FIELD_COUNT} fields, expected "
+    f"{EXPECTED_CAPABILITY_FIELDS}. Update the capability audit intentionally."
 )
 
 PROFILES_DIR = (
@@ -231,8 +231,16 @@ def test_real_adapter_matches_fake_for_every_field(transport: str) -> None:
 
 
 def test_audit_total_declaration_count() -> None:
-    """4 transports × 22 fields = 88 capability declarations."""
-    assert len(TRANSPORTS) * FIELD_COUNT == 88
+    """Every transport declares the complete planning capability surface."""
+    assert len(TRANSPORTS) * FIELD_COUNT == 76
+
+
+def test_delivery_runtime_traits_are_not_planning_capabilities() -> None:
+    """Handoff timing and evidence strength belong to delivery contracts."""
+    names = _all_field_names()
+    assert "delivery_receipts" not in names
+    assert "ack_tracking" not in names
+    assert "async_delivery" not in names
 
 
 def test_every_transport_profile_json_exists() -> None:
@@ -257,30 +265,6 @@ def test_json_has_exactly_all_adapter_capability_fields() -> None:
 # ---------------------------------------------------------------------------
 # 3. PC focus fields — explicit per-transport assertions
 # ---------------------------------------------------------------------------
-
-
-class TestDeliveryReceipts:
-    """delivery_receipts: whether the adapter can confirm delivery back to the framework."""
-
-    def test_matrix_delivery_receipts_true(self) -> None:
-        """Matrix declares True: room_send returns event_id (server ACK)."""
-        fake_caps = _get_fake_caps("matrix")
-        assert fake_caps.delivery_receipts is True
-
-    def test_meshtastic_delivery_receipts_false(self) -> None:
-        """Meshtastic: queue-based deliver returns 'enqueued', no ACK confirmation."""
-        fake_caps = _get_fake_caps("meshtastic")
-        assert fake_caps.delivery_receipts is False
-
-    def test_meshcore_delivery_receipts_false(self) -> None:
-        """MeshCore: ACK is for contact DMs only, not tracked by MEDRE."""
-        fake_caps = _get_fake_caps("meshcore")
-        assert fake_caps.delivery_receipts is False
-
-    def test_lxmf_delivery_receipts_false(self) -> None:
-        """LXMF: 9-state model exists but MEDRE does not wire it as receipts."""
-        fake_caps = _get_fake_caps("lxmf")
-        assert fake_caps.delivery_receipts is False
 
 
 class TestReactions:
@@ -417,26 +401,6 @@ class TestHistoryRetrieval:
         assert _get_fake_caps("lxmf").store_and_forward is True
 
 
-class TestReadReceipts:
-    """Read receipts map to delivery_receipts in MEDRE's capability model."""
-
-    def test_matrix_delivery_receipts_is_server_ack_not_e2e_read(self) -> None:
-        """Matrix delivery_receipts=True means room_send returned event_id,
-        not that the recipient read the message.  Matrix m.receipt is not
-        tracked.  No overclaim."""
-        caps = _get_fake_caps("matrix")
-        assert caps.delivery_receipts is True
-        # The audit doc (§5.1) explicitly clarifies this is server ACK.
-
-    def test_lxmf_no_delivery_receipts_despite_sdk_state(self) -> None:
-        """LXMF has a 9-state delivery model but the adapter does not wire
-        delivery confirmations back through the MEDRE capability system.
-        delivery_state appears in metadata['lxmf'] only.
-        delivery_receipts=False is the honest declaration."""
-        caps = _get_fake_caps("lxmf")
-        assert caps.delivery_receipts is False
-
-
 class TestTypingIndicators:
     """Typing indicators: no adapter implements them.  Verified via presence."""
 
@@ -474,30 +438,6 @@ class TestIdentityEncryption:
 # ---------------------------------------------------------------------------
 # 4. Semantic honesty: detailed overclaim disproval
 # ---------------------------------------------------------------------------
-
-
-def test_lxmf_delivery_receipts_false_despite_sdk_delivery_state() -> None:
-    """LXMF SDK has a 9-state delivery model (outbound → sent → delivered, etc.)
-    but MEDRE keeps those asynchronous terminal facts in the separate
-    delivery-observation ledger rather than rewriting delivery receipts.
-    This test documents that the receipt capability remains deliberately
-    False even though durable post-handoff observation evidence exists."""
-    fake_caps = _get_fake_caps("lxmf")
-    assert fake_caps.delivery_receipts is False
-    json_caps = _load_json_caps("lxmf")
-    assert json_caps["delivery_receipts"] is False
-
-
-def test_matrix_delivery_receipts_true_means_server_ack_not_e2e() -> None:
-    """Matrix delivery_receipts=True means room_send returns event_id on
-    success (server-acknowledged delivery fact).  This is NOT end-to-end
-    read receipt tracking.  Matrix m.receipt is not tracked by MEDRE.
-    The flag is honest: the adapter does confirm delivery (to the homeserver)
-    back to the framework.  Honest server-ACK-only claim."""
-    fake_caps = _get_fake_caps("matrix")
-    assert fake_caps.delivery_receipts is True
-    json_caps = _load_json_caps("matrix")
-    assert json_caps["delivery_receipts"] is True
 
 
 def test_meshcore_identity_encryption_false_despite_always_on_e2ee() -> None:
@@ -649,29 +589,8 @@ def test_matrix_and_meshcore_no_metadata_fields() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 9. Async delivery: all adapters claim async
+# 9. Conservative defaults check: priority delivery
 # ---------------------------------------------------------------------------
-
-
-def test_all_adapters_claim_async_delivery() -> None:
-    """All four adapters deliver asynchronously."""
-    for transport in TRANSPORTS:
-        assert (
-            _get_fake_caps(transport).async_delivery is True
-        ), f"{transport} should declare async_delivery=True"
-
-
-# ---------------------------------------------------------------------------
-# 10. Conservative defaults check: no adapter overclaims ack_tracking or
-#     priority_delivery
-# ---------------------------------------------------------------------------
-
-
-def test_no_adapter_claims_ack_tracking() -> None:
-    for transport in TRANSPORTS:
-        assert (
-            _get_fake_caps(transport).ack_tracking is False
-        ), f"{transport} unexpectedly declares ack_tracking"
 
 
 def test_no_adapter_claims_priority_delivery() -> None:
@@ -682,7 +601,7 @@ def test_no_adapter_claims_priority_delivery() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 11. Regression: ImportError discrimination
+# 10. Regression: ImportError discrimination
 # ---------------------------------------------------------------------------
 
 

@@ -527,7 +527,7 @@ class TestLxmfOutboundNativeRefs:
     """Outbound delivery uses adapter-provided IDs."""
 
     async def test_fake_adapter_returns_delivery_result_with_native_id(self) -> None:
-        """Fake adapter returns AdapterDeliveryResult with native_message_id."""
+        """Fake adapter returns AdapterHandoffResult with native_message_id."""
         config = LxmfConfig(adapter_id="lxmf-1")
         adapter = FakeLxmfAdapter(config)
         result = RenderingResult(

@@ -24,7 +24,6 @@ def _make_medre_app() -> MedreApp:
         config=MagicMock(),
         paths=MagicMock(),
         storage=None,
-        event_bus=MagicMock(),
         rendering_pipeline=MagicMock(),
         router=MagicMock(),
         fallback_resolver=MagicMock(),
@@ -33,6 +32,7 @@ def _make_medre_app() -> MedreApp:
         diagnostician=MagicMock(),
         adapters={},
         shutdown_event=MagicMock(),
+        event_bus=MagicMock(),
     )
 
 

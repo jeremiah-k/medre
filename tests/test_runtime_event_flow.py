@@ -402,7 +402,6 @@ class TestAdapterSpecificMetadataPreserved:
 
         ctx = AdapterContext(
             adapter_id="test_mx",
-            event_bus=EventBus(),
             publish_inbound=_noop_publish,
             logger=logging.getLogger("test.test_mx"),
             clock=lambda: datetime.now(timezone.utc),

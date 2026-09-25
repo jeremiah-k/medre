@@ -270,8 +270,8 @@ class TestMatrixToMeshtasticToMatrixRoundtrip:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={RADIO: radio, MX: matrix},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -425,8 +425,8 @@ class TestMeshtasticToMatrixToMeshtasticRoundtrip:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={RADIO: radio, MX: matrix},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -550,8 +550,8 @@ class TestMultiRadioCrossTargetFallback:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={ALPHA: alpha, MX: matrix},
-                event_bus=EventBus(),
                 rendering_pipeline=rp1,
+                event_bus=EventBus(),
             )
         )
         await runner1.start()
@@ -610,8 +610,8 @@ class TestMultiRadioCrossTargetFallback:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={BRAVO: bravo},
-                event_bus=EventBus(),
                 rendering_pipeline=rp2,
+                event_bus=EventBus(),
             )
         )
         await runner2.start()
@@ -706,8 +706,8 @@ class TestMultiRadioCorrectTargetSelection:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={ALPHA: alpha, BRAVO: bravo},
-                event_bus=EventBus(),
                 rendering_pipeline=rp1,
+                event_bus=EventBus(),
             )
         )
         await runner1.start()
@@ -783,8 +783,8 @@ class TestMultiRadioCorrectTargetSelection:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={BRAVO: bravo},
-                event_bus=EventBus(),
                 rendering_pipeline=rp2,
+                event_bus=EventBus(),
             )
         )
         await runner2.start()
@@ -863,8 +863,8 @@ class TestMissingNativeRefRoundtrip:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={RADIO: radio},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()

@@ -30,9 +30,6 @@ Outbox statuses (DeliveryOutboxItem.status)
 Outcome statuses (DeliveryOutcome.status)
     ``success``, ``queued``, ``transient_failure``, ``permanent_failure``,
     ``skipped``.
-
-Adapter delivery_status (OutboundResult.delivery_status)
-    ``sent``, ``enqueued``.
 """
 
 from __future__ import annotations
@@ -126,13 +123,6 @@ OUTCOME_STATUSES: frozenset[str] = frozenset(
 ACCEPTED_OUTCOME_STATUSES: frozenset[str] = frozenset({"success", "queued"})
 
 # ---------------------------------------------------------------------------
-# Adapter delivery_status vocabulary
-# ---------------------------------------------------------------------------
-
-#: All known OutboundResult.delivery_status values returned by adapters.
-ADAPTER_DELIVERY_STATUSES: frozenset[str] = frozenset({"sent", "enqueued"})
-
-# ---------------------------------------------------------------------------
 # Transition tables
 # ---------------------------------------------------------------------------
 # These dicts map a source status to the set of statuses that have been
@@ -163,7 +153,7 @@ RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
 #: ~~~~~~~~~~~~~~~~~~~~~
 #: - ``queued`` → ``sent`` is reachable only via the supplemental receipt
 #:   callback path in
-#:   :meth:`DeliveryLifecycleService.finalize_queued_delivery`,
+#:   :meth:`DeliveryLifecycleService.finalize_deferred_handoff`,
 #:   which validates the outbox status to ``queued`` or ``in_progress``
 #:   before performing the transition.  Live delivery paths do not
 #:   produce a ``queued`` → ``sent`` transition directly.

@@ -33,10 +33,7 @@ class TransportCapabilities:
     supports_reactions: bool = False
     supports_edits: bool = False
     supports_binary_payloads: bool = False
-    supports_delivery_receipts: bool = False
-    supports_ack_tracking: bool = False
     supports_store_and_forward: bool = False
-    supports_async_delivery: bool = False
     supports_identity_encryption: bool = False
     supports_presence: bool = False
     supports_topic_rooms: bool = False
@@ -77,10 +74,7 @@ def summarize_adapter_capabilities(
         supports_reactions=reactions_level != "unsupported",
         supports_edits=edits_level != "unsupported",
         supports_binary_payloads=capabilities.attachments,
-        supports_delivery_receipts=capabilities.delivery_receipts,
-        supports_ack_tracking=capabilities.ack_tracking,
         supports_store_and_forward=capabilities.store_and_forward,
-        supports_async_delivery=capabilities.async_delivery,
         supports_identity_encryption=capabilities.identity_encryption,
         supports_presence=capabilities.presence,
         supports_topic_rooms=capabilities.topic_rooms,

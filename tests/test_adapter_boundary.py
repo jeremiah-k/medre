@@ -7,7 +7,7 @@ without adding features.  These tests verify:
 * ``stop(timeout)`` accepts a numeric timeout.
 * ``health_check()`` returns an :class:`AdapterInfo` with JSON-safe fields.
 * ``deliver(result)`` accepts a :class:`RenderingResult` and returns
-  ``AdapterDeliveryResult | None``.
+  ``AdapterHandoffResult``.
 * ``AdapterContract`` is abstract and cannot be instantiated directly.
 """
 
@@ -18,7 +18,6 @@ import inspect
 import json
 import logging
 from datetime import datetime, timezone
-from types import MappingProxyType
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -27,15 +26,17 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    OutboundNativeRefRecord,
 )
 from medre.core.rendering.renderer import RenderingResult
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +46,6 @@ from tests.helpers.delivery_callbacks import make_attempt_provenance
 def _make_context(adapter_id: str = "test") -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=_async_noop,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -91,8 +91,8 @@ class _StubAdapter(AdapterContract):
             health="healthy",
         )
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
-        return AdapterDeliveryResult(
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
+        return AdapterHandoffResult(
             native_message_id="stub-msg-001",
             native_channel_id="stub-ch-001",
         )
@@ -203,28 +203,22 @@ class TestHealthCheckContract:
 
 
 class TestDeliverContract:
-    """deliver() accepts RenderingResult, returns AdapterDeliveryResult | None."""
+    """deliver() accepts RenderingResult and returns AdapterHandoffResult."""
 
     @pytest.mark.asyncio
     async def test_deliver_accepts_rendering_result(self) -> None:
         adapter = _StubAdapter()
         result = _make_rendering_result()
         delivery = await adapter.deliver(result)
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id == "stub-msg-001"
         assert delivery.native_channel_id == "stub-ch-001"
 
-    @pytest.mark.asyncio
-    async def test_deliver_can_return_none(self) -> None:
-        """Adapters may return None when no native ID is available."""
-
-        class _NoResultAdapter(_StubAdapter):
-            async def deliver(self, result: RenderingResult) -> None:
-                return None
-
-        adapter = _NoResultAdapter()
-        out = await adapter.deliver(_make_rendering_result())
-        assert out is None
+    def test_deliver_annotation_is_closed_handoff_result(self) -> None:
+        """The adapter contract does not advertise a nullable success result."""
+        sig = inspect.signature(AdapterContract.deliver)
+        assert "AdapterHandoffResult" in str(sig.return_annotation)
+        assert "None" not in str(sig.return_annotation)
 
     def test_deliver_signature(self) -> None:
         sig = inspect.signature(AdapterContract.deliver)
@@ -322,50 +316,43 @@ class TestClassifyFailureWithAdapterSendError:
 
 
 # ===================================================================
-# 8. AdapterDeliveryResult fields and delivery_note
+# 8. AdapterHandoffResult fields and note
 # ===================================================================
 
 
-class TestAdapterDeliveryResultFields:
-    """AdapterDeliveryResult has consistent field shapes."""
+class TestAdapterHandoffResultFields:
+    """AdapterHandoffResult has consistent field shapes."""
 
-    def test_default_delivery_status_is_adapter_fact(self) -> None:
-        """AdapterDeliveryResult().delivery_status defaults to a known
-        ADAPTER_DELIVERY_STATUSES value."""
-        from medre.core.engine.pipeline.delivery_state import (
-            ADAPTER_DELIVERY_STATUSES,
-        )
+    def test_default_disposition_is_closed_transport_handoff_fact(self) -> None:
+        from medre.core.contracts.delivery import ADAPTER_HANDOFF_DISPOSITION_VALUES
 
-        result = AdapterDeliveryResult()
-        assert result.delivery_status == "sent"
-        assert result.delivery_status in ADAPTER_DELIVERY_STATUSES, (
-            f"Default delivery_status {result.delivery_status!r} not in "
-            f"ADAPTER_DELIVERY_STATUSES {sorted(ADAPTER_DELIVERY_STATUSES)}"
-        )
+        result = AdapterHandoffResult()
+        assert result.disposition == "transport_handoff"
+        assert result.disposition in ADAPTER_HANDOFF_DISPOSITION_VALUES
 
-    def test_delivery_note_defaults_to_empty(self) -> None:
-        result = AdapterDeliveryResult()
-        assert result.delivery_note == ""
+    def test_note_defaults_to_empty(self) -> None:
+        result = AdapterHandoffResult()
+        assert result.note == ""
         assert result.native_message_id is None
         assert result.native_channel_id is None
         assert result.native_thread_id is None
         assert result.native_relation_id is None
 
-    def test_delivery_note_can_be_set(self) -> None:
-        result = AdapterDeliveryResult(
+    def test_note_can_be_set(self) -> None:
+        result = AdapterHandoffResult(
             native_message_id=None,
             native_channel_id="1",
-            delivery_note="locally enqueued",
+            note="locally enqueued",
         )
-        assert result.delivery_note == "locally enqueued"
+        assert result.note == "locally enqueued"
         assert result.native_message_id is None
 
     def test_result_with_all_native_ids(self) -> None:
-        result = AdapterDeliveryResult(
+        result = AdapterHandoffResult(
             native_message_id="msg-123",
             native_channel_id="ch-456",
             native_thread_id="thread-789",
-            delivery_note="",
+            note="",
         )
         assert result.native_message_id == "msg-123"
         assert result.native_channel_id == "ch-456"
@@ -381,7 +368,7 @@ class TestNativeRefPersistenceSemantics:
     """Native refs are only persisted when adapter returns native_message_id."""
 
     def test_result_with_native_id_signals_ref_storage(self) -> None:
-        result = AdapterDeliveryResult(
+        result = AdapterHandoffResult(
             native_message_id="$event_id:abc",
             native_channel_id="!room:server",
         )
@@ -389,10 +376,10 @@ class TestNativeRefPersistenceSemantics:
         assert result.native_message_id is not None
 
     def test_result_without_native_id_signals_no_ref(self) -> None:
-        result = AdapterDeliveryResult(
+        result = AdapterHandoffResult(
             native_message_id=None,
             native_channel_id="1",
-            delivery_note="locally enqueued",
+            note="locally enqueued",
         )
         # Pipeline skips native ref when native_message_id is None
         assert result.native_message_id is None
@@ -411,9 +398,7 @@ class TestCancelledErrorPropagation:
         """CancelledError raised inside deliver() is not swallowed."""
 
         class _CancellingAdapter(_StubAdapter):
-            async def deliver(
-                self, result: RenderingResult
-            ) -> AdapterDeliveryResult | None:
+            async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
                 raise asyncio.CancelledError()
 
         adapter = _CancellingAdapter()
@@ -427,35 +412,34 @@ class TestCancelledErrorPropagation:
 
 
 class TestFakeAdapterFieldShapes:
-    """Each fake adapter returns consistent AdapterDeliveryResult fields."""
+    """Each fake adapter returns consistent AdapterHandoffResult fields."""
 
     @pytest.mark.asyncio
     async def test_stub_adapter_returns_consistent_shape(self) -> None:
         adapter = _StubAdapter()
         result = await adapter.deliver(_make_rendering_result())
-        assert isinstance(result, AdapterDeliveryResult)
+        assert isinstance(result, AdapterHandoffResult)
         assert isinstance(result.native_message_id, (str, type(None)))
         assert isinstance(result.native_channel_id, (str, type(None)))
         assert isinstance(result.native_thread_id, (str, type(None)))
-        assert isinstance(result.delivery_note, str)
+        assert isinstance(result.note, str)
 
     @pytest.mark.asyncio
-    async def test_adapter_with_delivery_note(self) -> None:
+    async def test_adapter_with_note(self) -> None:
         class _QueueAdapter(_StubAdapter):
-            async def deliver(
-                self, result: RenderingResult
-            ) -> AdapterDeliveryResult | None:
-                return AdapterDeliveryResult(
+            async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
+                return AdapterHandoffResult(
+                    disposition="deferred",
                     native_message_id=None,
                     native_channel_id="1",
-                    delivery_note="locally enqueued",
+                    note="locally enqueued",
                 )
 
         adapter = _QueueAdapter()
         out = await adapter.deliver(_make_rendering_result())
         assert out is not None
         assert out.native_message_id is None
-        assert out.delivery_note == "locally enqueued"
+        assert out.note == "locally enqueued"
 
 
 # ===================================================================
@@ -852,15 +836,15 @@ class TestErrorClassificationPipeline:
 
 
 # ===================================================================
-# 14. OutboundNativeRefRecord metadata immutability
+# 14. DeferredHandoffCompleted metadata immutability
 # ===================================================================
 
 
-class TestOutboundNativeRefRecordMetadataFrozen:
-    """OutboundNativeRefRecord.metadata is frozen after construction."""
+class TestDeferredHandoffCompletedMetadataFrozen:
+    """DeferredHandoffCompleted.metadata is frozen after construction."""
 
     def test_metadata_readable(self) -> None:
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-1",
             adapter="mesh-1",
             native_channel_id="0",
@@ -874,10 +858,10 @@ class TestOutboundNativeRefRecordMetadataFrozen:
                 target_channel="0",
             ),
         )
-        assert record.metadata["packet_id"] == 1
+        assert record.handoff.metadata["packet_id"] == 1
 
     def test_metadata_immutable_assignment_raises(self) -> None:
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-1",
             adapter="mesh-1",
             native_channel_id="0",
@@ -892,11 +876,11 @@ class TestOutboundNativeRefRecordMetadataFrozen:
             ),
         )
         with pytest.raises(TypeError):
-            record.metadata["x"] = "y"  # type: ignore[index]
+            record.handoff.metadata["x"] = "y"  # type: ignore[index]
 
     def test_metadata_isolated_from_mutable_original(self) -> None:
         original = {"packet_id": 1}
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-1",
             adapter="mesh-1",
             native_channel_id="0",
@@ -911,20 +895,20 @@ class TestOutboundNativeRefRecordMetadataFrozen:
             ),
         )
         original["packet_id"] = 999
-        assert record.metadata["packet_id"] == 1
+        assert record.handoff.metadata["packet_id"] == 1
 
 
 # ===================================================================
-# 15. OutboundNativeRefRecord.native_message_id validation
+# 15. DeferredHandoffCompleted.native_message_id validation
 # ===================================================================
 
 
-class TestOutboundNativeRefRecordMessageIdValidation:
-    """OutboundNativeRefRecord.native_message_id must be non-empty string."""
+class TestDeferredHandoffCompletedMessageIdValidation:
+    """Deferred completion carries an optional, validated native message ID."""
 
     def test_empty_string_rejected(self) -> None:
         with pytest.raises(ValueError, match="non-empty string"):
-            OutboundNativeRefRecord(
+            make_deferred_completion(
                 event_id="evt-1",
                 adapter="mesh-1",
                 native_channel_id="0",
@@ -940,7 +924,7 @@ class TestOutboundNativeRefRecordMessageIdValidation:
 
     def test_whitespace_only_rejected(self) -> None:
         with pytest.raises(ValueError, match="non-empty string"):
-            OutboundNativeRefRecord(
+            make_deferred_completion(
                 event_id="evt-1",
                 adapter="mesh-1",
                 native_channel_id="0",
@@ -954,24 +938,24 @@ class TestOutboundNativeRefRecordMessageIdValidation:
                 ),
             )
 
-    def test_none_rejected(self) -> None:
-        with pytest.raises(ValueError, match="non-empty string"):
-            OutboundNativeRefRecord(
+    def test_none_allowed_when_transport_assigns_no_message_id(self) -> None:
+        record = make_deferred_completion(
+            event_id="evt-1",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id=None,
+            attempt_provenance=make_attempt_provenance(
                 event_id="evt-1",
-                adapter="mesh-1",
-                native_channel_id="0",
-                native_message_id=None,  # type: ignore[arg-type]
-                attempt_provenance=make_attempt_provenance(
-                    event_id="evt-1",
-                    target_adapter="mesh-1",
-                    outbox_id="obox-contract",
-                    attempt_number=1,
-                    target_channel="0",
-                ),
-            )
+                target_adapter="mesh-1",
+                outbox_id="obox-contract",
+                attempt_number=1,
+                target_channel="0",
+            ),
+        )
+        assert record.handoff.native_message_id is None
 
     def test_valid_string_accepted(self) -> None:
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-1",
             adapter="mesh-1",
             native_channel_id="0",
@@ -984,11 +968,11 @@ class TestOutboundNativeRefRecordMessageIdValidation:
                 target_channel="0",
             ),
         )
-        assert record.native_message_id == "42"
-        assert record.confirmation_level == "unknown"
+        assert record.handoff.native_message_id == "42"
+        assert record.handoff.confirmation_level == "local_transport"
 
     def test_metadata_still_frozen_after_valid_id(self) -> None:
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-1",
             adapter="mesh-1",
             native_channel_id="0",
@@ -1003,7 +987,7 @@ class TestOutboundNativeRefRecordMessageIdValidation:
             ),
         )
         with pytest.raises(TypeError):
-            record.metadata["x"] = "y"  # type: ignore[index]
+            record.handoff.metadata["x"] = "y"  # type: ignore[index]
 
 
 # ===================================================================
@@ -1099,192 +1083,69 @@ class TestLxmfRequireGuard:
 # ===================================================================
 
 
-def _classify_delivery_status(
-    result: AdapterDeliveryResult | None,
-) -> str:
-    """Mirror the pipeline's status classification from target_delivery.py.
-
-    The pipeline maps AdapterDeliveryResult.delivery_status to a receipt
-    status using exactly this logic (target_delivery.py lines 636-643):
-
-        _adapter_delivery_status = (
-            getattr(adapter_result, "delivery_status", "sent")
-            if adapter_result
-            else "sent"
-        )
-        status = "queued" if _adapter_delivery_status == "enqueued" else "sent"
-
-    This helper reproduces that mapping so tests can prove the classification
-    is a pure function of delivery_status, independent of metadata.
-    """
-    _adapter_delivery_status = (
-        getattr(result, "delivery_status", "sent") if result else "sent"
-    )
-    return "queued" if _adapter_delivery_status == "enqueued" else "sent"
+def _classify_handoff(result: AdapterHandoffResult) -> str:
+    """Map the closed adapter hand-off fact to durable receipt admission."""
+    return "queued" if result.disposition == "deferred" else "sent"
 
 
 class TestPipelineMetadataIgnoredForLifecycle:
-    """Pipeline classifies delivery based on delivery_status, not metadata.
-
-    Tier 1 (fake_pipeline) — proves the pipeline's status mapping is a pure
-    function of AdapterDeliveryResult.delivery_status.  The pipeline never
-    reads metadata keys (meshcore.local_acceptance, lxmf.delivery_state, etc.)
-    for lifecycle routing decisions.
-    """
-
-    def test_sent_with_meshcore_rejection_metadata(self) -> None:
-        """delivery_status='sent' with local_acceptance=False stays 'sent'."""
-        result = AdapterDeliveryResult(
-            native_message_id="mc-123",
-            native_channel_id="0",
-            delivery_status="sent",
-            metadata=MappingProxyType({"meshcore": {"local_acceptance": False}}),
-        )
-        assert _classify_delivery_status(result) == "sent"
-
-    def test_sent_with_lxmf_outbound_metadata(self) -> None:
-        """delivery_status='sent' with lxmf delivery_state stays 'sent'."""
-        result = AdapterDeliveryResult(
-            native_message_id="lx-123",
-            native_channel_id="abc",
-            delivery_status="sent",
-            metadata=MappingProxyType({"lxmf": {"delivery_state": "outbound"}}),
-        )
-        assert _classify_delivery_status(result) == "sent"
-
-    def test_sent_with_multi_adapter_metadata(self) -> None:
-        """delivery_status='sent' with combined adapter metadata stays 'sent'."""
-        result = AdapterDeliveryResult(
-            native_message_id="x-123",
-            native_channel_id="0",
-            delivery_status="sent",
-            metadata=MappingProxyType(
-                {
-                    "meshcore": {"local_acceptance": False},
-                    "lxmf": {"delivery_state": "outbound"},
-                    "meshtastic": {"hop_limit": 3},
-                    "matrix": {"event_type": "m.room.encrypted"},
-                }
-            ),
-        )
-        assert _classify_delivery_status(result) == "sent"
-
-    def test_sent_with_large_metadata(self) -> None:
-        """Large metadata dict does not affect classification."""
-        result = AdapterDeliveryResult(
-            native_message_id="big-123",
-            native_channel_id="0",
-            delivery_status="sent",
-            metadata=MappingProxyType({f"key_{i}": f"value_{i}" for i in range(100)}),
-        )
-        assert _classify_delivery_status(result) == "sent"
-
-    def test_sent_with_empty_metadata(self) -> None:
-        """delivery_status='sent' with empty metadata stays 'sent'."""
-        result = AdapterDeliveryResult(
-            native_message_id="empty-meta",
-            native_channel_id="0",
-            delivery_status="sent",
-        )
-        assert _classify_delivery_status(result) == "sent"
-
-    def test_enqueued_with_lxmf_metadata(self) -> None:
-        """delivery_status='enqueued' with lxmf metadata stays 'queued'."""
-        result = AdapterDeliveryResult(
-            native_message_id=None,
-            native_channel_id="1",
-            delivery_status="enqueued",
-            delivery_note="locally queued",
-            metadata=MappingProxyType({"lxmf": {"delivery_state": "outbound"}}),
-        )
-        assert _classify_delivery_status(result) == "queued"
-
-    def test_enqueued_with_meshcore_metadata(self) -> None:
-        """delivery_status='enqueued' with meshcore metadata stays 'queued'."""
-        result = AdapterDeliveryResult(
-            native_message_id=None,
-            native_channel_id="0",
-            delivery_status="enqueued",
-            delivery_note="queued for mesh",
-            metadata=MappingProxyType({"meshcore": {"local_acceptance": False}}),
-        )
-        assert _classify_delivery_status(result) == "queued"
-
-    def test_enqueued_with_empty_metadata(self) -> None:
-        """delivery_status='enqueued' with empty metadata stays 'queued'."""
-        result = AdapterDeliveryResult(
-            native_message_id=None,
-            native_channel_id="1",
-            delivery_status="enqueued",
-            delivery_note="locally queued",
-        )
-        assert _classify_delivery_status(result) == "queued"
-
-    def test_none_result_classifies_as_sent(self) -> None:
-        """When adapter returns None, pipeline defaults to 'sent'."""
-        assert _classify_delivery_status(None) == "sent"
-
-    def test_same_status_different_metadata_same_classification(self) -> None:
-        """Two results with same delivery_status but different metadata
-        produce identical pipeline classification."""
-        r1 = AdapterDeliveryResult(
-            native_message_id="a",
-            delivery_status="sent",
-            metadata=MappingProxyType({"meshcore": {"local_acceptance": False}}),
-        )
-        r2 = AdapterDeliveryResult(
-            native_message_id="b",
-            delivery_status="sent",
-            metadata=MappingProxyType({"lxmf": {"delivery_state": "delivered"}}),
-        )
-        assert _classify_delivery_status(r1) == _classify_delivery_status(r2) == "sent"
-
-    def test_different_status_different_metadata_swaps_classification(self) -> None:
-        """Different delivery_status changes classification regardless of metadata."""
-        r_sent = AdapterDeliveryResult(
-            delivery_status="sent",
-            metadata=MappingProxyType({"meshcore": {"local_acceptance": False}}),
-        )
-        r_enqueued = AdapterDeliveryResult(
-            delivery_status="enqueued",
-            metadata=MappingProxyType({}),
-        )
-        assert _classify_delivery_status(r_sent) == "sent"
-        assert _classify_delivery_status(r_enqueued) == "queued"
-
-    def test_default_delivery_status_is_sent(self) -> None:
-        """AdapterDeliveryResult() with no delivery_status defaults to 'sent'."""
-        result = AdapterDeliveryResult()
-        assert result.delivery_status == "sent"
-        assert _classify_delivery_status(result) == "sent"
+    """Handoff disposition, not adapter metadata, selects initial lifecycle state."""
 
     @pytest.mark.parametrize(
-        ("delivery_status", "expected"),
-        [("sent", "sent"), ("enqueued", "queued"), (None, "sent")],
+        "metadata",
+        [
+            {"meshcore": {"local_acceptance": False}},
+            {"lxmf": {"delivery_state": "outbound"}},
+            {"meshtastic": {"hop_limit": 3}},
+            {},
+        ],
     )
-    def test_classify_parity_with_pipeline(
-        self, delivery_status: str | None, expected: str
+    def test_transport_handoff_metadata_does_not_change_sent_classification(
+        self, metadata: dict[str, object]
     ) -> None:
-        """Local helper matches the pipeline's inline classification logic.
+        result = AdapterHandoffResult(
+            native_message_id="native-1",
+            disposition="transport_handoff",
+            metadata=metadata,
+        )
+        assert _classify_handoff(result) == "sent"
 
-        target_delivery.py:636-643 uses:
-            _adapter_delivery_status = (
-                getattr(adapter_result, "delivery_status", "sent")
-                if adapter_result else "sent"
-            )
-            status = "queued" if _adapter_delivery_status == "enqueued" else "sent"
-        """
-        if delivery_status is None:
-            # None result → both default to "sent"
-            assert _classify_delivery_status(None) == expected
-        else:
-            result = AdapterDeliveryResult(delivery_status=delivery_status)
-            assert _classify_delivery_status(result) == expected
+    @pytest.mark.parametrize(
+        "metadata",
+        [
+            {"lxmf": {"delivery_state": "outbound"}},
+            {"meshcore": {"local_acceptance": False}},
+            {},
+        ],
+    )
+    def test_deferred_metadata_does_not_change_queued_classification(
+        self, metadata: dict[str, object]
+    ) -> None:
+        result = AdapterHandoffResult(
+            disposition="deferred",
+            native_channel_id="1",
+            note="locally queued",
+            metadata=metadata,
+        )
+        assert _classify_handoff(result) == "queued"
+
+    def test_default_disposition_classifies_as_sent(self) -> None:
+        assert _classify_handoff(AdapterHandoffResult()) == "sent"
+
+    @pytest.mark.parametrize(
+        ("disposition", "expected"),
+        [("transport_handoff", "sent"), ("deferred", "queued")],
+    )
+    def test_classification_matches_pipeline(
+        self, disposition: str, expected: str
+    ) -> None:
+        result = AdapterHandoffResult(disposition=disposition)  # type: ignore[arg-type]
+        assert _classify_handoff(result) == expected
 
 
 def test_invalid_confirmation_level_rejected() -> None:
     with pytest.raises(ValueError, match="confirmation_level"):
-        OutboundNativeRefRecord(
+        make_deferred_completion(
             event_id="evt-1",
             adapter="mesh-1",
             native_channel_id="0",

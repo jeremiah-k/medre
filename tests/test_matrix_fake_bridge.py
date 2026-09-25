@@ -37,7 +37,7 @@ from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterPermanentError,
     AdapterSendError,
 )
@@ -80,7 +80,6 @@ def _make_context(
     """Build an AdapterContext for bridge tests."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=publish_inbound or AsyncMock(),
         logger=logging.getLogger(f"test.bridge.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -233,8 +232,8 @@ def _make_pipeline_config(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters or {},
-        event_bus=event_bus or EventBus(),
         rendering_pipeline=rp,
+        event_bus=event_bus or EventBus(),
     )
 
 
@@ -253,7 +252,6 @@ def _make_adapter_context_for_pipeline(
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=_publish,
         logger=logging.getLogger(f"test.bridge.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -1157,7 +1155,7 @@ class TestMatrixBridgeDirectErrorBoundary:
             await adapter.deliver(result)
 
     async def test_successful_response_event_id_maps_to_native(self, mock_nio) -> None:
-        """Successful room_send returns AdapterDeliveryResult with the
+        """Successful room_send returns AdapterHandoffResult with the
         response event_id as native_message_id and room_id as
         native_channel_id."""
         config = _make_matrix_config()
@@ -1177,6 +1175,6 @@ class TestMatrixBridgeDirectErrorBoundary:
             payload={"msgtype": "m.text", "body": "test"},
         )
         delivery = await adapter.deliver(result)
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id == "$successful-evt-001"
         assert delivery.native_channel_id == "!ok_room:example.com"

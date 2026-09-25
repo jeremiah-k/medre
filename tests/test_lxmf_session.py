@@ -867,7 +867,7 @@ class TestSendRealDestinationRecall:
         await session.stop()
 
 
-class TestFakeSendReturnsAdapterDeliveryResult:
+class TestFakeSendReturnsAdapterHandoffResult:
     """Fake send_text returns honest outbound/pending data, not None."""
 
     async def test_fake_send_returns_non_none_id(self) -> None:
@@ -1232,7 +1232,6 @@ class TestDeliveryStateMetadataNamespacing:
         adapter = LxmfAdapter(config)
         ctx = AdapterContext(
             adapter_id="lxmf-test",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1281,7 +1280,6 @@ class TestDeliveryStateMetadataNamespacing:
         adapter = LxmfAdapter(config)
         ctx = AdapterContext(
             adapter_id="lxmf-test",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1322,7 +1320,6 @@ class TestDeliveryStateMetadataNamespacing:
         adapter = LxmfAdapter(config)
         ctx = AdapterContext(
             adapter_id="lxmf-test",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),

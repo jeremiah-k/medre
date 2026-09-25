@@ -26,19 +26,19 @@ from dataclasses import replace
 import pytest
 from msgspec.structs import force_setattr
 
-from medre.core.contracts.adapter import QueueTerminalRecord
+from medre.core.contracts.delivery import DeferredHandoffFailed
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.events import NativeMessageRef
 from medre.core.storage.backend import (
+    DeferredHandoffFinalization,
     DeliveryOutboxItem,
-    QueuedDeliveryFinalization,
     StorageError,
     TerminalOutboxFinalization,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.delivery_callbacks import make_terminal_record
+from tests.helpers.delivery_callbacks import make_deferred_failure
 from tests.helpers.storage_outbox import (
     admit_event,
     append_receipt_with_parent,
@@ -95,8 +95,8 @@ def _terminal_record(
     attempt_number: int = 1,
     source: str = "live",
     replay_run_id: str | None = None,
-) -> QueueTerminalRecord:
-    return make_terminal_record(
+) -> DeferredHandoffFailed:
+    return make_deferred_failure(
         event_id=event_id,
         adapter="mesh-1",
         outbox_id=outbox_id,
@@ -153,7 +153,7 @@ async def test_exhausted_from_queued_outbox(
     )
 
     manager = _make_manager(temp_storage)
-    await manager.record_terminal(
+    await manager.record_deferred_failure(
         _terminal_record(
             outbox_id="obox-q-ex",
             event_id="evt-q-ex",
@@ -222,7 +222,7 @@ async def test_terminal_callback_rejects_lineage_read_failure(
     )
 
     manager = _make_manager(temp_storage)
-    await manager.record_terminal(
+    await manager.record_deferred_failure(
         _terminal_record(
             outbox_id="obox-lineage-read-failure",
             event_id="evt-lineage-read-failure",
@@ -264,7 +264,7 @@ async def test_terminal_callback_rejects_contradictory_queued_receipt_provenance
     )
 
     manager = _make_manager(temp_storage)
-    await manager.record_terminal(
+    await manager.record_deferred_failure(
         _terminal_record(
             outbox_id="obox-lineage-contradiction",
             event_id="evt-lineage-contradiction",
@@ -310,7 +310,7 @@ async def test_terminal_callback_rejects_corrupt_queued_receipt_identity(
     )
 
     manager = _make_manager(temp_storage)
-    await manager.record_terminal(
+    await manager.record_deferred_failure(
         _terminal_record(
             outbox_id="obox-lineage-identity-corrupt",
             event_id="evt-lineage-identity-corrupt",
@@ -366,7 +366,7 @@ async def test_retry_source_survives_queued_receipt_race(
     assert queued.dispatch_source == "retry"
 
     manager = _make_manager(temp_storage)
-    await manager.record_terminal(
+    await manager.record_deferred_failure(
         _terminal_record(
             outbox_id=item.outbox_id,
             event_id=item.event_id,
@@ -395,7 +395,7 @@ async def test_cancelled_from_queued_outbox(
     )
 
     manager = _make_manager(temp_storage)
-    await manager.record_terminal(
+    await manager.record_deferred_failure(
         _terminal_record(
             outbox_id="obox-q-cancel",
             event_id="evt-q-cancel",
@@ -429,7 +429,7 @@ async def test_abandoned_from_queued_outbox(
     )
 
     manager = _make_manager(temp_storage)
-    await manager.record_terminal(
+    await manager.record_deferred_failure(
         _terminal_record(
             outbox_id="obox-q-abandon",
             event_id="evt-q-abandon",
@@ -488,7 +488,7 @@ async def test_stale_callback_after_competing_send(
 
     manager = _make_manager(temp_storage)
     with caplog.at_level(logging.WARNING):
-        await manager.record_terminal(
+        await manager.record_deferred_failure(
             _terminal_record(
                 outbox_id="obox-race",
                 event_id="evt-race",
@@ -506,7 +506,7 @@ async def test_stale_callback_after_competing_send(
     assert outbox.status == "sent"
     assert outbox.receipt_id == "rcpt-winner"
 
-    assert "Terminal outcome rejected" in caplog.text
+    assert "Deferred failure rejected" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -632,7 +632,7 @@ async def test_manager_write_failure_leaves_no_partial_state(
 
     manager = _make_manager(temp_storage)
     with caplog.at_level(logging.ERROR):
-        await manager.record_terminal(
+        await manager.record_deferred_failure(
             _terminal_record(
                 outbox_id="obox-wf",
                 event_id="evt-wf",
@@ -640,7 +640,7 @@ async def test_manager_write_failure_leaves_no_partial_state(
             )
         )
 
-    assert "Failed to record terminal queue outcome" in caplog.text
+    assert "Failed to record deferred hand-off failure" in caplog.text
     outbox = await temp_storage.get_outbox_item("obox-wf")
     assert outbox is not None
     assert outbox.status == "queued"
@@ -671,9 +671,9 @@ async def test_duplicate_exhausted_notifications_commit_once(
         event_id="evt-dup",
         delivery_plan_id="plan-dup",
     )
-    await manager.record_terminal(record)
+    await manager.record_deferred_failure(record)
     with caplog.at_level(logging.WARNING):
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
     receipts = await temp_storage.list_receipts_for_event("evt-dup")
     failed = [r for r in receipts if r.status == "failed"]
@@ -999,8 +999,8 @@ async def test_queued_finalization_validates_native_and_attempt_identity(
 
     native_ref = NativeMessageRef(**ref_kwargs)
     with pytest.raises(ValueError, match=message):
-        await temp_storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
+        await temp_storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(native_ref=native_ref, receipt=receipt)
         )
 
 
@@ -1060,8 +1060,8 @@ async def test_queued_finalization_rejects_conflicting_native_identity_atomicall
         StorageError,
         match="Native identity already maps to a different canonical event",
     ):
-        await temp_storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(native_ref=candidate_ref, receipt=receipt)
+        await temp_storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(native_ref=candidate_ref, receipt=receipt)
         )
 
     row = await temp_storage.get_outbox_item(item.outbox_id)
@@ -1107,11 +1107,11 @@ async def test_queued_finalization_wraps_raw_sqlite_error(
 
     monkeypatch.setattr(
         delivery_finalize,
-        "sync_finalize_queued_delivery",
+        "sync_finalize_deferred_handoff",
         _raise_sqlite_error,
     )
 
-    with pytest.raises(StorageError, match="Queued delivery finalization failed"):
-        await temp_storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
+    with pytest.raises(StorageError, match="Deferred hand-off finalization failed"):
+        await temp_storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(native_ref=native_ref, receipt=receipt)
         )

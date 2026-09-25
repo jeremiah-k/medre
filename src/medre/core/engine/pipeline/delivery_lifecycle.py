@@ -44,8 +44,9 @@ DeliveryOutcome statuses
     ``success``, ``queued``, ``transient_failure``, ``permanent_failure``,
     ``skipped``.
 
-Adapter delivery_status
-    ``sent``, ``enqueued``.
+Adapter hand-off dispositions
+    ``transport_handoff``, ``deferred``. These are process-local adapter facts;
+    durable receipt/outbox states remain the lifecycle authority.
 
 Retry representation
     Retry is represented as ``failed`` receipt + ``adapter_transient``
@@ -81,10 +82,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from medre.core.contracts.adapter import (
-    MAX_ADAPTER_RETRY_AFTER_SECONDS,
-    OutboundDeliveryObservationRecord,
-    OutboundNativeRefRecord,
+from medre.core.contracts.adapter import MAX_ADAPTER_RETRY_AFTER_SECONDS
+from medre.core.contracts.delivery import (
+    DeferredHandoffCompleted,
+    PostHandoffObservation,
 )
 from medre.core.delivery_authority import (
     DeliveryIdentity,
@@ -116,8 +117,8 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.storage.backend import (
+    DeferredHandoffFinalization,
     DeliveryOutboxItem,
-    QueuedDeliveryFinalization,
     TerminalOutboxFinalization,
 )
 
@@ -175,9 +176,9 @@ class DeliveryLifecycleStorage(Protocol):
         """List immutable receipt history for one exact outbox ID."""
         ...
 
-    async def finalize_queued_delivery(
+    async def finalize_deferred_handoff(
         self,
-        command: QueuedDeliveryFinalization,
+        command: DeferredHandoffFinalization,
     ) -> bool:
         """Commit sent evidence and the guarded outbox transition atomically.
 
@@ -842,131 +843,64 @@ class DeliveryLifecycleService:
 
     # -- Post-handoff observations ------------------------------------------
 
-    async def record_delivery_observation(
+    async def record_post_handoff_observation(
         self,
         storage: DeliveryLifecycleStorage,
-        record: OutboundDeliveryObservationRecord,
+        feedback: PostHandoffObservation,
         now: datetime,
     ) -> bool:
         """Persist append-only transport evidence for one exact attempt.
 
-        Observations never reopen or rewrite the receipt/outbox lifecycle.
-        Exact ``outbox_id`` and ``attempt_number`` correlation is mandatory.
-        Only attempts still being handed off (``in_progress``/``queued``) or
-        already terminal ``sent`` may receive post-handoff evidence.  A late
-        callback from an attempt that has moved into retry/dead-letter/cancel
-        state is stale and is rejected.
-
-        Attempt identity follows the durable reservation: the retry worker
-        reserves the next attempt before invoking the transport, so a
-        callback carrying the reserved (live) attempt number is admissible
-        for the entire handoff — including before the outbox transition
-        commits — while a callback carrying any earlier attempt number is
-        stale the moment the reservation is durably recorded.  The storage
-        append revalidates the same rule atomically.
-
-        Returns ``True`` when a new observation row was appended.  Missing or
-        mismatched correlation, stale attempts, ineligible outbox states, and
-        duplicate notifications return ``False``.
+        The immutable attempt envelope is the sole correlation authority.
+        Observations never reopen or rewrite receipt/outbox lifecycle state.
         """
-        if record.outbox_id is None or record.attempt_number is None:
-            self._log.warning(
-                "Rejecting uncorrelated delivery observation: event_id=%s "
-                "adapter=%s state=%s outbox_id=%s attempt=%s",
-                record.event_id,
-                record.adapter,
-                record.state,
-                record.outbox_id,
-                record.attempt_number,
-            )
-            return False
-
-        outbox = await storage.get_outbox_item(record.outbox_id)
+        provenance = feedback.attempt_provenance
+        outbox = await storage.get_outbox_item(provenance.outbox_id)
         if outbox is None:
             self._log.warning(
-                "Rejecting delivery observation for missing outbox row: "
-                "outbox_id=%s event_id=%s adapter=%s",
-                record.outbox_id,
-                record.event_id,
-                record.adapter,
+                "Rejecting post-handoff observation for missing outbox row: "
+                "outbox_id=%s",
+                provenance.outbox_id,
             )
             return False
-        provenance = record.attempt_provenance
+
         mismatch = delivery_attempt_provenance_mismatch(provenance, outbox)
         if mismatch is not None:
             self._log.warning(
-                "Rejecting delivery observation with contradictory attempt "
+                "Rejecting post-handoff observation with contradictory attempt "
                 "provenance: outbox_id=%s %s",
-                record.outbox_id,
+                provenance.outbox_id,
                 mismatch,
-            )
-            return False
-        if (
-            outbox.event_id != record.event_id
-            or outbox.target_adapter != record.adapter
-            or self.effective_attempt(outbox) != record.attempt_number
-        ):
-            self._log.warning(
-                "Rejecting stale/mismatched delivery observation: outbox_id=%s "
-                "record=(event=%s adapter=%s attempt=%s) "
-                "stored=(event=%s adapter=%s attempt=%s active_attempt=%s)",
-                record.outbox_id,
-                record.event_id,
-                record.adapter,
-                record.attempt_number,
-                outbox.event_id,
-                outbox.target_adapter,
-                outbox.attempt_number,
-                outbox.active_attempt,
-            )
-            return False
-        if record.delivery_plan_id is not None and (
-            record.delivery_plan_id != outbox.delivery_plan_id
-        ):
-            self._log.warning(
-                "Rejecting delivery observation with plan mismatch: "
-                "outbox_id=%s record_plan=%s stored_plan=%s",
-                record.outbox_id,
-                record.delivery_plan_id,
-                outbox.delivery_plan_id,
             )
             return False
         if outbox.status not in {"in_progress", "queued", "sent"}:
             self._log.warning(
-                "Rejecting delivery observation for non-handoff outbox state: "
+                "Rejecting post-handoff observation for ineligible outbox state: "
                 "outbox_id=%s status=%s attempt=%s state=%s",
-                record.outbox_id,
+                provenance.outbox_id,
                 outbox.status,
-                record.attempt_number,
-                record.state,
+                provenance.attempt_number,
+                feedback.state,
             )
             return False
 
-        # Immutable evidence for this exact outbox generation, when present,
-        # must agree with the provenance envelope before later transport
-        # confirmation is admitted. A callback may legitimately beat the
-        # first attempt-receipt append, so an empty history is not an error; a
-        # failed history read or contradictory matching receipt is. This is the
-        # same authority rule used by queue terminalization and queued->sent
-        # finalization.
         try:
             receipts = await storage.list_receipts_for_outbox(provenance.outbox_id)
         except Exception:
             self._log.exception(
-                "Failed to list attempt receipt history for delivery "
+                "Failed to list attempt receipt history for post-handoff "
                 "observation: outbox_id=%s",
-                record.outbox_id,
+                provenance.outbox_id,
             )
             return False
         for receipt in receipts_for_attempt(provenance, receipts):
             receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
-                provenance,
-                receipt,
+                provenance, receipt
             )
             if receipt_mismatch is not None:
                 self._log.warning(
-                    "Rejecting delivery observation with contradictory immutable "
-                    "receipt provenance: outbox_id=%s attempt=%d %s",
+                    "Rejecting post-handoff observation with contradictory "
+                    "immutable receipt provenance: outbox_id=%s attempt=%d %s",
                     provenance.outbox_id,
                     provenance.attempt_number,
                     receipt_mismatch,
@@ -975,384 +909,215 @@ class DeliveryLifecycleService:
 
         identity = "\x1f".join(
             (
-                record.outbox_id,
-                str(record.attempt_number),
-                record.adapter,
-                record.native_message_id or "",
-                record.state,
-                record.confirmation_level,
+                provenance.outbox_id,
+                str(provenance.attempt_number),
+                provenance.target_adapter,
+                feedback.native_message_id or "",
+                feedback.state,
+                feedback.confirmation_level,
             )
         )
-        observation_id = "obs-" + uuid.uuid5(uuid.NAMESPACE_URL, identity).hex
         observation = DeliveryObservation(
-            observation_id=observation_id,
-            event_id=record.event_id,
-            delivery_plan_id=outbox.delivery_plan_id,
-            target_adapter=record.adapter,
-            target_channel=outbox.target_channel,
-            native_channel_id=record.native_channel_id,
-            outbox_id=outbox.outbox_id,
-            attempt_number=record.attempt_number,
-            adapter_message_id=record.native_message_id,
-            state=record.state,
-            confirmation_level=record.confirmation_level,
-            error=record.error,
-            metadata=dict(record.metadata),
+            observation_id="obs-" + uuid.uuid5(uuid.NAMESPACE_URL, identity).hex,
+            event_id=provenance.event_id,
+            delivery_plan_id=provenance.delivery_plan_id,
+            target_adapter=provenance.target_adapter,
+            target_channel=provenance.target_channel,
+            native_channel_id=feedback.native_channel_id,
+            outbox_id=provenance.outbox_id,
+            attempt_number=provenance.attempt_number,
+            adapter_message_id=feedback.native_message_id,
+            state=feedback.state,
+            confirmation_level=feedback.confirmation_level,
+            error=feedback.error,
+            metadata=dict(feedback.metadata),
             observed_at=now,
         )
         return await storage.append_delivery_observation(observation)
 
     # -- Atomic queued->sent finalization ------------------------------------
 
-    async def finalize_queued_delivery(
+    async def finalize_deferred_handoff(
         self,
         storage: DeliveryLifecycleStorage,
-        record: OutboundNativeRefRecord,
+        feedback: DeferredHandoffCompleted,
         now: datetime,
-    ) -> None:
-        """Finalize a queue-backed delivery that transitioned from
-        ``enqueued`` to ``sent``.
+    ) -> bool:
+        """Atomically finalize a previously deferred transport hand-off.
 
-        **Correlation strategy**:
-
-        **Exact ``outbox_id`` correlation** (required).
-        The callback MUST carry ``outbox_id``.  When present, the method
-        looks up the outbox item directly and validates it:
-
-        - The outbox item must exist and its ``status`` must be
-          ``"queued"`` or ``"in_progress"``.  If the status is anything
-          else (terminal, stale-reclaimed), the callback is rejected as
-          stale and the method logs a warning and returns.
-        - The outbox item's ``event_id`` must match *record.event_id*.
-        - The outbox item's effective attempt — a reserved
-          ``active_attempt`` while an attempt is being handed off,
-          otherwise its stored ``attempt_number`` — must match the queued
-          receipt's ``attempt_number``.  A mismatch indicates a stale
-          callback from a superseded attempt.
-        - The queued receipt is found by exact ``outbox_id`` match among
-          queued receipts after the outbox row has been validated.
-          ``delivery_plan_id`` and ``native_channel_id`` are validation
-          metadata only.
-
-        Callbacks without ``outbox_id`` are hard-rejected — there is no
-        ``delivery_plan_id``-only fallback.  All queue-based adapters
-        must propagate ``outbox_id`` through their queues for exact
-        correlation.
-
-        **Stale-callback protection**: when the outbox item has been
-        reclaimed by a retry (status is no longer ``queued`` or
-        ``in_progress``), the callback is rejected.  This prevents an old
-        in-memory queue callback from finalizing a newly retried outbox
-        attempt.
-
-        After correlation, the method validates that the selected queued
-        receipt can transition to ``sent`` using the delivery_state
-        transition helper.  If the status is invalid, the method logs
-        and returns.
-
-        Finally, the method builds the outbound native ref and immutable sent
-        receipt, then asks storage to commit those facts together with the
-        exact outbox ``queued|in_progress -> sent`` transition in one
-        transaction. The storage transaction re-checks the complete delivery
-        identity, outbox ID, attempt number, and status so a concurrent reclaim
-        or sibling-target mismatch cannot partially commit.
-
-        If no matching ``"queued"`` receipt is found (e.g. a non-queued
-        adapter), the method returns silently.
-
-        Parameters
-        ----------
-        storage:
-            The storage backend for receipt/outbox persistence.
-        record:
-            The outbound native reference record from the adapter.
-        now:
-            Timestamp for the new receipt.
+        Provenance identifies the exact durable generation. Immutable attempt
+        evidence, when already present, must agree with that envelope. A native
+        reference is committed only when the transport supplied a message ID.
         """
-        queued_receipt: DeliveryReceipt | None = None
-        # Track the validated outbox item for exact transition below.
-        validated_outbox: DeliveryOutboxItem | None = None
-
-        if record.outbox_id is not None:
-            # --- Exact outbox_id correlation (required) ---
-            # Look up the outbox item directly for exact, stale-safe matching.
-            outbox_item = await storage.get_outbox_item(record.outbox_id)
-            if outbox_item is None:
-                self._log.warning(
-                    "Stale callback: outbox_id=%s not found for "
-                    "event_id=%s adapter=%s; skipping supplemental receipt",
-                    record.outbox_id,
-                    record.event_id,
-                    record.adapter,
-                )
-                return
-
-            provenance = record.attempt_provenance
-            mismatch = delivery_attempt_provenance_mismatch(provenance, outbox_item)
-            if mismatch is not None:
-                self._log.warning(
-                    "Queued delivery callback rejected: contradictory attempt "
-                    "provenance for outbox_id=%s: %s",
-                    record.outbox_id,
-                    mismatch,
-                )
-                return
-
-            # Stale-callback protection: only accept callbacks for outbox
-            # items that are still in a queued or in-progress state.
-            if outbox_item.status not in ("queued", "in_progress"):
-                self._log.warning(
-                    "Stale callback rejected: outbox_id=%s has status=%s "
-                    "(expected queued or in_progress) for event_id=%s "
-                    "adapter=%s; the outbox item was likely reclaimed by "
-                    "a retry attempt",
-                    record.outbox_id,
-                    outbox_item.status,
-                    record.event_id,
-                    record.adapter,
-                )
-                return
-
-            # Validate event_id matches (prevents cross-event corruption).
-            if outbox_item.event_id != record.event_id:
-                self._log.warning(
-                    "Outbox event_id mismatch: outbox_id=%s has "
-                    "event_id=%s but callback has event_id=%s; "
-                    "skipping supplemental receipt",
-                    record.outbox_id,
-                    outbox_item.event_id,
-                    record.event_id,
-                )
-                return
-
-            # Validate adapter matches the outbox item's target.
-            if record.adapter != outbox_item.target_adapter:
-                self._log.warning(
-                    "Adapter mismatch: outbox_id=%s callback adapter=%s "
-                    "but outbox target_adapter=%s for event_id=%s; "
-                    "skipping supplemental receipt",
-                    record.outbox_id,
-                    record.adapter,
-                    outbox_item.target_adapter,
-                    record.event_id,
-                )
-                return
-
-            # Validate delivery_plan_id matches (when present on record).
-            if (
-                record.delivery_plan_id is not None
-                and record.delivery_plan_id != outbox_item.delivery_plan_id
-            ):
-                self._log.warning(
-                    "delivery_plan_id mismatch: outbox_id=%s callback "
-                    "plan_id=%s but outbox plan_id=%s for event_id=%s; "
-                    "skipping supplemental receipt",
-                    record.outbox_id,
-                    record.delivery_plan_id,
-                    outbox_item.delivery_plan_id,
-                    record.event_id,
-                )
-                return
-
-            # Validate attempt_number — required for queue callbacks.
-            if record.attempt_number is None:
-                self._log.warning(
-                    "Missing attempt_number: outbox_id=%s callback has "
-                    "attempt_number=None for event_id=%s adapter=%s; "
-                    "queue callbacks must carry attempt_number — rejecting",
-                    record.outbox_id,
-                    record.event_id,
-                    record.adapter,
-                )
-                return
-            if record.attempt_number != self.effective_attempt(outbox_item):
-                self._log.warning(
-                    "attempt_number mismatch: outbox_id=%s callback "
-                    "attempt=%d but outbox effective attempt=%d "
-                    "(stored=%d active=%s) for event_id=%s; "
-                    "skipping supplemental receipt",
-                    record.outbox_id,
-                    record.attempt_number,
-                    self.effective_attempt(outbox_item),
-                    outbox_item.attempt_number,
-                    outbox_item.active_attempt,
-                    record.event_id,
-                )
-                return
-
-            # Historical lookup is scoped to the authoritative outbox ID,
-            # deliberately before identity validation. Event/plan/adapter/channel
-            # fields are facts being checked and therefore must not be query
-            # predicates that could hide contradictory immutable evidence.
-            try:
-                existing = await storage.list_receipts_for_outbox(record.outbox_id)
-            except Exception:
-                self._log.exception(
-                    "Failed to list delivery receipt history for supplemental "
-                    "queued->sent: outbox_id=%s event_id=%s plan_id=%s "
-                    "adapter=%s channel=%s",
-                    record.outbox_id,
-                    outbox_item.event_id,
-                    outbox_item.delivery_plan_id,
-                    outbox_item.target_adapter,
-                    outbox_item.target_channel,
-                )
-                return
-
-            # Find the queued receipt matching by outbox_id (exact).
-            # Candidate filtering happens after outbox validation so that
-            # malformed callbacks always produce deterministic rejection logs.
-            # Match only immutable correlation keys here. Every candidate is
-            # validated against the full provenance envelope below so corrupt
-            # identity/source fields cannot disappear through pre-filtering.
-            attempt_receipts = receipts_for_attempt(provenance, existing)
-            outbox_matches = list(
-                queued_receipts_for_attempt(provenance, attempt_receipts)
-            )
-
-            if not outbox_matches:
-                self._log.debug(
-                    "No queued receipt matched outbox_id=%s "
-                    "(plan_id=%s channel=%s) for event_id=%s adapter=%s; "
-                    "skipping supplemental receipt",
-                    record.outbox_id,
-                    outbox_item.delivery_plan_id,
-                    outbox_item.target_channel,
-                    record.event_id,
-                    record.adapter,
-                )
-                return
-
-            # Callback provenance is authoritative. Queued evidence supplies
-            # immutable parent linkage and retry/render fields only, and must
-            # agree with the envelope when already present. Validate every
-            # immutable receipt for the exact outbox generation before
-            # selecting the queued parent so contradictory sent/failed
-            # evidence cannot coexist unnoticed.
-            for candidate in attempt_receipts:
-                receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
-                    provenance,
-                    candidate,
-                )
-                if receipt_mismatch is not None:
-                    self._log.warning(
-                        "Queued delivery callback rejected: receipt provenance "
-                        "contradicts callback for outbox_id=%s attempt=%d: %s",
-                        provenance.outbox_id,
-                        provenance.attempt_number,
-                        receipt_mismatch,
-                    )
-                    return
-            queued_receipt = outbox_matches[-1]
-
-            # Enforce attempt_number correlation: the outbox item and the
-            # selected queued receipt must agree on the attempt number.
-            # A mismatch indicates a stale callback from a prior attempt.
-            if self.effective_attempt(outbox_item) != queued_receipt.attempt_number:
-                self._log.warning(
-                    "Attempt number mismatch: outbox_id=%s has "
-                    "effective attempt=%d but queued receipt %s has "
-                    "attempt_number=%d for event_id=%s adapter=%s; "
-                    "stale callback from a prior attempt — rejecting",
-                    record.outbox_id,
-                    self.effective_attempt(outbox_item),
-                    queued_receipt.receipt_id,
-                    queued_receipt.attempt_number,
-                    record.event_id,
-                    record.adapter,
-                )
-                return
-
-            validated_outbox = outbox_item
-
-        else:
-            # No outbox_id on callback — hard reject.  All queued
-            # callbacks MUST carry outbox_id for exact correlation.
-            # Plan-id-only and no-key callbacks are no longer accepted.
+        provenance = feedback.attempt_provenance
+        handoff = feedback.handoff
+        outbox = await storage.get_outbox_item(provenance.outbox_id)
+        if outbox is None:
             self._log.warning(
-                "Hard reject: supplemental queued→sent callback lacks "
-                "outbox_id for event_id=%s adapter=%s "
-                "delivery_plan_id=%s native_channel_id=%s; exact "
-                "outbox_id correlation is required — no fallback",
-                record.event_id,
-                record.adapter,
-                record.delivery_plan_id,
-                record.native_channel_id,
+                "Deferred hand-off completion rejected: outbox_id=%s not found",
+                provenance.outbox_id,
             )
-            return
+            return False
 
-        # queued_receipt is guaranteed non-None here (every branch above
-        # either sets it and continues or returns early).
-
-        # Validate that the selected queued receipt can transition to sent.
-        if not _is_valid_queued_to_sent_transition(queued_receipt.status):
+        mismatch = delivery_attempt_provenance_mismatch(provenance, outbox)
+        if mismatch is not None:
             self._log.warning(
-                "Selected queued receipt %s has status=%s which cannot "
-                "transition to sent; skipping supplemental receipt for "
-                "event_id=%s adapter=%s",
+                "Deferred hand-off completion rejected: contradictory attempt "
+                "provenance for outbox_id=%s: %s",
+                provenance.outbox_id,
+                mismatch,
+            )
+            return False
+        if outbox.status not in {"queued", "in_progress"}:
+            self._log.warning(
+                "Deferred hand-off completion rejected: outbox_id=%s status=%s",
+                provenance.outbox_id,
+                outbox.status,
+            )
+            return False
+
+        try:
+            existing = await storage.list_receipts_for_outbox(provenance.outbox_id)
+        except Exception:
+            self._log.exception(
+                "Failed to list receipt history for deferred hand-off completion: "
+                "outbox_id=%s",
+                provenance.outbox_id,
+            )
+            return False
+
+        attempt_receipts = receipts_for_attempt(provenance, existing)
+        for candidate in attempt_receipts:
+            receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
+                provenance, candidate
+            )
+            if receipt_mismatch is not None:
+                self._log.warning(
+                    "Deferred hand-off completion rejected: immutable receipt "
+                    "provenance contradicts feedback for outbox_id=%s attempt=%d: %s",
+                    provenance.outbox_id,
+                    provenance.attempt_number,
+                    receipt_mismatch,
+                )
+                return False
+
+        queued_matches = queued_receipts_for_attempt(provenance, attempt_receipts)
+        queued_receipt = (
+            max(
+                queued_matches,
+                key=lambda receipt: (
+                    receipt.sequence or 0,
+                    receipt.created_at.isoformat(),
+                    receipt.receipt_id,
+                ),
+            )
+            if queued_matches
+            else None
+        )
+        if queued_receipt is not None and not _is_valid_queued_to_sent_transition(
+            queued_receipt.status
+        ):
+            self._log.warning(
+                "Deferred hand-off parent receipt %s has status=%s; "
+                "cannot transition to sent",
                 queued_receipt.receipt_id,
                 queued_receipt.status,
-                record.event_id,
-                record.adapter,
             )
-            return
+            return False
+        if queued_receipt is None:
+            if outbox.status == "queued":
+                self._log.warning(
+                    "Deferred hand-off completion rejected: queued outbox has no "
+                    "matching immutable queued attempt evidence: outbox_id=%s "
+                    "attempt=%d",
+                    provenance.outbox_id,
+                    provenance.attempt_number,
+                )
+                return False
+            self._log.debug(
+                "Deferred hand-off completion arrived before queued attempt "
+                "evidence; finalizing from immutable attempt provenance: "
+                "outbox_id=%s attempt=%d",
+                provenance.outbox_id,
+                provenance.attempt_number,
+            )
 
         supplemental = build_delivery_receipt(
-            event_id=record.event_id,
-            delivery_plan_id=queued_receipt.delivery_plan_id,
-            target_adapter=record.adapter,
-            target_channel=outbox_item.target_channel or queued_receipt.target_channel,
-            route_id=queued_receipt.route_id,
+            event_id=provenance.event_id,
+            delivery_plan_id=provenance.delivery_plan_id,
+            target_adapter=provenance.target_adapter,
+            target_channel=provenance.target_channel,
+            route_id=(
+                queued_receipt.route_id
+                if queued_receipt is not None
+                else outbox.route_id
+            ),
             status="sent",
-            adapter_message_id=record.native_message_id,
+            adapter_message_id=handoff.native_message_id,
             created_at=now,
-            attempt_number=queued_receipt.attempt_number,
-            parent_receipt_id=queued_receipt.receipt_id,
+            attempt_number=provenance.attempt_number,
+            parent_receipt_id=(
+                queued_receipt.receipt_id
+                if queued_receipt is not None
+                else outbox.receipt_id
+            ),
             source=provenance.source,
             replay_run_id=provenance.replay_run_id,
-            retry_max_attempts=queued_receipt.retry_max_attempts,
-            retry_backoff_base=queued_receipt.retry_backoff_base,
-            retry_max_delay=queued_receipt.retry_max_delay,
-            retry_jitter=queued_receipt.retry_jitter,
-            rendering_evidence=queued_receipt.rendering_evidence,
-            outbox_id=record.outbox_id,
-            confirmation_level=record.confirmation_level,
-        )
-        if validated_outbox is None:
-            return
-
-        native_ref = NativeMessageRef(
-            id=f"nref-outbound-{uuid.uuid4()}",
-            event_id=record.event_id,
-            adapter=record.adapter,
-            native_channel_id=(
-                record.native_channel_id
-                if record.native_channel_id is not None
-                else validated_outbox.target_channel
+            retry_max_attempts=(
+                queued_receipt.retry_max_attempts
+                if queued_receipt is not None
+                else None
             ),
-            native_message_id=record.native_message_id,
-            native_thread_id=record.native_thread_id,
-            native_relation_id=record.native_relation_id,
-            direction="outbound",
-            metadata=dict(record.metadata),
-            created_at=now,
+            retry_backoff_base=(
+                queued_receipt.retry_backoff_base
+                if queued_receipt is not None
+                else None
+            ),
+            retry_max_delay=(
+                queued_receipt.retry_max_delay if queued_receipt is not None else None
+            ),
+            retry_jitter=(
+                queued_receipt.retry_jitter if queued_receipt is not None else None
+            ),
+            rendering_evidence=(
+                queued_receipt.rendering_evidence
+                if queued_receipt is not None
+                else None
+            ),
+            outbox_id=provenance.outbox_id,
+            confirmation_level=handoff.confirmation_level,
         )
-        committed = await storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(
-                native_ref=native_ref,
+        native_ref = None
+        if handoff.native_message_id is not None:
+            native_ref = NativeMessageRef(
+                id=f"nref-outbound-{uuid.uuid4()}",
+                event_id=provenance.event_id,
+                adapter=provenance.target_adapter,
+                native_channel_id=handoff.native_channel_id,
+                native_message_id=handoff.native_message_id,
+                native_thread_id=handoff.native_thread_id,
+                native_relation_id=handoff.native_relation_id,
+                direction="outbound",
+                metadata=dict(handoff.metadata),
+                created_at=now,
+            )
+
+        committed = await storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(
                 receipt=supplemental,
+                native_ref=native_ref,
             )
         )
         if not committed:
             self._log.warning(
-                "Queued delivery finalization lost its outbox guard: "
-                "outbox_id=%s event_id=%s adapter=%s attempt=%d; "
-                "no native ref or sent receipt was committed",
-                validated_outbox.outbox_id,
-                record.event_id,
-                record.adapter,
-                supplemental.attempt_number,
+                "Deferred hand-off completion lost its outbox guard: "
+                "outbox_id=%s event_id=%s adapter=%s attempt=%d",
+                provenance.outbox_id,
+                provenance.event_id,
+                provenance.target_adapter,
+                provenance.attempt_number,
             )
+        return committed
 
     # -- Retry-worker outbox transitions -----------------------------------
 
@@ -2040,8 +1805,8 @@ class DeliveryLifecycleService:
     ) -> RetryAttemptFinalization | None:
         """Resolve a same-attempt outcome that beat retry success finalization.
 
-        Queue-backed adapters can emit a terminal callback immediately after
-        returning a ``queued`` receipt.  That callback may consume the live
+        Deferred adapters can report terminal feedback immediately after
+        returning a ``queued`` receipt.  That feedback may consume the live
         reservation and clear worker ownership before ``RetryWorker`` commits
         its own queued transition.  A rejected CAS is therefore not always a
         stale worker: when the authoritative row is already terminal at the

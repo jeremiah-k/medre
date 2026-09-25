@@ -1,6 +1,6 @@
-"""Tests for OutboundNativeRefRecord._unwrap MappingProxyType recursion.
+"""Tests for DeferredHandoffCompleted._unwrap MappingProxyType recursion.
 
-The ``_unwrap`` closure inside ``OutboundNativeRefRecord.__post_init__``
+The ``_unwrap`` closure inside ``DeferredHandoffCompleted.__post_init__``
 recursively converts ``MappingProxyType`` instances to plain ``dict`` so that
 ``json.dumps`` can serialise the structure.  These tests exercise lines 365-370
 of ``src/medre/core/contracts/adapter.py`` through the public constructor.
@@ -11,13 +11,16 @@ from __future__ import annotations
 from collections import UserDict
 from types import MappingProxyType
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from medre.core.contracts.delivery import DeferredHandoffCompleted
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 
 
-def _make(**meta: object) -> OutboundNativeRefRecord:
+def _make(**meta: object) -> DeferredHandoffCompleted:
     """Helper: build a record with the given metadata dict."""
-    return OutboundNativeRefRecord(
+    return make_deferred_completion(
         event_id="evt-1",
         adapter="mesh-1",
         native_channel_id="0",
@@ -106,7 +109,7 @@ def test_plain_dict_metadata_no_error() -> None:
 
 def test_top_level_userdict_metadata_accepted() -> None:
     """Non-dict Mapping metadata is normalized and accepted."""
-    record = OutboundNativeRefRecord(
+    record = make_deferred_completion(
         event_id="evt-1",
         adapter="mesh-1",
         native_channel_id="0",

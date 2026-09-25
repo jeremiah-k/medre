@@ -59,11 +59,9 @@ Machine-readable capability declaration: [`meshtastic-capabilities.json`](meshta
 | deletes           | `"unsupported"`            |
 | attachments       | `False`                    |
 | metadata_fields   | `True`                     |
-| delivery_receipts | `False`                    |
 | store_and_forward | `False`                    |
 | direct_messages   | `False`                    |
 | channels          | `True`                     |
-| async_delivery    | `True`                     |
 | mesh_routing      | `True`                     |
 | max_text_bytes    | Configurable (default 227) |
 
@@ -299,14 +297,14 @@ implementation authority.
 ## Native Reference Format
 
 - **Inbound native ref:** `NativeRef(adapter=<id>, native_channel_id=<str(channel)>, native_message_id=<str(packet_id)>)`
-- **Outbound native ref (enqueued):** `native_message_id=None`, `delivery_status="enqueued"`, `native_channel_id=str(channel_index)`.
+- **Synchronous hand-off:** `AdapterHandoffResult(disposition="deferred", confirmation_level="local_queue")`; no native message ID is claimed before RF send.
 - **Outbound native ref (sent):** Delayed outbound ref recorded by `_process_queue` when `send_one()` returns a real packet ID from the SDK.
 
 ---
 
 ## Delivery Semantics
 
-**Local acceptance:** `deliver()` enqueues the payload into `MeshtasticOutboundQueue` and returns `AdapterDeliveryResult(delivery_status="enqueued")`. This confirms local queue acceptance only — it does NOT imply RF transmission.
+**Local acceptance:** `deliver()` enqueues the payload into `MeshtasticOutboundQueue` and returns `AdapterHandoffResult(disposition="deferred")`. This confirms local queue acceptance only — it does NOT imply RF transmission.
 
 **Actual send:** A background `_process_queue` task drains the queue at `message_delay_seconds` pace via `session.send()`. The session sends via the SDK (`sendText` or structured `_sendPacket`) with bounded retry (3 attempts, linear backoff 0.1 s × attempt).
 
@@ -315,8 +313,8 @@ implementation authority.
 - Bounded queue (`queue_max_size`, default 1024); rejects with `MeshtasticSendError(transient=True)` when full.
 - Queue pressure is classified before rejection: `warning` at `queue_warning_threshold_pct`, `critical` at `queue_critical_threshold_pct`, and `full` at capacity. Warning is advisory; critical/full pressure degrades adapter health until the queue drains below the threshold.
 - Queue diagnostics retain peak depth and current pressure without exposing payload content.
-- Transient send failures: item is **front-requeued** up to `queue_send_max_attempts`; then reported as terminal (`exhausted`) via `record_outbound_terminal`.
-- Permanent failures: reported as terminal (`permanent_failed`) immediately via `record_outbound_terminal`.
+- Transient send failures: item is **front-requeued** up to `queue_send_max_attempts`; then reported as terminal (`exhausted`) as `DeferredHandoffFailed` through `report_delivery_feedback`.
+- Permanent failures: reported as terminal (`permanent_failed`) immediately as `DeferredHandoffFailed` through `report_delivery_feedback`.
 - `asyncio.CancelledError` during send: in-flight item stored for cancellation reporting; remaining queue items reported as `abandoned`.
 - Adapter stop: when an in-flight cancelled item exists (evidence the drain task was actively processing), remaining queued items are drained and reported as `abandoned`. When no in-flight item exists, remaining items are left in the in-memory queue to survive across the stop boundary for the next `start()` cycle.
 - Terminal outcomes produce durable receipts and outbox transitions; there is no silent drop.

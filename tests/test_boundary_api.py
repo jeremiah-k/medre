@@ -27,7 +27,7 @@ class TestCanonicalContractExports:
         "AdapterContext",
         "AdapterCapabilities",
         "AdapterInfo",
-        "AdapterDeliveryResult",
+        "AdapterHandoffResult",
         "AdapterSendError",
         "AdapterPermanentError",
     ]

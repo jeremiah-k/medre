@@ -567,8 +567,8 @@ class TestEndToEndCapture:
         snap = capture_runtime_snapshot(
             adapter_healths=entries,
             renderer_pipeline=pipeline,
-            event_bus=bus,
             storage_status={"backend": "sqlite", "wal_mode": True},
+            event_bus=bus,
         )
         result = snap.to_dict()
 

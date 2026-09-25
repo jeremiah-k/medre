@@ -38,7 +38,7 @@ class TestRetryScenario:
             StorageConfig,
         )
         from medre.config.paths import MedrePaths
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
         from medre.core.events.canonical import CanonicalEvent, EventMetadata
 
         # -- Transient-failing adapter: fails first deliver(), succeeds after --
@@ -47,7 +47,7 @@ class TestRetryScenario:
                 super().__init__(adapter_id=adapter_id)
                 self._call_count = 0
 
-            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+            async def deliver(self, result: Any) -> AdapterHandoffResult | None:
                 self._call_count += 1
                 if self._call_count <= 1:
                     raise ConnectionError("transient walkthrough failure")
@@ -277,8 +277,8 @@ class TestReplayScenario:
             replay = ReplayEngine(
                 storage=app.storage,
                 pipeline=app.pipeline_runner,
-                event_bus=app.event_bus,
                 diagnostician=app.diagnostician,
+                event_bus=app.event_bus,
             )
             request = ReplayRequest(
                 mode=ReplayMode.BEST_EFFORT,

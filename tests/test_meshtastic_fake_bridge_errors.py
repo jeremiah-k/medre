@@ -96,8 +96,8 @@ class TestMeshtasticBridgeErrorMapping:
                     "err-fake-in": fake_in_adapter,
                     "err-mesh-out": mesh_out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -107,7 +107,6 @@ class TestMeshtasticBridgeErrorMapping:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="err-mesh-out",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.err-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
@@ -192,8 +191,8 @@ class TestMeshtasticBridgeErrorMapping:
                     "perm-fake-in": fake_in_adapter,
                     "perm-mesh-out": mesh_out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -203,7 +202,6 @@ class TestMeshtasticBridgeErrorMapping:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="perm-mesh-out",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.perm-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
@@ -303,8 +301,8 @@ class TestMeshtasticBridgeErrorMapping:
                     "iso-mesh-out": mesh_out_adapter,
                     "iso-good-out": good_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -314,7 +312,6 @@ class TestMeshtasticBridgeErrorMapping:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="iso-mesh-out",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.iso-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
@@ -324,7 +321,6 @@ class TestMeshtasticBridgeErrorMapping:
         await good_adapter.start(
             AdapterContext(
                 adapter_id="iso-good-out",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.iso-good-out"),
                 clock=lambda: datetime.now(timezone.utc),

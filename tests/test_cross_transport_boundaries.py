@@ -805,7 +805,7 @@ class TestDiagnosticContractBoundary:
 # ===================================================================
 
 _ADAPTER_BASE_MODULE = "medre.core.contracts.adapter"
-"""Module that owns the AdapterDeliveryResult contract."""
+"""Module that owns the AdapterHandoffResult contract."""
 
 _DELIVERY_CONTRACT_MODULES = [
     _ADAPTER_BASE_MODULE,
@@ -818,7 +818,7 @@ _DELIVERY_CONTRACT_MODULES = [
 class TestDeliveryContractBoundary:
     """Delivery contract modules must not import concrete adapters or SDKs.
 
-    The delivery result contract (``AdapterDeliveryResult``) currently lives
+    The delivery result contract (``AdapterHandoffResult``) currently lives
     in ``medre.core.contracts.adapter``, which is the protocol/base types module.  It
     must not import concrete adapter packages or transport SDKs, ensuring the
     delivery result type is SDK-agnostic and transport-neutral.
@@ -875,16 +875,16 @@ class TestDeliveryContractBoundary:
         self,
         delivery_module,
     ) -> None:
-        """Delivery contract module must export AdapterDeliveryResult.
+        """Delivery contract module must export AdapterHandoffResult.
 
         This confirms the delivery result type remains in the adapter base
         module and documents the architectural decision.
         """
         if delivery_module.__name__ != _ADAPTER_BASE_MODULE:
-            pytest.skip("AdapterDeliveryResult location check only applies to base")
+            pytest.skip("AdapterHandoffResult location check only applies to base")
         assert hasattr(
-            delivery_module, "AdapterDeliveryResult"
-        ), f"{delivery_module.__name__} must export AdapterDeliveryResult"
+            delivery_module, "AdapterHandoffResult"
+        ), f"{delivery_module.__name__} must export AdapterHandoffResult"
 
     def test_delivery_contract_does_not_import_pipeline_router_storage(
         self,

@@ -46,7 +46,6 @@ def _make_ctx() -> AdapterContext:
 
     return AdapterContext(
         adapter_id="matrix-test",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.matrix-adapter-delivery"),
         clock=lambda: datetime.now(timezone.utc),

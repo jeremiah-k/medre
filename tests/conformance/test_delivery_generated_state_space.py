@@ -18,8 +18,8 @@ import pytest
 from medre.core.engine.pipeline.delivery_state import OUTBOX_STATUSES
 from medre.core.events import DeliveryReceipt, NativeMessageRef
 from medre.core.storage.backend import (
+    DeferredHandoffFinalization,
     DeliveryOutboxItem,
-    QueuedDeliveryFinalization,
     TerminalOutboxFinalization,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -559,9 +559,9 @@ async def test_queued_sent_finalization_fences_full_delivery_identity(
     list_receipts = generated_storage.list_receipts_for_event  # type: ignore[attr-defined]
     receipts_before = await list_receipts(item.event_id)
 
-    finalize_queued = generated_storage.finalize_queued_delivery  # type: ignore[attr-defined]
+    finalize_queued = generated_storage.finalize_deferred_handoff  # type: ignore[attr-defined]
     committed = await finalize_queued(
-        QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
+        DeferredHandoffFinalization(native_ref=native_ref, receipt=receipt)
     )
 
     assert committed is False

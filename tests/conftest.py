@@ -273,7 +273,6 @@ def make_adapter_context(inbound_collector: _InboundCollector):
 
         return AdapterContext(
             adapter_id=adapter_id,
-            event_bus=None,
             publish_inbound=inbound_collector,
             logger=logging.getLogger(f"test.{adapter_id}"),
             clock=lambda: datetime.now(timezone.utc),

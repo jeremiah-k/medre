@@ -370,17 +370,16 @@ class TestRetryTraceEvidence:
             fallback_resolver=_FallbackResolverWithRetry(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters=adapters,
-            event_bus=EventBus(),
             rendering_pipeline=render_pipe,
             diagnostician=Diagnostician(),
             route_stats=RouteStats(),
             runtime_accounting=accounting,
+            event_bus=EventBus(),
         )
         runner = PipelineRunner(config)
 
         ctx = AdapterContext(
             adapter_id="trace_target",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=__import__("logging").getLogger("test.trace_target"),
             clock=lambda: datetime.now(timezone.utc),
@@ -605,17 +604,16 @@ class TestRetryTraceEvidence:
             fallback_resolver=_FallbackResolverWithRetry(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters=adapters,
-            event_bus=EventBus(),
             rendering_pipeline=render_pipe,
             diagnostician=Diagnostician(),
             route_stats=RouteStats(),
             runtime_accounting=accounting,
+            event_bus=EventBus(),
         )
         runner = PipelineRunner(config)
 
         ctx = AdapterContext(
             adapter_id="events_target",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=__import__("logging").getLogger("test.events_target"),
             clock=lambda: datetime.now(timezone.utc),
@@ -763,17 +761,16 @@ class TestRetryTraceEvidence:
             fallback_resolver=_FallbackResolverWithRetry(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters=adapters,
-            event_bus=EventBus(),
             rendering_pipeline=render_pipe,
             diagnostician=Diagnostician(),
             route_stats=RouteStats(),
             runtime_accounting=accounting,
+            event_bus=EventBus(),
         )
         runner = PipelineRunner(config)
 
         ctx = AdapterContext(
             adapter_id="snapshot_target",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=__import__("logging").getLogger("test.snapshot_target"),
             clock=lambda: datetime.now(timezone.utc),

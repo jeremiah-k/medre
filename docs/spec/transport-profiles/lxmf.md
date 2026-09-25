@@ -51,11 +51,9 @@ Machine-readable capability declaration: [`lxmf-capabilities.json`](lxmf-capabil
 | deletes             | `"unsupported"`                     |
 | attachments         | `False`                             |
 | metadata_fields     | `True`                              |
-| delivery_receipts   | `False`                             |
 | store_and_forward   | `True`                              |
 | direct_messages     | `True`                              |
 | channels            | `False`                             |
-| async_delivery      | `True`                              |
 | identity_encryption | `True`                              |
 | mesh_routing        | `True`                              |
 | max_text_bytes      | `None` (unbounded at adapter level) |
@@ -261,7 +259,7 @@ implementation authority. Flat LXMF event metadata is not an alternate shape.
   - `destination_hash` is the 16-byte recipient identity hash (hex-encoded, 32 chars), if available.
   - `native_channel_id` is always `None` — LXMF has no channel concept.
 
-- **Outbound native ref:** `native_message_id` extracted from the `LXMessage.hash` before and/or after `router.handle_outbound()`. `AdapterDeliveryResult.delivery_status` is always `"sent"` (meaning the message was handed to the local LXMRouter). The initial `LxmfDeliveryState` (typically `OUTBOUND` or `GENERATING`) is reported in `metadata["lxmf"]["delivery_state"]`, not in `delivery_status`.
+- **Outbound native ref:** `native_message_id` extracted from the `LXMessage.hash` before and/or after `router.handle_outbound()`. `AdapterHandoffResult.disposition` is `"transport_handoff"` after the message is accepted by the local LXMRouter. The initial `LxmfDeliveryState` (typically `OUTBOUND` or `GENERATING`) is reported in `metadata["lxmf"]["delivery_state"]`, not in `delivery_status`.
 
 ---
 
@@ -274,11 +272,11 @@ implementation authority. Flat LXMF event metadata is not an alternate shape.
 1. `deliver()` extracts `content`, `title`, `destination_hash`, `delivery_method`, and `fields` from the rendered payload.
 2. `session.send_text()` constructs an `LXMF.LXMessage`, registers a delivery state callback, and calls `router.handle_outbound(lxm)`.
 3. Returns `(native_message_id, initial_state)` where `initial_state` is typically `OUTBOUND` or `GENERATING`.
-4. The `AdapterDeliveryResult.delivery_note` is `"accepted by LXMRouter — async delivery pending"`.
+4. The `AdapterHandoffResult.note` is `"accepted by LXMRouter — async delivery pending"`.
 
 **Delivery state model (tracked per outbound message):**
 
-`AdapterDeliveryResult.delivery_status` is `"sent"` for all LXMF deliveries,
+`AdapterHandoffResult.disposition` is `"transport_handoff"` for successful LXMF hand-offs,
 meaning the message was handed to the local LXMRouter. This does **not** mean
 confirmed delivery to the recipient. `metadata["lxmf"]["delivery_state"]` is
 the **initial** state observed at local handoff (typically `outbound` or
@@ -307,13 +305,12 @@ actually emits a callback carrying that state. MEDRE does not poll private SDK
 state or infer unreported `rejected`/`cancelled` transitions.
 
 **Delivery state is durable evidence, not lifecycle authority.** The LXMF
-adapter still returns `delivery_status="sent"` with `confirmation_level` of
+adapter still returns `disposition="transport_handoff"` with `confirmation_level` of
 `local_queue` when the local `LXMRouter` accepts the message. A later terminal
 SDK callback is appended to `delivery_observations` for the exact outbox
-attempt; it does not rewrite the receipt or terminal outbox state. The
-`delivery_receipts` capability remains `False` because MEDRE does not model
-these provider callbacks as delivery receipts.
-The adapter captures the message hash and state at callback time before
+attempt; it does not rewrite the receipt or terminal outbox state. Post-handoff
+observations are delivery evidence, not a planning capability or a receipt
+transition. The adapter captures the message hash and state at callback time before
 crossing from the SDK thread to the event loop; subsequent changes to the SDK
 message object do not change the observation.
 

@@ -315,7 +315,6 @@ def _relation_context(adapter_id: str, publish: Any) -> Any:
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=publish,
         logger=logging.getLogger(f"test.lxmf.local.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),

@@ -75,8 +75,8 @@ def _make_pipeline_config(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters or {},
-        event_bus=EventBus(),
         route_retry_policies=route_retry_policies or {},
+        event_bus=EventBus(),
     )
 
 

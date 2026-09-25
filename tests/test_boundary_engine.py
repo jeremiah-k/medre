@@ -177,7 +177,6 @@ class TestFakeAdapterRuntimeBuild:
 
         pipeline_config = PipelineConfig(
             storage=_temp_storage,
-            event_bus=event_bus,
             rendering_pipeline=rendering_pipeline,
             router=router,
             fallback_resolver=fallback_resolver,
@@ -185,6 +184,7 @@ class TestFakeAdapterRuntimeBuild:
             diagnostician=diagnostician,
             route_stats=route_stats,
             adapters={"fake_bot1": fake_matrix, "fake_radio": fake_mesh},
+            event_bus=event_bus,
         )
 
         runner = PipelineRunner(config=pipeline_config)

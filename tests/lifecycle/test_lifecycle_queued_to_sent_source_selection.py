@@ -1,6 +1,6 @@
 """Tests for source-aware candidate selection in queued→sent correlation.
 
-Exercises ``finalize_queued_delivery`` source preference logic:
+Exercises ``finalize_deferred_handoff`` source preference logic:
 live queued receipts are preferred over replay queued receipts when
 multiple candidates match the same (delivery_plan_id, adapter, channel).
 
@@ -12,14 +12,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
+from medre.core.contracts.delivery import DeferredHandoffCompleted
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.events import DeliveryAttemptProvenance
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from tests.helpers.delivery_callbacks import (
     make_attempt_provenance,
-    make_terminal_record,
+    make_deferred_completion,
+    make_deferred_failure,
 )
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
@@ -34,7 +35,7 @@ from .conftest import _make_lifecycle, _make_receipt
 
 
 class TestSourceAwareCandidateSelection:
-    """Verify that finalize_queued_delivery prefers non-replay queued
+    """Verify that finalize_deferred_handoff prefers non-replay queued
     receipts over replay queued receipts when multiple candidates match the
     same (delivery_plan_id, adapter, channel).
 
@@ -77,7 +78,7 @@ class TestSourceAwareCandidateSelection:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-live-single")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -94,9 +95,9 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-live-single",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -151,7 +152,7 @@ class TestSourceAwareCandidateSelection:
         await create_outbox_item_with_parent(temp_storage, outbox_item1)
         await temp_storage.mark_outbox_queued("obox-dup-1")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -168,9 +169,9 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-dup-1",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -203,7 +204,7 @@ class TestSourceAwareCandidateSelection:
         await create_outbox_item_with_parent(temp_storage, outbox_item2)
         await temp_storage.mark_outbox_queued("obox-dup-2")
 
-        record2 = OutboundNativeRefRecord(
+        record2 = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -220,9 +221,9 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-dup-2",
             attempt_number=2,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record2,
+            feedback=record2,
             now=now,
         )
 
@@ -275,7 +276,7 @@ class TestSourceAwareCandidateSelection:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-retry")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -292,9 +293,9 @@ class TestSourceAwareCandidateSelection:
             outbox_id="obox-retry",
             attempt_number=2,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -406,9 +407,9 @@ class TestReplayQueuedTerminalCorrelation:
             replay_run_id="run-b",
         )
 
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=OutboundNativeRefRecord(
+            feedback=make_deferred_completion(
                 attempt_provenance=make_attempt_provenance(
                     event_id="evt-001",
                     target_adapter="m",
@@ -491,8 +492,8 @@ class TestReplayQueuedTerminalCorrelation:
             replay_run_id="run-9",
         )
 
-        await manager.record_terminal(
-            make_terminal_record(
+        await manager.record_deferred_failure(
+            make_deferred_failure(
                 event_id="evt-001",
                 adapter="m",
                 outcome="permanent_failed",
@@ -522,9 +523,9 @@ class TestReplayQueuedTerminalCorrelation:
 
         # A late/duplicate success callback for the same row/attempt is
         # stale-rejected: terminal delivery truth was already recorded.
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=OutboundNativeRefRecord(
+            feedback=make_deferred_completion(
                 attempt_provenance=make_attempt_provenance(
                     event_id="evt-001",
                     target_adapter="m",
@@ -605,8 +606,10 @@ class TestProvenanceAuthoritativeCorrelation:
         )
         await storage.mark_outbox_queued(outbox_id)
 
-    def _record(self, provenance: DeliveryAttemptProvenance) -> OutboundNativeRefRecord:
-        return OutboundNativeRefRecord(
+    def _record(
+        self, provenance: DeliveryAttemptProvenance
+    ) -> DeferredHandoffCompleted:
+        return make_deferred_completion(
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -625,9 +628,9 @@ class TestProvenanceAuthoritativeCorrelation:
         await self._seed_replay_row(temp_storage)
         lifecycle = _make_lifecycle()
 
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=self._record(
+            feedback=self._record(
                 self._provenance(
                     outbox_id="obox-prov", source="live", replay_run_id=None
                 )
@@ -663,9 +666,9 @@ class TestProvenanceAuthoritativeCorrelation:
         await self._seed_replay_row(temp_storage)
         lifecycle = _make_lifecycle()
 
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=self._record(self._provenance(outbox_id="obox-prov")),
+            feedback=self._record(self._provenance(outbox_id="obox-prov")),
             now=datetime.now(tz=timezone.utc),
         )
 
@@ -698,9 +701,9 @@ class TestProvenanceAuthoritativeCorrelation:
         await self._seed_replay_row(temp_storage)
         lifecycle = _make_lifecycle()
 
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=self._record(self._provenance(outbox_id="obox-prov")),
+            feedback=self._record(self._provenance(outbox_id="obox-prov")),
             now=datetime.now(tz=timezone.utc),
         )
 
@@ -735,9 +738,9 @@ class TestProvenanceAuthoritativeCorrelation:
         await self._seed_replay_row(temp_storage)
         lifecycle = _make_lifecycle()
 
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=self._record(self._provenance(outbox_id="obox-prov")),
+            feedback=self._record(self._provenance(outbox_id="obox-prov")),
             now=datetime.now(tz=timezone.utc),
         )
 
@@ -805,7 +808,7 @@ class TestContradictoryDuplicateSourceHistoryRejected:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-dup-src")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -823,7 +826,9 @@ class TestContradictoryDuplicateSourceHistoryRejected:
                 source="live",
             ),
         )
-        await lifecycle.finalize_queued_delivery(temp_storage, record=record, now=now)
+        await lifecycle.finalize_deferred_handoff(
+            temp_storage, feedback=record, now=now
+        )
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
@@ -871,7 +876,7 @@ class TestContradictoryDuplicateSourceHistoryRejected:
         )
         await temp_storage.mark_outbox_queued("obox-run")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -890,7 +895,9 @@ class TestContradictoryDuplicateSourceHistoryRejected:
                 replay_run_id="run-7",
             ),
         )
-        await lifecycle.finalize_queued_delivery(temp_storage, record=record, now=now)
+        await lifecycle.finalize_deferred_handoff(
+            temp_storage, feedback=record, now=now
+        )
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]

@@ -616,23 +616,23 @@ class TestAttributionLeakageBoundary:
     def test_adapter_delivery_result_does_not_carry_route_id(
         self,
     ) -> None:
-        """AdapterDeliveryResult must not have a route_id field.
+        """AdapterHandoffResult must not have a route_id field.
 
         Route attribution is added by the pipeline on DeliveryReceipt and
-        DeliveryOutcome, not on AdapterDeliveryResult returned by adapters.
+        DeliveryOutcome, not on AdapterHandoffResult returned by adapters.
         """
         mod = _load_module("medre.core.contracts.adapter")
         if mod is None:
             pytest.skip("medre.core.contracts.adapter not importable")
         assert hasattr(
-            mod, "AdapterDeliveryResult"
-        ), "medre.core.contracts.adapter has no AdapterDeliveryResult"
-        result = mod.AdapterDeliveryResult()
+            mod, "AdapterHandoffResult"
+        ), "medre.core.contracts.adapter has no AdapterHandoffResult"
+        result = mod.AdapterHandoffResult()
         assert not hasattr(result, "route_id"), (
-            "AdapterDeliveryResult must not carry route_id — "
+            "AdapterHandoffResult must not carry route_id — "
             "attribution belongs on DeliveryReceipt / DeliveryOutcome"
         )
         assert not hasattr(result, "route_trace"), (
-            "AdapterDeliveryResult must not carry route_trace — "
+            "AdapterHandoffResult must not carry route_trace — "
             "attribution belongs on RoutingMetadata"
         )

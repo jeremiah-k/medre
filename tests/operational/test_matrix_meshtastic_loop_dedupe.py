@@ -67,9 +67,9 @@ def _build_selfloop_runner(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=store),
         adapters=adapters,
-        event_bus=event_bus,
         rendering_pipeline=rendering_pipeline,
         route_stats=RouteStats(),
+        event_bus=event_bus,
     )
     runner = PipelineRunner(config)
     return runner, store
@@ -114,9 +114,9 @@ def _build_matrix_to_mesh_runner(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=store),
         adapters=adapters,
-        event_bus=event_bus,
         rendering_pipeline=rendering_pipeline,
         route_stats=RouteStats(),
+        event_bus=event_bus,
     )
     runner = PipelineRunner(config)
     return runner, store
@@ -161,9 +161,9 @@ def _build_mesh_to_matrix_runner(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=store),
         adapters=adapters,
-        event_bus=event_bus,
         rendering_pipeline=rendering_pipeline,
         route_stats=RouteStats(),
+        event_bus=event_bus,
     )
     runner = PipelineRunner(config)
     return runner, store

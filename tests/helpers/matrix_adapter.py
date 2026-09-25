@@ -69,7 +69,6 @@ def make_adapter_context(
 
     ctx = AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=_publish,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),

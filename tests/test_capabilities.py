@@ -180,7 +180,6 @@ class TestSerializeAdapterCapabilities:
         assert result["supports_edits"] is True  # "native" → True
         # False due to AdapterCapabilities defaults
         assert result["supports_binary_payloads"] is False
-        assert result["supports_delivery_receipts"] is False
         assert result["supports_mesh_routing"] is False
         # None for max fields
         assert result["max_text_bytes"] is None
@@ -212,10 +211,7 @@ class TestSummarizeAdapterCapabilities:
             direct_messages=True,
             channels=True,
             attachments=True,
-            delivery_receipts=True,
-            ack_tracking=True,
             store_and_forward=True,
-            async_delivery=True,
             identity_encryption=True,
             presence=True,
             topic_rooms=True,
@@ -226,10 +222,7 @@ class TestSummarizeAdapterCapabilities:
         assert tc.supports_direct_messages is True
         assert tc.supports_channels is True
         assert tc.supports_binary_payloads is True
-        assert tc.supports_delivery_receipts is True
-        assert tc.supports_ack_tracking is True
         assert tc.supports_store_and_forward is True
-        assert tc.supports_async_delivery is True
         assert tc.supports_identity_encryption is True
         assert tc.supports_presence is True
         assert tc.supports_topic_rooms is True
@@ -302,7 +295,6 @@ class TestSummarizeAdapterCapabilities:
         assert tc.supports_edits is True  # "native" → True
         # These are False
         assert tc.supports_binary_payloads is False
-        assert tc.supports_delivery_receipts is False
         assert tc.supports_mesh_routing is False
         # None for max fields
         assert tc.max_text_bytes is None
@@ -364,10 +356,8 @@ class TestFakeMatrixCapabilities:
         assert caps.edits == "unsupported"
         assert caps.deletes == "unsupported"
         assert caps.attachments is False
-        assert caps.delivery_receipts is True
         assert caps.direct_messages is True
         assert caps.channels is True
-        assert caps.async_delivery is True
         assert caps.topic_rooms is True
 
     def test_capability_serialization_matches(self) -> None:
@@ -381,7 +371,6 @@ class TestFakeMatrixCapabilities:
         assert result["supports_channels"] is True
         assert result["supports_reactions"] is True  # native → True
         assert result["supports_edits"] is False
-        assert result["supports_delivery_receipts"] is True
         assert result["supports_topic_rooms"] is True
 
     @pytest.mark.asyncio
@@ -611,7 +600,6 @@ class TestFakePresentationCapabilities:
         assert caps.text is True
         assert caps.replies == "native"
         assert caps.reactions == "native"
-        assert caps.delivery_receipts is True
         assert caps.direct_messages is True
         assert caps.channels is True
         assert caps.topic_rooms is True
@@ -623,7 +611,6 @@ class TestFakePresentationCapabilities:
         assert is_capability_summary(result)
         assert result["supports_reactions"] is True  # native → True
         assert result["supports_edits"] is False  # unsupported → False
-        assert result["supports_delivery_receipts"] is True
 
 
 # ===================================================================

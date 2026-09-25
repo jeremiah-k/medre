@@ -30,7 +30,7 @@ from medre.core.routing import Route, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
-from tests.helpers.delivery_callbacks import make_terminal_record
+from tests.helpers.delivery_callbacks import make_deferred_failure
 from tests.helpers.pipeline import make_event
 from tests.helpers.storage_outbox import admit_event
 
@@ -303,8 +303,8 @@ async def test_replay_terminal_callback_before_queued_receipt_preserves_origin(
         replay_run_id="run-terminal-race",
     )
 
-    await manager.record_terminal(
-        make_terminal_record(
+    await manager.record_deferred_failure(
+        make_deferred_failure(
             event_id=event.event_id,
             adapter="dest",
             outcome="permanent_failed",
@@ -365,8 +365,8 @@ async def test_unnamed_replay_terminal_callback_before_queued_receipt_preserves_
     assert row.dispatch_source == "replay"
     assert row.replay_run_id is None
 
-    await manager.record_terminal(
-        make_terminal_record(
+    await manager.record_deferred_failure(
+        make_deferred_failure(
             event_id=event.event_id,
             adapter="dest",
             outcome="permanent_failed",
@@ -425,8 +425,8 @@ async def test_finalized_unnamed_replay_without_queued_receipt_preserves_source(
     assert queued_row.dispatch_source == "replay"
     assert queued_row.replay_run_id is None
 
-    await manager.record_terminal(
-        make_terminal_record(
+    await manager.record_deferred_failure(
+        make_deferred_failure(
             event_id=event.event_id,
             adapter="dest",
             outcome="permanent_failed",

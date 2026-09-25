@@ -47,7 +47,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -111,7 +111,7 @@ class _FailingAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
         return None
 
 
@@ -142,7 +142,7 @@ class _RecordingAdapter(AdapterContract):
             health="healthy",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
         return None
 
 
@@ -748,7 +748,7 @@ class _StartFailsButTracksStop(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
         return None
 
 
@@ -778,7 +778,7 @@ class _StopAlsoFailsAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
         return None
 
 
@@ -992,7 +992,7 @@ class _OrderRecordingAdapter(AdapterContract):
             health="healthy",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
         return None
 
 

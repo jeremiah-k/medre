@@ -281,7 +281,6 @@ def _make_context():
 
     return AdapterContext(
         adapter_id="meshtastic-live-smoke",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.meshtastic-live"),
         clock=lambda: datetime.now(timezone.utc),
@@ -831,7 +830,7 @@ class TestMeshtasticBoundedLiveTests:
             assert delivery is not None
             assert delivery.native_channel_id is not None
             # Delivery was accepted (queued for transmit)
-            assert "enqueued" in delivery.delivery_note
+            assert "enqueued" in delivery.note
         finally:
             await bounded(
                 adapter.stop(), 10.0, "test_live_deliver_with_transmit: adapter.stop()"

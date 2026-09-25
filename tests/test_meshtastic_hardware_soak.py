@@ -65,7 +65,6 @@ def _context() -> AdapterContext:
 
     return AdapterContext(
         adapter_id="meshtastic-hardware-soak",
-        event_bus=None,
         publish_inbound=publish_inbound,
         logger=logging.getLogger("test.meshtastic.hardware-soak"),
         clock=lambda: datetime.now(UTC),

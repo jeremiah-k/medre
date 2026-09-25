@@ -7,7 +7,7 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 from medre.core.storage.backend import (
-    QueuedDeliveryFinalization,
+    DeferredHandoffFinalization,
     StorageError,
     TerminalOutboxFinalization,
 )
@@ -17,8 +17,8 @@ from medre.core.storage.sqlite._native_ref import (
 )
 from medre.core.storage.sqlite._receipt import _receipt_insert_params
 from medre.core.storage.sqlite.connection import (
+    sync_finalize_deferred_handoff,
     sync_finalize_outbox_terminal,
-    sync_finalize_queued_delivery,
 )
 
 
@@ -32,9 +32,9 @@ class _DeliveryFinalizationMixin:
 
         async def _run_in_thread(self, func: Any, *args: Any, **kwargs: Any) -> Any: ...
 
-    async def finalize_queued_delivery(
+    async def finalize_deferred_handoff(
         self,
-        command: QueuedDeliveryFinalization,
+        command: DeferredHandoffFinalization,
     ) -> bool:
         """Atomically persist queue-send evidence and mark its outbox sent.
 
@@ -50,8 +50,12 @@ class _DeliveryFinalizationMixin:
         receipt = command.receipt
         identity = command.identity
         receipt_params = _receipt_insert_params(receipt)
-        native_identity = _native_ref_identity(native_ref)
-        native_params = _native_ref_insert_params(native_ref)
+        native_identity = (
+            _native_ref_identity(native_ref) if native_ref is not None else None
+        )
+        native_params = (
+            _native_ref_insert_params(native_ref) if native_ref is not None else None
+        )
         transition_time = receipt.created_at.isoformat()
         outbox_params: tuple[object, ...] = (
             transition_time,
@@ -68,11 +72,13 @@ class _DeliveryFinalizationMixin:
         db = self._require_db()
         try:
             committed, conflict_event_id = await self._run_in_thread(
-                sync_finalize_queued_delivery,
+                sync_finalize_deferred_handoff,
                 db,
                 self._lock,
                 native_identity=native_identity,
-                native_event_id=native_ref.event_id,
+                native_event_id=(
+                    native_ref.event_id if native_ref is not None else None
+                ),
                 native_insert_params=native_params,
                 receipt_insert_params=receipt_params,
                 outbox_update_params=outbox_params,
@@ -87,7 +93,7 @@ class _DeliveryFinalizationMixin:
         except StorageError:
             raise
         except sqlite3.Error as exc:
-            raise StorageError(f"Queued delivery finalization failed: {exc}") from exc
+            raise StorageError(f"Deferred hand-off finalization failed: {exc}") from exc
 
     async def finalize_outbox_terminal(
         self,

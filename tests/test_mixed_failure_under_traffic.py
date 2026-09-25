@@ -128,9 +128,9 @@ def _build_runner(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters={"stable": stable, "flaky": flaky},
-        event_bus=EventBus(),
         rendering_pipeline=rp,
         runtime_accounting=accounting,
+        event_bus=EventBus(),
     )
     return PipelineRunner(config)
 

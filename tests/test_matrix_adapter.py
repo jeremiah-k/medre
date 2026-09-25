@@ -15,7 +15,7 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixConnectionError
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.core.contracts.adapter import (
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterRole,
 )
 from medre.core.events import CanonicalEvent, EventMetadata
@@ -121,8 +121,8 @@ class TestFakeMatrixAdapterDeliver:
         delivery = await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0].payload["body"] == "hello matrix"
-        # Returns AdapterDeliveryResult with deterministic Matrix-like event ID.
-        assert isinstance(delivery, AdapterDeliveryResult)
+        # Returns AdapterHandoffResult with deterministic Matrix-like event ID.
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id == "$fake_evt-1"
         assert delivery.native_channel_id == "room-1"
 

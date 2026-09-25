@@ -41,7 +41,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -94,7 +94,7 @@ class _FailingAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
         return None
 
 

@@ -61,7 +61,6 @@ def _make_context() -> AdapterContext:
 
     return AdapterContext(
         adapter_id="test",
-        event_bus=None,
         publish_inbound=_async_noop,
         logger=logging.getLogger("test.durable-admission"),
         clock=lambda: datetime.now(timezone.utc),

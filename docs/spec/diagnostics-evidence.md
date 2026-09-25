@@ -738,23 +738,24 @@ The `RenderingEvidence` snapshot captures the budget constraints (`max_text_char
 > receipts may lack individual context fields, so reconstruction falls back where
 > evidence is unavailable.
 
-## 15. Queued-to-Sent Correlation Evidence
+## 15. Deferred Hand-off Correlation Evidence
 
 ### 15.1 Purpose
 
-Queue-based adapters (e.g., Meshtastic) produce a `queued` receipt at local
-queue acceptance and may later produce a supplemental `sent` receipt when the
-transport returns a native message ID. Multiple attempts can overlap in time,
-so callback identity and dispatch provenance must survive the asynchronous
-boundary without inference.
+Adapters may return `AdapterHandoffResult(disposition="deferred")` when local
+work acceptance precedes the external transport boundary. Core records queued
+attempt evidence and later maps `DeferredHandoffCompleted` or
+`DeferredHandoffFailed` into durable lifecycle evidence. Multiple attempts can
+overlap in time, so attempt identity and dispatch provenance must survive the
+asynchronous boundary without inference.
 
 ### 15.2 Immutable attempt provenance
 
 `TargetDeliveryService` creates `DeliveryAttemptProvenance` before adapter
 hand-off, containing the complete delivery identity, `outbox_id`, effective
 `attempt_number`, dispatch `source`, and optional `replay_run_id`. Built-in
-asynchronous adapters carry that object outside the wire payload and echo it on
-callbacks.
+asynchronous adapters carry that object outside the wire payload and echo it in
+their `DeliveryFeedback` value.
 
 Core validates the envelope against durable outbox identity/generation and every
 immutable receipt already carrying that exact `outbox_id`/attempt generation.
@@ -762,51 +763,49 @@ Receipt history is read by `outbox_id` before identity/source validation so a
 malformed receipt cannot disappear through pre-filtering. A queued receipt is
 then used for immutable parent, retry, and rendering linkage. Retry policy is
 copied forward into terminal attempt/lifecycle evidence; rendering evidence
-stays on the queued parent and remains reachable through that parent chain. A
-callback that races ahead of queued-receipt persistence does not lose its
-source/run identity because those facts come from the envelope, not from receipt
-timing.
+stays on the queued parent and remains reachable through that parent chain. If completion races ahead of queued-receipt persistence while the outbox is
+still `in_progress`, it does not lose source/run identity because those facts
+come from the envelope, not receipt timing. Once the outbox has committed
+`queued`, missing matching queued evidence is an integrity failure.
 
-Every asynchronous callback record — queue terminal, delayed native-ref, and
-delivery observation — requires the envelope; records without it are rejected
-at construction. Outbox-less direct hand-off emits no durable post-handoff
-callback evidence because no durable attempt authority exists to attribute it
-to.
+Every asynchronous `DeliveryFeedback` variant requires the envelope; there is no
+envelope-less feedback form. Outbox-less direct hand-off emits no durable
+post-handoff feedback because no durable attempt authority exists to attribute
+it to.
 
 ### 15.3 Evidence Signals
 
-| Signal                                   | Meaning                                                                                                  |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Supplemental `sent` receipt              | Native-ref callback matched the exact outbox generation and full-identity storage fence.                 |
-| Terminal attempt/lifecycle receipt       | Queue terminal callback carried an envelope matching durable outbox authority.                           |
-| Callback before queued receipt           | Valid envelope remains authoritative; missing queued receipt is not used to guess source/run provenance. |
-| Envelope/row contradiction               | Callback is rejected; no lifecycle mutation is committed.                                                |
-| Envelope/immutable-receipt contradiction | Callback is rejected rather than selecting a preferred lineage.                                          |
-| Missing callback `attempt_provenance`    | The asynchronous callback record cannot be constructed.                                                  |
-| Stale generation                         | Callback is rejected against the outbox effective generation.                                            |
+| Signal                                   | Meaning                                                                                                           |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Supplemental `sent` receipt              | `DeferredHandoffCompleted` matched the exact outbox generation and full-identity storage fence.                   |
+| Terminal attempt/lifecycle receipt       | `DeferredHandoffFailed` carried an envelope matching durable outbox authority.                                    |
+| Feedback before queued receipt           | While the outbox is `in_progress`, the valid envelope remains authoritative and no source/run lineage is guessed. |
+| Envelope/row contradiction               | Feedback is rejected; no lifecycle mutation is committed.                                                         |
+| Envelope/immutable-receipt contradiction | Feedback is rejected rather than selecting a preferred lineage.                                                   |
+| Missing `attempt_provenance`             | No asynchronous `DeliveryFeedback` variant can be constructed without it.                                         |
+| Stale generation                         | Feedback is rejected against the outbox effective generation.                                                     |
 
 ### 15.4 Normative Requirements
 
 1. The pipeline MUST create attempt provenance while exact dispatch context is
    known, before asynchronous adapter hand-off.
 2. Built-in asynchronous adapters MUST carry the envelope outside transport
-   payloads and MUST echo it unchanged on their callback records.
+   payloads and MUST echo it unchanged in every `DeliveryFeedback` value.
 3. Core MUST validate delivery identity, outbox ID, effective generation,
    dispatch source, and named replay run against durable authority.
-4. Every asynchronous callback record — queue terminal, delayed native-ref,
-   and delivery observation — without `attempt_provenance` MUST be rejected
-   at construction.
+4. Every asynchronous `DeliveryFeedback` variant MUST require
+   `attempt_provenance` at construction.
 5. Existing receipts for the exact outbox generation are immutable validation
    evidence and MUST NOT override callback provenance. Queued receipts
    additionally provide parent/retry/rendering linkage.
 6. Missing queued-receipt evidence MUST NOT cause source/replay provenance to be
    reconstructed from the mutable row or from timing.
-7. Contradictory callback/row/receipt provenance MUST fail closed.
-8. Receipt-history reads used to validate callback provenance MUST be scoped by
+7. Contradictory feedback/row/receipt provenance MUST fail closed.
+8. Receipt-history reads used to validate feedback provenance MUST be scoped by
    exact `outbox_id` before validating event/plan/adapter/channel identity,
    generation, dispatch source, and replay origin.
 9. Storage MUST retain its full `(event, plan, adapter, channel, outbox,
-attempt)` atomic finalization fence after callback validation.
+attempt)` atomic finalization fence after feedback validation.
 10. Local queue/transport acceptance remains local evidence only; it does not
     imply end-to-end recipient delivery.
 
@@ -1595,12 +1594,12 @@ This section documents the survivability and visibility characteristics of trans
 
 ### 24.2 Native-Ref Characteristics by Transport
 
-| Transport      | Native ref                                           | When available                                                                                                               | Persistence dependency                                                                                                           |
-| -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Matrix         | Homeserver-assigned `event_id` (e.g. `$xxx:server`)  | Returned in the nio send response, near-synchronous with the API call                                                        | Persisted to `native_message_refs` storage on receipt write                                                                      |
-| Meshtastic     | Packet ID assigned by the local radio node           | Returned asynchronously via SDK callback after queue acceptance and RF transmission                                          | Written to `OutboundNativeRefRecord` by the send-confirmation callback, then persisted on the supplemental `sent` receipt (§ 15) |
-| MeshCore       | Native message ID from the mesh protocol             | Returned asynchronously after the adapter processes the outbound message                                                     | Persisted on receipt write                                                                                                       |
-| LXMF/Reticulum | LXMF message hash / Reticulum destination identifier | Available after the message is signed and handed to the LXMRouter; delivery along Reticulum paths is inherently asynchronous | Persisted on receipt write                                                                                                       |
+| Transport      | Native ref                                           | When available                                                                                                               | Persistence dependency                                                                                                            |
+| -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Matrix         | Homeserver-assigned `event_id` (e.g. `$xxx:server`)  | Returned in the nio send response, near-synchronous with the API call                                                        | Persisted to `native_message_refs` storage on receipt write                                                                       |
+| Meshtastic     | Packet ID assigned by the local radio node           | Returned asynchronously via SDK callback after queue acceptance and RF transmission                                          | Written to `DeferredHandoffCompleted` by the send-confirmation callback, then persisted on the supplemental `sent` receipt (§ 15) |
+| MeshCore       | Native message ID from the mesh protocol             | Returned asynchronously after the adapter processes the outbound message                                                     | Persisted on receipt write                                                                                                        |
+| LXMF/Reticulum | LXMF message hash / Reticulum destination identifier | Available after the message is signed and handed to the LXMRouter; delivery along Reticulum paths is inherently asynchronous | Persisted on receipt write                                                                                                        |
 
 ### 24.3 Scenarios Where Native Refs May Be Unavailable or Lost
 

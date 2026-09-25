@@ -68,7 +68,6 @@ def _matrix_event(
 def _context() -> AdapterContext:
     return AdapterContext(
         adapter_id="matrix-reference",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.matrix.reference"),
         clock=lambda: datetime.now(UTC),

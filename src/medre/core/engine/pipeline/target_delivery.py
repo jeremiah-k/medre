@@ -49,9 +49,10 @@ from typing import (
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterPermanentError,
     AdapterSendError,
 )
+from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
@@ -61,9 +62,7 @@ from medre.core.events.canonical import (
     NativeMessageRef,
 )
 from medre.core.events.delivery import (
-    DELIVERY_CONFIRMATION_LEVEL_VALUES,
     DeliveryAttemptProvenance,
-    DeliveryConfirmationLevel,
     DeliverySource,
     normalize_delivery_provenance,
 )
@@ -164,19 +163,16 @@ def _rendering_result_identity_mismatch(
 
 
 def _normalize_mapping(value: Any) -> Any:
-    """Recursively convert MappingProxyType and other Mapping types to plain dicts.
+    """Copy immutable contract metadata into JSON-native persistence values.
 
-    Adapters return immutable ``MappingProxyType`` metadata (including nested
-    ones) to enforce deep immutability on the result object.  Before persisting
-    to SQLite via ``msgspec.json.encode``, all MappingProxyType values must be
-    converted to plain dicts because msgspec cannot serialize ``mappingproxy``.
-
-    This function creates a **copy** — it never mutates the adapter result.
+    Adapter hand-off metadata is deep-frozen at the contract boundary. Storage
+    models intentionally use plain ``dict``/``list`` values, so this helper
+    recursively converts generic mappings and tuple-like frozen arrays without
+    mutating the adapter result.
     """
     if isinstance(value, dict):
         return {k: _normalize_mapping(v) for k, v in value.items()}
-    # MappingProxyType and other Mapping subclasses (but not plain dict,
-    # already handled above) → recurse into a plain dict.
+    # Generic Mapping subclasses (including FrozenDict) recurse into a plain dict.
     if isinstance(value, Mapping):
         return {k: _normalize_mapping(v) for k, v in value.items()}
     # Lists / tuples: recurse into elements in case they contain nested maps.
@@ -507,8 +503,8 @@ class TargetDeliveryService:
             Internal correlation key from the durable outbox item tracking
             this delivery attempt.  Stamped onto the
             :class:`~medre.core.rendering.renderer.RenderingResult` so
-            queue-based adapters can propagate it through their queue for
-            exact callback correlation.  ``None`` when no outbox item was
+            deferred adapters can carry it with local work for exact
+            asynchronous feedback correlation. ``None`` when no outbox item was
             created.
         reserved_attempt_number:
             The durable outbox attempt identity for this dispatch. Retry
@@ -767,8 +763,8 @@ class TargetDeliveryService:
             ) from None
 
         # Freeze the exact attempt identity and dispatch mechanism before
-        # adapter hand-off. Queue-backed adapters carry this immutable envelope
-        # through asynchronous callbacks; scalar fields remain compatibility
+        # adapter hand-off. Deferred adapters carry this immutable envelope
+        # through local work and asynchronous feedback; scalar fields remain compatibility
         # mirrors only. Direct/outbox-less calls have no durable attempt to bind.
         # Renderer output is untrusted: a result whose identity contradicts the
         # requested delivery raises envelope validation, which must fail
@@ -859,31 +855,26 @@ class TargetDeliveryService:
 
         # Deliver the rendered result via adapter.
         delivery_exc: Exception | None = None
-        adapter_result: AdapterDeliveryResult | None = None
+        adapter_result: AdapterHandoffResult | None = None
         try:
-            adapter_result = await deliver_fn(rendering_result)
-
-            # Respect the adapter's declared delivery lifecycle state.
-            # Queue-based adapters return
-            # delivery_status="enqueued" to indicate local acceptance
-            # only; synchronous adapters use the default "sent".
-            _adapter_delivery_status = (
-                getattr(adapter_result, "delivery_status", "sent")
-                if adapter_result
-                else "sent"
-            )
+            raw_result = await deliver_fn(rendering_result)
+            if not isinstance(raw_result, AdapterHandoffResult):
+                raise AdapterPermanentError(
+                    f"adapter {adapter_id!r} violated the delivery contract: "
+                    "deliver() must return AdapterHandoffResult on success"
+                )
+            adapter_result = raw_result
             status: Literal["sent", "failed", "queued"] = (
-                "queued" if _adapter_delivery_status == "enqueued" else "sent"
+                "queued" if adapter_result.disposition == "deferred" else "sent"
             )
             error: str | None = None
-            _log_status = _adapter_delivery_status
             self._log.info(
-                "Delivered: event_id=%s -> adapter=%s plan=%s attempt=%d " "status=%s",
+                "Delivered: event_id=%s -> adapter=%s plan=%s attempt=%d " "handoff=%s",
                 event.event_id,
                 adapter_id,
                 plan.plan_id,
                 attempt_number,
-                _log_status,
+                adapter_result.disposition,
             )
         except asyncio.CancelledError:
             # CancelledError must propagate directly - never caught and
@@ -954,28 +945,11 @@ class TargetDeliveryService:
             ) from None
 
         # Successful/enqueued delivery remains dispatch-attempt evidence.
-        _adapter_message_id: str | None = None
-        _confirmation_level: DeliveryConfirmationLevel = "unknown"
-        if adapter_result is not None:
-            raw_confirmation = adapter_result.confirmation_level
-            if (
-                isinstance(raw_confirmation, str)
-                and raw_confirmation in DELIVERY_CONFIRMATION_LEVEL_VALUES
-            ):
-                _confirmation_level = cast(DeliveryConfirmationLevel, raw_confirmation)
-            else:
-                self._log.warning(
-                    "Adapter %s returned invalid confirmation_level=%r; "
-                    "persisting unknown",
-                    adapter_id,
-                    raw_confirmation,
-                )
-        if (
-            status == "sent"
-            and adapter_result is not None
-            and adapter_result.native_message_id is not None
-        ):
-            _adapter_message_id = adapter_result.native_message_id
+        assert adapter_result is not None
+        _adapter_message_id = (
+            adapter_result.native_message_id if status == "sent" else None
+        )
+        _confirmation_level = adapter_result.confirmation_level
 
         _rendering_evidence: str | None = None
         _raw_evidence = getattr(rendering_result, "rendering_evidence", None)
@@ -1013,11 +987,7 @@ class TargetDeliveryService:
 
         # Store native ref mapping (outbound direction) ONLY on success.
         # Use adapter-provided native IDs; never fabricate synthetic IDs.
-        if (
-            status == "sent"
-            and adapter_result is not None
-            and adapter_result.native_message_id is not None
-        ):
+        if status == "sent" and adapter_result.native_message_id is not None:
             outbound_meta: dict[str, object] = (
                 _normalize_mapping(adapter_result.metadata)
                 if adapter_result.metadata

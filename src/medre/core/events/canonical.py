@@ -28,7 +28,7 @@ from medre.core.events.delivery import (
     DeliverySource,
     normalize_delivery_provenance,
 )
-from medre.core.events.metadata import EventMetadata, _FrozenDict
+from medre.core.events.metadata import EventMetadata, FrozenDict
 
 # Re-export canonical constants from schema to avoid circular imports.
 # These are imported here for validation use only.
@@ -133,8 +133,8 @@ class EventRelation(msgspec.Struct, frozen=True):
     metadata: dict[str, object] = msgspec.field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.metadata, _FrozenDict):
-            force_setattr(self, "metadata", _FrozenDict(self.metadata))
+        if not isinstance(self.metadata, FrozenDict):
+            force_setattr(self, "metadata", FrozenDict(self.metadata))
         if self.relation_type not in VALID_RELATION_TYPES:
             raise ValueError(
                 f"relation_type must be one of {sorted(VALID_RELATION_TYPES)}, "
@@ -189,8 +189,8 @@ class NativeMessageRef(msgspec.Struct, frozen=True):
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(self.metadata, _FrozenDict):
-            force_setattr(self, "metadata", _FrozenDict(self.metadata))
+        if not isinstance(self.metadata, FrozenDict):
+            force_setattr(self, "metadata", FrozenDict(self.metadata))
 
 
 class DeliveryReceipt(msgspec.Struct, frozen=True):
@@ -378,8 +378,8 @@ class DeliveryObservation(msgspec.Struct, frozen=True):
             )
         if not self.outbox_id:
             raise ValueError("delivery observation outbox_id must be non-empty")
-        if not isinstance(self.metadata, _FrozenDict):
-            force_setattr(self, "metadata", _FrozenDict(self.metadata))
+        if not isinstance(self.metadata, FrozenDict):
+            force_setattr(self, "metadata", FrozenDict(self.metadata))
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +468,7 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
         """Validate invariants and enforce deep immutability after construction.
 
         Converts mutable list/dict constructor inputs to immutable storage
-        (tuples and :class:`_FrozenDict`) so that downstream code cannot
+        (tuples and :class:`FrozenDict`) so that downstream code cannot
         mutate canonical event internals in place.
 
         Raises :class:`ValueError` if any invariant is violated.
@@ -478,8 +478,8 @@ class CanonicalEvent(msgspec.Struct, frozen=True):
             force_setattr(self, "lineage", tuple(self.lineage))
         if isinstance(self.relations, list):
             force_setattr(self, "relations", tuple(self.relations))
-        if not isinstance(self.payload, _FrozenDict):
-            force_setattr(self, "payload", _FrozenDict(self.payload))
+        if not isinstance(self.payload, FrozenDict):
+            force_setattr(self, "payload", FrozenDict(self.payload))
 
         # -- Invariant checks -----------------------------------------------
         if not isinstance(self.event_id, str) or not self.event_id:

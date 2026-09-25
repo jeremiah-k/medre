@@ -411,7 +411,7 @@ class TestDeliveryReceiptGenerated:
         self,
         tmp_paths: MedrePaths,
     ) -> None:
-        """Direct adapter.deliver() returns AdapterDeliveryResult."""
+        """Direct adapter.deliver() returns AdapterHandoffResult."""
         config = make_multi_adapter_config()
         app = await build_and_start(config, tmp_paths)
 

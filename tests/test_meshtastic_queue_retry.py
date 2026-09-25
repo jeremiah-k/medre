@@ -65,7 +65,7 @@ class TestSuccessSent:
         result = await q.process_one(send_fn=fake_send)
 
         assert result is not None
-        assert result.delivery_result.native_message_id == "99"
+        assert result.handoff.native_message_id == "99"
         assert q.total_sent == 1
         assert q.total_failed == 0
         assert q.total_requeued == 0
@@ -497,7 +497,6 @@ class TestAdapterDiagnosticsFields:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(
             adapter_id="diag-retry",
@@ -507,7 +506,6 @@ class TestAdapterDiagnosticsFields:
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="diag-retry",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -536,7 +534,6 @@ class TestAdapterDiagnosticsFields:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(
             adapter_id="diag-active",
@@ -546,7 +543,6 @@ class TestAdapterDiagnosticsFields:
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="diag-active",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -651,13 +647,11 @@ class TestDiagnosticsNoMessageBodyOrSecrets:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="diag-safe", connection_type="fake")
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="diag-safe",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),

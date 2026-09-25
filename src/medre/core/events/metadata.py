@@ -23,16 +23,16 @@ import msgspec
 from msgspec.structs import force_setattr
 
 # ---------------------------------------------------------------------------
-# Internal immutable dict helper
+# Immutable dict helper
 # ---------------------------------------------------------------------------
 
 
-class _FrozenDict(dict):
+class FrozenDict(dict):
     """Dict subclass that prevents all mutation after construction.
 
-    Used internally to provide deep immutability for dict fields in
+    Provides deep immutability for dict fields in
     frozen msgspec structs while maintaining ``dict`` type compatibility
-    for msgspec serialisation (``isinstance(_FrozenDict(), dict)`` is
+    for msgspec serialisation (``isinstance(FrozenDict(), dict)`` is
     ``True``, so the encoder/decoder handles it transparently).
     """
 
@@ -44,7 +44,7 @@ class _FrozenDict(dict):
 
     @classmethod
     def _freeze_value(cls, value):
-        if isinstance(value, _FrozenDict):
+        if isinstance(value, FrozenDict):
             return value
         if isinstance(value, dict):
             return cls(value)
@@ -212,8 +212,8 @@ class TelemetryMetadata(msgspec.Struct, frozen=True):
     metrics: dict[str, float | int | str | bool] = msgspec.field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.metrics, _FrozenDict):
-            force_setattr(self, "metrics", _FrozenDict(self.metrics))
+        if not isinstance(self.metrics, FrozenDict):
+            force_setattr(self, "metrics", FrozenDict(self.metrics))
 
 
 class NativeMetadata(msgspec.Struct, frozen=True):
@@ -228,8 +228,8 @@ class NativeMetadata(msgspec.Struct, frozen=True):
     data: dict[str, object] = msgspec.field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.data, _FrozenDict):
-            force_setattr(self, "data", _FrozenDict(self.data))
+        if not isinstance(self.data, FrozenDict):
+            force_setattr(self, "data", FrozenDict(self.data))
 
 
 # ---------------------------------------------------------------------------
@@ -268,5 +268,5 @@ class EventMetadata(msgspec.Struct, frozen=True):
     custom: dict[str, object] = msgspec.field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.custom, _FrozenDict):
-            force_setattr(self, "custom", _FrozenDict(self.custom))
+        if not isinstance(self.custom, FrozenDict):
+            force_setattr(self, "custom", FrozenDict(self.custom))

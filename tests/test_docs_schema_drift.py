@@ -59,20 +59,20 @@ def test_delivery_receipt_schema_matches_source() -> None:
 
 
 def test_delivery_result_schema_matches_source() -> None:
-    """delivery-result.schema.json properties must match AdapterDeliveryResult fields."""
-    from medre.core.contracts.adapter import AdapterDeliveryResult
+    """delivery-result.schema.json properties must match AdapterHandoffResult fields."""
+    from medre.core.contracts.delivery import AdapterHandoffResult
 
     schema = _load_json(_SCHEMAS_DIR / "delivery-result.schema.json")
     schema_props = set(schema.get("properties", {}).keys())
-    source_fields = {f.name for f in dc_fields(AdapterDeliveryResult)}
+    source_fields = set(AdapterHandoffResult.__struct_fields__)
     missing = source_fields - schema_props
     assert (
         not missing
-    ), f"AdapterDeliveryResult fields missing from schema: {sorted(missing)}"
+    ), f"AdapterHandoffResult fields missing from schema: {sorted(missing)}"
     extra = schema_props - source_fields
     assert (
         not extra
-    ), f"Schema properties absent from AdapterDeliveryResult: {sorted(extra)}"
+    ), f"Schema properties absent from AdapterHandoffResult: {sorted(extra)}"
 
 
 def test_route_config_schema_matches_source() -> None:

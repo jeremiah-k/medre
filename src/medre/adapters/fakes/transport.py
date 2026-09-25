@@ -29,7 +29,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -66,11 +66,9 @@ _FAKE_TRANSPORT_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=False,
-    delivery_receipts=False,
     store_and_forward=False,
     direct_messages=True,
     channels=True,
-    async_delivery=True,
     mesh_routing=True,
     max_text_chars=200,
 )
@@ -168,13 +166,13 @@ class FakeTransportAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Accept a pre-rendered payload for delivery.
 
         This adapter does **not** perform event-kind-specific formatting.
         The :class:`RenderingResult` is stored in :attr:`delivered_payloads`
         for test inspection, proving the rendering boundary is respected.
-        Returns an :class:`AdapterDeliveryResult` with a deterministic
+        Returns an :class:`AdapterHandoffResult` with a deterministic
         native ID.
 
         Parameters
@@ -184,12 +182,12 @@ class FakeTransportAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult | None
+        AdapterHandoffResult
             Native delivery metadata.
         """
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=f"fake-transport-{result.event_id}",
             native_channel_id=result.target_channel,
         )

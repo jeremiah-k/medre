@@ -139,7 +139,6 @@ class TestFakePresentationAdapter:
         assert caps.text is True
         assert caps.replies == "native"
         assert caps.reactions == "native"
-        assert caps.delivery_receipts is True
 
     async def test_start_and_stop(self, make_adapter_context) -> None:
         """Lifecycle transitions work."""
@@ -171,7 +170,7 @@ class TestFakePresentationAdapter:
         delivery = await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0] is result
-        assert isinstance(delivery, object)  # AdapterDeliveryResult
+        assert isinstance(delivery, object)  # AdapterHandoffResult
 
     async def test_delivered_payloads_list_for_inspection(self) -> None:
         """Multiple delivered RenderingResults accumulate in delivered_payloads."""
@@ -388,8 +387,8 @@ class TestDeliveryContract:
         assert getattr(AdapterContract.deliver, "__isabstractmethod__", False) is True
 
     async def test_fake_transport_deliver_stores_rendering_result(self) -> None:
-        """FakeTransportAdapter.deliver() stores RenderingResult and returns AdapterDeliveryResult."""
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        """FakeTransportAdapter.deliver() stores RenderingResult and returns AdapterHandoffResult."""
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
         adapter = FakeTransportAdapter("test_t")
         result = RenderingResult(
@@ -405,12 +404,12 @@ class TestDeliveryContract:
         assert isinstance(stored, RenderingResult)
         assert stored.payload["text"] == "transported message"
         # Returns deterministic native ID.
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id == "fake-transport-evt-1"
 
     async def test_fake_presentation_deliver_stores_rendering_result(self) -> None:
         """FakePresentationAdapter.deliver(RenderingResult) stores in delivered_payloads."""
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
         adapter = FakePresentationAdapter("test_p")
         result = RenderingResult(
@@ -424,7 +423,7 @@ class TestDeliveryContract:
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0] is result
         # Returns deterministic native ID.
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id == "fake-pres-evt-1"
 
     async def test_adapter_deliver_does_not_reformat(self) -> None:
@@ -665,7 +664,7 @@ class TestFaultyPresentationAdapter:
     async def test_succeed_never_raises(self) -> None:
         """succeed mode never raises and stores payloads."""
         from medre.adapters.fakes.presentation import FaultyPresentationAdapter
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
         adapter = FaultyPresentationAdapter(
             adapter_id="always-ok",
@@ -680,7 +679,7 @@ class TestFaultyPresentationAdapter:
 
         for _ in range(5):
             delivery = await adapter.deliver(result)
-            assert isinstance(delivery, AdapterDeliveryResult)
+            assert isinstance(delivery, AdapterHandoffResult)
 
         assert adapter.call_count == 5
         assert len(adapter.delivered_payloads) == 5
@@ -688,7 +687,7 @@ class TestFaultyPresentationAdapter:
     async def test_fail_n_then_succeed(self) -> None:
         """fail_n_then_succeed raises for first N calls then succeeds."""
         from medre.adapters.fakes.presentation import FaultyPresentationAdapter
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
         adapter = FaultyPresentationAdapter(
             adapter_id="recover",
@@ -708,15 +707,15 @@ class TestFaultyPresentationAdapter:
                 await adapter.deliver(result)
             assert adapter.call_count == i + 1
 
-        # 4th call succeeds and returns AdapterDeliveryResult
+        # 4th call succeeds and returns AdapterHandoffResult
         delivery = await adapter.deliver(result)
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert adapter.call_count == 4
         assert len(adapter.delivered_payloads) == 1
 
         # 5th call also succeeds
         delivery2 = await adapter.deliver(result)
-        assert isinstance(delivery2, AdapterDeliveryResult)
+        assert isinstance(delivery2, AdapterHandoffResult)
         assert adapter.call_count == 5
         assert len(adapter.delivered_payloads) == 2
 

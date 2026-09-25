@@ -107,7 +107,7 @@ def _replay_delivery_envelope(receipts: Any) -> dict[str, Any]:
     ----------
     receipts:
         The original adapter delivery results (list of receipts,
-        :class:`AdapterDeliveryResult` instances, or any other
+        :class:`AdapterHandoffResult` instances, or any other
         pipeline output).
 
     Returns

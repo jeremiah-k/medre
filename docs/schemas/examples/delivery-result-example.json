@@ -1,11 +1,11 @@
 {
+  "disposition": "transport_handoff",
   "native_message_id": "$abc123def456:matrix.example.org",
   "native_channel_id": "!roomkey:matrix.example.org",
   "native_thread_id": null,
   "native_relation_id": null,
-  "delivery_note": "Message delivered to Matrix room via long-poll sync",
-  "delivery_status": "sent",
   "confirmation_level": "remote_service",
+  "note": "Matrix homeserver accepted the event",
   "metadata": {
     "matrix": {
       "txn_id": "txn_1717401600000"

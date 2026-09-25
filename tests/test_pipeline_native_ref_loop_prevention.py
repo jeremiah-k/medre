@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterDeliveryResult
+from medre.core.contracts.adapter import AdapterHandoffResult
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import (
     CanonicalEvent,
@@ -50,9 +50,9 @@ class _SpyAdapter:
         self.adapter_id = adapter_id
         self.deliver_calls = []
 
-    async def deliver(self, payload: object) -> AdapterDeliveryResult:
+    async def deliver(self, payload: object) -> AdapterHandoffResult:
         self.deliver_calls.append(payload)
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=f"native-{self.adapter_id}-001",
             native_channel_id=f"ch-{self.adapter_id}",
         )
@@ -163,8 +163,8 @@ class TestNativeMessageRefPersistence:
             adapter_id = "out_target"
             platform = "test"
 
-            async def deliver(self, payload: object) -> AdapterDeliveryResult:
-                return AdapterDeliveryResult(
+            async def deliver(self, payload: object) -> AdapterHandoffResult:
+                return AdapterHandoffResult(
                     native_message_id="out-msg-42",
                     native_channel_id="ch-out",
                 )
@@ -769,8 +769,8 @@ class TestReplayUsesStoredNativeRefsConsistently:
             adapter_id = "out-replay"
             platform = "test"
 
-            async def deliver(self, payload: object) -> AdapterDeliveryResult:
-                return AdapterDeliveryResult(
+            async def deliver(self, payload: object) -> AdapterHandoffResult:
+                return AdapterHandoffResult(
                     native_message_id="out-rp-001",
                     native_channel_id="ch-out-rp",
                 )

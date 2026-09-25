@@ -100,7 +100,6 @@ class TestFullPipeline:
 
             t_ctx = AdapterContext(
                 adapter_id="fake_transport",
-                event_bus=None,
                 publish_inbound=publish_inbound,
                 logger=logging.getLogger("e2e.transport"),
                 clock=lambda: datetime.now(timezone.utc),
@@ -108,7 +107,6 @@ class TestFullPipeline:
             )
             p_ctx = AdapterContext(
                 adapter_id="fake_presentation",
-                event_bus=None,
                 publish_inbound=publish_inbound,
                 logger=logging.getLogger("e2e.presentation"),
                 clock=lambda: datetime.now(timezone.utc),
