@@ -89,8 +89,8 @@ from medre.core.contracts.adapter import (
 from medre.core.delivery_authority import (
     DeliveryIdentity,
     committed_receipt_for_outbox,
-    delivery_attempt_receipt_provenance_mismatch,
     delivery_attempt_provenance_mismatch,
+    delivery_attempt_receipt_provenance_mismatch,
     delivery_identity,
     effective_generation,
     queued_receipts_for_attempt,
@@ -1277,9 +1277,7 @@ class DeliveryLifecycleService:
             # validated against the full provenance envelope below so corrupt
             # identity/source fields cannot disappear through pre-filtering.
             if provenance is not None:
-                outbox_matches = list(
-                    queued_receipts_for_attempt(provenance, existing)
-                )
+                outbox_matches = list(queued_receipts_for_attempt(provenance, existing))
             else:
                 outbox_matches = [
                     r

@@ -15,8 +15,8 @@ from datetime import datetime, timedelta, timezone
 
 from medre.core.contracts.adapter import QueueTerminalRecord
 from medre.core.delivery_authority import (
-    delivery_attempt_receipt_provenance_mismatch,
     delivery_attempt_provenance_mismatch,
+    delivery_attempt_receipt_provenance_mismatch,
     delivery_identity,
     queued_receipts_for_attempt,
 )

@@ -160,7 +160,9 @@ async def test_observation_can_arrive_while_handoff_attempt_is_in_progress(
     assert outbox.status == "in_progress"
 
 
-async def test_observation_with_provenance_allows_pre_receipt_race(temp_storage) -> None:
+async def test_observation_with_provenance_allows_pre_receipt_race(
+    temp_storage,
+) -> None:
     await _seed_attempt(temp_storage, status="queued")
     lifecycle = DeliveryLifecycleService()
 
