@@ -32,3 +32,6 @@
 - Make asynchronous callback provenance structurally required and suppress
   post-handoff evidence for outbox-less/direct async sends instead of constructing
   callback records without durable attempt authority.
+- Separate route-level target-channel identity from adapter-resolved native channel
+  evidence, so default/translated native channels do not invalidate exact
+  outbox/provenance correlation.

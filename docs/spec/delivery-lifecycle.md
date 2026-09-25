@@ -200,6 +200,13 @@ dispatch provenance rather than any queued-receipt preference.
 Outbox-less/direct sends do not have such an envelope and therefore **MUST NOT**
 emit these asynchronous durable-evidence callbacks; transport work may still
 complete, but no callback lineage may be invented after hand-off.
+`native_channel_id` is transport evidence and **MUST NOT** be used as a generic
+correlation mirror for route-level `target_channel`. Adapters may resolve an
+unspecified route channel to a configured native default (or translate an alias);
+the outbox/envelope retains route identity while the native reference stores the
+resolved transport channel. Atomic queued-to-sent finalization therefore validates
+event, adapter, message ID, outbox generation, and route identity without requiring
+the native reference channel to equal the route-level target channel.
 
 Renderer output identity is validated before every adapter hand-off, including
 direct/outbox-less delivery where no attempt envelope exists. A renderer result

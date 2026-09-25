@@ -906,6 +906,13 @@ terminal, delayed-native-reference, or delivery-observation evidence for those
 sends; post-handoff callback evidence is emitted only for an outbox-backed
 attempt carrying exact `DeliveryAttemptProvenance`.
 
+A callback's `native_channel_id` is transport-resolved evidence, not a mirror of
+`DeliveryAttemptProvenance.target_channel`. The latter is route-level delivery
+identity and may be absent or adapter-specific while the transport resolves a
+default/native channel. Exact callback correlation therefore uses the envelope
+and `outbox_id`; core preserves the actual native channel separately on native
+references and observations.
+
 Built-in asynchronous adapters carry immutable `attempt_provenance` across the
 transport/session boundary and echo it unchanged. The transport session MAY
 carry this value as opaque caller-owned context, but it **MUST NOT** interpret
