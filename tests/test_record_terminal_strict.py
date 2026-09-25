@@ -5,7 +5,7 @@ rejecting terminal outcome records that:
 - Lack outbox_id
 - Point to non-existent outbox rows
 - Reference already-terminal outbox rows
-- Have mismatched event_id, adapter, channel, plan, or attempt_number
+- Have mismatched event_id, adapter, plan, or attempt_number
 - Target outbox rows in ineligible statuses (pending, retry_wait)
 
 Also validates that valid callbacks produce correct receipts and outbox
@@ -23,7 +23,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.delivery_callbacks import make_terminal_record
+from tests.helpers.delivery_callbacks import make_attempt_provenance, make_terminal_record
 from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 # -- Helpers --
@@ -291,44 +291,51 @@ class TestWrongAdapterRejected:
 
 
 # ===================================================================
-# 8. Wrong channel → reject
+# 8. Native channel is transport evidence, not route identity
 # ===================================================================
 
 
-class TestWrongChannelRejected:
-    """native_channel_id mismatch between record and outbox row → reject."""
+class TestNativeChannelEvidence:
+    """Resolved native channel may differ from an unspecified route channel."""
 
     @pytest.mark.asyncio
-    async def test_wrong_channel_no_receipt(
+    async def test_default_native_channel_does_not_reject_terminal_outcome(
         self,
         temp_storage: SQLiteStorage,
-        caplog: pytest.LogCaptureFixture,
     ) -> None:
         await _create_outbox_item(
             temp_storage,
-            outbox_id="obox-ch-mismatch",
+            outbox_id="obox-default-channel",
             event_id="evt-channel",
             target_adapter="mesh-1",
-            target_channel="0",
+            target_channel=None,
             status="in_progress",
         )
 
         manager = _make_manager(temp_storage)
-        record = make_terminal_record(
+        record = QueueTerminalRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-channel",
+                target_adapter="mesh-1",
+                outbox_id="obox-default-channel",
+                attempt_number=1,
+                target_channel=None,
+            ),
             event_id="evt-channel",
             adapter="mesh-1",
-            native_channel_id="99",
-            provenance_channel="0",
-            outbox_id="obox-ch-mismatch",
+            native_channel_id="3",
+            outbox_id="obox-default-channel",
             outcome="exhausted",
             attempt_number=1,
         )
-        with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+        await manager.record_terminal(record)
 
         receipts = await temp_storage.list_receipts_for_event("evt-channel")
-        assert len(receipts) == 0
-        assert "native_channel_id mismatch" in caplog.text
+        assert [receipt.status for receipt in receipts] == ["failed", "dead_lettered"]
+        outbox = await temp_storage.get_outbox_item("obox-default-channel")
+        assert outbox is not None
+        assert outbox.status == "dead_lettered"
+        assert outbox.target_channel is None
 
 
 # ===================================================================

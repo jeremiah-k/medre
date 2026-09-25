@@ -98,6 +98,67 @@ class TestAppendQueuedToSentReceipt:
         assert sent[0].delivery_plan_id == "plan-q"
 
 
+    async def test_default_native_channel_is_recorded_without_changing_route_identity(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Resolved native channels are evidence, not route identity mirrors."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+        queued = _make_receipt(
+            receipt_id="rcpt-default-channel",
+            status="queued",
+            adapter="mesh-1",
+            channel=None,
+            plan_id="plan-default-channel",
+            outbox_id="obox-default-channel",
+        )
+        await append_receipt_with_parent(temp_storage, queued)
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-default-channel",
+            event_id="evt-001",
+            route_id="route-001",
+            delivery_plan_id="plan-default-channel",
+            target_adapter="mesh-1",
+            target_channel=None,
+            status="in_progress",
+            attempt_number=1,
+        )
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
+        await temp_storage.mark_outbox_queued("obox-default-channel")
+        record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-default-channel",
+                attempt_number=1,
+                delivery_plan_id="plan-default-channel",
+                target_channel=None,
+            ),
+            event_id="evt-001",
+            adapter="mesh-1",
+            native_channel_id="3",
+            native_message_id="packet-default-channel",
+        )
+
+        await lifecycle.finalize_queued_delivery(
+            temp_storage,
+            record=record,
+            now=now,
+        )
+
+        receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [receipt for receipt in receipts if receipt.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].target_channel is None
+        refs = await temp_storage.list_native_refs_for_event("evt-001")
+        assert any(
+            ref.native_message_id == "packet-default-channel"
+            and ref.native_channel_id == "3"
+            for ref in refs
+        )
+
+
 # ===================================================================
 # Same-channel retry lineage regression (outbox_id-based correlation)
 # ===================================================================

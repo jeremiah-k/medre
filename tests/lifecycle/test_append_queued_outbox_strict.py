@@ -154,12 +154,11 @@ class TestFieldMismatchRejected:
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
 
-    async def test_wrong_native_channel_id_rejected(
+    async def test_wrong_route_channel_provenance_rejected(
         self,
         outbox_temp_storage: StorageBackend,
     ) -> None:
-        """outbox_id correct but record.native_channel_id differs
-        → no supplemental receipt."""
+        """A callback whose route-channel provenance contradicts the outbox is rejected."""
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 

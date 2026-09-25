@@ -106,11 +106,6 @@ def _sent_evidence(
         ({"event_id": "evt-other"}, {}, "event_id must match"),
         ({"adapter": "other"}, {}, "adapter must match"),
         (
-            {"native_channel_id": "1"},
-            {},
-            "native_channel_id must match",
-        ),
-        (
             {"native_message_id": "pkt-other"},
             {},
             "native_message_id must match",
@@ -137,6 +132,30 @@ async def test_finalize_queued_delivery_rejects_invalid_evidence(
                 receipt=candidate_receipt,
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_finalize_queued_delivery_accepts_resolved_native_channel_evidence(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Native transport channel may differ from route-level target identity."""
+    await _seed_queued_attempt(temp_storage)
+    native_ref, sent = _sent_evidence(native_id="pkt-native-channel")
+    native_ref = msgspec.structs.replace(native_ref, native_channel_id="3")
+
+    committed = await temp_storage.finalize_queued_delivery(
+        QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
+    )
+
+    assert committed is True
+    assert (
+        await temp_storage.resolve_native_ref(ADAPTER, "3", "pkt-native-channel")
+        == EVENT_ID
+    )
+    row = await temp_storage.get_outbox_item(OUTBOX_ID)
+    assert row is not None
+    assert row.status == "sent"
+    assert row.target_channel == CHANNEL
 
 
 @pytest.mark.asyncio

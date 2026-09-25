@@ -1172,22 +1172,6 @@ class DeliveryLifecycleService:
                 )
                 return
 
-            # Validate native_channel_id matches outbox target_channel
-            # (when present on record).
-            if record.native_channel_id is not None and (
-                record.native_channel_id or None
-            ) != (outbox_item.target_channel or None):
-                self._log.warning(
-                    "native_channel_id mismatch: outbox_id=%s callback "
-                    "channel=%s but outbox target_channel=%s for "
-                    "event_id=%s; skipping supplemental receipt",
-                    record.outbox_id,
-                    record.native_channel_id,
-                    outbox_item.target_channel,
-                    record.event_id,
-                )
-                return
-
             # Validate attempt_number — required for queue callbacks.
             if record.attempt_number is None:
                 self._log.warning(

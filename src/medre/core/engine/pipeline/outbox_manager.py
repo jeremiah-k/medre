@@ -444,22 +444,6 @@ class OutboxManager:
                 )
                 return
 
-            # ``native_channel_id`` is transport-reported evidence rather than
-            # a provenance mirror, but queue terminal callbacks historically
-            # required it to agree with the admitted target when supplied. Do
-            # not let the envelope migration weaken that independent fence.
-            if record.native_channel_id is not None and (
-                record.native_channel_id or None
-            ) != (existing_item.target_channel or None):
-                self._log.warning(
-                    "Terminal outcome rejected: native_channel_id mismatch for "
-                    "outbox_id=%s callback=%r row=%r",
-                    provenance.outbox_id,
-                    record.native_channel_id,
-                    existing_item.target_channel,
-                )
-                return
-
             if existing_item.status not in ("queued", "in_progress"):
                 self._log.warning(
                     "Terminal outcome rejected: outbox_id=%s has status=%s which "

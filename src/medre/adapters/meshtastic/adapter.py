@@ -1269,13 +1269,12 @@ class MeshtasticAdapter(AdapterContract):
         outbox_id = item.get("outbox_id")
         mismatch: str | None = None
         if isinstance(provenance, DeliveryAttemptProvenance):
-            channel_index = item.get("channel_index")
-            channel = str(channel_index) if channel_index is not None else None
             if self.adapter_id != provenance.target_adapter:
                 mismatch = "target_adapter contradicts immutable attempt provenance"
-            elif channel is not None and channel != provenance.target_channel:
-                mismatch = "target_channel contradicts immutable attempt provenance"
             else:
+                # ``channel_index`` is the resolved native radio channel. It is
+                # transport evidence, not a mirror of the route-level
+                # ``target_channel`` (which may be None or an adapter alias).
                 for name, value, expected in (
                     ("event_id", item.get("event_id"), provenance.event_id),
                     (
