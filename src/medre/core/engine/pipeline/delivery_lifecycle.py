@@ -892,15 +892,6 @@ class DeliveryLifecycleService:
             )
             return False
         provenance = record.attempt_provenance
-        if provenance is None:
-            self._log.warning(
-                "Rejecting delivery observation without attempt_provenance: "
-                "outbox_id=%s event_id=%s adapter=%s",
-                record.outbox_id,
-                record.event_id,
-                record.adapter,
-            )
-            return False
         mismatch = delivery_attempt_provenance_mismatch(provenance, outbox)
         if mismatch is not None:
             self._log.warning(
@@ -1097,15 +1088,6 @@ class DeliveryLifecycleService:
                 return
 
             provenance = record.attempt_provenance
-            if provenance is None:
-                self._log.warning(
-                    "Queued delivery callback rejected: missing "
-                    "attempt_provenance for outbox_id=%s event_id=%s adapter=%s",
-                    record.outbox_id,
-                    record.event_id,
-                    record.adapter,
-                )
-                return
             mismatch = delivery_attempt_provenance_mismatch(provenance, outbox_item)
             if mismatch is not None:
                 self._log.warning(

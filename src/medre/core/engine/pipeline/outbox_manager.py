@@ -404,15 +404,6 @@ class OutboxManager:
             # It was frozen before adapter hand-off, so callback lineage never
             # depends on mutable row state or queued-receipt append timing.
             provenance = record.attempt_provenance
-            if provenance is None:
-                self._log.warning(
-                    "Terminal outcome rejected: missing attempt_provenance for "
-                    "event_id=%s adapter=%s outcome=%s",
-                    record.event_id,
-                    record.adapter,
-                    record.outcome,
-                )
-                return
 
             existing_item = await self._storage.get_outbox_item(provenance.outbox_id)
             if existing_item is None:

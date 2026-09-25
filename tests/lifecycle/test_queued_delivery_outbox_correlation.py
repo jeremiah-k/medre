@@ -583,6 +583,14 @@ class TestTerminalOutcomeExhausted:
             delivery_plan_id="plan-ex",
             outbox_id="obox-ex",
             attempt_number=1,
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-exhaust",
+                target_adapter="mesh-test",
+                outbox_id="obox-ex",
+                attempt_number=1,
+                delivery_plan_id="plan-ex",
+                target_channel="0",
+            ),
         )
 
         # First attempt: transient -> front-requeue.
@@ -683,6 +691,13 @@ class TestTerminalOutcomeExhausted:
             channel_index=0,
             event_id="evt-perm",
             outbox_id="obox-perm",
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-perm",
+                target_adapter="mesh-test",
+                outbox_id="obox-perm",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )
 
         send_fn = AsyncMock(
@@ -1112,6 +1127,13 @@ class TestCancellationReporting:
             event_id="evt-cancel",
             outbox_id="obox-cancel",
             attempt_number=1,
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-cancel",
+                target_adapter="mesh-test",
+                outbox_id="obox-cancel",
+                attempt_number=1,
+                target_channel="1",
+            ),
         )
 
         async def _cancel_send(item: dict[str, Any]) -> None:
@@ -1140,12 +1162,26 @@ class TestCancellationReporting:
             channel_index=0,
             event_id="evt-ab1",
             outbox_id="obox-ab1",
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-ab1",
+                target_adapter="mesh-test",
+                outbox_id="obox-ab1",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )
         await queue.enqueue(
             payload={"text": "item-2"},
             channel_index=0,
             event_id="evt-ab2",
             outbox_id="obox-ab2",
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-ab2",
+                target_adapter="mesh-test",
+                outbox_id="obox-ab2",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )
 
         remaining = queue.drain_all()
@@ -1273,6 +1309,14 @@ class TestCorrelationIdNotInPayload:
             delivery_plan_id="plan-p",
             outbox_id="obox-p",
             attempt_number=3,
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-payload",
+                target_adapter="mesh-test",
+                outbox_id="obox-p",
+                attempt_number=3,
+                delivery_plan_id="plan-p",
+                target_channel="1",
+            ),
         )
 
         # Dequeue to inspect the internal item structure.
@@ -1309,6 +1353,14 @@ class TestCorrelationIdNotInPayload:
             delivery_plan_id="plan-pure",
             outbox_id="obox-pure",
             attempt_number=1,
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-pure",
+                target_adapter="mesh-test",
+                outbox_id="obox-pure",
+                attempt_number=1,
+                delivery_plan_id="plan-pure",
+                target_channel="2",
+            ),
         )
 
         async def _fake_send(item: dict[str, Any]) -> dict[str, Any]:
@@ -1341,6 +1393,13 @@ class TestCorrelationIdNotInPayload:
             event_id="evt-fail",
             outbox_id="obox-fail",
             attempt_number=1,
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-fail",
+                target_adapter="mesh-test",
+                outbox_id="obox-fail",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )
 
         async def _fail_send(item: dict[str, Any]) -> None:

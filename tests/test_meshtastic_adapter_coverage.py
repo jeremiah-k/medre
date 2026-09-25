@@ -14,8 +14,8 @@ from medre.adapters.meshtastic.queue import QueueDeliveryResult
 from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
 )
-from tests.helpers.meshtastic import make_meshtastic_config
 from tests.helpers.delivery_callbacks import make_attempt_provenance
+from tests.helpers.meshtastic import make_meshtastic_config
 
 # ===================================================================
 # stop() session delegation

@@ -71,6 +71,30 @@ async def test_meshtastic_queue_carries_provenance_outside_wire_payload() -> Non
     assert "outbox_id" not in item["payload"]
 
 
+async def test_meshtastic_queue_rejects_outbox_without_provenance() -> None:
+    queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
+
+    with pytest.raises(ValueError, match="require immutable attempt_provenance"):
+        await queue.enqueue(
+            {"text": "hello"},
+            0,
+            event_id="evt-unbound",
+            outbox_id="outbox-unbound",
+            attempt_number=1,
+        )
+
+
+async def test_meshtastic_queue_rejects_invalid_provenance_type() -> None:
+    queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
+
+    with pytest.raises(TypeError, match="DeliveryAttemptProvenance or None"):
+        await queue.enqueue(
+            {"text": "hello"},
+            0,
+            attempt_provenance={"outbox_id": "not-an-envelope"},  # type: ignore[arg-type]
+        )
+
+
 async def test_meshtastic_queue_rejects_mirror_contradiction() -> None:
     queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
 

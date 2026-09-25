@@ -297,7 +297,10 @@ class MeshtasticOutboundQueue:
         outbox_id:
             Internal outbox item correlation key.  Propagated through
             the queue item into delayed callback records for exact
-            outbox-level correlation.  **Not wire metadata.**
+            outbox-level correlation.  When non-``None``,
+            ``attempt_provenance`` is mandatory so durable work can never
+            enter the asynchronous queue without exact callback authority.
+            **Not wire metadata.**
         attempt_number:
             Compatibility mirror of the delivery generation.
         attempt_provenance:
@@ -310,6 +313,17 @@ class MeshtasticOutboundQueue:
         MeshtasticSendError
             When the queue is at capacity (``transient=True``).
         """
+        if attempt_provenance is None and outbox_id is not None:
+            raise ValueError(
+                "outbox-backed queue items require immutable attempt_provenance"
+            )
+        if attempt_provenance is not None and not isinstance(
+            attempt_provenance, DeliveryAttemptProvenance
+        ):
+            raise TypeError(
+                "attempt_provenance must be DeliveryAttemptProvenance or None"
+            )
+
         if attempt_provenance is not None:
             for name, value, expected in (
                 ("event_id", event_id, attempt_provenance.event_id),
