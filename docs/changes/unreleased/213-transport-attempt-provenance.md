@@ -15,9 +15,6 @@
   immutable receipt history cannot be validated while preserving the legitimate
   callback-before-receipt race. Outbox-scoped reads ensure malformed identity
   evidence cannot disappear through pre-filtering.
-- Restore the independent terminal native-channel fence so transport-reported
-  channel evidence cannot contradict the admitted target even when the attempt
-  envelope itself is valid.
 - Route attempt-envelope validation failures on contradictory renderer output
   through the renderer failure path: persist a `RENDERER_FAILURE` attempt
   receipt with failure evidence instead of raising an unclassified error.

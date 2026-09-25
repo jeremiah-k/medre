@@ -867,7 +867,7 @@ class OutboundNativeRefRecord:
     delivery_plan_id:   str | None = None
     outbox_id:          str | None = None
     attempt_number:     int | None = None
-    attempt_provenance: DeliveryAttemptProvenance
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
     metadata:           Mapping[str, object] = field(default_factory=dict)
 ```
 
@@ -897,7 +897,7 @@ class OutboundDeliveryObservationRecord:
     confirmation_level: DeliveryConfirmationLevel = "unknown"
     error: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
-    attempt_provenance: DeliveryAttemptProvenance
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
 ```
 
 Outbox-less/direct sends may still use an asynchronous transport internally, but
