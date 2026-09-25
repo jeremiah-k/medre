@@ -304,7 +304,9 @@ class TestRenderingFailure:
         assert storage.receipts == [err.receipt]
         assert diag.snapshot()["renderer_failures"]["test_adapter"] == 1
 
-    async def test_outboxless_renderer_identity_contradiction_fails_closed(self) -> None:
+    async def test_outboxless_renderer_identity_contradiction_fails_closed(
+        self,
+    ) -> None:
         """Direct delivery validates renderer identity without an outbox envelope."""
         pipeline = _FakeRenderingPipeline(
             result=RenderingResult(
@@ -342,7 +344,9 @@ class TestRenderingFailure:
         )
         assert storage.native_refs == []
 
-    async def test_invalid_renderer_result_type_uses_failure_evidence_path(self) -> None:
+    async def test_invalid_renderer_result_type_uses_failure_evidence_path(
+        self,
+    ) -> None:
         """A renderer returning the wrong object type must not escape raw errors."""
         pipeline = _FakeRenderingPipeline()
         pipeline._result = object()  # type: ignore[assignment]

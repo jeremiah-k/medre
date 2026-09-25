@@ -7,8 +7,8 @@ import pytest
 from medre.core.delivery_authority import (
     delivery_attempt_provenance_mismatch,
     delivery_attempt_receipt_provenance_mismatch,
-    receipts_for_attempt,
     queued_receipts_for_attempt,
+    receipts_for_attempt,
 )
 from medre.core.events import DeliveryAttemptProvenance
 from medre.core.rendering.renderer import RenderingResult

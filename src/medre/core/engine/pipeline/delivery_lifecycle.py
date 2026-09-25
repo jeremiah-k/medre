@@ -93,8 +93,8 @@ from medre.core.delivery_authority import (
     delivery_attempt_receipt_provenance_mismatch,
     delivery_identity,
     effective_generation,
-    receipts_for_attempt,
     queued_receipts_for_attempt,
+    receipts_for_attempt,
 )
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_state import (
@@ -1012,9 +1012,7 @@ class DeliveryLifecycleService:
         # finalization.
         if provenance is not None:
             try:
-                receipts = await storage.list_receipts_for_outbox(
-                    provenance.outbox_id
-                )
+                receipts = await storage.list_receipts_for_outbox(provenance.outbox_id)
             except Exception:
                 self._log.exception(
                     "Failed to list attempt receipt history for delivery "
@@ -1266,9 +1264,7 @@ class DeliveryLifecycleService:
             # fields are facts being checked and therefore must not be query
             # predicates that could hide contradictory immutable evidence.
             try:
-                existing = await storage.list_receipts_for_outbox(
-                    record.outbox_id
-                )
+                existing = await storage.list_receipts_for_outbox(record.outbox_id)
             except Exception:
                 self._log.exception(
                     "Failed to list delivery receipt history for supplemental "

@@ -687,11 +687,11 @@ and MUST NOT be inferred from `status` alone.
 
 **Indexes:**
 
-| Index                  | Columns                                                                                | Purpose                                           |
-| ---------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Index                         | Columns                                                                                | Purpose                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | `idx_receipts_lineage`        | `(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), sequence)` | event-scoped current-outcome and recovery lineage |
 | `idx_receipts_event`          | `(event_id, sequence)`                                                                 | Receipt lookups by event                          |
-| `idx_receipts_outbox_attempt` | `(outbox_id, attempt_number, sequence)`                                                   | Exact asynchronous attempt provenance reads       |
+| `idx_receipts_outbox_attempt` | `(outbox_id, attempt_number, sequence)`                                                | Exact asynchronous attempt provenance reads       |
 | `idx_receipts_source`         | `(source, replay_run_id)`                                                              | Filtering receipts by replay run                  |
 
 ### 4.4.1 delivery_observations

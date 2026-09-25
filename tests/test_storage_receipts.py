@@ -160,9 +160,7 @@ class TestReceipts:
                 )
             )
 
-        history = await temp_storage.list_receipts_for_outbox(
-            "outbox-shared-corrupt"
-        )
+        history = await temp_storage.list_receipts_for_outbox("outbox-shared-corrupt")
         assert [receipt.receipt_id for receipt in history] == [
             "rcpt-outbox-history-a",
             "rcpt-outbox-history-b",
