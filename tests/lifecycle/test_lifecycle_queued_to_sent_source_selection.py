@@ -17,6 +17,7 @@ import pytest
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
+from medre.core.events import DeliveryAttemptProvenance
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from tests.helpers.delivery_callbacks import make_terminal_record
@@ -919,3 +920,172 @@ class TestReplayQueuedTerminalCorrelation:
         row_after = await temp_storage.get_outbox_item("obox-replay-fail")
         assert row_after is not None
         assert row_after.status == "dead_lettered"
+
+
+# ===================================================================
+# Provenance-authoritative queued→sent correlation
+# ===================================================================
+
+
+class TestProvenanceAuthoritativeCorrelation:
+    """Provenance-bearing native-ref callbacks validate against durable
+    authority before any queued→sent finalization.
+
+    Built-in asynchronous adapters echo the immutable attempt envelope frozen
+    before hand-off.  Core rejects callbacks whose envelope contradicts the
+    durable outbox row or already-present queued receipt evidence, and
+    finalizes with the envelope's lineage when everything agrees.
+    """
+
+    def _provenance(self, **overrides: object) -> DeliveryAttemptProvenance:
+        values: dict[str, object] = {
+            "event_id": "evt-001",
+            "delivery_plan_id": "plan-prov",
+            "target_adapter": "m",
+            "target_channel": "0",
+            "outbox_id": "obox-prov",
+            "attempt_number": 1,
+            "source": "replay",
+            "replay_run_id": "run-b",
+        }
+        values.update(overrides)
+        return DeliveryAttemptProvenance(**values)  # type: ignore[arg-type]
+
+    async def _seed_replay_row(
+        self,
+        storage: StorageBackend,
+        *,
+        outbox_id: str = "obox-prov",
+    ) -> None:
+        """One queued replay generation (attempt 1) for the shared identity."""
+        item = DeliveryOutboxItem(
+            outbox_id=outbox_id,
+            event_id="evt-001",
+            route_id="route-001",
+            delivery_plan_id="plan-prov",
+            target_adapter="m",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+            dispatch_source="replay",
+            replay_run_id="run-b",
+        )
+        await create_outbox_item_with_parent(
+            storage, item, allocate_new_generation=True
+        )
+        await storage.mark_outbox_queued(outbox_id)
+
+    def _record(self, provenance: DeliveryAttemptProvenance) -> OutboundNativeRefRecord:
+        return OutboundNativeRefRecord(
+            event_id="evt-001",
+            adapter="m",
+            native_channel_id="0",
+            native_message_id="pkt-prov",
+            delivery_plan_id="plan-prov",
+            outbox_id=provenance.outbox_id,
+            attempt_provenance=provenance,
+        )
+
+    async def test_provenance_callback_rejects_row_contradiction(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """A live-sourced envelope for a replay row is rejected before any
+        receipt correlation — no supplemental receipt, row untouched."""
+        await self._seed_replay_row(temp_storage)
+        lifecycle = _make_lifecycle()
+
+        await lifecycle.finalize_queued_delivery(
+            temp_storage,
+            record=self._record(
+                self._provenance(
+                    outbox_id="obox-prov", source="live", replay_run_id=None
+                )
+            ),
+            now=datetime.now(tz=timezone.utc),
+        )
+
+        receipts = await temp_storage.list_receipts_for_event("evt-001")
+        assert receipts == []
+        row = await temp_storage.get_outbox_item("obox-prov")
+        assert row is not None
+        assert row.status == "queued"
+
+    async def test_provenance_callback_rejects_contradictory_queued_receipt(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Queued evidence whose lineage disagrees with the envelope rejects
+        the callback instead of vanishing through pre-filtering."""
+        await append_receipt_with_parent(
+            temp_storage,
+            _make_receipt(
+                receipt_id="rcpt-prov-mismatch",
+                status="queued",
+                adapter="m",
+                channel="0",
+                plan_id="plan-prov",
+                source="live",
+                outbox_id="obox-prov",
+                attempt_number=1,
+            ),
+        )
+        await self._seed_replay_row(temp_storage)
+        lifecycle = _make_lifecycle()
+
+        await lifecycle.finalize_queued_delivery(
+            temp_storage,
+            record=self._record(self._provenance(outbox_id="obox-prov")),
+            now=datetime.now(tz=timezone.utc),
+        )
+
+        receipts = await temp_storage.list_receipts_for_event("evt-001")
+        assert [r.status for r in receipts] == ["queued"]
+        assert receipts[0].source == "live"
+        row = await temp_storage.get_outbox_item("obox-prov")
+        assert row is not None
+        assert row.status == "queued"
+
+    async def test_provenance_callback_finalizes_with_envelope_lineage(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """Agreeing queued evidence finalizes from the envelope: the last
+        matching receipt supplies parent linkage, the envelope supplies
+        source/run lineage, and the row closes at the exact generation."""
+        for receipt_id in ("rcpt-prov-a", "rcpt-prov-b"):
+            await append_receipt_with_parent(
+                temp_storage,
+                _make_receipt(
+                    receipt_id=receipt_id,
+                    status="queued",
+                    adapter="m",
+                    channel="0",
+                    plan_id="plan-prov",
+                    source="replay",
+                    replay_run_id="run-b",
+                    outbox_id="obox-prov",
+                    attempt_number=1,
+                ),
+            )
+        await self._seed_replay_row(temp_storage)
+        lifecycle = _make_lifecycle()
+
+        await lifecycle.finalize_queued_delivery(
+            temp_storage,
+            record=self._record(self._provenance(outbox_id="obox-prov")),
+            now=datetime.now(tz=timezone.utc),
+        )
+
+        receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [r for r in receipts if r.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].source == "replay"
+        assert sent[0].replay_run_id == "run-b"
+        assert sent[0].parent_receipt_id == "rcpt-prov-b"
+        assert sent[0].attempt_number == 1
+        assert sent[0].outbox_id == "obox-prov"
+        assert sent[0].adapter_message_id == "pkt-prov"
+        row = await temp_storage.get_outbox_item("obox-prov")
+        assert row is not None
+        assert row.status == "sent"

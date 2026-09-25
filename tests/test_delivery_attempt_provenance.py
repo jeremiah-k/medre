@@ -67,6 +67,26 @@ def test_attempt_provenance_normalizes_channel_and_replay_run() -> None:
     assert provenance.replay_run_id == "run-7"
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["event_id", "delivery_plan_id", "target_adapter", "outbox_id"],
+)
+def test_attempt_provenance_rejects_blank_identity_fields(field: str) -> None:
+    with pytest.raises(ValueError, match=f"{field} must be a non-empty string"):
+        _provenance(**{field: "   "})
+
+
+@pytest.mark.parametrize("bad_attempt", [True, 0, "2", 2.5])
+def test_attempt_provenance_rejects_invalid_attempt_number(bad_attempt: object) -> None:
+    with pytest.raises(ValueError, match="attempt_number must be an integer >= 1"):
+        _provenance(attempt_number=bad_attempt)
+
+
+def test_attempt_provenance_rejects_non_string_target_channel() -> None:
+    with pytest.raises(TypeError, match="target_channel must be a string or None"):
+        _provenance(target_channel=7)
+
+
 def test_attempt_provenance_rejects_live_named_replay() -> None:
     with pytest.raises(ValueError, match="live delivery cannot carry replay_run_id"):
         _provenance(source="live", replay_run_id="run-7")
@@ -100,6 +120,30 @@ def test_rendering_result_rejects_scalar_contradiction() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "fragment"),
+    [
+        ({"event_id": "evt-2"}, "event_id does not match"),
+        ({"target_adapter": "mesh-2"}, "target_adapter does not match"),
+        ({"target_channel": "1"}, "target_channel does not match"),
+    ],
+)
+def test_rendering_result_rejects_provenance_field_contradictions(
+    kwargs: dict[str, object], fragment: str
+) -> None:
+    values: dict[str, object] = {
+        "event_id": "evt-1",
+        "target_adapter": "mesh-1",
+        "target_channel": "0",
+        "payload": {"text": "hello"},
+        "attempt_provenance": _provenance(),
+    }
+    values.update(kwargs)
+
+    with pytest.raises(ValueError, match=fragment):
+        RenderingResult(**values)  # type: ignore[arg-type]
+
+
 def test_attempt_provenance_matches_exact_durable_outbox_generation() -> None:
     assert delivery_attempt_provenance_mismatch(_provenance(), _outbox()) is None
 
@@ -107,6 +151,7 @@ def test_attempt_provenance_matches_exact_durable_outbox_generation() -> None:
 @pytest.mark.parametrize(
     ("row_override", "expected"),
     [
+        ({"outbox_id": "other"}, "outbox_id mismatch"),
         ({"active_attempt": 3}, "attempt generation mismatch"),
         ({"dispatch_source": "live"}, "dispatch source mismatch"),
         ({"replay_run_id": "other-run"}, "replay_run_id mismatch"),

@@ -87,16 +87,18 @@ def _record(**overrides) -> OutboundDeliveryObservationRecord:
     return OutboundDeliveryObservationRecord(**values)
 
 
-def _provenance() -> DeliveryAttemptProvenance:
-    return DeliveryAttemptProvenance(
-        event_id="evt-observation-1",
-        delivery_plan_id="plan-observation",
-        target_adapter="lxmf-main",
-        target_channel="aa" * 16,
-        outbox_id="outbox-observation-1",
-        attempt_number=1,
-        source="live",
-    )
+def _provenance(**overrides) -> DeliveryAttemptProvenance:
+    values = {
+        "event_id": "evt-observation-1",
+        "delivery_plan_id": "plan-observation",
+        "target_adapter": "lxmf-main",
+        "target_channel": "aa" * 16,
+        "outbox_id": "outbox-observation-1",
+        "attempt_number": 1,
+        "source": "live",
+    }
+    values.update(overrides)
+    return DeliveryAttemptProvenance(**values)
 
 
 async def _append_queued_receipt(
@@ -172,6 +174,23 @@ async def test_observation_with_provenance_allows_pre_receipt_race(
         datetime.now(timezone.utc),
     )
     assert await temp_storage.count_delivery_observations() == 1
+
+
+async def test_observation_rejects_provenance_contradicting_durable_row(
+    temp_storage,
+) -> None:
+    await _seed_attempt(temp_storage, status="queued")
+    lifecycle = DeliveryLifecycleService()
+
+    assert not await lifecycle.record_delivery_observation(
+        temp_storage,
+        _record(
+            attempt_number=None,
+            attempt_provenance=_provenance(attempt_number=2),
+        ),
+        datetime.now(timezone.utc),
+    )
+    assert await temp_storage.count_delivery_observations() == 0
 
 
 async def test_observation_rejects_contradictory_queued_receipt_provenance(
