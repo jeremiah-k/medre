@@ -733,6 +733,7 @@ async def _drill_capacity_rejection(
     report["config_source"] = cs
     report["preflight"] = preflight
     steps.append(_step("runtime_start", "ok"))
+    synthetic_capacity_controller: CapacityController | None = None
 
     try:
         cc = app._capacity_controller
@@ -740,7 +741,6 @@ async def _drill_capacity_rejection(
             report["status"] = "failed"
             report["fail_reasons"] = ["No capacity controller wired"]
             report["drill_steps"] = steps
-            await _clean_stop(app)
             return report
 
         # Replace the capacity controller with one that has a single slot
@@ -754,9 +754,10 @@ async def _drill_capacity_rejection(
                 delivery_acquire_timeout_seconds=0.1,
             )
         )
-        # Exhaust the single delivery slot.
-        await small_cc._delivery_sem.acquire()
-        small_cc._delivery_current = 1
+        # Exhaust the single delivery slot through the public capacity API.
+        if not await small_cc.acquire_delivery():
+            raise RuntimeError("could not reserve synthetic delivery capacity")
+        synthetic_capacity_controller = small_cc
         app._capacity_controller = small_cc
         app.pipeline_runner.set_capacity_controller(small_cc)
         steps.append(_step("exhaust_capacity", "ok", delivery_limit=1))
@@ -816,7 +817,11 @@ async def _drill_capacity_rejection(
         report["status"] = "failed"
         report["fail_reasons"] = [f"Unexpected error: {exc}"]
     finally:
-        await _clean_stop(app)
+        try:
+            if synthetic_capacity_controller is not None:
+                await synthetic_capacity_controller.release_delivery()
+        finally:
+            await _clean_stop(app)
 
     report["drill_steps"] = steps
     return report

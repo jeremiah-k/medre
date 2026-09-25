@@ -32,6 +32,7 @@ from typing import Any, Iterable
 from medre.core.delivery_authority import (
     DeliveryAuthorityResolver,
     DeliveryIdentity,
+    effective_generation,
     receipt_kind,
 )
 from medre.core.engine.pipeline.delivery_state import (
@@ -106,6 +107,7 @@ def _normalize_outbox_item(item: Any) -> dict[str, Any]:
         "active_attempt": _getattr_or_get(item, "active_attempt"),
         "next_attempt_at": _getattr_or_get(item, "next_attempt_at"),
         "error_summary": _getattr_or_get(item, "error_summary"),
+        "replay_run_id": _getattr_or_get(item, "replay_run_id"),
         "metadata": _getattr_or_get(item, "metadata"),
         "receipt_id": _getattr_or_get(item, "receipt_id"),
         "parent_receipt_id": _getattr_or_get(item, "parent_receipt_id"),
@@ -263,6 +265,8 @@ class DeliveryOutcomeEntry:
     Lifecycle authority and dispatch-attempt evidence are intentionally
     separate. ``lifecycle_status`` answers what MEDRE currently owns;
     ``latest_attempt_*`` answers what the latest transport execution did.
+    ``source`` / ``replay_run_id`` describe the current mutable execution
+    generation when one exists, otherwise the selected immutable evidence.
     """
 
     delivery_plan_id: str
@@ -274,7 +278,13 @@ class DeliveryOutcomeEntry:
     outbox_status: str | None
     authoritative_receipt_id: str | None
     authoritative_receipt_kind: str | None
+    current_receipt_id: str | None
+    current_receipt_kind: str | None
+    current_receipt_status: str | None
     causative_receipt_id: str | None
+    current_attempt_receipt_id: str | None
+    current_attempt_status: str | None
+    current_attempt_number: int | None
     latest_attempt_status: str | None
     latest_attempt_number: int | None
     ambiguous_outcome: bool
@@ -306,7 +316,13 @@ class DeliveryOutcomeEntry:
             "outbox_status": self.outbox_status,
             "authoritative_receipt_id": self.authoritative_receipt_id,
             "authoritative_receipt_kind": self.authoritative_receipt_kind,
+            "current_receipt_id": self.current_receipt_id,
+            "current_receipt_kind": self.current_receipt_kind,
+            "current_receipt_status": self.current_receipt_status,
             "causative_receipt_id": self.causative_receipt_id,
+            "current_attempt_receipt_id": self.current_attempt_receipt_id,
+            "current_attempt_status": self.current_attempt_status,
+            "current_attempt_number": self.current_attempt_number,
             "latest_attempt_status": self.latest_attempt_status,
             "latest_attempt_number": self.latest_attempt_number,
             "ambiguous_outcome": self.ambiguous_outcome,
@@ -411,6 +427,8 @@ def build_delivery_outcome_ledger(
         history = list(snapshot.receipts)
         authority = snapshot.authoritative_receipt
         outbox = snapshot.current_outbox
+        current_receipt = snapshot.current_receipt
+        current_attempt = snapshot.current_attempt
         latest_attempt = snapshot.latest_attempt
 
         authority_kind = receipt_kind(authority) if authority is not None else None
@@ -418,14 +436,45 @@ def build_delivery_outcome_ledger(
             (outbox or {}).get("status") or (authority or {}).get("status") or "unknown"
         )
         outbox_status = str(outbox.get("status")) if outbox is not None else None
-        failure_kind = (authority or {}).get("failure_kind") or (outbox or {}).get(
-            "failure_kind"
-        )
-        error = (authority or {}).get("error") or (outbox or {}).get("error_summary")
-        rendering_evidence = (authority or {}).get("rendering_evidence")
-        next_retry_raw = (authority or {}).get("next_retry_at") or (outbox or {}).get(
-            "next_attempt_at"
-        )
+
+        # Every operator-facing field below must describe one coherent execution
+        # generation.  When mutable outbox state exists, older authoritative
+        # receipts remain immutable history only; they must not donate failure,
+        # capability, retry, or transport evidence to the newer generation.
+        if outbox is not None:
+            generation_evidence = current_attempt or outbox
+            failure_kind = (current_attempt or {}).get("failure_kind") or outbox.get(
+                "failure_kind"
+            )
+            error = (current_attempt or {}).get("error") or outbox.get("error_summary")
+            rendering_evidence = (current_attempt or {}).get("rendering_evidence")
+            next_retry_raw = (current_attempt or {}).get("next_retry_at") or outbox.get(
+                "next_attempt_at"
+            )
+            current_attempt_number = effective_generation(outbox)
+            replay_run_id = outbox.get("replay_run_id")
+            if current_attempt is not None:
+                source = str(current_attempt.get("source") or "live")
+                replay_run_id = current_attempt.get("replay_run_id") or replay_run_id
+            elif outbox.get("active_attempt") is not None:
+                # A durable active-attempt reservation is itself proof that the
+                # current dispatch mechanism is retry, even before that attempt
+                # emits immutable receipt evidence. Replay origin remains
+                # orthogonal on replay_run_id.
+                source = "retry"
+            elif replay_run_id:
+                source = "replay"
+            else:
+                source = "live"
+        else:
+            generation_evidence = authority or latest_attempt or {}
+            failure_kind = generation_evidence.get("failure_kind")
+            error = generation_evidence.get("error")
+            rendering_evidence = generation_evidence.get("rendering_evidence")
+            next_retry_raw = generation_evidence.get("next_retry_at")
+            current_attempt_number = generation_evidence.get("attempt_number")
+            source = str(generation_evidence.get("source") or "live")
+            replay_run_id = generation_evidence.get("replay_run_id")
 
         taxon = resolve_taxon(
             failure_kind=failure_kind,
@@ -438,12 +487,15 @@ def build_delivery_outcome_ledger(
             error=error,
             rendering_evidence=rendering_evidence,
             failure_kind=failure_kind,
-            status=str((authority or {}).get("status") or lifecycle_status),
+            status=str(
+                (current_attempt or generation_evidence).get("status")
+                or lifecycle_status
+            ),
         )
 
-        provenance = authority or latest_attempt or outbox or {}
-        source = str(provenance.get("source") or "live")
-        replay_run_id = provenance.get("replay_run_id") if source == "replay" else None
+        provenance = generation_evidence
+        if source == "live":
+            replay_run_id = None
         receipt_ids = sorted(
             str(receipt.get("receipt_id"))
             for receipt in history
@@ -460,12 +512,20 @@ def build_delivery_outcome_ledger(
             outbox_status=outbox_status,
             authoritative_receipt_id=(authority or {}).get("receipt_id"),
             authoritative_receipt_kind=authority_kind,
+            current_receipt_id=(current_receipt or {}).get("receipt_id"),
+            current_receipt_kind=(
+                receipt_kind(current_receipt) if current_receipt is not None else None
+            ),
+            current_receipt_status=(current_receipt or {}).get("status"),
             causative_receipt_id=(
                 (snapshot.causative_receipt or {}).get("receipt_id")
                 or (authority or {}).get("parent_receipt_id")
                 if authority_kind == "lifecycle"
                 else None
             ),
+            current_attempt_receipt_id=(current_attempt or {}).get("receipt_id"),
+            current_attempt_status=(current_attempt or {}).get("status"),
+            current_attempt_number=current_attempt_number,
             latest_attempt_status=(latest_attempt or {}).get("status"),
             latest_attempt_number=(latest_attempt or {}).get("attempt_number"),
             ambiguous_outcome=(
@@ -487,7 +547,7 @@ def build_delivery_outcome_ledger(
             replay_run_id=replay_run_id,
             receipt_ids=receipt_ids,
             outbox_id=(outbox or {}).get("outbox_id"),
-            adapter_message_id=(authority or latest_attempt or {}).get(
+            adapter_message_id=(current_attempt or generation_evidence).get(
                 "adapter_message_id"
             ),
             next_retry_at=_to_iso_or_none(next_retry_raw),

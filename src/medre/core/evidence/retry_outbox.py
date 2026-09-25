@@ -252,6 +252,7 @@ def _build_outbox_item_summary(item: Any) -> RetryOutboxItemSummary:
         route_id=_get(item, "route_id"),
         target_adapter=_get(item, "target_adapter") or "",
         target_channel=target_channel,
+        replay_run_id=_get(item, "replay_run_id"),
         status=status,
         retry_state=_retry_state_label(status, source="outbox"),
         attempt_number=_get(item, "attempt_number"),
@@ -299,6 +300,7 @@ def _build_receipt_only_summary(receipt: Any) -> RetryOutboxItemSummary:
         route_id=_get(receipt, "route_id"),
         target_adapter=_get(receipt, "target_adapter") or "",
         target_channel=_get(receipt, "target_channel"),
+        replay_run_id=_get(receipt, "replay_run_id"),
         status=status,
         retry_state=_retry_state_label(status, source="receipt"),
         attempt_number=_get(receipt, "attempt_number"),
@@ -358,6 +360,7 @@ class RetryOutboxItemSummary:
     route_id: str | None
     target_adapter: str
     target_channel: str | None
+    replay_run_id: str | None
     status: str
     retry_state: str | None
     attempt_number: int | None

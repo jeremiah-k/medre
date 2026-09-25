@@ -36,7 +36,8 @@ class RecoverySource(enum.StrEnum):
     REPLAY_EXECUTION = "replay_execution"
     """Reserved for future replay recovery ownership actions.
 
-    Not currently produced by any code path.  Current replay separation
-    is represented by replay receipts with ``source='replay'`` /
-    ``replay_run_id``, not by recovery ownership actions.  Reserved until replay recovery
-    ownership actions are implemented."""
+    Not currently produced by any code path.  Replay origin is orthogonal
+    provenance carried as ``replay_run_id`` on durable outbox rows, receipts,
+    and recovery actions; it does not change which subsystem performed the
+    recovery.  Reserved until replay-specific recovery ownership actions are
+    implemented."""

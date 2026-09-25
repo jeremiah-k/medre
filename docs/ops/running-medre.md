@@ -258,7 +258,7 @@ queued → sent
 | `dead_lettered` | Exhausted all retries. Permanently failed.                                                                                                                                                                                                    |
 | `suppressed`    | Terminal for that delivery attempt. Policy/loop denials remain terminal; direct/replay capacity or shutdown rejection is also terminal for that attempt. Storage-backed live ingress instead defers its durable work row for a later attempt. |
 
-Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column distinguishes origin: `"live"`, `"retry"`, or `"replay"`.
+Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column identifies the dispatch mechanism (`"live"`, `"replay"`, or `"retry"`); `replay_run_id` separately preserves named replay origin across later retries.
 
 ## Configuration Examples
 
@@ -483,7 +483,8 @@ medre replay --mode dry_run --config bridge.yaml --json
 medre replay --mode best_effort --config bridge.yaml --json
 ```
 
-Replay receipts carry `source="replay"` and `replay_run_id` for audit.
+Replay-origin receipts carry `replay_run_id` for audit. Initial attempts use
+`source="replay"`; later retries retain the run ID with `source="retry"`.
 
 ## Route Loop Prevention
 
@@ -686,8 +687,9 @@ MEDRE is best-effort. It explicitly does not provide:
 
 1. **Exactly-once delivery** — radio transports are probabilistic, Matrix is at-least-once, LXMF is at-least-once with eventual delivery.
 2. **Global replay deduplication** — different or empty replay run IDs remain
-   repeatable. A non-empty run ID suppresses visible accepted targets only within
-   that same run, and concurrent same-run executions can race before acceptance.
+   repeatable. A non-empty run ID atomically owns one target generation in the
+   shared storage database, but this does not make ambiguous transport retries or
+   recovery exactly-once.
 3. **Durable adapter-local queue** — Meshtastic outbound queue is in-memory, lost on shutdown.
 4. **Per-adapter restart** — only full runtime stop/start.
 5. **Distributed coordination** — state is local to the process.

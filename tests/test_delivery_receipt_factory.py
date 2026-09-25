@@ -149,7 +149,9 @@ class TestSourceAndReplay:
         assert r.source == "replay"
 
     def test_replay_run_id(self) -> None:
-        r = build_delivery_receipt(**_base_kwargs(replay_run_id="run-abc"))
+        r = build_delivery_receipt(
+            **_base_kwargs(source="replay", replay_run_id="run-abc")
+        )
         assert r.replay_run_id == "run-abc"
 
     def test_replay_run_id_default_none(self) -> None:

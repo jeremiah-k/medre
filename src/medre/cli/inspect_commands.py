@@ -189,10 +189,10 @@ async def _inspect_replay(
     *,
     storage_path: str,
 ) -> None:
-    """Inspect a replay run: read-only timeline via storage.
+    """Inspect a replay run from durable outbox and receipt evidence.
 
-    Outputs deterministic JSON with the replay timeline, matching the
-    shape produced by ``medre trace replay --json``.
+    Outputs deterministic JSON matching ``medre trace replay --json`` and
+    remains available during the crash window before the run's first receipt.
     """
     storage = await _open_readonly_storage(storage_path)
     _exit_code: int | None = None
@@ -200,7 +200,7 @@ async def _inspect_replay(
         result = await _timeline.assemble_replay_timeline(storage, run_id)
         if result is None:
             print(
-                f"Error: no receipts found for replay run: {run_id}",
+                f"Error: no durable evidence found for replay run: {run_id}",
                 file=sys.stderr,
             )
             _exit_code = EXIT_NOT_FOUND

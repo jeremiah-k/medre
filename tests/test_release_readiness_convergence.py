@@ -8,6 +8,7 @@ leftover alpha/beta test filenames.
 
 from __future__ import annotations
 
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -225,9 +226,15 @@ def test_ops_docs_show_config_and_storage_path_distinction() -> None:
 # ===========================================================================
 
 
+@cache
+def _stale_terms_in_docs(subdir: str) -> tuple[tuple[Path, int, str], ...]:
+    """Cache immutable spec/ops scans shared by the paired guards below."""
+    return tuple(find_stale_terms([subdir], FORBIDDEN_TERMS))
+
+
 def test_no_stale_process_language_in_spec() -> None:
     """spec/ docs must not contain stale internal process language."""
-    raw = find_stale_terms(["spec"], FORBIDDEN_TERMS)
+    raw = _stale_terms_in_docs("spec")
     violations = [
         f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
         for md_file, lineno, content in raw
@@ -239,7 +246,7 @@ def test_no_stale_process_language_in_spec() -> None:
 
 def test_no_stale_process_language_in_ops() -> None:
     """ops/ docs must not contain stale internal process language."""
-    raw = find_stale_terms(["ops"], FORBIDDEN_TERMS)
+    raw = _stale_terms_in_docs("ops")
     violations = [
         f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
         for md_file, lineno, content in raw
@@ -260,7 +267,7 @@ def test_no_stale_alpha_beta_branding_in_spec() -> None:
 
     Note: planning-cycle vocabulary (PLANNING_CYCLE_TERMS) is enforced
     separately by the durable-language guard, not by this convergence test."""
-    raw = find_stale_terms(["spec"], FORBIDDEN_TERMS)
+    raw = _stale_terms_in_docs("spec")
     violations = [
         f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
         for md_file, lineno, content in raw
@@ -272,7 +279,7 @@ def test_no_stale_alpha_beta_branding_in_spec() -> None:
 
 def test_no_stale_alpha_beta_branding_in_ops() -> None:
     """ops/ docs must not contain stale alpha/beta branding terms."""
-    raw = find_stale_terms(["ops"], FORBIDDEN_TERMS)
+    raw = _stale_terms_in_docs("ops")
     violations = [
         f"  {md_file.relative_to(_ROOT)}:{lineno}: '{content}'"
         for md_file, lineno, content in raw

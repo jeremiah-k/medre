@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+import time
 from unittest.mock import AsyncMock
 
 import pytest
 
+from medre.adapters.fakes.presentation import FakePresentationAdapter
+from medre.core.delivery_authority import DeliveryIdentity
 from medre.core.engine.pipeline import PipelineRunner
+from medre.core.engine.pipeline.delivery_coordinator import _DeliveryContext
 from medre.core.events import DeliveryReceipt
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
+from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
@@ -173,7 +178,11 @@ async def test_same_replay_run_suppresses_already_accepted_target(
     )
     runner = PipelineRunner(
         make_pipeline_config_for_pipeline(
-            storage=temp_storage, router=Router(routes=[route]), adapters={}
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={
+                "dest": FakePresentationAdapter(adapter_id="dest", channel="room")
+            },
         )
     )
 
@@ -186,8 +195,278 @@ async def test_same_replay_run_suppresses_already_accepted_target(
     assert outcomes[0].failure_kind is not None
     assert outcomes[0].failure_kind.value == "replay_duplicate_suppressed"
     receipts = await temp_storage.list_receipts_for_event(event.event_id)
-    assert receipts[-1].failure_kind == "replay_duplicate_suppressed"
-    assert receipts[-1].replay_run_id == "run-42"
+    assert [receipt.receipt_id for receipt in receipts] == ["rcpt-replay-accepted"]
+    assert receipts[0].status == accepted_status
+    # Same-run idempotency is an execution skip, not a new lifecycle fact.
+    # Persisting an outbox-less suppression receipt here would incorrectly
+    # outrank the already-accepted delivery in current authority.
+    assert outcomes[0].receipt is None
+    current = await temp_storage.delivery_status(
+        DeliveryIdentity(event.event_id, plan.plan_id, "dest", target_channel)
+    )
+    assert current is not None
+    assert current.receipt_id == "rcpt-replay-accepted"
+    assert current.status == accepted_status
+
+
+async def test_same_replay_run_durable_claim_skips_before_capacity(
+    temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    event = make_event(event_id="core-reliability-replay-claim", source_adapter="src")
+    await temp_storage.append(event)
+    target = RouteTarget(adapter="dest", channel="room")
+    route = Route(
+        id="route-replay-claim",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-replay-claim",
+        event_id=event.event_id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={
+                "dest": FakePresentationAdapter(adapter_id="dest", channel="room")
+            },
+        )
+    )
+    claim = await runner._outbox_manager.create_for_delivery(
+        event,
+        route,
+        plan,
+        target,
+        "dest",
+        source="replay",
+        replay_run_id="run-claimed",
+    )
+    assert claim.replay_duplicate is False
+
+    acquire = AsyncMock(side_effect=AssertionError("capacity must not be consulted"))
+    monkeypatch.setattr(
+        runner._delivery_coordinator, "_acquire_capacity_or_reject", acquire
+    )
+
+    outcomes = await runner._deliver_to_targets_fan_out(
+        event, [(route, plan)], source="replay", replay_run_id="run-claimed"
+    )
+
+    assert outcomes[0].status == "skipped"
+    assert outcomes[0].failure_kind is not None
+    assert outcomes[0].failure_kind.value == "replay_duplicate_suppressed"
+    assert outcomes[0].failure_kind_detail == "replay_run_claimed:in_progress"
+    acquire.assert_not_awaited()
+    assert await temp_storage.list_receipts_for_event(event.event_id) == []
+
+
+async def test_replay_origin_retry_is_not_treated_as_replay_duplicate(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event = make_event(event_id="core-reliability-retry-origin", source_adapter="src")
+    await temp_storage.append(event)
+    target = RouteTarget(adapter="dest", channel="room")
+    route = Route(
+        id="route-retry-origin",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-retry-origin",
+        event_id=event.event_id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(
+            storage=temp_storage, router=Router(routes=[route]), adapters={}
+        )
+    )
+    await runner._outbox_manager.create_for_delivery(
+        event,
+        route,
+        plan,
+        target,
+        "dest",
+        source="replay",
+        replay_run_id="run-retry-origin",
+    )
+    ctx = _DeliveryContext(
+        event=event,
+        route=route,
+        plan=plan,
+        source="retry",
+        replay_run_id="run-retry-origin",
+        cached_get_fn=None,
+        cached_list_fn=None,
+        started_at=time.monotonic(),
+    )
+
+    assert (
+        await runner._delivery_coordinator._replay_duplicate_outcome(ctx, None) is None
+    )
+
+
+async def test_stale_same_run_receipt_does_not_override_current_authority(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event = make_event(event_id="core-reliability-replay-stale", source_adapter="src")
+    await temp_storage.append(event)
+    target = RouteTarget(adapter="dest", channel="room")
+    route = Route(
+        id="route-replay-stale",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[target],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-replay-stale",
+        event_id=event.event_id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+    )
+    outbox_id = "obox-replay-stale-authority"
+    stale = DeliveryReceipt(
+        receipt_id="rcpt-replay-stale-same-run",
+        event_id=event.event_id,
+        delivery_plan_id=plan.plan_id,
+        target_adapter="dest",
+        target_channel="room",
+        route_id=route.id,
+        status="sent",
+        source="replay",
+        replay_run_id="run-42",
+        outbox_id=outbox_id,
+    )
+    current = DeliveryReceipt(
+        receipt_id="rcpt-replay-current-other-run",
+        event_id=event.event_id,
+        delivery_plan_id=plan.plan_id,
+        target_adapter="dest",
+        target_channel="room",
+        route_id=route.id,
+        status="sent",
+        source="replay",
+        replay_run_id="run-other",
+        outbox_id=outbox_id,
+    )
+    await temp_storage.append_receipt(stale)
+    await temp_storage.append_receipt(current)
+    await temp_storage.create_outbox_item(
+        DeliveryOutboxItem(
+            outbox_id=outbox_id,
+            event_id=event.event_id,
+            route_id=route.id,
+            delivery_plan_id=plan.plan_id,
+            target_adapter="dest",
+            target_channel="room",
+            attempt_number=1,
+            status="in_progress",
+            worker_id="seed-worker",
+        )
+    )
+    assert await temp_storage.mark_outbox_sent(
+        outbox_id,
+        receipt_id=current.receipt_id,
+        attempt_number=1,
+        expected_worker_id="seed-worker",
+    )
+
+    adapter = FakePresentationAdapter(adapter_id="dest", channel="room")
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={"dest": adapter},
+        )
+    )
+    outcomes = await runner._deliver_to_targets_fan_out(
+        event, [(route, plan)], source="replay", replay_run_id="run-42"
+    )
+
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "success"
+    assert len(adapter.delivered_payloads) == 1
+    authority = await temp_storage.delivery_status(
+        DeliveryIdentity(event.event_id, plan.plan_id, "dest", "room")
+    )
+    assert authority is not None
+    assert authority.replay_run_id == "run-42"
+    assert authority.receipt_id not in {stale.receipt_id, current.receipt_id}
+    assert authority.parent_receipt_id == current.receipt_id
+
+
+async def test_same_replay_run_does_not_treat_suppression_as_dispatch_claim(
+    temp_storage: SQLiteStorage,
+) -> None:
+    event = make_event(
+        event_id="core-reliability-replay-suppressed", source_adapter="src"
+    )
+    await temp_storage.append(event)
+    route = Route(
+        id="route-replay-suppressed",
+        source=RouteSource(
+            adapter="src", event_kinds=("message.created",), channel=None
+        ),
+        targets=[RouteTarget(adapter="dest", channel="room")],
+    )
+    plan = DeliveryPlan(
+        plan_id="plan-replay-suppressed",
+        event_id=event.event_id,
+        target=route.targets[0],
+        primary_strategy=DeliveryStrategy(method="skip"),
+    )
+    await temp_storage.append_receipt(
+        DeliveryReceipt(
+            receipt_id="rcpt-replay-suppressed",
+            event_id=event.event_id,
+            delivery_plan_id=plan.plan_id,
+            target_adapter="dest",
+            target_channel="room",
+            route_id=route.id,
+            status="suppressed",
+            failure_kind="capability_suppressed",
+            source="replay",
+            replay_run_id="run-suppressed",
+        )
+    )
+    runner = PipelineRunner(
+        make_pipeline_config_for_pipeline(
+            storage=temp_storage,
+            router=Router(routes=[route]),
+            adapters={
+                "dest": FakePresentationAdapter(adapter_id="dest", channel="room")
+            },
+        )
+    )
+
+    outcomes = await runner._deliver_to_targets_fan_out(
+        event, [(route, plan)], source="replay", replay_run_id="run-suppressed"
+    )
+
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "skipped"
+    assert outcomes[0].failure_kind is not None
+    assert outcomes[0].failure_kind.value != "replay_duplicate_suppressed"
+    receipts = await temp_storage.list_receipts_for_event(event.event_id)
+    assert len(receipts) == 2
+    assert all(receipt.status == "suppressed" for receipt in receipts)
+    assert all(receipt.replay_run_id == "run-suppressed" for receipt in receipts)
+    assert (
+        await temp_storage.list_outbox_items_for_delivery(
+            DeliveryIdentity(event.event_id, plan.plan_id, "dest", "room")
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize("malformed_capability", [[], {}])

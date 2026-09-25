@@ -81,14 +81,15 @@ class DeliveryTargetConvergence:
     outbox_status:
         Status of the outbox item for this target, or ``None`` if no
         outbox item exists.
-    latest_receipt_status:
-        Status of the current lifecycle-authoritative receipt, or ``None``.
-        The field name is retained for compatibility.
-    latest_receipt_id:
-        Receipt ID of the current lifecycle-authoritative receipt, or ``None``.
-    latest_attempt_number:
-        Attempt number from the current lifecycle-authoritative receipt, or
-        ``None``.
+    current_receipt_status:
+        Status of the receipt committed by the current outbox generation. When
+        no outbox exists, the current immutable authority; otherwise ``None``
+        until the generation commits a receipt.
+    current_receipt_id:
+        Receipt ID under the same current-generation rule.
+    current_attempt_number:
+        Attempt number of ``current_receipt_id``, or ``None`` when the current
+        generation has not committed receipt evidence.
     severity:
         Convergence severity classification.
     warnings:
@@ -102,9 +103,9 @@ class DeliveryTargetConvergence:
     target_adapter: str
     target_channel: str | None
     outbox_status: str | None
-    latest_receipt_status: str | None
-    latest_receipt_id: str | None
-    latest_attempt_number: int | None
+    current_receipt_status: str | None
+    current_receipt_id: str | None
+    current_attempt_number: int | None
     severity: str
     warnings: tuple[str, ...]
     outbox_id: str | None

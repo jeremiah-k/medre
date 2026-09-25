@@ -140,9 +140,11 @@ class ReplayEngine(
     Persistence authority: replay never writes to storage directly.  All
     storage access is read-only (``get`` and ``query``).  In BEST_EFFORT
     mode, delivery delegates to the pipeline's ``deliver_to_targets`` with
-    ``source="replay"`` and ``replay_run_id``, which creates NEW outbox
-    rows (with incremented attempt_number), append-only receipts, and
-    native refs through the allowed lifecycle helpers.  Replay never
+    ``source="replay"`` and ``replay_run_id``, which creates a fresh outbox
+    generation for each new replay execution identity, append-only receipts,
+    and native refs through the allowed lifecycle helpers. A repeated non-empty
+    replay run ID reuses its existing target generation instead of dispatching
+    a sibling. Replay never
     mutates or deletes receipts, never mutates terminal outbox rows, and
     never overwrites native refs from original delivery.
 

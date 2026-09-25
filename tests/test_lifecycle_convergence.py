@@ -79,6 +79,7 @@ def _receipt(
     retry_max_delay: float | None = None,
     retry_jitter: bool | None = None,
     created_at: str | None = None,
+    outbox_id: str | None = "ob-1",
 ) -> dict:
     d: dict = {
         "receipt_id": receipt_id,
@@ -91,6 +92,7 @@ def _receipt(
         "failure_kind": failure_kind,
         "created_at": created_at or _NOW.isoformat(),
         "event_id": "ev-1",
+        "outbox_id": outbox_id,
     }
     if next_retry_at is not None:
         d["next_retry_at"] = next_retry_at
@@ -914,10 +916,20 @@ class TestTargetChannelNoneVsEmpty:
         """Persistence normalizes empty and absent channels to one target."""
         f = _build(
             outbox_items=[
-                _outbox(outbox_id="ob-empty", target_channel="", status="pending"),
+                _outbox(
+                    outbox_id="ob-empty",
+                    target_channel="",
+                    status="pending",
+                    receipt_id="r-none",
+                ),
             ],
             receipts=[
-                _receipt(receipt_id="r-none", target_channel=None, status="sent"),
+                _receipt(
+                    receipt_id="r-none",
+                    target_channel=None,
+                    status="sent",
+                    outbox_id="ob-empty",
+                ),
             ],
         )
         kinds = {x.kind for x in f}

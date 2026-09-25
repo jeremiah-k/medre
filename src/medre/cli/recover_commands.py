@@ -30,7 +30,10 @@ from dataclasses import asdict
 from typing import Any
 
 import medre.runtime.timeline as _timeline
-from medre.core.delivery_authority import DeliveryAuthorityResolver
+from medre.core.delivery_authority import (
+    DeliveryAuthorityResolver,
+    effective_generation,
+)
 from medre.core.observability.classification import (
     failure_category as _failure_category,
 )
@@ -117,11 +120,9 @@ async def _build_event_recovery_runbook(
     # Build the shared event-scoped lifecycle-authority index. Plan IDs may
     # recur across events, so current delivery identity always includes the
     # canonical event even in this event-scoped runbook.
-    outbox_items: list[Any] = []
-    try:
-        outbox_items = list(await storage.list_outbox_items_for_event(event_id))
-    except Exception:
-        outbox_items = []
+    # Reuse the timeline's outbox snapshot so recovery projections cannot mix
+    # two storage states if delivery progresses during runbook construction.
+    outbox_items: list[Any] = list(tl_result.get("outbox_items") or [])
     authority = DeliveryAuthorityResolver(receipts, outbox_items)
 
     # Identify currently-failed lineages and classify by failure_kind.
@@ -134,11 +135,20 @@ async def _build_event_recovery_runbook(
     failed_targets: list[dict[str, Any]] = []
     historical_failures: list[dict[str, Any]] = []
 
-    for identity in authority.ordered_identities():
-        lineage_receipts = list(authority.receipts_for(identity))
+    for snapshot in authority.ordered_snapshots():
+        lineage_receipts = list(snapshot.receipts)
         if not lineage_receipts:
             continue
-        current = authority.current(identity)
+
+        # Recovery describes the current mutable generation when one exists.
+        # Global immutable receipt authority can legitimately belong to an
+        # older generation while a fresh replay/retry generation is pending.
+        # Only outbox-less delivery falls back to global receipt authority.
+        current = (
+            snapshot.current_receipt
+            if snapshot.current_outbox is not None
+            else snapshot.authoritative_receipt
+        )
         is_current_failure = current is not None and current.status in (
             "failed",
             "dead_lettered",
@@ -180,7 +190,17 @@ async def _build_event_recovery_runbook(
                         "status": current.status,
                     }
                     if current is not None
-                    else None
+                    else (
+                        {
+                            "outbox_id": snapshot.current_outbox.outbox_id,
+                            "status": snapshot.current_outbox.status,
+                            "attempt_number": effective_generation(
+                                snapshot.current_outbox
+                            ),
+                        }
+                        if snapshot.current_outbox is not None
+                        else None
+                    )
                 ),
             }
             if getattr(r, "target_channel", None):
@@ -248,26 +268,60 @@ async def _build_event_recovery_runbook(
         # Include replay context if present.
         r_source = getattr(r, "source", "live")
         r_run_id = getattr(r, "replay_run_id", None)
-        if r_source == "replay" and r_run_id:
-            entry["source"] = "replay"
+        if r_run_id:
+            entry["source"] = r_source
             entry["replay_run_id"] = r_run_id
         failed_targets.append(entry)
         classification[cat].append(entry)
 
-    # Collect replay receipts for context.
-    replay_context: list[dict[str, str]] = []
-    seen_run_ids: set[str] = set()
-    for r in receipts:
-        r_source = getattr(r, "source", "live")
-        r_run_id = getattr(r, "replay_run_id", None)
-        if r_source == "replay" and r_run_id and r_run_id not in seen_run_ids:
-            seen_run_ids.add(r_run_id)
-            replay_context.append(
-                {
-                    "replay_run_id": r_run_id,
-                    "source": "replay",
-                }
-            )
+    # Collect named replay origins from both durable surfaces.  Outbox claims
+    # are admission authority and may exist before the first receipt (for
+    # example after a crash immediately following replay admission).
+    # ``source`` remains the per-attempt dispatch mechanism, so a named replay
+    # can legitimately contain both replay and retry receipts.
+    replay_context_by_run: dict[str, dict[str, Any]] = {}
+    for item in outbox_items:
+        run_id = getattr(item, "replay_run_id", None)
+        if not run_id:
+            continue
+        context = replay_context_by_run.setdefault(
+            run_id,
+            {
+                "replay_run_id": run_id,
+                "dispatch_sources": set(),
+                "outbox_count": 0,
+                "outbox_statuses": set(),
+            },
+        )
+        context["outbox_count"] += 1
+        context["outbox_statuses"].add(str(getattr(item, "status", "pending")))
+
+    for receipt in receipts:
+        run_id = getattr(receipt, "replay_run_id", None)
+        if not run_id:
+            continue
+        context = replay_context_by_run.setdefault(
+            run_id,
+            {
+                "replay_run_id": run_id,
+                "dispatch_sources": set(),
+                "outbox_count": 0,
+                "outbox_statuses": set(),
+            },
+        )
+        context["dispatch_sources"].add(
+            str(getattr(receipt, "source", "live") or "live")
+        )
+
+    replay_context: list[dict[str, Any]] = [
+        {
+            "replay_run_id": context["replay_run_id"],
+            "dispatch_sources": sorted(context["dispatch_sources"]),
+            "outbox_count": context["outbox_count"],
+            "outbox_statuses": sorted(context["outbox_statuses"]),
+        }
+        for context in replay_context_by_run.values()
+    ]
 
     # Build timeline for runbook.
     timeline_entries = tl_result["timeline_entries"]
@@ -394,18 +448,28 @@ def _print_event_runbook(runbook: dict[str, Any]) -> None:
     historical = runbook.get("historical_failures", [])
     if historical:
         print(
-            f"  Historical failures superseded by a later receipt "
+            f"  Historical failures superseded by later delivery state "
             f"({len(historical)}):"
         )
         for hf in historical:
             label = hf["target_adapter"]
             if hf.get("target_channel"):
                 label += f"/{hf['target_channel']}"
-            sup = hf["superseded_by"]
+            sup = hf.get("superseded_by")
+            if not sup:
+                superseding = "unknown current state"
+            elif sup.get("receipt_id"):
+                superseding = f"receipt {sup['receipt_id']} ({sup['status']})"
+            elif sup.get("outbox_id"):
+                superseding = (
+                    f"outbox generation {sup['outbox_id']} "
+                    f"attempt {sup['attempt_number']} ({sup['status']})"
+                )
+            else:
+                superseding = "unknown current state"
             print(
                 f"    {label}: attempt {hf['attempt_number']} "
-                f"{hf['status']} — superseded by receipt "
-                f"{sup['receipt_id']} ({sup['status']})"
+                f"{hf['status']} — superseded by {superseding}"
             )
     if runbook.get("recommended_commands"):
         print()

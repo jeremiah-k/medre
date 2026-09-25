@@ -457,9 +457,11 @@ class RetryExecutor:
         error:
             Human-readable error description.
         source:
-            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
+            Dispatch mechanism: ``"live"``, ``"retry"``, or ``"replay"``.
         replay_run_id:
-            When ``source="replay"``, the replay run identifier.
+            Replay-origin run identifier. Present on the initial replay
+            attempt and preserved when a RetryWorker attempt uses
+            ``source="retry"`` for the same lineage.
         target_channel:
             Channel on the target adapter, if applicable.
 
@@ -530,9 +532,11 @@ class RetryExecutor:
         error:
             Human-readable error description.
         source:
-            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
+            Dispatch mechanism: ``"live"``, ``"retry"``, or ``"replay"``.
         replay_run_id:
-            When ``source="replay"``, the replay run identifier.
+            Replay-origin run identifier. Present on the initial replay
+            attempt and preserved when a RetryWorker attempt uses
+            ``source="retry"`` for the same lineage.
         target_channel:
             Channel on the target adapter, if applicable.
         outbox_id:

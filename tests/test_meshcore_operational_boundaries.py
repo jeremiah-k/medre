@@ -113,6 +113,22 @@ def _meshcore_py_files() -> list[Path]:
     return sorted(_SRC_ROOT.glob("*.py"))
 
 
+def _meshcore_sdk_boundary_files() -> list[Path]:
+    """Return modules where direct SDK imports are forbidden."""
+    return [
+        path
+        for path in _meshcore_py_files()
+        if path.name not in {"compat.py", "session.py"}
+    ]
+
+
+def _meshcore_diagnostic_files() -> list[Path]:
+    """Return modules that actually implement diagnostics-related behavior."""
+    return [
+        path for path in _meshcore_py_files() if "diagnostics" in _read_source(path)
+    ]
+
+
 def _scan_for_patterns(source: str, patterns: tuple[str, ...]) -> list[str]:
     """Return import lines in *source* that match any of *patterns*.
 
@@ -156,7 +172,7 @@ class TestMeshCoreSdkImportBoundary:
 
     @pytest.mark.parametrize(
         "filepath",
-        _meshcore_py_files(),
+        _meshcore_sdk_boundary_files(),
         ids=lambda p: p.name,
     )
     def test_no_sdk_import_outside_compat(self, filepath: Path) -> None:
@@ -166,9 +182,6 @@ class TestMeshCoreSdkImportBoundary:
         ``session.py`` owns the SDK client lifecycle and defers imports
         to runtime methods (e.g. ``_connect_real``) — not module-level.
         """
-        if filepath.name in ("compat.py", "session.py"):
-            pytest.skip("compat.py / session.py are designated SDK interaction sites")
-
         source = _read_source(filepath)
         violations = _scan_for_patterns(source, _MESHCORE_SDK_IMPORTS)
         assert (
@@ -377,7 +390,7 @@ class TestMeshCoreDiagnosticSafety:
 
     @pytest.mark.parametrize(
         "filepath",
-        _meshcore_py_files(),
+        _meshcore_diagnostic_files(),
         ids=lambda p: p.name,
     )
     def test_diagnostics_source_no_secret_patterns(self, filepath: Path) -> None:
@@ -388,10 +401,6 @@ class TestMeshCoreDiagnosticSafety:
         or similar in a return/assignment context, it is a latent leak risk.
         """
         source = _read_source(filepath)
-        # Only check files that have diagnostic methods.
-        if "diagnostics" not in source:
-            pytest.skip("no diagnostics method in this file")
-
         for pattern in _IDENTITY_SECRET_PATTERNS:
             # Look for the pattern in non-comment lines.
             for i, line in enumerate(source.splitlines(), 1):
@@ -563,14 +572,15 @@ class TestMeshCoreLiveTestExclusion:
 
     @pytest.mark.parametrize(
         "filepath",
-        sorted(_TESTS_DIR.glob("test_meshcore*.py")),
+        [
+            path
+            for path in sorted(_TESTS_DIR.glob("test_meshcore*.py"))
+            if path.name != Path(__file__).name
+        ],
         ids=lambda p: p.name,
     )
     def test_non_live_meshcore_tests_pass_default_filter(self, filepath: Path) -> None:
         """Non-live MeshCore test files must not carry the live marker."""
-        if filepath.name == Path(__file__).name:
-            pytest.skip("self-referential check done separately")
-
         if _has_live_marker(filepath):
             # Live-marked files are intentionally excluded by default —
             # that's the contract.  Verify the marker exists.

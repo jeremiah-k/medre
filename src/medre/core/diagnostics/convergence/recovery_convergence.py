@@ -11,14 +11,12 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from medre.core.delivery_authority import DeliveryAuthorityResolver
+from medre.core.delivery_authority import committed_receipt_for_outbox
 
 from .helpers import (
     _TERMINAL_OUTBOX,
     _TERMINAL_RECEIPT,
     _get,
-    _target_key,
-    _TargetKey,
 )
 from .types import (
     KIND_RECLAIMED_THEN_ORPHANED,
@@ -81,20 +79,28 @@ def build_recovery_convergence_findings(
     # Materialize generators once — inputs may be one-shot iterables.
     outbox_list = list(outbox_items)
     receipt_list = list(receipts)
-    authority = DeliveryAuthorityResolver(receipt_list, outbox_list)
-
     # Normalized recovery actions — populated when recovery_ledger is present.
     actions_list: list[Any] = []
 
-    # Index outbox items by target key and by outbox_id.
-    outbox_by_target: dict[_TargetKey, list[Any]] = {}
+    # Index rows and immutable receipts once. Recovery checks below are
+    # generation-local: a newer sibling generation must never donate its
+    # receipt to an older recovered row.
     outbox_by_id: dict[str, Any] = {}
     for item in outbox_list:
-        key = _target_key(item)
-        outbox_by_target.setdefault(key, []).append(item)
         oid = _get(item, "outbox_id", "")
         if oid:
             outbox_by_id[str(oid)] = item
+    receipts_by_id = {
+        str(_get(receipt, "receipt_id", "")): receipt
+        for receipt in receipt_list
+        if _get(receipt, "receipt_id")
+    }
+
+    def _receipt_committed_by(item: Any) -> Any | None:
+        receipt = receipts_by_id.get(str(_get(item, "receipt_id", "")))
+        if receipt is None:
+            return None
+        return committed_receipt_for_outbox(item, (receipt,))
 
     # -- Recovered but not progressed ---------------------------------------
     # An outbox item was reclaimed (its recovery action says so) but
@@ -140,8 +146,7 @@ def build_recovery_convergence_findings(
                 if receipt_equiv is not None:
                     item = outbox_by_id.get(outbox_id)
                     if item is not None:
-                        target_key = _target_key(item)
-                        latest = authority.resolve(target_key).authoritative_receipt
+                        latest = _receipt_committed_by(item)
                         if latest is not None:
                             latest_status = str(_get(latest, "status", ""))
                             if (
@@ -169,7 +174,7 @@ def build_recovery_convergence_findings(
                                         extra={
                                             "outbox_id": outbox_id,
                                             "prior_status": prior_status,
-                                            "latest_receipt_status": latest_status,
+                                            "current_receipt_status": latest_status,
                                             "recovery_run_id": run_id,
                                         },
                                     )
@@ -222,8 +227,7 @@ def build_recovery_convergence_findings(
                 oid = str(_get(item, "outbox_id", ""))
                 if oid not in recovered_outbox_ids_terminal:
                     continue
-                target_key = _target_key(item)
-                latest = authority.resolve(target_key).authoritative_receipt
+                latest = _receipt_committed_by(item)
                 if latest is not None:
                     latest_status = str(_get(latest, "status", "")).lower()
                     if latest_status not in _TERMINAL_RECEIPT:
@@ -244,7 +248,7 @@ def build_recovery_convergence_findings(
                                 extra={
                                     "outbox_id": oid,
                                     "outbox_status": status,
-                                    "latest_receipt_status": latest_status,
+                                    "current_receipt_status": latest_status,
                                     "delivery_plan_id": str(
                                         _get(item, "delivery_plan_id", "")
                                     ),

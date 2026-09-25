@@ -168,6 +168,95 @@ async def test_exhausted_from_queued_outbox(
 
 
 @pytest.mark.asyncio
+async def test_terminal_callback_rejects_lineage_read_failure(
+    temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A history-read error must not be mistaken for a missing queued receipt."""
+    await _create_outbox(
+        temp_storage,
+        outbox_id="obox-lineage-read-failure",
+        event_id="evt-lineage-read-failure",
+        delivery_plan_id="plan-lineage-read-failure",
+    )
+
+    async def _raise_lineage_read(*_args, **_kwargs):
+        raise StorageError("lineage read failed")
+
+    monkeypatch.setattr(
+        temp_storage,
+        "list_receipts_for_delivery",
+        _raise_lineage_read,
+    )
+
+    manager = _make_manager(temp_storage)
+    await manager.record_terminal(
+        _terminal_record(
+            outbox_id="obox-lineage-read-failure",
+            event_id="evt-lineage-read-failure",
+            delivery_plan_id="plan-lineage-read-failure",
+        )
+    )
+
+    row = await temp_storage.get_outbox_item("obox-lineage-read-failure")
+    assert row is not None
+    assert row.status == "queued"
+    assert await temp_storage.list_receipts_for_event("evt-lineage-read-failure") == []
+
+
+@pytest.mark.asyncio
+async def test_retry_source_survives_queued_receipt_race(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Retry dispatch source stays durable after the reservation is consumed."""
+    await admit_event(temp_storage, "evt-retry-source-race")
+    item = DeliveryOutboxItem(
+        outbox_id="obox-retry-source-race",
+        event_id="evt-retry-source-race",
+        route_id="route-1",
+        delivery_plan_id="plan-retry-source-race",
+        target_adapter="mesh-1",
+        target_channel="0",
+        attempt_number=1,
+        status="in_progress",
+        worker_id="retry-worker",
+    )
+    created = await temp_storage.create_outbox_item(item)
+    assert created.dispatch_source == "live"
+    reserved = await temp_storage.reserve_outbox_attempt(
+        item.outbox_id,
+        "retry-worker",
+        1,
+    )
+    assert reserved == 2
+    assert await temp_storage.mark_outbox_queued(
+        item.outbox_id,
+        attempt_number=2,
+        expected_worker_id="retry-worker",
+    )
+    queued = await temp_storage.get_outbox_item(item.outbox_id)
+    assert queued is not None
+    assert queued.active_attempt is None
+    assert queued.attempt_number == 2
+    assert queued.dispatch_source == "retry"
+
+    manager = _make_manager(temp_storage)
+    await manager.record_terminal(
+        _terminal_record(
+            outbox_id=item.outbox_id,
+            event_id=item.event_id,
+            delivery_plan_id=item.delivery_plan_id,
+            attempt_number=2,
+        )
+    )
+
+    receipts = await temp_storage.list_receipts_for_event(item.event_id)
+    assert [receipt.status for receipt in receipts] == ["failed", "dead_lettered"]
+    assert all(receipt.source == "retry" for receipt in receipts)
+    assert all(receipt.replay_run_id is None for receipt in receipts)
+
+
+@pytest.mark.asyncio
 async def test_cancelled_from_queued_outbox(
     temp_storage: SQLiteStorage,
 ) -> None:

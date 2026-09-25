@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import shlex
 import tomllib
+from functools import cache
 from itertools import product
 from pathlib import Path
 
@@ -110,6 +111,7 @@ def _pytestmark_markers(
     return markers
 
 
+@cache
 def declared_pytest_markers(path: Path) -> frozenset[str]:
     """Return markers declared by module ``pytestmark`` or decorators.
 
@@ -129,6 +131,7 @@ def declared_pytest_markers(path: Path) -> frozenset[str]:
     return frozenset(markers)
 
 
+@cache
 def pytest_addopts_marker_expression(path: Path) -> str:
     """Return the marker expression supplied by pytest's parsed ``addopts``."""
     with path.open("rb") as pyproject:

@@ -121,6 +121,14 @@ class RecoveryOwnershipAction:
     event_id: str
     """The canonical event this outbox item delivers."""
 
+    replay_run_id: str | None = None
+    """Replay-origin run ID carried by the durable outbox generation, if any.
+
+    This is orthogonal to ``recovery_source``: a replay-origin delivery can be
+    reclaimed by startup or retry recovery without changing who performed the
+    recovery action.
+    """
+
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict with alphabetically sorted keys."""
         result: dict[str, Any] = {

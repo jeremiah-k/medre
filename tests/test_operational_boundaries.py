@@ -144,8 +144,9 @@ class TestSoakFrameworkFakeOnly:
     def fake_soak_file(self, request: Any) -> Path:
         """Parametrized fixture for each fake-only soak test file."""
         path = _TESTS_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"{request.param} not found")
+        assert (
+            path.is_file()
+        ), f"configured repository test target missing: {request.param}"
         return path
 
     def test_fake_soak_files_no_transport_imports(
@@ -235,8 +236,9 @@ class TestOperationalEvidenceNoDirectSdk:
     def evidence_test_file(self, request: Any) -> Path:
         """Parametrized fixture for each evidence test file."""
         path = _TESTS_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"{request.param} not found")
+        assert (
+            path.is_file()
+        ), f"configured repository test target missing: {request.param}"
         return path
 
     def test_evidence_test_files_no_sdk_imports(
@@ -299,11 +301,12 @@ class TestCliWorkflowsRuntimeLayerOnly:
     requiring live transports.
     """
 
-    _CLI_TEST_FILES = [
-        "test_cli.py",
-        "test_operator_workflows.py",
-        "test_operator_failures.py",
-    ]
+    _CLI_TEST_FILES = sorted(
+        {
+            *(path.name for path in _TESTS_DIR.glob("test_cli_*_workflows.py")),
+            *(path.name for path in _TESTS_DIR.glob("test_operator_*.py")),
+        }
+    )
 
     _CLI_SOURCE_MODULES = [
         "medre.cli",
@@ -316,8 +319,9 @@ class TestCliWorkflowsRuntimeLayerOnly:
     def cli_test_file(self, request: Any) -> Path:
         """Parametrized fixture for each CLI test file."""
         path = _TESTS_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"{request.param} not found")
+        assert (
+            path.is_file()
+        ), f"configured repository test target missing: {request.param}"
         return path
 
     def test_cli_test_files_no_sdk_imports(
@@ -422,6 +426,33 @@ def test_extended_transport_markers_registered(marker: str) -> None:
     pyproject = _TESTS_DIR.parent / "pyproject.toml"
     content = _file_source(pyproject)
     assert f"{marker}:" in content
+
+
+def test_default_suite_avoids_duplicate_per_test_watchdog_threads() -> None:
+    """Default timeout safety must not create watchdog threads per test.
+
+    ``pytest-timeout`` chooses SIGALRM on POSIX and a timer-thread fallback on
+    platforms without it.  Forcing ``timeout_method = "thread"`` starts and
+    joins a ``threading.Timer`` for every test.  Pytest's
+    ``faulthandler_timeout`` likewise arms a watchdog around every test, so the
+    two settings together multiply scheduler overhead across the full suite.
+    """
+    import tomllib
+
+    pyproject = _TESTS_DIR.parent / "pyproject.toml"
+    config = tomllib.loads(_file_source(pyproject))["tool"]["pytest"]["ini_options"]
+
+    assert (
+        float(config["timeout"]) > 0
+    ), "the per-test timeout guard must remain enabled"
+    assert "timeout_method" not in config, (
+        "leave pytest-timeout's method unset so POSIX uses SIGALRM and other "
+        "platforms retain the plugin's supported fallback"
+    )
+    assert float(config.get("faulthandler_timeout", 0) or 0) == 0, (
+        "do not arm a second per-test watchdog; enable faulthandler_timeout "
+        "only for targeted hang diagnosis"
+    )
 
 
 def test_soak_tests_also_declare_an_evidence_layer() -> None:
@@ -656,8 +687,9 @@ class TestDiagnosticsNoTransportCoupling:
     def diagnostics_test_file(self, request: Any) -> Path:
         """Parametrized fixture for each diagnostics test file."""
         path = _TESTS_DIR / request.param
-        if not path.exists():
-            pytest.skip(f"{request.param} not found")
+        assert (
+            path.is_file()
+        ), f"configured repository test target missing: {request.param}"
         return path
 
     def test_diagnostics_test_files_no_sdk_imports(

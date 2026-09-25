@@ -16,6 +16,7 @@ from medre.core.events.canonical import (
     DeliveryConfirmationLevel,
     DeliveryReceipt,
     DeliveryReceiptKind,
+    DeliverySource,
 )
 
 __all__ = ["build_delivery_receipt"]
@@ -38,7 +39,7 @@ def build_delivery_receipt(
         "suppressed",
     ],
     receipt_kind: DeliveryReceiptKind | None = None,
-    source: str = "live",
+    source: DeliverySource = "live",
     replay_run_id: str | None = None,
     attempt_number: int = 1,
     parent_receipt_id: str | None = None,
@@ -84,7 +85,8 @@ def build_delivery_receipt(
     source:
         Origin of this receipt (``"live"``, ``"retry"``, or ``"replay"``).
     replay_run_id:
-        When ``source="replay"``, the run ID of the replay execution.
+        Replay-origin run ID. It may accompany the initial ``source="replay"``
+        dispatch or a later ``source="retry"`` attempt from that lineage.
     attempt_number:
         1-indexed attempt number for this receipt.
     parent_receipt_id:

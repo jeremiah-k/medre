@@ -246,15 +246,23 @@ medre trace event <event_id> --storage-path /path/to/medre.db --json
 medre trace replay <run_id> --storage-path /path/to/medre.db
 ```
 
+Replay trace status reflects durable execution state: `admitted` means the named
+run owns at least one outbox generation but has not produced a receipt yet;
+`active` means receipts exist while at least one admitted generation remains
+non-terminal; `complete` means every represented outbox generation is terminal
+(or the trace is receipt-only legacy evidence); and `partial` means referenced
+canonical events could not all be loaded.
+
 ### Timeline Entry Types
 
-| Entry type             | What it shows                                                          |
-| ---------------------- | ---------------------------------------------------------------------- |
-| `event`                | Canonical event (kind, source adapter, timestamp)                      |
-| `native_ref`           | Native transport references (Matrix event IDs, Meshtastic message IDs) |
-| `receipt`              | MEDRE delivery lifecycle (status, target adapter, attempt count)       |
-| `delivery_observation` | Later transport facts tied to one exact durable delivery attempt       |
-| `relation`             | Relations to other events (replies, reactions)                         |
+| Entry type             | What it shows                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| `event`                | Canonical event (kind, source adapter, timestamp)                                                       |
+| `native_ref`           | Native transport references (Matrix event IDs, Meshtastic message IDs)                                  |
+| `outbox_generation`    | Durable target admission/current outbox snapshot, including named replay origin before a receipt exists |
+| `receipt`              | Immutable MEDRE delivery evidence (status, target adapter, attempt count)                               |
+| `delivery_observation` | Later transport facts tied to one exact durable delivery attempt                                        |
+| `relation`             | Relations to other events (replies, reactions)                                                          |
 
 ### Interpreting Timeline Gaps
 
@@ -264,24 +272,24 @@ medre trace replay <run_id> --storage-path /path/to/medre.db
 - **Post-handoff observation after `sent`**: A transport reported a later fact;
   it does not rewrite the receipt or reopen the outbox lifecycle.
 - **Multiple delivery phases, different targets**: Fan-out.
-- **Both `live` and `replay` phases**: Event was originally delivered and later re-delivered via replay. Use `source` field to distinguish.
+- **Multiple dispatch mechanisms**: Receipt `source` is the mechanism (`live`, `replay`, or `retry`); `replay_run_id` independently preserves replay origin. An event with durable replay admission but no receipt yet reports timeline source `none` rather than inventing a live dispatch.
 
 ### Receipt and Native-Ref Fields
 
 **DeliveryReceipt:**
 
-| Field               | Description                                                     |
-| ------------------- | --------------------------------------------------------------- |
-| `receipt_id`        | Unique receipt identifier                                       |
-| `event_id`          | Canonical event                                                 |
-| `target_adapter`    | Adapter that received the delivery                              |
-| `route_id`          | Route that matched the event                                    |
-| `status`            | `sent`, `failed`, `suppressed`, etc.                            |
-| `failure_kind`      | Failure classification or `null`                                |
-| `attempt_number`    | 1 for first attempt, increments on retry                        |
-| `parent_receipt_id` | Links to previous receipt in retry chain                        |
-| `source`            | `"live"`, `"retry"`, or `"replay"`                              |
-| `replay_run_id`     | Groups receipts from one replay run (when `source == "replay"`) |
+| Field               | Description                                                       |
+| ------------------- | ----------------------------------------------------------------- |
+| `receipt_id`        | Unique receipt identifier                                         |
+| `event_id`          | Canonical event                                                   |
+| `target_adapter`    | Adapter that received the delivery                                |
+| `route_id`          | Route that matched the event                                      |
+| `status`            | `sent`, `failed`, `suppressed`, etc.                              |
+| `failure_kind`      | Failure classification or `null`                                  |
+| `attempt_number`    | 1 for first attempt, increments on retry                          |
+| `parent_receipt_id` | Links to previous receipt in retry chain                          |
+| `source`            | `"live"`, `"retry"`, or `"replay"`                                |
+| `replay_run_id`     | Named replay origin; preserved on later `source="retry"` attempts |
 
 **NativeMessageRef:**
 
@@ -313,12 +321,12 @@ LIMIT 50;
 
 -- Replay duplicate risk assessment
 SELECT e.event_id,
-       COUNT(CASE WHEN r.source = 'live' THEN 1 END) AS live_deliveries,
-       COUNT(CASE WHEN r.source = 'replay' THEN 1 END) AS replay_deliveries
+       COUNT(CASE WHEN r.source = 'live' AND r.receipt_kind = 'attempt' THEN 1 END) AS live_dispatches,
+       COUNT(CASE WHEN r.replay_run_id IS NOT NULL THEN 1 END) AS replay_origin_receipts
 FROM canonical_events e
 JOIN delivery_receipts r ON e.event_id = r.event_id
 GROUP BY e.event_id
-HAVING live_deliveries > 0 AND replay_deliveries > 0;
+HAVING live_dispatches > 0 AND replay_origin_receipts > 0;
 
 -- Route-level delivery summary
 SELECT route_id, status, COUNT(*) AS count
@@ -460,13 +468,13 @@ Replay is a lower-level tool for recovery and verification, not part of daily op
    medre inspect event <event_id> --timeline --storage-path /path/to/medre.db
    ```
 
-5. Check that replay receipts have `source='replay'` and the expected `replay_run_id`.
+5. Check that replay-origin receipts have the expected `replay_run_id`; the initial dispatch uses `source='replay'` and any later RetryWorker attempts use `source='retry'`.
 
 Replay requires a config file with declared routes and adapters. It is config-required and duplicate-risky — always run `DRY_RUN` first.
 
 ### Replay and Retry Interaction
 
-`BEST_EFFORT` replay through a route with retry enabled will create retry receipts if delivery fails transiently. These carry `source='replay'` and `replay_run_id`. The `medre replay` command does not start the RetryWorker. If the runtime is later started with `retry.enabled: true`, the worker will discover and process these receipts.
+`BEST_EFFORT` replay through a route with retry enabled creates an initial failure receipt with `source='replay'` and `replay_run_id`. The `medre replay` command does not start the RetryWorker. If the runtime is later started with `retry.enabled: true`, the worker discovers the durable outbox row and emits subsequent attempts with `source='retry'` while preserving the same `replay_run_id`.
 
 ## Specific Investigation Workflows
 

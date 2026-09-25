@@ -39,7 +39,7 @@ __all__ = [
 def _classify_target(
     *,
     outbox_status: str | None,
-    latest_receipt_status: str | None,
+    current_receipt_status: str | None,
     has_outbox: bool,
     has_receipt: bool,
     plan_id_present: bool,
@@ -55,11 +55,11 @@ def _classify_target(
         outbox_status in _NON_TERMINAL_OUTBOX if outbox_status else False
     )
     receipt_terminal = (
-        latest_receipt_status in _TERMINAL_RECEIPT if latest_receipt_status else False
+        current_receipt_status in _TERMINAL_RECEIPT if current_receipt_status else False
     )
     receipt_non_terminal = (
-        latest_receipt_status in _NON_TERMINAL_RECEIPT
-        if latest_receipt_status
+        current_receipt_status in _NON_TERMINAL_RECEIPT
+        if current_receipt_status
         else False
     )
 
@@ -72,7 +72,7 @@ def _classify_target(
                 if (
                     outbox_terminal
                     and receipt_terminal
-                    and outbox_status == latest_receipt_status
+                    and outbox_status == current_receipt_status
                 ):
                     return ConvergenceSeverity.DEGRADED, warnings
                 return ConvergenceSeverity.DEGRADED, warnings
@@ -93,7 +93,7 @@ def _classify_target(
     if has_outbox and has_receipt:
         # Matching terminal: safe
         if outbox_terminal and receipt_terminal:
-            if outbox_status == latest_receipt_status:
+            if outbox_status == current_receipt_status:
                 return ConvergenceSeverity.SAFE, warnings
             # Both terminal but different (e.g. sent + dead_lettered from old receipt)
             # The outbox is the operational authority — if outbox says terminal,
@@ -101,7 +101,7 @@ def _classify_target(
             # because both agree work is done.
             warnings.append(
                 f"Both terminal but statuses differ: outbox={outbox_status}, "
-                f"receipt={latest_receipt_status}"
+                f"receipt={current_receipt_status}"
             )
             return ConvergenceSeverity.SAFE, warnings
 
@@ -109,16 +109,16 @@ def _classify_target(
         if outbox_terminal and receipt_non_terminal:
             warnings.append(
                 f"Terminal outbox ({outbox_status}) with non-terminal receipt "
-                f"({latest_receipt_status})"
+                f"({current_receipt_status})"
             )
             return ConvergenceSeverity.INCONSISTENT, warnings
 
         # Non-terminal outbox + terminal receipt sent/suppressed: inconsistent
         if outbox_non_terminal and receipt_terminal:
-            if latest_receipt_status in ("sent", "suppressed"):
+            if current_receipt_status in ("sent", "suppressed"):
                 warnings.append(
                     f"Non-terminal outbox ({outbox_status}) but receipt claims "
-                    f"terminal ({latest_receipt_status})"
+                    f"terminal ({current_receipt_status})"
                 )
                 return ConvergenceSeverity.INCONSISTENT, warnings
             # receipt dead_lettered with non-terminal outbox retry_wait: degraded
@@ -126,11 +126,11 @@ def _classify_target(
             return ConvergenceSeverity.DEGRADED, warnings
 
         # Non-terminal outbox + failed receipt: degraded (retry expected)
-        if outbox_non_terminal and latest_receipt_status == "failed":
+        if outbox_non_terminal and current_receipt_status == "failed":
             return ConvergenceSeverity.DEGRADED, warnings
 
         # Non-terminal outbox + queued receipt: degraded (in flight)
-        if outbox_non_terminal and latest_receipt_status == "queued":
+        if outbox_non_terminal and current_receipt_status == "queued":
             return ConvergenceSeverity.DEGRADED, warnings
 
         # Both non-terminal but not a known combination
@@ -170,7 +170,7 @@ def _classify_target(
             return ConvergenceSeverity.SAFE, warnings
         # Non-terminal receipt without outbox: degraded
         warnings.append(
-            f"Receipt-only non-terminal ({latest_receipt_status}); "
+            f"Receipt-only non-terminal ({current_receipt_status}); "
             f"no outbox item found"
         )
         return ConvergenceSeverity.DEGRADED, warnings
@@ -243,17 +243,21 @@ def build_convergence_summary(
         has_outbox = obx is not None
         plan_id_present = bool(plan_id)
 
-        latest_rec = snapshot.authoritative_receipt
+        latest_rec = (
+            snapshot.current_receipt
+            if obx is not None
+            else snapshot.authoritative_receipt
+        )
         has_receipt = latest_rec is not None
-        latest_receipt_status = _get(latest_rec, "status") if latest_rec else None
-        latest_receipt_id = _get(latest_rec, "receipt_id") if latest_rec else None
-        latest_attempt_number = (
+        current_receipt_status = _get(latest_rec, "status") if latest_rec else None
+        current_receipt_id = _get(latest_rec, "receipt_id") if latest_rec else None
+        current_attempt_number = (
             _get(latest_rec, "attempt_number") if latest_rec else None
         )
 
         severity, target_warnings = _classify_target(
             outbox_status=outbox_status,
-            latest_receipt_status=latest_receipt_status,
+            current_receipt_status=current_receipt_status,
             has_outbox=has_outbox,
             has_receipt=has_receipt,
             plan_id_present=plan_id_present,
@@ -267,9 +271,9 @@ def build_convergence_summary(
                 target_adapter=adapter,
                 target_channel=channel,
                 outbox_status=outbox_status,
-                latest_receipt_status=latest_receipt_status,
-                latest_receipt_id=latest_receipt_id,
-                latest_attempt_number=latest_attempt_number,
+                current_receipt_status=current_receipt_status,
+                current_receipt_id=current_receipt_id,
+                current_attempt_number=current_attempt_number,
                 severity=severity.value,
                 warnings=tuple(target_warnings),
                 outbox_id=outbox_id,

@@ -105,8 +105,7 @@ class TestDeliveryStatusByChannel:
     async def test_channel_progression_returns_latest_for_channel(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """Multiple receipts on the same channel: delivery_status with
-        target_channel returns the latest receipt for that channel only."""
+        """Outbox-less receipts on one channel resolve by durable append order."""
         event = make_storage_event(event_id="evt-ch-prog")
         await temp_storage.append(event)
 

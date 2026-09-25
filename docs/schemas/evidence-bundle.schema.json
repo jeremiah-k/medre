@@ -1048,17 +1048,17 @@
           "type": ["string", "null"],
           "description": "Status of the outbox item, or null if no outbox item."
         },
-        "latest_receipt_status": {
+        "current_receipt_status": {
           "type": ["string", "null"],
-          "description": "Status of the current lifecycle-authoritative receipt, or null if no current receipt."
+          "description": "Receipt status committed by the current outbox generation; with no outbox, current immutable authority. Null when the current generation has not committed a receipt."
         },
-        "latest_receipt_id": {
+        "current_receipt_id": {
           "type": ["string", "null"],
-          "description": "Receipt ID of the current lifecycle-authoritative receipt, or null."
+          "description": "Receipt ID under the same current-generation rule, or null before the generation commits evidence."
         },
-        "latest_attempt_number": {
+        "current_attempt_number": {
           "type": ["integer", "null"],
-          "description": "Attempt number from the current lifecycle-authoritative receipt, or null."
+          "description": "Attempt number of the current-generation receipt, or null before that generation commits receipt evidence."
         },
         "severity": {
           "type": "string",
@@ -1081,9 +1081,9 @@
         "target_adapter",
         "target_channel",
         "outbox_status",
-        "latest_receipt_status",
-        "latest_receipt_id",
-        "latest_attempt_number",
+        "current_receipt_status",
+        "current_receipt_id",
+        "current_attempt_number",
         "severity",
         "warnings",
         "outbox_id"
@@ -1270,6 +1270,7 @@
         "reason": { "type": "string" },
         "observed_status": { "type": "string" },
         "recovery_run_id": { "type": ["string", "null"] },
+        "replay_run_id": { "type": ["string", "null"] },
         "recovery_source": {
           "type": "string",
           "enum": [
@@ -1295,6 +1296,7 @@
         "reason",
         "observed_status",
         "recovery_run_id",
+        "replay_run_id",
         "recovery_source",
         "startup_timestamp",
         "timestamp",

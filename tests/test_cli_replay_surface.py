@@ -583,6 +583,34 @@ class TestCLIReplayJSONShape:
         # Without an explicit run_id, it defaults to empty string.
         assert isinstance(summary["run_id"], str)
 
+    def test_json_uses_normalized_durable_run_id(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Summary run_id matches the canonical key persisted by replay."""
+        event_id, db_path = _seed_db(tmp_path)
+        config_path = _write_config(tmp_path, db_path)
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            main(
+                [
+                    "replay",
+                    "--config",
+                    str(config_path),
+                    "--mode",
+                    "best_effort",
+                    "--event",
+                    event_id,
+                    "--run-id",
+                    "  run-normalized  ",
+                    "--json",
+                ]
+            )
+
+        summary = json.loads(stdout_buf.getvalue())
+        assert summary["run_id"] == "run-normalized"
+
     def test_dry_run_json_has_mode_key(
         self,
         tmp_path: Path,

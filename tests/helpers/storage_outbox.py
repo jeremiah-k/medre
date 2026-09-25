@@ -140,6 +140,28 @@ def _effective_outbox_attempt(item: DeliveryOutboxItem) -> int:
     )
 
 
+def find_existing_replay_run_claim(
+    items: dict[str, DeliveryOutboxItem],
+    candidate: DeliveryOutboxItem,
+) -> DeliveryOutboxItem | None:
+    """Return the existing durable claim for a non-empty replay run ID.
+
+    Replay run provenance is not part of ``DeliveryIdentity``.  For explicit
+    non-empty run IDs, however, SQLite treats ``identity + replay_run_id`` as
+    an idempotency key while allocating a replay generation.  In-memory
+    conformance stores must enforce the same admission rule.
+    """
+    if not candidate.replay_run_id:
+        return None
+    for existing in items.values():
+        if (
+            _same_outbox_identity(existing, candidate)
+            and existing.replay_run_id == candidate.replay_run_id
+        ):
+            return existing
+    return None
+
+
 def allocate_new_outbox_generation(
     items: dict[str, DeliveryOutboxItem],
     candidate: DeliveryOutboxItem,
@@ -156,7 +178,12 @@ def allocate_new_outbox_generation(
     for existing in items.values():
         if _same_outbox_identity(existing, candidate):
             max_attempt = max(max_attempt, _effective_outbox_attempt(existing))
-    return replace(candidate, attempt_number=max_attempt + 1, active_attempt=None)
+    return replace(
+        candidate,
+        attempt_number=max_attempt + 1,
+        active_attempt=None,
+        dispatch_source=candidate.dispatch_source or "replay",
+    )
 
 
 def find_existing_outbox_generation(
@@ -224,6 +251,7 @@ def reserve_guarded_outbox_attempt(
             return None
 
     object.__setattr__(item, "active_attempt", next_attempt)
+    object.__setattr__(item, "dispatch_source", "retry")
     return next_attempt
 
 

@@ -20,6 +20,7 @@ from typing import Any
 
 import msgspec
 
+from medre.core.engine.pipeline.delivery_state import TERMINAL_OUTBOX_STATUSES
 from medre.core.events import (
     CanonicalEvent,
     DeliveryObservation,
@@ -27,6 +28,7 @@ from medre.core.events import (
     EventRelation,
     NativeMessageRef,
 )
+from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.reporting import (
     delivery_observation_to_report_dict,
     delivery_receipt_to_report_dict,
@@ -36,10 +38,10 @@ from medre.runtime.reporting import (
 # Maximum timeline entries returned by assembly functions.
 _MAX_TIMELINE_ENTRIES: int = 1000
 _REPLAY_DUPLICATE_CAVEAT = (
-    "A non-empty replay run ID suppresses targets already accepted in that "
-    "same run after their receipt is visible. Replay does not deduplicate "
-    "prior live delivery, different/empty run IDs, or concurrent attempts "
-    "that race before acceptance evidence is committed."
+    "A non-empty replay run ID atomically claims one target generation in "
+    "durable storage. Replay does not deduplicate prior live delivery or "
+    "different/empty run IDs, and ambiguous transport attempts may still be "
+    "redispatched by retry or recovery."
 )
 
 
@@ -88,6 +90,36 @@ def _timeline_entry(
     }
 
 
+def _outbox_generation_entry(
+    item: DeliveryOutboxItem,
+    index: int,
+) -> dict[str, Any]:
+    """Return one deterministic durable outbox-admission timeline entry."""
+    timestamp = item.created_at or item.updated_at or "1970-01-01T00:00:00+00:00"
+    return {
+        "timestamp": str(timestamp),
+        # Outbox rows have no global sequence. A negative namespace keeps
+        # admission before same-timestamp receipt sequences while preserving
+        # deterministic order among sibling generations.
+        "ordinal": -1_000_000 + index,
+        "entry_type": "outbox_generation",
+        "data": {
+            "outbox_id": item.outbox_id,
+            "event_id": item.event_id,
+            "delivery_plan_id": item.delivery_plan_id,
+            "target_adapter": item.target_adapter,
+            "target_channel": item.target_channel,
+            "attempt_number": item.attempt_number,
+            "active_attempt": item.active_attempt,
+            "status": item.status,
+            "receipt_id": item.receipt_id,
+            "replay_run_id": item.replay_run_id,
+            "created_at": str(item.created_at) if item.created_at is not None else None,
+            "updated_at": str(item.updated_at) if item.updated_at is not None else None,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Event timeline
 # ---------------------------------------------------------------------------
@@ -99,6 +131,7 @@ def assemble_event_timeline(
     native_refs: list[NativeMessageRef],
     relations: list[EventRelation],
     observations: list[DeliveryObservation] | None = None,
+    outbox_items: list[DeliveryOutboxItem] | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble a chronological timeline for a single event.
 
@@ -120,6 +153,10 @@ def assemble_event_timeline(
     observations:
         Append-only post-handoff transport observations for exact delivery
         attempts.  These are evidence only and do not alter receipt state.
+    outbox_items:
+        Durable target generations for this event. These make named replay
+        admission visible before its first receipt without treating replay
+        origin as a dispatch source.
 
     Returns
     -------
@@ -188,6 +225,12 @@ def assemble_event_timeline(
         )
     )
 
+    # Durable outbox generations — mutable operational evidence.  These are
+    # snapshot-at-read rows, not immutable lifecycle transitions; created_at is
+    # therefore used only to place admission in the timeline.
+    for index, item in enumerate(outbox_items or []):
+        entries.append(_outbox_generation_entry(item, index))
+
     # Native message refs — materialisation evidence.
     for i, nref in enumerate(native_refs):
         entries.append(
@@ -252,89 +295,101 @@ def assemble_replay_timeline(
     run_id: str,
     receipts: list[DeliveryReceipt],
     event_cache: dict[str, CanonicalEvent],
+    outbox_items: list[DeliveryOutboxItem] | None = None,
 ) -> dict[str, Any]:
-    """Assemble a replay timeline for a specific replay run.
+    """Assemble durable evidence for one named replay run.
 
-    Combines all receipts produced by a replay run with their
-    corresponding events into a structured timeline.
-
-    Parameters
-    ----------
-    run_id:
-        The replay run ID to assemble the timeline for.
-    receipts:
-        All delivery receipts with ``replay_run_id == run_id``.
-    event_cache:
-        Mapping of event_id → CanonicalEvent for the events referenced
-        by the receipts.  Events that are not in the cache are
-        gracefully omitted from the timeline with a ``partial`` status.
-
-    Returns
-    -------
-    dict[str, Any]
-        A dict with keys ``run_id``, ``status``, ``receipt_count``,
-        ``event_ids``, ``timeline``.
+    A replay run becomes durable when an outbox generation is admitted, before
+    the first receipt necessarily exists.  The timeline therefore combines both
+    outbox-generation evidence and receipts.  ``source`` remains per-attempt
+    dispatch mechanism; the run itself has replay origin regardless of whether a
+    later receipt was produced by the retry worker.
     """
-    if not receipts:
+    outbox_items = outbox_items or []
+    if not receipts and not outbox_items:
         return {
             "run_id": run_id,
+            "origin": "replay",
             "status": "empty",
             "receipt_count": 0,
+            "outbox_count": 0,
+            "sources_seen": [],
             "event_ids": [],
             "missing_event_ids": [],
             "duplicate_send_caveat": _REPLAY_DUPLICATE_CAVEAT,
             "timeline": [],
         }
 
-    # Collect unique event IDs referenced by receipts.
-    event_ids = list(dict.fromkeys(r.event_id for r in receipts))
-
-    # Determine partial status: some events may be missing from cache.
+    event_ids = list(
+        dict.fromkeys(
+            [item.event_id for item in outbox_items]
+            + [receipt.event_id for receipt in receipts]
+        )
+    )
     missing = [eid for eid in event_ids if eid not in event_cache]
-    status = "partial" if missing else "complete"
+    active_outbox = [
+        item for item in outbox_items if item.status not in TERMINAL_OUTBOX_STATUSES
+    ]
+    if missing:
+        status = "partial"
+    elif outbox_items and not receipts and active_outbox:
+        status = "admitted"
+    elif active_outbox:
+        status = "active"
+    else:
+        status = "complete"
 
     timeline_entries: list[dict[str, Any]] = []
 
+    # Outbox admission is the earliest durable named-run fact.  Persisted rows
+    # always have created_at; the fallback keeps synthetic unit fixtures safe.
+    for index, item in enumerate(outbox_items):
+        timeline_entries.append(_outbox_generation_entry(item, index))
+
     for receipt in receipts:
         receipt_data = delivery_receipt_to_report_dict(receipt)
-        entry: dict[str, Any] = {
-            "timestamp": _to_iso(receipt.created_at),
-            "ordinal": receipt.sequence,
-            "entry_type": "receipt",
-            "data": {
-                **receipt_data,
-                "replay_run_id": receipt.replay_run_id,
-            },
-        }
-        timeline_entries.append(entry)
+        timeline_entries.append(
+            {
+                "timestamp": _to_iso(receipt.created_at),
+                "ordinal": receipt.sequence,
+                "entry_type": "receipt",
+                "data": {
+                    **receipt_data,
+                    "replay_run_id": receipt.replay_run_id,
+                },
+            }
+        )
 
-        # If the referenced event is in cache, include a summary.
-        event = event_cache.get(receipt.event_id)
-        if event is not None:
-            timeline_entries.append(
-                {
-                    "timestamp": _to_iso(event.timestamp),
-                    "ordinal": receipt.sequence + 1,
-                    "entry_type": "event_summary",
-                    "data": {
-                        "event_id": event.event_id,
-                        "event_kind": event.event_kind,
-                        "source_adapter": event.source_adapter,
-                    },
-                }
-            )
+    # Include one canonical-event summary per event, regardless of whether the
+    # run has reached receipt creation yet.
+    for index, event_id in enumerate(event_ids):
+        event = event_cache.get(event_id)
+        if event is None:
+            continue
+        timeline_entries.append(
+            {
+                "timestamp": _to_iso(event.timestamp),
+                "ordinal": -500_000 + index,
+                "entry_type": "event_summary",
+                "data": {
+                    "event_id": event.event_id,
+                    "event_kind": event.event_kind,
+                    "source_adapter": event.source_adapter,
+                },
+            }
+        )
 
-    # Sort by (timestamp, ordinal).
-    timeline_entries.sort(key=lambda e: (e["timestamp"], e["ordinal"]))
-
-    # Bound to maximum entries.
+    timeline_entries.sort(key=lambda entry: (entry["timestamp"], entry["ordinal"]))
     if len(timeline_entries) > _MAX_TIMELINE_ENTRIES:
         timeline_entries = timeline_entries[:_MAX_TIMELINE_ENTRIES]
 
     return {
         "run_id": run_id,
+        "origin": "replay",
         "status": status,
         "receipt_count": len(receipts),
+        "outbox_count": len(outbox_items),
+        "sources_seen": sorted({receipt.source for receipt in receipts}),
         "event_ids": event_ids,
         "missing_event_ids": missing,
         "duplicate_send_caveat": _REPLAY_DUPLICATE_CAVEAT,

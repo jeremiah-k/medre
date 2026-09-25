@@ -1101,7 +1101,7 @@ medre inspect native-ref --storage-path PATH
     Read-only native transport reference inspection.
 
 medre inspect replay --storage-path PATH
-    Read-only replay run inspection. Shows replay run metadata and receipt summaries.
+    Read-only replay run inspection. Shows durable outbox admissions and receipt summaries, including named runs that have not produced a receipt yet.
 
     All inspect subcommands require --storage-path for direct SQLite access.
 

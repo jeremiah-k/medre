@@ -371,8 +371,8 @@ from the individual fragment files.
   concurrency and bounded shutdown grace for the active durable-ingress row;
   task-local structured correlation across
   ingress/plans/targets/attempts/receipts/replay; replay rendering
-  reconstructed from persisted historical rendering context; same-run
-  duplicate suppression evidence for non-empty replay run IDs;
+  reconstructed from persisted historical rendering context; durable same-run
+  replay idempotency for non-empty replay run IDs;
   `confirmation_level` separates receipt lifecycle status from transport
   proof strength (`local_queue`, `local_transport`, `remote_service`);
   built-in adapters advertise deterministic thread-capability fallback;

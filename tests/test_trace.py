@@ -19,6 +19,7 @@ from medre.core.events import (
     EventRelation,
     NativeMessageRef,
 )
+from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 
 # ---------------------------------------------------------------------------
@@ -453,6 +454,28 @@ class TestAssembleReplayTimeline:
 
         result = assemble_replay_timeline("run-partial", [receipt], {})
         assert result["status"] == "partial"
+
+    def test_terminal_outbox_without_receipt_is_complete(self) -> None:
+        from medre.runtime.trace import assemble_replay_timeline
+
+        event = _make_event(event_id="evt-terminal-outbox")
+        outbox = DeliveryOutboxItem(
+            outbox_id="ob-terminal-outbox",
+            event_id=event.event_id,
+            route_id="route-1",
+            delivery_plan_id="plan-1",
+            target_adapter="dest_adapter",
+            status="cancelled",
+            replay_run_id="run-terminal-outbox",
+        )
+
+        result = assemble_replay_timeline(
+            "run-terminal-outbox", [], {event.event_id: event}, [outbox]
+        )
+
+        assert result["status"] == "complete"
+        assert result["outbox_count"] == 1
+        assert result["receipt_count"] == 0
 
     def test_event_summary_included(self) -> None:
         """Timeline includes event_summary entries when events are cached."""
@@ -951,7 +974,7 @@ class TestTraceReplay:
             str(config_trace_sqlite.parent / "state" / "trace.db"),
             "nonexistent-run",
         )
-        assert "no receipts found" in stderr
+        assert "no durable evidence found" in stderr
         assert "nonexistent-run" in stderr
 
     def test_replay_human_readable(
@@ -1348,39 +1371,24 @@ class TestEnrichedReplayTimeline:
 
 
 class TestBestEffortWarningText:
-    """_BEST_EFFORT_WARNING must not claim replay records are
-    NOT distinguishable; it must mention source='replay',
-    replay_run_id, traceability is NOT dedupe, and duplicate-send risk."""
+    """BEST_EFFORT warning states the durable and transport-level boundaries."""
 
-    def test_warning_mentions_distinguishable(self) -> None:
+    def test_warning_mentions_named_run_atomic_claim(self) -> None:
         from medre.cli.replay_commands import _BEST_EFFORT_WARNING
 
-        assert "distinguishable" in _BEST_EFFORT_WARNING.lower()
-        # Must NOT say "NOT distinguishable from live records"
-        assert (
-            "NOT" not in _BEST_EFFORT_WARNING
-            or "NOT distinguishable" not in _BEST_EFFORT_WARNING
-        )
+        lowered = _BEST_EFFORT_WARNING.lower()
+        assert "non-empty run id" in lowered
+        assert "atomically claims" in lowered
+        assert "durable storage" in lowered
 
-    def test_warning_mentions_source_replay(self) -> None:
+    def test_warning_preserves_remaining_duplicate_risks(self) -> None:
         from medre.cli.replay_commands import _BEST_EFFORT_WARNING
 
-        assert "source='replay'" in _BEST_EFFORT_WARNING
-        assert "replay_run_id" in _BEST_EFFORT_WARNING
-
-    def test_warning_mentions_traceability_not_dedupe(self) -> None:
-        from medre.cli.replay_commands import _BEST_EFFORT_WARNING
-
-        assert "traceability" in _BEST_EFFORT_WARNING.lower()
-        assert (
-            "dedupe" in _BEST_EFFORT_WARNING.lower()
-            or "NOT dedupe" in _BEST_EFFORT_WARNING
-        )
-
-    def test_warning_mentions_duplicate_send_risk(self) -> None:
-        from medre.cli.replay_commands import _BEST_EFFORT_WARNING
-
-        assert "duplicate" in _BEST_EFFORT_WARNING.lower()
+        lowered = _BEST_EFFORT_WARNING.lower()
+        assert "prior live" in lowered
+        assert "different/empty run ids" in lowered
+        assert "retry/recovery" in lowered
+        assert "duplicate" in lowered
 
 
 # ===================================================================

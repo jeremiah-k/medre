@@ -232,6 +232,7 @@ def _summarize_outbox_item(item: Any) -> dict[str, Any]:
         "target_channel": item.target_channel,
         "attempt_number": item.attempt_number,
         "status": item.status,
+        "replay_run_id": item.replay_run_id,
         "failure_kind": item.failure_kind,
         "error_summary": item.error_summary,
         "created_at": _to_json_safe_timestamp(item.created_at),
@@ -248,6 +249,7 @@ def _retry_outbox_item_to_dict(item: RetryOutboxItemSummary) -> dict[str, Any]:
         "route_id": item.route_id,
         "target_adapter": item.target_adapter,
         "target_channel": item.target_channel,
+        "replay_run_id": item.replay_run_id,
         "status": item.status,
         "retry_state": item.retry_state,
         "attempt_number": item.attempt_number,
@@ -366,7 +368,13 @@ class EvidenceCollector:
         outbox_summaries = tuple(_summarize_outbox_item(i) for i in outbox_items)
 
         # -- Replay run IDs (sorted) ---------------------------------------
-        replay_run_ids = sorted({r.replay_run_id for r in receipts if r.replay_run_id})
+        # A named replay becomes durable at outbox admission, before a first
+        # receipt necessarily exists.  Project replay origin from both durable
+        # surfaces so evidence remains truthful across that crash window.
+        replay_run_ids = sorted(
+            {r.replay_run_id for r in receipts if r.replay_run_id}
+            | {i.replay_run_id for i in outbox_items if i.replay_run_id}
+        )
 
         # -- Sources seen (sorted) -----------------------------------------
         sources_seen = sorted({r.source for r in receipts})
@@ -385,6 +393,7 @@ class EvidenceCollector:
 
         evidence_tier = infer_evidence_tier(
             sources_seen=tuple(sources_seen),
+            has_replay_origin=bool(replay_run_ids),
             source_adapter=source_adapter_name,
         )
 

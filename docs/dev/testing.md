@@ -896,6 +896,12 @@ python -m pytest --collect-only -q
 # tests without hanging the entire suite. Requires pytest-timeout (in dev deps).
 PYTHONPATH=src pytest -q --timeout=30 tests/test_soak*.py tests/test_longrun*.py
 
+# The repository intentionally leaves pytest-timeout's method unset. On POSIX
+# the plugin uses SIGALRM, avoiding a timer thread per test; on platforms where
+# SIGALRM is unavailable it falls back to its thread method. For a targeted
+# hang investigation, a one-off early traceback can still be requested with:
+PYTHONPATH=src pytest -q -o faulthandler_timeout=20 --timeout=30 tests/test_suspect.py
+
 # Step 3: If a prefix group hangs, bisect it. Run half the files:
 PYTHONPATH=src pytest -q tests/test_longrun_soak.py tests/test_longrun_stability_v3.py
 # If that passes, the hang is in the other half.

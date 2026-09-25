@@ -47,6 +47,7 @@ def _make_item(
     lease_until: str | None = None,
     updated_at: str | None = None,
     worker_id: str | None = None,
+    replay_run_id: str | None = None,
 ) -> dict[str, str | None]:
     return {
         "outbox_id": outbox_id,
@@ -57,6 +58,7 @@ def _make_item(
         "lease_until": lease_until,
         "updated_at": updated_at,
         "worker_id": worker_id,
+        "replay_run_id": replay_run_id,
     }
 
 
@@ -558,6 +560,25 @@ class TestBuildStartupRecoveryLedger:
         assert action.outbox_id == "ob-1"
         assert action.ownership_action == "recoverable"
         assert action.recovery_source == "startup_recovery"
+        assert action.replay_run_id is None
+
+    def test_preserves_replay_origin_separately_from_recovery_source(self) -> None:
+        ledger = build_startup_recovery_ledger(
+            outbox_items=[
+                _make_item(
+                    outbox_id="ob-replay-origin",
+                    replay_run_id="run-replay-origin",
+                )
+            ],
+            startup_timestamp="2026-05-31T12:00:00+00:00",
+            recovery_run_id="recovery-run",
+            now_fn=_fixed_now,
+        )
+
+        action = ledger.actions[0]
+        assert action.recovery_source == "startup_recovery"
+        assert action.replay_run_id == "run-replay-origin"
+        assert action.to_dict()["replay_run_id"] == "run-replay-origin"
 
     def test_mixed_statuses(self) -> None:
         items = [
@@ -1015,3 +1036,11 @@ class TestEdgeCases:
         item = {"status": "pending", "event_id": "ev-1", "outbox_id": "ob-d"}
         label, _ = classify_startup_reclamation(item, now=_fixed_dt())
         assert label == "immediately_claimable"
+
+
+def test_attempt_source_label_preserves_replay_origin_on_retry() -> None:
+    from medre.core.storage.backend import attempt_source_label
+
+    assert attempt_source_label("replay", "run-1") == "replay:run-1"
+    assert attempt_source_label("retry", " run-1 ") == "retry:run-1"
+    assert attempt_source_label("live", None) == "live"

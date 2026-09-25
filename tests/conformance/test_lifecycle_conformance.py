@@ -54,6 +54,7 @@ def _outbox(
     attempt_number: int = 1,
     next_attempt_at: str | None = None,
     updated_at: str | None = None,
+    receipt_id: str | None = None,
 ) -> dict:
     d: dict = {
         "outbox_id": outbox_id,
@@ -68,6 +69,8 @@ def _outbox(
         d["next_attempt_at"] = next_attempt_at
     if updated_at is not None:
         d["updated_at"] = updated_at
+    if receipt_id is not None:
+        d["receipt_id"] = receipt_id
     return d
 
 
@@ -86,6 +89,7 @@ def _receipt(
     retry_max_delay: float | None = None,
     retry_jitter: bool | None = None,
     created_at: str | None = None,
+    outbox_id: str | None = None,
 ) -> dict:
     d: dict = {
         "receipt_id": receipt_id,
@@ -109,6 +113,8 @@ def _receipt(
         d["retry_max_delay"] = retry_max_delay
     if retry_jitter is not None:
         d["retry_jitter"] = retry_jitter
+    if outbox_id is not None:
+        d["outbox_id"] = outbox_id
     return d
 
 
@@ -126,8 +132,8 @@ class TestEveryKindEmittable:
 
     def test_kind_terminal_receipt_nonterminal_outbox(self) -> None:
         f = _build(
-            outbox_items=[_outbox(status="pending")],
-            receipts=[_receipt(status="sent")],
+            outbox_items=[_outbox(status="pending", receipt_id="r-1")],
+            receipts=[_receipt(status="sent", outbox_id="ob-1")],
         )
         kinds = {x.kind for x in f}
         assert KIND_TERMINAL_RECEIPT_NONTERMINAL_OUTBOX in kinds
@@ -138,8 +144,8 @@ class TestEveryKindEmittable:
 
     def test_kind_terminal_outbox_nonterminal_receipt(self) -> None:
         f = _build(
-            outbox_items=[_outbox(status="sent")],
-            receipts=[_receipt(status="failed")],
+            outbox_items=[_outbox(status="sent", receipt_id="r-1")],
+            receipts=[_receipt(status="failed", outbox_id="ob-1")],
         )
         kinds = {x.kind for x in f}
         assert KIND_TERMINAL_OUTBOX_NONTERMINAL_RECEIPT in kinds
@@ -150,8 +156,8 @@ class TestEveryKindEmittable:
 
     def test_kind_receipt_outbox_mismatch(self) -> None:
         f = _build(
-            outbox_items=[_outbox(status="sent")],
-            receipts=[_receipt(status="dead_lettered")],
+            outbox_items=[_outbox(status="sent", receipt_id="r-1")],
+            receipts=[_receipt(status="dead_lettered", outbox_id="ob-1")],
         )
         kinds = {x.kind for x in f}
         assert KIND_RECEIPT_OUTBOX_MISMATCH in kinds

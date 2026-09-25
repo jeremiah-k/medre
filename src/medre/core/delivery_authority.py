@@ -29,8 +29,10 @@ __all__ = [
     "ReceiptAuthority",
     "ResolvedDeliverySnapshot",
     "authority_index",
+    "committed_receipt_for_outbox",
     "delivery_identity",
     "delivery_identity_sort_key",
+    "effective_generation",
     "group_outbox_by_identity",
     "group_receipts_by_identity",
     "receipt_kind",
@@ -178,13 +180,15 @@ def group_outbox_by_identity(
     return grouped
 
 
+def effective_generation(item: Any) -> int:
+    """Return the reserved generation when present, else the finalized one."""
+    return int(_get(item, "active_attempt") or _get(item, "attempt_number") or 1)
+
+
 def _outbox_rank(item: Any) -> tuple[int, str, str, str]:
     """Rank operational generations without relying on incidental list order."""
-    effective_attempt = int(
-        _get(item, "active_attempt") or _get(item, "attempt_number") or 1
-    )
     return (
-        effective_attempt,
+        effective_generation(item),
         _iso(_get(item, "updated_at")),
         _iso(_get(item, "created_at")),
         str(_get(item, "outbox_id") or ""),
@@ -260,11 +264,13 @@ class ResolvedDeliverySnapshot(Generic[_T]):
 
     The snapshot keeps immutable history and mutable lifecycle authority in one
     value so diagnostics and operator projections do not have to repeat the
-    receipt/outbox join. ``authoritative_receipt`` answers current lifecycle
-    authority, ``current_outbox`` answers current operational state,
-    ``latest_attempt`` answers the newest transport execution, and
-    ``causative_receipt`` resolves lifecycle evidence back to the attempt it
-    names when that receipt is present in the loaded history.
+    receipt/outbox join. ``authoritative_receipt`` answers global immutable
+    lifecycle authority, ``current_outbox`` answers current operational state,
+    ``current_receipt`` is the exact receipt committed by that current mutable
+    generation, ``current_attempt`` resolves its transport-attempt evidence,
+    ``latest_attempt`` answers the newest immutable transport execution whether
+    committed or historical, and ``causative_receipt`` resolves global lifecycle
+    authority back to the attempt it names when loaded.
     """
 
     identity: DeliveryIdentity
@@ -272,6 +278,8 @@ class ResolvedDeliverySnapshot(Generic[_T]):
     outbox_items: tuple[Any, ...]
     authoritative_receipt: _T | None
     current_outbox: Any | None
+    current_receipt: _T | None
+    current_attempt: _T | None
     latest_attempt: _T | None
     causative_receipt: _T | None
 
@@ -302,6 +310,71 @@ def _latest_attempt(receipts: Iterable[_T]) -> _T | None:
             int(_get(receipt, "attempt_number") or 1),
             *_append_rank(receipt),
         ),
+    )
+
+
+def committed_receipt_for_outbox(
+    outbox: Any | None,
+    receipts: Iterable[_T],
+) -> _T | None:
+    """Return the receipt committed by the exact supplied outbox generation.
+
+    An outbox can retain a pointer to the previously finalized attempt
+    while a retry reservation is active.  Therefore the pointer is eligible
+    only when the pointed receipt also belongs to the effective generation
+    (``active_attempt`` while reserved, otherwise ``attempt_number``).
+    """
+    if outbox is None:
+        return None
+    outbox_id = str(_get(outbox, "outbox_id") or "")
+    receipt_id = str(_get(outbox, "receipt_id") or "")
+    if not outbox_id or not receipt_id:
+        return None
+    generation = effective_generation(outbox)
+    return next(
+        (
+            receipt
+            for receipt in receipts
+            if str(_get(receipt, "outbox_id") or "") == outbox_id
+            and str(_get(receipt, "receipt_id") or "") == receipt_id
+            and int(_get(receipt, "attempt_number") or 1) == generation
+        ),
+        None,
+    )
+
+
+def _current_generation_attempt(
+    current_outbox: Any | None,
+    current_receipt: _T | None,
+    receipts: Iterable[_T],
+) -> _T | None:
+    """Resolve committed attempt evidence for the current mutable generation.
+
+    Attempt authority can be direct (queued/sent/failed pointer) or indirect
+    through a committed lifecycle receipt whose parent is the causative failed
+    attempt.  Receipts not reachable from the current outbox pointer are never
+    promoted merely because they claim the same ``outbox_id`` and generation.
+    """
+    if current_outbox is None or current_receipt is None:
+        return None
+    if receipt_kind(current_receipt) == "attempt":
+        return current_receipt
+
+    parent_id = str(_get(current_receipt, "parent_receipt_id") or "")
+    if not parent_id:
+        return None
+    outbox_id = str(_get(current_outbox, "outbox_id") or "")
+    generation = effective_generation(current_outbox)
+    return next(
+        (
+            receipt
+            for receipt in receipts
+            if receipt_kind(receipt) == "attempt"
+            and str(_get(receipt, "receipt_id") or "") == parent_id
+            and str(_get(receipt, "outbox_id") or "") == outbox_id
+            and int(_get(receipt, "attempt_number") or 1) == generation
+        ),
+        None,
     )
 
 
@@ -406,13 +479,19 @@ class DeliveryAuthorityResolver(Generic[_T]):
         outbox_items = self.outbox_for(identity)
         authority = self.authority_for(identity)
         authoritative_receipt = select_current_receipt(receipts, authority)
+        current_outbox = select_current_outbox(outbox_items)
+        current_receipt = committed_receipt_for_outbox(current_outbox, receipts)
         latest_attempt = _latest_attempt(receipts)
         return ResolvedDeliverySnapshot(
             identity=identity,
             receipts=receipts,
             outbox_items=outbox_items,
             authoritative_receipt=authoritative_receipt,
-            current_outbox=select_current_outbox(outbox_items),
+            current_outbox=current_outbox,
+            current_receipt=current_receipt,
+            current_attempt=_current_generation_attempt(
+                current_outbox, current_receipt, receipts
+            ),
             latest_attempt=latest_attempt,
             causative_receipt=_causative_receipt(authoritative_receipt, receipts),
         )

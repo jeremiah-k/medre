@@ -86,7 +86,12 @@ from medre.core.contracts.adapter import (
     OutboundDeliveryObservationRecord,
     OutboundNativeRefRecord,
 )
-from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
+from medre.core.delivery_authority import (
+    DeliveryIdentity,
+    committed_receipt_for_outbox,
+    delivery_identity,
+    effective_generation,
+)
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_state import (
     is_terminal_outbox_status as _is_terminal_outbox_status,
@@ -186,6 +191,8 @@ class DeliveryLifecycleStorage(Protocol):
     ) -> int | None:
         """Reserve the next attempt for the current claim owner.
 
+        The successful reservation also records ``dispatch_source='retry'``
+        as durable provenance for callbacks that can beat receipt append.
         Return its number, or ``None`` if the row is no longer owned,
         in progress, or eligible for a new reservation. A failed
         reservation must not proceed to transport dispatch.
@@ -369,11 +376,7 @@ class DeliveryLifecycleService:
         finalization the row's ``attempt_number`` is the live identity.
         Every callback validator compares against this value.
         """
-        return (
-            outbox.active_attempt
-            if outbox.active_attempt is not None
-            else outbox.attempt_number
-        )
+        return effective_generation(outbox)
 
     @staticmethod
     def _require_retry_commit(
@@ -798,7 +801,7 @@ class DeliveryLifecycleService:
         error:
             Human-readable error/reason string.
         source:
-            Origin of delivery (``"live"``, ``"retry"``, ``"replay"``).
+            Dispatch mechanism (``"live"``, ``"retry"``, ``"replay"``).
         replay_run_id:
             Replay run identifier, if applicable.
 
@@ -2072,16 +2075,7 @@ class DeliveryLifecycleService:
             return None
 
         receipts = await storage.list_receipts_for_delivery(delivery_identity(item))
-        committed_receipt = next(
-            (
-                candidate
-                for candidate in receipts
-                if candidate.receipt_id == current.receipt_id
-                and candidate.outbox_id == item.outbox_id
-                and candidate.attempt_number == receipt.attempt_number
-            ),
-            None,
-        )
+        committed_receipt = committed_receipt_for_outbox(current, receipts)
         if committed_receipt is None:
             return None
 

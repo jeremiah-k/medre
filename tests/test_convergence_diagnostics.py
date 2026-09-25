@@ -61,7 +61,7 @@ def _receipt(
     source: str = "live",
     created_at: datetime | None = None,
     parent_receipt_id: str | None = "rcpt-001",
-    outbox_id: str | None = None,
+    outbox_id: str | None = "ob-001",
 ) -> dict:
     """Build a receipt dict (duck-typed input)."""
     return {
@@ -91,7 +91,7 @@ def _outbox(
     route_id: str = "route-1",
     status: str = "pending",
     attempt_number: int = 1,
-    receipt_id: str | None = None,
+    receipt_id: str | None = "rcpt-001",
 ) -> dict:
     """Build an outbox item dict (duck-typed input)."""
     return {
@@ -105,6 +105,23 @@ def _outbox(
         "attempt_number": attempt_number,
         "receipt_id": receipt_id,
     }
+
+
+def _linked(
+    *,
+    receipt_overrides: dict | None = None,
+    outbox_overrides: dict | None = None,
+) -> tuple[dict, dict]:
+    """Build one coherent outbox/receipt pair with an exact committed pointer."""
+    receipt_values = {"outbox_id": "ob-001", **(receipt_overrides or {})}
+    outbox_values = {
+        "receipt_id": receipt_values.get("receipt_id", "rcpt-001"),
+        **(outbox_overrides or {}),
+    }
+    receipt = _receipt(**receipt_values)
+    outbox_values.setdefault("outbox_id", receipt["outbox_id"])
+    outbox = _outbox(**outbox_values)
+    return receipt, outbox
 
 
 # ===================================================================
@@ -124,7 +141,7 @@ class TestSafeConvergence:
         target = summary.targets[0]
         assert target.severity == "safe"
         assert target.outbox_status == "sent"
-        assert target.latest_receipt_status == "sent"
+        assert target.current_receipt_status == "sent"
 
     def test_dead_lettered_both_safe(self) -> None:
         summary = build_convergence_summary(
@@ -406,10 +423,10 @@ class TestMissingPlanId:
 class TestSourceSeparation:
     """Replay and live receipts for the same target key are grouped together.
 
-    The convergence model groups by (delivery_plan_id, target_adapter,
-    target_channel) regardless of source.  The latest receipt by
-    (sequence, created_at, receipt_id) is chosen — source
-    is not used as a tiebreaker.  Tests document this behaviour.
+    The convergence model groups by full event-scoped delivery identity
+    regardless of source. Outbox-backed authority follows the committed receipt
+    pointer; outbox-less fixtures fall back to deterministic append order.
+    Source is provenance, not an authority tiebreaker.
     """
 
     def test_same_target_replay_and_live_grouped(self) -> None:
@@ -432,7 +449,7 @@ class TestSourceSeparation:
         )
         assert summary.total_targets == 1
         # Latest by attempt_number: r-replay (attempt 2)
-        assert summary.targets[0].latest_receipt_id == "r-replay"
+        assert summary.targets[0].current_receipt_id == "r-replay"
 
     def test_different_targets_not_conflated(self) -> None:
         """Different (plan, adapter, channel) triples → separate targets."""
@@ -482,11 +499,11 @@ class TestOutboxReceiptAuthority:
         )
 
         target = summary.targets[0]
-        assert target.latest_receipt_id == "r-current"
-        assert target.latest_receipt_status == "sent"
+        assert target.current_receipt_id == "r-current"
+        assert target.current_receipt_status == "sent"
         assert target.severity == "safe"
 
-    def test_all_outbox_generations_contribute_committed_receipt_authority(
+    def test_fresh_generation_does_not_borrow_prior_generation_receipt(
         self,
     ) -> None:
         summary = build_convergence_summary(
@@ -516,10 +533,13 @@ class TestOutboxReceiptAuthority:
         )
 
         target = summary.targets[0]
-        assert target.latest_receipt_id == "r-live-current"
-        assert target.latest_receipt_status == "sent"
+        assert target.current_receipt_id is None
+        assert target.current_receipt_status is None
+        assert target.current_attempt_number is None
+        assert target.outbox_status == "in_progress"
+        assert target.severity == "degraded"
 
-    def test_outboxless_later_receipt_can_supersede_committed_outbox_receipt(
+    def test_outboxless_later_receipt_does_not_replace_current_generation_receipt(
         self,
     ) -> None:
         summary = build_convergence_summary(
@@ -543,8 +563,9 @@ class TestOutboxReceiptAuthority:
         )
 
         target = summary.targets[0]
-        assert target.latest_receipt_id == "r-outboxless-later"
-        assert target.latest_receipt_status == "failed"
+        assert target.current_receipt_id == "r-outbox-current"
+        assert target.current_receipt_status == "sent"
+        assert target.severity == "safe"
 
 
 # ===================================================================
@@ -742,9 +763,9 @@ class TestReceiptLatestSelection:
             ],
         )
         target = summary.targets[0]
-        assert target.latest_receipt_id == "r-2"
-        assert target.latest_attempt_number == 3
-        assert target.latest_receipt_status == "sent"
+        assert target.current_receipt_id == "r-2"
+        assert target.current_attempt_number == 3
+        assert target.current_receipt_status == "sent"
 
     def test_sequence_breaks_attempt_tie(self) -> None:
         summary = build_convergence_summary(
@@ -758,7 +779,7 @@ class TestReceiptLatestSelection:
             ],
         )
         target = summary.targets[0]
-        assert target.latest_receipt_id == "r-high"
+        assert target.current_receipt_id == "r-high"
 
     def test_created_at_breaks_further_tie(self) -> None:
         summary = build_convergence_summary(
@@ -780,7 +801,7 @@ class TestReceiptLatestSelection:
             ],
         )
         target = summary.targets[0]
-        assert target.latest_receipt_id == "r-late"
+        assert target.current_receipt_id == "r-late"
 
     def test_receipt_id_final_tiebreaker(self) -> None:
         summary = build_convergence_summary(
@@ -803,7 +824,7 @@ class TestReceiptLatestSelection:
         )
         target = summary.targets[0]
         # Lexicographically latest receipt_id wins
-        assert target.latest_receipt_id == "rcpt-zzz"
+        assert target.current_receipt_id == "rcpt-zzz"
 
 
 def test_later_sequence_overrides_higher_attempt_number() -> None:
@@ -824,7 +845,7 @@ def test_later_sequence_overrides_higher_attempt_number() -> None:
             ),
         ],
     )
-    assert summary.targets[0].latest_receipt_id == "r-later-suppression"
+    assert summary.targets[0].current_receipt_id == "r-later-suppression"
 
 
 # ===================================================================
@@ -912,6 +933,7 @@ class TestMultipleTargets:
                     target_adapter="a1",
                     target_channel="c1",
                     status="sent",
+                    outbox_id="ob-1",
                 ),
                 _receipt(
                     receipt_id="r-2",
@@ -919,6 +941,7 @@ class TestMultipleTargets:
                     target_adapter="a2",
                     target_channel="c2",
                     status="queued",
+                    outbox_id="ob-2",
                 ),
                 _receipt(
                     receipt_id="r-3",
@@ -926,6 +949,7 @@ class TestMultipleTargets:
                     target_adapter="a3",
                     target_channel="c3",
                     status="sent",
+                    outbox_id="ob-3",
                 ),
             ],
             outbox_items=[
@@ -988,7 +1012,7 @@ class TestMultipleTargets:
 
         assert summary.total_targets == 2
         current_by_event = {
-            target.event_id: target.latest_receipt_id for target in summary.targets
+            target.event_id: target.current_receipt_id for target in summary.targets
         }
         assert current_by_event == {
             "event-a": "r-event-a",

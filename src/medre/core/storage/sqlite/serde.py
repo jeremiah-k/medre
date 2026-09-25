@@ -213,6 +213,8 @@ def _row_to_outbox_item(row: dict[str, Any]) -> DeliveryOutboxItem:
         receipt_id=row.get("receipt_id"),
         parent_receipt_id=row.get("parent_receipt_id"),
         error_summary=row.get("error_summary"),
+        dispatch_source=row.get("dispatch_source"),
+        replay_run_id=row.get("replay_run_id"),
         metadata=meta,
     )
 

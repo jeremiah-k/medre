@@ -230,12 +230,20 @@ async def test_replay_grouping_identical_across_surfaces(
     run_id_2 = "replay-run-bbb"
     await _inject_replay_receipts(temp_storage, event_id, targets[:1], run_id_1)
     await _inject_replay_receipts(temp_storage, event_id, targets, run_id_2)
+    retry_from_replay = _make_receipt(
+        event_id,
+        targets[0],
+        source="retry",
+        replay_run_id=run_id_1,
+        attempt_number=2,
+    )
+    await temp_storage.append_receipt(retry_from_replay)
 
     receipts_all = await temp_storage.list_receipts_for_event(event_id)
-    replay_receipts = [r for r in receipts_all if r.source == "replay"]
+    replay_origin_receipts = [r for r in receipts_all if r.replay_run_id is not None]
 
     run_groups: dict[str, list[DeliveryReceipt]] = {}
-    for r in replay_receipts:
+    for r in replay_origin_receipts:
         assert r.replay_run_id is not None
         run_groups.setdefault(r.replay_run_id, []).append(r)
 
@@ -247,9 +255,17 @@ async def test_replay_grouping_identical_across_surfaces(
 
     # Surface 2: inspect receipts for event (filtered)
     inspect_receipts = await temp_storage.list_receipts_for_event(event_id)
-    inspect_replay = [r for r in inspect_receipts if r.source == "replay"]
-    assert len(inspect_replay) == len(replay_receipts)
-    assert {r.replay_run_id for r in inspect_replay} == set(run_groups.keys())
+    inspect_replay_origin = [r for r in inspect_receipts if r.replay_run_id is not None]
+    assert len(inspect_replay_origin) == len(replay_origin_receipts)
+    assert {r.replay_run_id for r in inspect_replay_origin} == set(run_groups.keys())
+
+    # Surface 3: assembled timeline groups later RetryWorker attempts with the
+    # replay execution they originated from even though source="retry".
+    timeline = await _timeline.assemble_event_timeline(temp_storage, event_id)
+    assert timeline is not None
+    assert retry_from_replay.receipt_id in {
+        receipt.receipt_id for receipt in timeline["replay_runs"][run_id_1]
+    }
 
 
 # -- Test 3: ordering identical across surfaces

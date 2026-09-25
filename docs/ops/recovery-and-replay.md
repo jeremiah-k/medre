@@ -139,20 +139,20 @@ What happened?
 
 On hard crash (kill -9, OOM, power loss):
 
-| State                                            | Survived? | Notes                                                                                                                                                                 |
-| ------------------------------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Canonical events                                 | Yes       | Written to SQLite before delivery                                                                                                                                     |
-| Delivery receipts                                | Yes       | Written after each delivery attempt                                                                                                                                   |
-| Post-handoff delivery observations               | Partial   | Appended rows survive; callbacks awaiting persistence can be lost. A missing row does not prove LXMF reported no terminal state.                                      |
-| Native message refs                              | Yes       | Persisted in SQLite alongside receipts                                                                                                                                |
-| Receipt traceability (`source`, `replay_run_id`) | Yes       | Stored on receipts in SQLite                                                                                                                                          |
-| Matrix E2EE crypto keys                          | Yes       | On disk under adapter state root                                                                                                                                      |
-| LXMF identity files                              | Yes       | On disk under adapter state root                                                                                                                                      |
-| Logs (pre-crash)                                 | Yes       | Appended to `{log_dir}/medre.log`                                                                                                                                     |
-| In-flight deliveries                             | Partial   | No receipt, but an `in_progress` outbox row may survive. Expired leases are reclaimable by `claim_due_outbox_items()`. Deliveries without outbox rows are fully lost. |
-| Active replay runs                               | No        | Lost — must re-initiate manually                                                                                                                                      |
-| Runtime counters (accounting)                    | No        | Process-local counters reset after restart                                                                                                                            |
-| Adapter connection state                         | No        | Adapters reconnect from scratch                                                                                                                                       |
+| State                                            | Survived? | Notes                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Canonical events                                 | Yes       | Written to SQLite before delivery                                                                                                                                                                                                                                        |
+| Delivery receipts                                | Yes       | Written after each delivery attempt                                                                                                                                                                                                                                      |
+| Post-handoff delivery observations               | Partial   | Appended rows survive; callbacks awaiting persistence can be lost. A missing row does not prove LXMF reported no terminal state.                                                                                                                                         |
+| Native message refs                              | Yes       | Persisted in SQLite alongside receipts                                                                                                                                                                                                                                   |
+| Receipt traceability (`source`, `replay_run_id`) | Yes       | Stored on receipts in SQLite                                                                                                                                                                                                                                             |
+| Matrix E2EE crypto keys                          | Yes       | On disk under adapter state root                                                                                                                                                                                                                                         |
+| LXMF identity files                              | Yes       | On disk under adapter state root                                                                                                                                                                                                                                         |
+| Logs (pre-crash)                                 | Yes       | Appended to `{log_dir}/medre.log`                                                                                                                                                                                                                                        |
+| In-flight deliveries                             | Partial   | No receipt, but an `in_progress` outbox row may survive. Missing/expired leases are reclaimable by `claim_due_outbox_items()`. Deliveries without outbox rows are fully lost.                                                                                            |
+| Active replay runs                               | Partial   | A **named** run's admitted target generations and `replay_run_id` survive in the outbox before the first receipt; process-local iteration/request state and unnamed run identity do not. Stale named-run claims are recovered through the normal outbox/retry lifecycle. |
+| Runtime counters (accounting)                    | No        | Process-local counters reset after restart                                                                                                                                                                                                                               |
+| Adapter connection state                         | No        | Adapters reconnect from scratch                                                                                                                                                                                                                                          |
 
 ### Crash Recovery Steps
 
@@ -454,7 +454,7 @@ When `_filter_plans_by_capability` suppresses all plans for an event, the `Repla
 }
 ```
 
-This output is carried in the in-memory `ReplayResult`. It is not persisted to storage unless a receipt is created through a different code path. If the process crashes before you inspect the replay output, this evidence is lost.
+This pre-filter output is carried only in the in-memory `ReplayResult`; no delivery target reaches outbox admission, so there is no durable target claim or receipt. If the process crashes before you inspect this output, this evidence is lost. Once a named `BEST_EFFORT` target is admitted for dispatch, its `replay_run_id` is persisted on the normal delivery outbox before transport execution.
 
 #### Capability Re-evaluation at Replay Time
 
@@ -578,17 +578,20 @@ medre inspect receipts --replay-run replay_xyz789 --storage-path /path/to/medre.
 }
 ```
 
-| Field           | Value for replay      | Purpose                                              |
-| --------------- | --------------------- | ---------------------------------------------------- |
-| `source`        | `"replay"`            | Distinguishes replay deliveries from live deliveries |
-| `replay_run_id` | Unique run identifier | Groups all receipts from the same replay run         |
+| Field           | Value for replay                      | Purpose                                                                    |
+| --------------- | ------------------------------------- | -------------------------------------------------------------------------- |
+| `source`        | `"replay"` on initial replay dispatch | Dispatch mechanism; later RetryWorker attempts use `"retry"`               |
+| `replay_run_id` | Unique named-run identifier           | Durably groups admitted target generations and their replay/retry receipts |
 
 Key distinctions:
 
-1. Replay receipts are distinguishable from live receipts via `source='replay'` and `replay_run_id`.
+1. Replay-origin lineage is identified by `replay_run_id`. The initial replay
+   attempt uses `source='replay'`; later RetryWorker attempts use `source='retry'`
+   while preserving the same run ID.
 2. Different replay runs, and executions with an empty run ID, remain repeatable.
-   A non-empty run ID suppresses targets after a visible `queued` or `sent` receipt
-   from that same run.
+   A non-empty run ID atomically claims one durable target generation before
+   dispatch, so concurrent executions of that run converge even before receipt
+   evidence is visible.
 3. Native refs created during replay are not directly source-tagged. Correlate through the associated `DeliveryReceipt`'s `event_id` linkage.
 4. Replay produces the same deterministic `delivery_plan_id` as the original live delivery, because plan IDs are derived from `event_id`, `route_id`, `target_index`, and a stable target identity hash — not from Python object identity. This means the same event replayed multiple times produces the same `delivery_plan_id` values each time. Plan IDs are stable only when `event_id`, `route_id`, `target_index`/order, and the stable target identity hash are unchanged. If any of those inputs change (different route match, different target order, different adapter metadata), the plan ID changes.
 
@@ -658,13 +661,13 @@ medre inspect receipts --replay-run <run_id> --storage-path /path/to/medre.sqlit
 ```
 
 ```sql
--- All replay receipts
-SELECT event_id, target_adapter, status, replay_run_id
+-- All replay-origin receipts, including later RetryWorker attempts
+SELECT event_id, target_adapter, source, status, replay_run_id
 FROM delivery_receipts
-WHERE source = 'replay'
+WHERE replay_run_id IS NOT NULL
 ORDER BY created_at DESC;
 
--- Distinguish live from replay for a specific event
+-- Inspect dispatch mechanism and replay origin independently for one event
 SELECT source, replay_run_id, status, target_adapter
 FROM delivery_receipts
 WHERE event_id = 'evt_abc123'
@@ -673,13 +676,13 @@ ORDER BY created_at ASC;
 -- Group all receipts from one replay run (audit trail)
 SELECT event_id, target_adapter, status, attempt_number
 FROM delivery_receipts
-WHERE source = 'replay' AND replay_run_id = 'replay_xyz789'
-ORDER BY event_id;
+WHERE replay_run_id = 'replay_xyz789'
+ORDER BY event_id, attempt_number;
 
 -- Show all replay runs that touched this event
 SELECT replay_run_id, COUNT(*) AS receipt_count
 FROM delivery_receipts
-WHERE event_id = 'evt_abc123' AND source = 'replay'
+WHERE event_id = 'evt_abc123' AND replay_run_id IS NOT NULL
 GROUP BY replay_run_id
 ORDER BY replay_run_id;
 ```
@@ -687,20 +690,25 @@ ORDER BY replay_run_id;
 ## Duplicate Risk Assessment
 
 Replay remains repeatable across different runs, but a non-empty replay `run_id`
-provides durable same-run target suppression after a prior `queued` or `sent`
-acceptance receipt is visible. Empty run IDs remain intentionally repeatable, and
-concurrent executions using the same run ID can still race before either acceptance
-receipt commits. This is idempotent replay evidence, not exactly-once delivery.
+atomically claims one durable outbox generation per target identity. Concurrent
+executions using that same run ID and storage database therefore converge on one
+dispatch generation even before receipt evidence is visible. In one running MEDRE
+process, exact same-run target executions are additionally serialized before capacity
+admission so a local duplicate cannot become a capacity-suppression lifecycle event
+while the winner is still establishing its durable claim. The durable outbox claim,
+not that process-local gate, remains the cross-process authority. Empty run IDs remain
+intentionally repeatable. This is idempotent replay admission, not exactly-once
+transport delivery: an ambiguous handoff may still be redispatched by retry/recovery.
 
 ### When Duplicates Occur
 
-| Scenario                                                             | Risk level | Why                                                                                          |
-| -------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------- |
-| Replaying events that were never delivered                           | Low        | No prior delivery exists                                                                     |
-| Replaying events that were delivered before a crash                  | Medium     | Some events may have been delivered but have no receipt                                      |
-| Replaying events that have existing **live** `sent` receipts         | High       | A replay run is intentionally distinct from prior live delivery                              |
-| Re-running the same non-empty replay `run_id` after accepted targets | Low/Medium | Visible same-run accepted targets are durably suppressed; concurrent duplicate runs can race |
-| Multiple `best_effort` replays with different or empty run IDs       | High       | Each run/empty-ID execution remains intentionally repeatable                                 |
+| Scenario                                                       | Risk level | Why                                                                                                            |
+| -------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------- |
+| Replaying events that were never delivered                     | Low        | No prior delivery exists                                                                                       |
+| Replaying events that were delivered before a crash            | Medium     | Some events may have been delivered but have no receipt                                                        |
+| Replaying events that have existing **live** `sent` receipts   | High       | A replay run is intentionally distinct from prior live delivery                                                |
+| Re-running the same non-empty replay `run_id`                  | Low        | The run atomically reuses its existing target generation; ambiguous retry/recovery remains transport-dependent |
+| Multiple `best_effort` replays with different or empty run IDs | High       | Each run/empty-ID execution remains intentionally repeatable                                                   |
 
 ### Assessing Risk Before Replay
 
@@ -729,15 +737,15 @@ ORDER BY e.created_at DESC;
 
 ## Retry vs Replay
 
-|                    | Retry (automatic)                                                     | Replay (manual)                                              |
-| ------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------ |
-| **Trigger**        | `ADAPTER_TRANSIENT` failures only                                     | Operator-initiated via CLI                                   |
-| **Owner**          | `RetryWorker` (background)                                            | Operator                                                     |
-| **Lineage**        | `source='retry'`, linked via `parent_receipt_id`, same delivery chain | `source='replay'`, `replay_run_id`, new delivery execution   |
-| **Persistence**    | Outbox `status` and `next_attempt_at` survive restart                 | Receipts durable in SQLite. ReplaySummary is in-memory only. |
-| **Duplicate risk** | None — same delivery attempt                                          | High — new outbound messages, no dedup                       |
-| **Bounded by**     | `RetryPolicy` (max attempts, backoff)                                 | Operator decides scope                                       |
-| **Opt-in**         | Yes — requires `RetryPolicy` config                                   | Always available                                             |
+|                    | Retry (automatic)                                                     | Replay (manual)                                                                                |
+| ------------------ | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **Trigger**        | `ADAPTER_TRANSIENT` failures only                                     | Operator-initiated via CLI                                                                     |
+| **Owner**          | `RetryWorker` (background)                                            | Operator                                                                                       |
+| **Lineage**        | `source='retry'`, linked via `parent_receipt_id`, same delivery chain | Initial dispatch uses `source='replay'`; `replay_run_id` persists across replay-origin retries |
+| **Persistence**    | Outbox `status` and `next_attempt_at` survive restart                 | Named target admission and receipts are durable; the aggregate ReplaySummary remains in-memory |
+| **Duplicate risk** | Retry/recovery may redispatch ambiguous transport handoff             | Named runs dedupe target admission; distinct/empty runs MAY redeliver                          |
+| **Bounded by**     | `RetryPolicy` (max attempts, backoff)                                 | Operator decides scope                                                                         |
+| **Opt-in**         | Yes — requires `RetryPolicy` config                                   | Always available                                                                               |
 
 ### Retry Accountability
 
@@ -776,7 +784,7 @@ The outbox tracks in-progress deliveries:
 
 - A delivery starting creates an `in_progress` outbox row with an expiration lease.
 - Delivery completion (success or failure) finalizes the outbox row.
-- On crash recovery, expired `in_progress` rows are reclaimed by `claim_due_outbox_items()`.
+- On crash recovery, missing/expired `in_progress` leases are reclaimed by `claim_due_outbox_items()` when the row remains the newest delivery generation.
 - Outbox rows without corresponding receipts indicate deliveries that were lost before a receipt could be written.
 
 ### Resumable Shutdown Policy
@@ -821,7 +829,7 @@ When `best_effort` replay delivers to a route that has retry enabled, transient 
 
 - Retryable outbox rows created during replay sit in storage unprocessed.
 - If the operator later starts the runtime normally (`medre run`) with retry enabled, the RetryWorker will claim and process those due outbox rows; the receipts remain evidence.
-- This creates a cross-source retry chain: `source="replay"` to `source="retry"`, linked by `parent_receipt_id`.
+- This creates a cross-source retry chain: `source="replay"` to `source="retry"`, linked by `parent_receipt_id`. The retry receipt preserves the originating `replay_run_id`, so dispatch mechanism and replay provenance remain independently observable.
 
 After `best_effort` replay, check for replay-created retry receipts:
 
@@ -829,7 +837,7 @@ After `best_effort` replay, check for replay-created retry receipts:
 -- Receipt evidence that replay produced a retry schedule; not current due work.
 SELECT receipt_id, event_id, status, next_retry_at, source, replay_run_id
 FROM delivery_receipts
-WHERE source = 'replay' AND next_retry_at IS NOT NULL;
+WHERE replay_run_id IS NOT NULL AND next_retry_at IS NOT NULL;
 ```
 
 If replay-created retry receipts appear and duplicate delivery is a concern,
@@ -839,7 +847,7 @@ receipt rows:
 - Filter replay-origin rows at query time:
   ```sql
   SELECT * FROM delivery_receipts
-  WHERE source <> 'replay' OR source IS NULL;
+  WHERE replay_run_id IS NULL;
   ```
 - Narrow replay scope before running replay (use `--route-ids`, `--target-adapters`, or `--limit`).
 - Leave `next_retry_at` values intact — `delivery_receipts` rows are append-only evidence.
@@ -868,8 +876,8 @@ receipt rows:
 
 ## Caveats
 
-1. **No deduplication.** Each `best_effort` replay produces new outbound messages.
-2. **No automatic retry scheduling.** Replay is a one-shot operator action, not a durable job.
+1. **No global/exactly-once deduplication.** A non-empty named run atomically admits one target generation per `DeliveryIdentity`; different/empty run IDs, prior live delivery, and ambiguous transport recovery remain repeatable.
+2. **Replay is not a durable job scheduler.** The CLI request/iteration is process-local. Named target admissions are durable outbox work and can later be recovered by the normal RetryWorker lifecycle.
 3. **No active supervision.** There is no background health monitor or watchdog beyond the RetryWorker.
 4. **ReplaySummary is in-memory only.** Only `best_effort` mode produces storage receipts. `dry_run` and `re_route` results exist only in CLI output.
 5. **Counters reset on restart.** Process-local counters reset on every startup. Verify via SQLite queries, not counters.
@@ -877,12 +885,12 @@ receipt rows:
 7. **No delivery order guarantee.** Replay processes events in storage order but delivery concurrency means outbound messages may arrive out of order.
 
 8. **Radio transports are fire-and-forget.** A `sent` receipt means the local radio accepted the packet, not that the remote node received it.
-9. **Shutdown during replay.** Completed events produce receipts; remaining events are lost. No automatic resume.
+9. **Shutdown during replay.** The process-local replay iterator is not resumed automatically. Events/targets not yet admitted are lost with that invocation; named targets already admitted to the outbox remain durable and stale claims can be recovered by the normal RetryWorker lifecycle.
 10. **No per-adapter restart.** Only full runtime stop/start is supported.
 
 ## Replay and Live Delivery Separation
 
-Replay and live delivery are isolated by the `source` field on receipts (`"live"`, `"retry"`, `"replay"`). This separation is enforced at correlation time:
+Dispatch mechanism and replay origin are represented independently: `source` records `"live"`, `"replay"`, or `"retry"`, while a non-null `replay_run_id` identifies replay-origin lineage across later retries. Exact delivery identity and outbox generation remain the correlation authority:
 
 ### Queued Callback Correlation
 
@@ -890,7 +898,7 @@ When a queue-based adapter callback arrives to confirm a queued delivery (queued
 
 `delivery_plan_id` and `native_channel_id` are validation metadata only. They are checked against the outbox row when present, but they are never used as correlation selectors. No plan/channel latest-candidate fallback exists.
 
-Replay-sourced receipts (`source="replay"`) are not allowed to mutate live recovery state unless they match the exact trusted outbox lineage. Because queued callbacks correlate by exact `outbox_id` + `attempt_number` against the authoritative outbox row (validated for status, event, adapter, plan, channel, and attempt before selection), a replay-sourced queued receipt is finalized exactly like a live one: the supplemental `sent` receipt carries the row's durable `source` / `replay_run_id` lineage and the outbox transitions `queued` to `sent`. Only the matching row transitions — a replay callback never touches any other row, and callbacks that fail row validation (stale attempt, terminal or reclaimed row) are still rejected with a warning. Replay-only selection is logged at debug level; the former operator-visible skip warning no longer occurs.
+Replay-origin receipts (`replay_run_id IS NOT NULL`) are not allowed to mutate unrelated recovery state unless they match the exact trusted outbox lineage. The initial replay dispatch uses `source="replay"`; later replay-origin attempts may use `source="retry"`. Because queued callbacks correlate by exact `outbox_id` + `attempt_number` against the authoritative outbox row (validated for status, event, adapter, plan, channel, and attempt before selection), a matching queued receipt is finalized exactly like a live one: the supplemental `sent` receipt inherits dispatch `source` and `replay_run_id` from that exact queued receipt, while the outbox row independently carries durable replay-origin provenance. The outbox transitions `queued` to `sent`. Only the matching row transitions — replay origin never authorizes another row — and callbacks that fail row validation (stale attempt, terminal or reclaimed row) are still rejected with a warning. Replay-only selection is logged at debug level; the former operator-visible skip warning no longer occurs.
 
 ### Uncorrelated Queued Outbox Items
 
@@ -918,7 +926,7 @@ Operators seeing these messages should check whether the adapter callback is exp
 
 ### Replay Does Not Mutate Live Recovery State
 
-Replay execution (`medre replay`) produces its own receipts and outbox transitions, all tagged `source="replay"`. Replay does not modify existing live receipts, live outbox items, or live retry state. If a replay run creates retryable outbox work (transient failure during `best_effort` mode), those outbox rows sit in storage unprocessed until the runtime starts normally with retry enabled; the corresponding receipts remain evidence only.
+Replay execution (`medre replay`) admits new outbox generations with replay-origin provenance. Initial replay dispatch receipts use `source="replay"`; later RetryWorker attempts use `source="retry"` while preserving the same `replay_run_id`. Replay does not mutate prior live receipts or live outbox generations. If replay creates recoverable outbox work, those rows remain durable until the runtime starts normally with retry enabled.
 
 ## Convergence Triage After Recovery
 

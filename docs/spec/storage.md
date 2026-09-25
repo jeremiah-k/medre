@@ -346,7 +346,7 @@ class StorageBackend(Protocol):
         self, now: datetime, worker_id: str, limit: int = 50
     ) -> list[OutboxItem]:
         """Claim due outbox items for processing.  Items with pending,
-        retry_wait, expired in_progress leases, or stale queued status
+        retry_wait, missing/expired in_progress leases, or stale queued status
         are eligible only when no sibling row for the same delivery identity
         represents the same or a newer effective attempt generation."""
         ...
@@ -667,9 +667,9 @@ and MUST NOT be inferred from `status` alone.
 
 `parent_receipt_id` is the receipt ID of the preceding attempt in this delivery chain. `NULL` for the first attempt.
 
-`source` indicates the origin: `"live"` for normal pipeline deliveries, `"retry"` for RetryWorker-attempted deliveries, `"replay"` for deliveries produced during replay. Defaults to `"live"`.
+`source` identifies the dispatch mechanism: `"live"` for normal pipeline delivery, `"replay"` for the initial replay dispatch, and `"retry"` for RetryWorker attempts. `replay_run_id` independently records replay origin when present. `source` defaults to `"live"`.
 
-`replay_run_id` is `NULL` for live deliveries. When `source='replay'`, it carries the `run_id` of the replay that produced the delivery.
+`replay_run_id` is `NULL` for live delivery lineage. A named replay stores its `run_id` on the initial `source='replay'` attempt and preserves that origin on later `source='retry'` attempts from the same durable outbox generation. `source` describes the dispatch mechanism; `replay_run_id` describes replay origin provenance.
 
 `retry_max_attempts`, `retry_backoff_base`, `retry_max_delay`, and `retry_jitter` are snapshots of the `RetryPolicy` parameters at the time of the first failure receipt. They are `NULL` on receipts with no retry policy. Once set on the first failure receipt, subsequent retry receipts in the same lineage inherit the same values. Retry policy is frozen at first failure.
 
@@ -939,6 +939,8 @@ CREATE TABLE delivery_outbox (
     receipt_id      TEXT,
     parent_receipt_id TEXT,
     error_summary   TEXT,
+    dispatch_source  TEXT NOT NULL DEFAULT 'live',
+    replay_run_id   TEXT,
     metadata        TEXT NOT NULL DEFAULT '{}',
     UNIQUE(event_id, delivery_plan_id, target_adapter, target_channel, attempt_number),
     CHECK (attempt_number >= 1),
@@ -947,7 +949,9 @@ CREATE TABLE delivery_outbox (
     CHECK (status IN (
         'pending', 'in_progress', 'queued', 'sent', 'retry_wait',
         'dead_lettered', 'cancelled', 'abandoned'
-    ))
+    )),
+    CHECK (dispatch_source IN ('live', 'replay', 'retry')),
+    CHECK (dispatch_source != 'live' OR replay_run_id IS NULL)
 );
 ```
 
@@ -964,6 +968,14 @@ and the explicit attempt is not older than the row's finalized
 claiming `worker_id`. Guarded status mutations return whether the update
 committed so lifecycle code cannot report a state change after a compare-and-set
 miss.
+
+`dispatch_source` records the dispatch mechanism for the row's current/effective
+attempt. Initial admission stores `live` or `replay` independently of
+`replay_run_id`, so unnamed replay remains attributable before a receipt exists.
+RetryWorker reservation atomically changes it to `retry` with `active_attempt`;
+that value survives queue handoff after the reservation is consumed. Callback
+lineage therefore does not depend on whether the immutable queued receipt is
+already visible.
 
 The schema enforces the same base invariants independently of lifecycle code:
 `attempt_number` is always positive; a live `active_attempt` is exactly the next
@@ -1004,6 +1016,27 @@ The outbox also carries `idx_outbox_lineage` over
 `(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), attempt_number)`.
 This mirrors the event-scoped delivery identity used by receipt authority and keeps
 generation-aware operational lookups aligned with that contract.
+
+`replay_run_id` is durable replay-execution provenance and is deliberately **not**
+part of `DeliveryIdentity`. For a non-empty run ID, replay generation allocation
+uses a partial unique expression index over the normalized delivery identity plus
+`replay_run_id`:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_replay_run_identity_unique
+    ON delivery_outbox(
+        event_id, delivery_plan_id, target_adapter,
+        COALESCE(target_channel, ''), replay_run_id
+    )
+    WHERE replay_run_id IS NOT NULL AND replay_run_id <> '';
+```
+
+The replay allocator checks this claim inside the same `BEGIN IMMEDIATE` transaction
+that allocates `max(effective_attempt) + 1`. Concurrent executions of the same
+non-empty run therefore reuse one durable generation instead of creating sibling
+dispatches. Different or empty run IDs remain intentionally repeatable. A named
+`replay_run_id` may only enter storage through this replay allocation path. Retry
+transitions preserve the value on the existing row.
 
 `receipt_id` is the most recent persisted receipt linked to the outbox row. If an
 attempt fails before receipt persistence, lifecycle may advance the outbox attempt
@@ -1075,9 +1108,10 @@ such as Matrix abandoned-room causes, belongs in `metadata`.
 
 All indexes are created via `CREATE INDEX IF NOT EXISTS` during `initialize()`, alongside table DDL. They are part of the pre-release schema shape but are not individually versioned.
 
-- Indexes affect query performance, not correctness. A database that lacks an index **SHALL** return the same results, just more slowly.
+- Non-`UNIQUE` indexes affect query performance, not correctness. A database that lacks one **SHALL** return the same results, just more slowly.
+- A `UNIQUE` expression/partial index MAY provide redundant integrity hardening for an invariant whose production write path is already race-safe. Runtime correctness **MUST NOT** depend on that index being the concurrency primitive; for example, named replay admission is serialized by `BEGIN IMMEDIATE` and the unique replay-run index is defense in depth.
 - Adding or changing an index **MUST NOT** bump `_EXPECTED_SCHEMA_VERSION`.
-- SQLite autoindexes from `UNIQUE` constraints **MUST NOT** be duplicated with manual `CREATE INDEX`.
+- SQLite autoindexes from table-level `UNIQUE` constraints **MUST NOT** be duplicated with manual `CREATE INDEX`.
 
 ## 5. Append-Only Guarantees
 
@@ -1209,7 +1243,7 @@ runtime startup. A clean current marker skips that redundant full scan.
 
 - Inserts a new row into `delivery_receipts`.
 - **MUST NOT** update an existing row. Every call creates a new row.
-- `source` defaults to `"live"`. Retry deliveries set `"retry"`. Replay deliveries set `"replay"` and populate `replay_run_id`.
+- `source` defaults to `"live"` and identifies the dispatch mechanism. Initial replay dispatches use `"replay"`; RetryWorker attempts use `"retry"`. `replay_run_id` independently preserves named replay origin across retries.
 - `confirmation_level` uses `"unknown"` when no stronger delivery fact is available,
   including missing confirmation evidence and non-success receipts. Successful adapter
   handoffs record the strongest fact actually proven and never infer end-to-end
@@ -1287,7 +1321,7 @@ delivery uses durable append order.
   stale-worker append does not. A current `queued` receipt is a new attempt in
   flight, not a current failure.
 - Successes of a different channel, plan, event, or target never hide a
-  failure. `replay_run_id` is per-receipt provenance, not a lineage partition.
+  failure. `replay_run_id` is execution provenance persisted on named replay outbox generations and replay-origin receipts; it is not a lineage partition.
 - A historical failed receipt alone is never a current failure, and dry-run
   replays append no receipt and therefore fabricate neither success nor failure.
 
@@ -1312,7 +1346,7 @@ rows joined by `outbox_id` may only enrich disposition/retryability fields; they
 are never acceptance evidence. `idx_receipts_lineage` is an optional optimizer;
 recovery SQL does not require or hard-code that index, so read-only recovery
 remains correct on a database that has not yet been reopened read-write to
-create it. `replay_run_id` remains receipt provenance and is not part of the
+create it. `replay_run_id` remains execution provenance and is not part of the
 lineage key.
 
 ## 9. Delivery Outbox Semantics
@@ -1445,17 +1479,18 @@ During the Persist phase of shutdown, the runtime **MUST** flush pending SQLite 
 
 The following runtime state is held in memory only and is never written to SQLite or disk:
 
-| State                                | Nature                       |
-| ------------------------------------ | ---------------------------- |
-| In-flight deliveries                 | Semaphore-tracked coroutines |
-| Active replay runs                   | Async generator iterations   |
-| `CapacityController` internal gauges | In-memory counters           |
-| `RouteStats` per-route counters      | In-memory counters           |
-| `RuntimeAccounting` counters         | In-memory counters           |
-| Adapter health / connection state    | In-memory                    |
-| Pipeline runner state                | Ephemeral                    |
+| State                                | Nature                                              |
+| ------------------------------------ | --------------------------------------------------- |
+| In-flight deliveries                 | Semaphore-tracked coroutines                        |
+| Replay CLI request / iterator        | Async generator iteration                           |
+| Named replay target admissions       | **Persisted in delivery outbox**; not process-local |
+| `CapacityController` internal gauges | In-memory counters                                  |
+| `RouteStats` per-route counters      | In-memory counters                                  |
+| `RuntimeAccounting` counters         | In-memory counters                                  |
+| Adapter health / connection state    | In-memory                                           |
+| Pipeline runner state                | Ephemeral                                           |
 
-All of these reset to zero or initial state on every startup. No history is retained across restarts.
+The process-local rows above reset to zero or initial state on every startup. Named replay target admissions are intentionally excluded from that statement because they are durable outbox work and retain their `replay_run_id` across restarts.
 
 ## 13. Replay/Recovery Interface
 
@@ -1463,13 +1498,13 @@ All of these reset to zero or initial state on every startup. No history is reta
 
 The canonical event log supports replaying events through the pipeline. Replay is an ephemeral runtime operation, not a durable job system.
 
-| Property                   | Value                                                                                                           |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Replay request durability  | Not persisted. Replay runs are initiated in-memory and lost on crash.                                           |
-| Replay queue               | Does not exist.                                                                                                 |
-| Replay resume after crash  | Not supported. Must be re-initiated manually.                                                                   |
-| Replay deduplication       | Non-empty `run_id` suppresses targets already accepted in that same run; different/empty run IDs MAY redeliver. |
-| Replay receipt persistence | Yes. Receipts produced by replay are persisted to SQLite like any other receipt.                                |
+| Property                   | Value                                                                                                                                                                                           |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Replay request durability  | The request/selection iterator is in-memory. A non-empty named run becomes durable per dispatchable target when its outbox generation is admitted; pre-filter-only results remain in-memory.    |
+| Replay queue               | No separate replay-job queue exists. Admitted delivery work uses the normal durable delivery outbox.                                                                                            |
+| Replay resume after crash  | The replay request itself is not resumed. Operators may re-initiate it; already-admitted named targets reuse their durable run claims, while normal retry/recovery owns unfinished outbox work. |
+| Replay deduplication       | Non-empty `run_id` atomically owns one outbox generation per dispatchable delivery identity; different/empty run IDs MAY redeliver.                                                             |
+| Replay receipt persistence | Yes. Receipts produced by replay or its later retries are persisted with the originating `replay_run_id`.                                                                                       |
 
 ### 13.2 Replay Modes
 
@@ -1491,11 +1526,17 @@ and no delivery receipts or native refs are created.
 
 ### 13.3 Replay Receipt Traceability
 
-Replay receipts carry `source='replay'` and a `replay_run_id` for run-level
-grouping. A non-empty `replay_run_id` also suppresses targets after a visible
-`queued` or `sent` receipt from that same run. Different or empty run IDs remain
-repeatable, and concurrent same-run executions can still race before acceptance
-evidence commits.
+A named replay's initial dispatch carries `source='replay'` and its
+`replay_run_id` for run-level grouping. A non-empty `replay_run_id` atomically claims one outbox generation per
+full delivery identity, so concurrent executions of that same run cannot create
+sibling dispatches in the same storage database. A visible prior `queued` or `sent`
+receipt remains a fast suppression path. Same-run duplicate suppression is an
+execution result, not a new lifecycle receipt, so it cannot displace the accepted
+delivery's current authority. Different or empty run IDs remain repeatable.
+
+If a replay-origin generation later enters the RetryWorker, retry receipts use
+`source='retry'` while preserving the same `replay_run_id`; source and replay origin
+are orthogonal provenance.
 
 Native message refs created during replay are not tagged with `source` or `replay_run_id`. Replay-produced native refs **MAY** be correlated to their replay origin through the associated `DeliveryReceipt` (which carries `source` and `replay_run_id`), then via the receipt's `delivery_plan_id` / `event_id` linkage.
 
@@ -1503,7 +1544,7 @@ Native message refs created during replay are not tagged with `source` or `repla
 
 - Replay **MUST NOT** modify existing canonical events, receipts, native refs, or terminal outbox rows. Replay reads historical
   events from storage. In BEST_EFFORT mode, replay delegates delivery to the normal pipeline; that pipeline may create
-  new `delivery_outbox` rows for replay attempts, `delivery_receipts` with `source='replay'`, and outbound
+  new replay-origin `delivery_outbox` rows, initial `delivery_receipts` with `source='replay'` (later retries use `source='retry'` while retaining `replay_run_id`), and outbound
   `native_message_refs`. New outbox rows **MUST** use new attempt identity and **MUST NOT** mutate terminal or active live
   rows. Non-BEST_EFFORT modes are read-only. Derived canonical event creation is not part of current replay semantics.
 - Replay **MAY** target specific stages (e.g., re-run transforms only, skip policy).
@@ -1513,8 +1554,9 @@ Native message refs created during replay are not tagged with `source` or `repla
   `store` when they want integrity verification.
 - Replay traceability is not global deduplication. A prior live delivery, a different
   replay run ID, or an empty run ID MAY produce another delivery attempt. A non-empty
-  run ID suppresses targets with visible `queued` or `sent` acceptance evidence from
-  that same run; concurrent same-run executions can still race before evidence commits.
+  run ID atomically owns one target generation within the shared storage database,
+  preventing sibling same-run dispatches. This is still not transport-level
+  exactly-once delivery: ambiguous handoff followed by retry/recovery may redispatch.
 
 ### 13.5 Crash Recovery
 
@@ -1545,7 +1587,7 @@ FROM delivery_outbox
 WHERE event_id = ?;
 ```
 
-An `in_progress` row with an expired lease is re-claimable by `claim_due_outbox_items()` on restart when it is still the newest effective outbox generation for its event-scoped delivery identity. A `queued` row is ambiguous; stale rows past `STALE_QUEUED_GRACE_SECONDS` (default 300 s) are automatically reclaimed under the same generation guard. A `pending` or `retry_wait` row is eligible for automatic retry only while no sibling row represents the same or a newer effective attempt. Older superseded rows remain durable history and are not re-dispatched. Rows with no match indicate the event was stored before outbox creation and cannot be automatically retried.
+An `in_progress` row with a missing or expired lease is re-claimable by `claim_due_outbox_items()` on restart when it is still the newest effective outbox generation for its event-scoped delivery identity. A `queued` row is ambiguous; stale rows past `STALE_QUEUED_GRACE_SECONDS` (default 300 s) are automatically reclaimed under the same generation guard. A `pending` or `retry_wait` row is eligible for automatic retry only while no sibling row represents the same or a newer effective attempt. Older superseded rows remain durable history and are not re-dispatched. Rows with no match indicate the event was stored before outbox creation and cannot be automatically retried.
 
 ### 13.6 Database Integrity Verification
 
@@ -1628,7 +1670,7 @@ This section states which code owns each table's rows, who may create/mutate/del
    outbound native ref, supplemental `sent` receipt, and exact
    outbox-attempt transition in one storage transaction. Storage MUST
    re-check the exact `(event_id, delivery_plan_id, target_adapter,
-   normalized target_channel, outbox_id, attempt_number)` identity and
+normalized target_channel, outbox_id, attempt_number)` identity and
    finalizable status inside that transaction. A failed guard or failed insert
    MUST leave all three categories unchanged.
 

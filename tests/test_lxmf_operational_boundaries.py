@@ -115,6 +115,20 @@ def _lxmf_py_files() -> list[Path]:
     return sorted(_SRC_ROOT.glob("*.py"))
 
 
+def _lxmf_sdk_boundary_files() -> list[Path]:
+    """Return modules where direct SDK imports are forbidden."""
+    return [
+        path
+        for path in _lxmf_py_files()
+        if path.name not in {"compat.py", "session.py"}
+    ]
+
+
+def _lxmf_diagnostic_files() -> list[Path]:
+    """Return modules that actually implement diagnostics-related behavior."""
+    return [path for path in _lxmf_py_files() if "diagnostics" in _read_source(path)]
+
+
 def _scan_for_patterns(source: str, patterns: tuple[str, ...]) -> list[str]:
     """Return import lines in *source* that match any of *patterns*.
 
@@ -181,7 +195,7 @@ class TestLxmfSdkImportBoundary:
 
     @pytest.mark.parametrize(
         "filepath",
-        _lxmf_py_files(),
+        _lxmf_sdk_boundary_files(),
         ids=lambda p: p.name,
     )
     def test_no_sdk_import_outside_compat(self, filepath: Path) -> None:
@@ -191,9 +205,6 @@ class TestLxmfSdkImportBoundary:
         ``session.py`` owns the SDK client lifecycle and defers imports
         to runtime methods — not module-level.
         """
-        if filepath.name in ("compat.py", "session.py"):
-            pytest.skip("compat.py / session.py are designated SDK interaction sites")
-
         source = _read_source(filepath)
         violations = _scan_for_sdk_imports(source)
         assert (
@@ -401,7 +412,7 @@ class TestLxmfDiagnosticSafety:
 
     @pytest.mark.parametrize(
         "filepath",
-        _lxmf_py_files(),
+        _lxmf_diagnostic_files(),
         ids=lambda p: p.name,
     )
     def test_diagnostics_source_no_secret_patterns(self, filepath: Path) -> None:
@@ -412,9 +423,6 @@ class TestLxmfDiagnosticSafety:
         or similar in a return/assignment context, it is a latent leak risk.
         """
         source = _read_source(filepath)
-        if "diagnostics" not in source:
-            pytest.skip("no diagnostics method in this file")
-
         for pattern in _IDENTITY_SECRET_PATTERNS:
             for i, line in enumerate(source.splitlines(), 1):
                 stripped = line.strip()
@@ -576,14 +584,15 @@ class TestLxmfLiveTestExclusion:
 
     @pytest.mark.parametrize(
         "filepath",
-        sorted(_TESTS_DIR.glob("test_lxmf*.py")),
+        [
+            path
+            for path in sorted(_TESTS_DIR.glob("test_lxmf*.py"))
+            if path.name != Path(__file__).name
+        ],
         ids=lambda p: p.name,
     )
     def test_non_live_lxmf_tests_pass_default_filter(self, filepath: Path) -> None:
         """Non-live LXMF test files must not carry the live marker."""
-        if filepath.name == Path(__file__).name:
-            pytest.skip("self-referential check done separately")
-
         if _has_live_marker(filepath):
             source = _read_source(filepath)
             assert "pytestmark" in source or "@pytest.mark.live" in source, (

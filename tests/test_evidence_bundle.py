@@ -107,6 +107,7 @@ def _make_outbox_item(
     target_adapter: str = "adapter_a",
     status: str = "pending",
     created_at: str | None = None,
+    replay_run_id: str | None = None,
 ) -> DeliveryOutboxItem:
     return DeliveryOutboxItem(
         outbox_id=outbox_id,
@@ -115,6 +116,7 @@ def _make_outbox_item(
         delivery_plan_id="plan-1",
         target_adapter=target_adapter,
         status=status,
+        replay_run_id=replay_run_id,
         created_at=created_at or "2026-01-15T12:00:00+00:00",
         updated_at="2026-01-15T12:00:01+00:00",
     )
@@ -366,7 +368,7 @@ class TestCollectorNativeRefs:
 
 
 class TestCollectorReplayRunIds:
-    """Case 7: collect_for_event includes replay_run_ids from receipts."""
+    """Case 7: collect_for_event includes durable replay run provenance."""
 
     @pytest.mark.asyncio
     async def test_aggregates_replay_run_ids(self) -> None:
@@ -396,6 +398,25 @@ class TestCollectorReplayRunIds:
         # Sorted lexicographically.
         assert bundle.replay_run_ids == ("run-a", "run-z")
         assert bundle.sources_seen == ("live", "replay")
+
+    @pytest.mark.asyncio
+    async def test_includes_outbox_only_replay_run_id(self) -> None:
+        storage = _populated_fake(
+            event_id="evt-replay-outbox",
+            outbox_items=[
+                _make_outbox_item(
+                    event_id="evt-replay-outbox",
+                    replay_run_id="run-admitted-no-receipt",
+                )
+            ],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+
+        bundle = await collector.collect_for_event("evt-replay-outbox")
+
+        assert bundle.replay_run_ids == ("run-admitted-no-receipt",)
+        assert bundle.delivery_receipts == ()
+        assert bundle.outbox_items[0]["replay_run_id"] == "run-admitted-no-receipt"
 
 
 class TestCollectorQueuedAndSent:
@@ -529,6 +550,7 @@ class TestSQLiteRoundTrip:
         assert len(bundle.outbox_items) == 1
         assert bundle.outbox_items[0]["outbox_id"] == "ob-sqlite"
         assert bundle.outbox_items[0]["status"] == "sent"
+        assert bundle.outbox_items[0]["replay_run_id"] is None
 
         # JSON-safe.
         d = bundle.to_dict()

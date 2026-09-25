@@ -403,11 +403,23 @@ independently joining receipt authority, outbox state, and attempt history.
 
 ### 5.1 Replay Creates New Attempts
 
-Replay re-processes stored canonical events through the pipeline. Accepted replay
-delivery attempts produce receipt rows with `source="replay"` and a
-`replay_run_id`. A non-empty run ID suppresses a target after visible `queued` or
-`sent` acceptance evidence from that same run. Other replay attempts create new
-receipt rows and never modify existing receipts.
+Replay re-processes stored canonical events through the pipeline. Accepted initial
+replay delivery attempts produce receipt rows with `source="replay"`; named runs also
+carry a `replay_run_id`, which later `source="retry"` attempts preserve. A non-empty
+run ID durably claims one outbox generation for the full delivery identity, so
+concurrent executions of that same run converge on one
+dispatch generation. Within one runtime process, `DeliveryCoordinator` also serializes
+the exact `(DeliveryIdentity, replay_run_id)` before capacity admission. That local gate
+prevents an in-process duplicate from timing out on capacity and manufacturing an
+outbox-less suppression receipt before the winning execution establishes durable state.
+It is an ordering aid only: the outbox transaction remains the cross-process idempotency
+authority. Before outbox admission, the lifecycle-authoritative receipt is used as the
+fast-path proof that the same named run already resolved that target; raw historical
+receipts are never idempotency authority. Different or empty run IDs remain repeatable.
+A duplicate same-run execution returns a skipped outcome without appending a lifecycle
+receipt because no new delivery generation was created. Preflight-only suppressions
+that occur before named-run admission create no outbox generation and remain ordinary
+lifecycle evidence.
 
 ### 5.1.1 Replay Attempt Identity
 
@@ -426,22 +438,33 @@ fresh row is created.
 ### 5.2 Replay Must Not Rewrite History
 
 Replay MUST NOT update, delete, or modify existing receipt rows. Replay MUST
-NOT alter existing outbox state for live-sourced entries. Replay receipts are
-distinguishable from live receipts by the `source` and `replay_run_id` fields.
+NOT alter existing outbox state for prior live generations. Replay origin is
+distinguished by `replay_run_id`; `source` independently records whether a
+particular attempt was dispatched by live delivery, replay execution, or the
+RetryWorker.
 
 ### 5.3 Replay Isolation
 
-Replay deliveries are tagged with `source="replay"` and `replay_run_id` to
-maintain isolation from live delivery. Queued callbacks finalize only through
+Initial replay dispatches use `source="replay"` and persist `replay_run_id` on the
+durable generation. Retry dispatches from that replay-origin outbox row use
+`source="retry"` while preserving `replay_run_id`; replay origin is
+provenance, not dispatch mechanism or lifecycle identity. Queued callbacks finalize only through
 exact `outbox_id` + `attempt_number` correlation against the authoritative
 outbox row, which is validated for status, event, adapter, plan, channel, and
 attempt before any candidate is selected (see
 [routing-delivery.md](routing-delivery.md) §8.5). A matching queued receipt's
 own durable `source` / `replay_run_id` lineage is the trusted provenance for
-that one attempt, so a replay-sourced candidate is finalized exactly like a
+that one attempt, so a replay-origin candidate is finalized exactly like a
 live one and its replay lineage is carried onto the supplemental `sent`
-receipt. When malformed history offers duplicate queued receipts across
-sources for the same row and attempt (a row is single-sourced in normal
+receipt. If a terminal callback wins the queued-receipt append race, the outbox
+row remains sufficient provenance on either side of the mutable handoff:
+initial admission stores `dispatch_source="live"` or `"replay"` (including
+unnamed replay), while RetryWorker reservation atomically stamps
+`dispatch_source="retry"` before transport invocation and that value survives
+the transition to `queued`. A queued-receipt history read that fails is rejected
+for every source; only a successful read may establish that the receipt is not
+yet visible. When malformed history offers duplicate queued receipts
+across sources for the same row and attempt (a row is single-sourced in normal
 operation), non-replay candidates are preferred. Callbacks that do not match
 the validated row — stale attempts, terminal or reclaimed rows — are still
 rejected with a warning; replay isolation never overrides row validation. See
@@ -451,9 +474,10 @@ requirement set.
 ### 5.4 Replay Non-Guarantees
 
 Replay is operator-initiated, in-memory, and non-durable. It is not a crash
-recovery mechanism, not an exactly-once delivery guarantee, and not a substitute
-for live delivery. Different or empty run IDs MAY produce duplicate sends, and
-concurrent executions sharing a run ID can race before acceptance evidence commits.
+recovery mechanism, not an exactly-once transport-delivery guarantee, and not a
+substitute for live delivery. Different or empty run IDs MAY produce duplicate
+sends. A non-empty run ID atomically owns one target generation in shared storage,
+but an ambiguous transport handoff later retried/recovered can still redeliver.
 
 ---
 

@@ -921,7 +921,7 @@ class TestDeadLetter:
             )
             assert len(convergence.targets) == 1
             assert convergence.targets[0].severity == "safe"
-            assert convergence.targets[0].latest_receipt_status == "dead_lettered"
+            assert convergence.targets[0].current_receipt_status == "dead_lettered"
         finally:
             await runner.stop()
 

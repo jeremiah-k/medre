@@ -37,6 +37,16 @@ def _all_doc_text() -> str:
     return "\n".join(_read(p) for p in TARGET_DOCS)
 
 
+def _h2_section(text: str, heading: str) -> str:
+    """Return an H2 section, failing loudly when the documented contract moved."""
+    start = text.find(heading)
+    assert start >= 0, f"required documentation section not found: {heading}"
+    end = text.find("\n## ", start + len(heading))
+    if end < 0:
+        end = len(text)
+    return text[start:end]
+
+
 # Docs that contain general operator workflows (incident response, post-run
 # inspection, crash recovery). These must present inspect as the primary
 # investigation path, with trace/evidence/recover framed as specialized.
@@ -70,8 +80,8 @@ class TestWalkthroughInspectSurface:
         text = _read(OPS_DIR / "operator-workflows.md")
         inspect_pos = text.find("medre inspect")
         trace_pos = text.find("medre trace")
-        if inspect_pos < 0 or trace_pos < 0:
-            pytest.skip("Both inspect and trace must be in walkthrough")
+        assert inspect_pos >= 0, "operator-workflows.md must contain medre inspect"
+        assert trace_pos >= 0, "operator-workflows.md must contain medre trace"
         assert inspect_pos < trace_pos, (
             "operator-workflows.md should present inspect before trace "
             "(inspect is the primary investigation surface)."
@@ -116,8 +126,7 @@ class TestInspectFirstConsistency:
     def test_workflow_doc_mentions_inspect(self, doc_path: Path) -> None:
         """Workflow docs must reference `medre inspect` as an investigation
         command."""
-        if not doc_path.exists():
-            pytest.skip(f"{doc_path.name} not found")
+        assert doc_path.is_file(), f"required workflow doc missing: {doc_path}"
         text = _read(doc_path)
         assert "medre inspect" in text, (
             f"{doc_path.name} must reference 'medre inspect' as the "
@@ -134,13 +143,13 @@ class TestInspectFirstConsistency:
         before or at the same position as the first `medre trace` reference
         in a general workflow context (not within a specialized trace command
         section)."""
-        if not doc_path.exists():
-            pytest.skip(f"{doc_path.name} not found")
+        assert doc_path.is_file(), f"required workflow doc missing: {doc_path}"
         text = _read(doc_path)
         inspect_pos = text.find("medre inspect")
         trace_pos = text.find("medre trace")
-        if inspect_pos < 0 or trace_pos < 0:
-            pytest.skip("Both inspect and trace must be present")
+        assert inspect_pos >= 0, f"{doc_path.name} must contain medre inspect"
+        if trace_pos < 0:
+            return
         assert inspect_pos <= trace_pos, (
             f"{doc_path.name} should present 'medre inspect' before "
             f"'medre trace' in the document flow. inspect is the primary "
@@ -151,19 +160,8 @@ class TestInspectFirstConsistency:
         """recovery-and-replay.md Section 0 incident workflow must present
         inspect as the primary step, not trace."""
         path = OPS_DIR / "recovery-and-replay.md"
-        if not path.exists():
-            pytest.skip("recovery-and-replay.md not found")
         text = _read(path)
-        # Find Section 0
-        section0_start = text.find("## 0.")
-        if section0_start < 0:
-            pytest.skip("Section 0 not found")
-        # Find next section header
-        section1_start = text.find("\n## 1.", section0_start)
-        if section1_start < 0:
-            section1_start = len(text)
-        section0 = text[section0_start:section1_start]
-        # In Section 0, inspect should appear before trace in workflow steps
+        section0 = _h2_section(text, "## Complete Incident Workflow")
         inspect_pos = section0.find("medre inspect event")
         trace_pos = section0.find("medre trace event")
         if inspect_pos < 0:
@@ -182,20 +180,11 @@ class TestInspectFirstConsistency:
         """diagnostics-and-evidence.md post-run inspection section must
         present inspect as the primary path, with trace as specialized."""
         path = OPS_DIR / "diagnostics-and-evidence.md"
-        if not path.exists():
-            pytest.skip("diagnostics-and-evidence.md not found")
         text = _read(path)
-        # Find the post-run inspection section
-        section_pos = text.find("### 1.6 Post-Run Inspection")
-        if section_pos < 0:
-            pytest.skip("Post-Run Inspection section not found")
-        section_end = text.find("\n## ", section_pos + 1)
-        if section_end < 0:
-            section_end = len(text)
-        section = text[section_pos:section_end]
+        section = _h2_section(text, "## Post-Run Inspection")
         # Inspect should appear before trace in this section
-        inspect_pos = section.find("medre inspect event")
-        trace_pos = section.find("medre trace event")
+        inspect_pos = section.find("medre inspect")
+        trace_pos = section.find("medre trace")
         assert inspect_pos >= 0, (
             "diagnostics-and-evidence.md post-run inspection must "
             "include 'medre inspect event'."
@@ -210,8 +199,6 @@ class TestInspectFirstConsistency:
         """operator-workflows.md must include an inspect-first cross-reference
         near the top of the document."""
         path = OPS_DIR / "operator-workflows.md"
-        if not path.exists():
-            pytest.skip("operator-workflows.md not found")
         text = _read(path)
         assert "inspect event --timeline" in text, (
             "operator-workflows.md must cross-reference 'medre inspect event "
@@ -222,26 +209,18 @@ class TestInspectFirstConsistency:
         """troubleshooting.md incident workflow cross-check section
         must present inspect as the primary step, not trace."""
         path = OPS_DIR / "troubleshooting.md"
-        if not path.exists():
-            pytest.skip("troubleshooting.md not found")
         text = _read(path)
-        section_pos = text.find("## 11. Incident Workflow Cross-Check")
-        if section_pos < 0:
-            pytest.skip("Incident Workflow Cross-Check section not found")
-        section_end = text.find("\n## ", section_pos + 1)
-        if section_end < 0:
-            section_end = len(text)
-        section = text[section_pos:section_end]
-        inspect_pos = section.find("medre inspect event")
-        trace_pos = section.find("medre trace event")
+        section = _h2_section(text, "## Inspect Follow-Up Quick Reference")
+        inspect_pos = section.find("medre inspect")
+        trace_pos = section.find("medre trace")
         assert inspect_pos >= 0, (
-            "troubleshooting.md incident workflow must include "
-            "'medre inspect event'."
+            "troubleshooting.md inspect follow-up must include "
+            "a 'medre inspect' command."
         )
         if trace_pos >= 0:
             assert inspect_pos < trace_pos, (
-                "troubleshooting.md incident workflow should present "
-                "'medre inspect event' before 'medre trace event'."
+                "troubleshooting.md inspect follow-up should present "
+                "'medre inspect' before 'medre trace'."
             )
 
 
@@ -256,54 +235,31 @@ class TestTraceNotFirstStepInPrimaryWorkflows:
     investigation step.  ``medre inspect event`` is the primary path."""
 
     def test_operator_workflows_phase2_inspect_first(self) -> None:
-        """Phase 2 in operator-workflows.md must start with inspect, not trace."""
+        """The inspect-first operator section must lead with inspect, not trace."""
         path = OPS_DIR / "operator-workflows.md"
-        if not path.exists():
-            pytest.skip("operator-workflows.md not found")
         text = _read(path)
-        # Find Phase 2 section
-        phase2 = text.find("### Phase 2:")
-        if phase2 < 0:
-            pytest.skip("Phase 2 section not found")
-        phase3 = text.find("### Phase 3:", phase2)
-        if phase3 < 0:
-            phase3 = len(text)
-        section = text[phase2:phase3]
-        # In Phase 2, inspect must appear before any trace command
+        section = _h2_section(text, "## Inspect-First Investigation")
+        # In the primary investigation section, inspect must precede trace aliases.
         inspect_pos = section.find("medre inspect")
         trace_pos = section.find("medre trace")
         assert (
             inspect_pos >= 0
-        ), "operator-workflows.md Phase 2 must include 'medre inspect'."
+        ), "operator-workflows.md inspect-first section must include 'medre inspect'."
         if trace_pos >= 0:
             assert inspect_pos < trace_pos, (
-                "operator-workflows.md Phase 2 must present 'medre inspect' "
+                "operator-workflows.md inspect-first section must present 'medre inspect' "
                 "before 'medre trace'. inspect is the primary path."
             )
 
     def test_bridge_recovery_step2_inspect_first(self) -> None:
         """Step 2 in recovery-and-replay.md Section 0 must start with inspect."""
         path = OPS_DIR / "recovery-and-replay.md"
-        if not path.exists():
-            pytest.skip("recovery-and-replay.md not found")
         text = _read(path)
-        section0 = text.find("## 0.")
-        if section0 < 0:
-            pytest.skip("Section 0 not found")
-        section1 = text.find("\n## 1.", section0)
-        if section1 < 0:
-            section1 = len(text)
-        s0 = text[section0:section1]
-        # Step 2 must have inspect before trace
-        step2 = s0.find("### Step 2:")
-        if step2 < 0:
-            pytest.skip("Step 2 not found in Section 0")
-        step3 = s0.find("### Step 3:", step2)
-        if step3 < 0:
-            step3 = len(s0)
-        step2_text = s0[step2:step3]
-        inspect_pos = step2_text.find("medre inspect event")
-        trace_pos = step2_text.find("medre trace event")
+        section = _h2_section(text, "## Complete Incident Workflow")
+        step2_pos = section.find("# 2. Inspect the suspect event")
+        assert step2_pos >= 0, "incident workflow must identify inspect as step 2"
+        inspect_pos = section.find("medre inspect event", step2_pos)
+        trace_pos = section.find("medre trace event", step2_pos)
         assert (
             inspect_pos >= 0
         ), "recovery-and-replay.md Step 2 must include 'medre inspect event'."
@@ -317,16 +273,7 @@ class TestTraceNotFirstStepInPrimaryWorkflows:
         """Post-Run Evidence Inspection in running-medre.md must present
         inspect as the primary path."""
         path = OPS_DIR / "running-medre.md"
-        if not path.exists():
-            pytest.skip("running-medre.md not found")
-        text = _read(path)
-        section_pos = text.find("### Post-Run Evidence Inspection")
-        if section_pos < 0:
-            pytest.skip("Post-Run Evidence Inspection section not found")
-        section_end = text.find("\n## ", section_pos + 1)
-        if section_end < 0:
-            section_end = len(text)
-        section = text[section_pos:section_end]
+        section = _read(path)
         inspect_pos = section.find("medre inspect event")
         trace_pos = section.find("medre trace event")
         assert inspect_pos >= 0, (

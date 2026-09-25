@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
+from medre.core.events import normalize_replay_run_id
 from medre.core.storage.backend import DEFAULT_QUERY_LIMIT
 
 
@@ -144,10 +145,11 @@ class ReplayRequest:
         When set, it is recorded in :class:`ReplayRouteAttribution` and
         :class:`ReplaySummary` so operators can correlate replay runs.
 
-        **Idempotency note:** Replay may intentionally redeliver events.
-        Duplicate-send risk exists by design for mesh/radio transports
-        where at-least-once delivery is the norm.  Operators should use
-        ``run_id`` to track and deduplicate at the application layer.
+        **Idempotency note:** A non-empty ``run_id`` is a durable execution
+        key for each full delivery identity that reaches outbox admission.
+        Concurrent executions sharing that run ID reuse one generation.
+        Different or empty run IDs remain intentionally repeatable, and
+        transport retry/recovery is still at-least-once rather than exactly-once.
     """
 
     time_start: datetime | None = None
@@ -161,6 +163,10 @@ class ReplayRequest:
     target_adapters: list[str] | None = None
     route_ids: tuple[str, ...] = ()
     run_id: str = ""
+
+    def __post_init__(self) -> None:
+        """Normalize the optional durable replay execution key."""
+        self.run_id = normalize_replay_run_id(self.run_id) or ""
 
 
 @dataclass
@@ -211,8 +217,9 @@ class ReplayRouteAttribution:
     alongside the route-target pairs.  This preserves route attribution
     without altering the canonical event schema.
 
-    Determinism guarantee: for the same stored event and route
-    configuration, the attribution is identical across replay runs.
+    Determinism guarantee: for the same stored event and route configuration,
+    route-derived attribution is identical across replay runs. The
+    operator-supplied ``run_id`` is execution provenance and may differ.
 
     Attributes
     ----------
@@ -233,8 +240,10 @@ class ReplayRouteAttribution:
     run_id:
         Operator-assigned identifier for the replay execution that
         produced this attribution.  Empty string when not provided.
-        Use this to correlate replay runs and deduplicate at the
-        application layer.
+        Use this to correlate replay runs. For side-effecting replay, a
+        non-empty run ID is durably claimed per delivery identity at outbox
+        admission; attribution itself is descriptive and does not perform
+        deduplication.
     """
 
     route_ids: tuple[str, ...] = ()

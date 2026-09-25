@@ -529,6 +529,7 @@ class TestConvergenceClassificationConformance:
                     "route_id": "route-1",
                     "status": outbox_status,
                     "attempt_number": 1,
+                    "receipt_id": "r-1" if receipt_status is not None else None,
                 }
             )
         if receipt_status is not None:
@@ -546,6 +547,7 @@ class TestConvergenceClassificationConformance:
                     "source": "live",
                     "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
                     "parent_receipt_id": None,
+                    "outbox_id": "ob-1" if outbox_status is not None else None,
                 }
             )
 

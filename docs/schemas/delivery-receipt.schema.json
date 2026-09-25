@@ -94,12 +94,22 @@
     "source": {
       "type": "string",
       "default": "live",
-      "description": "Origin of this receipt: 'live', 'retry', or 'replay'."
+      "description": "Dispatch mechanism that produced this receipt: live, retry, or replay.",
+      "enum": ["live", "retry", "replay"]
     },
     "replay_run_id": {
-      "type": ["string", "null"],
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(?:.*\\S)?$"
+        }
+      ],
       "default": null,
-      "description": "When source='replay', the run_id of the replay execution. None for live/retry."
+      "description": "Replay-origin run ID. Valid on initial source='replay' evidence and later source='retry' evidence from the same replay-origin outbox; null for live lineage or unnamed replay."
     },
     "retry_max_attempts": {
       "type": ["integer", "null"],
@@ -149,5 +159,24 @@
       "description": "Timestamp when this receipt was created (UTC, ISO-8601)."
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "live"
+          }
+        },
+        "required": ["source"]
+      },
+      "then": {
+        "properties": {
+          "replay_run_id": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
 }

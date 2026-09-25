@@ -183,6 +183,7 @@ def build_startup_recovery_ledger(
         event_id = _to_str(_get(item, "event_id"))
         delivery_plan_id = _to_str(_get(item, "delivery_plan_id"))
         worker_id = _to_str(_get(item, "worker_id")) or None
+        replay_run_id = _to_str(_get(item, "replay_run_id")) or None
         updated_at = _to_str(_get(item, "updated_at"))
 
         classification, reason = classify_startup_reclamation(
@@ -220,6 +221,7 @@ def build_startup_recovery_ledger(
                 timestamp=action_timestamp,
                 delivery_plan_id=delivery_plan_id,
                 event_id=event_id,
+                replay_run_id=replay_run_id,
             )
         )
 

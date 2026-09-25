@@ -35,11 +35,11 @@ from .json import to_json
 _logger = logging.getLogger(__name__)
 
 _BEST_EFFORT_WARNING = (
-    "WARNING: BEST_EFFORT replay incurs the same duplicate-send risk as "
-    "all adapter transports.  Replay receipts are distinguishable from "
-    "live records by source='replay' and replay_run_id; however, "
-    "traceability is NOT dedupe — duplicate-send risk remains.  "
-    "Use --mode dry_run first to preview."
+    "WARNING: BEST_EFFORT replay sends real messages. A non-empty run ID "
+    "atomically claims one target generation in durable storage, but "
+    "duplicate-send risk remains for prior live delivery, different/empty "
+    "run IDs, and ambiguous transport retry/recovery. Use --mode dry_run first "
+    "to preview."
 )
 
 
@@ -252,7 +252,7 @@ async def _replay(
             results,
             mode=replay_mode,
             elapsed_ms=(_time.monotonic() - t0) * 1000,
-            run_id=run_id,
+            run_id=request.run_id,
         )
 
         summary_dict = summary.to_dict()
@@ -273,8 +273,8 @@ async def _replay(
     else:
         # Human-readable summary.
         print(f"Replay: {mode}")
-        if run_id:
-            print(f"  Run ID:        {run_id}")
+        if request.run_id:
+            print(f"  Run ID:        {request.run_id}")
         print(f"  Events scanned:  {summary.events_scanned}")
         print(f"  Events replayed: {summary.events_replayed}")
         print(f"  Passed:          {summary.by_status.get('passed', 0)}")

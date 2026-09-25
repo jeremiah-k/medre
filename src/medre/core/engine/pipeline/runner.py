@@ -1384,7 +1384,7 @@ class PipelineRunner:
             Paired routes and their per-target delivery plans, as
             returned by :meth:`route_event`.
         source:
-            Origin of delivery: ``"live"``, ``"retry"``, or ``"replay"``.
+            Dispatch mechanism: ``"live"``, ``"retry"``, or ``"replay"``.
         replay_run_id:
             When ``source="replay"``, the replay run identifier.
         cached_get_fn:

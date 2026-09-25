@@ -110,14 +110,20 @@ def test_delivery_coordinator_does_not_write_storage_state_directly() -> None:
         ):
             storage_calls.add(node.func.attr)
 
-    assert storage_calls == {"list_receipts_for_delivery"}
+    # All three are identity-scoped reads; every persistence transition stays
+    # delegated to the lifecycle/outbox authorities.
+    assert storage_calls == {
+        "delivery_status",
+        "list_outbox_items_for_delivery",
+        "list_receipts_for_delivery",
+    }
 
 
 def test_capacity_release_is_outermost_owned_delivery_cleanup() -> None:
     """Capacity release stays unconditional inside the ownership guard."""
     tree = ast.parse(_COORDINATOR.read_text(encoding="utf-8"))
-    scoped = _function(tree, "_deliver_one_scoped")
-    try_nodes = [node for node in scoped.body if isinstance(node, ast.Try)]
+    owned_delivery = _function(tree, "_deliver_one_after_replay_gate")
+    try_nodes = [node for node in owned_delivery.body if isinstance(node, ast.Try)]
     assert len(try_nodes) == 1
     owned = try_nodes[0]
 
@@ -154,7 +160,7 @@ def test_incomplete_identity_gate_precedes_lifecycle_entry() -> None:
     """Adapterless targets are suppressed before replay reads or outbox work."""
     tree = ast.parse(_COORDINATOR.read_text(encoding="utf-8"))
     scoped = _function(tree, "_deliver_one_scoped")
-    awaited_checks = sorted(
+    scoped_awaits = sorted(
         (
             (call.lineno, call.value.func.attr)
             for call in ast.walk(scoped)
@@ -163,9 +169,21 @@ def test_incomplete_identity_gate_precedes_lifecycle_entry() -> None:
             and isinstance(call.value.func, ast.Attribute)
         )
     )
-    assert [name for _, name in awaited_checks[:2]] == [
-        "_incomplete_identity_outcome",
-        "_load_replay_receipts",
+    assert scoped_awaits[0][1] == "_incomplete_identity_outcome"
+
+    admitted = _function(tree, "_deliver_one_after_replay_gate")
+    admitted_awaits = sorted(
+        (
+            (call.lineno, call.value.func.attr)
+            for call in ast.walk(admitted)
+            if isinstance(call, ast.Await)
+            and isinstance(call.value, ast.Call)
+            and isinstance(call.value.func, ast.Attribute)
+        )
+    )
+    assert [name for _, name in admitted_awaits[:2]] == [
+        "_load_replay_authority",
+        "_preflight_outcome",
     ]
 
 
@@ -181,8 +199,8 @@ def test_outbox_cleanup_is_inside_capacity_owned_boundary() -> None:
         "finalize_outcome",
     ]
 
-    scoped = _function(tree, "_deliver_one_scoped")
-    owned = next(node for node in scoped.body if isinstance(node, ast.Try))
+    owned_delivery = _function(tree, "_deliver_one_after_replay_gate")
+    owned = next(node for node in owned_delivery.body if isinstance(node, ast.Try))
     body_names = {
         name
         for _, name in _attribute_calls(ast.Module(body=owned.body, type_ignores=[]))

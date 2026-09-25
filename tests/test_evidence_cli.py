@@ -255,6 +255,7 @@ async def _make_populated_db_with_failure(
     receipt_status: str = "failed",
     receipt_error: str | None = "TimeoutError: connection timed out",
     receipt_source: str = "live",
+    replay_run_id: str | None = None,
 ) -> str:
     """Create and populate a SQLite DB with a receipt in given status.
 
@@ -291,6 +292,7 @@ async def _make_populated_db_with_failure(
         target_adapter="radio",
         status=receipt_status,
         source=receipt_source,
+        replay_run_id=replay_run_id,
         error=receipt_error,
         created_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
     )
@@ -710,7 +712,7 @@ class TestIncidentSummary:
         assert summary["receipt_count"] == 1
         assert summary["failed_count"] == 0
         assert summary["sent_count"] == 1
-        assert summary["replay_receipts_present"] is False
+        assert summary["replay_origin_present"] is False
         assert summary["native_refs_present"] is False
         assert isinstance(summary["recommended_commands"], list)
 
@@ -783,6 +785,7 @@ class TestIncidentSummary:
             receipt_status="failed",
             receipt_error="TimeoutError: connection timed out",
             receipt_source="replay",
+            replay_run_id="run-evidence-replay-001",
         )
 
         report = await collect_evidence_bundle(
@@ -790,7 +793,25 @@ class TestIncidentSummary:
             event_id=event_id,
         )
         summary = report["sections"]["storage"]["data"]["incident_summary"]
-        assert summary["replay_receipts_present"] is True
+        assert summary["replay_origin_present"] is True
+
+    @pytest.mark.asyncio
+    async def test_incident_summary_retry_from_replay_is_replay_origin(
+        self, config_fake: Path
+    ) -> None:
+        db_path = str(config_fake.parent / "state" / "test_evidence.db")
+        event_id = await _make_populated_db_with_failure(
+            db_path,
+            event_id="ev-evidence-replay-retry-001",
+            receipt_status="failed",
+            receipt_error="TimeoutError: connection timed out",
+            receipt_source="retry",
+            replay_run_id="run-evidence-replay-retry-001",
+        )
+
+        report = await collect_evidence_bundle(str(config_fake), event_id=event_id)
+        summary = report["sections"]["storage"]["data"]["incident_summary"]
+        assert summary["replay_origin_present"] is True
 
     @pytest.mark.asyncio
     async def test_incident_summary_recommended_commands(
@@ -844,7 +865,7 @@ class TestIncidentSummary:
             "source_adapter",
             "first_failure_kind",
             "classification",
-            "replay_receipts_present",
+            "replay_origin_present",
             "native_refs_present",
             "receipt_count",
             "failed_count",

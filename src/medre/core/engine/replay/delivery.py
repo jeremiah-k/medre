@@ -272,11 +272,14 @@ class _ReplayDeliveryMixin:
     outbox rows, or native refs.  It delegates to
     ``pipeline.deliver_to_targets(source="replay", replay_run_id=...)``
     which creates new persistence through the standard delivery lifecycle
-    helpers.  Replay-created rows are identifiable by ``source="replay"``
-    and the ``replay_run_id`` field. The lifecycle allocates replay outbox
+    helpers. Initial replay receipts use ``source="replay"``; a non-empty
+    ``replay_run_id`` durably identifies named replay-origin generations.
+    The lifecycle allocates replay outbox
     generations above the maximum existing *effective* attempt (a live
     ``active_attempt`` reservation outranks the row's finalized
-    ``attempt_number``), never mutates existing rows, and keeps receipts
+    ``attempt_number``). A non-empty run ID first atomically reuses any existing
+    claim for that delivery identity, preventing sibling same-run dispatches.
+    Existing rows are never rewritten as another generation and receipts remain
     append-only.
     """
 

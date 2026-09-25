@@ -62,6 +62,7 @@ def _receipt(
     source: str = "live",
     created_at: datetime | None = None,
     parent_receipt_id: str | None = None,
+    outbox_id: str | None = None,
 ) -> dict:
     return {
         "receipt_id": receipt_id,
@@ -76,6 +77,7 @@ def _receipt(
         "source": source,
         "created_at": created_at or _TS,
         "parent_receipt_id": parent_receipt_id,
+        "outbox_id": outbox_id,
     }
 
 
@@ -97,6 +99,7 @@ def _delivery_receipt(
     error: str | None = None,
     rendering_evidence: str | None = None,
     replay_run_id: str | None = None,
+    outbox_id: str | None = None,
 ) -> DeliveryReceipt:
     """Build a real DeliveryReceipt for EvidenceCollector tests."""
     return DeliveryReceipt(
@@ -116,6 +119,7 @@ def _delivery_receipt(
         error=error,
         rendering_evidence=rendering_evidence,
         replay_run_id=replay_run_id,
+        outbox_id=outbox_id,
     )
 
 
@@ -129,6 +133,8 @@ def _outbox(
     route_id: str = "route-1",
     status: str = "pending",
     attempt_number: int = 1,
+    receipt_id: str | None = None,
+    replay_run_id: str | None = None,
 ) -> dict:
     return {
         "outbox_id": outbox_id,
@@ -139,6 +145,8 @@ def _outbox(
         "route_id": route_id,
         "status": status,
         "attempt_number": attempt_number,
+        "receipt_id": receipt_id,
+        "replay_run_id": replay_run_id,
     }
 
 
@@ -154,6 +162,8 @@ def _outbox_ns(
     attempt_number: int = 1,
     created_at: datetime | None = None,
     updated_at: datetime | None = None,
+    receipt_id: str | None = None,
+    replay_run_id: str | None = None,
 ) -> SimpleNamespace:
     """Build an outbox item as SimpleNamespace for EvidenceCollector."""
     return SimpleNamespace(
@@ -170,6 +180,8 @@ def _outbox_ns(
         worker_id=None,
         error_summary=None,
         failure_kind=None,
+        receipt_id=receipt_id,
+        replay_run_id=replay_run_id,
     )
 
 
@@ -296,10 +308,10 @@ class TestMergeRecoveryFindingsIntoReportDict:
             ]
         )
         outbox_items = [
-            _outbox(outbox_id="ob-1", status="pending"),
+            _outbox(outbox_id="ob-1", status="pending", receipt_id="r-1"),
         ]
         rec_receipts = [
-            _receipt(receipt_id="r-1", status="queued"),
+            _receipt(receipt_id="r-1", status="queued", outbox_id="ob-1"),
         ]
         recovery_findings = build_recovery_convergence_findings(
             outbox_items=outbox_items,
@@ -499,11 +511,13 @@ class TestCoreCollectorAlignment:
             outbox_id="ob-align",
             status="pending",
             event_id="ev-alignment",
+            receipt_id="r-align",
         )
         receipt = _delivery_receipt(
             receipt_id="r-align",
             event_id="ev-alignment",
             status="queued",
+            outbox_id="ob-align",
         )
 
         storage = _make_storage(
