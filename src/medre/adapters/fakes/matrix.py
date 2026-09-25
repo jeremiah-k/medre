@@ -209,10 +209,11 @@ class FakeMatrixAdapter(AdapterContract):
         _trim(self.delivered_payloads)
         # Deterministic Matrix-like event ID for test verification.
         fake_event_id = f"$fake_{result.event_id}"
-        channel_id = result.target_channel
+        channel_id = result.target_channel or None
         return AdapterHandoffResult(
             native_message_id=fake_event_id,
             native_channel_id=channel_id,
+            confirmation_level="remote_service",
         )
 
     # -- Test helpers -------------------------------------------------------

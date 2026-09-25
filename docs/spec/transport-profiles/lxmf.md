@@ -297,31 +297,30 @@ should not search receipt metadata for the final transport state.
 | `cancelled`  | Cancelled by sender                 |
 | `unmapped`   | Unrecognised state from SDK         |
 
-Callback-emitted delivery updates are tracked via `_on_delivery_state_update`.
+SDK-emitted delivery-state updates are tracked via `_on_delivery_state_update`.
 The pinned LXMF SDK exposes successful delivery/progression through the message
 delivery callback and exposes some failures through a separate failed callback;
-MEDRE registers both. A terminal state is reported to core only when the SDK
-actually emits a callback carrying that state. MEDRE does not poll private SDK
+MEDRE registers both. A later state is reported to core only when the SDK
+actually emits an update carrying that state. MEDRE does not poll private SDK
 state or infer unreported `rejected`/`cancelled` transitions.
 
 **Delivery state is durable evidence, not lifecycle authority.** The LXMF
 adapter still returns `disposition="transport_handoff"` with `confirmation_level` of
-`local_queue` when the local `LXMRouter` accepts the message. A later terminal
-SDK callback is appended to `delivery_observations` for the exact outbox
-attempt; it does not rewrite the receipt or terminal outbox state. Post-handoff
+`local_queue` when the local `LXMRouter` accepts the message. A later SDK delivery-state update becomes a `PostHandoffObservation` for the
+exact outbox attempt and is appended to `delivery_observations`; it does not rewrite the receipt or terminal outbox state. Post-handoff
 observations are delivery evidence, not a planning capability or a receipt
 transition. The adapter captures the message hash and state at callback time before
 crossing from the SDK thread to the event loop; subsequent changes to the SDK
 message object do not change the observation.
 
 **Crash window.** Correlation between an in-flight LXMF message and its exact
-outbox attempt is process-local until a terminal callback is received. Once an
-observation is appended it is durable, but a hard process crash after local
-handoff and before the terminal callback can lose that later provider fact.
+outbox attempt is process-local until the SDK emits a delivery-state update. Once
+an observation is appended it is durable, but a hard process crash after local
+handoff and before that update can lose the later provider fact.
 MEDRE does not reconstruct or invent a terminal state after restart when LXMF
 does not re-emit one. The original `sent/local_queue` receipt remains truthful.
-During a retry, a terminal callback for the new attempt can also be lost if it
-arrives before the outbox row advances its attempt number at finalization.
+During a retry, a provider state update for the new attempt can also be lost if
+it arrives before the outbox row advances its attempt number at finalization.
 
 MEDRE persists LXMF `delivered` as the provider state but keeps the observation
 `confirmation_level="unknown"`. It does not independently upgrade that state

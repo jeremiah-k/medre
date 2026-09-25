@@ -411,7 +411,7 @@ class MeshCoreAdapter(AdapterContract):
         dict already rendered by
         :class:`~medre.adapters.meshcore.renderer.MeshCoreRenderer`.
 
-        For **fake mode** this returns ``None`` (no real delivery).
+        For **fake mode** this returns a synthetic successful hand-off fact; no real radio transmission occurs.
 
         For **real modes** the delivery is delegated to the session's
         :meth:`~MeshCoreSession.send_text` method.
@@ -424,8 +424,8 @@ class MeshCoreAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterHandoffResult | None
-            ``None`` for fake mode; delivery result for real modes.
+        AdapterHandoffResult
+            Synthetic hand-off evidence for fake mode; transport hand-off evidence for real modes.
 
         Raises
         ------

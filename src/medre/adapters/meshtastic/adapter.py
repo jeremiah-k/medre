@@ -17,8 +17,8 @@ The adapter supports four connection types configured via
 ``"fake"``
     No real client.  Used for testing without hardware.  Inbound
     simulation via :meth:`simulate_inbound`; outbound via :meth:`deliver`
-    enqueues to the internal queue but :meth:`deliver` returns ``None``
-    (no real send).
+    accepts work into the internal queue and returns a deferred hand-off
+    fact.  No real radio transmission occurs.
 
 ``"tcp"``
     Connects via TCP using ``meshtastic.tcp_interface.TCPInterface(hostname, portNumber)``.
@@ -390,11 +390,11 @@ class MeshtasticAdapter(AdapterContract):
 
         .. note::
 
-           Direct ``deliver()`` calls (outside the queue path) produce
-           results without outbox correlation.  This is acceptable for
-           adapter-boundary tests and manual probes but not for normal
-           queue-based delivery, which requires ``outbox_id`` +
-           ``attempt_number`` for exact lifecycle correlation.
+           Deferred admission requires immutable attempt provenance. Direct
+           calls that do not carry ``RenderingResult.attempt_provenance`` are
+           rejected before the local queue is mutated; otherwise the later
+           completion/failure could not be correlated to durable lifecycle
+           authority.
 
         Parameters
         ----------
@@ -434,6 +434,21 @@ class MeshtasticAdapter(AdapterContract):
         if self._config.outbound_mode == "listen_only":
             self._outbound_gate_suppressed += 1
             raise AdapterPermanentError("outbound suppressed: listen_only mode")
+
+        # Meshtastic hand-off is deferred: once work is admitted to the local
+        # queue, completion/failure is reported asynchronously.  Accepting
+        # that work without durable attempt provenance would create an
+        # uncorrelatable queue item that core can never finalize safely.
+        if result.attempt_provenance is None:
+            raise AdapterPermanentError(
+                "deferred Meshtastic delivery requires immutable "
+                "attempt_provenance"
+            )
+        if self.ctx is None or self.ctx.report_delivery_feedback is None:
+            raise AdapterPermanentError(
+                "deferred Meshtastic delivery requires an installed "
+                "report_delivery_feedback sink"
+            )
 
         payload = dict(result.payload)
         channel_index = payload.get("channel_index", self._config.default_channel)
@@ -1305,11 +1320,9 @@ class MeshtasticAdapter(AdapterContract):
         )
         if provenance is None:
             return
-        channel = result.item.get("channel_index")
         feedback = DeferredHandoffFailed(
             attempt_provenance=provenance,
             outcome=result.outcome,
-            native_channel_id=str(channel) if channel is not None else None,
             error=result.error,
         )
         try:
@@ -1339,11 +1352,9 @@ class MeshtasticAdapter(AdapterContract):
                 )
                 is not None
             ):
-                channel = cancelled_item.get("channel_index")
                 feedback = DeferredHandoffFailed(
                     attempt_provenance=provenance,
                     outcome="cancelled",
-                    native_channel_id=str(channel) if channel is not None else None,
                     error="queue drain task cancelled while item was in-flight",
                 )
                 try:
@@ -1377,13 +1388,9 @@ class MeshtasticAdapter(AdapterContract):
                     )
                     if provenance is None:
                         continue
-                    channel = item.get("channel_index")
                     feedback = DeferredHandoffFailed(
                         attempt_provenance=provenance,
                         outcome="abandoned",
-                        native_channel_id=(
-                            str(channel) if channel is not None else None
-                        ),
                         error="adapter shutdown with unsent queued items",
                     )
                     try:

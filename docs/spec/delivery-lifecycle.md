@@ -195,7 +195,10 @@ feedback is rejected. A queued receipt, when present, supplies immutable
 parent/retry/rendering linkage; it never overrides the feedback envelope's
 source or replay origin. If completion wins the pre-receipt race, the sent
 receipt links directly to the outbox's prior receipt authority and queue-only
-retry/rendering fields remain absent rather than being guessed.
+retry/rendering fields remain absent rather than being guessed. If terminal
+failure wins the same race, its new attempt/lifecycle evidence likewise links
+from the outbox's prior receipt authority when one exists; missing queue-only
+retry/rendering fields are not invented.
 
 Outbox-less/direct sends have no durable attempt envelope. They MAY complete
 transport work synchronously, but built-in adapters MUST NOT later emit durable
@@ -509,12 +512,12 @@ named replay run. Every immutable receipt already carrying the same
 `outbox_id`/generation must also agree with the envelope. That history is loaded
 by `outbox_id` before identity/source validation so malformed evidence cannot be
 hidden by the read used to verify it. A queued receipt supplies
-parent/render/retry linkage only. If a terminal callback wins the first
-attempt-receipt append race, the validated envelope remains sufficient lineage
-authority; MEDRE does not infer live/replay/retry origin from row state or
-receipt timing. A receipt-history read failure still fails closed. Callbacks
-that do not match the validated row — stale attempts, contradictory provenance,
-terminal or reclaimed rows — are rejected; replay isolation never overrides row
+parent/render/retry linkage only. If deferred feedback wins the first attempt-receipt append race, the validated
+envelope remains sufficient lineage authority; MEDRE does not infer
+live/replay/retry origin from row state or receipt timing. A receipt-history read
+failure still fails closed. Feedback that does not match the validated row —
+stale attempts, contradictory provenance, terminal or reclaimed rows — is
+rejected; replay isolation never overrides row
 validation. See [diagnostics-evidence.md](diagnostics-evidence.md) §15 for the
 full requirement set.
 

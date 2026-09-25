@@ -828,16 +828,17 @@ class TestLeaseRenewal:
 
 
 class TestTargetedOutboxLookupRegression:
-    """Verify that _record_outbound_native_ref uses a targeted outbox lookup
-    instead of scanning, so that the correct row transitions to ``sent`` even
-    when more than 10 unrelated queued/in_progress rows exist."""
+    """Verify unified deferred completion targets the exact outbox row.
+
+    The regression guards against bounded/scanning lookups selecting the wrong
+    queued generation when many unrelated rows exist.
+    """
 
     async def test_matching_outbox_transitions_sent_despite_many_noise_rows(
         self,
         outbox_temp_storage: SQLiteStorage,
     ) -> None:
-        """Create 15 noise outbox rows + 1 target row, then call
-        _record_outbound_native_ref and assert only the target transitions."""
+        """Create 15 noise rows plus one target; only the target may finalize."""
         import uuid
         from datetime import datetime, timezone
 
@@ -1321,7 +1322,7 @@ class TestRecordTerminalAttemptNumber:
         record = make_deferred_failure(
             event_id="evt-terminal-attempt",
             adapter="mesh-1",
-            native_channel_id="0",
+            provenance_channel="0",
             outcome="exhausted",
             error="retry budget exhausted",
             outbox_id="obox-attempt-3",

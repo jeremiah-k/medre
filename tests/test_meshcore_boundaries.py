@@ -593,8 +593,8 @@ class TestMeshCoreOutboundNativeRefs:
         assert delivery.native_message_id is not None
         assert delivery.native_channel_id == "0"
 
-    async def test_real_adapter_deliver_returns_none_when_scaffolded(self) -> None:
-        """Real MeshCoreAdapter.deliver() returns None (scaffolded)."""
+    async def test_real_adapter_fake_mode_returns_synthetic_handoff(self) -> None:
+        """Real adapter fake mode reports a synthetic successful hand-off fact."""
         config = MeshCoreConfig(adapter_id="meshcore-1")
         adapter = MeshCoreAdapter(config)
         result = RenderingResult(
@@ -604,8 +604,10 @@ class TestMeshCoreOutboundNativeRefs:
             payload={"text": "test", "channel_index": 0},
         )
         delivery = await adapter.deliver(result)
-        # Real adapter is scaffolded — returns None (no outbound native refs)
-        assert delivery is None
+        assert delivery.disposition == "transport_handoff"
+        assert delivery.native_message_id is None
+        assert delivery.confirmation_level == "unknown"
+        assert delivery.note == "fake MeshCore transport hand-off"
 
 
 # ===================================================================

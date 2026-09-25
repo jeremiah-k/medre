@@ -320,7 +320,13 @@ class TestQueuedDelivery:
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = await svc.deliver_to_target(
+            event,
+            route,
+            plan,
+            outbox_id="obox-deferred",
+            reserved_attempt_number=1,
+        )
 
         assert receipt.status == "queued"
         # No native ref for queued deliveries (no native_message_id).
@@ -337,7 +343,13 @@ class TestQueuedDelivery:
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = await svc.deliver_to_target(
+            event,
+            route,
+            plan,
+            outbox_id="obox-deferred",
+            reserved_attempt_number=1,
+        )
 
         assert receipt.status == "queued"
         assert receipt.adapter_message_id is None
@@ -383,7 +395,13 @@ class TestReceiptStatusPreservation:
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = await svc.deliver_to_target(
+            event,
+            route,
+            plan,
+            outbox_id="obox-deferred",
+            reserved_attempt_number=1,
+        )
 
         assert receipt.status == "queued"
 

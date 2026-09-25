@@ -703,13 +703,14 @@ class TestMeshCoreBLEValidation:
                 payload={"text": "BLE send gate test"},
                 metadata={"test": "ble-send-gate"},
             )
-            # In fake mode, deliver() returns None (no real transmit)
-            # regardless of MESHCORE_LIVE_SEND.
+            # Fake mode performs no real transmit but still returns the closed
+            # successful hand-off contract regardless of MESHCORE_LIVE_SEND.
             delivery = await bounded(
                 adapter.deliver(result), 5.0, "ble send gate deliver"
             )
-            # Fake mode returns None — no real transmission occurred.
-            assert delivery is None, "Fake-mode deliver should return None"
+            assert delivery.disposition == "transport_handoff"
+            assert delivery.native_message_id is None
+            assert delivery.confirmation_level == "unknown"
         finally:
             await bounded(adapter.stop(), 5.0, "ble send gate stop")
 

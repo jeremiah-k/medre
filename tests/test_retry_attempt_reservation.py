@@ -390,7 +390,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
             outbox_id=item.outbox_id,
             delivery_plan_id=_PLAN_ID,
             attempt_number=1,
-            native_channel_id="aa" * 16,
+            provenance_channel="aa" * 16,
         )
     )
     live = await temp_storage.get_outbox_item(item.outbox_id)
@@ -412,7 +412,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
             outbox_id=item.outbox_id,
             delivery_plan_id=_PLAN_ID,
             attempt_number=2,
-            native_channel_id="aa" * 16,
+            provenance_channel="aa" * 16,
             error="send rejected",
             source="retry",
         )
@@ -445,7 +445,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
             outbox_id=item.outbox_id,
             delivery_plan_id=_PLAN_ID,
             attempt_number=1,
-            native_channel_id="aa" * 16,
+            provenance_channel="aa" * 16,
         )
     )
     assert stale_committed is None

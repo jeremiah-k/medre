@@ -27,6 +27,7 @@ from medre.config.model import (
 from medre.config.paths import MedrePaths, resolve
 from medre.config.routes import RouteConfig, RouteConfigSet
 from medre.core.contracts.adapter import AdapterSendError
+from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.events.bus import EventBus
@@ -88,7 +89,7 @@ class _TransientFailAdapter:
     def __init__(self) -> None:
         self.received_events: list[object] = []
 
-    async def deliver(self, payload: object) -> None:
+    async def deliver(self, payload: object) -> AdapterHandoffResult:
         self.received_events.append(payload)
         raise AdapterSendError("transient boom", transient=True)
 
@@ -113,8 +114,9 @@ class _SuccessAdapter:
     def __init__(self) -> None:
         self.received_events: list[object] = []
 
-    async def deliver(self, payload: object) -> None:
+    async def deliver(self, payload: object) -> AdapterHandoffResult:
         self.received_events.append(payload)
+        return AdapterHandoffResult()
 
     async def start(self) -> None:
         pass

@@ -427,6 +427,11 @@ class AdapterContract(ABC):
         On success, adapters return an :class:`AdapterHandoffResult`. The
         ``disposition`` states whether transport hand-off completed during the
         call or remains deferred. Native IDs are optional transport facts.
+        An adapter that can return ``disposition="deferred"`` must reject the
+        call before local admission when ``result.attempt_provenance`` is
+        absent or when its :class:`AdapterContext` has no
+        ``report_delivery_feedback`` sink; deferred work without durable
+        attempt identity and a feedback path cannot be finalized safely.
 
         Parameters
         ----------

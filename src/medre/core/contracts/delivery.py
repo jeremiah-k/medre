@@ -43,6 +43,41 @@ DEFERRED_FAILURE_OUTCOME_VALUES: frozenset[str] = frozenset(
     get_args(DeferredFailureOutcome)
 )
 
+_DEFERRED_CONFIRMATION_LEVEL_VALUES: frozenset[str] = frozenset(
+    {"unknown", "local_queue"}
+)
+
+_RESERVED_METADATA_KEYS: frozenset[str] = frozenset(
+    {
+        # Closed hand-off / feedback vocabulary. Opaque provider metadata must
+        # never shadow the authoritative fields beside it; transport-specific
+        # facts belong under a namespaced key such as ``metadata["matrix"]``.
+        "kind",
+        "attempt_provenance",
+        "handoff",
+        "disposition",
+        "outcome",
+        "confirmation_level",
+        "native_message_id",
+        "native_channel_id",
+        "native_thread_id",
+        "native_relation_id",
+        "note",
+        "status",
+        "state",
+        "error",
+        # Provenance identity is authoritative in DeliveryAttemptProvenance.
+        "event_id",
+        "delivery_plan_id",
+        "target_adapter",
+        "target_channel",
+        "outbox_id",
+        "attempt_number",
+        "source",
+        "replay_run_id",
+    }
+)
+
 
 def _freeze_json_safe_metadata(
     metadata: Mapping[str, object],
@@ -51,7 +86,7 @@ def _freeze_json_safe_metadata(
 ) -> FrozenDict:
     """Validate and deeply freeze JSON-safe adapter metadata."""
 
-    def _to_builtins(value: object) -> object:
+    def _to_builtins(value: object, *, top_level: bool = False) -> object:
         if isinstance(value, MappingProxyType):
             value = dict(value)
         if isinstance(value, Mapping):
@@ -61,13 +96,17 @@ def _freeze_json_safe_metadata(
                     raise TypeError(
                         f"{owner}.metadata keys must be strings; got {type(key).__name__}"
                     )
+                if top_level and key in _RESERVED_METADATA_KEYS:
+                    raise ValueError(
+                        f"{owner}.metadata key {key!r} is reserved by the delivery contract"
+                    )
                 normalized_mapping[key] = _to_builtins(item)
             return normalized_mapping
         if isinstance(value, (list, tuple)):
             return [_to_builtins(item) for item in value]
         return value
 
-    normalized = _to_builtins(metadata)
+    normalized = _to_builtins(metadata, top_level=True)
     if not isinstance(normalized, dict):
         raise TypeError(f"{owner}.metadata must be a mapping")
     try:
@@ -136,11 +175,17 @@ class AdapterHandoffResult(msgspec.Struct, frozen=True, kw_only=True):
             _validate_optional_native_id(getattr(self, name), field_name=name)
         if not isinstance(self.note, str):
             raise TypeError("AdapterHandoffResult.note must be a string")
-        if self.disposition == "deferred" and self.native_message_id is not None:
-            raise ValueError(
-                "deferred hand-off cannot claim a native_message_id before "
-                "transport hand-off completes"
-            )
+        if self.disposition == "deferred":
+            if self.native_message_id is not None:
+                raise ValueError(
+                    "deferred hand-off cannot claim a native_message_id before "
+                    "transport hand-off completes"
+                )
+            if self.confirmation_level not in _DEFERRED_CONFIRMATION_LEVEL_VALUES:
+                raise ValueError(
+                    "deferred hand-off cannot claim confirmation beyond local "
+                    "queue admission"
+                )
         force_setattr(
             self,
             "metadata",
@@ -161,6 +206,15 @@ class DeferredHandoffCompleted(
     handoff: AdapterHandoffResult
 
     def __post_init__(self) -> None:
+        if not isinstance(self.attempt_provenance, DeliveryAttemptProvenance):
+            raise TypeError(
+                "DeferredHandoffCompleted.attempt_provenance must be "
+                "DeliveryAttemptProvenance"
+            )
+        if not isinstance(self.handoff, AdapterHandoffResult):
+            raise TypeError(
+                "DeferredHandoffCompleted.handoff must be AdapterHandoffResult"
+            )
         if self.handoff.disposition != "transport_handoff":
             raise ValueError(
                 "DeferredHandoffCompleted.handoff must use "
@@ -179,17 +233,18 @@ class DeferredHandoffFailed(
 
     attempt_provenance: DeliveryAttemptProvenance
     outcome: DeferredFailureOutcome
-    native_channel_id: str | None = None
     error: str | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.attempt_provenance, DeliveryAttemptProvenance):
+            raise TypeError(
+                "DeferredHandoffFailed.attempt_provenance must be "
+                "DeliveryAttemptProvenance"
+            )
         _validate_literal_string(
             self.outcome,
             allowed=DEFERRED_FAILURE_OUTCOME_VALUES,
             field_name="deferred failure outcome",
-        )
-        _validate_optional_native_id(
-            self.native_channel_id, field_name="native_channel_id"
         )
         if self.error is not None and not isinstance(self.error, str):
             raise TypeError("DeferredHandoffFailed.error must be a string or None")
@@ -213,6 +268,11 @@ class PostHandoffObservation(
     metadata: dict[str, object] = msgspec.field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.attempt_provenance, DeliveryAttemptProvenance):
+            raise TypeError(
+                "PostHandoffObservation.attempt_provenance must be "
+                "DeliveryAttemptProvenance"
+            )
         _validate_literal_string(
             self.state,
             allowed=DELIVERY_OBSERVATION_STATE_VALUES,

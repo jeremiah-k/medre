@@ -136,6 +136,45 @@ class TestTerminalOutboxStatusRejected:
 
 
 # ===================================================================
+# Queued state requires its immutable queued attempt evidence
+# ===================================================================
+
+
+class TestQueuedReceiptAuthorityRequired:
+    """A durably queued row without its queued receipt is an integrity fault."""
+
+    @pytest.mark.asyncio
+    async def test_queued_row_without_matching_receipt_is_rejected(
+        self,
+        temp_storage: SQLiteStorage,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        await _create_outbox_item(
+            temp_storage,
+            outbox_id="obox-queued-no-evidence",
+            event_id="evt-queued-no-evidence",
+            status="in_progress",
+        )
+        assert await temp_storage.mark_outbox_queued("obox-queued-no-evidence")
+
+        manager = _make_manager(temp_storage)
+        feedback = make_deferred_failure(
+            event_id="evt-queued-no-evidence",
+            adapter="mesh-1",
+            outbox_id="obox-queued-no-evidence",
+            outcome="exhausted",
+        )
+        with caplog.at_level(logging.WARNING):
+            await manager.record_deferred_failure(feedback)
+
+        row = await temp_storage.get_outbox_item("obox-queued-no-evidence")
+        assert row is not None
+        assert row.status == "queued"
+        assert await temp_storage.list_receipts_for_event("evt-queued-no-evidence") == []
+        assert "no matching immutable queued attempt evidence" in caplog.text
+
+
+# ===================================================================
 # 4. retry_wait status → reject
 # ===================================================================
 
@@ -325,7 +364,7 @@ class TestNativeChannelEvidence:
             ),
             event_id="evt-channel",
             adapter="mesh-1",
-            native_channel_id="3",
+            provenance_channel="3",
             outbox_id="obox-default-channel",
             outcome="exhausted",
             attempt_number=1,

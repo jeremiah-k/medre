@@ -634,8 +634,8 @@ class MatrixAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterHandoffResult | None
-            Native delivery metadata from the Matrix homeserver.
+        AdapterHandoffResult
+            Native hand-off metadata from the Matrix homeserver.
 
         Raises
         ------

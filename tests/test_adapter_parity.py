@@ -39,6 +39,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterSendError,
 )
+from medre.core.events import DeliveryAttemptProvenance
 from medre.core.rendering.renderer import RenderingResult
 
 # ---------------------------------------------------------------------------
@@ -52,6 +53,10 @@ async def _collect_inbound(event: Any) -> None:
     _COLLECTED.append(event)
 
 
+async def _ignore_feedback(_feedback: object) -> None:
+    return None
+
+
 def _make_ctx(adapter_id: str = "test_adapter") -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
@@ -59,6 +64,7 @@ def _make_ctx(adapter_id: str = "test_adapter") -> AdapterContext:
         logger=logging.getLogger(f"test.parity.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
+        report_delivery_feedback=_ignore_feedback,
     )
 
 
@@ -73,6 +79,32 @@ def _make_rendering_result(
         target_adapter=target_adapter,
         target_channel=target_channel,
         payload=payload or {"text": "hello"},
+    )
+
+def _make_deferred_rendering_result(
+    *,
+    adapter_id: str,
+    payload: dict[str, Any],
+    target_channel: str | None = "0",
+) -> RenderingResult:
+    provenance = DeliveryAttemptProvenance(
+        event_id="evt-deferred",
+        delivery_plan_id="plan-deferred",
+        target_adapter=adapter_id,
+        target_channel=target_channel,
+        outbox_id=f"obox-{adapter_id}",
+        attempt_number=1,
+        source="live",
+    )
+    return RenderingResult(
+        event_id=provenance.event_id,
+        target_adapter=provenance.target_adapter,
+        target_channel=provenance.target_channel,
+        payload=payload,
+        delivery_plan_id=provenance.delivery_plan_id,
+        outbox_id=provenance.outbox_id,
+        attempt_number=provenance.attempt_number,
+        attempt_provenance=provenance,
     )
 
 
@@ -472,7 +504,7 @@ class TestRealAdapterDeliverErrors:
         await adapter.start(_make_ctx("parity_mc2"))
 
         # Patch session to raise MeshCoreSendError on send_text
-        # For fake mode, deliver returns None — we need to test non-fake path.
+        # Fake mode reports only a synthetic hand-off; use a real-mode config to exercise send failures.
         # Use monkeypatch via object attribute to simulate send failure.
         adapter._config = MeshCoreConfig(adapter_id="parity_mc2", connection_type="tcp")
         # Mock a session that raises
@@ -546,7 +578,7 @@ class TestRealAdapterDeliverErrors:
             side_effect=MeshtasticSendError("radio busy")
         )
 
-        result = _make_rendering_result(payload={"text": "hello", "channel_index": 0})
+        result = _make_deferred_rendering_result(adapter_id="parity_mt2", payload={"text": "hello", "channel_index": 0})
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
@@ -564,7 +596,7 @@ class TestRealAdapterDeliverErrors:
             side_effect=ConnectionError("no radio")
         )
 
-        result = _make_rendering_result(payload={"text": "hello", "channel_index": 0})
+        result = _make_deferred_rendering_result(adapter_id="parity_mt3", payload={"text": "hello", "channel_index": 0})
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
@@ -701,7 +733,7 @@ class TestRealAdapterHandoffResultShape:
         # enqueue returns normally for queue-based delivery
         adapter._queue.enqueue = AsyncMock()  # type: ignore[assignment]
 
-        result = _make_rendering_result(payload={"text": "hi", "channel_index": 0})
+        result = _make_deferred_rendering_result(adapter_id="shape_mt", payload={"text": "hi", "channel_index": 0})
         dr = await adapter.deliver(result)
         assert dr is not None
         assert isinstance(dr.native_channel_id, str)

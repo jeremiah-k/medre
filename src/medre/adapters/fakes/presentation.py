@@ -193,7 +193,8 @@ class FakePresentationAdapter(AdapterContract):
         _trim(self.delivered_payloads)
         return AdapterHandoffResult(
             native_message_id=f"fake-pres-{result.event_id}",
-            native_channel_id=result.target_channel,
+            native_channel_id=result.target_channel or None,
+            confirmation_level="remote_service",
         )
 
     # -- Test helpers -------------------------------------------------------

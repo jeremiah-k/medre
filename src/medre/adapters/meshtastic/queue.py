@@ -104,7 +104,7 @@ class QueueDeliveryResult:
         The dequeued item dict with ``payload``, ``channel_index``, and
         optionally ``event_id`` keys.
     handoff:
-        The adapter delivery result populated with the native packet ID
+        The completed transport hand-off fact populated with the native packet ID
         and metadata.
     """
 
@@ -288,14 +288,15 @@ class MeshtasticOutboundQueue:
         delivery_plan_id:
             Optional delivery-plan identity and validation metadata.
             Propagated through the queue item in the immutable attempt provenance
-            and validated against the authoritative outbox row when present.  Not sufficient for queued callback correlation —
-            exact correlation uses outbox_id + attempt_number.
+            and validated against the authoritative outbox row when present. It is
+            not independent correlation authority; exact asynchronous lineage lives
+            in ``attempt_provenance``.
         outbox_id:
             Internal outbox item correlation key.  Propagated through
             the queue item into delayed delivery feedback for exact
             outbox-level correlation. When non-``None``,
             ``attempt_provenance`` is mandatory so durable work can never
-            enter the asynchronous queue without exact callback authority.
+            enter the asynchronous queue without exact feedback authority.
             **Not wire metadata.**
         attempt_number:
             Compatibility mirror of the delivery generation.

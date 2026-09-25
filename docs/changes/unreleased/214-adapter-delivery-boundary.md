@@ -28,6 +28,11 @@ synchronous result plus transport-specific callback records.
   now use the same boundary. A synthetic fifth-adapter conformance test proves
   immediate handoff, deferred completion/failure, and post-handoff observation
   without pipeline-specific platform code.
+- Native identifiers on hand-off facts are non-empty strings or `None`; absence is
+  never represented by an empty transport identifier. Fake adapters normalize
+  absent route channels to `None`, report confirmation levels no stronger than
+  the boundary they simulate, and the delivery-result JSON Schema enforces the
+  same native-ID and deferred-message invariants as the runtime contract.
 
 No persisted database schema version changes are required; the new types are
 process-local adapter/runtime contracts and reuse the existing receipt, outbox,

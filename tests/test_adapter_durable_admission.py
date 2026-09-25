@@ -24,6 +24,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -52,8 +53,8 @@ class _StubAdapter(AdapterContract):
             health="healthy",
         )
 
-    async def deliver(self, result: RenderingResult) -> object:
-        return None
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 def _make_context() -> AdapterContext:

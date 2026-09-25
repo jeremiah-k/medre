@@ -17,6 +17,7 @@ import pytest
 
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.core.contracts.delivery import DeferredHandoffCompleted
+from medre.core.rendering.renderer import RenderingResult
 from tests.helpers.delivery_callbacks import (
     make_attempt_provenance,
     make_deferred_completion,
@@ -135,7 +136,7 @@ class TestSupplementalReceiptChannelCorrelation:
             attempt_number=1,
             confirmation_level="local_transport",
         )
-        await runner._record_delivery_feedback(record=record_ch0, now=now)
+        await runner._record_delivery_feedback(record_ch0)
 
         # Callback for channel "1".
         record_ch1 = make_deferred_completion(
@@ -156,7 +157,7 @@ class TestSupplementalReceiptChannelCorrelation:
             attempt_number=1,
             confirmation_level="local_transport",
         )
-        await runner._record_delivery_feedback(record=record_ch1, now=now)
+        await runner._record_delivery_feedback(record_ch1)
 
         # Verify both supplemental receipts created.
         receipts = await temp_storage.list_receipts_for_event(event_id)
@@ -324,7 +325,7 @@ class TestSupplementalReceiptChannelCorrelation:
             outbox_id="obox-single",
             attempt_number=1,
         )
-        await runner._record_delivery_feedback(record=record, now=now)
+        await runner._record_delivery_feedback(record)
 
         receipts = await temp_storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"]
@@ -424,7 +425,7 @@ class TestSupplementalReceiptChannelCorrelation:
             outbox_id="obox-retry",
             attempt_number=2,
         )
-        await runner._record_delivery_feedback(record=record, now=now)
+        await runner._record_delivery_feedback(record)
 
         receipts = await temp_storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"]
@@ -501,7 +502,7 @@ class TestDeliveryPlanIdQueuePropagation:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.rendering.renderer import RenderingResult
+        from tests.helpers.delivery_callbacks import make_attempt_provenance
 
         config = MeshtasticConfig(
             adapter_id="test-dpid",
@@ -514,15 +515,27 @@ class TestDeliveryPlanIdQueuePropagation:
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
+            report_delivery_feedback=AsyncMock(),
         )
         await adapter.start(ctx)
         try:
-            result = RenderingResult(
+            provenance = make_attempt_provenance(
                 event_id="evt-dpid",
                 target_adapter="test-dpid",
                 target_channel="0",
-                payload={"text": "hello", "channel_index": 0},
+                outbox_id="outbox-dpid",
+                attempt_number=1,
                 delivery_plan_id="plan-via-adapter",
+            )
+            result = RenderingResult(
+                event_id=provenance.event_id,
+                target_adapter=provenance.target_adapter,
+                target_channel=provenance.target_channel,
+                payload={"text": "hello", "channel_index": 0},
+                delivery_plan_id=provenance.delivery_plan_id,
+                outbox_id=provenance.outbox_id,
+                attempt_number=provenance.attempt_number,
+                attempt_provenance=provenance,
             )
             await adapter.deliver(result)
 

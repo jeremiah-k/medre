@@ -431,8 +431,15 @@ Every successful `deliver(RenderingResult)` returns a frozen
 `confirmation_level` records the strength of the fact (`unknown`,
 `local_queue`, `local_transport`, `remote_service`, `end_to_end`) independently
 of durable lifecycle status. Native IDs are optional real transport facts and
-MUST NOT be fabricated. A deferred result cannot contain a native message ID.
-Metadata is recursively immutable and JSON-safe.
+MUST NOT be fabricated. A deferred result cannot contain a native message ID
+and its confirmation level MUST be `unknown` or `local_queue`;
+`local_transport`, `remote_service`, and `end_to_end` imply that the hand-off
+boundary has already been crossed. Metadata is recursively immutable and JSON-safe. Top-level metadata keys
+closed hand-off, feedback, and attempt-provenance field names are reserved by
+the delivery contract and MUST NOT be repeated as opaque adapter metadata.
+Transport-specific data SHOULD be namespaced (for example `metadata["matrix"]`)
+rather than shadowing `native_*`, `state`, `outbox_id`, or related authority
+fields.
 
 ### 9.2 Asynchronous feedback
 
@@ -755,15 +762,22 @@ admission and carries it as opaque caller-owned context. When the transport
 worker progresses, the adapter sends exactly one of the closed `DeliveryFeedback`
 variants through `AdapterContext.report_delivery_feedback`.
 
+Deferred admission requires durable attempt provenance. If
+`RenderingResult.attempt_provenance` is absent, a deferred adapter MUST reject
+the call before queue/session admission. The adapter likewise MUST reject when
+`AdapterContext.report_delivery_feedback` is unavailable. It MUST NOT accept
+uncorrelatable or unreportable work and then suppress feedback. Outbox-less
+direct delivery is therefore limited to an immediate `transport_handoff`
+result.
+
 `DeferredHandoffCompleted` may contain a real native reference and finalizes the
 queued attempt. `DeferredHandoffFailed` terminates the queued attempt before
 transport hand-off. `PostHandoffObservation` records later transport evidence
 without mutating receipts or reopening outbox state. Route `target_channel` and
 transport-resolved `native_channel_id` are separate namespaces.
 
-Outbox-less direct sends have no durable attempt envelope and therefore MUST NOT
-fabricate asynchronous durable feedback. Core contains persistence failures so a
-stale/contradictory callback cannot crash an adapter worker.
+Core contains persistence failures so a stale/contradictory callback cannot
+crash an adapter worker.
 
 ### 17.3 Callback isolation
 
@@ -932,7 +946,7 @@ Every fake adapter **MUST**:
 1. Satisfy the full `AdapterContract` protocol: `start()`, `stop()`, `deliver()`, `health_check()`.
 2. Enforce the rendering boundary: `deliver()` accepts `RenderingResult` only, not `CanonicalEvent`.
 3. Report deterministic health transitions: `"unknown"` on construction, `"healthy"` after `start()`, `"unknown"` after `stop()`.
-4. Return deterministic `AdapterHandoffResult` values using the same closed dispositions as the real adapter.
+4. Return deterministic `AdapterHandoffResult` values using the same closed disposition vocabulary as real adapters and a confirmation level no stronger than the boundary the fake actually simulates. A lifecycle-fidelity fake **SHOULD** preserve the real adapter's immediate/deferred timing; a simpler deterministic fake **MAY** collapse internal queueing into an immediate transport hand-off when asynchronous timing is not the behavior under test.
 5. Exercise the codec/classifier pipeline with fixture data matching the real native format.
 6. Never import the real SDK.
 7. Support the same `supported_event_kinds` as the real adapter.

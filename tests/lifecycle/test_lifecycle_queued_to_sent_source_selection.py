@@ -500,7 +500,7 @@ class TestReplayQueuedTerminalCorrelation:
                 outbox_id="obox-replay-fail",
                 delivery_plan_id="plan-shared",
                 attempt_number=1,
-                native_channel_id="0",
+                provenance_channel="0",
                 error="permanent RF encode failure",
                 source="replay",
                 replay_run_id="run-9",

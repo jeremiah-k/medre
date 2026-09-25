@@ -58,6 +58,41 @@ def test_deferred_handoff_cannot_claim_native_message_id() -> None:
         )
 
 
+def test_deferred_handoff_cannot_claim_transport_confirmation() -> None:
+    with pytest.raises(ValueError, match="cannot claim confirmation beyond local queue"):
+        AdapterHandoffResult(
+            disposition="deferred",
+            confirmation_level="local_transport",
+        )
+
+
+def test_feedback_requires_real_attempt_provenance() -> None:
+    handoff = AdapterHandoffResult()
+    with pytest.raises(TypeError, match="DeferredHandoffCompleted.attempt_provenance"):
+        DeferredHandoffCompleted(
+            attempt_provenance="not-provenance",  # type: ignore[arg-type]
+            handoff=handoff,
+        )
+    with pytest.raises(TypeError, match="DeferredHandoffFailed.attempt_provenance"):
+        DeferredHandoffFailed(
+            attempt_provenance="not-provenance",  # type: ignore[arg-type]
+            outcome="cancelled",
+        )
+    with pytest.raises(TypeError, match="PostHandoffObservation.attempt_provenance"):
+        PostHandoffObservation(
+            attempt_provenance="not-provenance",  # type: ignore[arg-type]
+            state="delivered",
+        )
+
+
+def test_deferred_completion_requires_real_handoff_result() -> None:
+    with pytest.raises(TypeError, match="handoff must be AdapterHandoffResult"):
+        DeferredHandoffCompleted(
+            attempt_provenance=_provenance(),
+            handoff="not-a-handoff",  # type: ignore[arg-type]
+        )
+
+
 def test_handoff_metadata_is_deeply_immutable() -> None:
     handoff = AdapterHandoffResult(
         metadata={"provider": {"ids": ["one", "two"]}},
@@ -70,6 +105,11 @@ def test_handoff_metadata_is_deeply_immutable() -> None:
     with pytest.raises(TypeError):
         provider["state"] = "changed"
     assert provider["ids"] == ("one", "two")
+
+
+def test_handoff_metadata_rejects_reserved_top_level_keys() -> None:
+    with pytest.raises(ValueError, match="reserved by the delivery contract"):
+        AdapterHandoffResult(metadata={"status": "sent"})
 
 
 def test_handoff_metadata_rejects_non_string_keys() -> None:

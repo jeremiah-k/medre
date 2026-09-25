@@ -457,7 +457,7 @@ class TestMeshtasticToMatrix:
             native_id = f"$fake_{event.event_id}"
             resolved = await app.storage.resolve_native_ref(
                 "fake_matrix",
-                "",
+                None,
                 native_id,
             )
             assert resolved is not None

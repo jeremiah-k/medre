@@ -50,6 +50,7 @@ def _make_context(adapter_id: str = "test") -> AdapterContext:
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
+        report_delivery_feedback=_async_noop,
     )
 
 
@@ -63,6 +64,26 @@ def _make_rendering_result() -> RenderingResult:
         target_adapter="test",
         target_channel="ch-0",
         payload={"body": "hello"},
+    )
+
+
+def _make_deferred_rendering_result() -> RenderingResult:
+    provenance = make_attempt_provenance(
+        event_id="evt-001",
+        target_adapter="test",
+        target_channel="ch-0",
+        outbox_id="outbox-adapter-boundary",
+        attempt_number=1,
+    )
+    return RenderingResult(
+        event_id=provenance.event_id,
+        target_adapter=provenance.target_adapter,
+        target_channel=provenance.target_channel,
+        payload={"body": "hello"},
+        delivery_plan_id=provenance.delivery_plan_id,
+        outbox_id=provenance.outbox_id,
+        attempt_number=provenance.attempt_number,
+        attempt_provenance=provenance,
     )
 
 
@@ -623,7 +644,7 @@ class TestPerAdapterErrorClassification:
         mock_session.send_text = AsyncMock(side_effect=TimeoutError("timed out"))
         adapter._session = mock_session
 
-        result = _make_rendering_result()
+        result = _make_deferred_rendering_result()
         result.payload["channel_index"] = 0
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
@@ -638,12 +659,13 @@ class TestPerAdapterErrorClassification:
         config = MeshtasticConfig(adapter_id="test")
         adapter = MeshtasticAdapter(config)
         adapter._started = True
+        adapter.ctx = _make_context("test")
 
         # Mock the queue to raise TimeoutError
         adapter._queue = MagicMock()
         adapter._queue.enqueue = AsyncMock(side_effect=TimeoutError("timed out"))
 
-        result = _make_rendering_result()
+        result = _make_deferred_rendering_result()
         result.payload["channel_index"] = 0
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
@@ -721,13 +743,14 @@ class TestPerAdapterErrorClassification:
         config = MeshtasticConfig(adapter_id="test")
         adapter = MeshtasticAdapter(config)
         adapter._started = True
+        adapter.ctx = _make_context("test")
 
         adapter._queue = MagicMock()
         adapter._queue.enqueue = AsyncMock(
             side_effect=MeshtasticSendError("send failed")
         )
 
-        result = _make_rendering_result()
+        result = _make_deferred_rendering_result()
         result.payload["channel_index"] = 0
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
@@ -765,7 +788,7 @@ class TestPerAdapterErrorClassification:
         mock_session.send_text = AsyncMock(side_effect=MeshCoreSendError("send failed"))
         adapter._session = mock_session
 
-        result = _make_rendering_result()
+        result = _make_deferred_rendering_result()
         result.payload["channel_index"] = 0
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)

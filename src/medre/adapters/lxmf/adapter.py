@@ -793,12 +793,12 @@ class LxmfAdapter(AdapterContract):
         state: str,
         delivery_context: object | None,
     ) -> None:
-        """Report terminal LXMF delivery state as append-only evidence.
+        """Report an LXMF provider delivery state as append-only evidence.
 
         The session passes through an opaque correlation object captured at
-        send initiation, so terminal callbacks are tied to the exact durable
+        send initiation, so SDK state updates are tied to the exact durable
         attempt without a post-send lookup race.  Core remains lifecycle
-        authority: this callback never rewrites a receipt or outbox row.
+        authority: this provider observation never rewrites a receipt or outbox row.
         """
         if not self._started:
             return

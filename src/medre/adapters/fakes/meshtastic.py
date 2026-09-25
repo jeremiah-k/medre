@@ -395,6 +395,7 @@ class FakeMeshtasticAdapter(AdapterContract):
         return AdapterHandoffResult(
             native_message_id=str(packet_id),
             native_channel_id=str(channel_index),
+            confirmation_level="local_transport",
             metadata=result_metadata,
         )
 

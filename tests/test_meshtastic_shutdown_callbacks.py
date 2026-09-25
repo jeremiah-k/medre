@@ -653,7 +653,6 @@ class TestReportCancelledAndDrainPaths:
         assert cancelled_rec.outcome == "cancelled"
         assert cancelled_rec.attempt_provenance.event_id == "evt-cancelled-1"
         assert cancelled_rec.attempt_provenance.attempt_number == 2
-        assert cancelled_rec.native_channel_id == "1"
 
     async def test_cancelled_item_callback_exception_logged(self) -> None:
         """When the cancelled-item callback raises, the exception is
@@ -744,8 +743,6 @@ class TestReportCancelledAndDrainPaths:
         abandoned = [r for r in records if r.outcome == "abandoned"]
         assert abandoned[0].attempt_provenance.attempt_number == 1
         assert abandoned[1].attempt_provenance.attempt_number == 3
-        assert abandoned[0].native_channel_id == "2"
-        assert abandoned[1].native_channel_id == "3"
 
     async def test_abandoned_callback_exception_logged(self) -> None:
         """When the abandoned-item callback raises for a remaining item,

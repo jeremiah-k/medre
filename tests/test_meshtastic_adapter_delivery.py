@@ -28,14 +28,15 @@ from tests.helpers.meshtastic import (
 
 
 class TestMeshtasticAdapterSendSemantics:
-    """Audit: deliver() enqueues/returns None; send semantics documented."""
+    """Audit the deferred hand-off result and queue send semantics."""
 
-    async def test_deliver_return_none_documented(self) -> None:
+    async def test_deliver_reports_deferred_handoff(self, make_adapter_context) -> None:
         """Real adapter deliver() returns AdapterHandoffResult with
         note='locally enqueued', disposition='deferred',
         and native_message_id=None."""
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context(config.adapter_id)
         result = make_meshtastic_rendering_result()
         delivery = await adapter.deliver(result)
         # Queue-based: returns result with no native_message_id
@@ -1094,10 +1095,11 @@ class TestPacketSnapshotDecodedSubobject:
 class TestAdapterDeliverPassthrough:
     """Adapter deliver path preserves structured fields through send_one."""
 
-    async def test_reply_id_passthrough_deliver(self) -> None:
+    async def test_reply_id_passthrough_deliver(self, make_adapter_context) -> None:
         """deliver -> send_one passes reply_id."""
         config = make_meshtastic_config()
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context(config.adapter_id)
 
         # Wire a fake session that captures send calls
         send_calls: list[dict[str, Any]] = []
@@ -1118,12 +1120,9 @@ class TestAdapterDeliverPassthrough:
         adapter._started = True
 
         await adapter.deliver(
-            RenderingResult(
+            make_meshtastic_rendering_result(
                 event_id="evt-1",
-                target_adapter="mesh-1",
-                target_channel="0",
                 payload={"text": "hi", "channel_index": 0, "reply_id": 99},
-                metadata={},
             )
         )
         result = await adapter.send_one()
@@ -1131,10 +1130,11 @@ class TestAdapterDeliverPassthrough:
         assert len(send_calls) == 1
         assert send_calls[0].get("reply_id") == 99
 
-    async def test_emoji_passthrough_deliver(self) -> None:
+    async def test_emoji_passthrough_deliver(self, make_adapter_context) -> None:
         """deliver -> send_one passes emoji."""
         config = make_meshtastic_config()
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context(config.adapter_id)
 
         send_calls: list[dict[str, Any]] = []
 
@@ -1154,12 +1154,14 @@ class TestAdapterDeliverPassthrough:
         adapter._started = True
 
         await adapter.deliver(
-            RenderingResult(
+            make_meshtastic_rendering_result(
                 event_id="evt-2",
-                target_adapter="mesh-1",
-                target_channel="0",
-                payload={"text": "🔥", "channel_index": 0, "reply_id": 10, "emoji": 1},
-                metadata={},
+                payload={
+                    "text": "🔥",
+                    "channel_index": 0,
+                    "reply_id": 10,
+                    "emoji": 1,
+                },
             )
         )
         result = await adapter.send_one()
@@ -1179,12 +1181,13 @@ class TestDeliverInitialMetadataEvidence:
     metadata with channel_index, and no native_message_id (queue-based delay)."""
 
     async def test_deliver_with_relation_fields_has_meshtastic_channel_index(
-        self,
+        self, make_adapter_context
     ) -> None:
         """Payload with reply_id and emoji still returns disposition=deferred
         with meshtastic.channel_index in metadata and native_message_id=None."""
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context(config.adapter_id)
         result = make_meshtastic_rendering_result(
             payload={
                 "text": "reaction",

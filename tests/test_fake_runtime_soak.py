@@ -244,11 +244,11 @@ class TestFullFakeRuntimeHappyPath:
             # -- NativeMessageRef persisted (adapter returns native ID) --
             # FakeMatrixAdapter returns $fake_<event_id> as native_message_id.
             # Resolve via the native ref mapping. When no target_channel is
-            # specified in the route, the adapter stores native_channel_id="".
+            # specified in the route, the adapter stores native_channel_id=None.
             native_id = f"$fake_{event.event_id}"
             resolved = await app.storage.resolve_native_ref(
                 "mx_beta",
-                "",
+                None,
                 native_id,
             )
             assert resolved is not None

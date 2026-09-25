@@ -329,6 +329,7 @@ class FakeLxmfAdapter(AdapterContract):
         return AdapterHandoffResult(
             native_message_id=message_id,
             native_channel_id=None,
+            confirmation_level="local_queue",
             metadata={
                 "lxmf": {
                     "schema_version": LXMF_NATIVE_SCHEMA_VERSION,

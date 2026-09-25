@@ -428,6 +428,24 @@ class TestAdapterLookupFailure:
 class TestAdapterDeliveryException:
     """Verify adapter.deliver() exceptions produce correct receipts."""
 
+    async def test_outboxless_deferred_handoff_fails_closed(self) -> None:
+        """Deferred success without durable attempt authority is a contract error."""
+        adapter = _FakeAdapter(result=AdapterHandoffResult(disposition="deferred"))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_AdapterDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        assert "deferred hand-off requires durable attempt provenance" in err.error
+        assert err.receipt is not None
+        assert err.receipt.status == "failed"
+        assert err.receipt.failure_kind == DeliveryFailureKind.ADAPTER_PERMANENT.value
+        assert err.receipt.outbox_id is None
+        assert storage.native_refs == []
+
     async def test_adapter_raises_runtime_error(self) -> None:
         """Adapter RuntimeError → _AdapterDeliveryError with failed receipt."""
         adapter = _FakeAdapter(error=RuntimeError("transport down"))

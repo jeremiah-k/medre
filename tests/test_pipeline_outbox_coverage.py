@@ -324,7 +324,7 @@ class TestUnknownTerminalOutcome:
             outbox_id="obox-unknown-001",
             delivery_plan_id="plan-1",
             attempt_number=1,
-            native_channel_id="ch-1",
+            provenance_channel="ch-1",
         )
         # Override outcome to an unknown value via object.__setattr__
         # since the dataclass is frozen.
@@ -381,7 +381,7 @@ class TestAttemptNumberAuthority:
             outbox_id="obox-attempt-existing",
             delivery_plan_id="plan-1",
             attempt_number=7,
-            native_channel_id="ch-1",
+            provenance_channel="ch-1",
         )
         await manager.record_deferred_failure(record)
 
@@ -444,7 +444,7 @@ class TestCancelledAndAbandonedTransitions:
             outbox_id="obox-cancelled-001",
             delivery_plan_id="plan-1",
             attempt_number=1,
-            native_channel_id="ch-1",
+            provenance_channel="ch-1",
         )
         await manager.record_deferred_failure(record)
 
@@ -495,7 +495,7 @@ class TestCancelledAndAbandonedTransitions:
             outbox_id="obox-abandoned-001",
             delivery_plan_id="plan-1",
             attempt_number=1,
-            native_channel_id="ch-1",
+            provenance_channel="ch-1",
         )
         await manager.record_deferred_failure(record)
 

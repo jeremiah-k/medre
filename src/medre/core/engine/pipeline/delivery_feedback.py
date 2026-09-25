@@ -78,12 +78,6 @@ class DeliveryFeedbackDispatcher:
                 feedback,
                 datetime.now(tz=timezone.utc),
             )
-            if (
-                committed
-                and feedback.handoff.native_message_id is not None
-                and self._native_ref_persisted_fn is not None
-            ):
-                await self._native_ref_persisted_fn(provenance.event_id)
         except Exception:
             self._log.exception(
                 "Failed to finalize deferred adapter hand-off: "
@@ -93,6 +87,24 @@ class DeliveryFeedbackDispatcher:
                 provenance.outbox_id,
                 provenance.attempt_number,
             )
+            return
+
+        if (
+            committed
+            and feedback.handoff.native_message_id is not None
+            and self._native_ref_persisted_fn is not None
+        ):
+            try:
+                await self._native_ref_persisted_fn(provenance.event_id)
+            except Exception:
+                # The hand-off, receipt, outbox transition, and native ref are
+                # already committed. Derived projection repair is recoverable
+                # and must not be reported as a failed delivery finalization.
+                self._log.exception(
+                    "Conversation projection repair failed after deferred "
+                    "native-ref persistence: event_id=%s",
+                    provenance.event_id,
+                )
 
     async def _record_observation(self, feedback: PostHandoffObservation) -> None:
         provenance = feedback.attempt_provenance

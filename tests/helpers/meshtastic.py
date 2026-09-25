@@ -7,6 +7,7 @@ and raw text packet dicts used across meshtastic test modules.
 from __future__ import annotations
 
 from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.core.events import DeliveryAttemptProvenance
 from medre.core.rendering.renderer import RenderingResult
 
 
@@ -22,8 +23,30 @@ def make_meshtastic_rendering_result(
     target_adapter: str = "mesh-1",
     target_channel: str = "0",
     payload: dict | None = None,
+    *,
+    outbox_id: str | None = "outbox-test",
+    attempt_number: int = 1,
 ) -> RenderingResult:
-    """Build a RenderingResult suitable for Meshtastic adapter delivery."""
+    """Build a durable-attempt RenderingResult for Meshtastic delivery.
+
+    Meshtastic is a deferred adapter, so production delivery always carries
+    immutable attempt provenance before local queue admission.  Pass
+    ``outbox_id=None`` only when a test intentionally exercises rejection of
+    outbox-less deferred work.
+    """
+    provenance = (
+        DeliveryAttemptProvenance(
+            event_id=event_id,
+            delivery_plan_id="plan-test",
+            target_adapter=target_adapter,
+            target_channel=target_channel,
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+            source="live",
+        )
+        if outbox_id is not None
+        else None
+    )
     return RenderingResult(
         event_id=event_id,
         target_adapter=target_adapter,
@@ -33,6 +56,10 @@ def make_meshtastic_rendering_result(
             if payload is not None
             else {"text": "hello mesh", "channel_index": 0}
         ),
+        delivery_plan_id=(provenance.delivery_plan_id if provenance else None),
+        outbox_id=outbox_id,
+        attempt_number=(attempt_number if provenance else None),
+        attempt_provenance=provenance,
     )
 
 

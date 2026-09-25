@@ -94,8 +94,8 @@ class _FailingAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 @pytest.fixture(autouse=True)

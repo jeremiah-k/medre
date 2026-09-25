@@ -598,3 +598,62 @@ async def test_runner_record_post_handoff_observation_forfeits_after_retry(
         "Failed to persist post-handoff observation" in record.message
         for record in caplog.records
     )
+
+async def test_deferred_completion_repair_failure_does_not_reclassify_commit(
+    temp_storage, caplog
+) -> None:
+    """Post-commit projection repair failure is logged separately from finalization."""
+    import logging
+
+    from medre.core.contracts.delivery import (
+        AdapterHandoffResult,
+        DeferredHandoffCompleted,
+    )
+    from medre.core.engine.pipeline.delivery_feedback import DeliveryFeedbackDispatcher
+    from tests.helpers.delivery_callbacks import make_attempt_provenance
+
+    class _CommittedLifecycle:
+        calls = 0
+
+        async def finalize_deferred_handoff(self, storage, feedback, now) -> bool:
+            del storage, feedback, now
+            self.calls += 1
+            return True
+
+    async def _repair(_event_id: str) -> None:
+        raise RuntimeError("projection repair failed")
+
+    lifecycle = _CommittedLifecycle()
+    dispatcher = DeliveryFeedbackDispatcher(
+        storage=temp_storage,
+        lifecycle=lifecycle,  # type: ignore[arg-type]
+        outbox_manager=object(),  # type: ignore[arg-type]
+        native_ref_persisted_fn=_repair,
+        logger=logging.getLogger("test.delivery_feedback"),
+    )
+    feedback = DeferredHandoffCompleted(
+        attempt_provenance=make_attempt_provenance(
+            event_id="evt-repair",
+            target_adapter="mesh",
+            outbox_id="obox-repair",
+            attempt_number=1,
+            target_channel="0",
+        ),
+        handoff=AdapterHandoffResult(
+            native_message_id="native-1",
+            native_channel_id="0",
+            confirmation_level="local_transport",
+        ),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="test.delivery_feedback"):
+        await dispatcher.record(feedback)
+
+    assert lifecycle.calls == 1
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "Conversation projection repair failed after deferred native-ref persistence"
+        in message
+        for message in messages
+    )
+    assert not any("Failed to finalize deferred adapter hand-off" in message for message in messages)

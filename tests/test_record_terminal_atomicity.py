@@ -102,11 +102,40 @@ def _terminal_record(
         outbox_id=outbox_id,
         delivery_plan_id=delivery_plan_id,
         attempt_number=attempt_number,
-        native_channel_id="0",
+        provenance_channel="0",
         outcome=outcome,
         error="budget exhausted",
         source=source,  # type: ignore[arg-type]
         replay_run_id=replay_run_id,
+    )
+
+
+async def _append_basic_queued_receipt(
+    storage: SQLiteStorage,
+    *,
+    outbox_id: str,
+    event_id: str,
+    delivery_plan_id: str,
+    attempt_number: int = 1,
+    source: str = "live",
+    replay_run_id: str | None = None,
+) -> None:
+    """Persist the immutable queued evidence production writes before status=queued."""
+    await append_receipt_with_parent(
+        storage,
+        build_delivery_receipt(
+            receipt_id=f"rcpt-queued-{outbox_id}",
+            event_id=event_id,
+            delivery_plan_id=delivery_plan_id,
+            target_adapter="mesh-1",
+            target_channel="0",
+            route_id="route-1",
+            status="queued",
+            source=source,  # type: ignore[arg-type]
+            replay_run_id=replay_run_id,
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+        ),
     )
 
 
@@ -354,16 +383,15 @@ async def test_retry_source_survives_queued_receipt_race(
         1,
     )
     assert reserved == 2
-    assert await temp_storage.mark_outbox_queued(
-        item.outbox_id,
-        attempt_number=2,
-        expected_worker_id="retry-worker",
-    )
-    queued = await temp_storage.get_outbox_item(item.outbox_id)
-    assert queued is not None
-    assert queued.active_attempt is None
-    assert queued.attempt_number == 2
-    assert queued.dispatch_source == "retry"
+    # Feedback can legitimately win before the queued receipt/status commit.
+    # The reserved active attempt is the durable generation authority in that
+    # window; do not manufacture a queued row without its queued evidence.
+    in_flight = await temp_storage.get_outbox_item(item.outbox_id)
+    assert in_flight is not None
+    assert in_flight.status == "in_progress"
+    assert in_flight.active_attempt == 2
+    assert in_flight.attempt_number == 1
+    assert in_flight.dispatch_source == "retry"
 
     manager = _make_manager(temp_storage)
     await manager.record_deferred_failure(
@@ -388,6 +416,13 @@ async def test_cancelled_from_queued_outbox(
 ) -> None:
     """Cancellation is lifecycle-only and does not invent a failed attempt."""
     await _create_outbox(
+        temp_storage,
+        outbox_id="obox-q-cancel",
+        event_id="evt-q-cancel",
+        delivery_plan_id="plan-q-cancel",
+    )
+
+    await _append_basic_queued_receipt(
         temp_storage,
         outbox_id="obox-q-cancel",
         event_id="evt-q-cancel",
@@ -422,6 +457,13 @@ async def test_abandoned_from_queued_outbox(
 ) -> None:
     """Abandonment is lifecycle-only and does not invent a failed attempt."""
     await _create_outbox(
+        temp_storage,
+        outbox_id="obox-q-abandon",
+        event_id="evt-q-abandon",
+        delivery_plan_id="plan-q-abandon",
+    )
+
+    await _append_basic_queued_receipt(
         temp_storage,
         outbox_id="obox-q-abandon",
         event_id="evt-q-abandon",
@@ -630,6 +672,13 @@ async def test_manager_write_failure_leaves_no_partial_state(
         delivery_plan_id="plan-wf",
     )
 
+    await _append_basic_queued_receipt(
+        temp_storage,
+        outbox_id="obox-wf",
+        event_id="evt-wf",
+        delivery_plan_id="plan-wf",
+    )
+
     manager = _make_manager(temp_storage)
     with caplog.at_level(logging.ERROR):
         await manager.record_deferred_failure(
@@ -644,8 +693,8 @@ async def test_manager_write_failure_leaves_no_partial_state(
     outbox = await temp_storage.get_outbox_item("obox-wf")
     assert outbox is not None
     assert outbox.status == "queued"
-    assert outbox.receipt_id is None
-    assert await temp_storage.list_receipts_for_event("evt-wf") == []
+    receipts = await temp_storage.list_receipts_for_event("evt-wf")
+    assert [receipt.status for receipt in receipts] == ["queued"]
 
 
 # ===================================================================
@@ -659,6 +708,13 @@ async def test_duplicate_exhausted_notifications_commit_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     await _create_outbox(
+        temp_storage,
+        outbox_id="obox-dup",
+        event_id="evt-dup",
+        delivery_plan_id="plan-dup",
+    )
+
+    await _append_basic_queued_receipt(
         temp_storage,
         outbox_id="obox-dup",
         event_id="evt-dup",

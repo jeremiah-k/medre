@@ -1265,11 +1265,9 @@ class TestDeliveryStateMetadataNamespacing:
         await adapter.stop()
 
     async def test_lxmf_metadata_inner_is_frozen(self) -> None:
-        """Inner lxmf metadata dict is frozen (MappingProxyType) for
-        consistency with MeshCore metadata."""
+        """LXMF metadata is deeply immutable at the shared hand-off boundary."""
         import logging
         from datetime import datetime, timezone
-        from types import MappingProxyType
         from unittest.mock import AsyncMock
 
         from medre.adapters.lxmf.adapter import LxmfAdapter
@@ -1301,7 +1299,10 @@ class TestDeliveryStateMetadataNamespacing:
         delivery = await adapter.deliver(result)
         assert delivery is not None
         inner = delivery.metadata["lxmf"]
-        assert isinstance(inner, MappingProxyType)
+        assert isinstance(inner, dict)
+        assert dict(inner)["delivery_state"] == "outbound"
+        with pytest.raises(TypeError):
+            inner["delivery_state"] = "changed"  # type: ignore[index]
 
         await adapter.stop()
 

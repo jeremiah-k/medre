@@ -864,6 +864,14 @@ class TargetDeliveryService:
                     "deliver() must return AdapterHandoffResult on success"
                 )
             adapter_result = raw_result
+            if (
+                adapter_result.disposition == "deferred"
+                and rendering_result.attempt_provenance is None
+            ):
+                raise AdapterPermanentError(
+                    f"adapter {adapter_id!r} violated the delivery contract: "
+                    "deferred hand-off requires durable attempt provenance"
+                )
             status: Literal["sent", "failed", "queued"] = (
                 "queued" if adapter_result.disposition == "deferred" else "sent"
             )
@@ -893,7 +901,7 @@ class TargetDeliveryService:
 
         # Normalize the execution result into immutable evidence. Failures
         # persist an attempt receipt and, when terminal, a linked lifecycle
-        # receipt at the *same* attempt number. Successful/enqueued execution
+        # receipt at the *same* attempt number. Successful immediate/deferred hand-off
         # produces attempt evidence only.
         _classified_failure_kind: DeliveryFailureKind | None = None
         if status == "failed" and delivery_exc is not None:
@@ -944,7 +952,7 @@ class TargetDeliveryService:
                 evidence=evidence,
             ) from None
 
-        # Successful/enqueued delivery remains dispatch-attempt evidence.
+        # Successful immediate/deferred hand-off remains dispatch-attempt evidence.
         assert adapter_result is not None
         _adapter_message_id = (
             adapter_result.native_message_id if status == "sent" else None

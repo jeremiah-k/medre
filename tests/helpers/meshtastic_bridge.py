@@ -37,4 +37,5 @@ def make_adapter_context(adapter_id: str, runner: PipelineRunner) -> AdapterCont
         logger=logging.getLogger(f"test.bridge.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
+        report_delivery_feedback=runner._record_delivery_feedback,
     )

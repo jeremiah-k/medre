@@ -364,6 +364,7 @@ class FakeMeshCoreAdapter(AdapterContract):
         return AdapterHandoffResult(
             native_message_id=str(packet_id),
             native_channel_id=str(channel_index),
+            confirmation_level="local_transport",
             note="fake adapter — simulated local acceptance",
             metadata={
                 "meshcore": {

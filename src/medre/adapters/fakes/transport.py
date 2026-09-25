@@ -189,7 +189,8 @@ class FakeTransportAdapter(AdapterContract):
         _trim(self.delivered_payloads)
         return AdapterHandoffResult(
             native_message_id=f"fake-transport-{result.event_id}",
-            native_channel_id=result.target_channel,
+            native_channel_id=result.target_channel or None,
+            confirmation_level="local_transport",
         )
 
     # -- Test helpers -------------------------------------------------------

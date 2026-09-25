@@ -1594,26 +1594,26 @@ This section documents the survivability and visibility characteristics of trans
 
 ### 24.2 Native-Ref Characteristics by Transport
 
-| Transport      | Native ref                                           | When available                                                                                                               | Persistence dependency                                                                                                            |
-| -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Matrix         | Homeserver-assigned `event_id` (e.g. `$xxx:server`)  | Returned in the nio send response, near-synchronous with the API call                                                        | Persisted to `native_message_refs` storage on receipt write                                                                       |
-| Meshtastic     | Packet ID assigned by the local radio node           | Returned asynchronously via SDK callback after queue acceptance and RF transmission                                          | Written to `DeferredHandoffCompleted` by the send-confirmation callback, then persisted on the supplemental `sent` receipt (§ 15) |
-| MeshCore       | Native message ID from the mesh protocol             | Returned asynchronously after the adapter processes the outbound message                                                     | Persisted on receipt write                                                                                                        |
-| LXMF/Reticulum | LXMF message hash / Reticulum destination identifier | Available after the message is signed and handed to the LXMRouter; delivery along Reticulum paths is inherently asynchronous | Persisted on receipt write                                                                                                        |
+| Transport      | Native ref                                           | When available                                                                                                               | Persistence dependency                                                                                                    |
+| -------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Matrix         | Homeserver-assigned `event_id` (e.g. `$xxx:server`)  | Returned synchronously in the nio send response                                                                              | Persisted with the immediate `sent` hand-off receipt                                                                       |
+| Meshtastic     | Packet ID assigned by the local radio node           | Returned after deferred queue admission when RF send completes                                                               | Carried by `DeferredHandoffCompleted` and persisted atomically with deferred finalization                                   |
+| MeshCore       | Native message ID from the mesh protocol             | Returned by the synchronous adapter hand-off when the underlying MeshCore send exposes one                                   | Persisted with the immediate `sent/local_transport` hand-off receipt                                                        |
+| LXMF/Reticulum | LXMF message hash / Reticulum destination identifier | Available when the message is signed and handed to the local LXMRouter; later provider state remains asynchronous             | Message hash is persisted with the immediate `sent/local_queue` hand-off; later states are append-only post-handoff observations |
 
 ### 24.3 Scenarios Where Native Refs May Be Unavailable or Lost
 
 Native refs are not guaranteed to be present on every delivery receipt. The following conditions can cause a native ref to be absent from persisted evidence:
 
-1. **Async callback race.** Queue-based transports (Meshtastic, MeshCore) return native refs via callbacks that fire after the initial send call. If evidence is collected before the callback fires, no native ref is available. The receipt will show `status="queued"` or similar intermediate state without a transport-level identifier.
+1. **Deferred feedback race.** Meshtastic admits work locally before RF send. If evidence is collected before `DeferredHandoffCompleted` arrives, no packet ID is available yet and the durable attempt may still be represented by a `queued` receipt.
 
-2. **Adapter queue not drained.** When the adapter's outbound queue has pending items at evidence-collection time, native refs for those items have not been produced by the transport. This is normal for Meshtastic queue operations (§ 15) and does not indicate a failure.
+2. **Adapter queue not drained.** When Meshtastic's outbound queue has pending items at evidence-collection time, native refs for those items have not been produced by the transport. This is normal queue behavior (§ 15) and does not by itself indicate a failed delivery.
 
-3. **Storage write failure.** If the native ref was received from the transport but the subsequent storage write (receipt append, native_ref insert) fails due to a database error, disk full condition, or constraint violation, the native ref exists only in memory and is lost on process exit.
+3. **Storage write failure.** If a native ref is obtained from a transport but the subsequent atomic or immediate persistence step fails due to a database error, disk-full condition, or constraint violation, the external transport fact may not survive process exit.
 
-4. **Adapter or runtime crash before persistence.** If the process crashes (OOM kill, signal, unhandled exception) between receiving the native ref from the transport and persisting it to SQLite, the native ref is permanently lost. MEDRE does not maintain a write-ahead log for native refs independent of the receipt append path.
+4. **Adapter or runtime crash before persistence.** If the process crashes between obtaining a native ref and committing its receipt/native-ref evidence, that correlation handle can be lost. MEDRE does not maintain a separate write-ahead log for native refs outside delivery evidence persistence.
 
-5. **Callback never fires.** For transports that deliver native refs asynchronously, the callback may never fire due to transport disconnection, firmware error, radio interference, or SDK timeout. In this case no native ref is produced at all, and the delivery record remains in its pre-callback state (e.g. `queued` outbox without a corresponding `sent` receipt).
+5. **Deferred completion or provider observation never arrives.** A deferred transport can disconnect or fail before it reports completion, and a provider such as LXMF may never emit a later state update. MEDRE does not invent a native ref or provider state that was never observed. For deferred delivery the outbox can therefore remain queued until normal recovery/retry policy acts; for an already-completed hand-off, absence of a later provider observation does not reopen the terminal outbox state.
 
 ### 24.4 Operator Guidance
 

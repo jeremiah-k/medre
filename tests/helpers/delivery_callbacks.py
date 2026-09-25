@@ -16,7 +16,6 @@ def make_deferred_failure(
     outbox_id: str | None = None,
     delivery_plan_id: str | None = None,
     attempt_number: int = 1,
-    native_channel_id: str | None = None,
     error: str | None = None,
     source: DeliverySource = "live",
     replay_run_id: str | None = None,
@@ -32,11 +31,7 @@ def make_deferred_failure(
         event_id=event_id,
         delivery_plan_id=provenance_plan_id or delivery_plan_id or "plan-1",
         target_adapter=adapter,
-        target_channel=(
-            provenance_channel
-            if provenance_channel is not None
-            else native_channel_id if native_channel_id is not None else "0"
-        ),
+        target_channel=(provenance_channel if provenance_channel is not None else "0"),
         outbox_id=outbox_id,
         attempt_number=attempt_number,
         source=source,
@@ -45,7 +40,6 @@ def make_deferred_failure(
     return DeferredHandoffFailed(
         attempt_provenance=provenance,
         outcome=outcome,
-        native_channel_id=native_channel_id,
         error=error,
     )
 

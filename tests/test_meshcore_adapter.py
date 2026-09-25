@@ -582,8 +582,8 @@ class TestHonestDeliverySemantics:
         # local_acceptance is a boolean True — not a string status
         assert meshcore_meta["local_acceptance"] is True
 
-    async def test_real_adapter_fake_mode_delivery_is_none(self) -> None:
-        """Real adapter in fake mode returns None — no false delivery claim."""
+    async def test_real_adapter_fake_mode_reports_synthetic_handoff(self) -> None:
+        """Fake mode reports a synthetic hand-off without claiming native delivery."""
         config = _make_config(connection_type="fake")
         adapter = MeshCoreAdapter(config)
         from unittest.mock import AsyncMock

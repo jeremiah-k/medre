@@ -298,7 +298,7 @@ implementation authority.
 
 - **Inbound native ref:** `NativeRef(adapter=<id>, native_channel_id=<str(channel)>, native_message_id=<str(packet_id)>)`
 - **Synchronous hand-off:** `AdapterHandoffResult(disposition="deferred", confirmation_level="local_queue")`; no native message ID is claimed before RF send.
-- **Outbound native ref (sent):** Delayed outbound ref recorded by `_process_queue` when `send_one()` returns a real packet ID from the SDK.
+- **Outbound native ref (sent):** `_process_queue` emits `DeferredHandoffCompleted` when `send_one()` returns; its hand-off fact carries any real SDK packet ID, and core persists the native ref atomically with deferred finalization.
 
 ---
 

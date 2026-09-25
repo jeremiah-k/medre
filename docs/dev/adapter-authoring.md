@@ -102,9 +102,16 @@ class MyAdapter(AdapterContract):
 - Return an `AdapterHandoffResult` on every successful call. Use
   `disposition="transport_handoff"` when the external transport boundary was
   reached during the call, or `disposition="deferred"` when local work was
-  accepted and completion will be reported through `DeliveryFeedback`.
+  accepted and completion will be reported through `DeliveryFeedback`. A
+  deferred result may report only `confirmation_level="unknown"` or
+  `"local_queue"`; stronger confirmation means the transport boundary was
+  already reached and therefore requires `transport_handoff`.
 - Native IDs are transport facts, not required success markers. When a real
-  platform ID is known at hand-off it is stored in `native_message_refs`.
+  platform ID is known at hand-off it is stored in `native_message_refs`. Use
+  `None` for absence; empty or whitespace-only native identifiers are invalid.
+- Keep opaque hand-off metadata namespaced. Do not use the reserved top-level
+  keys closed hand-off, feedback, or attempt-provenance field names (for example
+  `native_channel_id`, `state`, or `outbox_id`).
 - If the send fails, raise an exception. The pipeline handles retry logic and
   receipt recording.
 - Do not re-render, reformat, or inspect the event kind inside `deliver()`.
@@ -121,8 +128,12 @@ facts are reported through the single optional
 - `PostHandoffObservation` — append-only evidence after a successful hand-off.
 
 Do not reconstruct attempt identity from timing, mutable adapter state, or
-receipts. Do not emit durable feedback for outbox-less direct sends, because no
-`DeliveryAttemptProvenance` exists to identify the attempt.
+receipts. A deferred adapter **must reject before local admission** when
+`RenderingResult.attempt_provenance` is absent or when its `AdapterContext`
+does not provide `report_delivery_feedback`. Outbox-less direct delivery is
+valid only for an immediate `transport_handoff`; accepting deferred work
+without durable identity or a feedback path would create an attempt that core
+can never finalize safely.
 
 ### Key rules for `start()`
 

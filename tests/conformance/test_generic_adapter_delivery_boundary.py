@@ -12,12 +12,15 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
+import pytest
+
 from medre.core.contracts import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
     AdapterHandoffResult,
     AdapterInfo,
+    AdapterPermanentError,
     AdapterRole,
     DeferredHandoffCompleted,
     DeferredHandoffFailed,
@@ -58,6 +61,14 @@ class _GenericProviderAdapter(AdapterContract):
 
     async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         if self.deferred:
+            if result.attempt_provenance is None:
+                raise AdapterPermanentError(
+                    "deferred delivery requires immutable attempt provenance"
+                )
+            if self.ctx is None or self.ctx.report_delivery_feedback is None:
+                raise AdapterPermanentError(
+                    "deferred delivery requires an installed feedback sink"
+                )
             return AdapterHandoffResult(
                 disposition="deferred",
                 confirmation_level="local_queue",
@@ -75,14 +86,19 @@ class _GenericProviderAdapter(AdapterContract):
         await self.ctx.report_delivery_feedback(feedback)
 
 
-def _provenance() -> DeliveryAttemptProvenance:
+def _provenance(
+    *,
+    event_id: str = "evt-generic",
+    outbox_id: str = "outbox-generic",
+    attempt_number: int = 1,
+) -> DeliveryAttemptProvenance:
     return DeliveryAttemptProvenance(
-        event_id="evt-generic",
+        event_id=event_id,
         delivery_plan_id="plan-generic",
         target_adapter="generic-provider",
         target_channel="room-1",
-        outbox_id="outbox-generic",
-        attempt_number=1,
+        outbox_id=outbox_id,
+        attempt_number=attempt_number,
         source="live",
     )
 
@@ -101,6 +117,15 @@ def _rendering_result() -> RenderingResult:
     )
 
 
+def _direct_rendering_result() -> RenderingResult:
+    return RenderingResult(
+        event_id="evt-direct",
+        target_adapter="generic-provider",
+        target_channel="room-1",
+        payload={"text": "hello"},
+    )
+
+
 async def _context(feedback: list[DeliveryFeedback]) -> AdapterContext:
     async def _publish(_event) -> None:
         return None
@@ -115,6 +140,19 @@ async def _context(feedback: list[DeliveryFeedback]) -> AdapterContext:
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
         report_delivery_feedback=_report,
+    )
+
+
+async def _context_without_feedback() -> AdapterContext:
+    async def _publish(_event) -> None:
+        return None
+
+    return AdapterContext(
+        adapter_id="generic-provider",
+        publish_inbound=_publish,
+        logger=logging.getLogger("test.generic-provider"),
+        clock=lambda: datetime.now(timezone.utc),
+        shutdown_event=asyncio.Event(),
     )
 
 
@@ -161,9 +199,13 @@ async def test_fifth_adapter_uses_one_feedback_sink_for_all_async_facts() -> Non
             confirmation_level="end_to_end",
         )
     )
+    failed_provenance = _provenance(
+        event_id="evt-generic-failed",
+        outbox_id="outbox-generic-failed",
+    )
     await adapter.report(
         DeferredHandoffFailed(
-            attempt_provenance=provenance,
+            attempt_provenance=failed_provenance,
             outcome="abandoned",
             error="synthetic shutdown race",
         )
@@ -174,4 +216,28 @@ async def test_fifth_adapter_uses_one_feedback_sink_for_all_async_facts() -> Non
         PostHandoffObservation,
         DeferredHandoffFailed,
     ]
-    assert all(item.attempt_provenance is provenance for item in feedback)
+    assert feedback[0].attempt_provenance is provenance
+    assert feedback[1].attempt_provenance is provenance
+    assert feedback[2].attempt_provenance is failed_provenance
+
+
+async def test_deferred_fifth_adapter_rejects_outboxless_work() -> None:
+    adapter = _GenericProviderAdapter(deferred=True)
+    await adapter.start(await _context([]))
+
+    with pytest.raises(
+        AdapterPermanentError,
+        match="deferred delivery requires immutable attempt provenance",
+    ):
+        await adapter.deliver(_direct_rendering_result())
+
+
+async def test_deferred_fifth_adapter_requires_feedback_sink_before_admission() -> None:
+    adapter = _GenericProviderAdapter(deferred=True)
+    await adapter.start(await _context_without_feedback())
+
+    with pytest.raises(
+        AdapterPermanentError,
+        match="deferred delivery requires an installed feedback sink",
+    ):
+        await adapter.deliver(_rendering_result())

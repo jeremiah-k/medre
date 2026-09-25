@@ -224,8 +224,8 @@ class SlowStopOnStartFailure(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class CancelledStopOnStartFailure(AdapterContract):
@@ -260,8 +260,8 @@ class CancelledStopOnStartFailure(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class FailingAdapter(AdapterContract):
@@ -290,8 +290,8 @@ class FailingAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class SlowStopDouble:

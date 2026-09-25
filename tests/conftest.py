@@ -271,12 +271,16 @@ def make_adapter_context(inbound_collector: _InboundCollector):
     def _make(adapter_id: str = "test_adapter") -> Any:
         from medre.core.contracts.adapter import AdapterContext
 
+        async def _report_delivery_feedback(_feedback: object) -> None:
+            return None
+
         return AdapterContext(
             adapter_id=adapter_id,
             publish_inbound=inbound_collector,
             logger=logging.getLogger(f"test.{adapter_id}"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
+            report_delivery_feedback=_report_delivery_feedback,
         )
 
     return _make

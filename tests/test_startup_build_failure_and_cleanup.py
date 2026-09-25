@@ -111,8 +111,8 @@ class _FailingAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class _RecordingAdapter(AdapterContract):
@@ -142,8 +142,8 @@ class _RecordingAdapter(AdapterContract):
             health="healthy",
         )
 
-    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 def _fake_matrix_config(adapter_id: str = "fake_matrix") -> MatrixRuntimeConfig:
@@ -748,8 +748,8 @@ class _StartFailsButTracksStop(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class _StopAlsoFailsAdapter(AdapterContract):
@@ -778,8 +778,8 @@ class _StopAlsoFailsAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class TestAdapterStartFailureCleanup:
@@ -992,8 +992,8 @@ class _OrderRecordingAdapter(AdapterContract):
             health="healthy",
         )
 
-    async def deliver(self, result: Any) -> AdapterHandoffResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class TestDeterministicStartOrdering:

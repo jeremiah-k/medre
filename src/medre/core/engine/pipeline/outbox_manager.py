@@ -466,10 +466,20 @@ class OutboxManager:
                         receipt.receipt_id,
                     ),
                 )
+            elif existing_item.status == "queued":
+                self._log.warning(
+                    "Deferred failure rejected: queued outbox has no matching "
+                    "immutable queued attempt evidence: outbox_id=%s attempt=%d",
+                    provenance.outbox_id,
+                    provenance.attempt_number,
+                )
+                return
 
             failed_attempt: DeliveryReceipt | None = None
             lifecycle_parent_id = (
-                queued_receipt.receipt_id if queued_receipt is not None else None
+                queued_receipt.receipt_id
+                if queued_receipt is not None
+                else existing_item.receipt_id
             )
             if outbox_terminal == "dead_lettered":
                 failed_attempt = build_delivery_receipt(
