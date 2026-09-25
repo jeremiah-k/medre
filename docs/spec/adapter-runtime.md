@@ -858,10 +858,17 @@ class OutboundNativeRefRecord:
     native_message_id:  str           # Must be a real ID from the external platform
     native_thread_id:   str | None = None
     native_relation_id: str | None = None
+    delivery_plan_id:   str | None = None
+    outbox_id:          str | None = None
+    attempt_number:     int | None = None
+    attempt_provenance: DeliveryAttemptProvenance | None = None
     metadata:           Mapping[str, object] = field(default_factory=dict)
 ```
 
-The `native_message_id` field **MUST** be a non-empty string from the external platform. The adapter **MUST NOT** fabricate IDs.
+The `native_message_id` field **MUST** be a non-empty string from the external
+platform. The adapter **MUST NOT** fabricate IDs. Built-in queue adapters carry
+the exact `DeliveryAttemptProvenance` captured before hand-off; the scalar
+plan/outbox/attempt fields are compatibility mirrors populated from it.
 
 ### 17.4 Post-Handoff Delivery Observations
 
@@ -884,11 +891,14 @@ class OutboundDeliveryObservationRecord:
     confirmation_level: DeliveryConfirmationLevel = "unknown"
     error: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
+    attempt_provenance: DeliveryAttemptProvenance | None = None
 ```
 
-`outbox_id` and `attempt_number` are mandatory correlation facts for durable
-persistence. The transport session MAY carry them as opaque caller-owned
-context, but it **MUST NOT** interpret or mutate core lifecycle identity.
+Built-in asynchronous adapters carry immutable `attempt_provenance` across the
+transport/session boundary and echo it unchanged. The transport session MAY
+carry this value as opaque caller-owned context, but it **MUST NOT** interpret
+or mutate core lifecycle identity. Scalar `outbox_id`, `attempt_number`, and
+`delivery_plan_id` are mirrors when the envelope is present.
 
 Core validates the observation against the authoritative outbox row and
 appends it to the delivery-observation ledger. The adapter never writes storage
@@ -903,7 +913,11 @@ The adapter is not notified of retry decisions, receipt recording, or failure
 classification. Post-handoff callbacks flow in only the opposite direction:
 the adapter reports transport facts and receives no lifecycle decision back.
 This isolation is intentional: the adapter attempts transport work and reports
-facts; the pipeline decides what happens next.
+facts; the pipeline decides what happens next. Meshtastic queue terminal/native
+reference callbacks and LXMF delivery observations carry attempt provenance
+because evidence crosses an asynchronous hand-off boundary. Matrix and MeshCore
+currently complete MEDRE's delivery hand-off synchronously; MEDRE does not invent
+post-handoff confirmation callbacks for them.
 
 ---
 

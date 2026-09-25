@@ -894,11 +894,29 @@ Dispatch mechanism and replay origin are represented independently: `source` rec
 
 ### Queued Callback Correlation
 
-When a queue-based adapter callback arrives to confirm a queued delivery (queued-to-sent transition), the pipeline correlates by **`outbox_id` + `attempt_number`** — the only correlation authority. The outbox row is validated first (must exist, must be `queued` or `in_progress`, event_id must match, attempt_number must match). Then the queued receipt is selected by exact `outbox_id` match.
+Before a queue-backed transport hand-off, MEDRE captures exact attempt identity
+and dispatch lineage in an immutable `DeliveryAttemptProvenance` envelope. It
+contains the event/plan/adapter/channel identity, `outbox_id`, effective attempt
+generation, dispatch `source`, and optional `replay_run_id`. Built-in
+asynchronous adapters carry that envelope outside the wire payload and return it
+on callbacks.
 
-`delivery_plan_id` and `native_channel_id` are validation metadata only. They are checked against the outbox row when present, but they are never used as correlation selectors. No plan/channel latest-candidate fallback exists.
+Core validates the envelope against the authoritative outbox row. A named replay
+run must match the durable claim; retry callbacks keep `source="retry"` while
+preserving replay origin independently in `replay_run_id`. Any queued receipt
+that already exists for the same row/generation must agree with that provenance.
+The receipt supplies parent/render/retry linkage only; it does not decide the
+callback's dispatch mechanism.
 
-Replay-origin receipts (`replay_run_id IS NOT NULL`) are not allowed to mutate unrelated recovery state unless they match the exact trusted outbox lineage. The initial replay dispatch uses `source="replay"`; later replay-origin attempts may use `source="retry"`. Because queued callbacks correlate by exact `outbox_id` + `attempt_number` against the authoritative outbox row (validated for status, event, adapter, plan, channel, and attempt before selection), a matching queued receipt is finalized exactly like a live one: the supplemental `sent` receipt inherits dispatch `source` and `replay_run_id` from that exact queued receipt, while the outbox row independently carries durable replay-origin provenance. The outbox transitions `queued` to `sent`. Only the matching row transitions — replay origin never authorizes another row — and callbacks that fail row validation (stale attempt, terminal or reclaimed row) are still rejected with a warning. Replay-only selection is logged at debug level; the former operator-visible skip warning no longer occurs.
+This distinction matters for the pre-receipt race: a terminal callback may arrive
+before the queued receipt append. MEDRE still has exact live/replay/retry lineage
+from the immutable callback envelope and does not invent a run ID or fall back to
+mutable-row/timing inference. Contradictory callback, row, or receipt provenance
+is rejected without mutating terminal state.
+
+`delivery_plan_id`, `outbox_id`, and `attempt_number` remain visible scalar
+mirrors for diagnostics/backward compatibility, but when the envelope exists
+they are derived from it and are not independent lineage authority.
 
 ### Uncorrelated Queued Outbox Items
 

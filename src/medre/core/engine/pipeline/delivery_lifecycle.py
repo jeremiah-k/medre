@@ -827,7 +827,7 @@ class DeliveryLifecycleService:
         await storage.append_receipt(receipt)
         return receipt
 
-    # -- Source-aware candidate selection ------------------------------------
+    # -- Legacy source-aware candidate selection -----------------------------
 
     def _select_source_preferred_candidate(
         self,
@@ -841,19 +841,15 @@ class DeliveryLifecycleService:
         row was validated for this exact callback (status, event, adapter,
         plan, channel, attempt).  Each candidate therefore belongs to this
         one delivery attempt; selecting it cannot mutate any other row.
-        The receipt's own durable ``source`` / ``replay_run_id`` lineage is
-        the trusted attempt provenance — the same recovery used by
-        :meth:`~medre.core.engine.pipeline.outbox_manager.OutboxManager.record_terminal`
-        for terminal failure callbacks — so a replay-sourced candidate is
-        finalized exactly like a live one, with its replay lineage carried
-        onto the supplemental ``sent`` receipt.
+        This selector exists only for custom/legacy callbacks that do not carry
+        ``attempt_provenance``. Built-in asynchronous adapters bypass it and use
+        the immutable callback envelope as lineage authority.
 
-        When malformed history offers duplicates across sources for the
+        When malformed legacy history offers duplicates across sources for the
         same row/attempt (a row is single-sourced in normal operation),
         non-replay (``"live"`` / ``"retry"``) candidates are preferred over
         ``"replay"`` candidates; within the preferred group the most-recent
-        (last in append-order) candidate wins, preserving retry-lineage
-        behaviour.
+        (last in append-order) candidate wins.
 
         Parameters
         ----------
