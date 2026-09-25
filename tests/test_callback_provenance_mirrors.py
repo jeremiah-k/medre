@@ -103,11 +103,20 @@ def test_observation_record_rejects_mirror_field_contradiction(
 
 
 def test_queue_terminal_record_rejects_non_positive_attempt_mirror() -> None:
-    with pytest.raises(ValueError, match="attempt_number must be an integer >= 1"):
+    """A non-positive record mirror contradicts the immutable envelope."""
+    with pytest.raises(
+        ValueError, match="attempt_number contradicts attempt_provenance"
+    ):
         QueueTerminalRecord(
             event_id="evt-mirror",
             adapter="mesh-mirror",
             outcome="exhausted",
             attempt_number=0,
-            attempt_provenance=_provenance(attempt_number=0),
+            attempt_provenance=_provenance(),
         )
+
+
+def test_attempt_envelope_rejects_non_positive_generation() -> None:
+    """The envelope itself refuses a non-positive attempt generation."""
+    with pytest.raises(ValueError, match="attempt_number must be an integer >= 1"):
+        _provenance(attempt_number=0)

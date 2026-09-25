@@ -793,7 +793,9 @@ to.
    payloads and MUST echo it unchanged on their callback records.
 3. Core MUST validate delivery identity, outbox ID, effective generation,
    dispatch source, and named replay run against durable authority.
-4. Queue terminal callbacks without `attempt_provenance` MUST be rejected.
+4. Every asynchronous callback record — queue terminal, delayed native-ref,
+   and delivery observation — without `attempt_provenance` MUST be rejected
+   at construction.
 5. Existing receipts for the exact outbox generation are immutable validation
    evidence and MUST NOT override callback provenance. Queued receipts
    additionally provide parent/retry/rendering linkage.
