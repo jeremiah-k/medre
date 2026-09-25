@@ -731,27 +731,55 @@ class TargetDeliveryService:
         # adapter hand-off. Queue-backed adapters carry this immutable envelope
         # through asynchronous callbacks; scalar fields remain compatibility
         # mirrors only. Direct/outbox-less calls have no durable attempt to bind.
-        attempt_provenance = (
-            DeliveryAttemptProvenance(
-                event_id=event.event_id,
+        # Renderer output is untrusted: a result whose identity contradicts the
+        # requested delivery raises envelope validation, which must fail
+        # through the same evidence path as a rendering failure.
+        try:
+            attempt_provenance = (
+                DeliveryAttemptProvenance(
+                    event_id=event.event_id,
+                    delivery_plan_id=plan.plan_id,
+                    target_adapter=adapter_id or "",
+                    target_channel=target.channel,
+                    outbox_id=outbox_id,
+                    attempt_number=attempt_number,
+                    source=source,
+                    replay_run_id=replay_run_id,
+                )
+                if outbox_id is not None
+                else None
+            )
+            rendering_result = replace(
+                rendering_result,
                 delivery_plan_id=plan.plan_id,
-                target_adapter=adapter_id or "",
-                target_channel=target.channel,
                 outbox_id=outbox_id,
                 attempt_number=attempt_number,
+                attempt_provenance=attempt_provenance,
+            )
+        except (TypeError, ValueError) as exc:
+            provenance_error = f"Invalid rendering attempt provenance: {exc}"
+            self._diagnostician.record_renderer_failure(
+                event.event_id, adapter_id or "", provenance_error
+            )
+            evidence = await self._persist_failure_evidence(
+                event=event,
+                route=route,
+                plan=plan,
+                adapter_id=adapter_id or "",
+                receipt_id=receipt_id,
+                error=provenance_error,
+                failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
                 source=source,
                 replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
             )
-            if outbox_id is not None
-            else None
-        )
-        rendering_result = replace(
-            rendering_result,
-            delivery_plan_id=plan.plan_id,
-            outbox_id=outbox_id,
-            attempt_number=attempt_number,
-            attempt_provenance=attempt_provenance,
-        )
+            raise _RendererDeliveryError(
+                adapter_id or "",
+                provenance_error,
+                evidence=evidence,
+            ) from None
 
         # Guard: adapter must expose a callable deliver() method.
         deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)

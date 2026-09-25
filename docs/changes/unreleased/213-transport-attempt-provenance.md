@@ -13,5 +13,8 @@
   observations and queued-to-sent finalization, failing closed when immutable
   receipt history cannot be validated while preserving the legitimate
   callback-before-receipt race.
+- Route attempt-envelope validation failures on contradictory renderer output
+  through the renderer failure path: persist a `RENDERER_FAILURE` attempt
+  receipt with failure evidence instead of raising an unclassified error.
 - Add deterministic coverage for live/replay/retry races, contradictory lineage,
   Meshtastic callback propagation, and LXMF delivery observations.
