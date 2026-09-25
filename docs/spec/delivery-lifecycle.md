@@ -193,8 +193,10 @@ identity, generation, dispatch source, or replay origin contradicts the
 envelope. Receipt-history reads for this check MUST be scoped by `outbox_id`, not
 by identity fields being validated. Failure to load receipt history fails
 closed; absence of receipt evidence remains a valid callback-before-receipt
-race. Their existing scalar-only path remains a compatibility boundary for
-custom/legacy adapters; built-in asynchronous adapters do not rely on it.
+race. Every asynchronous callback record — terminal, queued-to-sent, and
+observation — requires the envelope; records without it are rejected at
+construction, and the supplemental sent receipt carries the envelope's
+dispatch provenance rather than any queued-receipt preference.
 
 Renderer output identity is validated before every adapter hand-off, including
 direct/outbox-less delivery where no attempt envelope exists. A renderer result

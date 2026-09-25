@@ -40,6 +40,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
@@ -193,6 +194,14 @@ class TestStaleCallbackRejection:
             native_message_id="pkt-dl-stale",
             delivery_plan_id="plan-dl",
             outbox_id="obox-dl",
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-dl",
+                attempt_number=1,
+                delivery_plan_id="plan-dl",
+                target_channel="0",
+            ),
         )
         with caplog.at_level(logging.WARNING):
             await lifecycle.finalize_queued_delivery(
@@ -251,6 +260,14 @@ class TestStaleCallbackRejection:
             native_message_id="pkt-sent-stale",
             delivery_plan_id="plan-sent",
             outbox_id="obox-sent",
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-sent",
+                attempt_number=1,
+                delivery_plan_id="plan-sent",
+                target_channel="0",
+            ),
         )
         with caplog.at_level(logging.WARNING):
             await lifecycle.finalize_queued_delivery(
@@ -305,6 +322,14 @@ class TestStaleCallbackRejection:
             native_message_id="pkt-cancel-stale",
             delivery_plan_id="plan-cancel",
             outbox_id="obox-cancel",
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-cancel",
+                attempt_number=1,
+                delivery_plan_id="plan-cancel",
+                target_channel="0",
+            ),
         )
         with caplog.at_level(logging.WARNING):
             await lifecycle.finalize_queued_delivery(
@@ -359,6 +384,14 @@ class TestStaleCallbackRejection:
             native_message_id="pkt-abandon-stale",
             delivery_plan_id="plan-abandon",
             outbox_id="obox-abandon",
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-abandon",
+                attempt_number=1,
+                delivery_plan_id="plan-abandon",
+                target_channel="0",
+            ),
         )
         with caplog.at_level(logging.WARNING):
             await lifecycle.finalize_queued_delivery(
@@ -455,6 +488,14 @@ class TestStaleCallbackAfterRetryReclaim:
 
         # --- Stale callback A arrives late ---
         stale_record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-retry",
+                target_adapter="mesh-1",
+                outbox_id="obox-a",
+                attempt_number=1,
+                delivery_plan_id="plan-retry-a",
+                target_channel="0",
+            ),
             event_id="evt-retry",
             adapter="mesh-1",
             native_channel_id="0",
@@ -478,6 +519,14 @@ class TestStaleCallbackAfterRetryReclaim:
 
         # --- Fresh callback B arrives ---
         fresh_record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-retry",
+                target_adapter="mesh-1",
+                outbox_id="obox-b",
+                attempt_number=1,
+                delivery_plan_id="plan-retry-b",
+                target_channel="0",
+            ),
             event_id="evt-retry",
             adapter="mesh-1",
             native_channel_id="0",
@@ -595,6 +644,14 @@ class TestTerminalOutcomeExhausted:
                     "outbox_id": "obox-term",
                     "attempt_number": 2,
                     "_attempt": 3,
+                    "attempt_provenance": make_attempt_provenance(
+                        event_id="evt-term",
+                        target_adapter="mesh-test",
+                        outbox_id="obox-term",
+                        attempt_number=2,
+                        delivery_plan_id="plan-term",
+                        target_channel="3",
+                    ),
                 },
                 outcome="exhausted",
                 error="radio timeout after 3 attempts",
@@ -684,6 +741,14 @@ class TestExactOutboxIdCorrelation:
         await temp_storage.mark_outbox_queued("obox-exact")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-exact",
+                attempt_number=1,
+                delivery_plan_id="plan-exact",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -758,6 +823,14 @@ class TestExactOutboxIdCorrelation:
 
         # Record targets obox-plan-a explicitly — must NOT match plan-b.
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-plan-a",
+                attempt_number=1,
+                delivery_plan_id="plan-a",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -812,6 +885,14 @@ class TestExactOutboxIdCorrelation:
             native_message_id="pkt-missing",
             delivery_plan_id="plan-missing",
             outbox_id="obox-nonexistent",
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-nonexistent",
+                attempt_number=1,
+                delivery_plan_id="plan-missing",
+                target_channel="0",
+            ),
         )
         with caplog.at_level(logging.WARNING):
             await lifecycle.finalize_queued_delivery(
@@ -872,6 +953,14 @@ class TestDuplicateCallbackIdempotent:
         await temp_storage.mark_outbox_queued("obox-dup")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-dup",
+                attempt_number=1,
+                delivery_plan_id="plan-dup",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -946,6 +1035,14 @@ class TestDuplicateCallbackIdempotent:
         await temp_storage.mark_outbox_queued("obox-dup2")
 
         record1 = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-002",
+                target_adapter="mesh-1",
+                outbox_id="obox-dup2",
+                attempt_number=1,
+                delivery_plan_id="plan-dup2",
+                target_channel="0",
+            ),
             event_id="evt-002",
             adapter="mesh-1",
             native_channel_id="0",
@@ -962,6 +1059,14 @@ class TestDuplicateCallbackIdempotent:
 
         # Second callback with different native_message_id.
         record2 = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-002",
+                target_adapter="mesh-1",
+                outbox_id="obox-dup2",
+                attempt_number=1,
+                delivery_plan_id="plan-dup2",
+                target_channel="0",
+            ),
             event_id="evt-002",
             adapter="mesh-1",
             native_channel_id="0",
@@ -1082,6 +1187,13 @@ class TestCancellationReporting:
                 event_id="evt-rem1",
                 outbox_id="obox-rem1",
                 attempt_number=1,
+                attempt_provenance=make_attempt_provenance(
+                    event_id="evt-rem1",
+                    target_adapter="mesh-cancel",
+                    outbox_id="obox-rem1",
+                    attempt_number=1,
+                    target_channel="0",
+                ),
             )
             await adapter._queue.enqueue(
                 payload={"text": "remaining-2"},
@@ -1089,6 +1201,13 @@ class TestCancellationReporting:
                 event_id="evt-rem2",
                 outbox_id="obox-rem2",
                 attempt_number=1,
+                attempt_provenance=make_attempt_provenance(
+                    event_id="evt-rem2",
+                    target_adapter="mesh-cancel",
+                    outbox_id="obox-rem2",
+                    attempt_number=1,
+                    target_channel="0",
+                ),
             )
 
             # Simulate a cancelled in-flight item by directly setting
@@ -1099,6 +1218,13 @@ class TestCancellationReporting:
                 "event_id": "evt-inflight",
                 "outbox_id": "obox-inflight",
                 "attempt_number": 2,
+                "attempt_provenance": make_attempt_provenance(
+                    event_id="evt-inflight",
+                    target_adapter="mesh-cancel",
+                    outbox_id="obox-inflight",
+                    attempt_number=2,
+                    target_channel="0",
+                ),
             }
 
             await adapter._report_cancelled_and_drain()

@@ -15,7 +15,10 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.capacity import CapacityController
 from tests.helpers.async_utils import wait_until
-from tests.helpers.delivery_callbacks import make_terminal_record
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_terminal_record,
+)
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ---------------------------------------------------------------------------
@@ -955,6 +958,14 @@ class TestTargetedOutboxLookupRegression:
         runner = PipelineRunner(config)
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=TARGET_EVENT_ID,
+                target_adapter=TARGET_ADAPTER,
+                outbox_id="obox-target-regression",
+                attempt_number=1,
+                delivery_plan_id=TARGET_PLAN_ID,
+                target_channel=TARGET_CHANNEL,
+            ),
             event_id=TARGET_EVENT_ID,
             adapter=TARGET_ADAPTER,
             native_channel_id=TARGET_CHANNEL,

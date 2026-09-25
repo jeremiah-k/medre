@@ -62,6 +62,7 @@ from medre.core.storage.backend import (
     StorageError,
     TerminalOutboxFinalization,
 )
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.storage_outbox import (
     allocate_new_outbox_generation,
     apply_guarded_outbox_terminal,
@@ -641,6 +642,14 @@ class TestDeliveryLifecycleConformance:
 
         # Simulate the queued->sent callback
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event_id,
+                target_adapter="mesh_conf",
+                outbox_id=outbox_id,
+                attempt_number=1,
+                delivery_plan_id=plan_id,
+                target_channel="0",
+            ),
             event_id=event_id,
             adapter="mesh_conf",
             native_channel_id="0",
@@ -701,6 +710,14 @@ class TestDeliveryLifecycleConformance:
         await storage.mark_outbox_queued(outbox_id)
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event_id,
+                target_adapter="mesh_conf",
+                outbox_id=outbox_id,
+                attempt_number=1,
+                delivery_plan_id=plan_id,
+                target_channel="0",
+            ),
             event_id=event_id,
             adapter="mesh_conf",
             native_channel_id="0",

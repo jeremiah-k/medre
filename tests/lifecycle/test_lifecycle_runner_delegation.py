@@ -15,6 +15,7 @@ from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.routing import Router
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 
 from .conftest import _make_receipt
 
@@ -140,6 +141,14 @@ class TestDelegationIntegration:
         runner = _make_runner(temp_storage)
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh",
+                outbox_id="obox-delegate-qs",
+                attempt_number=1,
+                delivery_plan_id="plan-001",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="mesh",
             native_channel_id="0",

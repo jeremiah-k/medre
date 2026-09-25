@@ -51,3 +51,27 @@ def make_terminal_record(
         error=error,
         attempt_provenance=provenance,
     )
+
+
+def make_attempt_provenance(
+    *,
+    event_id: str,
+    target_adapter: str,
+    outbox_id: str,
+    attempt_number: int,
+    delivery_plan_id: str | None = None,
+    target_channel: str | None = None,
+    source: DeliverySource = "live",
+    replay_run_id: str | None = None,
+) -> DeliveryAttemptProvenance:
+    """Build a hand-off envelope from the same facts as the callback record."""
+    return DeliveryAttemptProvenance(
+        event_id=event_id,
+        delivery_plan_id=delivery_plan_id or "plan-1",
+        target_adapter=target_adapter,
+        outbox_id=outbox_id,
+        attempt_number=attempt_number,
+        target_channel=target_channel,
+        source=source,
+        replay_run_id=replay_run_id,
+    )

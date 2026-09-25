@@ -82,6 +82,7 @@ def _record(**overrides) -> OutboundDeliveryObservationRecord:
         "native_channel_id": "aa" * 16,
         "native_message_id": "bb" * 32,
         "metadata": {"lxmf": {"delivery_state": "delivered"}},
+        "attempt_provenance": _provenance(**overrides.pop("_provenance_overrides", {})),
     }
     values.update(overrides)
     return OutboundDeliveryObservationRecord(**values)
@@ -351,10 +352,17 @@ async def test_observation_rejects_attempt_and_plan_mismatch(temp_storage) -> No
     now = datetime.now(timezone.utc)
 
     assert not await lifecycle.record_delivery_observation(
-        temp_storage, _record(attempt_number=2), now
+        temp_storage,
+        _record(attempt_number=2, _provenance_overrides={"attempt_number": 2}),
+        now,
     )
     assert not await lifecycle.record_delivery_observation(
-        temp_storage, _record(delivery_plan_id="wrong-plan"), now
+        temp_storage,
+        _record(
+            delivery_plan_id="wrong-plan",
+            _provenance_overrides={"delivery_plan_id": "wrong-plan"},
+        ),
+        now,
     )
     assert await temp_storage.count_delivery_observations() == 0
 
@@ -388,7 +396,10 @@ async def test_structured_address_observation_does_not_require_target_channel(
 
     assert await lifecycle.record_delivery_observation(
         temp_storage,
-        _record(native_channel_id="aa" * 16),
+        _record(
+            native_channel_id="aa" * 16,
+            _provenance_overrides={"target_channel": None},
+        ),
         datetime.now(timezone.utc),
     )
     observations = await temp_storage.list_delivery_observations_for_outbox(
@@ -430,12 +441,10 @@ async def test_uncorrelated_observation_is_rejected(temp_storage) -> None:
 
     assert not await lifecycle.record_delivery_observation(
         temp_storage,
-        _record(outbox_id=None),
-        datetime.now(timezone.utc),
-    )
-    assert not await lifecycle.record_delivery_observation(
-        temp_storage,
-        _record(attempt_number=None),
+        _record(
+            outbox_id="outbox-never-admitted",
+            _provenance_overrides={"outbox_id": "outbox-never-admitted"},
+        ),
         datetime.now(timezone.utc),
     )
     assert await temp_storage.count_delivery_observations() == 0

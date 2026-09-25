@@ -25,3 +25,7 @@
   including direct/outbox-less delivery where no attempt envelope exists.
 - Add deterministic coverage for live/replay/retry races, contradictory lineage,
   Meshtastic callback propagation, and LXMF delivery observations.
+- Require the envelope on every asynchronous callback record: terminal, queued-to-sent,
+  and observation records reject construction without `attempt_provenance`, the legacy
+  source-preference selector for envelope-less callbacks is removed, and the supplemental
+  sent receipt always carries the envelope's dispatch provenance.

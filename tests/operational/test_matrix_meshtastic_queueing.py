@@ -39,6 +39,7 @@ from medre.core.rendering.renderer import (
 )
 from medre.core.routing.models import RouteSource
 from medre.core.storage.backend import DeliveryOutboxItem
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 
 # Reuse helpers from the flow module.
 from tests.operational.test_matrix_meshtastic_flow import (
@@ -240,6 +241,14 @@ class TestQueuedSentCorrelation:
         await storage.mark_outbox_queued(outbox_id)
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-1",
+                target_adapter="test_mesh",
+                outbox_id=outbox_id,
+                attempt_number=1,
+                delivery_plan_id=plan_id,
+                target_channel="0",
+            ),
             event_id="evt-1",
             adapter="test_mesh",
             native_channel_id="0",
@@ -307,6 +316,14 @@ class TestQueuedSentCorrelation:
         await storage.mark_outbox_queued(outbox_id)
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-2",
+                target_adapter="test_mesh",
+                outbox_id=outbox_id,
+                attempt_number=1,
+                delivery_plan_id=plan_id,
+                target_channel="1",
+            ),
             event_id="evt-2",
             adapter="test_mesh",
             native_channel_id="1",
@@ -377,6 +394,14 @@ class TestQueuedSentCorrelation:
         await storage.mark_outbox_queued(outbox_id)
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-3",
+                target_adapter="test_mesh",
+                outbox_id=outbox_id,
+                attempt_number=2,
+                delivery_plan_id=plan_id,
+                target_channel="0",
+            ),
             event_id="evt-3",
             adapter="test_mesh",
             native_channel_id="0",
@@ -396,125 +421,6 @@ class TestQueuedSentCorrelation:
         # Latest queued receipt (attempt 2) was used as parent.
         assert sent[0].parent_receipt_id == "rcpt-q-retry"
         assert sent[0].attempt_number == 2
-
-    @pytest.mark.asyncio
-    async def test_multiple_queued_different_plans_no_plan_id_warns(self) -> None:
-        """Multiple queued receipts with different plans, no delivery_plan_id
-        on record: warning, no sent receipt."""
-        storage = _FakeStorage()
-        lifecycle = DeliveryLifecycleService(logger=logging.getLogger("test"))
-
-        q1 = DeliveryReceipt(
-            receipt_id="rcpt-a",
-            event_id="evt-4",
-            delivery_plan_id="plan-a",
-            target_adapter="test_mesh",
-            target_channel="0",
-            route_id="route-1",
-            status="queued",
-            created_at=datetime.now(timezone.utc),
-        )
-        q2 = DeliveryReceipt(
-            receipt_id="rcpt-b",
-            event_id="evt-4",
-            delivery_plan_id="plan-b",
-            target_adapter="test_mesh",
-            target_channel="0",
-            route_id="route-2",
-            status="queued",
-            created_at=datetime.now(timezone.utc),
-        )
-        await storage.append_receipt(q1)
-        await storage.append_receipt(q2)
-
-        # No delivery_plan_id on the record -> skipped, no supplemental receipt.
-        record = OutboundNativeRefRecord(
-            event_id="evt-4",
-            adapter="test_mesh",
-            native_channel_id="0",
-            native_message_id="77",
-            delivery_plan_id=None,
-            metadata={},
-        )
-
-        await lifecycle.finalize_queued_delivery(
-            storage, record=record, now=datetime.now(timezone.utc)
-        )
-
-        # Ambiguous: no supplemental sent receipt.
-        sent = [r for r in storage._receipts if r.status == "sent"]
-        assert len(sent) == 0
-
-    @pytest.mark.asyncio
-    async def test_multiple_queued_same_plan_different_channels_no_channel_warns(
-        self,
-    ) -> None:
-        """Multiple queued receipts under same plan but different channels,
-        no native_channel_id: warning, no sent receipt."""
-        storage = _FakeStorage()
-        lifecycle = DeliveryLifecycleService(logger=logging.getLogger("test"))
-
-        plan_id = str(uuid.uuid4())
-        q1 = DeliveryReceipt(
-            receipt_id="rcpt-c1",
-            event_id="evt-5",
-            delivery_plan_id=plan_id,
-            target_adapter="test_mesh",
-            target_channel="0",
-            route_id="route-1",
-            status="queued",
-            created_at=datetime.now(timezone.utc),
-        )
-        q2 = DeliveryReceipt(
-            receipt_id="rcpt-c2",
-            event_id="evt-5",
-            delivery_plan_id=plan_id,
-            target_adapter="test_mesh",
-            target_channel="1",
-            route_id="route-1",
-            status="queued",
-            created_at=datetime.now(timezone.utc),
-        )
-        await storage.append_receipt(q1)
-        await storage.append_receipt(q2)
-
-        # delivery_plan_id present but no native_channel_id -> ambiguous.
-        record = OutboundNativeRefRecord(
-            event_id="evt-5",
-            adapter="test_mesh",
-            native_channel_id=None,
-            native_message_id="88",
-            delivery_plan_id=plan_id,
-            metadata={},
-        )
-
-        await lifecycle.finalize_queued_delivery(
-            storage, record=record, now=datetime.now(timezone.utc)
-        )
-
-        sent = [r for r in storage._receipts if r.status == "sent"]
-        assert len(sent) == 0
-
-    @pytest.mark.asyncio
-    async def test_no_matching_queued_receipt_silent_return(self) -> None:
-        """When no queued receipt matches, finalize_queued_delivery
-        returns silently without creating any receipt."""
-        storage = _FakeStorage()
-        lifecycle = DeliveryLifecycleService(logger=logging.getLogger("test"))
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-no-match",
-            adapter="test_mesh",
-            native_channel_id="0",
-            native_message_id="99",
-            delivery_plan_id=None,
-            metadata={},
-        )
-
-        await lifecycle.finalize_queued_delivery(
-            storage, record=record, now=datetime.now(timezone.utc)
-        )
-        assert len(storage._receipts) == 0
 
 
 # ===========================================================================

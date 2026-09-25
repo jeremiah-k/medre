@@ -103,10 +103,11 @@ def test_observation_record_rejects_mirror_field_contradiction(
 
 
 def test_queue_terminal_record_rejects_non_positive_attempt_mirror() -> None:
-    with pytest.raises(ValueError, match="attempt_number must be >= 1 when provided"):
+    with pytest.raises(ValueError, match="attempt_number must be an integer >= 1"):
         QueueTerminalRecord(
             event_id="evt-mirror",
             adapter="mesh-mirror",
             outcome="exhausted",
             attempt_number=0,
+            attempt_provenance=_provenance(attempt_number=0),
         )

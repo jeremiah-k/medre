@@ -13,7 +13,10 @@ _finalize_queued_delivery code paths, not the queue evidence counters
 
 from __future__ import annotations
 
+import pytest
+
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
@@ -112,6 +115,14 @@ class TestSupplementalReceiptChannelCorrelation:
 
         # Callback for channel "0".
         record_ch0 = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event_id,
+                target_adapter="mesh-1",
+                outbox_id="obox-ch0",
+                attempt_number=1,
+                delivery_plan_id="plan-ch0",
+                target_channel="0",
+            ),
             event_id=event_id,
             adapter="mesh-1",
             native_channel_id="0",
@@ -125,6 +136,14 @@ class TestSupplementalReceiptChannelCorrelation:
 
         # Callback for channel "1".
         record_ch1 = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event_id,
+                target_adapter="mesh-1",
+                outbox_id="obox-ch1",
+                attempt_number=1,
+                delivery_plan_id="plan-ch1",
+                target_channel="1",
+            ),
             event_id=event_id,
             adapter="mesh-1",
             native_channel_id="1",
@@ -202,7 +221,7 @@ class TestSupplementalReceiptChannelCorrelation:
             ),
         )
 
-        runner = PipelineRunner(
+        PipelineRunner(
             PipelineConfig(
                 storage=temp_storage,
                 router=Router(routes=[]),
@@ -214,14 +233,16 @@ class TestSupplementalReceiptChannelCorrelation:
         )
 
         # Record with NO channel → ambiguous (same plan, different channels).
-        record = OutboundNativeRefRecord(
-            event_id=event_id,
-            adapter="mesh-1",
-            native_channel_id=None,
-            native_message_id="packet-amb",
-            delivery_plan_id="plan-shared",
-        )
-        await runner._finalize_queued_delivery(record=record, now=now)
+        # The pre-envelope ambiguous shape (plan ID only, no outbox) can no
+        # longer be constructed; exact attempt provenance is mandatory.
+        with pytest.raises(ValueError, match="requires attempt_provenance"):
+            OutboundNativeRefRecord(
+                event_id=event_id,
+                adapter="mesh-1",
+                native_channel_id=None,
+                native_message_id="packet-amb",
+                delivery_plan_id="plan-shared",
+            )
 
         receipts = await temp_storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"]
@@ -286,6 +307,14 @@ class TestSupplementalReceiptChannelCorrelation:
 
         # No channel but only one candidate → OK.
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event_id,
+                target_adapter="mesh-1",
+                outbox_id="obox-single",
+                attempt_number=1,
+                delivery_plan_id="plan-only",
+                target_channel="0",
+            ),
             event_id=event_id,
             adapter="mesh-1",
             native_channel_id=None,
@@ -379,6 +408,14 @@ class TestSupplementalReceiptChannelCorrelation:
         )
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event_id,
+                target_adapter="mesh-1",
+                outbox_id="obox-retry",
+                attempt_number=2,
+                delivery_plan_id="plan-retry",
+                target_channel="0",
+            ),
             event_id=event_id,
             adapter="mesh-1",
             native_channel_id="0",
@@ -545,6 +582,14 @@ class TestDeliveryPlanIdQueuePropagation:
                     "payload": {"text": "test msg"},
                     "channel_index": 0,
                     "event_id": "evt-rec",
+                    "attempt_provenance": make_attempt_provenance(
+                        event_id="evt-rec",
+                        target_adapter="test-rec",
+                        outbox_id="obox-evt-rec",
+                        attempt_number=1,
+                        delivery_plan_id="plan-propagated",
+                        target_channel="0",
+                    ),
                     "delivery_plan_id": "plan-propagated",
                 },
                 delivery_result=AdapterDeliveryResult(
@@ -620,7 +665,17 @@ class TestMetadataKeySplitting:
         await adapter.start(ctx)
         try:
             queue_result = QueueDeliveryResult(
-                item={"payload": {"text": "hi"}, "channel_index": 0},
+                item={
+                    "payload": {"text": "hi"},
+                    "channel_index": 0,
+                    "attempt_provenance": make_attempt_provenance(
+                        event_id="evt-m1",
+                        target_adapter="test-meta1",
+                        outbox_id="obox-evt-m1",
+                        attempt_number=1,
+                        target_channel="0",
+                    ),
+                },
                 delivery_result=AdapterDeliveryResult(
                     native_message_id="pkt-m1",
                     native_channel_id="0",
@@ -682,7 +737,17 @@ class TestMetadataKeySplitting:
         await adapter.start(ctx)
         try:
             queue_result = QueueDeliveryResult(
-                item={"payload": {"text": "hi"}, "channel_index": 0},
+                item={
+                    "payload": {"text": "hi"},
+                    "channel_index": 0,
+                    "attempt_provenance": make_attempt_provenance(
+                        event_id="evt-m2",
+                        target_adapter="test-meta2",
+                        outbox_id="obox-evt-m2",
+                        attempt_number=1,
+                        target_channel="0",
+                    ),
+                },
                 delivery_result=AdapterDeliveryResult(
                     native_message_id="pkt-m2",
                     native_channel_id="0",
@@ -742,7 +807,17 @@ class TestMetadataKeySplitting:
         await adapter.start(ctx)
         try:
             queue_result = QueueDeliveryResult(
-                item={"payload": {"text": "hi"}, "channel_index": 0},
+                item={
+                    "payload": {"text": "hi"},
+                    "channel_index": 0,
+                    "attempt_provenance": make_attempt_provenance(
+                        event_id="evt-m3",
+                        target_adapter="test-meta3",
+                        outbox_id="obox-evt-m3",
+                        attempt_number=1,
+                        target_channel="0",
+                    ),
+                },
                 delivery_result=AdapterDeliveryResult(
                     native_message_id="pkt-m3",
                     native_channel_id="0",
@@ -807,7 +882,17 @@ class TestMetadataKeySplitting:
         await adapter.start(ctx)
         try:
             queue_result = QueueDeliveryResult(
-                item={"payload": {"text": "hi"}, "channel_index": 0},
+                item={
+                    "payload": {"text": "hi"},
+                    "channel_index": 0,
+                    "attempt_provenance": make_attempt_provenance(
+                        event_id="evt-m4",
+                        target_adapter="test-meta4",
+                        outbox_id="obox-evt-m4",
+                        attempt_number=1,
+                        target_channel="0",
+                    ),
+                },
                 delivery_result=AdapterDeliveryResult(
                     native_message_id="pkt-m4",
                     native_channel_id="0",
@@ -900,6 +985,14 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
                     "channel_index": 0,
                     "event_id": "evt-reaction-ns",
                     "delivery_plan_id": "plan-ns",
+                    "attempt_provenance": make_attempt_provenance(
+                        event_id="evt-reaction-ns",
+                        target_adapter="test-ns-facts",
+                        outbox_id="obox-evt-reaction-ns",
+                        attempt_number=1,
+                        delivery_plan_id="plan-ns",
+                        target_channel="0",
+                    ),
                 },
                 delivery_result=AdapterDeliveryResult(
                     native_message_id="789",
@@ -992,6 +1085,14 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
                     "payload": {"text": "plain msg", "channel_index": 0},
                     "channel_index": 0,
                     "event_id": "evt-plain-ns",
+                    "attempt_provenance": make_attempt_provenance(
+                        event_id="evt-plain-ns",
+                        target_adapter="test-ns-plain",
+                        outbox_id="obox-evt-plain-ns",
+                        attempt_number=1,
+                        delivery_plan_id=None,
+                        target_channel="0",
+                    ),
                 },
                 delivery_result=AdapterDeliveryResult(
                     native_message_id="321",

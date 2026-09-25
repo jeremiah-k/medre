@@ -8,7 +8,6 @@ exact outbox_id-based receipt selection and idempotency.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 
 import pytest
@@ -17,6 +16,7 @@ from msgspec.structs import replace
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.events.canonical import DeliveryReceipt
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 
 from .conftest import _make_lifecycle, _make_receipt
 
@@ -126,6 +126,14 @@ class TestFieldMismatchRejected:
         )
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="__outbox_default__",
+                target_adapter="mesh-1",
+                outbox_id="obox-plan-mismatch",
+                attempt_number=1,
+                delivery_plan_id="plan-wrong",
+                target_channel="0",
+            ),
             event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
@@ -165,6 +173,14 @@ class TestFieldMismatchRejected:
         )
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="__outbox_default__",
+                target_adapter="mesh-1",
+                outbox_id="obox-ch-mismatch",
+                attempt_number=1,
+                delivery_plan_id="plan-ch",
+                target_channel="wrong-channel",
+            ),
             event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="wrong-channel",
@@ -204,6 +220,14 @@ class TestFieldMismatchRejected:
         )
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="__outbox_default__",
+                target_adapter="wrong-adapter",
+                outbox_id="obox-adapter-mismatch",
+                attempt_number=1,
+                delivery_plan_id="plan-adapt",
+                target_channel="0",
+            ),
             event_id="__outbox_default__",
             adapter="wrong-adapter",
             native_channel_id="0",
@@ -244,6 +268,14 @@ class TestFieldMismatchRejected:
         )
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="__outbox_default__",
+                target_adapter="mesh-1",
+                outbox_id="obox-attempt-mismatch",
+                attempt_number=5,
+                delivery_plan_id="plan-attempt",
+                target_channel="0",
+            ),
             event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
@@ -308,6 +340,14 @@ class TestExactOutboxSelection:
 
         # Callback targets obox-second → should only match rcpt-second.
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="__outbox_default__",
+                target_adapter="mesh-1",
+                outbox_id="obox-second",
+                attempt_number=2,
+                delivery_plan_id="plan-shared",
+                target_channel="0",
+            ),
             event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
@@ -367,6 +407,14 @@ class TestExactCallbackHappyPath:
         )
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="__outbox_default__",
+                target_adapter="mesh-1",
+                outbox_id="obox-valid",
+                attempt_number=1,
+                delivery_plan_id="plan-valid",
+                target_channel="0",
+            ),
             event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
@@ -416,6 +464,14 @@ class TestExactCallbackHappyPath:
         )
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="__outbox_default__",
+                target_adapter="mesh-1",
+                outbox_id="obox-dup",
+                attempt_number=1,
+                delivery_plan_id="plan-dup",
+                target_channel="0",
+            ),
             event_id="__outbox_default__",
             adapter="mesh-1",
             native_channel_id="0",
@@ -449,95 +505,15 @@ class TestExactCallbackHappyPath:
         assert sent[0].parent_receipt_id == "rcpt-dup-q"
 
 
-class TestMissingAttemptNumberRejected:
-    """Queued-to-sent callbacks missing attempt_number are hard-rejected."""
+class TestAttemptProvenanceMandatory:
+    """The exact attempt generation is mandatory on queued-to-sent callbacks."""
 
-    async def test_missing_attempt_number_no_sent_receipt(
-        self,
-        outbox_temp_storage: StorageBackend,
-    ) -> None:
-        """Callback with outbox_id but attempt_number=None → no sent receipt."""
-        await _setup_outbox_and_receipt(outbox_temp_storage)
-        record = OutboundNativeRefRecord(
-            event_id="__outbox_default__",
-            adapter="mesh-1",
-            native_channel_id="0",
-            native_message_id="pkt-no-attempt",
-            delivery_plan_id="plan-q",
-            outbox_id="obox-001",
-            attempt_number=None,
-        )
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await lifecycle.finalize_queued_delivery(
-            outbox_temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await outbox_temp_storage.list_receipts_for_event(
-            "__outbox_default__"
-        )
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-
-    async def test_missing_attempt_number_no_outbox_mutation(
-        self,
-        outbox_temp_storage: StorageBackend,
-    ) -> None:
-        """Callback with outbox_id but attempt_number=None → outbox stays queued."""
-        await _setup_outbox_and_receipt(
-            outbox_temp_storage, outbox_id="obox-no-attempt"
-        )
-        record = OutboundNativeRefRecord(
-            event_id="__outbox_default__",
-            adapter="mesh-1",
-            native_channel_id="0",
-            native_message_id="pkt-no-attempt",
-            delivery_plan_id="plan-q",
-            outbox_id="obox-no-attempt",
-            attempt_number=None,
-        )
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await lifecycle.finalize_queued_delivery(
-            outbox_temp_storage,
-            record=record,
-            now=now,
-        )
-
-        outbox = await outbox_temp_storage.get_outbox_item("obox-no-attempt")
-        assert outbox is not None
-        assert outbox.status == "queued"
-
-    async def test_missing_attempt_number_logs_warning(
-        self,
-        outbox_temp_storage: StorageBackend,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Callback with missing attempt_number produces a warning log."""
-        await _setup_outbox_and_receipt(
-            outbox_temp_storage, outbox_id="obox-warn-attempt"
-        )
-        record = OutboundNativeRefRecord(
-            event_id="__outbox_default__",
-            adapter="mesh-1",
-            native_channel_id="0",
-            native_message_id="pkt-warn",
-            delivery_plan_id="plan-q",
-            outbox_id="obox-warn-attempt",
-            attempt_number=None,
-        )
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
-                outbox_temp_storage,
-                record=record,
-                now=now,
+    def test_envelope_rejects_missing_attempt_generation(self) -> None:
+        """A hand-off envelope without an attempt generation cannot exist."""
+        with pytest.raises(ValueError, match="attempt_number must be an integer >= 1"):
+            make_attempt_provenance(
+                event_id="evt-q",
+                target_adapter="mesh-1",
+                outbox_id="obox-001",
+                attempt_number=0,
             )
-
-        assert "Missing attempt_number" in caplog.text

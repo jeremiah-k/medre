@@ -13,6 +13,7 @@ import pytest
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.storage_outbox import (
     admit_event,
     append_receipt_with_parent,
@@ -63,6 +64,14 @@ class TestAppendQueuedToSentErrorPaths:
         )
         await temp_storage.mark_outbox_queued("obox-list-err")
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-list-err",
+                target_adapter="mesh-1",
+                outbox_id="obox-list-err",
+                attempt_number=1,
+                delivery_plan_id="plan-001",
+                target_channel=None,
+            ),
             event_id="evt-list-err",
             adapter="mesh-1",
             native_channel_id=None,
@@ -82,33 +91,6 @@ class TestAppendQueuedToSentErrorPaths:
                 now=datetime.now(timezone.utc),
             )
         assert "Failed to list delivery receipt history" in caplog.text
-
-    async def test_channel_mismatch_skips_supplemental(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """Queued receipts exist but none match channel → skip."""
-        lifecycle = _make_lifecycle()
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-ch", status="queued", adapter="m", channel="0"
-            ),
-        )
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="1",
-            native_message_id="pkt",
-            delivery_plan_id="plan-001",
-        )
-        await lifecycle.finalize_queued_delivery(
-            temp_storage,
-            record=record,
-            now=datetime.now(timezone.utc),
-        )
-        all_r = await temp_storage.list_receipts_for_event("evt-001")
-        assert all(r.status != "sent" for r in all_r)
 
     async def test_lost_outbox_guard_logged_not_raised(
         self,
@@ -146,6 +128,14 @@ class TestAppendQueuedToSentErrorPaths:
         await temp_storage.mark_outbox_queued("obox-supp-err")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="m",
+                outbox_id="obox-supp-err",
+                attempt_number=1,
+                delivery_plan_id="plan-001",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -204,6 +194,14 @@ class TestAppendQueuedToSentErrorPaths:
         await temp_storage.mark_outbox_queued("obox-supp-err")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="m",
+                outbox_id="obox-supp-err",
+                attempt_number=1,
+                delivery_plan_id="plan-001",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -281,6 +279,14 @@ class TestAppendQueuedToSentErrorPaths:
         )
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-attempt-filter",
+                target_adapter="m",
+                outbox_id="obox-attempt-filter",
+                attempt_number=2,
+                delivery_plan_id="plan-af",
+                target_channel="0",
+            ),
             event_id="evt-attempt-filter",
             adapter="m",
             native_channel_id="0",

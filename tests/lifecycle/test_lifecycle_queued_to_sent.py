@@ -17,6 +17,7 @@ import pytest
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
@@ -66,6 +67,14 @@ class TestAppendQueuedToSentReceipt:
         await temp_storage.mark_outbox_queued("obox-supplemental-sent")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-supplemental-sent",
+                attempt_number=1,
+                delivery_plan_id="plan-q",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -154,6 +163,14 @@ class TestSameChannelRetryLineageRegression:
         await temp_storage.mark_outbox_queued("obox-retry-multi")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="m",
+                outbox_id="obox-retry-multi",
+                attempt_number=2,
+                delivery_plan_id="plan-r",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="m",
             native_channel_id=None,
@@ -175,58 +192,6 @@ class TestSameChannelRetryLineageRegression:
         assert sent[0].attempt_number == 2
         assert await temp_storage.resolve_native_ref("m", "0", "pkt-a") == "evt-001"
         assert await temp_storage.resolve_native_ref("m", None, "pkt-a") is None
-
-    async def test_plan_id_no_channel_same_plan_multiple_channels_skip(
-        self,
-        temp_storage: StorageBackend,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """(B) delivery_plan_id present + no native_channel_id + same plan +
-        multiple channels → no supplemental receipt, warning logged."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-b0",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-bx",
-            ),
-        )
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-b1",
-                status="queued",
-                adapter="m",
-                channel="1",
-                plan_id="plan-bx",
-            ),
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id=None,
-            native_message_id="pkt-b",
-            delivery_plan_id="plan-bx",
-        )
-        with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
-                temp_storage,
-                record=record,
-                now=now,
-            )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-        assert "Hard reject" in caplog.text
-        assert "lacks outbox_id" in caplog.text
-        assert "plan-bx" in caplog.text
 
 
 # ===================================================================
@@ -270,6 +235,14 @@ class TestSupplementalOutboxTransition:
         await temp_storage.mark_outbox_queued("obox-supplemental")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-supplemental",
+                attempt_number=1,
+                delivery_plan_id="plan-outbox",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -361,6 +334,14 @@ class TestDeterministicPlanIdCorrelation:
 
         # Record for plan-b with delivery_plan_id set.
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh",
+                outbox_id="obox-plan-b",
+                attempt_number=1,
+                delivery_plan_id="plan-b",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="mesh",
             native_channel_id="0",
@@ -451,6 +432,14 @@ class TestDeterministicPlanIdCorrelation:
 
         # Record for plan-a2.
         record_a = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="m",
+                outbox_id="obox-a2",
+                attempt_number=1,
+                delivery_plan_id="plan-a2",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -467,6 +456,14 @@ class TestDeterministicPlanIdCorrelation:
 
         # Record for plan-b2.
         record_b = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="m",
+                outbox_id="obox-b2",
+                attempt_number=1,
+                delivery_plan_id="plan-b2",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -543,6 +540,14 @@ class TestDeterministicPlanIdCorrelation:
         await temp_storage.mark_outbox_queued("obox-retry-latest")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="m",
+                outbox_id="obox-retry-latest",
+                attempt_number=2,
+                delivery_plan_id="plan-retry",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -562,314 +567,6 @@ class TestDeterministicPlanIdCorrelation:
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-attempt2"
         assert sent[0].attempt_number == 2
-
-    async def test_plan_id_not_found_no_supplemental(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """delivery_plan_id on record but no matching queued receipt → skip."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-x",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-x",
-            ),
-        )
-
-        # Record with a different plan_id that doesn't match.
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt-nope",
-            delivery_plan_id="plan-nonexistent",
-        )
-        await lifecycle.finalize_queued_delivery(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-
-    async def test_plan_id_no_channel_multiple_plan_matches_skip(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """delivery_plan_id set, no channel, multiple plan matches → skip."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-ch0",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-multi",
-            ),
-        )
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-ch1",
-                status="queued",
-                adapter="m",
-                channel="1",
-                plan_id="plan-multi",
-            ),
-        )
-
-        # Same plan but no channel → ambiguous.
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id=None,
-            native_message_id="pkt-ambig",
-            delivery_plan_id="plan-multi",
-        )
-        await lifecycle.finalize_queued_delivery(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-
-    async def test_plan_id_nonexistent_with_heuristic_candidates_no_fallback(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """delivery_plan_id present but nonexistent, heuristic candidates exist
-        → no supplemental receipt and no heuristic fallback."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        # Multiple queued receipts that WOULD match via heuristic.
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-heur-a",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-real-a",
-            ),
-        )
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-heur-b",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-real-b",
-            ),
-        )
-
-        # Record with a plan_id that matches NONE of the queued receipts.
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt-ghost",
-            delivery_plan_id="plan-nonexistent",
-        )
-        await lifecycle.finalize_queued_delivery(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        # No supplemental sent receipt — heuristic fallback must NOT be used.
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-
-    async def test_missing_delivery_plan_id_no_supplemental_receipt(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """Record without delivery_plan_id, queued receipts exist → NO sent
-        receipt created."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-no-plan",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-1",
-            ),
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt-no-plan",
-            # delivery_plan_id is None
-        )
-        await lifecycle.finalize_queued_delivery(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-
-    async def test_missing_delivery_plan_id_logs_warning(
-        self,
-        temp_storage: StorageBackend,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Record without delivery_plan_id logs at WARNING level with
-        event_id, adapter, and native_channel_id context."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-no-plan-warn",
-                status="queued",
-                adapter="mesh-1",
-                channel="0",
-                plan_id="plan-warn",
-                event_id="evt-warn",
-            ),
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-warn",
-            adapter="mesh-1",
-            native_channel_id="ch-warn-42",
-            native_message_id="pkt-warn",
-            # delivery_plan_id is None
-        )
-        with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
-                temp_storage,
-                record=record,
-                now=now,
-            )
-
-        # Must be WARNING level, not DEBUG.
-        warning_records = [
-            r
-            for r in caplog.records
-            if "Hard reject" in r.message and "lacks outbox_id" in r.message
-        ]
-        assert len(warning_records) >= 1
-        assert warning_records[0].levelname == "WARNING"
-        # Must include operator context.
-        assert "evt-warn" in caplog.text
-        assert "mesh-1" in caplog.text
-        assert "ch-warn-42" in caplog.text
-
-    async def test_missing_delivery_plan_id_no_outbox_transition(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """Record without delivery_plan_id → outbox not transitioned to sent."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-no-plan-ob",
-                status="queued",
-                adapter="mesh-1",
-                channel="0",
-                plan_id="plan-ob",
-            ),
-        )
-
-        # Create a matching outbox item, then transition to "queued" (Pattern C).
-        outbox_item = DeliveryOutboxItem(
-            outbox_id="obox-no-plan",
-            event_id="evt-001",
-            route_id="route-001",
-            delivery_plan_id="plan-ob",
-            target_adapter="mesh-1",
-            target_channel="0",
-            status="in_progress",
-        )
-        await create_outbox_item_with_parent(temp_storage, outbox_item)
-        await temp_storage.mark_outbox_queued("obox-no-plan")
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="mesh-1",
-            native_channel_id="0",
-            native_message_id="pkt-no-plan-ob",
-            attempt_number=1,
-            # delivery_plan_id is None
-        )
-        await lifecycle.finalize_queued_delivery(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        # Outbox should still be queued (not sent).
-        updated = await temp_storage.get_outbox_item("obox-no-plan")
-        assert updated is not None
-        assert updated.status == "queued"
-
-    async def test_delivery_plan_id_mismatch_skips_correlation(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """Record has plan_id "plan-x" but no queued receipt with that plan →
-        no sent receipt."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-other",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-other",
-            ),
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt-mismatch",
-            delivery_plan_id="plan-x",
-        )
-        await lifecycle.finalize_queued_delivery(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
 
     async def test_delivery_plan_id_channel_match_still_works(
         self,
@@ -907,6 +604,14 @@ class TestDeterministicPlanIdCorrelation:
         await temp_storage.mark_outbox_queued("obox-match")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-match",
+                attempt_number=1,
+                delivery_plan_id="plan-match",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -928,43 +633,6 @@ class TestDeterministicPlanIdCorrelation:
         assert sent[0].delivery_plan_id == "plan-match"
         assert sent[0].adapter_message_id == "pkt-match-ok"
 
-    async def test_delivery_plan_id_channel_mismatch_skips(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """Record has plan_id + channel, receipt matches plan but NOT channel
-        → no sent receipt."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-ch-mismatch",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-ch",
-            ),
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="99",
-            native_message_id="pkt-ch-mismatch",
-            delivery_plan_id="plan-ch",
-        )
-        await lifecycle.finalize_queued_delivery(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-
 
 # ===================================================================
 # delivery_state transition guard at queued→sent (D)
@@ -975,42 +643,6 @@ class TestDeliveryStateTransitionGuard:
     """Verify that finalize_queued_delivery validates the selected
     queued receipt can transition to sent via delivery_state helper."""
 
-    async def test_non_queued_status_skips_supplemental(
-        self,
-        temp_storage: StorageBackend,
-    ) -> None:
-        """A 'failed' receipt selected as candidate → no supplemental receipt."""
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        # A receipt with status='failed' (not 'queued').
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-failed",
-                status="failed",
-                adapter="m",
-                channel="0",
-                plan_id="plan-f",
-            ),
-        )
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt-noop",
-        )
-        await lifecycle.finalize_queued_delivery(
-            temp_storage,
-            record=record,
-            now=now,
-        )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-
 
 # ===================================================================
 # Supplemental queued→sent receipt — uncovered edge-case paths
@@ -1019,55 +651,6 @@ class TestDeliveryStateTransitionGuard:
 
 class TestAppendQueuedToSentEdgeCases:
     """Edge-case rejection paths in finalize_queued_delivery."""
-
-    async def test_event_id_mismatch_rejects_callback(
-        self,
-        temp_storage: StorageBackend,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """When outbox_item.event_id != record.event_id, the callback is
-        rejected with a warning and no supplemental receipt is created.
-        Covers lines 655-664.
-        """
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        outbox_item = DeliveryOutboxItem(
-            outbox_id="obox-evm",
-            event_id="evt-real",
-            route_id="route-1",
-            delivery_plan_id="plan-evm",
-            target_adapter="m",
-            target_channel="0",
-            status="in_progress",
-            attempt_number=1,
-        )
-        await create_outbox_item_with_parent(temp_storage, outbox_item)
-        await temp_storage.mark_outbox_queued("obox-evm")
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-wrong",  # mismatch with outbox_item.event_id
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt-evm",
-            delivery_plan_id="plan-evm",
-            outbox_id="obox-evm",
-            attempt_number=1,
-        )
-        with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
-                temp_storage,
-                record=record,
-                now=now,
-            )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-wrong")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-        # Also verify no receipts for the correct event (evt-real) were created
-        real_receipts = await temp_storage.list_receipts_for_event("evt-real")
-        assert len(real_receipts) == 0
-        assert "Outbox event_id mismatch" in caplog.text
 
     async def test_no_queued_receipt_matched_outbox_id(
         self,
@@ -1108,6 +691,14 @@ class TestAppendQueuedToSentEdgeCases:
         await temp_storage.mark_outbox_queued("obox-nom")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="m",
+                outbox_id="obox-nom",
+                attempt_number=1,
+                delivery_plan_id="plan-nom",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -1169,6 +760,14 @@ class TestAppendQueuedToSentEdgeCases:
 
         # Record with attempt_number=2 matches outbox but mismatches receipt.
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="m",
+                outbox_id="obox-atm",
+                attempt_number=2,
+                delivery_plan_id="plan-atm",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="m",
             native_channel_id="0",
@@ -1191,88 +790,6 @@ class TestAppendQueuedToSentEdgeCases:
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
         assert not [r for r in all_receipts if r.adapter_message_id == "pkt-atm"]
-
-    async def test_invalid_status_transition_skips_supplemental(
-        self,
-        temp_storage: StorageBackend,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Selected queued receipt has a status that cannot transition to
-        'sent' — defensive guard fires.  Covers line 805 rejection branch.
-
-        The normal flow always selects receipts with status='queued', so we
-        mock _select_source_preferred_candidate to return a non-queued receipt.
-        """
-        from unittest.mock import patch
-
-        lifecycle = _make_lifecycle()
-        now = datetime.now(tz=timezone.utc)
-
-        # Set up a normal queued receipt + outbox to satisfy earlier checks.
-        await append_receipt_with_parent(
-            temp_storage,
-            _make_receipt(
-                receipt_id="rcpt-sent-already",
-                status="queued",
-                adapter="m",
-                channel="0",
-                plan_id="plan-inv",
-                outbox_id="obox-inv",
-            ),
-        )
-
-        outbox_item = DeliveryOutboxItem(
-            outbox_id="obox-inv",
-            event_id="evt-001",
-            route_id="route-1",
-            delivery_plan_id="plan-inv",
-            target_adapter="m",
-            target_channel="0",
-            status="in_progress",
-            attempt_number=1,
-        )
-        await create_outbox_item_with_parent(temp_storage, outbox_item)
-        await temp_storage.mark_outbox_queued("obox-inv")
-
-        record = OutboundNativeRefRecord(
-            event_id="evt-001",
-            adapter="m",
-            native_channel_id="0",
-            native_message_id="pkt-inv",
-            delivery_plan_id="plan-inv",
-            outbox_id="obox-inv",
-            attempt_number=1,
-        )
-
-        # Build a receipt with status="sent" to feed into the guard.
-        fake_receipt = _make_receipt(
-            receipt_id="rcpt-sent-already",
-            status="sent",  # cannot transition to "sent" again
-            adapter="m",
-            channel="0",
-            plan_id="plan-inv",
-            attempt_number=1,
-            outbox_id="obox-inv",
-        )
-
-        with (
-            caplog.at_level(logging.WARNING),
-            patch.object(
-                lifecycle,
-                "_select_source_preferred_candidate",
-                return_value=fake_receipt,
-            ),
-        ):
-            await lifecycle.finalize_queued_delivery(
-                temp_storage,
-                record=record,
-                now=now,
-            )
-
-        all_receipts = await temp_storage.list_receipts_for_event("evt-001")
-        sent = [r for r in all_receipts if r.status == "sent"]
-        assert len(sent) == 0
-        assert "cannot transition to sent" in caplog.text
 
     async def test_mark_outbox_sent_happy_path_validated_outbox(
         self,
@@ -1311,6 +828,14 @@ class TestAppendQueuedToSentEdgeCases:
         await temp_storage.mark_outbox_queued("obox-vo")
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-vo",
+                attempt_number=1,
+                delivery_plan_id="plan-vo",
+                target_channel="0",
+            ),
             event_id="evt-001",
             adapter="mesh-1",
             native_channel_id="0",
@@ -1333,3 +858,33 @@ class TestAppendQueuedToSentEdgeCases:
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 1
         assert sent[0].outbox_id == "obox-vo"
+
+
+class TestCallbackRequiresAttemptProvenance:
+    """Asynchronous callback records cannot exist without the envelope."""
+
+    def test_outboxless_record_shape_is_unconstructible(self) -> None:
+        """The pre-envelope plan-id-only callback shape no longer builds."""
+        with pytest.raises(ValueError, match="requires attempt_provenance"):
+            OutboundNativeRefRecord(
+                event_id="evt-001",
+                adapter="m",
+                native_channel_id="0",
+                native_message_id="pkt-nope",
+                delivery_plan_id="plan-x",
+            )
+
+    def test_envelope_requires_exact_attempt_identity(self) -> None:
+        """An envelope without an outbox cannot describe a durable attempt."""
+        from medre.core.events import DeliveryAttemptProvenance
+
+        with pytest.raises(ValueError, match="non-empty"):
+            DeliveryAttemptProvenance(
+                event_id="evt-001",
+                delivery_plan_id="plan-x",
+                target_adapter="m",
+                target_channel="0",
+                outbox_id="",
+                attempt_number=1,
+                source="live",
+            )

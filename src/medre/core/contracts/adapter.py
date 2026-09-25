@@ -510,6 +510,12 @@ class OutboundNativeRefRecord:
     attempt_provenance: DeliveryAttemptProvenance | None = None
 
     def __post_init__(self) -> None:
+        if self.attempt_provenance is None:
+            raise ValueError(
+                "OutboundNativeRefRecord requires attempt_provenance; "
+                "asynchronous callback lineage is frozen at hand-off, not "
+                "reconstructed"
+            )
         _apply_attempt_provenance_mirrors(
             self, self.attempt_provenance, owner="OutboundNativeRefRecord"
         )
@@ -596,6 +602,12 @@ class QueueTerminalRecord:
     attempt_provenance: DeliveryAttemptProvenance | None = None
 
     def __post_init__(self) -> None:
+        if self.attempt_provenance is None:
+            raise ValueError(
+                "QueueTerminalRecord requires attempt_provenance; "
+                "asynchronous callback lineage is frozen at hand-off, not "
+                "reconstructed"
+            )
         _apply_attempt_provenance_mirrors(
             self, self.attempt_provenance, owner="QueueTerminalRecord"
         )
@@ -634,6 +646,11 @@ class OutboundDeliveryObservationRecord:
         supplied attempt number; raises ``TypeError`` for metadata that cannot
         be serialized as JSON.
         """
+        if self.attempt_provenance is None:
+            raise ValueError(
+                "OutboundDeliveryObservationRecord requires attempt_provenance; "
+                "post-handoff observations must name the exact frozen attempt"
+            )
         _apply_attempt_provenance_mirrors(
             self,
             self.attempt_provenance,

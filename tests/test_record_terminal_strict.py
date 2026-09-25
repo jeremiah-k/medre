@@ -18,6 +18,7 @@ import logging
 
 import pytest
 
+from medre.core.contracts.adapter import QueueTerminalRecord
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem
@@ -64,36 +65,6 @@ async def _create_outbox_item(
 
 # ===================================================================
 # 1. No outbox_id → hard reject
-# ===================================================================
-
-
-class TestNoOutboxIdRejected:
-    """outbox_id=None must be rejected — no receipt, no mutation."""
-
-    @pytest.mark.asyncio
-    async def test_no_outbox_id_no_receipt(
-        self,
-        temp_storage: SQLiteStorage,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        manager = _make_manager(temp_storage)
-        record = make_terminal_record(
-            event_id="evt-no-obox",
-            adapter="mesh-1",
-            outbox_id=None,
-            outcome="exhausted",
-            error="budget exhausted",
-        )
-        with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
-
-        receipts = await temp_storage.list_receipts_for_event("evt-no-obox")
-        assert len(receipts) == 0
-        assert "missing attempt_provenance" in caplog.text
-
-
-# ===================================================================
-# 2. Missing outbox row → reject
 # ===================================================================
 
 
@@ -673,77 +644,13 @@ class TestValidPreservesRouteId:
         assert {r.route_id for r in receipts} == {"route-special-42"}
 
 
-class TestMissingAttemptNumberRejected:
-    """Terminal callbacks missing attempt_number are hard-rejected."""
+class TestTerminalRecordRequiresExactAttempt:
+    """Legacy no-outbox / no-attempt terminal shapes are unconstructible."""
 
-    async def test_missing_attempt_number_no_receipt(
-        self,
-        temp_storage: SQLiteStorage,
-    ) -> None:
-        """Terminal callback with outbox_id but attempt_number=None → no receipt."""
-        await _create_outbox_item(
-            temp_storage,
-            outbox_id="obox-no-attempt",
-            event_id="evt-no-attempt",
-        )
-        manager = _make_manager(temp_storage)
-        record = make_terminal_record(
-            event_id="evt-no-attempt",
-            adapter="mesh-1",
-            outbox_id="obox-no-attempt",
-            attempt_number=None,
-            outcome="exhausted",
-        )
-        await manager.record_terminal(record)
-
-        receipts = await temp_storage.list_receipts_for_event("evt-no-attempt")
-        assert len(receipts) == 0
-
-    async def test_missing_attempt_number_no_outbox_mutation(
-        self,
-        temp_storage: SQLiteStorage,
-    ) -> None:
-        """Terminal callback with attempt_number=None → outbox stays queued."""
-        await _create_outbox_item(
-            temp_storage,
-            outbox_id="obox-no-attempt-mut",
-            event_id="evt-no-attempt-mut",
-        )
-        await temp_storage.mark_outbox_queued("obox-no-attempt-mut")
-        manager = _make_manager(temp_storage)
-        record = make_terminal_record(
-            event_id="evt-no-attempt-mut",
-            adapter="mesh-1",
-            outbox_id="obox-no-attempt-mut",
-            attempt_number=None,
-            outcome="exhausted",
-        )
-        await manager.record_terminal(record)
-
-        outbox = await temp_storage.get_outbox_item("obox-no-attempt-mut")
-        assert outbox is not None
-        assert outbox.status == "queued"
-
-    async def test_missing_attempt_number_logs_warning(
-        self,
-        temp_storage: SQLiteStorage,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Terminal callback with missing attempt_number produces warning."""
-        await _create_outbox_item(
-            temp_storage,
-            outbox_id="obox-no-attempt-log",
-            event_id="evt-no-attempt-log",
-        )
-        manager = _make_manager(temp_storage)
-        record = make_terminal_record(
-            event_id="evt-no-attempt-log",
-            adapter="mesh-1",
-            outbox_id="obox-no-attempt-log",
-            attempt_number=None,
-            outcome="exhausted",
-        )
-        with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
-
-        assert "missing attempt_provenance" in caplog.text
+    def test_record_without_envelope_is_rejected_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="requires attempt_provenance"):
+            QueueTerminalRecord(
+                event_id="evt-strict",
+                adapter="mesh-1",
+                outcome="exhausted",
+            )
