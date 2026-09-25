@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import re
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -69,6 +70,18 @@ def _extract_backtick_statuses(text: str) -> set[str]:
 def _adapter_py_files() -> list[Path]:
     """Return all ``.py`` files under ``src/medre/adapters/``."""
     return sorted(ADAPTERS_DIR.rglob("*.py"))
+
+
+@cache
+def _parsed_delivery_results(
+    root: Path,
+) -> tuple[tuple[Path, tuple[tuple[str | None, dict[str, str]], ...]], ...]:
+    """Parse immutable repository source once for this test process."""
+    records: list[tuple[Path, tuple[tuple[str | None, dict[str, str]], ...]]] = []
+    for py_file in sorted(root.rglob("*.py")):
+        source = py_file.read_text("utf-8")
+        records.append((py_file, tuple(_parse_adapter_results(source, str(py_file)))))
+    return tuple(records)
 
 
 def _resolve_name_to_dict_literal(call_node: ast.AST, name: str) -> ast.Dict | None:
@@ -319,9 +332,7 @@ class TestAdapterMetadataNaming:
     def metadata_violations(self) -> list[str]:
         """Scan adapter source for metadata dicts with ``delivery_status`` key."""
         violations: list[str] = []
-        for py_file in _adapter_py_files():
-            source = py_file.read_text("utf-8")
-            results = _parse_adapter_results(source, str(py_file))
+        for py_file, results in _parsed_delivery_results(ADAPTERS_DIR):
             for _ds_value, meta_keys in results:
                 has_adapter_prefixed = any(k.startswith("adapter_") for k in meta_keys)
                 if "delivery_status" in meta_keys or has_adapter_prefixed:
@@ -353,9 +364,7 @@ class TestTestMockMetadataNaming:
         ``delivery_status`` key."""
         test_dir = _ROOT / "tests"
         violations: list[str] = []
-        for py_file in sorted(test_dir.rglob("*.py")):
-            source = py_file.read_text("utf-8")
-            results = _parse_adapter_results(source, str(py_file))
+        for py_file, results in _parsed_delivery_results(test_dir):
             for _ds_value, meta_keys in results:
                 has_adapter_prefixed = any(k.startswith("adapter_") for k in meta_keys)
                 if "delivery_status" in meta_keys or has_adapter_prefixed:
@@ -404,9 +413,7 @@ class TestAmbiguousTopLevelMetadataKeys:
     def adapter_ambiguous_violations(self) -> list[str]:
         """Scan adapter source for bare status/state metadata keys."""
         violations: list[str] = []
-        for py_file in _adapter_py_files():
-            source = py_file.read_text("utf-8")
-            results = _parse_adapter_results(source, str(py_file))
+        for py_file, results in _parsed_delivery_results(ADAPTERS_DIR):
             for _ds_value, meta_keys in results:
                 for key in _AMBIGUOUS_METADATA_KEYS:
                     if key in meta_keys:
@@ -432,9 +439,7 @@ class TestAmbiguousTopLevelMetadataKeys:
         """Scan test source for bare status/state metadata keys in mocks."""
         test_dir = _ROOT / "tests"
         violations: list[str] = []
-        for py_file in sorted(test_dir.rglob("*.py")):
-            source = py_file.read_text("utf-8")
-            results = _parse_adapter_results(source, str(py_file))
+        for py_file, results in _parsed_delivery_results(test_dir):
             for _ds_value, meta_keys in results:
                 for key in _AMBIGUOUS_METADATA_KEYS:
                     if key in meta_keys:
