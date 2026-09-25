@@ -48,7 +48,7 @@ from typing import (
     runtime_checkable,
 )
 
-from medre.core.events import CanonicalEvent
+from medre.core.events import CanonicalEvent, DeliveryAttemptProvenance
 from medre.core.routing.models import RouteDestination
 
 if TYPE_CHECKING:
@@ -254,10 +254,11 @@ class RenderingResult:
         :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord` for
         exact outbox-level correlation.  **Not wire metadata, not public API.**
     attempt_number:
-        1-indexed delivery attempt number from the pipeline retry lineage.
-        Set by :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
-        alongside ``delivery_plan_id`` and ``outbox_id``.  Queue-based adapters
-        propagate this for stale-callback protection.
+        Compatibility mirror of the authoritative attempt-provenance generation.
+    attempt_provenance:
+        Immutable delivery-attempt envelope created by the pipeline once exact
+        outbox generation and dispatch provenance are known. Queue-backed
+        adapters carry this value through asynchronous callbacks.
     """
 
     event_id: str
@@ -271,10 +272,37 @@ class RenderingResult:
     delivery_plan_id: str | None = None
     outbox_id: str | None = None
     attempt_number: int | None = None
+    attempt_provenance: DeliveryAttemptProvenance | None = None
 
     def __post_init__(self) -> None:
         if self.attempt_number is not None and self.attempt_number < 1:
             raise ValueError(f"attempt_number must be >= 1, got {self.attempt_number}")
+
+        provenance = self.attempt_provenance
+        if provenance is None:
+            return
+        channel = None if self.target_channel in (None, "") else self.target_channel
+        if self.event_id != provenance.event_id:
+            raise ValueError("attempt_provenance event_id does not match render result")
+        if self.target_adapter != provenance.target_adapter:
+            raise ValueError(
+                "attempt_provenance target_adapter does not match render result"
+            )
+        if channel != provenance.target_channel:
+            raise ValueError(
+                "attempt_provenance target_channel does not match render result"
+            )
+        mirrors = (
+            ("delivery_plan_id", self.delivery_plan_id, provenance.delivery_plan_id),
+            ("outbox_id", self.outbox_id, provenance.outbox_id),
+            ("attempt_number", self.attempt_number, provenance.attempt_number),
+        )
+        for name, value, expected in mirrors:
+            if value is not None and value != expected:
+                raise ValueError(
+                    f"attempt_provenance {name} does not match render result"
+                )
+            object.__setattr__(self, name, expected)
 
 
 # ---------------------------------------------------------------------------

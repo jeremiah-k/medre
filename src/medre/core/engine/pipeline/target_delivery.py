@@ -62,6 +62,7 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.delivery import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DeliveryAttemptProvenance,
     DeliveryConfirmationLevel,
     DeliverySource,
     normalize_delivery_provenance,
@@ -726,15 +727,30 @@ class TargetDeliveryService:
                 evidence=evidence,
             ) from None
 
-        # Stamp delivery_plan_id for validation in queue callbacks;
-        # outbox_id provides exact correlation.  Also stamp attempt_number
-        # for stale-callback protection.  RenderingResult is frozen; use
-        # dataclass replace().
+        # Freeze the exact attempt identity and dispatch mechanism before
+        # adapter hand-off. Queue-backed adapters carry this immutable envelope
+        # through asynchronous callbacks; scalar fields remain compatibility
+        # mirrors only. Direct/outbox-less calls have no durable attempt to bind.
+        attempt_provenance = (
+            DeliveryAttemptProvenance(
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=adapter_id or "",
+                target_channel=target.channel,
+                outbox_id=outbox_id,
+                attempt_number=attempt_number,
+                source=source,
+                replay_run_id=replay_run_id,
+            )
+            if outbox_id is not None
+            else None
+        )
         rendering_result = replace(
             rendering_result,
             delivery_plan_id=plan.plan_id,
             outbox_id=outbox_id,
             attempt_number=attempt_number,
+            attempt_provenance=attempt_provenance,
         )
 
         # Guard: adapter must expose a callable deliver() method.
