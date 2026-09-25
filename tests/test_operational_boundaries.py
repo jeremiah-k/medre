@@ -428,6 +428,33 @@ def test_extended_transport_markers_registered(marker: str) -> None:
     assert f"{marker}:" in content
 
 
+def test_default_suite_avoids_duplicate_per_test_watchdog_threads() -> None:
+    """Default timeout safety must not create watchdog threads per test.
+
+    ``pytest-timeout`` chooses SIGALRM on POSIX and a timer-thread fallback on
+    platforms without it.  Forcing ``timeout_method = "thread"`` starts and
+    joins a ``threading.Timer`` for every test.  Pytest's
+    ``faulthandler_timeout`` likewise arms a watchdog around every test, so the
+    two settings together multiply scheduler overhead across the full suite.
+    """
+    import tomllib
+
+    pyproject = _TESTS_DIR.parent / "pyproject.toml"
+    config = tomllib.loads(_file_source(pyproject))["tool"]["pytest"]["ini_options"]
+
+    assert (
+        float(config["timeout"]) > 0
+    ), "the per-test timeout guard must remain enabled"
+    assert "timeout_method" not in config, (
+        "leave pytest-timeout's method unset so POSIX uses SIGALRM and other "
+        "platforms retain the plugin's supported fallback"
+    )
+    assert float(config.get("faulthandler_timeout", 0) or 0) == 0, (
+        "do not arm a second per-test watchdog; enable faulthandler_timeout "
+        "only for targeted hang diagnosis"
+    )
+
+
 def test_soak_tests_also_declare_an_evidence_layer() -> None:
     """``soak`` is an endurance overlay on an explicit evidence layer."""
     evidence_markers = {
