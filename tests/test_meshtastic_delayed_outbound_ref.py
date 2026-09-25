@@ -17,6 +17,7 @@ from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
 )
 from medre.core.events.canonical import CanonicalEvent
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.meshtastic import make_meshtastic_config
 
 
@@ -50,6 +51,14 @@ async def test_event_id_flows_to_outbound_native_ref_record() -> None:
         "payload": {"text": "hello mesh", "channel_index": 0},
         "channel_index": 0,
         "event_id": event_id,
+        "attempt_provenance": make_attempt_provenance(
+            event_id=event_id,
+            target_adapter="mesh-1",
+            outbox_id="outbox-delayed-001",
+            attempt_number=1,
+            delivery_plan_id="plan-delayed-001",
+            target_channel="0",
+        ),
     }
     delivery = AdapterDeliveryResult(
         native_message_id="987654321",
@@ -93,6 +102,34 @@ async def test_missing_callback_is_ignored() -> None:
     await adapter._record_delayed_outbound_ref(result, "$evt-no-cb", delivery)
 
 
+async def test_outboxless_delivery_does_not_emit_native_ref_callback() -> None:
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    recorded: list[OutboundNativeRefRecord] = []
+
+    async def on_outbound_ref(record: OutboundNativeRefRecord) -> None:
+        recorded.append(record)
+
+    adapter.ctx = _context(on_outbound_ref)
+    item: dict[str, Any] = {
+        "payload": {"text": "direct"},
+        "channel_index": 0,
+        "event_id": "$evt-direct",
+    }
+    delivery = AdapterDeliveryResult(
+        native_message_id="222",
+        native_channel_id="0",
+        metadata=MappingProxyType({}),
+    )
+
+    await adapter._record_delayed_outbound_ref(
+        QueueDeliveryResult(item=item, delivery_result=delivery),
+        "$evt-direct",
+        delivery,
+    )
+
+    assert recorded == []
+
+
 async def test_payload_fields_stay_in_meshtastic_metadata_namespace() -> None:
     adapter = MeshtasticAdapter(make_meshtastic_config())
     recorded: list[OutboundNativeRefRecord] = []
@@ -111,6 +148,14 @@ async def test_payload_fields_stay_in_meshtastic_metadata_namespace() -> None:
         },
         "channel_index": 2,
         "event_id": "$evt-full-meta",
+        "attempt_provenance": make_attempt_provenance(
+            event_id="$evt-full-meta",
+            target_adapter="mesh-1",
+            outbox_id="outbox-full-meta",
+            attempt_number=1,
+            delivery_plan_id="plan-full-meta",
+            target_channel="2",
+        ),
     }
     delivery = AdapterDeliveryResult(
         native_message_id="555",

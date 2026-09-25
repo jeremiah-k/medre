@@ -280,6 +280,10 @@ class RenderingResult:
 
         provenance = self.attempt_provenance
         if provenance is None:
+            if self.outbox_id is not None:
+                raise ValueError(
+                    "outbox-backed RenderingResult requires attempt_provenance"
+                )
             return
         channel = None if self.target_channel in (None, "") else self.target_channel
         if self.event_id != provenance.event_id:

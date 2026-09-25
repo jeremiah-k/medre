@@ -401,13 +401,11 @@ class _AttemptProvenanceMirrorRecord(Protocol):
 
 def _apply_attempt_provenance_mirrors(
     record: _AttemptProvenanceMirrorRecord,
-    provenance: DeliveryAttemptProvenance | None,
+    provenance: DeliveryAttemptProvenance,
     *,
     owner: str,
 ) -> None:
     """Validate callback mirrors and populate them from immutable provenance."""
-    if provenance is None:
-        return
     if record.event_id != provenance.event_id:
         raise ValueError(f"{owner}.event_id contradicts attempt_provenance")
     if record.adapter != provenance.target_adapter:
@@ -507,15 +505,9 @@ class OutboundNativeRefRecord:
     attempt_number: int | None = None
     confirmation_level: DeliveryConfirmationLevel = "unknown"
     metadata: Mapping[str, object] = field(default_factory=dict)
-    attempt_provenance: DeliveryAttemptProvenance | None = None
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
 
     def __post_init__(self) -> None:
-        if self.attempt_provenance is None:
-            raise ValueError(
-                "OutboundNativeRefRecord requires attempt_provenance; "
-                "asynchronous callback lineage is frozen at hand-off, not "
-                "reconstructed"
-            )
         _apply_attempt_provenance_mirrors(
             self, self.attempt_provenance, owner="OutboundNativeRefRecord"
         )
@@ -599,15 +591,9 @@ class QueueTerminalRecord:
     attempt_number: int | None = None
     native_channel_id: str | None = None
     error: str | None = None
-    attempt_provenance: DeliveryAttemptProvenance | None = None
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
 
     def __post_init__(self) -> None:
-        if self.attempt_provenance is None:
-            raise ValueError(
-                "QueueTerminalRecord requires attempt_provenance; "
-                "asynchronous callback lineage is frozen at hand-off, not "
-                "reconstructed"
-            )
         _apply_attempt_provenance_mirrors(
             self, self.attempt_provenance, owner="QueueTerminalRecord"
         )
@@ -637,7 +623,7 @@ class OutboundDeliveryObservationRecord:
     confirmation_level: DeliveryConfirmationLevel = "unknown"
     error: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
-    attempt_provenance: DeliveryAttemptProvenance | None = None
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
 
     def __post_init__(self) -> None:
         """Validate observation values and freeze JSON-safe metadata.
@@ -646,11 +632,6 @@ class OutboundDeliveryObservationRecord:
         supplied attempt number; raises ``TypeError`` for metadata that cannot
         be serialized as JSON.
         """
-        if self.attempt_provenance is None:
-            raise ValueError(
-                "OutboundDeliveryObservationRecord requires attempt_provenance; "
-                "post-handoff observations must name the exact frozen attempt"
-            )
         _apply_attempt_provenance_mirrors(
             self,
             self.attempt_provenance,

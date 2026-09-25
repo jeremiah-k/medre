@@ -235,7 +235,7 @@ class TestSupplementalReceiptChannelCorrelation:
         # Record with NO channel → ambiguous (same plan, different channels).
         # The pre-envelope ambiguous shape (plan ID only, no outbox) can no
         # longer be constructed; exact attempt provenance is mandatory.
-        with pytest.raises(ValueError, match="requires attempt_provenance"):
+        with pytest.raises(TypeError, match="attempt_provenance"):
             OutboundNativeRefRecord(
                 event_id=event_id,
                 adapter="mesh-1",

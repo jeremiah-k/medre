@@ -112,6 +112,7 @@ from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
     QueueTerminalRecord,
 )
+from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.policies.startup_backlog_suppress import (
     should_suppress_startup_backlog,
 )
@@ -1250,6 +1251,66 @@ class MeshtasticAdapter(AdapterContract):
             # remaining queued items as abandoned.
             await self._report_cancelled_and_drain()
 
+    def _callback_attempt_provenance(
+        self,
+        item: Mapping[str, object],
+        *,
+        callback_kind: str,
+    ) -> DeliveryAttemptProvenance | None:
+        """Return safe callback provenance, logging and dropping invalid work.
+
+        Outbox-less queue work can still be useful in standalone/direct adapter
+        mode, but it has no durable authority for asynchronous MEDRE evidence.
+        Such work is sent without emitting a callback record. Missing or invalid
+        provenance on outbox-backed work is an internal contract violation and
+        likewise fails closed without crashing the queue/shutdown task.
+        """
+        provenance = item.get("attempt_provenance")
+        outbox_id = item.get("outbox_id")
+        mismatch: str | None = None
+        if isinstance(provenance, DeliveryAttemptProvenance):
+            channel_index = item.get("channel_index")
+            channel = str(channel_index) if channel_index is not None else None
+            if self.adapter_id != provenance.target_adapter:
+                mismatch = "target_adapter contradicts immutable attempt provenance"
+            elif channel is not None and channel != provenance.target_channel:
+                mismatch = "target_channel contradicts immutable attempt provenance"
+            else:
+                for name, value, expected in (
+                    ("event_id", item.get("event_id"), provenance.event_id),
+                    (
+                        "delivery_plan_id",
+                        item.get("delivery_plan_id"),
+                        provenance.delivery_plan_id,
+                    ),
+                    ("outbox_id", outbox_id, provenance.outbox_id),
+                    (
+                        "attempt_number",
+                        item.get("attempt_number"),
+                        provenance.attempt_number,
+                    ),
+                ):
+                    if value is not None and value != expected:
+                        mismatch = f"{name} contradicts immutable attempt provenance"
+                        break
+            if mismatch is None:
+                return provenance
+        elif outbox_id is not None:
+            mismatch = "missing immutable attempt provenance"
+
+        if self.ctx is not None:
+            log = self.ctx.logger.error if outbox_id else self.ctx.logger.debug
+            log(
+                "MeshtasticAdapter %s: suppressing %s callback without exact "
+                "attempt provenance (event_id=%s outbox_id=%s reason=%s)",
+                self.adapter_id,
+                callback_kind,
+                item.get("event_id"),
+                outbox_id,
+                mismatch or "outbox-less direct delivery",
+            )
+        return None
+
     async def _report_queue_terminal(self, result: QueueTerminalResult) -> None:
         """Report a terminal queue outcome to core.
 
@@ -1263,32 +1324,38 @@ class MeshtasticAdapter(AdapterContract):
         result:
             The terminal result from :meth:`send_one`.
         """
+        callback = self.ctx.record_outbound_terminal if self.ctx is not None else None
+        if callback is None:
+            return
+        provenance = self._callback_attempt_provenance(
+            result.item, callback_kind="terminal"
+        )
+        if provenance is None:
+            return
         record = QueueTerminalRecord(
-            event_id=result.item.get("event_id") or "",
+            event_id=provenance.event_id,
             adapter=self.adapter_id,
-            outbox_id=result.item.get("outbox_id"),
-            delivery_plan_id=result.item.get("delivery_plan_id"),
-            attempt_number=result.item.get("attempt_number"),
-            attempt_provenance=result.item.get("attempt_provenance"),
+            outbox_id=provenance.outbox_id,
+            delivery_plan_id=provenance.delivery_plan_id,
+            attempt_number=provenance.attempt_number,
+            attempt_provenance=provenance,
             native_channel_id=(
                 str(ch) if (ch := result.item.get("channel_index")) is not None else ""
             ),
             outcome=result.outcome,
             error=result.error,
         )
-        callback = self.ctx.record_outbound_terminal if self.ctx is not None else None
-        if callback is not None:
-            try:
-                await callback(record)
-            except Exception:
-                if self.ctx is not None:
-                    self.ctx.logger.exception(
-                        "MeshtasticAdapter %s: error reporting terminal "
-                        "queue outcome for event_id=%s outcome=%s",
-                        self.adapter_id,
-                        record.event_id,
-                        record.outcome,
-                    )
+        try:
+            await callback(record)
+        except Exception:
+            if self.ctx is not None:
+                self.ctx.logger.exception(
+                    "MeshtasticAdapter %s: error reporting terminal "
+                    "queue outcome for event_id=%s outcome=%s",
+                    self.adapter_id,
+                    record.event_id,
+                    record.outcome,
+                )
 
     async def _report_cancelled_and_drain(self) -> None:
         """Report the in-flight cancelled item and drain remaining items.
@@ -1310,14 +1377,18 @@ class MeshtasticAdapter(AdapterContract):
         # Report the in-flight cancelled item.
         cancelled_item = self._queue.pop_cancelled_item()
         if cancelled_item is not None:
-            if callback is not None:
+            if callback is not None and (
+                provenance := self._callback_attempt_provenance(
+                    cancelled_item, callback_kind="cancelled"
+                )
+            ) is not None:
                 record = QueueTerminalRecord(
-                    event_id=cancelled_item.get("event_id") or "",
+                    event_id=provenance.event_id,
                     adapter=self.adapter_id,
-                    outbox_id=cancelled_item.get("outbox_id"),
-                    delivery_plan_id=cancelled_item.get("delivery_plan_id"),
-                    attempt_number=cancelled_item.get("attempt_number"),
-                    attempt_provenance=cancelled_item.get("attempt_provenance"),
+                    outbox_id=provenance.outbox_id,
+                    delivery_plan_id=provenance.delivery_plan_id,
+                    attempt_number=provenance.attempt_number,
+                    attempt_provenance=provenance,
                     native_channel_id=(
                         str(ch)
                         if (ch := cancelled_item.get("channel_index")) is not None
@@ -1354,13 +1425,18 @@ class MeshtasticAdapter(AdapterContract):
             remaining = self._queue.drain_all()
             if callback is not None:
                 for item in remaining:
+                    provenance = self._callback_attempt_provenance(
+                        item, callback_kind="abandoned"
+                    )
+                    if provenance is None:
+                        continue
                     record = QueueTerminalRecord(
-                        event_id=item.get("event_id") or "",
+                        event_id=provenance.event_id,
                         adapter=self.adapter_id,
-                        outbox_id=item.get("outbox_id"),
-                        delivery_plan_id=item.get("delivery_plan_id"),
-                        attempt_number=item.get("attempt_number"),
-                        attempt_provenance=item.get("attempt_provenance"),
+                        outbox_id=provenance.outbox_id,
+                        delivery_plan_id=provenance.delivery_plan_id,
+                        attempt_number=provenance.attempt_number,
+                        attempt_provenance=provenance,
                         native_channel_id=(
                             str(ch)
                             if (ch := item.get("channel_index")) is not None
@@ -1413,6 +1489,15 @@ class MeshtasticAdapter(AdapterContract):
         delivery:
             The adapter delivery result with native IDs and metadata.
         """
+        callback = self.ctx.record_outbound_native_ref if self.ctx else None
+        if callback is None:
+            return
+        provenance = self._callback_attempt_provenance(
+            result.item, callback_kind="native-ref"
+        )
+        if provenance is None:
+            return
+
         # Build enriched metadata from delivery result + payload context.
         send_meta: dict[str, object] = {}
 
@@ -1473,22 +1558,20 @@ class MeshtasticAdapter(AdapterContract):
             )
 
         record = OutboundNativeRefRecord(
-            event_id=event_id,
+            event_id=provenance.event_id,
             adapter=self.adapter_id,
             native_channel_id=delivery.native_channel_id,
             native_message_id=delivery.native_message_id,
             native_thread_id=delivery.native_thread_id,
             native_relation_id=delivery.native_relation_id,
-            delivery_plan_id=result.item.get("delivery_plan_id"),
-            outbox_id=result.item.get("outbox_id"),
-            attempt_number=result.item.get("attempt_number"),
+            delivery_plan_id=provenance.delivery_plan_id,
+            outbox_id=provenance.outbox_id,
+            attempt_number=provenance.attempt_number,
             confirmation_level=delivery.confirmation_level,
-            attempt_provenance=result.item.get("attempt_provenance"),
+            attempt_provenance=provenance,
             metadata=send_meta,
         )
-        callback = self.ctx.record_outbound_native_ref if self.ctx else None
-        if callback is not None:
-            await callback(record)
+        await callback(record)
 
     @property
     def queue_health(self) -> dict[str, Any]:

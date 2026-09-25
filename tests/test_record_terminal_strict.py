@@ -648,7 +648,7 @@ class TestTerminalRecordRequiresExactAttempt:
     """Legacy no-outbox / no-attempt terminal shapes are unconstructible."""
 
     def test_record_without_envelope_is_rejected_at_construction(self) -> None:
-        with pytest.raises(ValueError, match="requires attempt_provenance"):
+        with pytest.raises(TypeError, match="attempt_provenance"):
             QueueTerminalRecord(
                 event_id="evt-strict",
                 adapter="mesh-1",

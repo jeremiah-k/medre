@@ -109,6 +109,18 @@ def test_rendering_result_takes_scalar_mirrors_from_provenance() -> None:
     assert result.attempt_provenance is provenance
 
 
+def test_rendering_result_rejects_outbox_without_provenance() -> None:
+    with pytest.raises(ValueError, match="outbox-backed RenderingResult requires attempt_provenance"):
+        RenderingResult(
+            event_id="evt-1",
+            target_adapter="mesh-1",
+            target_channel="0",
+            payload={"text": "hello"},
+            outbox_id="outbox-1",
+            attempt_number=1,
+        )
+
+
 def test_rendering_result_rejects_scalar_contradiction() -> None:
     with pytest.raises(ValueError, match="outbox_id"):
         RenderingResult(

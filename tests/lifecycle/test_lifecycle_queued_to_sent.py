@@ -865,7 +865,7 @@ class TestCallbackRequiresAttemptProvenance:
 
     def test_outboxless_record_shape_is_unconstructible(self) -> None:
         """The pre-envelope plan-id-only callback shape no longer builds."""
-        with pytest.raises(ValueError, match="requires attempt_provenance"):
+        with pytest.raises(TypeError, match="attempt_provenance"):
             OutboundNativeRefRecord(
                 event_id="evt-001",
                 adapter="m",

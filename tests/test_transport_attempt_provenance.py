@@ -123,3 +123,27 @@ async def test_meshtastic_async_callbacks_echo_exact_provenance() -> None:
     assert native_record.attempt_provenance is provenance
     assert native_record.outbox_id == provenance.outbox_id
     assert native_record.attempt_number == provenance.attempt_number
+
+async def test_meshtastic_callback_drops_corrupted_queue_mirror() -> None:
+    provenance = _provenance()
+    terminal = AsyncMock()
+    native_ref = AsyncMock()
+    adapter = MeshtasticAdapter(
+        make_meshtastic_config(adapter_id="mesh-provenance", connection_type="fake")
+    )
+    adapter.ctx = _context(terminal=terminal, native_ref=native_ref)
+    item = {
+        "event_id": "evt-corrupted",
+        "delivery_plan_id": provenance.delivery_plan_id,
+        "outbox_id": provenance.outbox_id,
+        "attempt_number": provenance.attempt_number,
+        "channel_index": 0,
+        "payload": {"text": "hello"},
+        "attempt_provenance": provenance,
+    }
+
+    await adapter._report_queue_terminal(
+        QueueTerminalResult(item=item, outcome="permanent_failed", error="failed")
+    )
+
+    terminal.assert_not_awaited()

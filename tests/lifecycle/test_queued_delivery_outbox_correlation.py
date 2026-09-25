@@ -1217,6 +1217,7 @@ class TestCancellationReporting:
                 "channel_index": 0,
                 "event_id": "evt-inflight",
                 "outbox_id": "obox-inflight",
+                "delivery_plan_id": "plan-1",
                 "attempt_number": 2,
                 "attempt_provenance": make_attempt_provenance(
                     event_id="evt-inflight",
