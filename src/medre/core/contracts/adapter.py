@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, Protocol
 
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.delivery import (
@@ -380,8 +380,27 @@ def _freeze_json_safe_metadata(
     return MappingProxyType(frozen)
 
 
+class _AttemptProvenanceMirrorRecord(Protocol):
+    """Read shape shared by frozen callback records with provenance mirrors."""
+
+    @property
+    def event_id(self) -> str: ...
+
+    @property
+    def adapter(self) -> str: ...
+
+    @property
+    def delivery_plan_id(self) -> str | None: ...
+
+    @property
+    def outbox_id(self) -> str | None: ...
+
+    @property
+    def attempt_number(self) -> int | None: ...
+
+
 def _apply_attempt_provenance_mirrors(
-    record: object,
+    record: _AttemptProvenanceMirrorRecord,
     provenance: DeliveryAttemptProvenance | None,
     *,
     owner: str,
