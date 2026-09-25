@@ -304,6 +304,68 @@ class TestRenderingFailure:
         assert storage.receipts == [err.receipt]
         assert diag.snapshot()["renderer_failures"]["test_adapter"] == 1
 
+    async def test_outboxless_renderer_identity_contradiction_fails_closed(self) -> None:
+        """Direct delivery validates renderer identity without an outbox envelope."""
+        pipeline = _FakeRenderingPipeline(
+            result=RenderingResult(
+                event_id="evt-wrong-direct",
+                target_adapter="test_adapter",
+                target_channel=None,
+                payload={"text": "must not be delivered"},
+            )
+        )
+        adapter = _FakeAdapter(
+            result=AdapterDeliveryResult(
+                native_message_id="should-not-exist",
+                native_channel_id=None,
+            )
+        )
+        svc, storage = _make_service(
+            adapters={"test_adapter": adapter},
+            rendering_pipeline=pipeline,
+        )
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_RendererDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        assert "Invalid rendering attempt provenance" in err.error
+        assert "event_id mismatch" in err.error
+        assert err.receipt is not None
+        assert err.receipt.failure_kind == DeliveryFailureKind.RENDERER_FAILURE.value
+        assert err.receipt.outbox_id is None
+        _assert_terminal_failure_chain(
+            storage.receipts,
+            failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+        )
+        assert storage.native_refs == []
+
+    async def test_invalid_renderer_result_type_uses_failure_evidence_path(self) -> None:
+        """A renderer returning the wrong object type must not escape raw errors."""
+        pipeline = _FakeRenderingPipeline()
+        pipeline._result = object()  # type: ignore[assignment]
+        svc, storage = _make_service(
+            adapters={"test_adapter": _FakeAdapter()},
+            rendering_pipeline=pipeline,
+        )
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_RendererDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        assert "expected RenderingResult" in err.error
+        assert err.receipt is not None
+        assert err.receipt.failure_kind == DeliveryFailureKind.RENDERER_FAILURE.value
+        assert storage.receipts[0] == err.receipt
+        _assert_terminal_failure_chain(
+            storage.receipts,
+            failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+        )
+
 
 # ===================================================================
 # Adapter lookup failure

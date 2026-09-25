@@ -75,7 +75,11 @@ from medre.core.planning.delivery_plan import (
     DeliveryPlan,
 )
 from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
-from medre.core.rendering.renderer import DeliveryStrategyMethod, RenderingPipeline
+from medre.core.rendering.renderer import (
+    DeliveryStrategyMethod,
+    RenderingPipeline,
+    RenderingResult,
+)
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import StorageBackend
 
@@ -117,6 +121,41 @@ def _validate_strategy_method(method: str) -> DeliveryStrategyMethod:
         return _VALID_DELIVERY_STRATEGIES[method]
     except KeyError:
         raise ValueError(f"Unknown delivery strategy method: {method!r}") from None
+
+
+def _rendering_result_identity_mismatch(
+    result: RenderingResult,
+    *,
+    event_id: str,
+    target_adapter: str,
+    target_channel: str | None,
+) -> str | None:
+    """Return why a renderer result contradicts the requested target, if any.
+
+    Renderer output is adapter-facing data, not delivery authority. Validate
+    its declared identity before attaching outbox provenance so direct/
+    outbox-less calls receive the same fail-closed protection as durable
+    attempts. Empty and absent channels share the persistence identity.
+    """
+    if not isinstance(result, RenderingResult):
+        return f"renderer returned {type(result).__name__}, expected RenderingResult"
+    expected_channel = None if target_channel in (None, "") else target_channel
+    actual_channel = (
+        None if result.target_channel in (None, "") else result.target_channel
+    )
+    if result.event_id != event_id:
+        return f"event_id mismatch: renderer={result.event_id!r} expected={event_id!r}"
+    if result.target_adapter != target_adapter:
+        return (
+            "target_adapter mismatch: "
+            f"renderer={result.target_adapter!r} expected={target_adapter!r}"
+        )
+    if actual_channel != expected_channel:
+        return (
+            "target_channel mismatch: "
+            f"renderer={actual_channel!r} expected={expected_channel!r}"
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -735,6 +774,14 @@ class TargetDeliveryService:
         # requested delivery raises envelope validation, which must fail
         # through the same evidence path as a rendering failure.
         try:
+            render_identity_mismatch = _rendering_result_identity_mismatch(
+                rendering_result,
+                event_id=event.event_id,
+                target_adapter=adapter_id or "",
+                target_channel=target.channel,
+            )
+            if render_identity_mismatch is not None:
+                raise ValueError(render_identity_mismatch)
             attempt_provenance = (
                 DeliveryAttemptProvenance(
                     event_id=event.event_id,
