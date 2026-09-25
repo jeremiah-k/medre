@@ -177,6 +177,12 @@ WHERE event_id = ? AND delivery_plan_id = ? AND target_adapter = ?
 ORDER BY attempt_number ASC, sequence ASC
 """
 
+_SELECT_RECEIPTS_FOR_OUTBOX = """
+SELECT * FROM delivery_receipts
+WHERE outbox_id = ?
+ORDER BY attempt_number ASC, sequence ASC
+"""
+
 _SELECT_RECEIPTS_BY_REPLAY_RUN = """
 SELECT * FROM delivery_receipts
 WHERE replay_run_id = ?

@@ -100,11 +100,16 @@ async def admit_default_event(storage: StorageBackend) -> None:
 
 
 async def create_outbox_item_with_parent(
-    storage: StorageBackend, item: DeliveryOutboxItem
+    storage: StorageBackend,
+    item: DeliveryOutboxItem,
+    *,
+    allocate_new_generation: bool = False,
 ) -> DeliveryOutboxItem:
     """Admit the referenced event, then exercise production outbox creation."""
     await admit_event(storage, item.event_id)
-    return await storage.create_outbox_item(item)
+    return await storage.create_outbox_item(
+        item, allocate_new_generation=allocate_new_generation
+    )
 
 
 async def append_receipt_with_parent(

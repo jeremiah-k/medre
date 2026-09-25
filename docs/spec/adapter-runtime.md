@@ -601,6 +601,12 @@ The rendering boundary is strictly enforced:
 - No adapter **SHALL** perform rendering logic.
 - No renderer **SHALL** deliver.
 - Adapters **MUST NOT** re-render, reformat, or inspect the event kind to decide formatting inside `deliver()`.
+- Before adapter hand-off, the pipeline **MUST** verify that the returned
+  `RenderingResult` carries the requested event ID, target adapter, and
+  normalized target channel. This identity fence applies even to direct/
+  outbox-less delivery where no `DeliveryAttemptProvenance` envelope exists.
+  A contradictory result is a renderer failure and **MUST NOT** reach the
+  adapter.
 
 ### 10.4 Payload Ownership Boundary
 
@@ -858,10 +864,17 @@ class OutboundNativeRefRecord:
     native_message_id:  str           # Must be a real ID from the external platform
     native_thread_id:   str | None = None
     native_relation_id: str | None = None
+    delivery_plan_id:   str | None = None
+    outbox_id:          str | None = None
+    attempt_number:     int | None = None
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
     metadata:           Mapping[str, object] = field(default_factory=dict)
 ```
 
-The `native_message_id` field **MUST** be a non-empty string from the external platform. The adapter **MUST NOT** fabricate IDs.
+The `native_message_id` field **MUST** be a non-empty string from the external
+platform. The adapter **MUST NOT** fabricate IDs. Built-in queue adapters carry
+the exact `DeliveryAttemptProvenance` captured before hand-off; the scalar
+plan/outbox/attempt fields are compatibility mirrors populated from it.
 
 ### 17.4 Post-Handoff Delivery Observations
 
@@ -884,18 +897,41 @@ class OutboundDeliveryObservationRecord:
     confirmation_level: DeliveryConfirmationLevel = "unknown"
     error: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
 ```
 
-`outbox_id` and `attempt_number` are mandatory correlation facts for durable
-persistence. The transport session MAY carry them as opaque caller-owned
-context, but it **MUST NOT** interpret or mutate core lifecycle identity.
+Outbox-less/direct sends may still use an asynchronous transport internally, but
+they have no durable attempt envelope. Built-in adapters **MUST NOT** fabricate
+terminal, delayed-native-reference, or delivery-observation evidence for those
+sends; post-handoff callback evidence is emitted only for an outbox-backed
+attempt carrying exact `DeliveryAttemptProvenance`.
 
-Core validates the observation against the authoritative outbox row and
-appends it to the delivery-observation ledger. The adapter never writes storage
-directly. A terminal transport observation therefore cannot retroactively turn
-a locally successful MEDRE handoff into a failed receipt, and a later
-`delivered` observation cannot rewrite a receipt into a stronger lifecycle
-state.
+A callback's `native_channel_id` is transport-resolved evidence, not a mirror of
+`DeliveryAttemptProvenance.target_channel`. The latter is route-level delivery
+identity and may be absent or adapter-specific while the transport resolves a
+default/native channel. Exact callback correlation therefore uses the envelope
+and `outbox_id`; core preserves the actual native channel separately on native
+references and observations.
+
+Built-in asynchronous adapters carry immutable `attempt_provenance` across the
+transport/session boundary and echo it unchanged. The transport session MAY
+carry this value as opaque caller-owned context, but it **MUST NOT** interpret
+or mutate core lifecycle identity. Scalar `outbox_id`, `attempt_number`, and
+`delivery_plan_id` are compatibility mirrors populated from the envelope,
+which every asynchronous callback record requires.
+
+Core validates the observation against the authoritative outbox row and every
+immutable receipt already carrying the exact outbox ID/generation. That receipt
+history is loaded by `outbox_id` before identity/source validation so malformed
+event/plan/adapter/channel evidence cannot be hidden by the read used to verify
+it. Each matching-generation receipt must agree with the callback envelope's
+identity, generation, dispatch source, and replay origin before an observation
+is appended. Receipt-history read failures fail closed. A callback may
+legitimately precede the first attempt-receipt append, so absence of receipt
+evidence is not itself a rejection. The adapter never writes storage directly.
+A terminal transport observation therefore cannot retroactively turn a locally
+successful MEDRE handoff into a failed receipt, and a later `delivered`
+observation cannot rewrite a receipt into a stronger lifecycle state.
 
 ### 17.5 Callback Isolation
 
@@ -903,7 +939,11 @@ The adapter is not notified of retry decisions, receipt recording, or failure
 classification. Post-handoff callbacks flow in only the opposite direction:
 the adapter reports transport facts and receives no lifecycle decision back.
 This isolation is intentional: the adapter attempts transport work and reports
-facts; the pipeline decides what happens next.
+facts; the pipeline decides what happens next. Meshtastic queue terminal/native
+reference callbacks and LXMF delivery observations carry attempt provenance
+because evidence crosses an asynchronous hand-off boundary. Matrix and MeshCore
+currently complete MEDRE's delivery hand-off synchronously; MEDRE does not invent
+post-handoff confirmation callbacks for them.
 
 ---
 

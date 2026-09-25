@@ -12,6 +12,7 @@ from collections import UserDict
 from types import MappingProxyType
 
 from medre.core.contracts.adapter import OutboundNativeRefRecord
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 
 
 def _make(**meta: object) -> OutboundNativeRefRecord:
@@ -22,6 +23,13 @@ def _make(**meta: object) -> OutboundNativeRefRecord:
         native_channel_id="0",
         native_message_id="42",
         metadata=meta,
+        attempt_provenance=make_attempt_provenance(
+            event_id="evt-1",
+            target_adapter="mesh-1",
+            outbox_id="obox-contract",
+            attempt_number=1,
+            target_channel="0",
+        ),
     )
 
 
@@ -104,5 +112,12 @@ def test_top_level_userdict_metadata_accepted() -> None:
         native_channel_id="0",
         native_message_id="42",
         metadata=UserDict({"packet_id": 7}),
+        attempt_provenance=make_attempt_provenance(
+            event_id="evt-1",
+            target_adapter="mesh-1",
+            outbox_id="obox-contract",
+            attempt_number=1,
+            target_channel="0",
+        ),
     )
     assert dict(record.metadata) == {"packet_id": 7}

@@ -81,6 +81,7 @@ from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.packet_snapshot import json_safe
 from medre.core.contracts.adapter import AdapterDeliveryResult
+from medre.core.events.delivery import DeliveryAttemptProvenance
 
 _logger = logging.getLogger(__name__)
 
@@ -263,6 +264,7 @@ class MeshtasticOutboundQueue:
         delivery_plan_id: str | None = None,
         outbox_id: str | None = None,
         attempt_number: int | None = None,
+        attempt_provenance: DeliveryAttemptProvenance | None = None,
     ) -> None:
         """Enqueue a payload for delivery.
 
@@ -295,17 +297,51 @@ class MeshtasticOutboundQueue:
         outbox_id:
             Internal outbox item correlation key.  Propagated through
             the queue item into delayed callback records for exact
-            outbox-level correlation.  **Not wire metadata.**
+            outbox-level correlation.  When non-``None``,
+            ``attempt_provenance`` is mandatory so durable work can never
+            enter the asynchronous queue without exact callback authority.
+            **Not wire metadata.**
         attempt_number:
-            Delivery attempt number from pipeline retry lineage.
-            Propagated for stale-callback protection.  **Not wire
-            metadata.**
+            Compatibility mirror of the delivery generation.
+        attempt_provenance:
+            Immutable attempt identity and dispatch provenance. Stored only in
+            the queue item and echoed on asynchronous callback records; never
+            serialized into the radio-facing payload.
 
         Raises
         ------
         MeshtasticSendError
             When the queue is at capacity (``transient=True``).
         """
+        if attempt_provenance is None and outbox_id is not None:
+            raise ValueError(
+                "outbox-backed queue items require immutable attempt_provenance"
+            )
+        if attempt_provenance is not None and not isinstance(
+            attempt_provenance, DeliveryAttemptProvenance
+        ):
+            raise TypeError(
+                "attempt_provenance must be DeliveryAttemptProvenance or None"
+            )
+
+        if attempt_provenance is not None:
+            for name, value, expected in (
+                ("event_id", event_id, attempt_provenance.event_id),
+                (
+                    "delivery_plan_id",
+                    delivery_plan_id,
+                    attempt_provenance.delivery_plan_id,
+                ),
+                ("outbox_id", outbox_id, attempt_provenance.outbox_id),
+                ("attempt_number", attempt_number, attempt_provenance.attempt_number),
+            ):
+                if value is not None and value != expected:
+                    raise ValueError(f"{name} contradicts immutable attempt_provenance")
+            event_id = attempt_provenance.event_id
+            delivery_plan_id = attempt_provenance.delivery_plan_id
+            outbox_id = attempt_provenance.outbox_id
+            attempt_number = attempt_provenance.attempt_number
+
         if (
             self._max_queue_size is not None
             and len(self._queue) >= self._max_queue_size
@@ -329,6 +365,7 @@ class MeshtasticOutboundQueue:
                 "delivery_plan_id": delivery_plan_id,
                 "outbox_id": outbox_id,
                 "attempt_number": attempt_number,
+                "attempt_provenance": attempt_provenance,
                 "_attempt": 1,  # internal retry counter; not sent to radio
             }
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal, cast, get_args
 
 DeliveryConfirmationLevel = Literal[
@@ -58,6 +59,57 @@ def normalize_delivery_provenance(
     if source == "live" and normalized_run_id is not None:
         raise ValueError("live delivery cannot carry replay_run_id")
     return cast(DeliverySource, source), normalized_run_id
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveryAttemptProvenance:
+    """Immutable identity and dispatch provenance for one delivery attempt.
+
+    The delivery pipeline creates this envelope at the point where the exact
+    outbox generation and dispatch mechanism are known. Queue-backed adapters
+    carry the same value through asynchronous hand-off and echo it on callback
+    records. Core validates it against durable outbox authority instead of
+    reconstructing callback lineage from receipt timing.
+    """
+
+    event_id: str
+    delivery_plan_id: str
+    target_adapter: str
+    target_channel: str | None
+    outbox_id: str
+    attempt_number: int
+    source: DeliverySource
+    replay_run_id: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "event_id",
+            "delivery_plan_id",
+            "target_adapter",
+            "outbox_id",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        if (
+            isinstance(self.attempt_number, bool)
+            or not isinstance(self.attempt_number, int)
+            or self.attempt_number < 1
+        ):
+            raise ValueError("attempt_number must be an integer >= 1")
+        if self.target_channel is not None and not isinstance(self.target_channel, str):
+            raise TypeError("target_channel must be a string or None")
+
+        source, replay_run_id = normalize_delivery_provenance(
+            self.source, self.replay_run_id
+        )
+        object.__setattr__(self, "source", source)
+        object.__setattr__(self, "replay_run_id", replay_run_id)
+        object.__setattr__(
+            self,
+            "target_channel",
+            None if self.target_channel in (None, "") else self.target_channel,
+        )
 
 
 DeliveryObservationState = Literal[

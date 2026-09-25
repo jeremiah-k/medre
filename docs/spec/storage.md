@@ -266,6 +266,16 @@ class StorageBackend(Protocol):
         """
         ...
 
+    async def list_receipts_for_outbox(
+        self, outbox_id: str,
+    ) -> list[DeliveryReceipt]:
+        """Return immutable receipt history for one exact outbox ID.
+
+        This read intentionally does not pre-filter event/plan/adapter/channel
+        fields so provenance validation can observe contradictory evidence.
+        """
+        ...
+
     async def list_receipts_by_replay_run(
         self, run_id: str
     ) -> list[DeliveryReceipt]:
@@ -677,11 +687,12 @@ and MUST NOT be inferred from `status` alone.
 
 **Indexes:**
 
-| Index                  | Columns                                                                                | Purpose                                           |
-| ---------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `idx_receipts_lineage` | `(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), sequence)` | event-scoped current-outcome and recovery lineage |
-| `idx_receipts_event`   | `(event_id, sequence)`                                                                 | Receipt lookups by event                          |
-| `idx_receipts_source`  | `(source, replay_run_id)`                                                              | Filtering receipts by replay run                  |
+| Index                         | Columns                                                                                | Purpose                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `idx_receipts_lineage`        | `(event_id, delivery_plan_id, target_adapter, COALESCE(target_channel, ''), sequence)` | event-scoped current-outcome and recovery lineage |
+| `idx_receipts_event`          | `(event_id, sequence)`                                                                 | Receipt lookups by event                          |
+| `idx_receipts_outbox_attempt` | `(outbox_id, attempt_number, sequence)`                                                | Exact asynchronous attempt provenance reads       |
+| `idx_receipts_source`         | `(source, replay_run_id)`                                                              | Filtering receipts by replay run                  |
 
 ### 4.4.1 delivery_observations
 
@@ -1263,6 +1274,15 @@ runtime startup. A clean current marker skips that redundant full scan.
 - Returns immutable receipt history for exactly one `(event_id, delivery_plan_id, target_adapter, target_channel)` identity in attempt / append order.
 - The API accepts the typed full `DeliveryIdentity`; no event+plan+adapter historical overload exists because omitting channel scope can merge sibling lifecycle lineages.
 - Empty / absent channels normalize to the no-channel identity at persistence boundaries. Incomplete identities are rejected.
+
+### 8.11.1 list_receipts_for_outbox(outbox_id)
+
+- Returns immutable receipt history for exactly one non-empty `outbox_id`,
+  ordered by attempt number and append sequence.
+- The query MUST NOT pre-filter event ID, plan ID, adapter, channel, source, or
+  replay-run fields. Those values are validation inputs for asynchronous
+  provenance fences and malformed evidence must remain observable to them.
+- Empty or whitespace-only outbox IDs are rejected.
 
 ### 8.12 list_receipts_by_replay_run(run_id)
 

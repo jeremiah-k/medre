@@ -742,50 +742,73 @@ The `RenderingEvidence` snapshot captures the budget constraints (`max_text_char
 
 ### 15.1 Purpose
 
-Queue-based adapters (e.g., Meshtastic) produce two receipts per delivery: a `queued` receipt at enqueue time and a `sent` receipt when the adapter confirms handoff. Correlating these two receipts requires deterministic matching because multiple deliveries to the same adapter and channel may be in-flight simultaneously.
+Queue-based adapters (e.g., Meshtastic) produce a `queued` receipt at local
+queue acceptance and may later produce a supplemental `sent` receipt when the
+transport returns a native message ID. Multiple attempts can overlap in time,
+so callback identity and dispatch provenance must survive the asynchronous
+boundary without inference.
 
-### 15.2 Strict Correlation via outbox_id
+### 15.2 Immutable attempt provenance
 
-The `outbox_id` field is the primary correlation key for exact receipt selection. `attempt_number` is required alongside `outbox_id` for stale-callback protection. The pipeline threads these through:
+`TargetDeliveryService` creates `DeliveryAttemptProvenance` before adapter
+hand-off, containing the complete delivery identity, `outbox_id`, effective
+`attempt_number`, dispatch `source`, and optional `replay_run_id`. Built-in
+asynchronous adapters carry that object outside the wire payload and echo it on
+callbacks.
 
-1. `RenderingResult.outbox_id` / `attempt_number` — stamped by `TargetDeliveryService` before adapter delivery.
-2. `OutboundNativeRefRecord.outbox_id` / `attempt_number` — populated by adapter queue processing at send-confirmation time.
+Core validates the envelope against durable outbox identity/generation and every
+immutable receipt already carrying that exact `outbox_id`/attempt generation.
+Receipt history is read by `outbox_id` before identity/source validation so a
+malformed receipt cannot disappear through pre-filtering. A queued receipt is
+then used for immutable parent, retry, and rendering linkage. Retry policy is
+copied forward into terminal attempt/lifecycle evidence; rendering evidence
+stays on the queued parent and remains reachable through that parent chain. A
+callback that races ahead of queued-receipt persistence does not lose its
+source/run identity because those facts come from the envelope, not from receipt
+timing.
 
-Queue callbacks MUST carry both `outbox_id` and `attempt_number`. Callbacks missing `outbox_id` or `attempt_number` are hard-rejected (no heuristic fallback).
-
-`delivery_plan_id` is a validation field, not the correlation selector. When the callback carries `delivery_plan_id`, the lifecycle service validates it against the outbox item's `delivery_plan_id` to detect mismatched or corrupted callbacks. It does NOT use `delivery_plan_id` for receipt selection.
-
-When `outbox_id` is present on the outbound ref,
-`finalize_queued_delivery()` performs an exact match against the corresponding
-outbox item's `queued` receipt. This is deterministic regardless of how many
-overlapping deliveries share the same adapter and channel. The subsequent
-atomic storage commit receives one `QueuedDeliveryFinalization` command and
-re-fences the row by the full `(event, plan, adapter, channel, outbox, attempt)`
-identity before writing the native ref, sent receipt, or outbox transition.
+Every asynchronous callback record — queue terminal, delayed native-ref, and
+delivery observation — requires the envelope; records without it are rejected
+at construction. Outbox-less direct hand-off emits no durable post-handoff
+callback evidence because no durable attempt authority exists to attribute it
+to.
 
 ### 15.3 Evidence Signals
 
-| Signal                             | Source                     | Meaning                                                                                                                                                      |
-| ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Supplemental `sent` receipt        | `finalize_queued_delivery` | Queued receipt was successfully correlated and the full-identity storage guard finalized                                                                     |
-| No supplemental receipt created    | `finalize_queued_delivery` | No matching `queued` receipt found (ordinary no-match logged as debug)                                                                                       |
-| Replay-lineage finalize            | `finalize_queued_delivery` | Replay-origin queued receipt finalized via the exact row/attempt correlation plus full-identity storage fence; its replay lineage is carried onto `sent`     |
-| Missing outbox_id on callback      | `finalize_queued_delivery` | `outbox_id` was absent on outbound ref; callback hard-rejected, no receipt created                                                                           |
-| Missing attempt_number on callback | `finalize_queued_delivery` | `attempt_number` was absent on outbound ref; callback hard-rejected, no receipt created                                                                      |
-| Delivery-plan metadata absent      | `finalize_queued_delivery` | `delivery_plan_id` validation field absent on outbound ref; exact correlation proceeds via `outbox_id` + `attempt_number` but validation is degraded/skipped |
+| Signal                                   | Meaning                                                                                                  |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Supplemental `sent` receipt              | Native-ref callback matched the exact outbox generation and full-identity storage fence.                 |
+| Terminal attempt/lifecycle receipt       | Queue terminal callback carried an envelope matching durable outbox authority.                           |
+| Callback before queued receipt           | Valid envelope remains authoritative; missing queued receipt is not used to guess source/run provenance. |
+| Envelope/row contradiction               | Callback is rejected; no lifecycle mutation is committed.                                                |
+| Envelope/immutable-receipt contradiction | Callback is rejected rather than selecting a preferred lineage.                                          |
+| Missing callback `attempt_provenance`    | The asynchronous callback record cannot be constructed.                                                  |
+| Stale generation                         | Callback is rejected against the outbox effective generation.                                            |
 
 ### 15.4 Normative Requirements
 
-1. Queue callbacks MUST carry `outbox_id` and `attempt_number`. Callbacks missing `outbox_id` or `attempt_number` are hard-rejected (no receipt created, no heuristic fallback).
-2. `outbox_id` is used for exact receipt selection — the lifecycle service matches the outbox item's `queued` receipt directly. `delivery_plan_id` is NOT the correlation selector.
-3. `delivery_plan_id` is validated against the outbox item's `delivery_plan_id` when present. A mismatch causes the callback to be rejected. When absent, correlation proceeds via `outbox_id` but validation is skipped. Missing `delivery_plan_id` on an otherwise valid callback (outbox_id + attempt_number present and matching) is NOT a correlation failure — it is degraded validation metadata only.
-4. After correlation, storage MUST derive delivery identity, outbox ID, and attempt generation from the immutable sent receipt in `QueuedDeliveryFinalization` and MUST compare the full event/plan/adapter/channel/outbox/attempt identity before committing.
-5. All ambiguous correlation skips and hard-rejections for missing `outbox_id` or `attempt_number` MUST log at warning level. Missing `delivery_plan_id` validation skips on otherwise valid callbacks MAY remain at debug level. Ordinary no-match situations (no candidates at all) MAY remain at debug level. Warning messages MUST include event_id, adapter, outbox_id, attempt_number, delivery_plan_id if available, native_channel_id if available, candidate count, and distinct plan/channel counts where useful.
-6. The `delivery_plan_id` on `OutboundNativeRefRecord` is a validation field. It is not stored in `native_message_refs` storage and is not used for receipt selection.
-7. Local queue-acceptance evidence confirms that the local node accepted the
-   packet. It does not confirm RF delivery. See § 11 for non-guarantees.
-8. A replay-origin queued receipt (`replay_run_id IS NOT NULL`, with `source="replay"` initially or `source="retry"` on later attempts) is finalized exactly like a live candidate when the callback matches the validated authoritative outbox row by exact `outbox_id` + `attempt_number`. The selected receipt's durable `source` / `replay_run_id` lineage is the trusted attempt provenance — the same recovery the terminal-failure path uses — and is carried onto the supplemental `sent` receipt. Replay-only selection is logged at debug level, never as a correlation warning. When malformed history offers duplicates across sources for the same row and attempt, non-replay candidates are preferred. Callbacks failing row validation — stale attempt, terminal or reclaimed row — are rejected regardless of candidate source.
-9. If `delivery_plan_id` is absent on a callback but `outbox_id` and `attempt_number` are present and valid, that is NOT a correlation failure. The callback is processed normally; only the delivery_plan_id validation is skipped.
+1. The pipeline MUST create attempt provenance while exact dispatch context is
+   known, before asynchronous adapter hand-off.
+2. Built-in asynchronous adapters MUST carry the envelope outside transport
+   payloads and MUST echo it unchanged on their callback records.
+3. Core MUST validate delivery identity, outbox ID, effective generation,
+   dispatch source, and named replay run against durable authority.
+4. Every asynchronous callback record — queue terminal, delayed native-ref,
+   and delivery observation — without `attempt_provenance` MUST be rejected
+   at construction.
+5. Existing receipts for the exact outbox generation are immutable validation
+   evidence and MUST NOT override callback provenance. Queued receipts
+   additionally provide parent/retry/rendering linkage.
+6. Missing queued-receipt evidence MUST NOT cause source/replay provenance to be
+   reconstructed from the mutable row or from timing.
+7. Contradictory callback/row/receipt provenance MUST fail closed.
+8. Receipt-history reads used to validate callback provenance MUST be scoped by
+   exact `outbox_id` before validating event/plan/adapter/channel identity,
+   generation, dispatch source, and replay origin.
+9. Storage MUST retain its full `(event, plan, adapter, channel, outbox,
+attempt)` atomic finalization fence after callback validation.
+10. Local queue/transport acceptance remains local evidence only; it does not
+    imply end-to-end recipient delivery.
 
 ## 16. Evidence Bundle Model
 

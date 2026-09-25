@@ -38,6 +38,7 @@ from medre.core.storage.backend import (
     TerminalOutboxFinalization,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.delivery_callbacks import make_terminal_record
 from tests.helpers.storage_outbox import (
     admit_event,
     append_receipt_with_parent,
@@ -61,6 +62,8 @@ async def _create_outbox(
     event_id: str,
     delivery_plan_id: str,
     attempt_number: int = 1,
+    dispatch_source: str = "live",
+    replay_run_id: str | None = None,
 ) -> DeliveryOutboxItem:
     """Create an in_progress outbox row, then hand it to the adapter-local
     queue the way the production pipeline does (in_progress -> queued)."""
@@ -73,8 +76,12 @@ async def _create_outbox(
         target_channel="0",
         attempt_number=attempt_number,
         status="in_progress",
+        dispatch_source=dispatch_source,
+        replay_run_id=replay_run_id,
     )
-    await create_outbox_item_with_parent(storage, item)
+    await create_outbox_item_with_parent(
+        storage, item, allocate_new_generation=replay_run_id is not None
+    )
     await storage.mark_outbox_queued(outbox_id)
     return item
 
@@ -86,8 +93,10 @@ def _terminal_record(
     delivery_plan_id: str,
     outcome: str = "exhausted",
     attempt_number: int = 1,
+    source: str = "live",
+    replay_run_id: str | None = None,
 ) -> QueueTerminalRecord:
-    return QueueTerminalRecord(
+    return make_terminal_record(
         event_id=event_id,
         adapter="mesh-1",
         outbox_id=outbox_id,
@@ -96,6 +105,8 @@ def _terminal_record(
         native_channel_id="0",
         outcome=outcome,
         error="budget exhausted",
+        source=source,  # type: ignore[arg-type]
+        replay_run_id=replay_run_id,
     )
 
 
@@ -114,6 +125,8 @@ async def test_exhausted_from_queued_outbox(
         outbox_id="obox-q-ex",
         event_id="evt-q-ex",
         delivery_plan_id="plan-q-ex",
+        dispatch_source="replay",
+        replay_run_id="replay-42",
     )
     # The hand-off produced a queued receipt carrying replay lineage.
     await append_receipt_with_parent(
@@ -129,6 +142,11 @@ async def test_exhausted_from_queued_outbox(
             source="replay",
             replay_run_id="replay-42",
             parent_receipt_id="rcpt-original",
+            retry_max_attempts=5,
+            retry_backoff_base=2.0,
+            retry_max_delay=45.0,
+            retry_jitter=True,
+            rendering_evidence='{"delivery_strategy":"direct"}',
             outbox_id="obox-q-ex",
             attempt_number=1,
         ),
@@ -140,6 +158,8 @@ async def test_exhausted_from_queued_outbox(
             outbox_id="obox-q-ex",
             event_id="evt-q-ex",
             delivery_plan_id="plan-q-ex",
+            source="replay",
+            replay_run_id="replay-42",
         )
     )
 
@@ -154,11 +174,23 @@ async def test_exhausted_from_queued_outbox(
     assert receipt.source == "replay"
     assert receipt.replay_run_id == "replay-42"
     assert receipt.parent_receipt_id == "rcpt-queued-ex"
+    assert receipt.retry_max_attempts == 5
+    assert receipt.retry_backoff_base == 2.0
+    assert receipt.retry_max_delay == 45.0
+    assert receipt.retry_jitter is True
+    # Rendering evidence remains on the immutable queued parent; the failed
+    # attempt links to it rather than duplicating render evidence onto a
+    # failure receipt.
+    assert receipt.rendering_evidence is None
     terminal = [r for r in receipts if r.status == "dead_lettered"]
     assert len(terminal) == 1
     assert terminal[0].receipt_kind == "lifecycle"
     assert terminal[0].attempt_number == receipt.attempt_number
     assert terminal[0].parent_receipt_id == receipt.receipt_id
+    assert terminal[0].retry_max_attempts == 5
+    assert terminal[0].retry_backoff_base == 2.0
+    assert terminal[0].retry_max_delay == 45.0
+    assert terminal[0].retry_jitter is True
 
     outbox = await temp_storage.get_outbox_item("obox-q-ex")
     assert outbox is not None
@@ -185,7 +217,7 @@ async def test_terminal_callback_rejects_lineage_read_failure(
 
     monkeypatch.setattr(
         temp_storage,
-        "list_receipts_for_delivery",
+        "list_receipts_for_outbox",
         _raise_lineage_read,
     )
 
@@ -202,6 +234,99 @@ async def test_terminal_callback_rejects_lineage_read_failure(
     assert row is not None
     assert row.status == "queued"
     assert await temp_storage.list_receipts_for_event("evt-lineage-read-failure") == []
+
+
+@pytest.mark.asyncio
+async def test_terminal_callback_rejects_contradictory_queued_receipt_provenance(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Existing queued evidence must agree with the callback envelope."""
+    await _create_outbox(
+        temp_storage,
+        outbox_id="obox-lineage-contradiction",
+        event_id="evt-lineage-contradiction",
+        delivery_plan_id="plan-lineage-contradiction",
+    )
+    await append_receipt_with_parent(
+        temp_storage,
+        build_delivery_receipt(
+            receipt_id="rcpt-lineage-contradiction",
+            event_id="evt-lineage-contradiction",
+            delivery_plan_id="plan-lineage-contradiction",
+            target_adapter="mesh-1",
+            target_channel="0",
+            route_id="route-1",
+            status="queued",
+            source="replay",
+            outbox_id="obox-lineage-contradiction",
+            attempt_number=1,
+        ),
+    )
+
+    manager = _make_manager(temp_storage)
+    await manager.record_terminal(
+        _terminal_record(
+            outbox_id="obox-lineage-contradiction",
+            event_id="evt-lineage-contradiction",
+            delivery_plan_id="plan-lineage-contradiction",
+            source="live",
+        )
+    )
+
+    row = await temp_storage.get_outbox_item("obox-lineage-contradiction")
+    assert row is not None
+    assert row.status == "queued"
+    receipts = await temp_storage.list_receipts_for_event("evt-lineage-contradiction")
+    assert [receipt.receipt_id for receipt in receipts] == [
+        "rcpt-lineage-contradiction"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_terminal_callback_rejects_corrupt_queued_receipt_identity(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Outbox-scoped validation must see malformed receipt identity fields."""
+    await _create_outbox(
+        temp_storage,
+        outbox_id="obox-lineage-identity-corrupt",
+        event_id="evt-lineage-identity-corrupt",
+        delivery_plan_id="plan-lineage-identity-corrupt",
+    )
+    await append_receipt_with_parent(
+        temp_storage,
+        build_delivery_receipt(
+            receipt_id="rcpt-lineage-identity-corrupt",
+            event_id="evt-lineage-identity-corrupt",
+            delivery_plan_id="wrong-plan",
+            target_adapter="mesh-1",
+            target_channel="0",
+            route_id="route-1",
+            status="queued",
+            source="live",
+            outbox_id="obox-lineage-identity-corrupt",
+            attempt_number=1,
+        ),
+    )
+
+    manager = _make_manager(temp_storage)
+    await manager.record_terminal(
+        _terminal_record(
+            outbox_id="obox-lineage-identity-corrupt",
+            event_id="evt-lineage-identity-corrupt",
+            delivery_plan_id="plan-lineage-identity-corrupt",
+        )
+    )
+
+    row = await temp_storage.get_outbox_item("obox-lineage-identity-corrupt")
+    assert row is not None
+    assert row.status == "queued"
+    receipts = await temp_storage.list_receipts_for_event(
+        "evt-lineage-identity-corrupt"
+    )
+    assert [receipt.receipt_id for receipt in receipts] == [
+        "rcpt-lineage-identity-corrupt"
+    ]
 
 
 @pytest.mark.asyncio
@@ -247,6 +372,7 @@ async def test_retry_source_survives_queued_receipt_race(
             event_id=item.event_id,
             delivery_plan_id=item.delivery_plan_id,
             attempt_number=2,
+            source="retry",
         )
     )
 

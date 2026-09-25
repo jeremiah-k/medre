@@ -136,6 +136,42 @@ class TestReceipts:
             )
             assert [receipt.receipt_id for receipt in history] == [expected]
 
+    async def test_outbox_history_does_not_prefilter_corrupt_identity(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        """Outbox-scoped reads expose contradictory identity for validation."""
+        await temp_storage.append(make_storage_event(event_id="evt-outbox-history-a"))
+        await temp_storage.append(make_storage_event(event_id="evt-outbox-history-b"))
+        for receipt_id, event_id, channel in (
+            ("rcpt-outbox-history-a", "evt-outbox-history-a", "channel-a"),
+            ("rcpt-outbox-history-b", "evt-outbox-history-b", "channel-b"),
+        ):
+            await temp_storage.append_receipt(
+                DeliveryReceipt(
+                    receipt_id=receipt_id,
+                    event_id=event_id,
+                    delivery_plan_id=f"plan-{event_id}",
+                    target_adapter="radio",
+                    target_channel=channel,
+                    route_id="route-outbox-history",
+                    status="queued",
+                    outbox_id="outbox-shared-corrupt",
+                    attempt_number=1,
+                )
+            )
+
+        history = await temp_storage.list_receipts_for_outbox("outbox-shared-corrupt")
+        assert [receipt.receipt_id for receipt in history] == [
+            "rcpt-outbox-history-a",
+            "rcpt-outbox-history-b",
+        ]
+
+    async def test_outbox_history_requires_non_empty_id(
+        self, temp_storage: SQLiteStorage
+    ) -> None:
+        with pytest.raises(ValueError, match="non-empty outbox_id"):
+            await temp_storage.list_receipts_for_outbox("   ")
+
     async def test_delivery_status_returns_latest_receipt(
         self, temp_storage: SQLiteStorage
     ) -> None:

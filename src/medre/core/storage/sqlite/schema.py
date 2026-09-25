@@ -303,6 +303,8 @@ CREATE INDEX IF NOT EXISTS idx_nrefs_event_created
     ON native_message_refs(event_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_receipts_event
     ON delivery_receipts(event_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_receipts_outbox_attempt
+    ON delivery_receipts(outbox_id, attempt_number, sequence);
 CREATE INDEX IF NOT EXISTS idx_receipts_replay_run
     ON delivery_receipts(replay_run_id);
 CREATE INDEX IF NOT EXISTS idx_receipts_source

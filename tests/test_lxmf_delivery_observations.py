@@ -12,6 +12,7 @@ from medre.adapters.lxmf.adapter import LxmfAdapter
 from medre.adapters.lxmf.session import LxmfDeliveryState, LxmfSession
 from medre.config.adapters.lxmf import LxmfConfig
 from medre.core.contracts.adapter import AdapterContext
+from medre.core.events import DeliveryAttemptProvenance
 from medre.core.rendering.renderer import RenderingResult
 from tests.helpers.async_utils import wait_until
 
@@ -28,6 +29,27 @@ def _context(callback: AsyncMock) -> AdapterContext:
     )
 
 
+def _rendering_result(
+    *, event_id: str, channel: str, plan_id: str, outbox_id: str
+) -> RenderingResult:
+    provenance = DeliveryAttemptProvenance(
+        event_id=event_id,
+        delivery_plan_id=plan_id,
+        target_adapter="lxmf-observation",
+        target_channel=channel,
+        outbox_id=outbox_id,
+        attempt_number=1,
+        source="live",
+    )
+    return RenderingResult(
+        event_id=event_id,
+        target_adapter="lxmf-observation",
+        target_channel=channel,
+        payload={"content": "hello", "destination_hash": channel},
+        attempt_provenance=provenance,
+    )
+
+
 async def test_lxmf_terminal_callback_preserves_exact_attempt_context() -> None:
     callback = AsyncMock()
     adapter = LxmfAdapter(
@@ -35,6 +57,16 @@ async def test_lxmf_terminal_callback_preserves_exact_attempt_context() -> None:
     )
     await adapter.start(_context(callback))
     try:
+        provenance = DeliveryAttemptProvenance(
+            event_id="evt-lxmf-observation",
+            delivery_plan_id="plan-lxmf-observation",
+            target_adapter="lxmf-observation",
+            target_channel="aa" * 16,
+            outbox_id="outbox-lxmf-observation",
+            attempt_number=3,
+            source="replay",
+            replay_run_id="run-lxmf-observation",
+        )
         result = RenderingResult(
             event_id="evt-lxmf-observation",
             target_adapter="lxmf-observation",
@@ -43,9 +75,7 @@ async def test_lxmf_terminal_callback_preserves_exact_attempt_context() -> None:
                 "content": "hello",
                 "destination_hash": "aa" * 16,
             },
-            delivery_plan_id="plan-lxmf-observation",
-            outbox_id="outbox-lxmf-observation",
-            attempt_number=3,
+            attempt_provenance=provenance,
         )
         delivered = await adapter.deliver(result)
         assert delivered is not None
@@ -66,6 +96,9 @@ async def test_lxmf_terminal_callback_preserves_exact_attempt_context() -> None:
         assert record.delivery_plan_id == "plan-lxmf-observation"
         assert record.outbox_id == "outbox-lxmf-observation"
         assert record.attempt_number == 3
+        assert record.attempt_provenance is provenance
+        assert record.attempt_provenance.source == "replay"
+        assert record.attempt_provenance.replay_run_id == "run-lxmf-observation"
         assert record.native_channel_id == "aa" * 16
         assert record.native_message_id == message_hash
         assert record.state == "delivered"
@@ -81,14 +114,11 @@ async def test_lxmf_failed_callback_reports_error_without_lifecycle_claim() -> N
     )
     await adapter.start(_context(callback))
     try:
-        result = RenderingResult(
+        result = _rendering_result(
             event_id="evt-lxmf-failed",
-            target_adapter="lxmf-observation",
-            target_channel="cc" * 16,
-            payload={"content": "hello", "destination_hash": "cc" * 16},
-            delivery_plan_id="plan-lxmf-failed",
+            channel="cc" * 16,
+            plan_id="plan-lxmf-failed",
             outbox_id="outbox-lxmf-failed",
-            attempt_number=1,
         )
         delivered = await adapter.deliver(result)
         assert delivered is not None
@@ -115,14 +145,11 @@ async def test_lxmf_observation_callback_failure_is_contained(caplog) -> None:
     )
     await adapter.start(_context(callback))
     try:
-        result = RenderingResult(
+        result = _rendering_result(
             event_id="evt-lxmf-callback-error",
-            target_adapter="lxmf-observation",
-            target_channel="dd" * 16,
-            payload={"content": "hello", "destination_hash": "dd" * 16},
-            delivery_plan_id="plan-lxmf-callback-error",
+            channel="dd" * 16,
+            plan_id="plan-lxmf-callback-error",
             outbox_id="outbox-lxmf-callback-error",
-            attempt_number=1,
         )
         delivered = await adapter.deliver(result)
         assert delivered is not None
@@ -158,14 +185,11 @@ async def test_lxmf_stop_flushes_started_observation_write() -> None:
         LxmfConfig(adapter_id="lxmf-observation", connection_type="fake")
     )
     await adapter.start(_context(_callback))
-    result = RenderingResult(
+    result = _rendering_result(
         event_id="evt-lxmf-stop-flush",
-        target_adapter="lxmf-observation",
-        target_channel="ee" * 16,
-        payload={"content": "hello", "destination_hash": "ee" * 16},
-        delivery_plan_id="plan-lxmf-stop-flush",
+        channel="ee" * 16,
+        plan_id="plan-lxmf-stop-flush",
         outbox_id="outbox-lxmf-stop-flush",
-        attempt_number=1,
     )
     delivered = await adapter.deliver(result)
     assert delivered is not None
@@ -210,14 +234,11 @@ async def test_lxmf_stop_bounds_blocked_observation_write_and_stops_session() ->
         LxmfConfig(adapter_id="lxmf-observation", connection_type="fake")
     )
     await adapter.start(_context(_callback))
-    result = RenderingResult(
+    result = _rendering_result(
         event_id="evt-lxmf-stop-budget",
-        target_adapter="lxmf-observation",
-        target_channel="ff" * 16,
-        payload={"content": "hello", "destination_hash": "ff" * 16},
-        delivery_plan_id="plan-lxmf-stop-budget",
+        channel="ff" * 16,
+        plan_id="plan-lxmf-stop-budget",
         outbox_id="outbox-lxmf-stop-budget",
-        attempt_number=1,
     )
     delivered = await adapter.deliver(result)
     assert delivered is not None
@@ -276,14 +297,11 @@ async def test_lxmf_stop_drain_bounded_when_write_suppresses_cancellation() -> N
         LxmfConfig(adapter_id="lxmf-observation", connection_type="fake")
     )
     await adapter.start(_context(_callback))
-    result = RenderingResult(
+    result = _rendering_result(
         event_id="evt-lxmf-stop-suppress",
-        target_adapter="lxmf-observation",
-        target_channel="ab" * 16,
-        payload={"content": "hello", "destination_hash": "ab" * 16},
-        delivery_plan_id="plan-lxmf-stop-suppress",
+        channel="ab" * 16,
+        plan_id="plan-lxmf-stop-suppress",
         outbox_id="outbox-lxmf-stop-suppress",
-        attempt_number=1,
     )
     delivered = await adapter.deliver(result)
     assert delivered is not None
@@ -321,14 +339,11 @@ async def test_lxmf_stop_flushes_delivery_update_queued_before_stop() -> None:
         LxmfConfig(adapter_id="lxmf-observation", connection_type="fake")
     )
     await adapter.start(_context(callback))
-    result = RenderingResult(
+    result = _rendering_result(
         event_id="evt-lxmf-stop-queued",
-        target_adapter="lxmf-observation",
-        target_channel="ba" * 16,
-        payload={"content": "hello", "destination_hash": "ba" * 16},
-        delivery_plan_id="plan-lxmf-stop-queued",
+        channel="ba" * 16,
+        plan_id="plan-lxmf-stop-queued",
         outbox_id="outbox-lxmf-stop-queued",
-        attempt_number=1,
     )
     delivered = await adapter.deliver(result)
     assert delivered is not None
@@ -344,6 +359,31 @@ async def test_lxmf_stop_flushes_delivery_update_queued_before_stop() -> None:
 
     await asyncio.wait_for(stop_task, timeout=2.0)
     assert callback.await_count == 1
+
+
+async def test_lxmf_outboxless_delivery_does_not_emit_observation() -> None:
+    callback = AsyncMock()
+    adapter = LxmfAdapter(
+        LxmfConfig(adapter_id="lxmf-observation", connection_type="fake")
+    )
+    await adapter.start(_context(callback))
+    try:
+        result = RenderingResult(
+            event_id="evt-lxmf-direct",
+            target_adapter="lxmf-observation",
+            target_channel="ac" * 16,
+            payload={"content": "hello", "destination_hash": "ac" * 16},
+        )
+        delivered = await adapter.deliver(result)
+        assert delivered is not None
+        message = MagicMock()
+        message.hash = delivered.native_message_id
+        message.state = LxmfDeliveryState.DELIVERED
+        adapter._session._apply_delivery_state_update(message)
+        await asyncio.sleep(0)
+        callback.assert_not_awaited()
+    finally:
+        await adapter.stop()
 
 
 async def test_lxmf_synchronous_sdk_callback_keeps_send_context(tmp_path) -> None:

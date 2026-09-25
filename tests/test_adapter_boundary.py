@@ -35,6 +35,7 @@ from medre.core.contracts.adapter import (
     OutboundNativeRefRecord,
 )
 from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -865,6 +866,13 @@ class TestOutboundNativeRefRecordMetadataFrozen:
             native_channel_id="0",
             native_message_id="42",
             metadata={"packet_id": 1},
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-1",
+                target_adapter="mesh-1",
+                outbox_id="obox-contract",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )
         assert record.metadata["packet_id"] == 1
 
@@ -875,6 +883,13 @@ class TestOutboundNativeRefRecordMetadataFrozen:
             native_channel_id="0",
             native_message_id="42",
             metadata={"packet_id": 1},
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-1",
+                target_adapter="mesh-1",
+                outbox_id="obox-contract",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )
         with pytest.raises(TypeError):
             record.metadata["x"] = "y"  # type: ignore[index]
@@ -887,6 +902,13 @@ class TestOutboundNativeRefRecordMetadataFrozen:
             native_channel_id="0",
             native_message_id="42",
             metadata=original,
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-1",
+                target_adapter="mesh-1",
+                outbox_id="obox-contract",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )
         original["packet_id"] = 999
         assert record.metadata["packet_id"] == 1
@@ -907,6 +929,13 @@ class TestOutboundNativeRefRecordMessageIdValidation:
                 adapter="mesh-1",
                 native_channel_id="0",
                 native_message_id="",
+                attempt_provenance=make_attempt_provenance(
+                    event_id="evt-1",
+                    target_adapter="mesh-1",
+                    outbox_id="obox-contract",
+                    attempt_number=1,
+                    target_channel="0",
+                ),
             )
 
     def test_whitespace_only_rejected(self) -> None:
@@ -916,6 +945,13 @@ class TestOutboundNativeRefRecordMessageIdValidation:
                 adapter="mesh-1",
                 native_channel_id="0",
                 native_message_id="   ",
+                attempt_provenance=make_attempt_provenance(
+                    event_id="evt-1",
+                    target_adapter="mesh-1",
+                    outbox_id="obox-contract",
+                    attempt_number=1,
+                    target_channel="0",
+                ),
             )
 
     def test_none_rejected(self) -> None:
@@ -925,6 +961,13 @@ class TestOutboundNativeRefRecordMessageIdValidation:
                 adapter="mesh-1",
                 native_channel_id="0",
                 native_message_id=None,  # type: ignore[arg-type]
+                attempt_provenance=make_attempt_provenance(
+                    event_id="evt-1",
+                    target_adapter="mesh-1",
+                    outbox_id="obox-contract",
+                    attempt_number=1,
+                    target_channel="0",
+                ),
             )
 
     def test_valid_string_accepted(self) -> None:
@@ -933,6 +976,13 @@ class TestOutboundNativeRefRecordMessageIdValidation:
             adapter="mesh-1",
             native_channel_id="0",
             native_message_id="42",
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-1",
+                target_adapter="mesh-1",
+                outbox_id="obox-contract",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )
         assert record.native_message_id == "42"
         assert record.confirmation_level == "unknown"
@@ -944,6 +994,13 @@ class TestOutboundNativeRefRecordMessageIdValidation:
             native_channel_id="0",
             native_message_id="42",
             metadata={"packet_id": 1},
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-1",
+                target_adapter="mesh-1",
+                outbox_id="obox-contract",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )
         with pytest.raises(TypeError):
             record.metadata["x"] = "y"  # type: ignore[index]
@@ -1234,4 +1291,11 @@ def test_invalid_confirmation_level_rejected() -> None:
             native_message_id="42",
             # Deliberately outside the Literal to exercise runtime validation.
             confirmation_level="delivered",  # type: ignore[arg-type]
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-1",
+                target_adapter="mesh-1",
+                outbox_id="obox-contract",
+                attempt_number=1,
+                target_channel="0",
+            ),
         )

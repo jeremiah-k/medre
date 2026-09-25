@@ -62,6 +62,7 @@ from medre.core.events.canonical import (
 )
 from medre.core.events.delivery import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
+    DeliveryAttemptProvenance,
     DeliveryConfirmationLevel,
     DeliverySource,
     normalize_delivery_provenance,
@@ -74,7 +75,11 @@ from medre.core.planning.delivery_plan import (
     DeliveryPlan,
 )
 from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
-from medre.core.rendering.renderer import DeliveryStrategyMethod, RenderingPipeline
+from medre.core.rendering.renderer import (
+    DeliveryStrategyMethod,
+    RenderingPipeline,
+    RenderingResult,
+)
 from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import StorageBackend
 
@@ -116,6 +121,41 @@ def _validate_strategy_method(method: str) -> DeliveryStrategyMethod:
         return _VALID_DELIVERY_STRATEGIES[method]
     except KeyError:
         raise ValueError(f"Unknown delivery strategy method: {method!r}") from None
+
+
+def _rendering_result_identity_mismatch(
+    result: RenderingResult,
+    *,
+    event_id: str,
+    target_adapter: str,
+    target_channel: str | None,
+) -> str | None:
+    """Return why a renderer result contradicts the requested target, if any.
+
+    Renderer output is adapter-facing data, not delivery authority. Validate
+    its declared identity before attaching outbox provenance so direct/
+    outbox-less calls receive the same fail-closed protection as durable
+    attempts. Empty and absent channels share the persistence identity.
+    """
+    if not isinstance(result, RenderingResult):
+        return f"renderer returned {type(result).__name__}, expected RenderingResult"
+    expected_channel = None if target_channel in (None, "") else target_channel
+    actual_channel = (
+        None if result.target_channel in (None, "") else result.target_channel
+    )
+    if result.event_id != event_id:
+        return f"event_id mismatch: renderer={result.event_id!r} expected={event_id!r}"
+    if result.target_adapter != target_adapter:
+        return (
+            "target_adapter mismatch: "
+            f"renderer={result.target_adapter!r} expected={target_adapter!r}"
+        )
+    if actual_channel != expected_channel:
+        return (
+            "target_channel mismatch: "
+            f"renderer={actual_channel!r} expected={expected_channel!r}"
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -726,16 +766,67 @@ class TargetDeliveryService:
                 evidence=evidence,
             ) from None
 
-        # Stamp delivery_plan_id for validation in queue callbacks;
-        # outbox_id provides exact correlation.  Also stamp attempt_number
-        # for stale-callback protection.  RenderingResult is frozen; use
-        # dataclass replace().
-        rendering_result = replace(
-            rendering_result,
-            delivery_plan_id=plan.plan_id,
-            outbox_id=outbox_id,
-            attempt_number=attempt_number,
-        )
+        # Freeze the exact attempt identity and dispatch mechanism before
+        # adapter hand-off. Queue-backed adapters carry this immutable envelope
+        # through asynchronous callbacks; scalar fields remain compatibility
+        # mirrors only. Direct/outbox-less calls have no durable attempt to bind.
+        # Renderer output is untrusted: a result whose identity contradicts the
+        # requested delivery raises envelope validation, which must fail
+        # through the same evidence path as a rendering failure.
+        try:
+            render_identity_mismatch = _rendering_result_identity_mismatch(
+                rendering_result,
+                event_id=event.event_id,
+                target_adapter=adapter_id or "",
+                target_channel=target.channel,
+            )
+            if render_identity_mismatch is not None:
+                raise ValueError(render_identity_mismatch)
+            attempt_provenance = (
+                DeliveryAttemptProvenance(
+                    event_id=event.event_id,
+                    delivery_plan_id=plan.plan_id,
+                    target_adapter=adapter_id or "",
+                    target_channel=target.channel,
+                    outbox_id=outbox_id,
+                    attempt_number=attempt_number,
+                    source=source,
+                    replay_run_id=replay_run_id,
+                )
+                if outbox_id is not None
+                else None
+            )
+            rendering_result = replace(
+                rendering_result,
+                delivery_plan_id=plan.plan_id,
+                outbox_id=outbox_id,
+                attempt_number=attempt_number,
+                attempt_provenance=attempt_provenance,
+            )
+        except (TypeError, ValueError) as exc:
+            provenance_error = f"Invalid rendering attempt provenance: {exc}"
+            self._diagnostician.record_renderer_failure(
+                event.event_id, adapter_id or "", provenance_error
+            )
+            evidence = await self._persist_failure_evidence(
+                event=event,
+                route=route,
+                plan=plan,
+                adapter_id=adapter_id or "",
+                receipt_id=receipt_id,
+                error=provenance_error,
+                failure_kind=DeliveryFailureKind.RENDERER_FAILURE,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
+            )
+            raise _RendererDeliveryError(
+                adapter_id or "",
+                provenance_error,
+                evidence=evidence,
+            ) from None
 
         # Guard: adapter must expose a callable deliver() method.
         deliver_fn: Callable[..., Any] | None = getattr(adapter, "deliver", None)

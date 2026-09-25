@@ -624,7 +624,9 @@ class QueuedDeliveryFinalization:
 
         Raise ``ValueError`` for an invalid sent receipt, an incomplete delivery
         identity or generation, or a native reference that disagrees with the
-        receipt's event, adapter, channel, or message ID.
+        receipt's event, adapter, or message ID. The native channel is transport
+        evidence and may differ from route-level ``target_channel`` when the
+        adapter resolves a default channel or translates a route alias.
         """
         receipt = self.receipt
         native_ref = self.native_ref
@@ -648,10 +650,6 @@ class QueuedDeliveryFinalization:
             raise ValueError("native_ref.event_id must match receipt.event_id")
         if native_ref.adapter != receipt.target_adapter:
             raise ValueError("native_ref.adapter must match receipt.target_adapter")
-        if (native_ref.native_channel_id or None) != self.identity.target_channel:
-            raise ValueError(
-                "native_ref.native_channel_id must match receipt.target_channel"
-            )
         if native_ref.native_message_id != receipt.adapter_message_id:
             raise ValueError(
                 "native_ref.native_message_id must match receipt.adapter_message_id"
@@ -1208,6 +1206,20 @@ class StorageBackend(Protocol):
         complete lifecycle key, including normalized channel scope, so
         historical reads cannot merge sibling channels, adapters, plans, or
         canonical events. Receipts are ordered by attempt then append sequence.
+        """
+        ...
+
+    async def list_receipts_for_outbox(
+        self,
+        outbox_id: str,
+    ) -> list[DeliveryReceipt]:
+        """Return immutable receipt history for one exact outbox ID.
+
+        Authority: **list/get** (read-only). This query is intentionally scoped
+        only by ``outbox_id`` so provenance validation can observe contradictory
+        event/plan/adapter/channel fields instead of losing malformed evidence
+        to a wider identity predicate. Receipts are ordered by attempt then
+        append sequence. Raise ``ValueError`` for an empty outbox ID.
         """
         ...
 

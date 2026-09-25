@@ -89,8 +89,12 @@ from medre.core.contracts.adapter import (
 from medre.core.delivery_authority import (
     DeliveryIdentity,
     committed_receipt_for_outbox,
+    delivery_attempt_provenance_mismatch,
+    delivery_attempt_receipt_provenance_mismatch,
     delivery_identity,
     effective_generation,
+    queued_receipts_for_attempt,
+    receipts_for_attempt,
 )
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_state import (
@@ -162,6 +166,13 @@ class DeliveryLifecycleStorage(Protocol):
         identity: DeliveryIdentity,
     ) -> list[DeliveryReceipt]:
         """List immutable receipt history for one complete delivery identity."""
+        ...
+
+    async def list_receipts_for_outbox(
+        self,
+        outbox_id: str,
+    ) -> list[DeliveryReceipt]:
+        """List immutable receipt history for one exact outbox ID."""
         ...
 
     async def finalize_queued_delivery(
@@ -633,7 +644,10 @@ class DeliveryLifecycleService:
 
         The transition preserves the causative attempt number. It is not a new
         dispatch generation and therefore never increments ``attempt_number``.
-        Retry/rendering provenance is inherited from the causative receipt.
+        Retry-policy provenance is inherited from the causative receipt.
+        Rendering evidence remains on its immutable sent/queued receipt and is
+        reachable through the parent chain rather than duplicated onto a
+        terminal lifecycle receipt.
         """
         return build_delivery_receipt(
             event_id=previous_receipt.event_id,
@@ -826,70 +840,6 @@ class DeliveryLifecycleService:
         await storage.append_receipt(receipt)
         return receipt
 
-    # -- Source-aware candidate selection ------------------------------------
-
-    def _select_source_preferred_candidate(
-        self,
-        candidates: list[DeliveryReceipt],
-        record: OutboundNativeRefRecord,
-    ) -> DeliveryReceipt | None:
-        """Select the queued receipt candidate for this exact row/attempt.
-
-        The caller guarantees every candidate already matches the callback's
-        ``outbox_id`` + ``attempt_number`` AND that the authoritative outbox
-        row was validated for this exact callback (status, event, adapter,
-        plan, channel, attempt).  Each candidate therefore belongs to this
-        one delivery attempt; selecting it cannot mutate any other row.
-        The receipt's own durable ``source`` / ``replay_run_id`` lineage is
-        the trusted attempt provenance — the same recovery used by
-        :meth:`~medre.core.engine.pipeline.outbox_manager.OutboxManager.record_terminal`
-        for terminal failure callbacks — so a replay-sourced candidate is
-        finalized exactly like a live one, with its replay lineage carried
-        onto the supplemental ``sent`` receipt.
-
-        When malformed history offers duplicates across sources for the
-        same row/attempt (a row is single-sourced in normal operation),
-        non-replay (``"live"`` / ``"retry"``) candidates are preferred over
-        ``"replay"`` candidates; within the preferred group the most-recent
-        (last in append-order) candidate wins, preserving retry-lineage
-        behaviour.
-
-        Parameters
-        ----------
-        candidates:
-            Non-empty list of matching queued receipts (already filtered by
-            outbox_id + attempt_number against the validated row).
-        record:
-            The outbound native reference record from the adapter callback.
-            Used for log context only.
-
-        Returns
-        -------
-        DeliveryReceipt | None
-            The selected receipt, or ``None`` when no candidate exists.
-        """
-        if not candidates:
-            return None
-        live_candidates = [r for r in candidates if r.source != "replay"]
-        if live_candidates:
-            # Prefer the latest non-replay candidate.
-            return live_candidates[-1]
-
-        # Only replay-sourced candidates — this row belongs to a replay
-        # execution and the callback matched its exact outbox_id +
-        # attempt_number, so finalize it with its replay lineage.
-        self._log.debug(
-            "Supplemental queued→sent correlation: selecting replay-sourced "
-            "queued receipt %s (replay_run_id=%s) for outbox_id=%s "
-            "event_id=%s adapter=%s — exact row/attempt correlation",
-            candidates[-1].receipt_id,
-            candidates[-1].replay_run_id,
-            record.outbox_id,
-            record.event_id,
-            record.adapter,
-        )
-        return candidates[-1]
-
     # -- Post-handoff observations ------------------------------------------
 
     async def record_delivery_observation(
@@ -941,6 +891,16 @@ class DeliveryLifecycleService:
                 record.adapter,
             )
             return False
+        provenance = record.attempt_provenance
+        mismatch = delivery_attempt_provenance_mismatch(provenance, outbox)
+        if mismatch is not None:
+            self._log.warning(
+                "Rejecting delivery observation with contradictory attempt "
+                "provenance: outbox_id=%s %s",
+                record.outbox_id,
+                mismatch,
+            )
+            return False
         if (
             outbox.event_id != record.event_id
             or outbox.target_adapter != record.adapter
@@ -981,6 +941,37 @@ class DeliveryLifecycleService:
                 record.state,
             )
             return False
+
+        # Immutable evidence for this exact outbox generation, when present,
+        # must agree with the provenance envelope before later transport
+        # confirmation is admitted. A callback may legitimately beat the
+        # first attempt-receipt append, so an empty history is not an error; a
+        # failed history read or contradictory matching receipt is. This is the
+        # same authority rule used by queue terminalization and queued->sent
+        # finalization.
+        try:
+            receipts = await storage.list_receipts_for_outbox(provenance.outbox_id)
+        except Exception:
+            self._log.exception(
+                "Failed to list attempt receipt history for delivery "
+                "observation: outbox_id=%s",
+                record.outbox_id,
+            )
+            return False
+        for receipt in receipts_for_attempt(provenance, receipts):
+            receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
+                provenance,
+                receipt,
+            )
+            if receipt_mismatch is not None:
+                self._log.warning(
+                    "Rejecting delivery observation with contradictory immutable "
+                    "receipt provenance: outbox_id=%s attempt=%d %s",
+                    provenance.outbox_id,
+                    provenance.attempt_number,
+                    receipt_mismatch,
+                )
+                return False
 
         identity = "\x1f".join(
             (
@@ -1096,6 +1087,17 @@ class DeliveryLifecycleService:
                 )
                 return
 
+            provenance = record.attempt_provenance
+            mismatch = delivery_attempt_provenance_mismatch(provenance, outbox_item)
+            if mismatch is not None:
+                self._log.warning(
+                    "Queued delivery callback rejected: contradictory attempt "
+                    "provenance for outbox_id=%s: %s",
+                    record.outbox_id,
+                    mismatch,
+                )
+                return
+
             # Stale-callback protection: only accept callbacks for outbox
             # items that are still in a queued or in-progress state.
             if outbox_item.status not in ("queued", "in_progress"):
@@ -1152,22 +1154,6 @@ class DeliveryLifecycleService:
                 )
                 return
 
-            # Validate native_channel_id matches outbox target_channel
-            # (when present on record).
-            if record.native_channel_id is not None and (
-                record.native_channel_id or None
-            ) != (outbox_item.target_channel or None):
-                self._log.warning(
-                    "native_channel_id mismatch: outbox_id=%s callback "
-                    "channel=%s but outbox target_channel=%s for "
-                    "event_id=%s; skipping supplemental receipt",
-                    record.outbox_id,
-                    record.native_channel_id,
-                    outbox_item.target_channel,
-                    record.event_id,
-                )
-                return
-
             # Validate attempt_number — required for queue callbacks.
             if record.attempt_number is None:
                 self._log.warning(
@@ -1194,14 +1180,12 @@ class DeliveryLifecycleService:
                 )
                 return
 
-            # Historical lookup is scoped to the complete lifecycle identity
-            # carried by the authoritative outbox row.  Event-wide scans can
-            # merge sibling channels or targets and make exact callback
-            # correlation depend on later ad-hoc filtering.
+            # Historical lookup is scoped to the authoritative outbox ID,
+            # deliberately before identity validation. Event/plan/adapter/channel
+            # fields are facts being checked and therefore must not be query
+            # predicates that could hide contradictory immutable evidence.
             try:
-                existing = await storage.list_receipts_for_delivery(
-                    delivery_identity(outbox_item)
-                )
+                existing = await storage.list_receipts_for_outbox(record.outbox_id)
             except Exception:
                 self._log.exception(
                     "Failed to list delivery receipt history for supplemental "
@@ -1218,21 +1202,13 @@ class DeliveryLifecycleService:
             # Find the queued receipt matching by outbox_id (exact).
             # Candidate filtering happens after outbox validation so that
             # malformed callbacks always produce deterministic rejection logs.
-            candidates = [
-                r
-                for r in existing
-                if r.status == "queued" and r.target_adapter == record.adapter
-            ]
-            # Filter by BOTH outbox_id and attempt_number: historical or
-            # malformed queued receipts can share an outbox_id across
-            # attempts, and source-preference must never finalize another
-            # attempt's receipt for this callback.
-            outbox_matches = [
-                r
-                for r in candidates
-                if r.outbox_id == record.outbox_id
-                and r.attempt_number == record.attempt_number
-            ]
+            # Match only immutable correlation keys here. Every candidate is
+            # validated against the full provenance envelope below so corrupt
+            # identity/source fields cannot disappear through pre-filtering.
+            attempt_receipts = receipts_for_attempt(provenance, existing)
+            outbox_matches = list(
+                queued_receipts_for_attempt(provenance, attempt_receipts)
+            )
 
             if not outbox_matches:
                 self._log.debug(
@@ -1247,13 +1223,27 @@ class DeliveryLifecycleService:
                 )
                 return
 
-            # Use source-aware selection among outbox-matching candidates.
-            queued_receipt = self._select_source_preferred_candidate(
-                outbox_matches,
-                record,
-            )
-            if queued_receipt is None:
-                return
+            # Callback provenance is authoritative. Queued evidence supplies
+            # immutable parent linkage and retry/render fields only, and must
+            # agree with the envelope when already present. Validate every
+            # immutable receipt for the exact outbox generation before
+            # selecting the queued parent so contradictory sent/failed
+            # evidence cannot coexist unnoticed.
+            for candidate in attempt_receipts:
+                receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
+                    provenance,
+                    candidate,
+                )
+                if receipt_mismatch is not None:
+                    self._log.warning(
+                        "Queued delivery callback rejected: receipt provenance "
+                        "contradicts callback for outbox_id=%s attempt=%d: %s",
+                        provenance.outbox_id,
+                        provenance.attempt_number,
+                        receipt_mismatch,
+                    )
+                    return
+            queued_receipt = outbox_matches[-1]
 
             # Enforce attempt_number correlation: the outbox item and the
             # selected queued receipt must agree on the attempt number.
@@ -1318,8 +1308,8 @@ class DeliveryLifecycleService:
             created_at=now,
             attempt_number=queued_receipt.attempt_number,
             parent_receipt_id=queued_receipt.receipt_id,
-            source=queued_receipt.source,
-            replay_run_id=queued_receipt.replay_run_id,
+            source=provenance.source,
+            replay_run_id=provenance.replay_run_id,
             retry_max_attempts=queued_receipt.retry_max_attempts,
             retry_backoff_base=queued_receipt.retry_backoff_base,
             retry_max_delay=queued_receipt.retry_max_delay,

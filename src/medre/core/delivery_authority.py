@@ -23,6 +23,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Generic, Iterable, TypeVar
 
+from medre.core.events.delivery import (
+    DeliveryAttemptProvenance,
+    normalize_replay_run_id,
+)
+
 __all__ = [
     "DeliveryAuthorityResolver",
     "DeliveryIdentity",
@@ -30,11 +35,15 @@ __all__ = [
     "ResolvedDeliverySnapshot",
     "authority_index",
     "committed_receipt_for_outbox",
+    "delivery_attempt_receipt_provenance_mismatch",
     "delivery_identity",
+    "delivery_attempt_provenance_mismatch",
     "delivery_identity_sort_key",
     "effective_generation",
     "group_outbox_by_identity",
     "group_receipts_by_identity",
+    "receipts_for_attempt",
+    "queued_receipts_for_attempt",
     "receipt_kind",
     "select_current_outbox",
     "select_current_receipt",
@@ -183,6 +192,153 @@ def group_outbox_by_identity(
 def effective_generation(item: Any) -> int:
     """Return the reserved generation when present, else the finalized one."""
     return int(_get(item, "active_attempt") or _get(item, "attempt_number") or 1)
+
+
+def delivery_attempt_provenance_mismatch(
+    provenance: DeliveryAttemptProvenance,
+    item: Any,
+) -> str | None:
+    """Return why *provenance* contradicts durable outbox authority, if at all.
+
+    This helper validates an asynchronous callback envelope against the exact
+    outbox row that admitted the attempt. Mutable row provenance is validation
+    evidence only; callers must never use it to reconstruct a missing callback
+    source or replay run.
+    """
+    outbox_id = str(_get(item, "outbox_id") or "")
+    if outbox_id != provenance.outbox_id:
+        return (
+            f"outbox_id mismatch: callback={provenance.outbox_id!r} row={outbox_id!r}"
+        )
+
+    expected_identity = DeliveryIdentity(
+        provenance.event_id,
+        provenance.delivery_plan_id,
+        provenance.target_adapter,
+        provenance.target_channel,
+    )
+    actual_identity = delivery_identity(item)
+    if actual_identity != expected_identity:
+        return (
+            "delivery identity mismatch: "
+            f"callback={expected_identity!r} row={actual_identity!r}"
+        )
+
+    generation = effective_generation(item)
+    if generation != provenance.attempt_number:
+        return (
+            "attempt generation mismatch: "
+            f"callback={provenance.attempt_number} row={generation}"
+        )
+
+    row_source = _get(item, "dispatch_source")
+    if row_source is not None and str(row_source) != provenance.source:
+        return (
+            "dispatch source mismatch: "
+            f"callback={provenance.source!r} row={str(row_source)!r}"
+        )
+
+    row_run_id = normalize_replay_run_id(_get(item, "replay_run_id"))
+    if row_run_id != provenance.replay_run_id:
+        return (
+            "replay_run_id mismatch: "
+            f"callback={provenance.replay_run_id!r} row={row_run_id!r}"
+        )
+    return None
+
+
+def delivery_attempt_receipt_provenance_mismatch(
+    provenance: DeliveryAttemptProvenance,
+    receipt: Any,
+) -> str | None:
+    """Return why immutable receipt evidence contradicts *provenance*.
+
+    Asynchronous callbacks may race the append of attempt evidence. When
+    immutable evidence for the same outbox generation already exists, it must
+    describe the same delivery identity, dispatch source, and replay origin as
+    the envelope frozen before adapter hand-off. Receipt evidence is validation
+    input only; it never reconstructs callback provenance.
+    """
+    receipt_outbox_id = str(_get(receipt, "outbox_id") or "")
+    if receipt_outbox_id != provenance.outbox_id:
+        return (
+            "receipt outbox_id mismatch: "
+            f"callback={provenance.outbox_id!r} receipt={receipt_outbox_id!r}"
+        )
+
+    expected_identity = DeliveryIdentity(
+        provenance.event_id,
+        provenance.delivery_plan_id,
+        provenance.target_adapter,
+        provenance.target_channel,
+    )
+    actual_identity = delivery_identity(receipt)
+    if actual_identity != expected_identity:
+        return (
+            "receipt delivery identity mismatch: "
+            f"callback={expected_identity!r} receipt={actual_identity!r}"
+        )
+
+    receipt_attempt = int(_get(receipt, "attempt_number") or 0)
+    if receipt_attempt != provenance.attempt_number:
+        return (
+            "receipt attempt generation mismatch: "
+            f"callback={provenance.attempt_number} receipt={receipt_attempt}"
+        )
+
+    receipt_source = str(_get(receipt, "source") or "")
+    if receipt_source != provenance.source:
+        return (
+            "receipt dispatch source mismatch: "
+            f"callback={provenance.source!r} receipt={receipt_source!r}"
+        )
+
+    receipt_run_id = normalize_replay_run_id(_get(receipt, "replay_run_id"))
+    if receipt_run_id != provenance.replay_run_id:
+        return (
+            "receipt replay_run_id mismatch: "
+            f"callback={provenance.replay_run_id!r} receipt={receipt_run_id!r}"
+        )
+    return None
+
+
+def queued_receipts_for_attempt(
+    provenance: DeliveryAttemptProvenance,
+    receipts: Iterable[_T],
+) -> tuple[_T, ...]:
+    """Return queued evidence belonging to the envelope's exact generation.
+
+    Matching is deliberately limited to the immutable correlation keys needed
+    to select the candidate evidence: queued status, outbox ID, and attempt
+    number.  Callers must validate every returned receipt with
+    :func:`delivery_attempt_receipt_provenance_mismatch` so corrupted identity
+    or source/run fields are rejected rather than filtered out of sight.
+    """
+    return tuple(
+        receipt
+        for receipt in receipts_for_attempt(provenance, receipts)
+        if _get(receipt, "status") == "queued"
+    )
+
+
+def receipts_for_attempt(
+    provenance: DeliveryAttemptProvenance,
+    receipts: Iterable[_T],
+) -> tuple[_T, ...]:
+    """Return immutable evidence carrying the envelope's stable attempt key.
+
+    Selection intentionally uses only ``outbox_id`` and ``attempt_number``.
+    Every selected record must subsequently pass
+    :func:`delivery_attempt_receipt_provenance_mismatch`; filtering by the
+    identity/source fields under validation would make corrupted evidence
+    invisible to the authority fence.
+    """
+    return tuple(
+        receipt
+        for receipt in receipts
+        if str(_get(receipt, "outbox_id") or "") == provenance.outbox_id
+        and int(_get(receipt, "attempt_number") or 0) == provenance.attempt_number
+    )
 
 
 def _outbox_rank(item: Any) -> tuple[int, str, str, str]:

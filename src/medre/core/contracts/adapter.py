@@ -28,12 +28,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, Protocol
 
 from medre.core.events.canonical import CanonicalEvent
 from medre.core.events.delivery import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
     DELIVERY_OBSERVATION_STATE_VALUES,
+    DeliveryAttemptProvenance,
     DeliveryConfirmationLevel,
     DeliveryObservationState,
 )
@@ -379,6 +380,47 @@ def _freeze_json_safe_metadata(
     return MappingProxyType(frozen)
 
 
+class _AttemptProvenanceMirrorRecord(Protocol):
+    """Read shape shared by frozen callback records with provenance mirrors."""
+
+    @property
+    def event_id(self) -> str: ...
+
+    @property
+    def adapter(self) -> str: ...
+
+    @property
+    def delivery_plan_id(self) -> str | None: ...
+
+    @property
+    def outbox_id(self) -> str | None: ...
+
+    @property
+    def attempt_number(self) -> int | None: ...
+
+
+def _apply_attempt_provenance_mirrors(
+    record: _AttemptProvenanceMirrorRecord,
+    provenance: DeliveryAttemptProvenance,
+    *,
+    owner: str,
+) -> None:
+    """Validate callback mirrors and populate them from immutable provenance."""
+    if record.event_id != provenance.event_id:
+        raise ValueError(f"{owner}.event_id contradicts attempt_provenance")
+    if record.adapter != provenance.target_adapter:
+        raise ValueError(f"{owner}.adapter contradicts attempt_provenance")
+    for name, expected in (
+        ("delivery_plan_id", provenance.delivery_plan_id),
+        ("outbox_id", provenance.outbox_id),
+        ("attempt_number", provenance.attempt_number),
+    ):
+        value = getattr(record, name)
+        if value is not None and value != expected:
+            raise ValueError(f"{owner}.{name} contradicts attempt_provenance")
+        object.__setattr__(record, name, expected)
+
+
 @dataclass(frozen=True)
 class OutboundNativeRefRecord:
     """Immutable record describing a delayed outbound native reference.
@@ -441,9 +483,12 @@ class OutboundNativeRefRecord:
         adapters normally report ``"local_transport"`` once the SDK accepts
         the send; this is not an end-to-end recipient acknowledgement.
     attempt_number:
-        **Required** 1-indexed delivery attempt number from pipeline
-        retry lineage.  Used alongside ``outbox_id`` for stale-callback
-        protection.  Queue adapters MUST populate this field.
+        Compatibility mirror of the immutable attempt generation. Queue-backed
+        built-ins populate it from ``attempt_provenance``.
+    attempt_provenance:
+        Immutable delivery identity and dispatch provenance captured before
+        adapter hand-off. Built-in asynchronous adapters echo the exact object
+        so core can validate callback lineage without reconstructing it.
     metadata:
         Adapter-specific metadata about this mapping.  Must contain only
         JSON-safe, simple values.
@@ -460,8 +505,12 @@ class OutboundNativeRefRecord:
     attempt_number: int | None = None
     confirmation_level: DeliveryConfirmationLevel = "unknown"
     metadata: Mapping[str, object] = field(default_factory=dict)
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
 
     def __post_init__(self) -> None:
+        _apply_attempt_provenance_mirrors(
+            self, self.attempt_provenance, owner="OutboundNativeRefRecord"
+        )
         if (
             not isinstance(self.native_message_id, str)
             or not self.native_message_id.strip()
@@ -523,10 +572,11 @@ class QueueTerminalRecord:
         it against the authoritative outbox row when present, but it
         is not a queue callback correlation key.
     attempt_number:
-        **Required** 1-indexed delivery attempt number from pipeline
-        retry lineage.  Queue adapters MUST populate this field;
-        callbacks without ``attempt_number`` are hard-rejected by core
-        and produce no durable terminal receipt or outbox mutation.
+        Compatibility mirror of the immutable attempt generation.
+    attempt_provenance:
+        **Required** immutable attempt identity and dispatch provenance for
+        queue terminal callbacks. Core validates it against durable outbox
+        authority and never derives source/replay lineage from receipt timing.
     native_channel_id:
         Channel / conversation ID in the adapter's native format.
     error:
@@ -541,6 +591,14 @@ class QueueTerminalRecord:
     attempt_number: int | None = None
     native_channel_id: str | None = None
     error: str | None = None
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
+
+    def __post_init__(self) -> None:
+        _apply_attempt_provenance_mirrors(
+            self, self.attempt_provenance, owner="QueueTerminalRecord"
+        )
+        if self.attempt_number is not None and self.attempt_number < 1:
+            raise ValueError("attempt_number must be >= 1 when provided")
 
 
 @dataclass(frozen=True)
@@ -549,8 +607,9 @@ class OutboundDeliveryObservationRecord:
 
     This callback contract is intentionally separate from queue completion.
     It records later transport evidence without giving adapters authority to
-    rewrite receipts or terminal outbox state.  Core validates exact
-    ``outbox_id`` + ``attempt_number`` correlation before persisting it.
+    rewrite receipts or terminal outbox state. Built-in asynchronous adapters
+    carry ``attempt_provenance`` so core validates the exact immutable attempt
+    before persisting the observation.
     """
 
     event_id: str
@@ -564,6 +623,7 @@ class OutboundDeliveryObservationRecord:
     confirmation_level: DeliveryConfirmationLevel = "unknown"
     error: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
+    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
 
     def __post_init__(self) -> None:
         """Validate observation values and freeze JSON-safe metadata.
@@ -572,6 +632,11 @@ class OutboundDeliveryObservationRecord:
         supplied attempt number; raises ``TypeError`` for metadata that cannot
         be serialized as JSON.
         """
+        _apply_attempt_provenance_mirrors(
+            self,
+            self.attempt_provenance,
+            owner="OutboundDeliveryObservationRecord",
+        )
         if self.state not in DELIVERY_OBSERVATION_STATE_VALUES:
             raise ValueError(
                 f"unknown delivery observation state {self.state!r}; "

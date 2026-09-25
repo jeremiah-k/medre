@@ -21,7 +21,6 @@ from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
     OutboundDeliveryObservationRecord,
     OutboundNativeRefRecord,
-    QueueTerminalRecord,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
@@ -33,6 +32,10 @@ from medre.core.events.canonical import (
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.retry import RetryWorker
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_terminal_record,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -113,6 +116,7 @@ async def _append_receipt(
     event_id: str,
     status: str,
     attempt_number: int,
+    source: str = "retry",
 ) -> DeliveryReceipt:
     receipt = DeliveryReceipt(
         receipt_id=f"rcpt-{outbox_id}-a{attempt_number}-{status}",
@@ -125,7 +129,7 @@ async def _append_receipt(
         failure_kind="adapter_transient" if status == "failed" else None,
         error="seeded attempt failure" if status == "failed" else None,
         attempt_number=attempt_number,
-        source="retry",
+        source=source,
         outbox_id=outbox_id,
         created_at=datetime.now(timezone.utc),
     )
@@ -139,8 +143,18 @@ def _observation_record(
     outbox_id: str,
     attempt_number: int,
     state: str = "delivered",
+    source: str = "live",
 ) -> OutboundDeliveryObservationRecord:
     return OutboundDeliveryObservationRecord(
+        attempt_provenance=make_attempt_provenance(
+            event_id=event_id,
+            target_adapter="lxmf-main",
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+            delivery_plan_id=_PLAN_ID,
+            target_channel="aa" * 16,
+            source=source,
+        ),
         event_id=event_id,
         adapter="lxmf-main",
         state=state,  # type: ignore[arg-type]
@@ -259,6 +273,7 @@ async def test_reserved_attempt_is_admissible_throughout_handoff(temp_storage) -
         event_id=event.event_id,
         status="failed",
         attempt_number=1,
+        source="live",
     )
     lifecycle = DeliveryLifecycleService()
 
@@ -285,7 +300,10 @@ async def test_reserved_attempt_is_admissible_throughout_handoff(temp_storage) -
     assert await lifecycle.record_delivery_observation(
         temp_storage,
         _observation_record(
-            event_id=event.event_id, outbox_id=item.outbox_id, attempt_number=2
+            event_id=event.event_id,
+            outbox_id=item.outbox_id,
+            attempt_number=2,
+            source="retry",
         ),
         now,
     )
@@ -337,7 +355,10 @@ async def test_completion_rejects_old_attempts_and_keeps_live_one(temp_storage) 
     assert await lifecycle.record_delivery_observation(
         temp_storage,
         _observation_record(
-            event_id=event.event_id, outbox_id=item.outbox_id, attempt_number=2
+            event_id=event.event_id,
+            outbox_id=item.outbox_id,
+            attempt_number=2,
+            source="retry",
         ),
         now,
     )
@@ -359,7 +380,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
     manager = OutboxManager(temp_storage, DeliveryLifecycleService())
     receipts_before = len(await temp_storage.list_receipts_for_event(event.event_id))
     await manager.record_terminal(
-        QueueTerminalRecord(
+        make_terminal_record(
             event_id=event.event_id,
             adapter="lxmf-main",
             outcome="permanent_failed",
@@ -381,7 +402,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
     )
 
     committed = await manager.record_terminal(
-        QueueTerminalRecord(
+        make_terminal_record(
             event_id=event.event_id,
             adapter="lxmf-main",
             outcome="permanent_failed",
@@ -390,6 +411,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
             attempt_number=2,
             native_channel_id="aa" * 16,
             error="send rejected",
+            source="retry",
         )
     )
     assert committed is None  # record_terminal returns None; state speaks below
@@ -413,7 +435,7 @@ async def test_queue_terminal_commits_reserved_attempt(temp_storage) -> None:
 
     # A late terminal callback for the superseded attempt commits nothing.
     stale_committed = await manager.record_terminal(
-        QueueTerminalRecord(
+        make_terminal_record(
             event_id=event.event_id,
             adapter="lxmf-main",
             outcome="cancelled",
@@ -671,6 +693,14 @@ async def test_queued_to_sent_commits_reserved_attempt(temp_storage) -> None:
     await lifecycle.finalize_queued_delivery(
         temp_storage,
         OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event.event_id,
+                target_adapter="lxmf-main",
+                outbox_id=item.outbox_id,
+                attempt_number=1,
+                delivery_plan_id=_PLAN_ID,
+                target_channel="aa" * 16,
+            ),
             event_id=event.event_id,
             adapter="lxmf-main",
             native_channel_id="aa" * 16,
@@ -695,6 +725,15 @@ async def test_queued_to_sent_commits_reserved_attempt(temp_storage) -> None:
     await lifecycle.finalize_queued_delivery(
         temp_storage,
         OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event.event_id,
+                target_adapter="lxmf-main",
+                outbox_id=item.outbox_id,
+                attempt_number=2,
+                delivery_plan_id=_PLAN_ID,
+                target_channel="aa" * 16,
+                source="retry",
+            ),
             event_id=event.event_id,
             adapter="lxmf-main",
             native_channel_id="aa" * 16,
@@ -718,6 +757,14 @@ async def test_queued_to_sent_commits_reserved_attempt(temp_storage) -> None:
     await lifecycle.finalize_queued_delivery(
         temp_storage,
         OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event.event_id,
+                target_adapter="lxmf-main",
+                outbox_id=item.outbox_id,
+                attempt_number=1,
+                delivery_plan_id=_PLAN_ID,
+                target_channel="aa" * 16,
+            ),
             event_id=event.event_id,
             adapter="lxmf-main",
             native_channel_id="aa" * 16,

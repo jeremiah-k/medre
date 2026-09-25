@@ -30,6 +30,7 @@ from medre.core.contracts.adapter import (
     AdapterDeliveryResult,
 )
 from tests.helpers.async_utils import wait_until
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.meshtastic import make_meshtastic_config
 
 # ---------------------------------------------------------------------------
@@ -59,6 +60,33 @@ def _make_ctx(
     )
 
 
+def _queue_item(
+    *,
+    event_id: str = "evt-1",
+    outbox_id: str = "ob-1",
+    delivery_plan_id: str = "dp-1",
+    attempt_number: int = 1,
+    channel_index: int = 0,
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "event_id": event_id,
+        "outbox_id": outbox_id,
+        "delivery_plan_id": delivery_plan_id,
+        "attempt_number": attempt_number,
+        "payload": payload or {"text": "hello"},
+        "channel_index": channel_index,
+        "attempt_provenance": make_attempt_provenance(
+            event_id=event_id,
+            target_adapter="mesh-1",
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+            delivery_plan_id=delivery_plan_id,
+            target_channel=str(channel_index),
+        ),
+    }
+
+
 def _terminal_result(
     event_id: str = "evt-1",
     outcome: str = "exhausted",
@@ -67,14 +95,7 @@ def _terminal_result(
     """Build a QueueTerminalResult for testing."""
 
     return QueueTerminalResult(
-        item={
-            "event_id": event_id,
-            "outbox_id": "ob-1",
-            "delivery_plan_id": "dp-1",
-            "attempt_number": 1,
-            "payload": {"text": "hello"},
-            "channel_index": 0,
-        },
+        item=_queue_item(event_id=event_id),
         outcome=outcome,  # type: ignore[arg-type]
         error=error,
     )
@@ -86,11 +107,7 @@ def _delivery_result(
 ) -> QueueDeliveryResult:
     """Build a QueueDeliveryResult for testing."""
     return QueueDeliveryResult(
-        item={
-            "event_id": event_id,
-            "payload": {"text": "hello"},
-            "channel_index": 0,
-        },
+        item=_queue_item(event_id=event_id),
         delivery_result=AdapterDeliveryResult(
             native_message_id=native_message_id,
             native_channel_id="0",
@@ -623,14 +640,14 @@ class TestReportCancelledAndDrainPaths:
         )
         # Process one to dequeue it, then mark it as cancelled.
         # Instead, directly set the cancelled item on the queue.
-        adapter._queue._last_cancelled_item = {
-            "event_id": "evt-cancelled-1",
-            "outbox_id": "ob-cancelled",
-            "delivery_plan_id": "dp-cancel",
-            "attempt_number": 2,
-            "payload": {"text": "cancel me"},
-            "channel_index": 1,
-        }
+        adapter._queue._last_cancelled_item = _queue_item(
+            event_id="evt-cancelled-1",
+            outbox_id="ob-cancelled",
+            delivery_plan_id="dp-cancel",
+            attempt_number=2,
+            channel_index=1,
+            payload={"text": "cancel me"},
+        )
 
         await adapter._report_cancelled_and_drain()
 
@@ -654,13 +671,11 @@ class TestReportCancelledAndDrainPaths:
         adapter.ctx = _make_ctx(record_outbound_terminal=failing_terminal)
 
         # Set up a cancelled item.
-        adapter._queue._last_cancelled_item = {
-            "event_id": "evt-fail-cancel",
-            "outbox_id": "ob-fail",
-            "delivery_plan_id": "dp-fail",
-            "attempt_number": 1,
-            "channel_index": 0,
-        }
+        adapter._queue._last_cancelled_item = _queue_item(
+            event_id="evt-fail-cancel",
+            outbox_id="ob-fail",
+            delivery_plan_id="dp-fail",
+        )
 
         # Should not raise — exception is caught internally.
         await adapter._report_cancelled_and_drain()
@@ -680,13 +695,9 @@ class TestReportCancelledAndDrainPaths:
         adapter.ctx = _make_ctx(record_outbound_terminal=capture_terminal)
 
         # Set up a cancelled item so the drain path activates.
-        adapter._queue._last_cancelled_item = {
-            "event_id": "evt-inflight",
-            "outbox_id": "ob-inflight",
-            "delivery_plan_id": "dp-1",
-            "attempt_number": 1,
-            "channel_index": 0,
-        }
+        adapter._queue._last_cancelled_item = _queue_item(
+            event_id="evt-inflight", outbox_id="ob-inflight"
+        )
 
         # Enqueue remaining items that will be drained as abandoned.
         # enqueue(payload, channel_index, event_id=..., ...)
@@ -697,6 +708,14 @@ class TestReportCancelledAndDrainPaths:
             outbox_id="ob-remain-1",
             delivery_plan_id="dp-remain",
             attempt_number=1,
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-remain-1",
+                target_adapter="mesh-1",
+                outbox_id="ob-remain-1",
+                attempt_number=1,
+                delivery_plan_id="dp-remain",
+                target_channel="2",
+            ),
         )
         await adapter._queue.enqueue(
             {"text": "abandoned 2"},
@@ -705,6 +724,14 @@ class TestReportCancelledAndDrainPaths:
             outbox_id="ob-remain-2",
             delivery_plan_id="dp-remain",
             attempt_number=3,
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-remain-2",
+                target_adapter="mesh-1",
+                outbox_id="ob-remain-2",
+                attempt_number=3,
+                delivery_plan_id="dp-remain",
+                target_channel="3",
+            ),
         )
 
         await adapter._report_cancelled_and_drain()
@@ -741,13 +768,24 @@ class TestReportCancelledAndDrainPaths:
         adapter.ctx = _make_ctx(record_outbound_terminal=failing_on_second)
 
         # Set up cancelled + remaining items.
-        adapter._queue._last_cancelled_item = {
-            "event_id": "evt-inflight",
-            "channel_index": 0,
-        }
+        adapter._queue._last_cancelled_item = _queue_item(
+            event_id="evt-inflight", outbox_id="ob-inflight"
+        )
         await adapter._queue.enqueue(
             {"event_id": "evt-remain", "channel_index": 0},
             channel_index=0,
+            event_id="evt-remain",
+            outbox_id="ob-remain",
+            delivery_plan_id="dp-remain",
+            attempt_number=1,
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-remain",
+                target_adapter="mesh-1",
+                outbox_id="ob-remain",
+                attempt_number=1,
+                delivery_plan_id="dp-remain",
+                target_channel="0",
+            ),
         )
 
         # Should not raise — abandoned callback exception caught.
@@ -764,10 +802,9 @@ class TestReportCancelledAndDrainPaths:
         adapter.ctx = _make_ctx()
 
         # Set up cancelled item so drain path activates.
-        adapter._queue._last_cancelled_item = {
-            "event_id": "evt-inflight",
-            "channel_index": 0,
-        }
+        adapter._queue._last_cancelled_item = _queue_item(
+            event_id="evt-inflight", outbox_id="ob-inflight"
+        )
 
         # Enqueue remaining items.
         await adapter._queue.enqueue(
@@ -908,7 +945,7 @@ class TestNativeRefExceptionAfterCancel:
             call_count += 1
             if call_count == 1:
                 return QueueTerminalResult(
-                    item={"event_id": "evt-term", "channel_index": 0},
+                    item=_queue_item(event_id="evt-term", outbox_id="ob-term"),
                     outcome="exhausted",
                 )
             await asyncio.Event().wait()

@@ -62,6 +62,7 @@ from medre.core.storage.backend import (
     StorageError,
     TerminalOutboxFinalization,
 )
+from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.storage_outbox import (
     allocate_new_outbox_generation,
     apply_guarded_outbox_terminal,
@@ -119,6 +120,17 @@ class _MemoryStorage:
             and receipt.target_adapter == identity.target_adapter
             and (receipt.target_channel or None) == identity.target_channel
         ]
+
+    async def list_receipts_for_outbox(
+        self,
+        outbox_id: str,
+    ) -> list[DeliveryReceipt]:
+        if not isinstance(outbox_id, str) or not outbox_id.strip():
+            raise ValueError("receipt outbox history requires a non-empty outbox_id")
+        return sorted(
+            (r for r in self._receipts if r.outbox_id == outbox_id),
+            key=lambda r: (r.attempt_number, r.sequence or 0),
+        )
 
     async def store_native_ref(self, ref: NativeMessageRef) -> None:
         self._native_refs.append(ref)
@@ -630,6 +642,14 @@ class TestDeliveryLifecycleConformance:
 
         # Simulate the queued->sent callback
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event_id,
+                target_adapter="mesh_conf",
+                outbox_id=outbox_id,
+                attempt_number=1,
+                delivery_plan_id=plan_id,
+                target_channel="0",
+            ),
             event_id=event_id,
             adapter="mesh_conf",
             native_channel_id="0",
@@ -690,6 +710,14 @@ class TestDeliveryLifecycleConformance:
         await storage.mark_outbox_queued(outbox_id)
 
         record = OutboundNativeRefRecord(
+            attempt_provenance=make_attempt_provenance(
+                event_id=event_id,
+                target_adapter="mesh_conf",
+                outbox_id=outbox_id,
+                attempt_number=1,
+                delivery_plan_id=plan_id,
+                target_channel="0",
+            ),
             event_id=event_id,
             adapter="mesh_conf",
             native_channel_id="0",

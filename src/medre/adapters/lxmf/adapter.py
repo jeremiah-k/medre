@@ -69,7 +69,10 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
     OutboundDeliveryObservationRecord,
 )
-from medre.core.events.delivery import DELIVERY_OBSERVATION_STATE_VALUES
+from medre.core.events.delivery import (
+    DELIVERY_OBSERVATION_STATE_VALUES,
+    DeliveryAttemptProvenance,
+)
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.supervision.diagnostic_contract import PENDING_DELIVERY_COUNT
 
@@ -101,12 +104,9 @@ _DEDUP_MAX_SIZE = 1024
 
 @dataclass(frozen=True)
 class _LxmfDeliveryObservationContext:
-    """Opaque core-correlation facts carried through the LXMF session."""
+    """Opaque exact-attempt facts carried through the LXMF session."""
 
-    event_id: str
-    delivery_plan_id: str | None
-    outbox_id: str | None
-    attempt_number: int | None
+    attempt_provenance: DeliveryAttemptProvenance
     native_channel_id: str | None
 
 
@@ -637,12 +637,13 @@ class LxmfAdapter(AdapterContract):
         if not content and not title:
             return None
 
-        delivery_context = _LxmfDeliveryObservationContext(
-            event_id=result.event_id,
-            delivery_plan_id=result.delivery_plan_id,
-            outbox_id=result.outbox_id,
-            attempt_number=result.attempt_number,
-            native_channel_id=(str(destination_hash) if destination_hash else None),
+        delivery_context = (
+            _LxmfDeliveryObservationContext(
+                attempt_provenance=result.attempt_provenance,
+                native_channel_id=(str(destination_hash) if destination_hash else None),
+            )
+            if result.attempt_provenance is not None
+            else None
         )
         try:
             native_id, delivery_state = await self._session.send_text(
@@ -823,17 +824,19 @@ class LxmfAdapter(AdapterContract):
         error = None
         if state != "delivered":
             error = f"LXMF reported terminal delivery state {state}"
+        provenance = delivery_context.attempt_provenance
         record = OutboundDeliveryObservationRecord(
-            event_id=delivery_context.event_id,
+            event_id=provenance.event_id,
             adapter=self.adapter_id,
             state=state,  # type: ignore[arg-type]
-            outbox_id=delivery_context.outbox_id,
-            attempt_number=delivery_context.attempt_number,
-            delivery_plan_id=delivery_context.delivery_plan_id,
+            outbox_id=provenance.outbox_id,
+            attempt_number=provenance.attempt_number,
+            delivery_plan_id=provenance.delivery_plan_id,
             native_channel_id=delivery_context.native_channel_id,
             native_message_id=message_hash,
             confirmation_level="unknown",
             error=error,
+            attempt_provenance=provenance,
             metadata={
                 "lxmf": {
                     "schema_version": LXMF_NATIVE_SCHEMA_VERSION,
