@@ -124,7 +124,12 @@ class TestQueuedReceiptCreation:
             primary_strategy=DeliveryStrategy(method="direct"),
         )
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = await svc.deliver_to_target(
+            event,
+            route,
+            plan,
+            outbox_id="obox-queued-q",
+        )
 
         assert receipt is not None
         assert receipt.status == "queued"

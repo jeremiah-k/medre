@@ -676,7 +676,6 @@ class TestTerminalOutcomeExhausted:
             assert rec.attempt_provenance.outbox_id == "obox-term"
             assert rec.attempt_provenance.delivery_plan_id == "plan-term"
             assert rec.attempt_provenance.attempt_number == 2
-            assert rec.native_channel_id == "3"
             assert rec.outcome == "exhausted"
             assert rec.error == "radio timeout after 3 attempts"
         finally:

@@ -956,7 +956,12 @@ class TestServicePathDeliveryConformance:
         )
 
         svc = _build_service({"queued_dest": adapter}, storage)
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = await svc.deliver_to_target(
+            event,
+            route,
+            plan,
+            outbox_id=f"obox-{plan_id}",
+        )
 
         # Receipt fields.
         assert receipt.status == "queued"

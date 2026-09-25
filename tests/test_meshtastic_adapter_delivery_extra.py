@@ -33,12 +33,36 @@ class TestHandoffDispositionDeferredVsTransport:
     4. The two states are distinguishable via hand-off disposition.
     """
 
-    async def test_deliver_returns_enqueued_status(self) -> None:
-        """deliver() returns disposition='deferred'."""
+    @staticmethod
+    def _started_deferred_adapter():
+        """A started fake Meshtastic adapter with a feedback sink installed."""
+        import asyncio
+        import logging
+        from datetime import datetime, timezone
+        from unittest.mock import AsyncMock
+
+        from medre.core.contracts.adapter import AdapterContext
+
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
-        result = make_meshtastic_rendering_result()
-        delivery = await adapter.deliver(result)
+        return adapter, AdapterContext(
+            adapter_id="mesh-1",
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.deferred"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            report_delivery_feedback=AsyncMock(),
+        )
+
+    async def test_deliver_returns_enqueued_status(self) -> None:
+        """deliver() returns disposition='deferred'."""
+        adapter, ctx = self._started_deferred_adapter()
+        await adapter.start(ctx)
+        try:
+            result = make_meshtastic_rendering_result()
+            delivery = await adapter.deliver(result)
+        finally:
+            await adapter.stop()
 
         assert delivery is not None
         assert delivery.disposition == "deferred"
@@ -72,8 +96,8 @@ class TestHandoffDispositionDeferredVsTransport:
 
         This is the correct evidence for an enqueue-only state.
         """
-        config = make_meshtastic_config(connection_type="fake")
-        adapter = MeshtasticAdapter(config)
+        adapter, ctx = self._started_deferred_adapter()
+        await adapter.start(ctx)
 
         # Enqueue without processing — simulates crash between enqueue
         # and queue drain.
@@ -93,8 +117,8 @@ class TestHandoffDispositionDeferredVsTransport:
     async def test_enqueue_then_send_produces_both_states(self) -> None:
         """Full lifecycle: enqueue produces 'enqueued', then process_one
         produces 'sent' with real native_message_id."""
-        config = make_meshtastic_config(connection_type="fake")
-        adapter = MeshtasticAdapter(config)
+        adapter, ctx = self._started_deferred_adapter()
+        await adapter.start(ctx)
 
         # Phase 1: Enqueue
         result = make_meshtastic_rendering_result(event_id="evt-lifecycle")
@@ -125,8 +149,8 @@ class TestHandoffDispositionDeferredVsTransport:
         """Two AdapterHandoffResult instances — one enqueued, one sent —
         are distinguishable by delivery_status."""
         # Enqueued result (from adapter.deliver)
-        config = make_meshtastic_config(connection_type="fake")
-        adapter = MeshtasticAdapter(config)
+        adapter, ctx = self._started_deferred_adapter()
+        await adapter.start(ctx)
         enqueue_result = await adapter.deliver(make_meshtastic_rendering_result())
         assert enqueue_result is not None
         assert enqueue_result.disposition == "deferred"
@@ -152,8 +176,8 @@ class TestHandoffDispositionDeferredVsTransport:
 
     async def test_multiple_enqueues_all_show_enqueued(self) -> None:
         """Multiple deliver() calls all return disposition='deferred'."""
-        config = make_meshtastic_config(connection_type="fake")
-        adapter = MeshtasticAdapter(config)
+        adapter, ctx = self._started_deferred_adapter()
+        await adapter.start(ctx)
 
         for i in range(3):
             result = make_meshtastic_rendering_result(event_id=f"evt-{i}")
@@ -252,6 +276,7 @@ class TestDeliveryOutcomeQueuedStatus:
                 logger=logging.getLogger("test.qo-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 
@@ -353,6 +378,7 @@ class TestDeliveryOutcomeQueuedStatus:
             AdapterContext(
                 adapter_id="acc-mesh",
                 publish_inbound=AsyncMock(),
+                report_delivery_feedback=runner._record_delivery_feedback,
                 logger=logging.getLogger("test.acc-mesh"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
