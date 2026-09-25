@@ -89,6 +89,7 @@ from medre.core.contracts.adapter import (
 from medre.core.delivery_authority import (
     DeliveryIdentity,
     committed_receipt_for_outbox,
+    delivery_attempt_provenance_mismatch,
     delivery_identity,
     effective_generation,
 )
@@ -941,6 +942,17 @@ class DeliveryLifecycleService:
                 record.adapter,
             )
             return False
+        provenance = record.attempt_provenance
+        if provenance is not None:
+            mismatch = delivery_attempt_provenance_mismatch(provenance, outbox)
+            if mismatch is not None:
+                self._log.warning(
+                    "Rejecting delivery observation with contradictory attempt "
+                    "provenance: outbox_id=%s %s",
+                    record.outbox_id,
+                    mismatch,
+                )
+                return False
         if (
             outbox.event_id != record.event_id
             or outbox.target_adapter != record.adapter
@@ -1096,6 +1108,20 @@ class DeliveryLifecycleService:
                 )
                 return
 
+            provenance = record.attempt_provenance
+            if provenance is not None:
+                mismatch = delivery_attempt_provenance_mismatch(
+                    provenance, outbox_item
+                )
+                if mismatch is not None:
+                    self._log.warning(
+                        "Queued delivery callback rejected: contradictory attempt "
+                        "provenance for outbox_id=%s: %s",
+                        record.outbox_id,
+                        mismatch,
+                    )
+                    return
+
             # Stale-callback protection: only accept callbacks for outbox
             # items that are still in a queued or in-progress state.
             if outbox_item.status not in ("queued", "in_progress"):
@@ -1247,13 +1273,31 @@ class DeliveryLifecycleService:
                 )
                 return
 
-            # Use source-aware selection among outbox-matching candidates.
-            queued_receipt = self._select_source_preferred_candidate(
-                outbox_matches,
-                record,
-            )
-            if queued_receipt is None:
-                return
+            if provenance is not None:
+                # Callback provenance is authoritative. Queued evidence supplies
+                # immutable parent linkage and retry/render fields only, and must
+                # agree with the envelope when already present.
+                for candidate in outbox_matches:
+                    if candidate.source != provenance.source or (
+                        candidate.replay_run_id != provenance.replay_run_id
+                    ):
+                        self._log.warning(
+                            "Queued delivery callback rejected: receipt provenance "
+                            "contradicts callback for outbox_id=%s attempt=%d",
+                            provenance.outbox_id,
+                            provenance.attempt_number,
+                        )
+                        return
+                queued_receipt = outbox_matches[-1]
+            else:
+                # Legacy/custom callback compatibility. Built-in queue adapters
+                # carry attempt_provenance and do not take this path.
+                queued_receipt = self._select_source_preferred_candidate(
+                    outbox_matches,
+                    record,
+                )
+                if queued_receipt is None:
+                    return
 
             # Enforce attempt_number correlation: the outbox item and the
             # selected queued receipt must agree on the attempt number.
@@ -1318,8 +1362,14 @@ class DeliveryLifecycleService:
             created_at=now,
             attempt_number=queued_receipt.attempt_number,
             parent_receipt_id=queued_receipt.receipt_id,
-            source=queued_receipt.source,
-            replay_run_id=queued_receipt.replay_run_id,
+            source=(
+                provenance.source if provenance is not None else queued_receipt.source
+            ),
+            replay_run_id=(
+                provenance.replay_run_id
+                if provenance is not None
+                else queued_receipt.replay_run_id
+            ),
             retry_max_attempts=queued_receipt.retry_max_attempts,
             retry_backoff_base=queued_receipt.retry_backoff_base,
             retry_max_delay=queued_receipt.retry_max_delay,

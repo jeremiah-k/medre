@@ -69,7 +69,10 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
     OutboundDeliveryObservationRecord,
 )
-from medre.core.events.delivery import DELIVERY_OBSERVATION_STATE_VALUES
+from medre.core.events.delivery import (
+    DELIVERY_OBSERVATION_STATE_VALUES,
+    DeliveryAttemptProvenance,
+)
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.supervision.diagnostic_contract import PENDING_DELIVERY_COUNT
 
@@ -108,6 +111,7 @@ class _LxmfDeliveryObservationContext:
     outbox_id: str | None
     attempt_number: int | None
     native_channel_id: str | None
+    attempt_provenance: DeliveryAttemptProvenance | None
 
 
 class LxmfAdapter(AdapterContract):
@@ -643,6 +647,7 @@ class LxmfAdapter(AdapterContract):
             outbox_id=result.outbox_id,
             attempt_number=result.attempt_number,
             native_channel_id=(str(destination_hash) if destination_hash else None),
+            attempt_provenance=result.attempt_provenance,
         )
         try:
             native_id, delivery_state = await self._session.send_text(
@@ -834,6 +839,7 @@ class LxmfAdapter(AdapterContract):
             native_message_id=message_hash,
             confirmation_level="unknown",
             error=error,
+            attempt_provenance=delivery_context.attempt_provenance,
             metadata={
                 "lxmf": {
                     "schema_version": LXMF_NATIVE_SCHEMA_VERSION,

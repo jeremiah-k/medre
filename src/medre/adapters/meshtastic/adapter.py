@@ -447,6 +447,7 @@ class MeshtasticAdapter(AdapterContract):
                 delivery_plan_id=result.delivery_plan_id,
                 outbox_id=result.outbox_id,
                 attempt_number=result.attempt_number,
+                attempt_provenance=result.attempt_provenance,
             )
         except asyncio.CancelledError:
             raise
@@ -1268,6 +1269,7 @@ class MeshtasticAdapter(AdapterContract):
             outbox_id=result.item.get("outbox_id"),
             delivery_plan_id=result.item.get("delivery_plan_id"),
             attempt_number=result.item.get("attempt_number"),
+            attempt_provenance=result.item.get("attempt_provenance"),
             native_channel_id=(
                 str(ch) if (ch := result.item.get("channel_index")) is not None else ""
             ),
@@ -1315,6 +1317,7 @@ class MeshtasticAdapter(AdapterContract):
                     outbox_id=cancelled_item.get("outbox_id"),
                     delivery_plan_id=cancelled_item.get("delivery_plan_id"),
                     attempt_number=cancelled_item.get("attempt_number"),
+                    attempt_provenance=cancelled_item.get("attempt_provenance"),
                     native_channel_id=(
                         str(ch)
                         if (ch := cancelled_item.get("channel_index")) is not None
@@ -1357,6 +1360,7 @@ class MeshtasticAdapter(AdapterContract):
                         outbox_id=item.get("outbox_id"),
                         delivery_plan_id=item.get("delivery_plan_id"),
                         attempt_number=item.get("attempt_number"),
+                        attempt_provenance=item.get("attempt_provenance"),
                         native_channel_id=(
                             str(ch)
                             if (ch := item.get("channel_index")) is not None
@@ -1479,6 +1483,7 @@ class MeshtasticAdapter(AdapterContract):
             outbox_id=result.item.get("outbox_id"),
             attempt_number=result.item.get("attempt_number"),
             confirmation_level=delivery.confirmation_level,
+            attempt_provenance=result.item.get("attempt_provenance"),
             metadata=send_meta,
         )
         callback = self.ctx.record_outbound_native_ref if self.ctx else None

@@ -14,14 +14,20 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from medre.core.contracts.adapter import QueueTerminalRecord
-from medre.core.delivery_authority import delivery_identity
+from medre.core.delivery_authority import (
+    delivery_attempt_provenance_mismatch,
+    delivery_identity,
+)
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.delivery_state import (
     TERMINAL_OUTBOX_STATUSES,
 )
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
-from medre.core.events import DeliverySource, normalize_delivery_provenance
+from medre.core.events import (
+    normalize_delivery_provenance,
+    normalize_replay_run_id,
+)
 from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
@@ -393,198 +399,108 @@ class OutboxManager:
                 )
                 return
 
-            # Pre-validate outbox item state before creating the receipt.
-            # Reject terminal reports for outbox items that are already in
-            # a terminal state or that do not exist, to prevent duplicate
-            # terminal receipts and outbox-transition errors.
-            # Track the validated item for attempt_number and field enrichment.
-            existing_item: DeliveryOutboxItem | None = None
-            if record.outbox_id is not None:
-                existing_item = await self._storage.get_outbox_item(
-                    record.outbox_id,
-                )
-                if existing_item is None:
-                    self._log.warning(
-                        "Terminal outcome rejected: outbox_id=%s not found "
-                        "for event_id=%s adapter=%s outcome=%s; "
-                        "outbox item may have been garbage-collected",
-                        record.outbox_id,
-                        record.event_id,
-                        record.adapter,
-                        record.outcome,
-                    )
-                    return
-                if existing_item.status in TERMINAL_OUTBOX_STATUSES:
-                    self._log.warning(
-                        "Terminal outcome rejected: outbox_id=%s already "
-                        "terminal (status=%s) for event_id=%s adapter=%s "
-                        "outcome=%s; duplicate terminal report",
-                        record.outbox_id,
-                        existing_item.status,
-                        record.event_id,
-                        record.adapter,
-                        record.outcome,
-                    )
-                    return
-                # Validate event_id matches to prevent cross-event corruption.
-                if existing_item.event_id != record.event_id:
-                    self._log.warning(
-                        "Terminal outcome rejected: outbox_id=%s has "
-                        "event_id=%s but record has event_id=%s; "
-                        "adapter=%s outcome=%s",
-                        record.outbox_id,
-                        existing_item.event_id,
-                        record.event_id,
-                        record.adapter,
-                        record.outcome,
-                    )
-                    return
-                # Validate adapter matches the outbox row.
-                if existing_item.target_adapter != record.adapter:
-                    self._log.warning(
-                        "Terminal outcome rejected: outbox_id=%s has "
-                        "target_adapter=%s but record has adapter=%s; "
-                        "outcome=%s",
-                        record.outbox_id,
-                        existing_item.target_adapter,
-                        record.adapter,
-                        record.outcome,
-                    )
-                    return
-                # Validate channel matches the outbox row.
-                if record.native_channel_id is not None and (
-                    record.native_channel_id or None
-                ) != (existing_item.target_channel or None):
-                    self._log.warning(
-                        "Terminal outcome rejected: outbox_id=%s has "
-                        "target_channel=%s but record has native_channel_id=%s; "
-                        "adapter=%s outcome=%s",
-                        record.outbox_id,
-                        existing_item.target_channel,
-                        record.native_channel_id,
-                        record.adapter,
-                        record.outcome,
-                    )
-                    return
-                # Validate delivery_plan_id matches the outbox row.
-                if (
-                    record.delivery_plan_id is not None
-                    and record.delivery_plan_id != existing_item.delivery_plan_id
-                ):
-                    self._log.warning(
-                        "Terminal outcome rejected: outbox_id=%s has "
-                        "delivery_plan_id=%s but record has %s; "
-                        "adapter=%s outcome=%s",
-                        record.outbox_id,
-                        existing_item.delivery_plan_id,
-                        record.delivery_plan_id,
-                        record.adapter,
-                        record.outcome,
-                    )
-                    return
-                # Validate attempt_number — required for queue callbacks.
-                if record.attempt_number is None:
-                    self._log.warning(
-                        "Terminal outcome rejected: missing attempt_number "
-                        "for outbox_id=%s adapter=%s outcome=%s; "
-                        "queue terminal callbacks must carry attempt_number",
-                        record.outbox_id,
-                        record.adapter,
-                        record.outcome,
-                    )
-                    return
-                effective_attempt = self._lifecycle.effective_attempt(existing_item)
-                if record.attempt_number != effective_attempt:
-                    self._log.warning(
-                        "Terminal outcome rejected: outbox_id=%s has "
-                        "effective attempt_number=%d but record has %d; "
-                        "adapter=%s outcome=%s",
-                        record.outbox_id,
-                        effective_attempt,
-                        record.attempt_number,
-                        record.adapter,
-                        record.outcome,
-                    )
-                    return
-                # Only queued/in_progress are eligible for terminal outcome
-                # recording — pending and retry_wait indicate states where
-                # the adapter should not be reporting a terminal outcome.
-                if existing_item.status not in ("queued", "in_progress"):
-                    self._log.warning(
-                        "Terminal outcome rejected: outbox_id=%s has "
-                        "status=%s which is not eligible for queue terminal "
-                        "outcomes (expected queued or in_progress); "
-                        "adapter=%s outcome=%s",
-                        record.outbox_id,
-                        existing_item.status,
-                        record.adapter,
-                        record.outcome,
-                    )
-                    return
-            else:
-                # No outbox_id — hard-reject.  Queue terminal callbacks
-                # MUST carry outbox_id for exact correlation.
+            # Exact attempt provenance is mandatory for queue terminal callbacks.
+            # It was frozen before adapter hand-off, so callback lineage never
+            # depends on mutable row state or queued-receipt append timing.
+            provenance = record.attempt_provenance
+            if provenance is None:
                 self._log.warning(
-                    "Terminal outcome rejected: no outbox_id for "
-                    "event_id=%s adapter=%s outcome=%s; exact outbox "
-                    "correlation is required",
+                    "Terminal outcome rejected: missing attempt_provenance for "
+                    "event_id=%s adapter=%s outcome=%s",
                     record.event_id,
                     record.adapter,
                     record.outcome,
                 )
                 return
 
-            # The validated outbox row is authoritative for the attempt
-            # number; validation above guarantees the row exists and that
-            # the record's attempt_number matches its effective attempt
-            # (a reserved in-flight attempt during handoff, otherwise the
-            # stored number).
-            _attempt_number: int = effective_attempt
+            existing_item = await self._storage.get_outbox_item(provenance.outbox_id)
+            if existing_item is None:
+                self._log.warning(
+                    "Terminal outcome rejected: outbox_id=%s not found for "
+                    "event_id=%s adapter=%s outcome=%s",
+                    provenance.outbox_id,
+                    record.event_id,
+                    record.adapter,
+                    record.outcome,
+                )
+                return
+            if existing_item.status in TERMINAL_OUTBOX_STATUSES:
+                self._log.warning(
+                    "Terminal outcome rejected: outbox_id=%s already terminal "
+                    "(status=%s); duplicate terminal report",
+                    provenance.outbox_id,
+                    existing_item.status,
+                )
+                return
 
-            # Recover queued-receipt lineage from this exact delivery identity,
-            # then match the authoritative outbox generation.  Keeping sibling
-            # targets outside the query makes lineage ownership structural
-            # rather than an ad-hoc filter over event-wide history.
-            _queued_source: DeliverySource = existing_item.dispatch_source or "live"
-            _queued_replay_run_id: str | None = None
+            mismatch = delivery_attempt_provenance_mismatch(provenance, existing_item)
+            if mismatch is not None:
+                self._log.warning(
+                    "Terminal outcome rejected: contradictory attempt provenance "
+                    "for outbox_id=%s: %s",
+                    provenance.outbox_id,
+                    mismatch,
+                )
+                return
+
+            if existing_item.status not in ("queued", "in_progress"):
+                self._log.warning(
+                    "Terminal outcome rejected: outbox_id=%s has status=%s which "
+                    "is not eligible for queue terminal outcomes",
+                    provenance.outbox_id,
+                    existing_item.status,
+                )
+                return
+
+            _attempt_number = provenance.attempt_number
+
+            # Read immutable queued evidence only for parent linkage. If an exact
+            # queued receipt already exists, its lineage must agree with the
+            # callback envelope. A missing receipt is a valid pre-append race and
+            # no longer causes source/replay provenance to be reconstructed.
             _queued_receipt_id: str | None = None
             try:
                 _all_receipts = await self._storage.list_receipts_for_delivery(
                     delivery_identity(existing_item),
                 )
-                for _r in _all_receipts:
-                    if (
-                        _r.outbox_id == record.outbox_id
-                        and _r.attempt_number == _attempt_number
-                        and _r.status == "queued"
-                    ):
-                        _queued_source = _r.source
-                        _queued_replay_run_id = _r.replay_run_id
-                        _queued_receipt_id = _r.receipt_id
-                        break
+                _queued_matches = [
+                    receipt
+                    for receipt in _all_receipts
+                    if receipt.outbox_id == provenance.outbox_id
+                    and receipt.attempt_number == _attempt_number
+                    and receipt.status == "queued"
+                ]
             except Exception:
-                # A failed history read is not the same as a successful read
-                # that proves the queued receipt has not been appended yet.
-                # Without that distinction parent/provenance lineage cannot be
-                # reconstructed safely, so fail closed for every source.
                 self._log.warning(
-                    "Could not read queued-receipt lineage for "
-                    "outbox_id=%s; rejecting terminal callback rather "
-                    "than committing incomplete provenance",
-                    record.outbox_id,
+                    "Could not read queued-receipt lineage for outbox_id=%s; "
+                    "rejecting terminal callback rather than committing "
+                    "incomplete parent linkage validation",
+                    provenance.outbox_id,
                 )
                 return
 
-            if _queued_receipt_id is None:
-                # A terminal callback can race the immutable queued-receipt
-                # append before or after the mutable row reaches ``queued``.
-                # The row therefore carries the current attempt's dispatch
-                # mechanism independently of receipt timing. Retry reservation
-                # stamps ``retry`` before transport invocation; initial
-                # admission stamps ``live`` or ``replay`` (including unnamed
-                # replay). Named replay origin remains orthogonal metadata.
-                _queued_source = existing_item.dispatch_source or "live"
-                _queued_replay_run_id = existing_item.replay_run_id
+            for queued_receipt in _queued_matches:
+                if queued_receipt.source != provenance.source or (
+                    normalize_replay_run_id(queued_receipt.replay_run_id)
+                    != provenance.replay_run_id
+                ):
+                    self._log.warning(
+                        "Terminal outcome rejected: queued receipt provenance "
+                        "contradicts callback for outbox_id=%s attempt=%d",
+                        provenance.outbox_id,
+                        _attempt_number,
+                    )
+                    return
+            if _queued_matches:
+                queued_receipt = max(
+                    _queued_matches,
+                    key=lambda receipt: (
+                        receipt.sequence or 0,
+                        receipt.created_at.isoformat(),
+                        receipt.receipt_id,
+                    ),
+                )
+                _queued_receipt_id = queued_receipt.receipt_id
 
             # Enrich receipt fields from the validated outbox item when
             # available — the outbox row is the authoritative source for
@@ -609,8 +525,8 @@ class OutboxManager:
                     receipt_kind="attempt",
                     error=error_msg,
                     failure_kind=failure_kind,
-                    source=_queued_source,
-                    replay_run_id=_queued_replay_run_id,
+                    source=provenance.source,
+                    replay_run_id=provenance.replay_run_id,
                     parent_receipt_id=_queued_receipt_id,
                     outbox_id=record.outbox_id,
                     attempt_number=_attempt_number,
@@ -627,8 +543,8 @@ class OutboxManager:
                 receipt_kind="lifecycle",
                 error=error_msg,
                 failure_kind=failure_kind,
-                source=_queued_source,
-                replay_run_id=_queued_replay_run_id,
+                source=provenance.source,
+                replay_run_id=provenance.replay_run_id,
                 parent_receipt_id=lifecycle_parent_id,
                 outbox_id=record.outbox_id,
                 attempt_number=_attempt_number,
