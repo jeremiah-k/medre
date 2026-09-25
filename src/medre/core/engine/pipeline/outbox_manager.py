@@ -15,8 +15,10 @@ from datetime import datetime, timedelta, timezone
 
 from medre.core.contracts.adapter import QueueTerminalRecord
 from medre.core.delivery_authority import (
+    delivery_attempt_receipt_provenance_mismatch,
     delivery_attempt_provenance_mismatch,
     delivery_identity,
+    queued_receipts_for_attempt,
 )
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
@@ -26,7 +28,6 @@ from medre.core.engine.pipeline.delivery_state import (
 from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
 from medre.core.events import (
     normalize_delivery_provenance,
-    normalize_replay_run_id,
 )
 from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.planning.delivery_plan import (
@@ -463,13 +464,10 @@ class OutboxManager:
                 _all_receipts = await self._storage.list_receipts_for_delivery(
                     delivery_identity(existing_item),
                 )
-                _queued_matches = [
-                    receipt
-                    for receipt in _all_receipts
-                    if receipt.outbox_id == provenance.outbox_id
-                    and receipt.attempt_number == _attempt_number
-                    and receipt.status == "queued"
-                ]
+                _queued_matches = queued_receipts_for_attempt(
+                    provenance,
+                    _all_receipts,
+                )
             except Exception:
                 self._log.warning(
                     "Could not read queued-receipt lineage for outbox_id=%s; "
@@ -480,15 +478,17 @@ class OutboxManager:
                 return
 
             for queued_receipt in _queued_matches:
-                if queued_receipt.source != provenance.source or (
-                    normalize_replay_run_id(queued_receipt.replay_run_id)
-                    != provenance.replay_run_id
-                ):
+                receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
+                    provenance,
+                    queued_receipt,
+                )
+                if receipt_mismatch is not None:
                     self._log.warning(
                         "Terminal outcome rejected: queued receipt provenance "
-                        "contradicts callback for outbox_id=%s attempt=%d",
+                        "contradicts callback for outbox_id=%s attempt=%d: %s",
                         provenance.outbox_id,
                         _attempt_number,
+                        receipt_mismatch,
                     )
                     return
             if _queued_matches:

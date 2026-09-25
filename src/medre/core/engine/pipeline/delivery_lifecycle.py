@@ -89,9 +89,11 @@ from medre.core.contracts.adapter import (
 from medre.core.delivery_authority import (
     DeliveryIdentity,
     committed_receipt_for_outbox,
+    delivery_attempt_receipt_provenance_mismatch,
     delivery_attempt_provenance_mismatch,
     delivery_identity,
     effective_generation,
+    queued_receipts_for_attempt,
 )
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_state import (
@@ -990,6 +992,39 @@ class DeliveryLifecycleService:
             )
             return False
 
+        # Immutable queued evidence, when present, must agree with the exact
+        # provenance envelope before later transport confirmation is admitted.
+        # A callback may legitimately beat the queued-receipt append, so an
+        # empty history is not an error; a failed history read or contradictory
+        # matching receipt is.  This is the same authority rule used by queue
+        # terminalization and queued->sent finalization.
+        if provenance is not None:
+            try:
+                receipts = await storage.list_receipts_for_delivery(
+                    delivery_identity(outbox)
+                )
+            except Exception:
+                self._log.exception(
+                    "Failed to list queued receipt history for delivery "
+                    "observation: outbox_id=%s",
+                    record.outbox_id,
+                )
+                return False
+            for receipt in queued_receipts_for_attempt(provenance, receipts):
+                receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
+                    provenance,
+                    receipt,
+                )
+                if receipt_mismatch is not None:
+                    self._log.warning(
+                        "Rejecting delivery observation with contradictory queued "
+                        "receipt provenance: outbox_id=%s attempt=%d %s",
+                        provenance.outbox_id,
+                        provenance.attempt_number,
+                        receipt_mismatch,
+                    )
+                    return False
+
         identity = "\x1f".join(
             (
                 record.outbox_id,
@@ -1238,21 +1273,22 @@ class DeliveryLifecycleService:
             # Find the queued receipt matching by outbox_id (exact).
             # Candidate filtering happens after outbox validation so that
             # malformed callbacks always produce deterministic rejection logs.
-            candidates = [
-                r
-                for r in existing
-                if r.status == "queued" and r.target_adapter == record.adapter
-            ]
-            # Filter by BOTH outbox_id and attempt_number: historical or
-            # malformed queued receipts can share an outbox_id across
-            # attempts, and source-preference must never finalize another
-            # attempt's receipt for this callback.
-            outbox_matches = [
-                r
-                for r in candidates
-                if r.outbox_id == record.outbox_id
-                and r.attempt_number == record.attempt_number
-            ]
+            # Match only immutable correlation keys here. Every candidate is
+            # validated against the full provenance envelope below so corrupt
+            # identity/source fields cannot disappear through pre-filtering.
+            if provenance is not None:
+                outbox_matches = list(
+                    queued_receipts_for_attempt(provenance, existing)
+                )
+            else:
+                outbox_matches = [
+                    r
+                    for r in existing
+                    if r.status == "queued"
+                    and r.target_adapter == record.adapter
+                    and r.outbox_id == record.outbox_id
+                    and r.attempt_number == record.attempt_number
+                ]
 
             if not outbox_matches:
                 self._log.debug(
@@ -1272,14 +1308,17 @@ class DeliveryLifecycleService:
                 # immutable parent linkage and retry/render fields only, and must
                 # agree with the envelope when already present.
                 for candidate in outbox_matches:
-                    if candidate.source != provenance.source or (
-                        candidate.replay_run_id != provenance.replay_run_id
-                    ):
+                    receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
+                        provenance,
+                        candidate,
+                    )
+                    if receipt_mismatch is not None:
                         self._log.warning(
                             "Queued delivery callback rejected: receipt provenance "
-                            "contradicts callback for outbox_id=%s attempt=%d",
+                            "contradicts callback for outbox_id=%s attempt=%d: %s",
                             provenance.outbox_id,
                             provenance.attempt_number,
+                            receipt_mismatch,
                         )
                         return
                 queued_receipt = outbox_matches[-1]

@@ -9,5 +9,9 @@
   outbox/queued-receipt evidence, use queued receipts only for immutable parent
   linkage, and reject contradictions instead of reconstructing source/run from
   receipt timing or mutable-row fallback.
+- Apply the same queued-receipt provenance fence to post-handoff delivery
+  observations and queued-to-sent finalization, failing closed when immutable
+  receipt history cannot be validated while preserving the legitimate
+  callback-before-receipt race.
 - Add deterministic coverage for live/replay/retry races, contradictory lineage,
   Meshtastic callback propagation, and LXMF delivery observations.

@@ -900,12 +900,16 @@ carry this value as opaque caller-owned context, but it **MUST NOT** interpret
 or mutate core lifecycle identity. Scalar `outbox_id`, `attempt_number`, and
 `delivery_plan_id` are mirrors when the envelope is present.
 
-Core validates the observation against the authoritative outbox row and
-appends it to the delivery-observation ledger. The adapter never writes storage
-directly. A terminal transport observation therefore cannot retroactively turn
-a locally successful MEDRE handoff into a failed receipt, and a later
-`delivered` observation cannot rewrite a receipt into a stronger lifecycle
-state.
+Core validates the observation against the authoritative outbox row and, when
+an exact queued attempt receipt already exists, requires that immutable receipt
+to agree with the callback envelope's identity, generation, dispatch source,
+and replay origin before appending to the delivery-observation ledger. Receipt
+history read failures fail closed. A callback may legitimately precede the
+queued-receipt append, so absence of that receipt is not itself a rejection.
+The adapter never writes storage directly. A terminal transport observation
+therefore cannot retroactively turn a locally successful MEDRE handoff into a
+failed receipt, and a later `delivered` observation cannot rewrite a receipt
+into a stronger lifecycle state.
 
 ### 17.5 Callback Isolation
 

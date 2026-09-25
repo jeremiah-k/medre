@@ -179,8 +179,13 @@ closed.
 
 Delayed native-reference and post-handoff observation callbacks from built-in
 asynchronous adapters also carry the same envelope and validate it against the
-outbox row. Their existing scalar-only path remains a compatibility boundary for
-custom/legacy adapters; built-in asynchronous adapters do not rely on it.
+outbox row. When immutable queued receipt evidence for that exact generation is
+already present, those callbacks MUST also reject any receipt whose delivery
+identity, generation, dispatch source, or replay origin contradicts the
+envelope. Failure to load receipt history fails closed; absence of the queued
+receipt remains a valid callback-before-receipt race. Their existing scalar-only
+path remains a compatibility boundary for custom/legacy adapters; built-in
+asynchronous adapters do not rely on it.
 
 After queued-to-sent correlation succeeds, storage receives one validated
 `QueuedDeliveryFinalization` command. The sent receipt supplies the event-scoped
