@@ -43,7 +43,7 @@ stop's own capacity drain share one `limits.shutdown_drain_timeout_seconds`
 deadline — congestion cannot spend the documented drain budget twice
 (the CLI passes its already-running deadline into `stop()`). Queue-backed
 completions (and native failures) are finalized by the
-adapters' real terminal callbacks through the lifecycle authority, carrying
+adapters' real `DeliveryFeedback` through the lifecycle authority, carrying
 the replay attempt's own `source`/`replay_run_id` lineage; the bounded drain
 is only a wait and never infers per-message delivery truth. A replay body
 failure or cancellation stays the operator-facing error: secondary
@@ -892,31 +892,29 @@ receipt rows:
 
 Dispatch mechanism and replay origin are represented independently: `source` records `"live"`, `"replay"`, or `"retry"`, while a non-null `replay_run_id` identifies replay-origin lineage across later retries. Exact delivery identity and outbox generation remain the correlation authority:
 
-### Queued Callback Correlation
+### Deferred Feedback Correlation
 
 Before a queue-backed transport hand-off, MEDRE captures exact attempt identity
 and dispatch lineage in an immutable `DeliveryAttemptProvenance` envelope. It
 contains the event/plan/adapter/channel identity, `outbox_id`, effective attempt
 generation, dispatch `source`, and optional `replay_run_id`. Built-in
 asynchronous adapters carry that envelope outside the wire payload and return it
-on callbacks.
+on typed `DeliveryFeedback`.
 
 Core validates the envelope against the authoritative outbox row. A named replay
-run must match the durable claim; retry callbacks keep `source="retry"` while
+run must match the durable claim; retry feedback keeps `source="retry"` while
 preserving replay origin independently in `replay_run_id`. Any queued receipt
 that already exists for the same row/generation must agree with that provenance.
 The receipt supplies parent/render/retry linkage only; it does not decide the
-callback's dispatch mechanism.
+feedback's dispatch mechanism.
 
-This distinction matters for the pre-receipt race: a terminal callback may arrive
-before the queued receipt append. MEDRE still has exact live/replay/retry lineage
-from the immutable callback envelope and does not invent a run ID or fall back to
-mutable-row/timing inference. Contradictory callback, row, or receipt provenance
-is rejected without mutating terminal state.
-
-`delivery_plan_id`, `outbox_id`, and `attempt_number` remain visible scalar
-mirrors for diagnostics/backward compatibility, but when the envelope exists
-they are derived from it and are not independent lineage authority.
+This distinction matters for the pre-receipt race: deferred completion or failure
+feedback may arrive before the queued receipt append. MEDRE still has exact
+live/replay/retry lineage from the immutable provenance envelope and does not
+invent a run ID or fall back to mutable-row/timing inference. Contradictory
+feedback, row, or receipt provenance is rejected without mutating terminal state.
+The feedback object carries the envelope as its sole delivery-identity authority;
+it does not duplicate event/plan/adapter/outbox/attempt scalar mirrors.
 
 ### Uncorrelated Queued Outbox Items
 

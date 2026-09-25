@@ -228,7 +228,7 @@ config = MeshCoreConfig(
 
 - No `meshcore` package required.
 - `start()` sets `_meshcore = None`. No network or serial activity.
-- `deliver()` returns `None` (no real send).
+- `deliver()` returns a synthetic `AdapterHandoffResult` with `confirmation_level="unknown"`; no real send occurs.
 - `simulate_inbound()` is available for injecting test packets.
 - `health_check()` returns `"healthy"` after start.
 
@@ -416,7 +416,7 @@ The adapter sends directly through the session without an intermediary queue. A 
 - **Channel messages:** `await mc.commands.send_chan_msg(chan, msg)` returns `Event` with `type == OK` on success or `type == ERROR` on failure.
 - **Direct messages:** `await mc.commands.send_msg(dst, msg)` returns `Event` with `type == MSG_SENT` and `payload["expected_ack"]` on success, or `type == ERROR` on failure.
 
-In fake mode, `deliver()` returns `None` — no real send occurs.
+In fake mode, `deliver()` returns a synthetic transport-handoff fact with no native message ID and `confirmation_level="unknown"`; no real send occurs.
 
 ## Known Limitations
 

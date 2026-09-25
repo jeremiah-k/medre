@@ -125,10 +125,10 @@ MEDRE proof claim. In particular, an LXMF `delivered` observation currently
 keeps `confirmation_level="unknown"`; MEDRE does not promote it to
 `end_to_end` automatically.
 
-The callback correlation needed to create an observation is process-local until
-the observation is persisted. A hard crash after LXMRouter handoff but before a
-terminal callback may therefore leave only the original `sent/local_queue`
-receipt. MEDRE does not fabricate a terminal state during restart recovery.
+The SDK-message correlation needed to create a post-handoff observation is
+process-local until the observation is persisted. A hard crash after LXMRouter
+handoff but before the SDK reports a later delivery state may therefore leave
+only the original `sent/local_queue` receipt. MEDRE does not fabricate a terminal state during restart recovery.
 
 Outbound retry is bounded: 3 retries with short linear backoff. After exhaustion, the send raises `LxmfSendError`, which the adapter normalizes to `AdapterSendError`.
 
