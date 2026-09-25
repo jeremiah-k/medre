@@ -640,9 +640,7 @@ class LxmfAdapter(AdapterContract):
         delivery_context = (
             _LxmfDeliveryObservationContext(
                 attempt_provenance=result.attempt_provenance,
-                native_channel_id=(
-                    str(destination_hash) if destination_hash else None
-                ),
+                native_channel_id=(str(destination_hash) if destination_hash else None),
             )
             if result.attempt_provenance is not None
             else None

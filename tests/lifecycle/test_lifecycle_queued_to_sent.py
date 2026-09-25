@@ -97,7 +97,6 @@ class TestAppendQueuedToSentReceipt:
         assert sent[0].adapter_message_id == "packet-42"
         assert sent[0].delivery_plan_id == "plan-q"
 
-
     async def test_default_native_channel_is_recorded_without_changing_route_identity(
         self,
         temp_storage: StorageBackend,

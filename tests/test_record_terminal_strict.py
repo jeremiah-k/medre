@@ -23,7 +23,10 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.engine.pipeline.outbox_manager import OutboxManager
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.delivery_callbacks import make_attempt_provenance, make_terminal_record
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_terminal_record,
+)
 from tests.helpers.storage_outbox import create_outbox_item_with_parent
 
 # -- Helpers --

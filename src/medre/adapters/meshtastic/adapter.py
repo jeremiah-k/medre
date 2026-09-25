@@ -1376,11 +1376,15 @@ class MeshtasticAdapter(AdapterContract):
         # Report the in-flight cancelled item.
         cancelled_item = self._queue.pop_cancelled_item()
         if cancelled_item is not None:
-            if callback is not None and (
-                provenance := self._callback_attempt_provenance(
-                    cancelled_item, callback_kind="cancelled"
+            if (
+                callback is not None
+                and (
+                    provenance := self._callback_attempt_provenance(
+                        cancelled_item, callback_kind="cancelled"
+                    )
                 )
-            ) is not None:
+                is not None
+            ):
                 record = QueueTerminalRecord(
                     event_id=provenance.event_id,
                     adapter=self.adapter_id,

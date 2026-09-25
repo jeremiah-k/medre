@@ -110,7 +110,9 @@ def test_rendering_result_takes_scalar_mirrors_from_provenance() -> None:
 
 
 def test_rendering_result_rejects_outbox_without_provenance() -> None:
-    with pytest.raises(ValueError, match="outbox-backed RenderingResult requires attempt_provenance"):
+    with pytest.raises(
+        ValueError, match="outbox-backed RenderingResult requires attempt_provenance"
+    ):
         RenderingResult(
             event_id="evt-1",
             target_adapter="mesh-1",

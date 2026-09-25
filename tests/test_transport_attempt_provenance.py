@@ -124,6 +124,7 @@ async def test_meshtastic_async_callbacks_echo_exact_provenance() -> None:
     assert native_record.outbox_id == provenance.outbox_id
     assert native_record.attempt_number == provenance.attempt_number
 
+
 async def test_meshtastic_callback_drops_corrupted_queue_mirror() -> None:
     provenance = _provenance()
     terminal = AsyncMock()
