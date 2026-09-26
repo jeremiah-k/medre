@@ -8,36 +8,27 @@ Definitions:
 
 * :class:`AdapterSendError` – base error raised by adapters when delivery fails.
 * :class:`AdapterPermanentError` – permanent delivery error.
-* :class:`AdapterDeliveryResult` – immutable result returned after successful delivery.
+* :class:`AdapterHandoffResult` – immutable fact returned after successful hand-off.
 * :class:`AdapterRole` – the functional role of an adapter.
 * :class:`AdapterCapabilities` – feature flags describing what an adapter supports.
 * :class:`AdapterInfo` – runtime metadata about a running adapter instance.
 * :class:`AdapterContext` – the runtime context injected into every adapter on start-up.
-* :class:`AdapterCodec` – optional encode/decode helper that adapters may expose.
+* :class:`AdapterCodec` – optional inbound decode helper that adapters may expose.
 * :class:`AdapterContract` – abstract base class that every adapter must implement.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
+from medre.core.contracts.delivery import AdapterHandoffResult, DeliveryFeedback
 from medre.core.events.canonical import CanonicalEvent
-from medre.core.events.delivery import (
-    DELIVERY_CONFIRMATION_LEVEL_VALUES,
-    DELIVERY_OBSERVATION_STATE_VALUES,
-    DeliveryAttemptProvenance,
-    DeliveryConfirmationLevel,
-    DeliveryObservationState,
-)
 
 if TYPE_CHECKING:
     from medre.core.ingress import AdapterCheckpoint, AdmissionResult, IngressProvenance
@@ -124,86 +115,6 @@ class AdapterPermanentError(AdapterSendError):
 
 
 # ---------------------------------------------------------------------------
-# Adapter delivery result
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class AdapterDeliveryResult:
-    """Immutable result returned by adapters after successful delivery.
-
-    Adapters populate this with platform-native IDs obtained from the
-    external system.  The pipeline uses these IDs to store
-    :class:`~medre.core.events.canonical.NativeMessageRef` mappings.
-    The pipeline owns receipts and storage; adapters only report what
-    the platform returned.
-
-    ``delivery_status`` carries the adapter delivery fact:
-
-    * ``"sent"`` — the adapter completed the platform hand-off and
-      obtained a native message ID (or confirmed the send).  This is the
-      default for synchronous adapters (Matrix, MeshCore, LXMF).
-    * ``"enqueued"`` — the adapter accepted the payload into a local
-      queue but has **not** yet sent it to the platform.  A native
-      message ID is not available yet.  The queue-based Meshtastic
-      adapter uses this state.
-
-    The pipeline uses ``delivery_status`` to choose the receipt status:
-    ``"sent"`` maps to receipt status ``"sent"``; ``"enqueued"`` maps to
-    ``"queued"``.  When the queue later obtains a real native ID, a
-    supplemental ``"sent"`` receipt is appended via the
-    ``record_outbound_native_ref`` callback.
-
-    Attributes
-    ----------
-    native_message_id:
-        Platform-native message ID (e.g. a Matrix ``event_id``).
-        ``None`` when the platform did not return one, or for queue-based
-        sends where the adapter accepted locally but a native ID is not
-        yet available.
-    native_channel_id:
-        Platform-native channel / room / conversation ID.
-    native_thread_id:
-        Platform-native thread or parent message ID, if applicable.
-        **Reserved** — no adapter currently populates this field; it
-        is always ``None`` at runtime.
-    native_relation_id:
-        Platform-native ID of the related entity (e.g. the message
-        being replied to), if applicable.  **Reserved** — no adapter
-        currently populates this field.
-    delivery_note:
-        Human-readable context about the delivery.  Used by queue-based
-        adapters to explain local-acceptance without a native ACK.
-    delivery_status:
-        Adapter lifecycle fact: ``"sent"`` (default, synchronous adapters)
-        or ``"enqueued"`` (queue-based adapters that accepted locally but
-        have not yet sent to the platform). The pipeline maps this to receipt
-        status; it is not recipient-delivery authority.
-    confirmation_level:
-        Strongest delivery fact actually proven by the adapter.  This is
-        intentionally separate from ``delivery_status``: a ``"sent"``
-        receipt may prove only local transport acceptance, while Matrix can
-        prove remote homeserver acceptance.  No built-in adapter currently
-        claims ``"end_to_end"`` recipient delivery.
-    metadata:
-        Immutable, namespaced delivery metadata.  Transport-specific data
-        MUST live under ``metadata[<transport>]`` (e.g. ``metadata.matrix``,
-        ``metadata.lxmf``).  No top-level MEDRE-standard keys are permitted.
-    """
-
-    native_message_id: str | None = None
-    native_channel_id: str | None = None
-    native_thread_id: str | None = None
-    native_relation_id: str | None = None
-    delivery_note: str = ""
-    delivery_status: str = "sent"
-    confirmation_level: DeliveryConfirmationLevel = "unknown"
-    metadata: MappingProxyType[str, object] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
-
-
-# ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
 
@@ -257,8 +168,6 @@ class AdapterCapabilities:
         Whether the adapter can carry file attachments.
     metadata_fields:
         Whether the adapter can transmit structured metadata fields.
-    delivery_receipts:
-        Whether the adapter can confirm delivery back to the framework.
     store_and_forward:
         Whether the adapter supports store-and-forward semantics.
     direct_messages:
@@ -266,12 +175,6 @@ class AdapterCapabilities:
     channels:
         Whether the adapter supports channel, room, topic, or group-style
         destinations.
-    ack_tracking:
-        Whether the adapter exposes transport-level acknowledgement tracking
-        to MEDRE.  This is descriptive only; it does not install retries.
-    async_delivery:
-        Whether delivery can complete asynchronously after MEDRE hands off a
-        payload to the adapter.
     identity_encryption:
         Whether the adapter's transport identity model includes native
         identity-level encryption semantics that MEDRE may report.
@@ -301,12 +204,9 @@ class AdapterCapabilities:
     deletes: str = "native"
     attachments: bool = False
     metadata_fields: bool = False
-    delivery_receipts: bool = False
     store_and_forward: bool = False
     direct_messages: bool = True
     channels: bool = True
-    ack_tracking: bool = False
-    async_delivery: bool = False
     identity_encryption: bool = False
     presence: bool = False
     topic_rooms: bool = False
@@ -349,318 +249,6 @@ class AdapterInfo:
     health: str = "unknown"
 
 
-def _freeze_json_safe_metadata(
-    metadata: Mapping[str, object],
-    *,
-    owner: str,
-) -> MappingProxyType[str, object]:
-    """Return a read-only, verified JSON-safe copy of *metadata*.
-
-    Recursively unwraps nested ``MappingProxyType`` values to plain dicts so
-    ``json.dumps`` can serialise the structure — ``dict()`` alone only copies
-    the top level, and nested proxy values would still trip the encoder.
-    Raises ``TypeError`` naming *owner* when any value is not JSON-safe, so
-    both callback records enforce identical metadata rules.
-    """
-
-    def _unwrap(obj: object) -> object:
-        if isinstance(obj, MappingProxyType):
-            obj = dict(obj)
-        if isinstance(obj, Mapping):
-            return {k: _unwrap(v) for k, v in obj.items()}
-        if isinstance(obj, (list, tuple)):
-            return type(obj)(_unwrap(v) for v in obj)
-        return obj
-
-    frozen = _unwrap(metadata)
-    try:
-        json.dumps(frozen)
-    except (TypeError, ValueError) as exc:
-        raise TypeError(f"{owner}.metadata must contain only JSON-safe values") from exc
-    return MappingProxyType(frozen)
-
-
-class _AttemptProvenanceMirrorRecord(Protocol):
-    """Read shape shared by frozen callback records with provenance mirrors."""
-
-    @property
-    def event_id(self) -> str: ...
-
-    @property
-    def adapter(self) -> str: ...
-
-    @property
-    def delivery_plan_id(self) -> str | None: ...
-
-    @property
-    def outbox_id(self) -> str | None: ...
-
-    @property
-    def attempt_number(self) -> int | None: ...
-
-
-def _apply_attempt_provenance_mirrors(
-    record: _AttemptProvenanceMirrorRecord,
-    provenance: DeliveryAttemptProvenance,
-    *,
-    owner: str,
-) -> None:
-    """Validate callback mirrors and populate them from immutable provenance."""
-    if record.event_id != provenance.event_id:
-        raise ValueError(f"{owner}.event_id contradicts attempt_provenance")
-    if record.adapter != provenance.target_adapter:
-        raise ValueError(f"{owner}.adapter contradicts attempt_provenance")
-    for name, expected in (
-        ("delivery_plan_id", provenance.delivery_plan_id),
-        ("outbox_id", provenance.outbox_id),
-        ("attempt_number", provenance.attempt_number),
-    ):
-        value = getattr(record, name)
-        if value is not None and value != expected:
-            raise ValueError(f"{owner}.{name} contradicts attempt_provenance")
-        object.__setattr__(record, name, expected)
-
-
-@dataclass(frozen=True)
-class OutboundNativeRefRecord:
-    """Immutable record describing a delayed outbound native reference.
-
-    Queue-based adapters (e.g. Meshtastic) cannot return a native message ID
-    synchronously from :meth:`AdapterContract.deliver`.  When the queue later
-    obtains a real native ID, the adapter constructs an
-    :class:`OutboundNativeRefRecord` and passes it to the
-    ``record_outbound_native_ref`` callback supplied by
-    :class:`AdapterContext`.  The pipeline runner persists the mapping as a
-    :class:`~medre.core.events.canonical.NativeMessageRef` with
-    ``direction="outbound"``.
-
-    Adapters must **not** fabricate IDs — only record IDs returned by the
-    external platform.
-
-    .. note::
-
-        When the adapter is shut down, items in the local queue survive across
-        stop/start boundaries.  The durable outbox row remains in ``queued``
-        status for stale-recovery.  Terminal outcomes (cancelled/abandoned) are
-        reported only when there is evidence the drain task was actively
-        processing work.
-
-    Attributes
-    ----------
-    event_id:
-        The canonical event ID that originated the outbound send.
-    adapter:
-        The adapter ID that owns the native namespace.
-    native_channel_id:
-        Channel / conversation ID in the adapter's native format.
-    native_message_id:
-        Message ID in the adapter's native format.  Must be a real ID
-        from the external platform — never empty or fabricated.
-    native_thread_id:
-        Thread ID in the adapter's native format, if applicable.
-        **Reserved** — no adapter currently populates this field; it
-        is always ``None`` at runtime.
-    native_relation_id:
-        ID of the related native entity, if applicable.
-        **Reserved** — no adapter currently populates this field; it
-        is always ``None`` at runtime.
-    delivery_plan_id:
-        Stable delivery-plan identity carried through the callback for
-        validation.  The lifecycle service validates it against the
-        outbox item's ``delivery_plan_id`` but does NOT use it for
-        receipt selection — ``outbox_id`` provides exact correlation.
-        ``None`` when the adapter did not propagate a plan ID.
-    outbox_id:
-        **Required** internal correlation key linking this callback to
-        the exact durable outbox item for this delivery attempt.
-        The lifecycle service uses it for **exact** outbox-level
-        correlation, which provides stale-callback protection.
-        Queue adapters MUST populate this field; callbacks without
-        ``outbox_id`` are hard-rejected.
-        **Not wire metadata, not public API.**
-    confirmation_level:
-        Strongest delivery fact proven by the delayed callback.  Queue
-        adapters normally report ``"local_transport"`` once the SDK accepts
-        the send; this is not an end-to-end recipient acknowledgement.
-    attempt_number:
-        Compatibility mirror of the immutable attempt generation. Queue-backed
-        built-ins populate it from ``attempt_provenance``.
-    attempt_provenance:
-        Immutable delivery identity and dispatch provenance captured before
-        adapter hand-off. Built-in asynchronous adapters echo the exact object
-        so core can validate callback lineage without reconstructing it.
-    metadata:
-        Adapter-specific metadata about this mapping.  Must contain only
-        JSON-safe, simple values.
-    """
-
-    event_id: str
-    adapter: str
-    native_channel_id: str | None
-    native_message_id: str
-    native_thread_id: str | None = None
-    native_relation_id: str | None = None
-    delivery_plan_id: str | None = None
-    outbox_id: str | None = None
-    attempt_number: int | None = None
-    confirmation_level: DeliveryConfirmationLevel = "unknown"
-    metadata: Mapping[str, object] = field(default_factory=dict)
-    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
-
-    def __post_init__(self) -> None:
-        _apply_attempt_provenance_mirrors(
-            self, self.attempt_provenance, owner="OutboundNativeRefRecord"
-        )
-        if (
-            not isinstance(self.native_message_id, str)
-            or not self.native_message_id.strip()
-        ):
-            raise ValueError(
-                "OutboundNativeRefRecord.native_message_id must be a non-empty string"
-            )
-        if not isinstance(self.confirmation_level, str) or (
-            self.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES
-        ):
-            raise ValueError(
-                "OutboundNativeRefRecord.confirmation_level must be a valid "
-                "delivery confirmation level"
-            )
-
-        object.__setattr__(
-            self,
-            "metadata",
-            _freeze_json_safe_metadata(self.metadata, owner="OutboundNativeRefRecord"),
-        )
-
-
-@dataclass(frozen=True)
-class QueueTerminalRecord:
-    """Immutable record reporting a terminal queue outcome to core.
-
-    Queue-based adapters (e.g. Meshtastic) that accepted delivery into a
-    local queue may later experience terminal outcomes that the pipeline
-    needs durable evidence for.  This record carries the facts; the
-    pipeline/core maps them into appropriate receipt/outbox lifecycle
-    transitions.
-
-    **Adapters report facts; adapters must not become lifecycle authority.**
-    Core decides what receipt status, failure kind, and outbox transition
-    result from each terminal outcome.
-
-    Attributes
-    ----------
-    event_id:
-        The canonical event ID that originated the outbound send.
-    adapter:
-        The adapter ID reporting this outcome.
-    outcome:
-        Terminal outcome classification:
-
-        * ``"exhausted"`` — local retry budget exhausted.
-        * ``"permanent_failed"`` — permanent send failure, no retry.
-        * ``"cancelled"`` — item cancelled while in-flight.
-        * ``"abandoned"`` — adapter shutdown with unsent queued items.
-    outbox_id:
-        **Required** internal correlation key linking this callback to
-        the exact durable outbox item.  Queue adapters MUST populate
-        this field; callbacks without ``outbox_id`` are hard-rejected
-        by core and produce no durable terminal receipt or outbox
-        mutation.
-        **Not wire metadata, not public API.**
-    delivery_plan_id:
-        Delivery-plan identity / validation metadata.  Core validates
-        it against the authoritative outbox row when present, but it
-        is not a queue callback correlation key.
-    attempt_number:
-        Compatibility mirror of the immutable attempt generation.
-    attempt_provenance:
-        **Required** immutable attempt identity and dispatch provenance for
-        queue terminal callbacks. Core validates it against durable outbox
-        authority and never derives source/replay lineage from receipt timing.
-    native_channel_id:
-        Channel / conversation ID in the adapter's native format.
-    error:
-        Human-readable error context.
-    """
-
-    event_id: str
-    adapter: str
-    outcome: Literal["exhausted", "permanent_failed", "cancelled", "abandoned"]
-    outbox_id: str | None = None
-    delivery_plan_id: str | None = None
-    attempt_number: int | None = None
-    native_channel_id: str | None = None
-    error: str | None = None
-    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
-
-    def __post_init__(self) -> None:
-        _apply_attempt_provenance_mirrors(
-            self, self.attempt_provenance, owner="QueueTerminalRecord"
-        )
-        if self.attempt_number is not None and self.attempt_number < 1:
-            raise ValueError("attempt_number must be >= 1 when provided")
-
-
-@dataclass(frozen=True)
-class OutboundDeliveryObservationRecord:
-    """Transport fact emitted after MEDRE has handed off a delivery attempt.
-
-    This callback contract is intentionally separate from queue completion.
-    It records later transport evidence without giving adapters authority to
-    rewrite receipts or terminal outbox state. Built-in asynchronous adapters
-    carry ``attempt_provenance`` so core validates the exact immutable attempt
-    before persisting the observation.
-    """
-
-    event_id: str
-    adapter: str
-    state: DeliveryObservationState
-    outbox_id: str | None = None
-    attempt_number: int | None = None
-    delivery_plan_id: str | None = None
-    native_channel_id: str | None = None
-    native_message_id: str | None = None
-    confirmation_level: DeliveryConfirmationLevel = "unknown"
-    error: str | None = None
-    metadata: Mapping[str, object] = field(default_factory=dict)
-    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
-
-    def __post_init__(self) -> None:
-        """Validate observation values and freeze JSON-safe metadata.
-
-        Raises ``ValueError`` for an invalid state, confirmation level, or
-        supplied attempt number; raises ``TypeError`` for metadata that cannot
-        be serialized as JSON.
-        """
-        _apply_attempt_provenance_mirrors(
-            self,
-            self.attempt_provenance,
-            owner="OutboundDeliveryObservationRecord",
-        )
-        if self.state not in DELIVERY_OBSERVATION_STATE_VALUES:
-            raise ValueError(
-                f"unknown delivery observation state {self.state!r}; "
-                f"expected one of {sorted(DELIVERY_OBSERVATION_STATE_VALUES)}"
-            )
-        if not isinstance(self.confirmation_level, str) or (
-            self.confirmation_level not in DELIVERY_CONFIRMATION_LEVEL_VALUES
-        ):
-            raise ValueError(
-                "OutboundDeliveryObservationRecord.confirmation_level must be "
-                "a valid delivery confirmation level"
-            )
-        if self.attempt_number is not None and self.attempt_number < 1:
-            raise ValueError("attempt_number must be >= 1 when provided")
-
-        object.__setattr__(
-            self,
-            "metadata",
-            _freeze_json_safe_metadata(
-                self.metadata, owner="OutboundDeliveryObservationRecord"
-            ),
-        )
-
-
 @dataclass
 class AdapterContext:
     """Runtime context injected into an adapter on start-up.
@@ -673,10 +261,6 @@ class AdapterContext:
     ----------
     adapter_id:
         Unique identifier of the adapter instance.
-    event_bus:
-        Opaque reference to the framework's internal event bus.
-        Adapters should prefer using *publish_inbound* rather than
-        interacting with the bus directly.
     publish_inbound:
         Async callable that publishes a :class:`CanonicalEvent` into
         the framework's inbound event stream.
@@ -697,28 +281,14 @@ class AdapterContext:
     shutdown_event:
         An :class:`asyncio.Event` that the framework sets when a
         graceful shutdown is requested.
-    record_outbound_native_ref:
-        Optional async callback that records a delayed outbound
-        :class:`OutboundNativeRefRecord`.  Queue-based adapters call
-        this after a queued send returns a real native message ID.  When
-        ``None``, the adapter has no callback wired and delayed refs are
-        silently discarded (e.g. in test or standalone mode).
-    record_outbound_terminal:
-        Optional async callback that reports a terminal queue outcome
-        via a :class:`QueueTerminalRecord`.  Queue-based adapters call
-        this when a previously-enqueued item reaches a terminal state
-        (exhausted, permanent failure, cancelled, or abandoned) without
-        producing a native message ID.  When ``None``, terminal outcomes
-        are silently discarded (e.g. in test or standalone mode).
-    record_delivery_observation:
-        Optional async callback for post-handoff transport evidence via
-        :class:`OutboundDeliveryObservationRecord`.  The callback is
-        append-only evidence; it never grants the adapter authority to mutate
-        receipt or outbox lifecycle state.
+    report_delivery_feedback:
+        Optional async sink for the closed :class:`DeliveryFeedback` union.
+        Adapters use this one boundary for deferred hand-off completion,
+        deferred terminal failure, and post-hand-off observations. Core
+        remains lifecycle authority.
     """
 
     adapter_id: str
-    event_bus: Any
     publish_inbound: Callable[[CanonicalEvent], Awaitable[None]]
     logger: logging.Logger
     clock: Callable[[], datetime]
@@ -728,15 +298,9 @@ class AdapterContext:
     ) = None
     load_checkpoint: Callable[[str], Awaitable[AdapterCheckpoint | None]] | None = None
     commit_checkpoint: Callable[[str, str, str], Awaitable[None]] | None = None
-    record_outbound_native_ref: (
-        Callable[[OutboundNativeRefRecord], Awaitable[None]] | None
-    ) = None
-    record_outbound_terminal: (
-        Callable[[QueueTerminalRecord], Awaitable[None]] | None
-    ) = None
-    record_delivery_observation: (
-        Callable[[OutboundDeliveryObservationRecord], Awaitable[None]] | None
-    ) = None
+    report_delivery_feedback: Callable[[DeliveryFeedback], Awaitable[None]] | None = (
+        None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -753,8 +317,8 @@ class AdapterCodec(ABC):
     for batch transformations, testing, or payload inspection without
     coupling to a specific adapter class.
 
-    Outbound rendering is handled by :class:`~medre.core.rendering.renderer.Renderer`
-    instances, not by the codec's ``encode`` method.
+    Outbound rendering is exclusively handled by
+    :class:`~medre.core.rendering.renderer.Renderer` instances.
     """
 
     @abstractmethod
@@ -772,36 +336,6 @@ class AdapterCodec(ABC):
             The framework-standard event.
         """
 
-    def encode(self, event: CanonicalEvent, target: Any) -> Any:
-        """Encode a canonical event into an adapter-specific representation.
-
-        **Default**: raises :class:`NotImplementedError`.  Outbound rendering
-        is handled by renderers registered with the
-        :class:`~medre.core.rendering.renderer.RenderingPipeline`.
-        Subclasses should not override this.
-
-        Parameters
-        ----------
-        event:
-            The canonical event to encode.
-        target:
-            Adapter-specific target descriptor (e.g. a channel reference).
-
-        Returns
-        -------
-        Any
-            The native representation suitable for the target adapter.
-
-        Raises
-        ------
-        NotImplementedError
-            Always, unless overridden by a subclass.
-        """
-        raise NotImplementedError(
-            "AdapterCodec.encode() is not used for runtime outbound rendering. "
-            "Use a Renderer registered with the RenderingPipeline."
-        )
-
 
 # ---------------------------------------------------------------------------
 # AdapterContract
@@ -818,8 +352,8 @@ class AdapterContract(ABC):
 
     **Delivery contract**: every adapter must implement :meth:`deliver`
     which accepts a :class:`~medre.core.rendering.renderer.RenderingResult`
-    and returns an :class:`AdapterDeliveryResult` on success (or ``None``
-    when the adapter has no native ID to report).  The pipeline renders
+    and returns an :class:`AdapterHandoffResult` on every successful call.
+    The pipeline renders
     canonical events into adapter-ready payloads *before* calling
     ``deliver``.  Adapters must **not** perform event-kind-specific
     formatting inside ``deliver``; they merely transport the pre-rendered
@@ -882,7 +416,7 @@ class AdapterContract(ABC):
         self._start_time = ctx.clock()
 
     @abstractmethod
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Deliver a pre-rendered payload to the external platform.
 
         The pipeline guarantees that *result* has already been rendered
@@ -890,10 +424,14 @@ class AdapterContract(ABC):
         adapter must **not** re-render, reformat, or inspect the event
         kind to decide formatting.  It merely transports the payload.
 
-        On success, adapters return an :class:`AdapterDeliveryResult`
-        populated with platform-native IDs (message ID, channel ID, etc.)
-        so that the pipeline can store native message mappings.  Return
-        ``None`` when the adapter has no native ID to report.
+        On success, adapters return an :class:`AdapterHandoffResult`. The
+        ``disposition`` states whether transport hand-off completed during the
+        call or remains deferred. Native IDs are optional transport facts.
+        An adapter that can return ``disposition="deferred"`` must reject the
+        call before local admission when ``result.attempt_provenance`` is
+        absent or when its :class:`AdapterContext` has no
+        ``report_delivery_feedback`` sink; deferred work without durable
+        attempt identity and a feedback path cannot be finalized safely.
 
         Parameters
         ----------
@@ -902,8 +440,8 @@ class AdapterContract(ABC):
 
         Returns
         -------
-        AdapterDeliveryResult | None
-            Native delivery metadata from the platform, or ``None``.
+        AdapterHandoffResult
+            Closed hand-off fact reported by the adapter.
 
         Raises
         ------
@@ -1044,12 +582,10 @@ __all__ = [
     "AdapterCodec",
     "AdapterContext",
     "AdapterContract",
-    "AdapterDeliveryResult",
+    "AdapterHandoffResult",
     "AdapterInfo",
     "AdapterPermanentError",
     "AdapterRole",
     "AdapterSendError",
-    "OutboundNativeRefRecord",
-    "OutboundDeliveryObservationRecord",
-    "QueueTerminalRecord",
+    "DeliveryFeedback",
 ]

@@ -243,8 +243,8 @@ def _build_runner(
             fallback_resolver=FallbackResolver(),
             relation_resolver=RelationResolver(storage=storage),
             adapters=cast(dict[str, AdapterContract], adapters),
-            event_bus=EventBus(),
             rendering_pipeline=rendering_pipeline,
+            event_bus=EventBus(),
         )
     )
 

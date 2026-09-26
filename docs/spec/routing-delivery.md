@@ -768,16 +768,29 @@ CREATE TABLE delivery_receipts (
 
 Each delivery attempt passes through the rendering pipeline before reaching the adapter. The rendering pipeline produces a `RenderingResult` whose `truncated` and `fallback_applied` fields are evidence signals explaining the rendering decision. These signals are durable: the `rendering_evidence` column on `delivery_receipts` stores a structured record of the rendering evidence for each delivery attempt.
 
-`rendering_evidence` is attached **only** for `sent` and `queued` receipt statuses. The following paths leave `rendering_evidence` as `None`:
+`rendering_evidence` is attached to the attempt receipt produced after rendering.
+For immediate hand-off that is the `sent` receipt; for deferred hand-off it is the
+`queued` receipt. The following paths leave `rendering_evidence` as `None`:
 
 | Path                                       | Status             | `rendering_evidence` |
 | ------------------------------------------ | ------------------ | -------------------- |
-| Successful delivery                        | `sent`             | Populated            |
-| Queued for delivery                        | `queued`           | Populated            |
+| Immediate successful hand-off              | `sent`             | Populated            |
+| Deferred local admission                   | `queued`           | Populated            |
+| Deferred completion wins pre-receipt race  | `sent`             | `None`               |
 | Post-planning suppression                  | `suppressed`       | `None`               |
 | Pre-outbox skip (loop, policy, capability) | No receipt created | N/A                  |
 | Rendering failure                          | `failed`           | `None`               |
 | Adapter failure                            | `failed`           | `None`               |
+
+The pre-receipt race is intentional. A validated deferred completion may finalize
+while the outbox is still `in_progress`, before the pipeline has appended the
+`queued` attempt receipt. Core does not invent queue-only rendering/retry evidence
+on that early `sent` row. The later immutable `queued` row retains the original
+`rendering_evidence`, while outbox authority remains pointed at the already
+committed `sent` receipt. Consumers that need rendering evidence for a deferred
+attempt MUST inspect that attempt's receipt history rather than assuming the
+current lifecycle-authoritative row contains it. See
+[delivery-lifecycle.md](delivery-lifecycle.md) §3.4.
 
 When inspecting a receipt, operators can determine:
 
@@ -804,62 +817,42 @@ rcpt-1 (kind=attempt,   attempt=1, parent=None,   status=failed)
   └→ rcpt-2 (kind=lifecycle, attempt=1, parent=rcpt-1, status=dead_lettered)
 ```
 
-### 8.5 Queued-to-Sent Receipt Correlation
+### 8.5 Deferred Hand-off Correlation
 
-Queue-based adapters (e.g., Meshtastic) produce a `queued` receipt at enqueue time and a `sent` receipt when the adapter confirms handoff. Correlating the queued receipt to the correct delivery plan requires deterministic matching because multiple deliveries to the same adapter and channel may be in-flight simultaneously.
+An adapter that returns `AdapterHandoffResult(disposition="deferred")` has
+accepted work locally but has not yet reached its transport hand-off boundary.
+The pipeline persists `queued` attempt evidence. The adapter **MUST** carry the
+exact immutable `RenderingResult.attempt_provenance` alongside that work.
 
-#### 8.5.1 Correlation Mechanism
+When transport hand-off later completes, the adapter reports
+`DeferredHandoffCompleted(attempt_provenance, handoff)` through the single
+`report_delivery_feedback` sink. No event/plan/outbox/attempt scalar mirrors are
+reconstructed or preferred: the envelope is the callback identity authority.
 
-The `outbox_id` field provides **exact** correlation between a `queued` receipt and its corresponding `sent` receipt. Queue adapters MUST populate both `outbox_id` and `attempt_number` on callback records. The threading path is:
+Core validates that envelope against the exact outbox row and its effective
+reserved generation. Receipt history used to validate prior immutable evidence
+is loaded by `outbox_id` first, then each same-generation receipt is checked in
+full so corrupt identity/source fields cannot disappear through query
+pre-filtering. A completion may legitimately race ahead of the initial queued
+receipt append; absence of receipt evidence alone is therefore not a rejection.
+Receipt-history read failure, stale generation, contradictory identity/source,
+or a non-finalizable outbox row fails closed.
 
-1. `TargetDeliveryService` stamps `RenderingResult.outbox_id` and `RenderingResult.attempt_number` before adapter delivery.
-2. Queue-based adapters propagate `outbox_id` and `attempt_number` through their internal queue items (e.g., `QueuedOutboundItem`).
-3. When the adapter reports send confirmation,
-   `DeliveryLifecycleService.finalize_queued_delivery()` requires
-   `outbox_id` and `attempt_number` on the `OutboundNativeRefRecord`, then
-   validates all callback fields against the authoritative outbox row.
+Successful correlation produces one `DeferredHandoffFinalization` storage
+command. Storage atomically appends the supplemental `sent` receipt, stores a
+real native message reference when the transport supplied one, and transitions
+the matching outbox generation to `sent`. A completion without a native message
+ID is still a valid transport hand-off and simply stores no native reference.
 
-The correlation algorithm in `finalize_queued_delivery`:
+`DeliveryAttemptProvenance.target_channel` is route identity.
+`AdapterHandoffResult.native_channel_id` is transport-resolved evidence. They
+MUST NOT be required to be equal; adapters may resolve an omitted/default route
+channel to a concrete native destination. Exact correlation uses the provenance
+envelope and outbox generation, not native addressing.
 
-1. **Missing `outbox_id`** — hard reject. No supplemental receipt, no outbox mutation. Logged as a warning.
-2. **Missing `attempt_number`** — hard reject. Same behavior as missing `outbox_id`.
-3. **Outbox row lookup** — the service loads the outbox item by `outbox_id`. If not found or already terminal, the callback is rejected as stale.
-4. **Field validation** — `event_id`, `adapter`, `delivery_plan_id` (when present), `native_channel_id` (when present), and `attempt_number` are validated against the outbox row. Any mismatch rejects the callback.
-5. **Exact receipt selection** — the queued receipt is selected by
-   `receipt.outbox_id == record.outbox_id` **and**
-   `receipt.attempt_number == record.attempt_number`. The two-key match
-   preserves the stale-safe invariant end-to-end. No plan-id-only or
-   heuristic fallback exists.
-6. **Atomic finalization** — if all validations pass, the pipeline builds one
-   `QueuedDeliveryFinalization` command. Storage derives the event-scoped
-   identity, outbox ID, and attempt from its sent receipt, re-checks the full
-   `(event, plan, adapter, channel, outbox, attempt)` guard, and commits the
-   outbound native ref, one `sent` receipt, and the outbox `sent` transition in
-   a single transaction. A stale guard, identity mismatch, or persistence
-   failure commits none of the three.
-
-#### 8.5.2 Invariant: Exact Outbox Correlation
-
-> Queue callbacks MUST carry `outbox_id` and `attempt_number`. The pipeline MUST use exact outbox-level correlation. When either field is missing, no heuristic fallback is attempted and the service logs a warning. This ensures deterministic, stale-safe correlation even when multiple deliveries to the same adapter and channel overlap.
-
-#### 8.5.3 Internal Correlation Keys
-
-`outbox_id` and `attempt_number` are internal lifecycle correlation keys. They are:
-
-- Not sent over transports (not wire metadata).
-- Not persisted in `native_message_refs` storage.
-- Propagated by adapters only through internal local queues and callback records.
-
-`delivery_plan_id` is retained as an internal delivery-plan identity. It is validated against the outbox row when present on the callback, but it is not sufficient for queued callback correlation on its own.
-
-#### 8.5.4 RenderingResult and OutboundNativeRefRecord Threading
-
-| Dataclass                 | Field            | Set by                                              |
-| ------------------------- | ---------------- | --------------------------------------------------- |
-| `RenderingResult`         | `outbox_id`      | `TargetDeliveryService` via `dataclasses.replace()` |
-| `RenderingResult`         | `attempt_number` | `TargetDeliveryService` via `dataclasses.replace()` |
-| `OutboundNativeRefRecord` | `outbox_id`      | Adapter queue processing (required)                 |
-| `OutboundNativeRefRecord` | `attempt_number` | Adapter queue processing (required)                 |
+The same provenance authority governs `DeferredHandoffFailed` and
+`PostHandoffObservation`. Post-hand-off observations are append-only evidence
+and never reopen or strengthen durable lifecycle state.
 
 ## 9. delivery_status Projection
 
@@ -1094,20 +1087,21 @@ successful MEDRE handoff; it is not evidence that the remote recipient received
 the message. Matrix `remote_service` similarly proves homeserver acceptance,
 not end-client receipt.
 
-### 13.3 Queued-to-Sent Evidence Progression
+### 13.3 Deferred Hand-off Evidence Progression
 
-Queue-based adapters MAY strengthen evidence with a supplemental append-only
-receipt. Meshtastic initially emits `queued/local_queue`. When its queue worker
-obtains a real packet send result, the correlated supplemental receipt becomes
-`sent/local_transport`. The original receipt is never mutated.
+Adapters returning `disposition="deferred"` MAY later strengthen evidence with
+a supplemental append-only receipt. Meshtastic initially produces
+`queued/local_queue`. When its worker obtains a real packet send result,
+`DeferredHandoffCompleted` yields correlated `sent/local_transport` evidence.
+The original receipt is never mutated.
 
 ### 13.3.1 Post-Handoff Delivery Observations
 
 Some transports produce meaningful facts only after MEDRE has already handed
 an attempt to the local transport. Those facts **MUST NOT** rewrite the
 delivery receipt or reopen terminal outbox state. Adapters MAY instead report
-an `OutboundDeliveryObservationRecord` through the runtime-supplied
-`record_delivery_observation` callback.
+an `PostHandoffObservation` through the runtime-supplied
+`report_delivery_feedback` callback.
 
 Core **MUST** validate the observation against the exact durable attempt using
 `outbox_id`, `attempt_number`, `event_id`, and target adapter before appending
@@ -1142,7 +1136,7 @@ between MEDRE lifecycle truth and later transport evidence.
 
 ### 13.4 Native Message ID Requirements
 
-`native_message_id` and `native_channel_id` on `AdapterDeliveryResult`
+`native_message_id` and `native_channel_id` on `AdapterHandoffResult`
 MUST be platform-provided values. Adapters MUST NOT fabricate or backfill these
 values. The pipeline MUST NOT backfill `native_channel_id` or any other native
 ref field from route configuration.

@@ -62,7 +62,6 @@ def _make_info(
 def _make_context(adapter_id: str = "test") -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=_async_noop,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),

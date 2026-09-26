@@ -25,7 +25,6 @@ from medre.core.contracts.adapter import AdapterContext
 def _make_context(adapter_id: str) -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=lambda _e: asyncio.sleep(0),
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(UTC),

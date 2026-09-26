@@ -33,7 +33,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -56,11 +56,9 @@ _FAKE_PRESENTATION_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=False,
-    delivery_receipts=True,
     store_and_forward=False,
     direct_messages=True,
     channels=True,
-    async_delivery=True,
     topic_rooms=True,
 )
 
@@ -163,7 +161,7 @@ class FakePresentationAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Accept an outbound rendered payload for delivery.
 
         This adapter consumes :class:`RenderingResult` only.  Passing a
@@ -177,7 +175,7 @@ class FakePresentationAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult
+        AdapterHandoffResult
             Native delivery metadata with a deterministic native ID.
 
         Raises
@@ -193,9 +191,10 @@ class FakePresentationAdapter(AdapterContract):
             )
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=f"fake-pres-{result.event_id}",
-            native_channel_id=result.target_channel,
+            native_channel_id=result.target_channel or None,
+            confirmation_level="remote_service",
         )
 
     # -- Test helpers -------------------------------------------------------
@@ -456,12 +455,12 @@ class FaultyPresentationAdapter(AdapterContract):
 
     # -- Delivery with injection --------------------------------------------
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
         """Deliver with deterministic failure injection.
 
         Increments the internal call counter and raises or succeeds
         based on the configured ``failure_mode``.  On success, returns
-        an :class:`AdapterDeliveryResult` with a deterministic native ID.
+        an :class:`AdapterHandoffResult` with a deterministic native ID.
 
         Raises
         ------
@@ -481,7 +480,7 @@ class FaultyPresentationAdapter(AdapterContract):
         _trim(self.delivered_payloads)
         # Produce a deterministic result for the success path.
         event_id = getattr(result, "event_id", None) or "unknown"
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=f"faulty-{event_id}",
         )
 

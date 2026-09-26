@@ -56,7 +56,6 @@ def _make_ctx(adapter_id: str, collector: _InboundCollector) -> AdapterContext:
     """Build an AdapterContext wired to the collector."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=collector,
         logger=logging.getLogger(f"test.callback_robustness.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -824,7 +823,6 @@ class TestAsyncPublishFailureIsolation:
         # Replace publish_inbound with our failing version
         ctx = AdapterContext(
             adapter_id="mesh-pub-fail",
-            event_bus=None,
             publish_inbound=_failing_publish,
             logger=logging.getLogger("test.mesh-pub-fail"),
             clock=lambda: datetime.now(timezone.utc),
@@ -836,7 +834,6 @@ class TestAsyncPublishFailureIsolation:
         collector = _InboundCollector()
         good_ctx = AdapterContext(
             adapter_id="mesh-pub-fail",
-            event_bus=None,
             publish_inbound=collector,
             logger=logging.getLogger("test.mesh-pub-fail"),
             clock=lambda: datetime.now(timezone.utc),
@@ -884,7 +881,6 @@ class TestAsyncPublishFailureIsolation:
 
         ctx = AdapterContext(
             adapter_id="lx-pub-fail",
-            event_bus=None,
             publish_inbound=_failing_publish,
             logger=logging.getLogger("test.lx-pub-fail"),
             clock=lambda: datetime.now(timezone.utc),
@@ -895,7 +891,6 @@ class TestAsyncPublishFailureIsolation:
         collector = _InboundCollector()
         good_ctx = AdapterContext(
             adapter_id="lx-pub-fail",
-            event_bus=None,
             publish_inbound=collector,
             logger=logging.getLogger("test.lx-pub-fail"),
             clock=lambda: datetime.now(timezone.utc),

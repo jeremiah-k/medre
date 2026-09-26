@@ -41,7 +41,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -118,8 +118,8 @@ class _StubAdapter(AdapterContract):
             health="healthy",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class _FailingStartAdapter(AdapterContract):
@@ -148,8 +148,8 @@ class _FailingStartAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class _HealthReportingAdapter(AdapterContract):
@@ -181,8 +181,8 @@ class _HealthReportingAdapter(AdapterContract):
             health=self._health,
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 def _fake_matrix_config(adapter_id: str = "fake_matrix") -> MatrixRuntimeConfig:

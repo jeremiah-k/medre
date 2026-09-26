@@ -121,8 +121,8 @@ class TestMatrixToMeshtasticOutboundNativeRef:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_RADIO_ADAPTER: radio_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -392,8 +392,8 @@ class TestMeshtasticToMatrixReplyResolution:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_MATRIX_ADAPTER: matrix_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -494,8 +494,8 @@ class TestMeshtasticToMatrixReplyResolution:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_MATRIX_ADAPTER: matrix_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -646,8 +646,8 @@ class TestPipelineTextEnrichmentForReactions:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_RADIO_ADAPTER: radio_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -877,8 +877,8 @@ class TestMatrixReplyToMeshtasticNativeReplyId:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_MESH_ADAPTER: radio_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -968,8 +968,8 @@ class TestMatrixReplyMissingMappingNoCrash:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_MESH_ADAPTER: radio_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -1115,8 +1115,8 @@ class TestMatrixToMatrixReplyLinksOnMeshnet:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_MESH_ADAPTER: radio_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()

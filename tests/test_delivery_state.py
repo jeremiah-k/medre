@@ -12,7 +12,6 @@ import pytest
 
 from medre.core.engine.pipeline.delivery_state import (
     ACCEPTED_OUTCOME_STATUSES,
-    ADAPTER_DELIVERY_STATUSES,
     CLAIMABLE_OUTBOX_STATUSES,
     NON_TERMINAL_OUTBOX_STATUSES,
     NON_TERMINAL_RECEIPT_STATUSES,
@@ -112,15 +111,6 @@ class TestOutcomeStatuses:
 
     def test_validate_outcome_status_unknown(self) -> None:
         assert validate_outcome_status("bogus") is False
-
-
-class TestAdapterDeliveryStatuses:
-    """ADAPTER_DELIVERY_STATUSES contains exactly the adapter statuses."""
-
-    EXPECTED = {"sent", "enqueued"}
-
-    def test_all_present(self) -> None:
-        assert ADAPTER_DELIVERY_STATUSES == self.EXPECTED
 
 
 # ---------------------------------------------------------------------------
@@ -426,9 +416,11 @@ class TestCrossVocabularyEdgeCases:
         """failed is non-terminal because it can lead to dead_lettered."""
         assert is_terminal_receipt_status("failed") is False
 
-    def test_enqueued_not_an_outbox_status(self) -> None:
+    def test_enqueued_is_not_a_lifecycle_status(self) -> None:
+        """Legacy adapter hand-off wording is outside lifecycle vocabularies."""
         assert validate_outbox_status("enqueued") is False
-        assert "enqueued" in ADAPTER_DELIVERY_STATUSES
+        assert validate_receipt_status("enqueued") is False
+        assert validate_outcome_status("enqueued") is False
 
 
 # ---------------------------------------------------------------------------

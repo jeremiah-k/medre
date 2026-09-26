@@ -55,7 +55,7 @@ class AdapterContract(ABC):
     async def stop(self, timeout: float) -> None: ...
 
     @abstractmethod
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None: ...
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult: ...
 
     @abstractmethod
     async def health_check(self) -> AdapterInfo: ...
@@ -89,12 +89,12 @@ No orphaned asyncio tasks **MUST** remain after `stop()` returns. Leaked tasks a
 ### 3.4 `deliver(result)`
 
 ```python
-async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None
+async def deliver(self, result: RenderingResult) -> AdapterHandoffResult
 ```
 
 The pipeline guarantees that `result` has already been rendered by a `Renderer` operating within a strict `RenderingContext`. The adapter **MUST NOT** re-render, reformat, or inspect the event kind to decide formatting. It **SHALL** merely transport the pre-rendered payload to the external platform.
 
-On success, the adapter **MUST** return an `AdapterDeliveryResult` populated with platform-native IDs, or `None` when the adapter has no native ID to report.
+On success, the adapter **MUST** return an `AdapterHandoffResult`. Native IDs are optional transport facts; absence of a native ID is not absence of a successful hand-off.
 
 If delivery fails, the adapter **MUST** raise `AdapterSendError` (transient) or `AdapterPermanentError` (permanent). The adapter **MUST NOT** write receipts, update delivery state, or trigger pipeline-level retries. The pipeline owns all of that. Bounded transport-call retries within the session send path (e.g., up to 3 attempts for transient SDK send failures — see §14.1 Session Ownership table, "Send retry" row) are permitted and expected; what is forbidden is the adapter implementing its own durable retry loops or retry scheduling outside the single `deliver()` call.
 
@@ -122,20 +122,15 @@ The codec handles conversion between native protocol data and canonical events. 
 class AdapterCodec(ABC):
     @abstractmethod
     def decode(self, native_event: Any) -> CanonicalEvent: ...
-
-    def encode(self, event: CanonicalEvent, target: Any) -> Any:
-        raise NotImplementedError  # Outbound rendering is handled by Renderers
 ```
 
 ### 4.1 `decode(native_event)`
 
 Converts a native (adapter-specific) event into a `CanonicalEvent`. Called by the adapter's inbound listener after receiving raw data. The codec **MUST** set at minimum: `event_id`, `event_kind`, `schema_version`, `timestamp`, `source_adapter`, `source_transport_id`, and `payload`.
 
-### 4.2 `encode(event, target)`
+### 4.2 Codec Restrictions
 
-Outbound rendering is handled by `Renderer` instances registered with the `RenderingPipeline`, **not** by the codec's `encode` method. The default implementation raises `NotImplementedError`. Subclasses **SHOULD NOT** override this.
-
-### 4.3 Codec Restrictions
+Outbound transformation is owned exclusively by renderers; `AdapterCodec` is decode-only.
 
 The codec owns format translation and nothing else. It **MUST NOT**:
 
@@ -157,151 +152,87 @@ The codec **MUST**:
 
 ## 5. AdapterContext
 
-Each adapter receives an `AdapterContext` on startup. This is the adapter's only window into the runtime.
+Each adapter receives an `AdapterContext` on startup. This deliberately narrow
+object is the adapter's only runtime integration surface.
 
 ```python
 @dataclass
 class AdapterContext:
-    adapter_id: str                     # Unique adapter instance identifier
-    event_bus: Any                      # Opaque reference to the framework event bus
+    adapter_id: str
     publish_inbound: Callable[[CanonicalEvent], Awaitable[None]]
-                                        # Publish a CanonicalEvent into the pipeline
-    logger: logging.Logger              # Pre-configured logger scoped to the adapter
-    clock: Callable[[], datetime]       # Callable returning current UTC datetime
-    shutdown_event: Any                 # asyncio.Event set when graceful shutdown requested
-    record_outbound_native_ref: Callable[[OutboundNativeRefRecord], Awaitable[None]] | None = None
-                                        # Optional callback for delayed native ref recording
+    logger: logging.Logger
+    clock: Callable[[], datetime]
+    shutdown_event: Any
+    admit_inbound: Callable[..., Awaitable[AdmissionResult]] | None = None
+    load_checkpoint: Callable[..., Awaitable[AdapterCheckpoint | None]] | None = None
+    commit_checkpoint: Callable[..., Awaitable[None]] | None = None
+    report_delivery_feedback: Callable[[DeliveryFeedback], Awaitable[None]] | None = None
 ```
 
 ### 5.1 Field Semantics
 
-| Field                        | Purpose                                                                                                                                                                     |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `adapter_id`                 | Unique identifier for this adapter instance.                                                                                                                                |
-| `event_bus`                  | Opaque reference to the framework's internal event bus. Adapters **SHOULD** prefer `publish_inbound` over direct bus interaction.                                           |
-| `publish_inbound`            | The ingress point. Call this with a `CanonicalEvent` to inject it into the pipeline. The event passes through ingress policy, storage, enrichment, transforms, and routing. |
-| `logger`                     | A pre-configured `logging.Logger` scoped to the adapter. Use this for all logging.                                                                                          |
-| `clock`                      | Callable returning current UTC `datetime`. **MUST** be used instead of `datetime.utcnow()` for deterministic testing.                                                       |
-| `shutdown_event`             | An `asyncio.Event` that the framework sets when a graceful shutdown is requested.                                                                                           |
-| `record_outbound_native_ref` | Optional async callback for queue-based adapters to record delayed native message IDs after the platform confirms the send. `None` when not wired (e.g., in test mode).     |
+| Field                                   | Purpose                                                                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `adapter_id`                            | Unique runtime adapter instance identifier.                                                                              |
+| `publish_inbound`                       | Publish ordinary live canonical ingress. Adapters call `self.publish_inbound()` so the common stale-event guard applies. |
+| `admit_inbound`                         | Optional durable ingress admission for protocols with cursor/provenance semantics.                                       |
+| `load_checkpoint` / `commit_checkpoint` | Optional application-owned stream checkpoint persistence.                                                                |
+| `logger`                                | Adapter-scoped logger.                                                                                                   |
+| `clock`                                 | Runtime UTC clock used instead of wall-clock globals.                                                                    |
+| `shutdown_event`                        | Runtime graceful-shutdown signal.                                                                                        |
+| `report_delivery_feedback`              | Single optional sink for the closed asynchronous `DeliveryFeedback` union.                                               |
 
 ### 5.2 Adapter Restrictions
 
-Adapters **MUST NOT**:
-
-- Import or call another adapter directly.
-- Bypass the pipeline to send events straight to another transport.
-- Modify events after they have been published via `publish_inbound`.
-- Access the event bus, routing engine, or policy pipeline beyond what `AdapterContext` provides.
+Adapters **MUST NOT** import/call another adapter, bypass the pipeline, mutate
+published events, access internal routing/event-bus objects, write receipts or
+outbox state, or infer lifecycle decisions from feedback persistence.
 
 ---
 
 ## 6. Adapter Capabilities
 
-Adapters declare what they can do. The capability model drives delivery planning, capability downgrade, and relation fallback.
-
-### 6.1 AdapterCapability Enum
-
-The following 22 capabilities **MUST** be declared by every adapter:
-
-| #   | Capability            | Description                                                        |
-| --- | --------------------- | ------------------------------------------------------------------ |
-| 1   | `TEXT`                | Plain text messages                                                |
-| 2   | `TITLE`               | Explicit subject/title field                                       |
-| 3   | `METADATA_FIELDS`     | Arbitrary structured key-value metadata                            |
-| 4   | `REPLIES`             | Native reply threading                                             |
-| 5   | `REACTIONS`           | Emoji or keyword reactions                                         |
-| 6   | `EDITS`               | Message editing                                                    |
-| 7   | `DELETES`             | Message deletion                                                   |
-| 8   | `DELIVERY_RECEIPTS`   | Per-message delivery confirmation                                  |
-| 9   | `STORE_AND_FORWARD`   | Message storage for later retrieval                                |
-| 10  | `PROPAGATION`         | Propagation node support                                           |
-| 11  | `DIRECT_MESSAGES`     | Point-to-point delivery                                            |
-| 12  | `ATTACHMENTS`         | File/image/audio attachments                                       |
-| 13  | `THREADS`             | Threaded conversations                                             |
-| 14  | `CHANNELS`            | Channel, room, topic, or group-style destinations                  |
-| 15  | `ACK_TRACKING`        | Transport-level acknowledgement tracking                           |
-| 16  | `ASYNC_DELIVERY`      | Delivery completes asynchronously after handoff                    |
-| 17  | `IDENTITY_ENCRYPTION` | Native identity-level encryption semantics                         |
-| 18  | `PRESENCE`            | Presence or online state semantics                                 |
-| 19  | `TOPIC_ROOMS`         | Named topic/room destinations                                      |
-| 20  | `MESH_ROUTING`        | Mesh/radio routing semantics                                       |
-| 21  | `PRIORITY_DELIVERY`   | Transport-level priority handling                                  |
-| 22  | `SIZE_LIMITS`         | Configurable maximum payload size constraints (bytes and/or chars) |
-
-### 6.2 CapabilityLevel Enum
-
-Each capability is reported at one of the following support levels:
-
-```python
-class CapabilityLevel(str, Enum):
-    TRUE                        = "true"
-    FALSE                       = "false"
-    METADATA_NATIVE             = "metadata_native"
-    METADATA_NATIVE_OR_FALLBACK = "metadata_native_or_fallback"
-    FUTURE                      = "future"
-```
-
-| Level                         | Meaning                                                                                            |
-| ----------------------------- | -------------------------------------------------------------------------------------------------- |
-| `TRUE`                        | Fully supported natively                                                                           |
-| `FALSE`                       | Not supported                                                                                      |
-| `METADATA_NATIVE`             | Target-native renderer degrades relation context into inline text within the native payload format |
-| `METADATA_NATIVE_OR_FALLBACK` | Native rendering when available, inline text degradation within native payload format otherwise    |
-| `FUTURE`                      | Planned, not yet implemented                                                                       |
-
-> **Note on `METADATA_*` naming.** The `METADATA_NATIVE` and `METADATA_NATIVE_OR_FALLBACK` level names are historical. They originated when relation context was primarily carried as metadata fields. In the current architecture, both levels mean **inline fallback semantics**: the target-native renderer embeds relation context as inline text within its own native payload format (e.g. a Meshtastic renderer produces Meshtastic text with `[replying to: …]` prefixes). The renderer owns the degradation logic; the adapter sees only a normal native payload. The `METADATA_` prefix is retained for enum stability but should be read as "inline fallback within native format."
-
-### 6.2.1 CapabilityLevel to Decision Mapping
-
-The five `CapabilityLevel` values collapse to a three-level decision model used by `CapabilityDecisionResolver` (see Routing and Delivery Specification, § 6.3). The mapping:
-
-| CapabilityLevel               | Decision level | Delivery strategy |
-| ----------------------------- | -------------- | ----------------- |
-| `TRUE`                        | `native`       | `direct`          |
-| `METADATA_NATIVE`             | `fallback`     | `fallback_text`   |
-| `METADATA_NATIVE_OR_FALLBACK` | `fallback`     | `fallback_text`   |
-| `FALSE`                       | `unsupported`  | `skip`            |
-| `FUTURE`                      | `unsupported`  | `skip`            |
-
-The resolver applies this mapping per capability field, then picks the most severe decision across all candidates (event kind + relations). See Routing and Delivery Specification § 6.3.1 through § 6.3.5 for the full precedence rules.
-
-> **Note on `FUTURE`.** `CapabilityLevel.FUTURE` maps to `unsupported` because the capability is not yet implemented. The resolver treats it the same as `FALSE` for delivery planning purposes. When the capability is later implemented, the adapter updates its declaration to `TRUE` or `METADATA_*`, and the resolver picks up the change without code changes elsewhere.
-
-### 6.3 AdapterCapabilities Mapping
+`AdapterCapabilities` describes presentation/planning support only. It is an
+immutable dataclass with conservative defaults; a new adapter therefore does
+not gain functionality merely by existing. Delivery timing, acknowledgement
+strength, and asynchronous completion are **not** capabilities — those facts
+are expressed per attempt by `AdapterHandoffResult` and `DeliveryFeedback`.
 
 ```python
 @dataclass(frozen=True)
 class AdapterCapabilities:
-    capabilities: dict[AdapterCapability, CapabilityLevel]
-
-    def supports(self, cap: AdapterCapability) -> bool:
-        """True if the capability is at least METADATA_NATIVE."""
-        level = self.capabilities.get(cap, CapabilityLevel.FALSE)
-        return level != CapabilityLevel.FALSE
-
-    def native_support(self, cap: AdapterCapability) -> bool:
-        """True if the capability has TRUE native support."""
-        return self.capabilities.get(cap) == CapabilityLevel.TRUE
-
-    def level(self, cap: AdapterCapability) -> CapabilityLevel:
-        """Return the support level for a capability."""
-        return self.capabilities.get(cap, CapabilityLevel.FALSE)
+    text: bool = True
+    title: bool = False
+    replies: str = "native"
+    reactions: str = "native"
+    edits: str = "native"
+    deletes: str = "native"
+    attachments: bool = False
+    metadata_fields: bool = False
+    store_and_forward: bool = False
+    direct_messages: bool = True
+    channels: bool = True
+    identity_encryption: bool = False
+    presence: bool = False
+    topic_rooms: bool = False
+    mesh_routing: bool = False
+    priority_delivery: bool = False
+    max_text_bytes: int | None = None
+    max_text_chars: int | None = None
+    threads: str = "unsupported"
 ```
 
-The runtime reads capabilities from the cached `AdapterInfo` at delivery time. It **MUST NOT** query the adapter at delivery time.
+Relation fields (`replies`, `reactions`, `edits`, `deletes`, `threads`) use the
+closed semantic levels `native`, `fallback`, and `unsupported`. Boolean and
+size-limit fields are direct planning facts. `CapabilityDecisionResolver` and
+`FallbackResolver` interpret those facts into the authoritative `DeliveryPlan`;
+adapters and renderers consume that plan and **MUST NOT** re-decide capability
+policy during delivery.
 
-**Planning authority boundary.** Adapters report capability facts — what their transport can and cannot do. They do not make planning or lifecycle decisions. `CapabilityDecisionResolver` interprets adapter-declared capabilities into three-level decisions, and `FallbackResolver` incorporates those decisions into `DeliveryPlan` objects. The plan is the authoritative planning result (see Routing and Delivery Specification, § 6.1). Adapters, renderers, and diagnostics consume plan fields without re-deciding capability or delivery strategy.
-
-### 6.4 How Capabilities Drive Behavior
-
-| Capability    | `unsupported` Behavior                                                                 | `fallback` Behavior                                                                     | `native` Behavior             |
-| ------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------- |
-| `REPLIES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reply context as inline text within native payload format | Native reply threading used   |
-| `REACTIONS`   | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds reaction as inline text within native payload format      | Native reactions used         |
-| `EDITS`       | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds edit context as inline text within native payload format  | Native edit support used      |
-| `DELETES`     | Skip: delivery suppressed. No renderer invoked.                                        | Target-native renderer embeds delete notice as inline text within native payload format | Native delete used            |
-| `SIZE_LIMITS` | Truncation or splitting applied by `MaxLengthPolicy` when adapter declares byte limits | N/A                                                                                     | Unlimited or platform-handled |
+Capabilities that are merely properties of a provider SDK but are not exercised
+by MEDRE remain undeclared/false. Conversely, later transport observations do
+not require a capability flag: an adapter may emit `PostHandoffObservation`
+whenever the transport actually supplies that fact for an outbox-backed attempt.
 
 ---
 
@@ -485,64 +416,52 @@ derivation rules.
 
 ---
 
-## 9. AdapterDeliveryResult
+## 9. AdapterHandoffResult and DeliveryFeedback
 
-### 9.1 Definition
+### 9.1 Synchronous hand-off
 
-```python
-@dataclass(frozen=True)
-class AdapterDeliveryResult:
-    native_message_id:  str | None = None
-    native_channel_id:  str | None = None
-    native_thread_id:   str | None = None
-    native_relation_id: str | None = None
-    delivery_note:      str = ""
-    delivery_status:    str = "sent"
-    metadata:           MappingProxyType[str, object] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
-```
+Every successful `deliver(RenderingResult)` returns a frozen
+`AdapterHandoffResult`. `disposition` is a closed value:
 
-This is an immutable, frozen dataclass. The pipeline uses it to store `NativeMessageRef` mappings. The pipeline owns receipts and storage. Adapters only report what the platform returned.
+- `transport_handoff` — the adapter reached its external transport boundary
+  during the call;
+- `deferred` — the adapter accepted work locally and will report the later
+  transport result through `DeliveryFeedback`.
 
-### 9.2 Field Semantics
+`confirmation_level` records the strength of the fact (`unknown`,
+`local_queue`, `local_transport`, `remote_service`, `end_to_end`) independently
+of durable lifecycle status. Native IDs are optional real transport facts and
+MUST NOT be fabricated. A deferred result cannot contain a native message ID
+and its confirmation level MUST be `unknown` or `local_queue`;
+`local_transport`, `remote_service`, and `end_to_end` imply that the hand-off
+boundary has already been crossed. Metadata is recursively immutable and JSON-safe. Top-level metadata keys
+closed hand-off, feedback, and attempt-provenance field names are reserved by
+the delivery contract and MUST NOT be repeated as opaque adapter metadata.
+Transport-specific data SHOULD be namespaced (for example `metadata["matrix"]`)
+rather than shadowing `native_*`, `state`, `outbox_id`, or related authority
+fields.
 
-| Field                | Semantics                                                                                                                                                                                                                                                                                                                                               |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `native_message_id`  | Platform-native message ID assigned by the external system. **MUST** be platform-provided; adapters **MUST NOT** fabricate, synthesize, or locally-generate this value. `None` when unavailable.                                                                                                                                                        |
-| `native_channel_id`  | Platform-native channel/room/conversation ID. Always platform-provided. `None` when the platform did not return one. The pipeline **MUST NOT** backfill from route configuration.                                                                                                                                                                       |
-| `native_thread_id`   | Platform-native thread or parent message ID. Reserved; currently always `None` at runtime.                                                                                                                                                                                                                                                              |
-| `native_relation_id` | Platform-native ID of the related entity (e.g., the message being replied to). Reserved; currently always `None` at runtime.                                                                                                                                                                                                                            |
-| `delivery_note`      | Human-readable context about the delivery outcome. Informational only; consumers **MUST NOT** parse it for control-flow decisions.                                                                                                                                                                                                                      |
-| `delivery_status`    | Adapter delivery fact: `"sent"` (default, synchronous adapters) or `"enqueued"` (queue-based adapters that accepted locally but have not yet sent to the platform). The pipeline maps this to receipt status; it is not lifecycle authority. Transport-specific local-acceptance states are reported in `metadata[<transport>]`, **not** in this field. |
-| `metadata`           | Immutable, namespaced delivery metadata. Transport-specific data **MUST** live under `metadata[<transport>]`. No top-level MEDRE-standard keys are permitted — all adapter-specific state is namespaced under the transport key.                                                                                                                        |
+### 9.2 Asynchronous feedback
 
-### 9.3 Delivery State Semantics
+`DeliveryFeedback` is a closed tagged union with one immutable
+`DeliveryAttemptProvenance` authority per variant:
 
-When `deliver()` returns an `AdapterDeliveryResult`, it means the adapter accepted the delivery — the handoff from pipeline to adapter succeeded at the local level. It does **not** mean the message reached its final destination on the native platform, except for Matrix where the homeserver confirms storage.
+- `DeferredHandoffCompleted(attempt_provenance, handoff)`;
+- `DeferredHandoffFailed(attempt_provenance, outcome, ...)`;
+- `PostHandoffObservation(attempt_provenance, state, ...)`.
 
-| Transport  | What `deliver()` return means                                                                                     |
-| ---------- | ----------------------------------------------------------------------------------------------------------------- |
-| Matrix     | Homeserver accepted and stored the message. `event_id` is proof of server-side persistence.                       |
-| Meshtastic | Message was enqueued to the outbound queue. Actual radio send is asynchronous via queue worker.                   |
-| MeshCore   | Message was submitted to the SDK `send_text()`. Radio transmission may still fail.                                |
-| LXMF       | Message was created and submitted to LXMRouter. Delivery state progresses asynchronously through multiple states. |
+Feedback does not duplicate event/plan/outbox/attempt mirrors. Core validates
+the envelope against durable authority and owns all receipt/outbox transitions.
+Post-hand-off observations are append-only evidence and cannot rewrite lifecycle
+state.
 
-### 9.4 Failed Send Behavior
+### 9.3 Failure and duplicate-send semantics
 
-When a send fails, the adapter **MUST** raise `AdapterSendError` (transient, `transient=True`) or `AdapterPermanentError` (permanent, `transient=False`). No `AdapterDeliveryResult` is returned on failure.
-
-Transport-specific `*SendError` classes (`MatrixSendError`, `MeshtasticSendError`, etc.) are session-internal errors and **MUST NOT** subclass `AdapterSendError` or `AdapterPermanentError`. Adapters **MUST** normalize session-internal transport errors into the runtime-facing `AdapterSendError`/`AdapterPermanentError` at the boundary.
-
-No adapter **MAY** swallow `CancelledError`. Adapters **MUST** catch `Exception`, not `BaseException`, so that asyncio task cancellation propagates correctly.
-
-### 9.5 Native Reference Persistence
-
-Native refs are persisted in delivery receipts only when `native_message_id` is not `None`. When `native_message_id` is `None`, no native ref record is created. The pipeline **MUST NOT** fabricate native refs or backfill them from route configuration.
-
-### 9.6 Duplicate-Send Risk
-
-All adapters implement bounded retry with acknowledged duplicate-send risk. This is a fundamental property of at-least-once delivery. Consumers **MUST** be tolerant of duplicate deliveries. `native_message_id` **SHOULD** be used as a dedup key where available.
+A synchronous send failure raises `AdapterSendError` or
+`AdapterPermanentError`; no successful hand-off object is returned. Deferred
+terminal failure is reported only after a successful `deferred` hand-off. MEDRE
+is at-least-once; adapters MUST NOT add an independent durable retry/dedup
+engine.
 
 ---
 
@@ -557,14 +476,16 @@ Every renderer invocation receives a frozen `RenderingContext` carrying all disp
 ```python
 @dataclass(frozen=True)
 class RenderingContext:
-    delivery_strategy: DeliveryStrategyMethod  # "direct", "fallback_text", "skip", etc.
-    target_adapter: str                        # Target adapter instance name
-    target_channel: str | None                 # Target channel, if applicable
-    target_platform: str | None                # Platform name (e.g. "matrix", "meshtastic")
-    max_text_chars: int | None                 # Character budget from adapter capabilities
-    max_text_bytes: int | None                 # UTF-8 byte budget from adapter capabilities
-    capability_level: CapabilityDecisionLevel  # "native", "fallback", or "unsupported"
-    capability_policy: str | None              # Optional policy hint (e.g. "strict", "lenient")
+    delivery_strategy: DeliveryStrategyMethod
+    target_adapter: str
+    target_channel: str | None = None
+    target_platform: str | None = None
+    max_text_chars: int | None = None
+    max_text_bytes: int | None = None
+    capability_level: CapabilityLevel = "native"
+    capability_policy: str | None = None
+    source_origin_label: str | None = None
+    target_destination: RouteDestination | None = None
 ```
 
 `delivery_strategy` is a **context hint, not a renderer selector**. When the strategy is `"fallback_text"`, the target-native renderer still produces its native output format (e.g. a Matrix renderer produces Matrix msgtype/body, a Meshtastic renderer produces Meshtastic text). The pipeline does **not** bypass target-native renderers or switch to a generic text renderer based on this field. Instead, the target-native renderer uses the hint to degrade relation rendering to inline text within its own format.
@@ -577,20 +498,31 @@ class RenderingContext:
 
 `capability_policy` is a **reserved field**. It is defined in `RenderingContext` for a future explicit capability-policy stage and defaults to `None`. The current pipeline does not set it. Renderers **MUST NOT** depend on `capability_policy` for dispatch decisions unless they also control the code that populates it.
 
+`source_origin_label` is the route-resolved source attribution label supplied to renderers. `None` means no route-level override is present and the renderer may fall back to adapter/native attribution according to the routing specification.
+
+`target_destination` carries the structured route destination when one exists. Renderers that address a specific entity **MUST** prefer this structured destination over the convenience `target_channel` value; `None` means the target is channel-addressed only.
+
 ### 10.2 RenderingResult
 
 The `RenderingResult` is the output of a rendering pass, ready for adapter delivery. It is produced by the `RenderingPipeline` and consumed by adapters.
 
+The renderer owns `payload`, rendering metadata, and truncation/fallback facts. The rendering pipeline adds the immutable `rendering_evidence` snapshot after the renderer returns. Immediately before adapter delivery, `TargetDeliveryService` stamps the durable delivery identity onto the same frozen value: `delivery_plan_id`, `outbox_id`, `attempt_number`, and the authoritative `attempt_provenance`. Those fields are framework-internal hand-off context, not wire metadata. When provenance is present it is authoritative; the scalar plan/outbox/attempt fields are compatibility mirrors validated and backfilled from it. An outbox-backed result without `attempt_provenance` is invalid.
+
 ```python
 @dataclass(frozen=True)
 class RenderingResult:
-    event_id:         str                        # Original canonical event ID
-    target_adapter:   str                        # Target adapter instance name
-    target_channel:   str | None                 # Target channel, if applicable
-    payload:          dict[str, object]          # Rendered payload in adapter-ready format
-    metadata:         dict[str, object] = field(default_factory=dict)
-    truncated:        bool = False               # Whether content was truncated
-    fallback_applied: FallbackApplied | None = None          # Fallback strategy applied, if any
+    event_id: str
+    target_adapter: str
+    target_channel: str | None
+    payload: dict[str, object]
+    metadata: dict[str, object] = field(default_factory=dict)
+    truncated: bool = False
+    fallback_applied: FallbackApplied | None = None
+    rendering_evidence: RenderingEvidence | None = None
+    delivery_plan_id: str | None = None
+    outbox_id: str | None = None
+    attempt_number: int | None = None
+    attempt_provenance: DeliveryAttemptProvenance | None = None
 ```
 
 ### 10.3 Rendering Boundary
@@ -641,7 +573,20 @@ These fields are not operational flags. They are evidence that lets operators un
 
 The payload (`RenderingResult.payload`) is the rendered content. It is not evidence. Evidence is the explanation of decisions, carried by `truncated`, `fallback_applied`, and the context fields. For the full evidence semantics, receipt attachment, and replay-readiness limits, see the Diagnostics and Evidence Specification, § 14.
 
-**Receipt attachment scope.** The `rendering_evidence` field on `DeliveryReceipt` is populated only for `sent` and `queued` statuses. Suppressed, rendering-failure, and adapter-failure paths leave `rendering_evidence` as `None`. Route-target pre-outbox skip paths (loop guard, policy denial, capability unsupported) persist `DeliveryReceipt(status="suppressed")` for traceability, but the rendering evidence remains `None` because no renderer ran and no payload was handed to the adapter.
+**Receipt attachment scope.** Rendering evidence is attached to the attempt receipt
+created after rendering: the `sent` receipt for immediate hand-off and the `queued`
+receipt for deferred local admission. Suppressed, rendering-failure, and
+adapter-failure paths leave `rendering_evidence` as `None`. Route-target pre-outbox
+skip paths (loop guard, policy denial, capability unsupported) persist
+`DeliveryReceipt(status="suppressed")` for traceability, but rendering evidence
+remains `None` because no renderer ran and no payload was handed to the adapter.
+
+A deferred completion may legitimately beat persistence of its `queued` receipt. In
+that feedback-before-receipt race, core finalizes `sent` from immutable attempt
+provenance and leaves queue-only rendering/retry fields absent rather than guessing.
+The later append-only `queued` receipt carries the original rendering evidence;
+consumers that need it inspect receipt history for that attempt. See
+[delivery-lifecycle.md](delivery-lifecycle.md) §3.4.
 
 ---
 
@@ -831,119 +776,40 @@ Adapters do not implement `receive(raw_data, metadata)` as a primary interface. 
 
 The runtime **MUST NOT** push raw data into an adapter. The adapter is in control of its own receive loop and event loop integration.
 
-### 17.2 Outbound: Synchronous Return, Async Completion
+### 17.2 Outbound: hand-off and feedback
 
-`deliver()` returns synchronously with an `AdapterDeliveryResult` (or raises on failure). For transports with asynchronous delivery models (LXMF, Meshtastic queue), the returned result reflects the local-acceptance state, not the final delivery state.
+`deliver()` returns `AdapterHandoffResult` or raises. Immediate adapters return
+`transport_handoff`; locally queued adapters return `deferred`. The return value
+reports the adapter/transport boundary reached during that call, never a generic
+recipient-delivery claim.
 
-LXMF is the only transport with formal asynchronous delivery state progression. The eight states are:
+A deferred adapter captures the exact `RenderingResult.attempt_provenance` at
+admission and carries it as opaque caller-owned context. When the transport
+worker progresses, the adapter sends exactly one of the closed `DeliveryFeedback`
+variants through `AdapterContext.report_delivery_feedback`.
 
-```text
-generating -> outbound -> sending -> sent -> delivered
-                                          -> failed
-                                          -> rejected
-                                          -> cancelled
-```
+Deferred admission requires durable attempt provenance. If
+`RenderingResult.attempt_provenance` is absent, a deferred adapter MUST reject
+the call before queue/session admission. The adapter likewise MUST reject when
+`AdapterContext.report_delivery_feedback` is unavailable. It MUST NOT accept
+uncorrelatable or unreportable work and then suppress feedback. Outbox-less
+direct delivery is therefore limited to an immediate `transport_handoff`
+result.
 
-LXMF progresses delivery asynchronously inside the SDK. MEDRE registers the
-per-message delivery callback and, where exposed by the pinned SDK, the separate
-failed callback. Not every internal LXMF state transition emits a callback, so
-MEDRE MUST persist only states the SDK actually reports; it MUST NOT poll private
-SDK state or synthesize an unreported terminal transition. The initial state
-reported in `AdapterDeliveryResult.metadata` is typically `"outbound"`.
+`DeferredHandoffCompleted` may contain a real native reference and finalizes the
+queued attempt. `DeferredHandoffFailed` terminates the queued attempt before
+transport hand-off. `PostHandoffObservation` records later transport evidence
+without mutating receipts or reopening outbox state. Route `target_channel` and
+transport-resolved `native_channel_id` are separate namespaces.
 
-### 17.3 Delayed Native Ref Recording
+Core contains persistence failures so a stale/contradictory callback cannot
+crash an adapter worker.
 
-Queue-based adapters (e.g., Meshtastic) that cannot return a native message ID synchronously from `deliver()` **MUST** use the `record_outbound_native_ref` callback from `AdapterContext` when the platform later provides a real native ID.
+### 17.3 Callback isolation
 
-```python
-@dataclass(frozen=True)
-class OutboundNativeRefRecord:
-    event_id:           str
-    adapter:            str
-    native_channel_id:  str | None
-    native_message_id:  str           # Must be a real ID from the external platform
-    native_thread_id:   str | None = None
-    native_relation_id: str | None = None
-    delivery_plan_id:   str | None = None
-    outbox_id:          str | None = None
-    attempt_number:     int | None = None
-    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
-    metadata:           Mapping[str, object] = field(default_factory=dict)
-```
-
-The `native_message_id` field **MUST** be a non-empty string from the external
-platform. The adapter **MUST NOT** fabricate IDs. Built-in queue adapters carry
-the exact `DeliveryAttemptProvenance` captured before hand-off; the scalar
-plan/outbox/attempt fields are compatibility mirrors populated from it.
-
-### 17.4 Post-Handoff Delivery Observations
-
-Adapters with asynchronous transport completion MAY report later transport
-facts through the optional `record_delivery_observation` callback in
-`AdapterContext`. This callback is evidence-only. It **MUST NOT** be used to
-request retries, mutate receipts, or change outbox lifecycle state.
-
-```python
-@dataclass(frozen=True)
-class OutboundDeliveryObservationRecord:
-    event_id: str
-    adapter: str
-    state: Literal["delivered", "failed", "rejected", "cancelled"]
-    outbox_id: str | None = None
-    attempt_number: int | None = None
-    delivery_plan_id: str | None = None
-    native_channel_id: str | None = None
-    native_message_id: str | None = None
-    confirmation_level: DeliveryConfirmationLevel = "unknown"
-    error: str | None = None
-    metadata: Mapping[str, object] = field(default_factory=dict)
-    attempt_provenance: DeliveryAttemptProvenance = field(kw_only=True)
-```
-
-Outbox-less/direct sends may still use an asynchronous transport internally, but
-they have no durable attempt envelope. Built-in adapters **MUST NOT** fabricate
-terminal, delayed-native-reference, or delivery-observation evidence for those
-sends; post-handoff callback evidence is emitted only for an outbox-backed
-attempt carrying exact `DeliveryAttemptProvenance`.
-
-A callback's `native_channel_id` is transport-resolved evidence, not a mirror of
-`DeliveryAttemptProvenance.target_channel`. The latter is route-level delivery
-identity and may be absent or adapter-specific while the transport resolves a
-default/native channel. Exact callback correlation therefore uses the envelope
-and `outbox_id`; core preserves the actual native channel separately on native
-references and observations.
-
-Built-in asynchronous adapters carry immutable `attempt_provenance` across the
-transport/session boundary and echo it unchanged. The transport session MAY
-carry this value as opaque caller-owned context, but it **MUST NOT** interpret
-or mutate core lifecycle identity. Scalar `outbox_id`, `attempt_number`, and
-`delivery_plan_id` are compatibility mirrors populated from the envelope,
-which every asynchronous callback record requires.
-
-Core validates the observation against the authoritative outbox row and every
-immutable receipt already carrying the exact outbox ID/generation. That receipt
-history is loaded by `outbox_id` before identity/source validation so malformed
-event/plan/adapter/channel evidence cannot be hidden by the read used to verify
-it. Each matching-generation receipt must agree with the callback envelope's
-identity, generation, dispatch source, and replay origin before an observation
-is appended. Receipt-history read failures fail closed. A callback may
-legitimately precede the first attempt-receipt append, so absence of receipt
-evidence is not itself a rejection. The adapter never writes storage directly.
-A terminal transport observation therefore cannot retroactively turn a locally
-successful MEDRE handoff into a failed receipt, and a later `delivered`
-observation cannot rewrite a receipt into a stronger lifecycle state.
-
-### 17.5 Callback Isolation
-
-The adapter is not notified of retry decisions, receipt recording, or failure
-classification. Post-handoff callbacks flow in only the opposite direction:
-the adapter reports transport facts and receives no lifecycle decision back.
-This isolation is intentional: the adapter attempts transport work and reports
-facts; the pipeline decides what happens next. Meshtastic queue terminal/native
-reference callbacks and LXMF delivery observations carry attempt provenance
-because evidence crosses an asynchronous hand-off boundary. Matrix and MeshCore
-currently complete MEDRE's delivery hand-off synchronously; MEDRE does not invent
-post-handoff confirmation callbacks for them.
+Adapters report facts only. They are not notified of retry decisions, receipt
+writes, or lifecycle classification. Core validates provenance and remains the
+sole lifecycle authority.
 
 ---
 
@@ -1106,7 +972,7 @@ Every fake adapter **MUST**:
 1. Satisfy the full `AdapterContract` protocol: `start()`, `stop()`, `deliver()`, `health_check()`.
 2. Enforce the rendering boundary: `deliver()` accepts `RenderingResult` only, not `CanonicalEvent`.
 3. Report deterministic health transitions: `"unknown"` on construction, `"healthy"` after `start()`, `"unknown"` after `stop()`.
-4. Return deterministic `AdapterDeliveryResult` instances with synthetic native IDs.
+4. Return deterministic `AdapterHandoffResult` values using the same closed disposition vocabulary as real adapters and a confirmation level no stronger than the boundary the fake actually simulates. A lifecycle-fidelity fake **SHOULD** preserve the real adapter's immediate/deferred timing; a simpler deterministic fake **MAY** collapse internal queueing into an immediate transport hand-off when asynchronous timing is not the behavior under test.
 5. Exercise the codec/classifier pipeline with fixture data matching the real native format.
 6. Never import the real SDK.
 7. Support the same `supported_event_kinds` as the real adapter.
@@ -1185,7 +1051,8 @@ Transport --> raw data
 RenderingResult
   --> adapter.deliver(result)
   --> transport send
-  --> AdapterDeliveryResult (or exception)
+  --> AdapterHandoffResult (or exception)
+  --> optional DeliveryFeedback for asynchronous transport facts
   --> pipeline records receipt
   --> pipeline stores native_message_ref (when native_message_id is not None)
 ```

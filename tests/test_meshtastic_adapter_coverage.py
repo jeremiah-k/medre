@@ -1,18 +1,16 @@
 """Tests for uncovered MeshtasticAdapter methods: stop delegation,
 health_check edge cases, _enrich_with_node_info exception path,
-and _record_delayed_outbound_ref native_message_id guard.
+and _report_deferred_completion native_message_id guard.
 """
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.queue import QueueDeliveryResult
 from medre.core.contracts.adapter import (
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
 )
 from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.meshtastic import make_meshtastic_config
@@ -159,39 +157,39 @@ class TestEnrichWithNodeInfoException:
 
 
 # ===================================================================
-# _record_delayed_outbound_ref native_message_id guard
+# _report_deferred_completion native_message_id guard
 # ===================================================================
 
 
-class TestRecordDelayedOutboundRefGuard:
-    """_record_delayed_outbound_ref raises RuntimeError when native_message_id is None."""
+class TestDeferredCompletionWithoutNativeId:
+    """A transport hand-off can complete even when no native ID is assigned."""
 
-    async def test_native_message_id_none_raises_runtime_error(self) -> None:
-        """Raises RuntimeError when delivery.native_message_id is None."""
+    async def test_completion_without_native_id_reports_feedback(self) -> None:
         import asyncio
         import logging
         from datetime import datetime, timezone
 
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.events.bus import EventBus
+        from medre.core.contracts.delivery import DeferredHandoffCompleted
 
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
+        feedback = AsyncMock()
         ctx = AdapterContext(
             adapter_id="mesh-1",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.guard"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
-            record_outbound_native_ref=AsyncMock(),
+            report_delivery_feedback=feedback,
         )
         await adapter.start(ctx)
         try:
-            delivery = AdapterDeliveryResult(
+            handoff = AdapterHandoffResult(
                 native_message_id=None,
                 native_channel_id="0",
-                delivery_note="test",
+                confirmation_level="local_transport",
+                note="accepted without packet id",
             )
             queue_result = QueueDeliveryResult(
                 item={
@@ -204,17 +202,15 @@ class TestRecordDelayedOutboundRefGuard:
                         target_channel="0",
                     ),
                 },
-                delivery_result=delivery,
+                handoff=handoff,
             )
 
-            with pytest.raises(
-                RuntimeError, match="native_message_id must be non-None"
-            ):
-                await adapter._record_delayed_outbound_ref(
-                    result=queue_result,
-                    event_id="evt-1",
-                    delivery=delivery,
-                )
+            await adapter._report_deferred_completion(queue_result)
+
+            emitted = feedback.await_args.args[0]
+            assert isinstance(emitted, DeferredHandoffCompleted)
+            assert emitted.handoff.native_message_id is None
+            assert emitted.attempt_provenance.outbox_id == "obox-guard"
         finally:
             await adapter.stop()
 

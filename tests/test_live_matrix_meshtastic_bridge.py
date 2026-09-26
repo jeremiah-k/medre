@@ -91,7 +91,6 @@ def _make_matrix_context():
 
     return AdapterContext(
         adapter_id="matrix",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.live-bridge.matrix"),
         clock=lambda: datetime.now(timezone.utc),
@@ -105,7 +104,6 @@ def _make_meshtastic_context():
 
     return AdapterContext(
         adapter_id="radio",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.live-bridge.meshtastic"),
         clock=lambda: datetime.now(timezone.utc),
@@ -311,7 +309,7 @@ class TestMatrixToMeshtasticSmoke:
     """
 
     async def test_matrix_send_returns_delivery_result(self, tmp_path: Path) -> None:
-        """Start Matrix adapter, send message, verify AdapterDeliveryResult returned.
+        """Start Matrix adapter, send message, verify AdapterHandoffResult returned.
 
         Tests Matrix outbound delivery only.  Radio reception requires
         manual verification.

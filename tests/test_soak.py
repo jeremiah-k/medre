@@ -141,7 +141,6 @@ def _make_matrix_context() -> Any:
 
     return AdapterContext(
         adapter_id="matrix-soak",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.soak.matrix"),
         clock=lambda: datetime.now(timezone.utc),
@@ -168,7 +167,6 @@ def _make_meshtastic_context() -> Any:
 
     return AdapterContext(
         adapter_id="meshtastic-soak",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.soak.meshtastic"),
         clock=lambda: datetime.now(timezone.utc),
@@ -437,13 +435,13 @@ class TestMeshtasticSoak:
                         send_result = await adapter.send_one()
                         if (
                             send_result
-                            and send_result.delivery_result
-                            and send_result.delivery_result.native_message_id
+                            and send_result.handoff
+                            and send_result.handoff.native_message_id
                         ):
                             success_count += 1
                             print(
                                 f"[soak-send #{send_count}] ok "
-                                f"native_id={send_result.delivery_result.native_message_id}"
+                                f"native_id={send_result.handoff.native_message_id}"
                             )
                         else:
                             fail_count += 1

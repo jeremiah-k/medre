@@ -23,7 +23,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -278,8 +278,8 @@ class TestPerAdapterStartFailureCleanupDrainAccounting:
                     health="failed",
                 )
 
-            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-                return None
+            async def deliver(self, result: Any) -> AdapterHandoffResult:
+                return AdapterHandoffResult()
 
         # Beta: start blocks on an event (allows second external cancel
         # to arrive during the adapter start call).
@@ -315,8 +315,8 @@ class TestPerAdapterStartFailureCleanupDrainAccounting:
                     health="ok",
                 )
 
-            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-                return None
+            async def deliver(self, result: Any) -> AdapterHandoffResult:
+                return AdapterHandoffResult()
 
         app.adapters["alpha"] = _StartFailSlowStop(adapter_id="alpha")
         app.adapters["beta"] = _BlockingStart(adapter_id="beta")
@@ -574,7 +574,7 @@ class TestStartCatastrophicCancelledError:
                     health="failed",
                 )
 
-            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
+            async def deliver(self, result: Any) -> AdapterHandoffResult | None:
                 return None
 
         blocking = _AdaptersThatWait()
@@ -685,8 +685,8 @@ class TestStopAdapterWithDeadlineCancelCountPreserved:
                     health="ok",
                 )
 
-            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-                return None
+            async def deliver(self, result: Any) -> AdapterHandoffResult:
+                return AdapterHandoffResult()
 
         app.adapters["fake_matrix"] = _SlowStopAdapter(adapter_id="fake_matrix")
         app.started_adapter_ids.append("fake_matrix")

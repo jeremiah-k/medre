@@ -512,7 +512,7 @@ class TestExpectedAckPersistence:
         mock_mc.commands.send_msg.return_value = {"expected_ack": b"\x01\x02\x03\x04"}
 
         result = await session.send_text("contact1", "test")
-        # The hex string IS the native_id — persisted as AdapterDeliveryResult
+        # The hex string IS the native_id — persisted as AdapterHandoffResult
         # native_message_id for cross-transport correlation.
         assert result == "01020304"
 

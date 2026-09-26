@@ -13,36 +13,35 @@ from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.queue import QueueDeliveryResult
 from medre.core.contracts.adapter import (
     AdapterContext,
-    AdapterDeliveryResult,
-    OutboundNativeRefRecord,
+    AdapterHandoffResult,
 )
+from medre.core.contracts.delivery import DeferredHandoffCompleted
 from medre.core.events.canonical import CanonicalEvent
 from tests.helpers.delivery_callbacks import make_attempt_provenance
 from tests.helpers.meshtastic import make_meshtastic_config
 
 
 def _context(
-    callback: Callable[[OutboundNativeRefRecord], Awaitable[None]] | None = None,
+    callback: Callable[[DeferredHandoffCompleted], Awaitable[None]] | None = None,
 ) -> AdapterContext:
     async def noop_publish(_event: CanonicalEvent) -> None:
         return None
 
     return AdapterContext(
         adapter_id="mesh-1",
-        event_bus=None,
         publish_inbound=noop_publish,
         logger=logging.getLogger("test.mesh-1"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
-        record_outbound_native_ref=callback,
+        report_delivery_feedback=callback,
     )
 
 
 async def test_event_id_flows_to_outbound_native_ref_record() -> None:
     adapter = MeshtasticAdapter(make_meshtastic_config())
-    recorded: list[OutboundNativeRefRecord] = []
+    recorded: list[DeferredHandoffCompleted] = []
 
-    async def on_outbound_ref(record: OutboundNativeRefRecord) -> None:
+    async def on_outbound_ref(record: DeferredHandoffCompleted) -> None:
         recorded.append(record)
 
     adapter.ctx = _context(on_outbound_ref)
@@ -60,7 +59,7 @@ async def test_event_id_flows_to_outbound_native_ref_record() -> None:
             target_channel="0",
         ),
     }
-    delivery = AdapterDeliveryResult(
+    delivery = AdapterHandoffResult(
         native_message_id="987654321",
         native_channel_id="0",
         confirmation_level="local_transport",
@@ -68,20 +67,21 @@ async def test_event_id_flows_to_outbound_native_ref_record() -> None:
             {"meshtastic": {"packet_id": 987654321, "channel": 0}}
         ),
     )
-    result = QueueDeliveryResult(item=item, delivery_result=delivery)
+    result = QueueDeliveryResult(item=item, handoff=delivery)
 
-    await adapter._record_delayed_outbound_ref(result, event_id, delivery)
+    await adapter._report_deferred_completion(result)
 
     assert len(recorded) == 1
-    ref = recorded[0]
-    assert ref.event_id == event_id
-    assert ref.adapter == "mesh-1"
-    assert ref.native_channel_id == "0"
-    assert ref.native_message_id == "987654321"
-    assert ref.confirmation_level == "local_transport"
-    assert ref.metadata["meshtastic"]["packet_id"] == 987654321
-    assert ref.metadata["meshtastic"]["channel"] == 0
-    assert ref.metadata["meshtastic"]["text"] == "hello mesh"
+    feedback = recorded[0]
+    assert feedback.attempt_provenance.event_id == event_id
+    assert feedback.attempt_provenance.target_adapter == "mesh-1"
+    handoff = feedback.handoff
+    assert handoff.native_channel_id == "0"
+    assert handoff.native_message_id == "987654321"
+    assert handoff.confirmation_level == "local_transport"
+    assert handoff.metadata["meshtastic"]["packet_id"] == 987654321
+    assert handoff.metadata["meshtastic"]["channel"] == 0
+    assert handoff.metadata["meshtastic"]["text"] == "hello mesh"
 
 
 async def test_missing_callback_is_ignored() -> None:
@@ -92,21 +92,21 @@ async def test_missing_callback_is_ignored() -> None:
         "channel_index": 0,
         "event_id": "$evt-no-cb",
     }
-    delivery = AdapterDeliveryResult(
+    delivery = AdapterHandoffResult(
         native_message_id="111",
         native_channel_id="0",
         metadata=MappingProxyType({}),
     )
-    result = QueueDeliveryResult(item=item, delivery_result=delivery)
+    result = QueueDeliveryResult(item=item, handoff=delivery)
 
-    await adapter._record_delayed_outbound_ref(result, "$evt-no-cb", delivery)
+    await adapter._report_deferred_completion(result)
 
 
 async def test_outboxless_delivery_does_not_emit_native_ref_callback() -> None:
     adapter = MeshtasticAdapter(make_meshtastic_config())
-    recorded: list[OutboundNativeRefRecord] = []
+    recorded: list[DeferredHandoffCompleted] = []
 
-    async def on_outbound_ref(record: OutboundNativeRefRecord) -> None:
+    async def on_outbound_ref(record: DeferredHandoffCompleted) -> None:
         recorded.append(record)
 
     adapter.ctx = _context(on_outbound_ref)
@@ -115,16 +115,14 @@ async def test_outboxless_delivery_does_not_emit_native_ref_callback() -> None:
         "channel_index": 0,
         "event_id": "$evt-direct",
     }
-    delivery = AdapterDeliveryResult(
+    delivery = AdapterHandoffResult(
         native_message_id="222",
         native_channel_id="0",
         metadata=MappingProxyType({}),
     )
 
-    await adapter._record_delayed_outbound_ref(
-        QueueDeliveryResult(item=item, delivery_result=delivery),
-        "$evt-direct",
-        delivery,
+    await adapter._report_deferred_completion(
+        QueueDeliveryResult(item=item, handoff=delivery)
     )
 
     assert recorded == []
@@ -132,9 +130,9 @@ async def test_outboxless_delivery_does_not_emit_native_ref_callback() -> None:
 
 async def test_payload_fields_stay_in_meshtastic_metadata_namespace() -> None:
     adapter = MeshtasticAdapter(make_meshtastic_config())
-    recorded: list[OutboundNativeRefRecord] = []
+    recorded: list[DeferredHandoffCompleted] = []
 
-    async def on_outbound_ref(record: OutboundNativeRefRecord) -> None:
+    async def on_outbound_ref(record: DeferredHandoffCompleted) -> None:
         recorded.append(record)
 
     adapter.ctx = _context(on_outbound_ref)
@@ -157,19 +155,19 @@ async def test_payload_fields_stay_in_meshtastic_metadata_namespace() -> None:
             target_channel="2",
         ),
     }
-    delivery = AdapterDeliveryResult(
+    delivery = AdapterHandoffResult(
         native_message_id="555",
         native_channel_id="2",
         metadata=MappingProxyType(
             {"meshtastic": {"packet_id": 555, "channel": 2, "reply_id": 42}}
         ),
     )
-    result = QueueDeliveryResult(item=item, delivery_result=delivery)
+    result = QueueDeliveryResult(item=item, handoff=delivery)
 
-    await adapter._record_delayed_outbound_ref(result, "$evt-full-meta", delivery)
+    await adapter._report_deferred_completion(result)
 
     assert len(recorded) == 1
-    mesh_metadata = recorded[0].metadata["meshtastic"]
+    mesh_metadata = recorded[0].handoff.metadata["meshtastic"]
     assert mesh_metadata == {
         "schema_version": 1,
         "packet_id": 555,
@@ -185,4 +183,4 @@ async def test_payload_fields_stay_in_meshtastic_metadata_namespace() -> None:
         "text",
         "meshnet_name",
         "channel_name",
-    }.intersection(recorded[0].metadata)
+    }.intersection(recorded[0].handoff.metadata)

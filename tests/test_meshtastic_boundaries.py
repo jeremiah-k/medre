@@ -33,6 +33,7 @@ from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
 from tests.helpers.async_utils import wait_until
+from tests.helpers.delivery_callbacks import with_attempt_provenance
 
 
 def _read_module_source(module) -> str:
@@ -398,7 +399,7 @@ class TestMeshtasticOutboundNativeRefs:
     """Outbound delivery uses adapter-provided IDs, not fabricated ones."""
 
     async def test_fake_adapter_returns_delivery_result_with_native_id(self) -> None:
-        """Fake adapter returns AdapterDeliveryResult with deterministic native_message_id."""
+        """Fake adapter returns AdapterHandoffResult with deterministic native_message_id."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = FakeMeshtasticAdapter(config)
         result = RenderingResult(
@@ -412,22 +413,26 @@ class TestMeshtasticOutboundNativeRefs:
         assert delivery.native_message_id is not None
         assert delivery.native_channel_id == "0"
 
-    async def test_real_adapter_returns_delivery_result_when_queue_based(self) -> None:
-        """Real MeshtasticAdapter.deliver() returns AdapterDeliveryResult with
-        delivery_note='locally enqueued' and native_message_id=None (queue-based)."""
+    async def test_real_adapter_returns_delivery_result_when_queue_based(
+        self, make_adapter_context
+    ) -> None:
+        """Real MeshtasticAdapter.deliver() returns AdapterHandoffResult with
+        note='locally enqueued' and native_message_id=None (queue-based)."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = MeshtasticAdapter(config)
-        result = RenderingResult(
-            event_id="evt-1",
-            target_adapter="mesh-1",
-            target_channel="0",
-            payload={"text": "test", "channel_index": 0},
+        adapter.ctx = make_adapter_context("mesh-1")
+        result = with_attempt_provenance(
+            RenderingResult(
+                event_id="evt-1",
+                target_adapter="mesh-1",
+                target_channel="0",
+                payload={"text": "test", "channel_index": 0},
+            )
         )
         delivery = await adapter.deliver(result)
-        # Queue-based adapter: returns result with no native_message_id
-        assert delivery is not None
+        # Queue-based adapter: returns result with no native_message_id.
         assert delivery.native_message_id is None
-        assert delivery.delivery_note == "locally enqueued"
+        assert delivery.note == "locally enqueued"
 
 
 # ===================================================================
@@ -519,22 +524,25 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         assert adapter._session is not None and adapter._session.client is None
         await adapter.stop()
 
-    async def test_real_adapter_deliver_does_not_send(self) -> None:
-        """Real adapter deliver() only enqueues — returns delivery_note, no native ID."""
+    async def test_real_adapter_deliver_does_not_send(
+        self, make_adapter_context
+    ) -> None:
+        """Real adapter deliver() only enqueues — returns note, no native ID."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         adapter = MeshtasticAdapter(config)
-        result = RenderingResult(
-            event_id="evt-1",
-            target_adapter="mesh-1",
-            target_channel="0",
-            payload={"text": "test", "channel_index": 0},
+        adapter.ctx = make_adapter_context("mesh-1")
+        result = with_attempt_provenance(
+            RenderingResult(
+                event_id="evt-1",
+                target_adapter="mesh-1",
+                target_channel="0",
+                payload={"text": "test", "channel_index": 0},
+            )
         )
         delivery = await adapter.deliver(result)
-        # Queue-based: returns result with no native_message_id
-        assert delivery is not None
+        # Queue-based: returns result with no native_message_id.
         assert delivery.native_message_id is None
-        assert delivery.delivery_note == "locally enqueued"
-        # But the payload is in the queue
+        assert delivery.note == "locally enqueued"
         assert adapter.queue.pending_count == 1
 
     async def test_queue_owns_pacing_not_pipeline(self) -> None:
@@ -660,12 +668,15 @@ class TestMeshtasticErrorClassification:
     AdapterSendError/AdapterPermanentError."""
 
     @pytest.mark.asyncio
-    async def test_permanent_session_error_maps_to_permanent(self) -> None:
+    async def test_permanent_session_error_maps_to_permanent(
+        self, make_adapter_context
+    ) -> None:
         """MeshtasticSendError(transient=False) maps to AdapterPermanentError."""
         from unittest.mock import AsyncMock, MagicMock
 
         config = MeshtasticConfig(adapter_id="mesh-ec")
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context("mesh-ec")
 
         queue = MagicMock()
         queue.enqueue = AsyncMock(
@@ -675,22 +686,27 @@ class TestMeshtasticErrorClassification:
         )
         adapter._queue = queue
 
-        result = RenderingResult(
-            event_id="evt-1",
-            target_adapter="mesh-ec",
-            target_channel="0",
-            payload={"text": "hello", "channel_index": 0},
+        result = with_attempt_provenance(
+            RenderingResult(
+                event_id="evt-1",
+                target_adapter="mesh-ec",
+                target_channel="0",
+                payload={"text": "hello", "channel_index": 0},
+            )
         )
         with pytest.raises(AdapterPermanentError, match="Permanent send failure"):
             await adapter.deliver(result)
 
     @pytest.mark.asyncio
-    async def test_transient_session_error_maps_to_send_error(self) -> None:
+    async def test_transient_session_error_maps_to_send_error(
+        self, make_adapter_context
+    ) -> None:
         """MeshtasticSendError(transient=True) maps to AdapterSendError."""
         from unittest.mock import AsyncMock, MagicMock
 
         config = MeshtasticConfig(adapter_id="mesh-ec")
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context("mesh-ec")
 
         queue = MagicMock()
         queue.enqueue = AsyncMock(
@@ -700,33 +716,38 @@ class TestMeshtasticErrorClassification:
         )
         adapter._queue = queue
 
-        result = RenderingResult(
-            event_id="evt-2",
-            target_adapter="mesh-ec",
-            target_channel="0",
-            payload={"text": "hello", "channel_index": 0},
+        result = with_attempt_provenance(
+            RenderingResult(
+                event_id="evt-2",
+                target_adapter="mesh-ec",
+                target_channel="0",
+                payload={"text": "hello", "channel_index": 0},
+            )
         )
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
         assert exc_info.value.transient is True
 
     @pytest.mark.asyncio
-    async def test_oserror_maps_to_transient(self) -> None:
+    async def test_oserror_maps_to_transient(self, make_adapter_context) -> None:
         """OSError from queue maps to AdapterSendError(transient=True)."""
         from unittest.mock import AsyncMock, MagicMock
 
         config = MeshtasticConfig(adapter_id="mesh-ec")
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context("mesh-ec")
 
         queue = MagicMock()
         queue.enqueue = AsyncMock(side_effect=OSError("serial error"))
         adapter._queue = queue
 
-        result = RenderingResult(
-            event_id="evt-3",
-            target_adapter="mesh-ec",
-            target_channel="0",
-            payload={"text": "hello", "channel_index": 0},
+        result = with_attempt_provenance(
+            RenderingResult(
+                event_id="evt-3",
+                target_adapter="mesh-ec",
+                target_channel="0",
+                payload={"text": "hello", "channel_index": 0},
+            )
         )
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)

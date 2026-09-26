@@ -105,10 +105,10 @@ def _build_runner(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters,
-        event_bus=EventBus(),
         rendering_pipeline=rp,
         runtime_accounting=accounting,
         route_stats=route_stats,
+        event_bus=EventBus(),
     )
     return PipelineRunner(config)
 
@@ -125,7 +125,6 @@ def _make_src_ctx(
 
     return AdapterContext(
         adapter_id="fake_src",
-        event_bus=None,
         publish_inbound=_publish,
         logger=_LOG,
         clock=lambda: datetime.now(timezone.utc),

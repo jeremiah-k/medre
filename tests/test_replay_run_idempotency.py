@@ -30,7 +30,7 @@ from medre.core.routing import Route, RouteSource, RouteTarget
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
-from tests.helpers.delivery_callbacks import make_terminal_record
+from tests.helpers.delivery_callbacks import make_deferred_failure
 from tests.helpers.pipeline import make_event
 from tests.helpers.storage_outbox import admit_event
 
@@ -303,15 +303,15 @@ async def test_replay_terminal_callback_before_queued_receipt_preserves_origin(
         replay_run_id="run-terminal-race",
     )
 
-    await manager.record_terminal(
-        make_terminal_record(
+    await manager.record_deferred_failure(
+        make_deferred_failure(
             event_id=event.event_id,
             adapter="dest",
             outcome="permanent_failed",
             outbox_id=claim.outbox_id,
             delivery_plan_id=plan.plan_id,
             attempt_number=claim.attempt_number,
-            native_channel_id="room",
+            provenance_channel="room",
             error="adapter rejected queued send",
             source="replay",
             replay_run_id="run-terminal-race",
@@ -365,15 +365,15 @@ async def test_unnamed_replay_terminal_callback_before_queued_receipt_preserves_
     assert row.dispatch_source == "replay"
     assert row.replay_run_id is None
 
-    await manager.record_terminal(
-        make_terminal_record(
+    await manager.record_deferred_failure(
+        make_deferred_failure(
             event_id=event.event_id,
             adapter="dest",
             outcome="permanent_failed",
             outbox_id=claim.outbox_id,
             delivery_plan_id=plan.plan_id,
             attempt_number=claim.attempt_number,
-            native_channel_id="room",
+            provenance_channel="room",
             error="adapter rejected unnamed replay send",
             source="replay",
         )
@@ -387,7 +387,7 @@ async def test_unnamed_replay_terminal_callback_before_queued_receipt_preserves_
     assert all(receipt.replay_run_id is None for receipt in receipts)
 
 
-async def test_finalized_unnamed_replay_without_queued_receipt_preserves_source(
+async def test_finalized_unnamed_replay_without_queued_receipt_is_rejected(
     temp_storage: SQLiteStorage,
 ) -> None:
     event = make_event(event_id="evt-replay-missing-queued", source_adapter="src")
@@ -425,15 +425,15 @@ async def test_finalized_unnamed_replay_without_queued_receipt_preserves_source(
     assert queued_row.dispatch_source == "replay"
     assert queued_row.replay_run_id is None
 
-    await manager.record_terminal(
-        make_terminal_record(
+    await manager.record_deferred_failure(
+        make_deferred_failure(
             event_id=event.event_id,
             adapter="dest",
             outcome="permanent_failed",
             outbox_id=claim.outbox_id,
             delivery_plan_id=plan.plan_id,
             attempt_number=claim.attempt_number,
-            native_channel_id="room",
+            provenance_channel="room",
             error="late queue failure",
             source="replay",
         )
@@ -441,11 +441,9 @@ async def test_finalized_unnamed_replay_without_queued_receipt_preserves_source(
 
     row = await temp_storage.get_outbox_item(claim.outbox_id)
     assert row is not None
-    assert row.status == "dead_lettered"
+    assert row.status == "queued"
     receipts = await temp_storage.list_receipts_for_event(event.event_id)
-    assert [receipt.status for receipt in receipts] == ["failed", "dead_lettered"]
-    assert all(receipt.source == "replay" for receipt in receipts)
-    assert all(receipt.replay_run_id is None for receipt in receipts)
+    assert receipts == []
 
 
 async def test_retry_preserves_originating_replay_run_provenance(

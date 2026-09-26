@@ -81,7 +81,7 @@ config = MeshtasticConfig(
 
 - No `mtjk` package required. All adapter submodules import successfully without it.
 - `start()` sets `_client = None`. No network or serial activity.
-- `deliver()` enqueues to the internal queue but `send_one()` returns `None` (no real send).
+- `deliver()` reports deferred local queue admission. With no connected session, `send_one()` returns `None` and no transport-completion feedback is emitted.
 - `simulate_inbound()` is available for injecting test packets.
 - `health_check()` returns `"healthy"` after start.
 

@@ -29,7 +29,6 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timezone
-from types import MappingProxyType
 from typing import Any
 
 from medre.adapters.meshtastic.codec import MeshtasticCodec
@@ -41,7 +40,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
@@ -153,11 +152,9 @@ _FAKE_MESHTASTIC_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=True,
-    delivery_receipts=False,
     store_and_forward=False,
     direct_messages=False,
     channels=True,
-    async_delivery=True,
     mesh_routing=True,
     max_text_bytes=MeshtasticConfig.max_text_bytes,
     max_text_chars=None,
@@ -235,11 +232,9 @@ class FakeMeshtasticAdapter(AdapterContract):
             deletes="unsupported",
             attachments=False,
             metadata_fields=True,
-            delivery_receipts=False,
             store_and_forward=False,
             direct_messages=False,
             channels=True,
-            async_delivery=True,
             mesh_routing=True,
             max_text_bytes=config.max_text_bytes,
             max_text_chars=None,
@@ -309,7 +304,7 @@ class FakeMeshtasticAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Accept an outbound rendered payload for delivery.
 
         This adapter consumes :class:`RenderingResult` only.  Passing a
@@ -326,7 +321,7 @@ class FakeMeshtasticAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult
+        AdapterHandoffResult
             Contains the deterministic native_message_id and
             native_channel_id from the fake client.
 
@@ -392,18 +387,16 @@ class FakeMeshtasticAdapter(AdapterContract):
             meshtastic_meta["emoji"] = emoji_val
         meshtastic_meta["packet_id"] = packet_id
         meshtastic_meta["channel"] = channel_index
-        # Inner transport-namespaced dict stays a plain dict; the outer
-        # MappingProxyType is the contract-level immutability boundary.
-        # The pipeline's _normalize_mapping handles any nested
-        # MappingProxyType at the persistence boundary, so nested
-        # MappingProxyType is safe — but keeping the inner dict plain
-        # avoids unnecessary wrapping here.
+        # Adapters report ordinary JSON-safe mappings. AdapterHandoffResult
+        # validates and deep-freezes metadata at the contract boundary, so
+        # transport implementations do not need their own wrapper policy.
         result_metadata["meshtastic"] = meshtastic_meta
 
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=str(packet_id),
             native_channel_id=str(channel_index),
-            metadata=MappingProxyType(result_metadata),
+            confirmation_level="local_transport",
+            metadata=result_metadata,
         )
 
     # -- Inbound simulation -------------------------------------------------

@@ -229,18 +229,19 @@ class StorageBackend(Protocol):
         """Append a delivery receipt record.  MUST NOT update existing rows."""
         ...
 
-    async def finalize_queued_delivery(
-        self, command: QueuedDeliveryFinalization,
+    async def finalize_deferred_handoff(
+        self, command: DeferredHandoffFinalization,
     ) -> bool:
-        """Atomically finalize one queue-backed delivery attempt.
+        """Atomically finalize one deferred delivery attempt.
 
-        The command carries the outbound native ref and immutable sent receipt;
-        identity, outbox_id, and attempt generation are derived from the
-        receipt rather than repeated as mutable scalars. The native ref MUST
-        agree with that receipt on event, adapter, normalized channel, and
-        adapter message ID. The exact full-identity outbox transition to sent
-        MUST commit in one transaction. If the guard no longer matches, return
-        False and commit none of those writes.
+        The command carries the optional outbound native ref and immutable sent
+        receipt; identity, outbox_id, and attempt generation are derived from
+        the receipt rather than repeated as mutable scalars. When present, the
+        native ref MUST agree with that receipt on event, adapter, and adapter
+        message ID; its native channel is transport evidence and need not equal
+        route-level target_channel. The exact full-identity outbox transition to
+        sent MUST commit in one transaction. If the guard no longer matches,
+        return False and commit none of those writes.
         """
         ...
 

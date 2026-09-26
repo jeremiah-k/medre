@@ -38,10 +38,10 @@ Your adapter class satisfies the `Adapter` protocol with four methods:
 `start`, `stop`, `deliver`, and `health_check`.
 
 ```python
-from medre.core.contracts.adapter import (
+from medre.core.contracts import (
     AdapterContract,
     AdapterContext,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -73,11 +73,12 @@ class MyAdapter(AdapterContract):
         """Gracefully shut down."""
         self._started = False
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Deliver a pre-rendered payload to the transport."""
         # The result is already rendered. Just transport it.
         await self._send_to_transport(result.payload)
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
+            disposition="transport_handoff",
             native_message_id="<transport-assigned-id>",
             native_channel_id=result.target_channel,
         )
@@ -98,11 +99,41 @@ class MyAdapter(AdapterContract):
 
 - `deliver()` receives a `RenderingResult`, not a raw `CanonicalEvent`. The
   pipeline handles rendering. The adapter just transports the payload.
-- Return an `AdapterDeliveryResult` with the transport-assigned native message
-  ID. This is stored in `native_message_refs` for cross-adapter correlation.
+- Return an `AdapterHandoffResult` on every successful call. Use
+  `disposition="transport_handoff"` when the external transport boundary was
+  reached during the call, or `disposition="deferred"` when local work was
+  accepted and completion will be reported through `DeliveryFeedback`. A
+  deferred result may report only `confirmation_level="unknown"` or
+  `"local_queue"`; stronger confirmation means the transport boundary was
+  already reached and therefore requires `transport_handoff`.
+- Native IDs are transport facts, not required success markers. When a real
+  platform ID is known at hand-off it is stored in `native_message_refs`. Use
+  `None` for absence; empty or whitespace-only native identifiers are invalid.
+- Keep opaque hand-off metadata namespaced. Do not use the reserved top-level
+  keys closed hand-off, feedback, or attempt-provenance field names (for example
+  `native_channel_id`, `state`, or `outbox_id`).
 - If the send fails, raise an exception. The pipeline handles retry logic and
   receipt recording.
 - Do not re-render, reformat, or inspect the event kind inside `deliver()`.
+
+### Deferred delivery feedback
+
+Adapters that return `disposition="deferred"` **must** carry the
+`RenderingResult.attempt_provenance` alongside their queued/session work. Later
+facts are reported through the single optional
+`ctx.report_delivery_feedback(...)` sink using one of:
+
+- `DeferredHandoffCompleted` — the deferred attempt reached the transport boundary;
+- `DeferredHandoffFailed` — it terminated before that boundary;
+- `PostHandoffObservation` — append-only evidence after a successful hand-off.
+
+Do not reconstruct attempt identity from timing, mutable adapter state, or
+receipts. A deferred adapter **must reject before local admission** when
+`RenderingResult.attempt_provenance` is absent or when its `AdapterContext`
+does not provide `report_delivery_feedback`. Outbox-less direct delivery is
+valid only for an immediate `transport_handoff`; accepting deferred work
+without durable identity or a feedback path would create an attempt that core
+can never finalize safely.
 
 ### Key rules for `start()`
 
@@ -116,9 +147,9 @@ class MyAdapter(AdapterContract):
 
 ## Step 2: Implement the Codec
 
-The codec handles conversion between native protocol data and canonical events.
-It is an adapter-private concern, not part of the public protocol. You can
-implement it as a separate class or inline the logic.
+The codec handles inbound conversion from native protocol data to canonical
+events. It is an adapter-private concern exposed through the decode-only
+`AdapterCodec` contract. Outbound conversion belongs exclusively to renderers.
 
 ### Inbound: `decode`
 
@@ -130,8 +161,8 @@ async def _listen(self):
     """Internal listener loop for TRANSPORT adapters."""
     async for raw_data in self._transport.stream():
         native = NativeEvent(raw_data=raw_data, metadata={...})
-        event = await self.codec.decode(native)
-        await self.ctx.publish_inbound(event)
+        event = self.codec.decode(native)
+        await self.publish_inbound(event)
 ```
 
 The `decode` method sets at minimum:
@@ -145,37 +176,12 @@ The `decode` method sets at minimum:
 - `source_channel_id`: the native channel/room/topic
 - `payload`: kind-specific dict (e.g., `{"body": text}`)
 
-### Outbound: `encode`
+### Outbound rendering
 
-The `encode` method converts a canonical event into a native protocol payload
-for delivery. This is called inside `deliver()` or by the renderer.
-
-```python
-class MyCodec:
-    async def decode(self, native_event: NativeEvent) -> CanonicalEvent:
-        raw = native_event.raw_data
-        return CanonicalEvent(
-            event_id=str(uuid.uuid4()),
-            event_kind="message.text",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter=self.adapter_id,
-            source_transport_id=raw["sender_id"],
-            source_channel_id=str(raw.get("channel")),
-            parent_event_id=None,
-            lineage=(),
-            relations=(),
-            payload={"body": raw["text"]},
-            metadata=EventMetadata(),
-        )
-
-    async def encode(self, event, plan) -> NativeOutbound:
-        return NativeOutbound(
-            payload=event.payload["body"].encode("utf-8"),
-            metadata={"destination": plan.target.channel},
-            native_message_id=None,
-        )
-```
+There is no codec `encode()` contract. The rendering pipeline converts a
+canonical event into `RenderingResult` before `deliver()` is called. Keeping
+outbound presentation in renderers prevents transport sessions from growing a
+second formatting path.
 
 ### Codec responsibilities
 
@@ -210,11 +216,9 @@ _capabilities = AdapterCapabilities(
     deletes="unsupported",           # No delete support
     attachments=False,               # No file/image support
     metadata_fields=False,           # No arbitrary key-value metadata
-    delivery_receipts=False,         # No per-message confirmation
     store_and_forward=False,         # No message storage
     direct_messages=True,            # Point-to-point delivery
     channels=True,                   # Channel-based addressing
-    async_delivery=True,             # Async delivery state model
     max_text_chars=200,              # Character limit
 )
 ```
@@ -411,7 +415,7 @@ reference implementation. They demonstrate the contract:
 
 - `start()` stores the context and marks started
 - `stop()` marks stopped
-- `deliver()` receives a `RenderingResult`, returns an `AdapterDeliveryResult`
+- `deliver()` receives a `RenderingResult`, returns an `AdapterHandoffResult`
 - `simulate_inbound()` publishes events into the pipeline
 - `health_check()` returns an `AdapterInfo` snapshot
 
@@ -432,7 +436,7 @@ Test that your codec correctly maps native fields to canonical event fields:
 ```python
 async def test_codec_maps_sender_to_source_transport_id():
     native = NativeEvent(raw_data={"sender_id": "node42", "text": "hello"})
-    event = await codec.decode(native)
+    event = codec.decode(native)
     assert event.source_transport_id == "node42"
 ```
 
@@ -463,13 +467,16 @@ objects with `relation_type="reply"`.
 Each adapter receives an `AdapterContext` on startup. This is the adapter's
 only window into the runtime.
 
-| Field             | Purpose                                                                 |
-| ----------------- | ----------------------------------------------------------------------- |
-| `adapter_id`      | Unique identifier for this adapter instance                             |
-| `publish_inbound` | The ingress point. Call with a `CanonicalEvent` to inject into pipeline |
-| `logger`          | A pre-configured `logging.Logger` scoped to the adapter                 |
-| `clock`           | Callable returning current UTC `datetime` (for deterministic testing)   |
-| `shutdown_event`  | An `asyncio.Event` set when graceful shutdown is requested              |
+| Field                                   | Purpose                                                                          |
+| --------------------------------------- | -------------------------------------------------------------------------------- |
+| `adapter_id`                            | Unique identifier for this adapter instance                                      |
+| `publish_inbound`                       | Basic ingress point for a `CanonicalEvent`                                       |
+| `logger`                                | Pre-configured `logging.Logger` scoped to the adapter                            |
+| `clock`                                 | Callable returning current UTC `datetime` for deterministic testing              |
+| `shutdown_event`                        | `asyncio.Event` set when graceful shutdown is requested                          |
+| `admit_inbound`                         | Optional durable ingress-admission boundary for transports with cursor ownership |
+| `load_checkpoint` / `commit_checkpoint` | Optional application-owned external cursor persistence                           |
+| `report_delivery_feedback`              | Optional single sink for the closed `DeliveryFeedback` union                     |
 
 ### What adapters cannot do
 

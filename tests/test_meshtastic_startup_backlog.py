@@ -44,7 +44,6 @@ def _make_context(adapter_id: str = "mesh-1") -> AdapterContext:
     """Build a minimal AdapterContext for testing."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),

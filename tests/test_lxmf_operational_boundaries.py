@@ -97,7 +97,6 @@ def _make_ctx(adapter_id: str = "test_op") -> Any:
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=lambda _: None,
         logger=__import__("logging").getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),

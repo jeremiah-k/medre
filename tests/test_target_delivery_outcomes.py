@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from medre.core.contracts.adapter import (
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
 )
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.target_delivery import (
@@ -91,13 +91,13 @@ class _FakeAdapter:
 
     def __init__(
         self,
-        result: AdapterDeliveryResult | None = None,
+        result: AdapterHandoffResult | None = None,
         error: Exception | None = None,
     ) -> None:
         self._result = result
         self._error = error
 
-    async def deliver(self, rendering_result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, rendering_result: Any) -> AdapterHandoffResult | None:
         if self._error is not None:
             raise self._error
         return self._result
@@ -198,7 +198,7 @@ class TestSuccessfulSentDelivery:
     async def test_sent_receipt_recorded(self) -> None:
         """Adapter returns result with native_message_id → sent receipt."""
         adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(
+            result=AdapterHandoffResult(
                 native_message_id="$msg-123",
                 native_channel_id="!room:server",
             )
@@ -218,7 +218,7 @@ class TestSuccessfulSentDelivery:
     async def test_native_ref_stored_on_sent(self) -> None:
         """Successful sent delivery persists a NativeMessageRef."""
         adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(
+            result=AdapterHandoffResult(
                 native_message_id="$msg-456",
                 native_channel_id="!room:server",
             )
@@ -240,7 +240,7 @@ class TestSuccessfulSentDelivery:
 async def test_native_ref_callback_runs_after_persistence() -> None:
     """Derived repair is notified only after the outbound native ref exists."""
     adapter = _FakeAdapter(
-        result=AdapterDeliveryResult(
+        result=AdapterHandoffResult(
             native_message_id="$msg-callback",
             native_channel_id="!room:server",
         )
@@ -268,7 +268,7 @@ async def test_native_ref_callback_failure_does_not_reclassify_accepted_send(
 ) -> None:
     """Projection repair failure cannot turn an accepted transport send into retry."""
     adapter = _FakeAdapter(
-        result=AdapterDeliveryResult(
+        result=AdapterHandoffResult(
             native_message_id="$msg-callback-fail",
             native_channel_id="!room:server",
         )
@@ -306,21 +306,27 @@ async def test_native_ref_callback_failure_does_not_reclassify_accepted_send(
 
 
 class TestQueuedDelivery:
-    """Verify queued delivery when adapter returns delivery_status='enqueued'."""
+    """Verify queued delivery when adapter returns disposition='deferred'."""
 
     async def test_queued_receipt_status(self) -> None:
         """Adapter returning enqueued → receipt status='queued'."""
         adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(
+            result=AdapterHandoffResult(
                 native_message_id=None,
-                delivery_status="enqueued",
+                disposition="deferred",
             )
         )
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = await svc.deliver_to_target(
+            event,
+            route,
+            plan,
+            outbox_id="obox-deferred",
+            reserved_attempt_number=1,
+        )
 
         assert receipt.status == "queued"
         # No native ref for queued deliveries (no native_message_id).
@@ -329,15 +335,21 @@ class TestQueuedDelivery:
     async def test_queued_adapter_message_id_none(self) -> None:
         """Queued receipt has no adapter_message_id when native ID unavailable."""
         adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(
-                delivery_status="enqueued",
+            result=AdapterHandoffResult(
+                disposition="deferred",
             )
         )
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = await svc.deliver_to_target(
+            event,
+            route,
+            plan,
+            outbox_id="obox-deferred",
+            reserved_attempt_number=1,
+        )
 
         assert receipt.status == "queued"
         assert receipt.adapter_message_id is None
@@ -353,7 +365,7 @@ class TestReceiptStatusPreservation:
 
     async def test_sent_status_preserved(self) -> None:
         """Successful delivery → status='sent'."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -378,12 +390,18 @@ class TestReceiptStatusPreservation:
 
     async def test_queued_status_preserved(self) -> None:
         """Enqueued delivery → status='queued'."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(delivery_status="enqueued"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(disposition="deferred"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
 
-        receipt = await svc.deliver_to_target(event, route, plan)
+        receipt = await svc.deliver_to_target(
+            event,
+            route,
+            plan,
+            outbox_id="obox-deferred",
+            reserved_attempt_number=1,
+        )
 
         assert receipt.status == "queued"
 
@@ -398,7 +416,7 @@ class TestDeterministicReceiptConstruction:
 
     async def test_first_attempt_has_attempt_number_one(self) -> None:
         """First delivery attempt has attempt_number=1."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -410,7 +428,7 @@ class TestDeterministicReceiptConstruction:
 
     async def test_retry_attempt_has_incremented_number(self) -> None:
         """Retry attempt carries previous receipt's lineage."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -427,7 +445,7 @@ class TestDeterministicReceiptConstruction:
 
     async def test_receipt_has_deterministic_ids(self) -> None:
         """Receipt carries receipt_id starting with 'rcpt-'."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -440,7 +458,7 @@ class TestDeterministicReceiptConstruction:
 
     async def test_source_and_replay_run_id_propagated(self) -> None:
         """source and replay_run_id are passed through to receipt."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -464,7 +482,7 @@ class TestAdapterMessageIdPropagation:
     async def test_native_message_id_propagated(self) -> None:
         """Adapter's native_message_id becomes receipt.adapter_message_id."""
         adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(
+            result=AdapterHandoffResult(
                 native_message_id="$event-abc",
                 native_channel_id="!room:server",
             )
@@ -479,7 +497,7 @@ class TestAdapterMessageIdPropagation:
 
     async def test_no_native_message_id_when_none(self) -> None:
         """When adapter returns None native_message_id, receipt field is None."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult())
+        adapter = _FakeAdapter(result=AdapterHandoffResult())
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -514,7 +532,7 @@ class TestPersistenceTimestamps:
 
     async def test_receipt_created_at_is_recent(self) -> None:
         """Receipt created_at is within a small window of 'now'."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -553,7 +571,7 @@ class TestPersistenceTimestamps:
     async def test_native_ref_created_at_uses_persistence_time(self) -> None:
         """NativeMessageRef created_at uses persistence time."""
         adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(
+            result=AdapterHandoffResult(
                 native_message_id="$msg",
                 native_channel_id="!room:server",
             )
@@ -570,22 +588,12 @@ class TestPersistenceTimestamps:
         assert before <= nref.created_at <= after
 
 
-async def test_non_string_confirmation_level_degrades_to_unknown() -> None:
-    adapter = _FakeAdapter(
-        result=AdapterDeliveryResult(
+def test_non_string_confirmation_level_rejected_at_contract_boundary() -> None:
+    with pytest.raises(ValueError, match="confirmation_level"):
+        AdapterHandoffResult(
             native_message_id="$id",
-            # Deliberately outside the Literal to exercise defensive normalization.
             confirmation_level=[],  # type: ignore[arg-type]
         )
-    )
-    service, _storage = _make_service(adapters={"test_adapter": adapter})
-    event = _make_event()
-    route, plan = _make_route_and_plan()
-
-    receipt = await service.deliver_to_target(event, route, plan)
-
-    assert receipt.status == "sent"
-    assert receipt.confirmation_level == "unknown"
 
 
 class TestDeliverExecutionNativeRefRepair:
@@ -596,7 +604,7 @@ class TestDeliverExecutionNativeRefRepair:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(
+            result=AdapterHandoffResult(
                 native_message_id="$msg-exec-callback-fail",
                 native_channel_id="!room:server",
             )

@@ -120,10 +120,10 @@ class TestRetryCapacityRejectionBackoff:
             fallback_resolver=FallbackResolver(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters={},
-            event_bus=EventBus(),
             rendering_pipeline=render_pipe,
             diagnostician=Diagnostician(),
             route_stats=RouteStats(),
+            event_bus=EventBus(),
         )
         runner = PipelineRunner(config)
         await runner.start()

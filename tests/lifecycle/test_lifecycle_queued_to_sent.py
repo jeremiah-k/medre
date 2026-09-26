@@ -1,6 +1,6 @@
 """Tests for supplemental queued→sent receipt generation.
 
-Exercises ``finalize_queued_delivery`` including happy paths,
+Exercises ``finalize_deferred_handoff`` including happy paths,
 outbox transitions, error handling, outbox_id-based correlation,
 retry lineage, and delivery state guards.
 
@@ -15,9 +15,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
@@ -66,7 +68,7 @@ class TestAppendQueuedToSentReceipt:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-supplemental-sent")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh-1",
@@ -83,9 +85,9 @@ class TestAppendQueuedToSentReceipt:
             outbox_id="obox-supplemental-sent",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -96,6 +98,59 @@ class TestAppendQueuedToSentReceipt:
         assert sent[0].parent_receipt_id == "rcpt-queued"
         assert sent[0].adapter_message_id == "packet-42"
         assert sent[0].delivery_plan_id == "plan-q"
+
+    async def test_completion_before_queued_receipt_finalizes_from_provenance(
+        self,
+        temp_storage: StorageBackend,
+    ) -> None:
+        """A fast adapter callback may win the queued-receipt persistence race."""
+        lifecycle = _make_lifecycle()
+        now = datetime.now(tz=timezone.utc)
+        outbox_item = DeliveryOutboxItem(
+            outbox_id="obox-early-completion",
+            event_id="evt-001",
+            route_id="route-early",
+            delivery_plan_id="plan-early",
+            target_adapter="mesh-1",
+            target_channel="0",
+            status="in_progress",
+            attempt_number=1,
+        )
+        await create_outbox_item_with_parent(temp_storage, outbox_item)
+        feedback = make_deferred_completion(
+            attempt_provenance=make_attempt_provenance(
+                event_id="evt-001",
+                target_adapter="mesh-1",
+                outbox_id="obox-early-completion",
+                attempt_number=1,
+                delivery_plan_id="plan-early",
+                target_channel="0",
+            ),
+            event_id="evt-001",
+            adapter="mesh-1",
+            native_channel_id="0",
+            native_message_id="packet-early",
+        )
+
+        committed = await lifecycle.finalize_deferred_handoff(
+            temp_storage,
+            feedback=feedback,
+            now=now,
+        )
+
+        assert committed is True
+        updated = await temp_storage.get_outbox_item("obox-early-completion")
+        assert updated is not None
+        assert updated.status == "sent"
+        receipts = await temp_storage.list_receipts_for_event("evt-001")
+        sent = [receipt for receipt in receipts if receipt.status == "sent"]
+        assert len(sent) == 1
+        assert sent[0].route_id == "route-early"
+        assert sent[0].parent_receipt_id is None
+        assert sent[0].source == "live"
+        assert sent[0].adapter_message_id == "packet-early"
+        refs = await temp_storage.list_native_refs_for_event("evt-001")
+        assert any(ref.native_message_id == "packet-early" for ref in refs)
 
     async def test_default_native_channel_is_recorded_without_changing_route_identity(
         self,
@@ -125,7 +180,7 @@ class TestAppendQueuedToSentReceipt:
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-default-channel")
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh-1",
@@ -140,9 +195,9 @@ class TestAppendQueuedToSentReceipt:
             native_message_id="packet-default-channel",
         )
 
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -167,7 +222,7 @@ class TestSameChannelRetryLineageRegression:
     """Regression tests for same-channel retry lineage when
     native_channel_id is missing.
 
-    These tests verify that ``finalize_queued_delivery`` correctly
+    These tests verify that ``finalize_deferred_handoff`` correctly
     resolves unambiguous same-channel retry lineages and correctly
     rejects cross-channel ambiguity for the exact outbox_id + attempt_number path.
     """
@@ -222,7 +277,7 @@ class TestSameChannelRetryLineageRegression:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-retry-multi")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -239,9 +294,9 @@ class TestSameChannelRetryLineageRegression:
             outbox_id="obox-retry-multi",
             attempt_number=2,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -250,8 +305,9 @@ class TestSameChannelRetryLineageRegression:
         assert len(sent) == 1
         assert sent[0].parent_receipt_id == "rcpt-a2"
         assert sent[0].attempt_number == 2
-        assert await temp_storage.resolve_native_ref("m", "0", "pkt-a") == "evt-001"
-        assert await temp_storage.resolve_native_ref("m", None, "pkt-a") is None
+        # Route target channel and transport-resolved native channel are distinct.
+        assert await temp_storage.resolve_native_ref("m", "0", "pkt-a") is None
+        assert await temp_storage.resolve_native_ref("m", None, "pkt-a") == "evt-001"
 
 
 # ===================================================================
@@ -294,7 +350,7 @@ class TestSupplementalOutboxTransition:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-supplemental")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh-1",
@@ -311,9 +367,9 @@ class TestSupplementalOutboxTransition:
             outbox_id="obox-supplemental",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -337,7 +393,7 @@ class TestSupplementalOutboxTransition:
 class TestDeterministicPlanIdCorrelation:
     """Regression tests for outbox_id-based queued→sent correlation.
 
-    These tests verify that ``finalize_queued_delivery`` uses
+    These tests verify that ``finalize_deferred_handoff`` uses
     ``outbox_id`` for exact receipt selection, with ``delivery_plan_id``
     serving as a validation field.  When ``outbox_id`` is absent, the
     callback is hard-rejected and no supplemental receipt is created.
@@ -393,7 +449,7 @@ class TestDeterministicPlanIdCorrelation:
         await temp_storage.mark_outbox_queued("obox-plan-b")
 
         # Record for plan-b with delivery_plan_id set.
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh",
@@ -410,9 +466,9 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-plan-b",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -491,7 +547,7 @@ class TestDeterministicPlanIdCorrelation:
         await temp_storage.mark_outbox_queued("obox-b2")
 
         # Record for plan-a2.
-        record_a = OutboundNativeRefRecord(
+        record_a = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -508,14 +564,14 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-a2",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record_a,
+            feedback=record_a,
             now=now,
         )
 
         # Record for plan-b2.
-        record_b = OutboundNativeRefRecord(
+        record_b = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -532,9 +588,9 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-b2",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record_b,
+            feedback=record_b,
             now=now,
         )
 
@@ -599,7 +655,7 @@ class TestDeterministicPlanIdCorrelation:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-retry-latest")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -616,9 +672,9 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-retry-latest",
             attempt_number=2,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -663,7 +719,7 @@ class TestDeterministicPlanIdCorrelation:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-match")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh-1",
@@ -680,9 +736,9 @@ class TestDeterministicPlanIdCorrelation:
             outbox_id="obox-match",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -700,7 +756,7 @@ class TestDeterministicPlanIdCorrelation:
 
 
 class TestDeliveryStateTransitionGuard:
-    """Verify that finalize_queued_delivery validates the selected
+    """Verify that finalize_deferred_handoff validates the selected
     queued receipt can transition to sent via delivery_state helper."""
 
 
@@ -710,16 +766,14 @@ class TestDeliveryStateTransitionGuard:
 
 
 class TestAppendQueuedToSentEdgeCases:
-    """Edge-case rejection paths in finalize_queued_delivery."""
+    """Edge-case rejection paths in finalize_deferred_handoff."""
 
     async def test_no_queued_receipt_matched_outbox_id(
         self,
         temp_storage: StorageBackend,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Valid outbox item exists but no queued receipt with matching
-        outbox_id → early return with debug log.  Covers lines 744-755.
-        """
+        """A committed queued outbox requires matching queued attempt evidence."""
         lifecycle = _make_lifecycle()
         now = datetime.now(tz=timezone.utc)
 
@@ -750,7 +804,7 @@ class TestAppendQueuedToSentEdgeCases:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-nom")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -768,16 +822,19 @@ class TestAppendQueuedToSentEdgeCases:
             attempt_number=1,
         )
         with caplog.at_level(logging.DEBUG):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=now,
             )
 
         all_receipts = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in all_receipts if r.status == "sent"]
         assert len(sent) == 0
-        assert "No queued receipt matched outbox_id" in caplog.text
+        assert (
+            "queued outbox has no matching immutable queued attempt evidence"
+            in caplog.text
+        )
 
     async def test_attempt_number_mismatch_outbox_vs_receipt(
         self,
@@ -819,7 +876,7 @@ class TestAppendQueuedToSentEdgeCases:
         await temp_storage.mark_outbox_queued("obox-atm")
 
         # Record with attempt_number=2 matches outbox but mismatches receipt.
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="m",
@@ -837,9 +894,9 @@ class TestAppendQueuedToSentEdgeCases:
             attempt_number=2,
         )
         with caplog.at_level(logging.WARNING):
-            await lifecycle.finalize_queued_delivery(
+            await lifecycle.finalize_deferred_handoff(
                 temp_storage,
-                record=record,
+                feedback=record,
                 now=now,
             )
 
@@ -887,7 +944,7 @@ class TestAppendQueuedToSentEdgeCases:
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         await temp_storage.mark_outbox_queued("obox-vo")
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh-1",
@@ -904,9 +961,9 @@ class TestAppendQueuedToSentEdgeCases:
             outbox_id="obox-vo",
             attempt_number=1,
         )
-        await lifecycle.finalize_queued_delivery(
+        await lifecycle.finalize_deferred_handoff(
             temp_storage,
-            record=record,
+            feedback=record,
             now=now,
         )
 
@@ -926,7 +983,7 @@ class TestCallbackRequiresAttemptProvenance:
     def test_outboxless_record_shape_is_unconstructible(self) -> None:
         """The pre-envelope plan-id-only callback shape no longer builds."""
         with pytest.raises(TypeError, match="attempt_provenance"):
-            OutboundNativeRefRecord(
+            make_deferred_completion(
                 event_id="evt-001",
                 adapter="m",
                 native_channel_id="0",

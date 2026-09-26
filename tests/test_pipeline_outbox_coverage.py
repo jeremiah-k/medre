@@ -8,7 +8,7 @@ and cancelled/abandoned outbox transitions.
 from __future__ import annotations
 
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.delivery_callbacks import make_terminal_record
+from tests.helpers.delivery_callbacks import make_deferred_failure
 from tests.helpers.pipeline import make_event
 from tests.helpers.storage_outbox import (
     admit_event,
@@ -317,20 +317,22 @@ class TestUnknownTerminalOutcome:
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
 
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-unknown-001",
             adapter="mesh-1",
             outcome="exhausted",  # valid but we'll use a different one below
             outbox_id="obox-unknown-001",
             delivery_plan_id="plan-1",
             attempt_number=1,
-            native_channel_id="ch-1",
+            provenance_channel="ch-1",
         )
-        # Override outcome to an unknown value via object.__setattr__
-        # since the dataclass is frozen.
-        object.__setattr__(record, "outcome", "totally_unknown_outcome")
+        # Corrupt the frozen msgspec struct with force_setattr; the unknown
+        # outcome must be ignored without durable state changing.
+        from msgspec.structs import force_setattr
 
-        await manager.record_terminal(record)
+        force_setattr(record, "outcome", "totally_unknown_outcome")
+
+        await manager.record_deferred_failure(record)
 
         # No receipt should have been created.
         receipts = await temp_storage.list_receipts_for_event("evt-unknown-001")
@@ -374,16 +376,16 @@ class TestAttemptNumberAuthority:
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
 
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-attempt-existing",
             adapter="mesh-1",
             outcome="exhausted",
             outbox_id="obox-attempt-existing",
             delivery_plan_id="plan-1",
             attempt_number=7,
-            native_channel_id="ch-1",
+            provenance_channel="ch-1",
         )
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
         # Queue exhaustion proves the enqueued attempt failed: one attempt
         # receipt (failed) plus one linked lifecycle receipt (dead_lettered)
@@ -437,16 +439,16 @@ class TestCancelledAndAbandonedTransitions:
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
 
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-cancelled-001",
             adapter="mesh-1",
             outcome="cancelled",
             outbox_id="obox-cancelled-001",
             delivery_plan_id="plan-1",
             attempt_number=1,
-            native_channel_id="ch-1",
+            provenance_channel="ch-1",
         )
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
         # Cancellation is a lifecycle-only transition: one lifecycle receipt
         # carries the terminal state; no dispatch failure is manufactured.
@@ -488,16 +490,16 @@ class TestCancelledAndAbandonedTransitions:
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
 
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-abandoned-001",
             adapter="mesh-1",
             outcome="abandoned",
             outbox_id="obox-abandoned-001",
             delivery_plan_id="plan-1",
             attempt_number=1,
-            native_channel_id="ch-1",
+            provenance_channel="ch-1",
         )
-        await manager.record_terminal(record)
+        await manager.record_deferred_failure(record)
 
         # Abandonment is a lifecycle-only transition: one lifecycle receipt
         # carries the terminal state; no dispatch failure is manufactured.

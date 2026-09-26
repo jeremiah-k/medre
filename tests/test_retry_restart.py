@@ -248,11 +248,11 @@ def _build_runner(
         fallback_resolver=_FallbackResolverWithRetry(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters,
-        event_bus=EventBus(),
         rendering_pipeline=render_pipe,
         diagnostician=Diagnostician(),
         route_stats=RouteStats(),
         runtime_accounting=accounting,
+        event_bus=EventBus(),
     )
     return PipelineRunner(config)
 
@@ -261,7 +261,6 @@ async def _start_adapters(adapters: dict) -> None:
     for aid, adapter in adapters.items():
         ctx = AdapterContext(
             adapter_id=aid,
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=__import__("logging").getLogger(f"test.{aid}"),
             clock=lambda: datetime.now(timezone.utc),

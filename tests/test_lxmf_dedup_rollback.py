@@ -116,7 +116,6 @@ async def test_simulate_inbound_publish_failure_no_dedup_key(
 
     ctx_fail = AdapterContext(
         adapter_id="lxmf-dedup-test",
-        event_bus=None,
         publish_inbound=failing_publish,
         logger=ctx.logger,
         clock=ctx.clock,
@@ -185,7 +184,6 @@ async def test_on_packet_async_publish_failure_rolls_back_dedup(
     ctx_base = make_adapter_context("lxmf-dedup-test")
     ctx_fail = AdapterContext(
         adapter_id="lxmf-dedup-test",
-        event_bus=None,
         publish_inbound=failing_publish,
         logger=ctx_base.logger,
         clock=ctx_base.clock,

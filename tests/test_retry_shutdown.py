@@ -269,17 +269,16 @@ class TestRetryShutdownRealPipeline:
             fallback_resolver=FallbackResolver(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters=adapters,
-            event_bus=EventBus(),
             rendering_pipeline=render_pipe,
             diagnostician=Diagnostician(),
             route_stats=RouteStats(),
             runtime_accounting=accounting,
+            event_bus=EventBus(),
         )
         runner = PipelineRunner(config)
 
         ctx = AdapterContext(
             adapter_id="shutdown_target",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=__import__("logging").getLogger("test.shutdown_target"),
             clock=lambda: datetime.now(timezone.utc),
@@ -381,10 +380,10 @@ class TestRetryShutdownRealPipeline:
             fallback_resolver=FallbackResolver(),
             relation_resolver=RelationResolver(storage=temp_storage),
             adapters={},
-            event_bus=EventBus(),
             rendering_pipeline=render_pipe,
             diagnostician=Diagnostician(),
             route_stats=RouteStats(),
+            event_bus=EventBus(),
         )
         runner = PipelineRunner(config)
         await runner.start()

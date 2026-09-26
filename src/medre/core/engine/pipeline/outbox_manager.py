@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from medre.core.contracts.adapter import QueueTerminalRecord
+from medre.core.contracts.delivery import DeferredHandoffFailed
 from medre.core.delivery_authority import (
     delivery_attempt_provenance_mismatch,
     delivery_attempt_receipt_provenance_mismatch,
@@ -352,74 +352,58 @@ class OutboxManager:
 
     # -- Terminal outcome recording --
 
-    async def record_terminal(self, record: QueueTerminalRecord) -> None:
-        """Handle a terminal queue outcome reported by an adapter.
+    async def record_deferred_failure(self, feedback: DeferredHandoffFailed) -> None:
+        """Commit one terminal failure reported after deferred hand-off admission.
 
-        Called by queue-based adapters when a previously-enqueued item
-        reaches a terminal state without producing a native message ID.
-        This is the callback wired into
-        :class:`AdapterContext.record_outbound_terminal`.
-
-        For an eligible callback, commits a terminal lifecycle receipt and
-        matching outbox transition atomically. A dead-lettered outcome also
-        commits failed-attempt evidence in that transaction. Stale or
-        duplicate callbacks commit nothing. Invalid callbacks and storage
-        errors return without raising to the adapter.
-
-        Parameters
-        ----------
-        record:
-            The terminal outcome record from the adapter.
+        The adapter reports only the immutable attempt envelope and the
+        transport-local terminal fact. Core maps that fact into canonical
+        failure evidence and the guarded outbox transition. Stale, duplicate,
+        contradictory, or unreadable callbacks fail closed and never raise
+        back into adapter background tasks.
         """
+        provenance = feedback.attempt_provenance
         try:
-            # Map adapter-reported facts to one lifecycle transition. Queue
-            # callbacks do not represent a new dispatch attempt; the queued
-            # receipt is the attempt evidence and this receipt records only the
-            # terminal state transition caused by it.
-            if record.outcome == "exhausted":
+            if feedback.outcome == "exhausted":
                 failure_kind = "adapter_transient"
                 outbox_terminal = "dead_lettered"
-                error_msg = record.error or "local queue retry budget exhausted"
-            elif record.outcome == "permanent_failed":
+                error_msg = feedback.error or "local retry budget exhausted"
+            elif feedback.outcome == "permanent_failed":
                 failure_kind = "adapter_permanent"
                 outbox_terminal = "dead_lettered"
-                error_msg = record.error or "permanent send failure"
-            elif record.outcome == "cancelled":
+                error_msg = feedback.error or "permanent hand-off failure"
+            elif feedback.outcome == "cancelled":
                 failure_kind = "adapter_transient"
                 outbox_terminal = "cancelled"
-                error_msg = record.error or "queue item cancelled while in-flight"
-            elif record.outcome == "abandoned":
+                error_msg = feedback.error or "deferred hand-off cancelled in-flight"
+            elif feedback.outcome == "abandoned":
                 failure_kind = "adapter_transient"
                 outbox_terminal = "abandoned"
-                error_msg = record.error or "adapter shutdown with unsent queued items"
-            else:
+                error_msg = (
+                    feedback.error or "adapter stopped with deferred work unsent"
+                )
+            else:  # pragma: no cover - closed msgspec contract guards this branch
                 self._log.warning(
-                    "Unknown terminal outcome %r from adapter %s; ignoring",
-                    record.outcome,
-                    record.adapter,
+                    "Unknown deferred failure outcome %r from adapter %s; ignoring",
+                    feedback.outcome,
+                    provenance.target_adapter,
                 )
                 return
-
-            # Exact attempt provenance is mandatory for queue terminal callbacks.
-            # It was frozen before adapter hand-off, so callback lineage never
-            # depends on mutable row state or queued-receipt append timing.
-            provenance = record.attempt_provenance
 
             existing_item = await self._storage.get_outbox_item(provenance.outbox_id)
             if existing_item is None:
                 self._log.warning(
-                    "Terminal outcome rejected: outbox_id=%s not found for "
+                    "Deferred failure rejected: outbox_id=%s not found for "
                     "event_id=%s adapter=%s outcome=%s",
                     provenance.outbox_id,
-                    record.event_id,
-                    record.adapter,
-                    record.outcome,
+                    provenance.event_id,
+                    provenance.target_adapter,
+                    feedback.outcome,
                 )
                 return
             if existing_item.status in TERMINAL_OUTBOX_STATUSES:
                 self._log.warning(
-                    "Terminal outcome rejected: outbox_id=%s already terminal "
-                    "(status=%s); duplicate terminal report",
+                    "Deferred failure rejected: outbox_id=%s already terminal "
+                    "(status=%s); duplicate feedback",
                     provenance.outbox_id,
                     existing_item.status,
                 )
@@ -428,7 +412,7 @@ class OutboxManager:
             mismatch = delivery_attempt_provenance_mismatch(provenance, existing_item)
             if mismatch is not None:
                 self._log.warning(
-                    "Terminal outcome rejected: contradictory attempt provenance "
+                    "Deferred failure rejected: contradictory attempt provenance "
                     "for outbox_id=%s: %s",
                     provenance.outbox_id,
                     mismatch,
@@ -437,85 +421,72 @@ class OutboxManager:
 
             if existing_item.status not in ("queued", "in_progress"):
                 self._log.warning(
-                    "Terminal outcome rejected: outbox_id=%s has status=%s which "
-                    "is not eligible for queue terminal outcomes",
+                    "Deferred failure rejected: outbox_id=%s has status=%s which "
+                    "is not eligible for deferred terminal feedback",
                     provenance.outbox_id,
                     existing_item.status,
                 )
                 return
 
-            _attempt_number = provenance.attempt_number
-
-            # Read all immutable evidence for this outbox generation for
-            # provenance validation. Queued evidence is then used only for
-            # parent/retry linkage. A missing receipt is a valid pre-append race
-            # and no longer causes source/replay provenance to be reconstructed.
             queued_receipt: DeliveryReceipt | None = None
             try:
-                _all_receipts = await self._storage.list_receipts_for_outbox(
-                    provenance.outbox_id,
+                all_receipts = await self._storage.list_receipts_for_outbox(
+                    provenance.outbox_id
                 )
-                _attempt_receipts = receipts_for_attempt(
-                    provenance,
-                    _all_receipts,
-                )
-                _queued_matches = queued_receipts_for_attempt(
-                    provenance,
-                    _all_receipts,
-                )
+                attempt_receipts = receipts_for_attempt(provenance, all_receipts)
+                queued_matches = queued_receipts_for_attempt(provenance, all_receipts)
             except Exception:
                 self._log.warning(
                     "Could not read attempt receipt lineage for outbox_id=%s; "
-                    "rejecting terminal callback rather than committing "
-                    "incomplete provenance/linkage validation",
+                    "rejecting deferred failure rather than committing incomplete "
+                    "provenance/linkage validation",
                     provenance.outbox_id,
                 )
                 return
 
-            for attempt_receipt in _attempt_receipts:
+            for attempt_receipt in attempt_receipts:
                 receipt_mismatch = delivery_attempt_receipt_provenance_mismatch(
-                    provenance,
-                    attempt_receipt,
+                    provenance, attempt_receipt
                 )
                 if receipt_mismatch is not None:
                     self._log.warning(
-                        "Terminal outcome rejected: immutable receipt provenance "
-                        "contradicts callback for outbox_id=%s attempt=%d: %s",
+                        "Deferred failure rejected: immutable receipt provenance "
+                        "contradicts feedback for outbox_id=%s attempt=%d: %s",
                         provenance.outbox_id,
-                        _attempt_number,
+                        provenance.attempt_number,
                         receipt_mismatch,
                     )
                     return
-            if _queued_matches:
+            if queued_matches:
                 queued_receipt = max(
-                    _queued_matches,
+                    queued_matches,
                     key=lambda receipt: (
                         receipt.sequence or 0,
                         receipt.created_at.isoformat(),
                         receipt.receipt_id,
                     ),
                 )
+            elif existing_item.status == "queued":
+                self._log.warning(
+                    "Deferred failure rejected: queued outbox has no matching "
+                    "immutable queued attempt evidence: outbox_id=%s attempt=%d",
+                    provenance.outbox_id,
+                    provenance.attempt_number,
+                )
+                return
 
-            # Enrich receipt fields from the validated outbox item when
-            # available — the outbox row is the authoritative source for
-            # delivery_plan_id, target_channel, and route_id.
-            _enriched_plan_id = existing_item.delivery_plan_id
-            _enriched_channel = existing_item.target_channel
-
-            # Build evidence for the queue terminal fact. A queue failure
-            # proves that the already-enqueued dispatch attempt failed, so it
-            # receives a failed attempt receipt. Cancellation/abandonment are
-            # lifecycle-only transitions and do not manufacture a failure.
             failed_attempt: DeliveryReceipt | None = None
             lifecycle_parent_id = (
-                queued_receipt.receipt_id if queued_receipt is not None else None
+                queued_receipt.receipt_id
+                if queued_receipt is not None
+                else existing_item.receipt_id
             )
             if outbox_terminal == "dead_lettered":
                 failed_attempt = build_delivery_receipt(
-                    event_id=record.event_id,
-                    delivery_plan_id=_enriched_plan_id,
-                    target_adapter=record.adapter,
-                    target_channel=_enriched_channel,
+                    event_id=provenance.event_id,
+                    delivery_plan_id=existing_item.delivery_plan_id,
+                    target_adapter=provenance.target_adapter,
+                    target_channel=existing_item.target_channel,
                     route_id=existing_item.route_id,
                     status="failed",
                     receipt_kind="attempt",
@@ -544,15 +515,11 @@ class OutboxManager:
                         if queued_receipt is not None
                         else None
                     ),
-                    outbox_id=record.outbox_id,
-                    attempt_number=_attempt_number,
+                    outbox_id=provenance.outbox_id,
+                    attempt_number=provenance.attempt_number,
                 )
                 lifecycle_parent_id = failed_attempt.receipt_id
 
-            # Reuse the lifecycle constructor whenever immutable attempt
-            # evidence exists so retry-policy lineage is inherited exactly as
-            # it is for synchronous failures. Rendering evidence remains on the
-            # queued parent by design; the parent chain preserves that link.
             terminal_parent = failed_attempt or queued_receipt
             if terminal_parent is not None:
                 receipt = self._lifecycle.build_terminal_lifecycle_receipt(
@@ -562,14 +529,11 @@ class OutboxManager:
                     failure_kind=failure_kind,
                 )
             else:
-                # Callback-before-receipt is valid. The immutable envelope is
-                # sufficient for identity/source authority, but unavailable
-                # queued-only retry/rendering context must not be invented.
                 receipt = build_delivery_receipt(
-                    event_id=record.event_id,
-                    delivery_plan_id=_enriched_plan_id,
-                    target_adapter=record.adapter,
-                    target_channel=_enriched_channel,
+                    event_id=provenance.event_id,
+                    delivery_plan_id=existing_item.delivery_plan_id,
+                    target_adapter=provenance.target_adapter,
+                    target_channel=existing_item.target_channel,
                     route_id=existing_item.route_id,
                     status=outbox_terminal,
                     receipt_kind="lifecycle",
@@ -578,13 +542,10 @@ class OutboxManager:
                     source=provenance.source,
                     replay_run_id=provenance.replay_run_id,
                     parent_receipt_id=lifecycle_parent_id,
-                    outbox_id=record.outbox_id,
-                    attempt_number=_attempt_number,
+                    outbox_id=provenance.outbox_id,
+                    attempt_number=provenance.attempt_number,
                 )
-            # Commit any newly-proven failed-attempt evidence, terminal
-            # lifecycle evidence, and the outbox transition in one guarded
-            # transaction. A stale/duplicate callback therefore commits none
-            # of them.
+
             committed = await self._storage.finalize_outbox_terminal(
                 TerminalOutboxFinalization(
                     lifecycle_receipt=receipt,
@@ -593,30 +554,30 @@ class OutboxManager:
             )
             if not committed:
                 self._log.warning(
-                    "Terminal outcome rejected: outbox_id=%s was finalized "
-                    "by a competing attempt or state change before commit; "
-                    "event_id=%s adapter=%s outcome=%s; duplicate prevented",
-                    record.outbox_id,
-                    record.event_id,
-                    record.adapter,
-                    record.outcome,
+                    "Deferred failure rejected: outbox_id=%s was finalized by a "
+                    "competing attempt or state change; event_id=%s adapter=%s "
+                    "outcome=%s",
+                    provenance.outbox_id,
+                    provenance.event_id,
+                    provenance.target_adapter,
+                    feedback.outcome,
                 )
                 return
 
             self._log.info(
-                "Terminal queue outcome: event_id=%s adapter=%s "
-                "outbox_id=%s outcome=%s receipt=%s",
-                record.event_id,
-                record.adapter,
-                record.outbox_id,
-                record.outcome,
+                "Deferred hand-off failure: event_id=%s adapter=%s outbox_id=%s "
+                "outcome=%s receipt=%s",
+                provenance.event_id,
+                provenance.target_adapter,
+                provenance.outbox_id,
+                feedback.outcome,
                 receipt.receipt_id,
             )
         except Exception:
             self._log.exception(
-                "Failed to record terminal queue outcome: "
+                "Failed to record deferred hand-off failure: "
                 "event_id=%s adapter=%s outcome=%s",
-                record.event_id,
-                record.adapter,
-                record.outcome,
+                provenance.event_id,
+                provenance.target_adapter,
+                feedback.outcome,
             )

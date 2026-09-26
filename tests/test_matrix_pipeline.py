@@ -51,8 +51,8 @@ def _make_pipeline_config(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters or {},
-        event_bus=event_bus or EventBus(),
         rendering_pipeline=pipeline,
+        event_bus=event_bus or EventBus(),
     )
 
 
@@ -370,7 +370,6 @@ def _make_adapter_context_for_pipeline(
     """Create an AdapterContext wired to a PipelineRunner's ingress handler."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=runner.handle_ingress,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -424,8 +423,8 @@ class TestMatrixPlatformRendererSelection:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"chat-source": in_adapter, "chat-service": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -461,11 +460,11 @@ class TestMatrixPlatformRendererSelection:
         native_event_id = f"$fake_{result.event_id}"
 
         # Native ref was persisted in storage
-        # FakeMatrixAdapter returns native_channel_id="" when target_channel
-        # is not set; the pipeline stores the adapter-provided value as-is.
+        # FakeMatrixAdapter reports native_channel_id=None when target_channel
+        # is not set; absence is represented canonically rather than as an empty ID.
         resolved = await temp_storage.resolve_native_ref(
             adapter="chat-service",
-            native_channel_id="",
+            native_channel_id=None,
             native_message_id=native_event_id,
         )
         assert resolved is not None
@@ -556,11 +555,10 @@ class TestMatrixNativeRefPersistence:
             await runner.handle_ingress(event)
 
             # FakeMatrixAdapter.deliver() returns native_message_id=f"$fake_{result.event_id}"
-            # With no target channel, native_channel_id stores the
-            # adapter-provided value (empty string) without fallback.
+            # With no target channel, native_channel_id is canonically absent (None).
             resolved = await temp_storage.resolve_native_ref(
                 adapter="matrix-out",
-                native_channel_id="",
+                native_channel_id=None,
                 native_message_id=f"$fake_{event.event_id}",
             )
             assert resolved is not None

@@ -32,7 +32,6 @@ def _make_config(**overrides: object) -> MeshCoreConfig:
 def _make_ctx(adapter_id: str = "mc-startup-test") -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=__import__("logging").getLogger("test.startup"),
         clock=lambda: datetime.now(timezone.utc),

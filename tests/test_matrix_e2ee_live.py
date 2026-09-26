@@ -80,7 +80,6 @@ class TestLiveE2EEStart:
         adapter = MatrixAdapter(config)
         ctx = AdapterContext(
             adapter_id="matrix-e2ee-live",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.live.e2ee"),
             clock=lambda: datetime.now(timezone.utc),
@@ -113,7 +112,6 @@ class TestLiveE2EESend:
         adapter = MatrixAdapter(config)
         ctx = AdapterContext(
             adapter_id="matrix-e2ee-live",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.live.e2ee"),
             clock=lambda: datetime.now(timezone.utc),
@@ -153,7 +151,6 @@ class TestLiveE2EERestart:
         adapter = MatrixAdapter(config)
         ctx = AdapterContext(
             adapter_id="matrix-e2ee-live",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.live.e2ee"),
             clock=lambda: datetime.now(timezone.utc),
@@ -184,7 +181,6 @@ class TestLiveE2EERestart:
         adapter = MatrixAdapter(config)
         ctx = AdapterContext(
             adapter_id="matrix-e2ee-live",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.live.e2ee.restart"),
             clock=lambda: datetime.now(timezone.utc),
@@ -218,7 +214,6 @@ class TestLiveE2EERestart:
         adapter = MatrixAdapter(config)
         ctx = AdapterContext(
             adapter_id="matrix-e2ee-live",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.live.e2ee.send"),
             clock=lambda: datetime.now(timezone.utc),
@@ -258,7 +253,6 @@ class TestLiveE2EEStartStopCycles:
         adapter = MatrixAdapter(config)
         ctx = AdapterContext(
             adapter_id="matrix-e2ee-live",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.live.e2ee.cycles"),
             clock=lambda: datetime.now(timezone.utc),
@@ -287,7 +281,6 @@ class TestLiveE2EEStartStopCycles:
         adapter = MatrixAdapter(config)
         ctx = AdapterContext(
             adapter_id="matrix-e2ee-live",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.live.e2ee.disco"),
             clock=lambda: datetime.now(timezone.utc),

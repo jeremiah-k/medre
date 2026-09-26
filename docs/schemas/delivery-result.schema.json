@@ -1,40 +1,43 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://medre.dev/schemas/delivery-result.schema.json",
-  "title": "AdapterDeliveryResult",
-  "description": "Immutable result returned by adapters after successful delivery. Adapters populate this with platform-native IDs obtained from the external system. Derived from dataclass(frozen=True).",
+  "title": "AdapterHandoffResult",
+  "description": "Immutable fact returned by an adapter after a successful synchronous hand-off. It describes how far MEDRE reached the transport boundary; it is not durable lifecycle authority and does not claim recipient delivery.",
   "type": "object",
   "properties": {
+    "disposition": {
+      "type": "string",
+      "enum": ["transport_handoff", "deferred"],
+      "default": "transport_handoff",
+      "description": "Synchronous hand-off disposition. 'transport_handoff' means the adapter reached its external transport boundary during deliver(); 'deferred' means work was accepted locally and later facts arrive through DeliveryFeedback."
+    },
     "native_message_id": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Platform-native message ID (e.g. a Matrix event_id). None when not yet available."
+      "description": "Platform-native message ID when known at synchronous hand-off. Deferred results cannot claim one.",
+      "minLength": 1,
+      "pattern": ".*\\S.*"
     },
     "native_channel_id": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Platform-native channel/room/conversation ID."
+      "description": "Platform-resolved native channel/room/conversation ID when supplied by the transport. This is evidence, not route identity.",
+      "minLength": 1,
+      "pattern": ".*\\S.*"
     },
     "native_thread_id": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Platform-native thread or parent message ID. Reserved — always None at runtime."
+      "description": "Platform-native thread or parent identifier when supplied by the transport.",
+      "minLength": 1,
+      "pattern": ".*\\S.*"
     },
     "native_relation_id": {
       "type": ["string", "null"],
       "default": null,
-      "description": "Platform-native ID of the related entity. Reserved — always None at runtime."
-    },
-    "delivery_note": {
-      "type": "string",
-      "default": "",
-      "description": "Human-readable context about the delivery. Informational only — not for control-flow."
-    },
-    "delivery_status": {
-      "type": "string",
-      "enum": ["sent", "enqueued"],
-      "default": "sent",
-      "description": "Adapter delivery fact: 'sent' (synchronous) or 'enqueued' (queue-based). Reports what the adapter did, not the final lifecycle state of the message. The pipeline maps this to receipt status; it is not lifecycle authority."
+      "description": "Platform-native related-entity identifier when supplied by the transport.",
+      "minLength": 1,
+      "pattern": ".*\\S.*"
     },
     "confirmation_level": {
       "type": "string",
@@ -46,19 +49,69 @@
         "end_to_end"
       ],
       "default": "unknown",
-      "description": "Strongest delivery fact proven by the adapter or receipt; independent of lifecycle status."
+      "description": "Strongest transport fact proven by the hand-off, independent of durable delivery lifecycle status."
+    },
+    "note": {
+      "type": "string",
+      "default": "",
+      "description": "Human-readable hand-off context. Informational only and never lifecycle authority."
     },
     "metadata": {
       "type": "object",
       "propertyNames": {
         "not": {
-          "enum": ["delivery_status", "adapter_status", "status", "state"]
+          "enum": [
+            "kind",
+            "attempt_provenance",
+            "handoff",
+            "disposition",
+            "outcome",
+            "confirmation_level",
+            "native_message_id",
+            "native_channel_id",
+            "native_thread_id",
+            "native_relation_id",
+            "note",
+            "status",
+            "state",
+            "error",
+            "event_id",
+            "delivery_plan_id",
+            "target_adapter",
+            "target_channel",
+            "outbox_id",
+            "attempt_number",
+            "source",
+            "replay_run_id"
+          ]
         }
       },
       "additionalProperties": true,
       "default": {},
-      "description": "Immutable, namespaced delivery metadata. Transport-specific data MUST live under metadata[<transport>] (e.g. metadata.matrix, metadata.lxmf). No top-level MEDRE-standard keys are permitted."
+      "description": "Deeply immutable, JSON-safe, namespaced hand-off metadata. Transport-specific data SHOULD live under metadata[<transport>]."
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "disposition": {
+            "const": "deferred"
+          }
+        },
+        "required": ["disposition"]
+      },
+      "then": {
+        "properties": {
+          "native_message_id": {
+            "type": "null"
+          },
+          "confirmation_level": {
+            "enum": ["unknown", "local_queue"]
+          }
+        }
+      }
+    }
+  ]
 }

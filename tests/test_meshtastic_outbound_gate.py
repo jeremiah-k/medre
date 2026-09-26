@@ -30,13 +30,13 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterSendError,
 )
-from medre.core.events.bus import EventBus
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     RetryExecutor,
 )
 from medre.core.rendering.renderer import RenderingResult
 from medre.runtime.reporting import _derive_failure_kind_detail
+from tests.helpers.delivery_callbacks import with_attempt_provenance
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -46,20 +46,27 @@ from medre.runtime.reporting import _derive_failure_kind_detail
 def _make_ctx(adapter_id: str = "test-gate") -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=EventBus(),
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
+        report_delivery_feedback=AsyncMock(),
     )
 
 
-def _make_result(event_id: str = "evt-1", text: str = "hello") -> RenderingResult:
-    return RenderingResult(
-        event_id=event_id,
-        target_adapter="test-gate",
-        target_channel="0",
-        payload={"text": text, "channel_index": 0},
+def _make_result(
+    event_id: str = "evt-1",
+    text: str = "hello",
+    *,
+    target_adapter: str = "test-gate",
+) -> RenderingResult:
+    return with_attempt_provenance(
+        RenderingResult(
+            event_id=event_id,
+            target_adapter=target_adapter,
+            target_channel="0",
+            payload={"text": text, "channel_index": 0},
+        )
     )
 
 
@@ -141,11 +148,11 @@ class TestDefaultEnabledPassesNormalPath:
         ctx = _make_ctx("test-enabled")
         await adapter.start(ctx)
         try:
-            result = _make_result()
+            result = _make_result(target_adapter="test-enabled")
             delivery = await adapter.deliver(result)
             assert delivery is not None
-            assert delivery.delivery_note == "locally enqueued"
-            assert delivery.delivery_status == "enqueued"
+            assert delivery.note == "locally enqueued"
+            assert delivery.disposition == "deferred"
             assert adapter._queue.queue_depth == 1
         finally:
             await adapter.stop()
@@ -172,7 +179,7 @@ class TestListenOnlySuppressesBeforeQueue:
         ctx = _make_ctx("test-listen")
         await adapter.start(ctx)
         try:
-            result = _make_result()
+            result = _make_result(target_adapter="test-listen")
             with pytest.raises(AdapterPermanentError) as exc_info:
                 await adapter.deliver(result)
             assert "outbound suppressed: listen_only mode" in str(exc_info.value)
@@ -192,7 +199,7 @@ class TestListenOnlySuppressesBeforeQueue:
         ctx = _make_ctx("test-no-enqueue")
         await adapter.start(ctx)
         try:
-            result = _make_result()
+            result = _make_result(target_adapter="test-no-enqueue")
             with pytest.raises(AdapterPermanentError):
                 await adapter.deliver(result)
             # Queue must remain empty
@@ -215,7 +222,9 @@ class TestListenOnlySuppressesBeforeQueue:
         try:
             for i in range(3):
                 with pytest.raises(AdapterPermanentError):
-                    await adapter.deliver(_make_result(event_id=f"evt-{i}"))
+                    await adapter.deliver(
+                        _make_result(event_id=f"evt-{i}", target_adapter="test-counter")
+                    )
             assert adapter._outbound_gate_suppressed == 3
         finally:
             await adapter.stop()
@@ -281,7 +290,11 @@ class TestDiagnosticsOutboundGate:
         try:
             for i in range(2):
                 with pytest.raises(AdapterPermanentError):
-                    await adapter.deliver(_make_result(event_id=f"evt-{i}"))
+                    await adapter.deliver(
+                        _make_result(
+                            event_id=f"evt-{i}", target_adapter="test-diag-count"
+                        )
+                    )
             diag = adapter.diagnostics()
             assert diag["outbound_gate_suppressed"] == 2
         finally:
@@ -319,7 +332,7 @@ class TestGatePreventsQueueFull:
 
             # Deliver should still be suppressed by gate, NOT by queue-full.
             with pytest.raises(AdapterPermanentError) as exc_info:
-                await adapter.deliver(_make_result())
+                await adapter.deliver(_make_result(target_adapter="test-prevent-full"))
             assert "outbound suppressed: listen_only mode" in str(exc_info.value)
             # Counter incremented, queue unchanged.
             assert adapter._outbound_gate_suppressed == 1
@@ -352,10 +365,18 @@ class TestQueueFullRemainsTransient:
             max_size = adapter._queue.max_queue_size
             assert max_size is not None
             for i in range(max_size):
-                await adapter.deliver(_make_result(event_id=f"fill-{i}"))
+                await adapter.deliver(
+                    _make_result(
+                        event_id=f"fill-{i}", target_adapter="test-full-transient"
+                    )
+                )
 
             with pytest.raises(AdapterSendError) as exc_info:
-                await adapter.deliver(_make_result(event_id="overflow"))
+                await adapter.deliver(
+                    _make_result(
+                        event_id="overflow", target_adapter="test-full-transient"
+                    )
+                )
             assert exc_info.value.transient is True
             assert adapter._outbound_gate_suppressed == 0
         finally:
@@ -428,7 +449,7 @@ class TestFakeAdapterGateMirror:
         ctx = _make_ctx("fake-enabled")
         await adapter.start(ctx)
 
-        result = _make_result()
+        result = _make_result(target_adapter="fake-enabled")
         delivery = await adapter.deliver(result)
         assert delivery is not None
         assert delivery.native_message_id is not None
@@ -441,7 +462,7 @@ class TestFakeAdapterGateMirror:
         ctx = _make_ctx("fake-listen")
         await adapter.start(ctx)
 
-        result = _make_result()
+        result = _make_result(target_adapter="fake-listen")
         with pytest.raises(AdapterPermanentError) as exc_info:
             await adapter.deliver(result)
         assert "outbound suppressed: listen_only mode" in str(exc_info.value)
@@ -458,7 +479,9 @@ class TestFakeAdapterGateMirror:
 
         for i in range(3):
             with pytest.raises(AdapterPermanentError):
-                await adapter.deliver(_make_result(event_id=f"evt-{i}"))
+                await adapter.deliver(
+                    _make_result(event_id=f"evt-{i}", target_adapter="fake-counter")
+                )
         assert adapter._outbound_gate_suppressed == 3
 
     @pytest.mark.asyncio
@@ -484,7 +507,7 @@ class TestFakeAdapterGateMirror:
 
         # Enable simulated failure — but listen_only should fire first.
         adapter.set_deliver_failure(True)
-        result = _make_result()
+        result = _make_result(target_adapter="fake-priority")
         with pytest.raises(AdapterPermanentError) as exc_info:
             await adapter.deliver(result)
         assert "outbound suppressed: listen_only mode" in str(exc_info.value)

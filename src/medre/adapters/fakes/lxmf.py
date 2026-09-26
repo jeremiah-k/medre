@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from types import MappingProxyType
 from typing import Any
 
 from medre.adapters.lxmf.codec import LxmfCodec
@@ -40,7 +39,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
@@ -146,11 +145,9 @@ _FAKE_LXMF_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=True,
-    delivery_receipts=False,
     store_and_forward=True,
     direct_messages=True,
     channels=False,
-    async_delivery=True,
     identity_encryption=True,
     mesh_routing=True,
     max_text_bytes=None,
@@ -269,7 +266,7 @@ class FakeLxmfAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Accept an outbound rendered payload for delivery.
 
         This adapter consumes :class:`RenderingResult` only.  Passing a
@@ -286,7 +283,7 @@ class FakeLxmfAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult
+        AdapterHandoffResult
             Contains the deterministic native_message_id from the fake
             client.
 
@@ -329,20 +326,17 @@ class FakeLxmfAdapter(AdapterContract):
         if not isinstance(delivery_method, str):
             delivery_method = self._config.default_delivery_method
 
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=message_id,
             native_channel_id=None,
-            metadata=MappingProxyType(
-                {
-                    "lxmf": MappingProxyType(
-                        {
-                            "schema_version": LXMF_NATIVE_SCHEMA_VERSION,
-                            "delivery_state": "outbound",
-                            "delivery_method": delivery_method,
-                        }
-                    ),
-                }
-            ),
+            confirmation_level="local_queue",
+            metadata={
+                "lxmf": {
+                    "schema_version": LXMF_NATIVE_SCHEMA_VERSION,
+                    "delivery_state": "outbound",
+                    "delivery_method": delivery_method,
+                },
+            },
         )
 
     # -- Inbound simulation -------------------------------------------------

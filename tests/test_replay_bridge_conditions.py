@@ -146,8 +146,8 @@ async def bridge_env(tmp_path: Path):
     replay = ReplayEngine(
         storage=storage,
         pipeline=pipeline,
-        event_bus=app.event_bus,
         diagnostician=app.diagnostician,
+        event_bus=app.event_bus,
     )
 
     class Env:

@@ -64,7 +64,6 @@ def _make_config(**overrides: Any) -> MatrixConfig:
 def _make_context(adapter_id: str = "matrix-idem-test") -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -231,7 +230,7 @@ class TestRetryReusesTxnId:
 
 
 class TestSuccessReturnsNativeMessageId:
-    """Successful deliver returns AdapterDeliveryResult with Matrix event_id."""
+    """Successful deliver returns AdapterHandoffResult with Matrix event_id."""
 
     async def test_success_returns_event_id(self) -> None:
         config = _make_config()
@@ -256,7 +255,7 @@ class TestSuccessReturnsNativeMessageId:
 
 
 class TestSuccessMetadataIncludesTxnId:
-    """AdapterDeliveryResult.metadata contains matrix.txn_id."""
+    """AdapterHandoffResult.metadata contains matrix.txn_id."""
 
     async def test_metadata_has_matrix_txn_id(self) -> None:
         config = _make_config()
@@ -775,7 +774,7 @@ class TestMetadataJsonSafe:
 
         The Matrix adapter metadata namespace must only contain send-time
         idempotency data (txn_id).  The native event_id and room_id are
-        stored in AdapterDeliveryResult.native_message_id and
+        stored in AdapterHandoffResult.native_message_id and
         native_channel_id respectively, not in metadata.
         """
         config = _make_config()

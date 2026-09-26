@@ -320,8 +320,8 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_MATRIX: matrix_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -451,8 +451,8 @@ class TestMatrixReactionToMeshtasticRoundtrip:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_RADIO_ALPHA: radio_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -658,8 +658,8 @@ class TestMultiRadioReactionRoundtrip:
                     _MATRIX: matrix_adapter,
                     _RADIO_BRAVO: bravo_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -940,8 +940,8 @@ class TestMissingNativeRefFallbackRoundtrip:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_MATRIX: matrix_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -1057,8 +1057,8 @@ class TestMissingNativeRefFallbackRoundtrip:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_RADIO_ALPHA: radio_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()

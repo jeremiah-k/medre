@@ -356,7 +356,6 @@ class TestMatrixAlphaDirectAdapter:
 
         ctx = AdapterContext(
             adapter_id="matrix-alpha-session",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.alpha-session"),
             clock=lambda: datetime.now(timezone.utc),
@@ -411,7 +410,6 @@ class TestMatrixAlphaDirectAdapter:
 
         ctx = AdapterContext(
             adapter_id="matrix-alpha-diag",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.alpha-diag"),
             clock=lambda: datetime.now(timezone.utc),

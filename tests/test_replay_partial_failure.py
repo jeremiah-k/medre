@@ -135,9 +135,9 @@ async def replay_env(tmp_path: Path):
     replay = ReplayEngine(
         storage=storage,
         pipeline=pipeline,
-        event_bus=app.event_bus,
         diagnostician=app.diagnostician,
         accounting=accounting,
+        event_bus=app.event_bus,
     )
 
     class Env:
@@ -209,9 +209,12 @@ async def test_replay_render_failure(replay_env) -> None:
             "failed",
             "error",
             "sent",
+            "dead_lettered",
+            "cancelled",
+            "abandoned",
         ), (
-            f"Receipt for bad-kind event should show failure or sent, "
-            f"got status={row['status']}"
+            f"Receipt for bad-kind event should show failure, terminal, or "
+            f"sent, got status={row['status']}"
         )
 
     # Accounting should reflect processing (store failure is a graceful

@@ -12,7 +12,7 @@ contract schemas mirror their projection helpers and normative specifications.
 | `canonical-event.schema.yaml`            | YAML mirror of `canonical-event.schema.json`                    | YAML representation of the canonical event schema; not an instance document |
 | `delivery-receipt.schema.json`           | `DeliveryReceipt` (`src/medre/core/events/canonical.py`)        | Append-only delivery status record                                          |
 | `delivery-observation.schema.json`       | `DeliveryObservation` (`src/medre/core/events/canonical.py`)    | Append-only post-handoff transport evidence                                 |
-| `delivery-result.schema.json`            | `AdapterDeliveryResult` (`src/medre/core/contracts/adapter.py`) | Per-adapter delivery outcome                                                |
+| `delivery-result.schema.json`            | `AdapterHandoffResult` (`src/medre/core/contracts/delivery.py`) | Successful synchronous adapter hand-off fact                                |
 | `runtime-snapshot.schema.json`           | `RuntimeSnapshot` (`src/medre/core/supervision/diagnostics.py`) | Point-in-time runtime state snapshot                                        |
 | `diagnostics.schema.json`                | Dict shape (`capture_runtime_snapshot().to_dict()`)             | Diagnostics collector output                                                |
 | `evidence-bundle.schema.json`            | Dict shape                                                      | `medre evidence` bundle structure                                           |
@@ -53,7 +53,7 @@ fields align with example payloads. When example payloads or schemas change,
 update both in the same commit.
 
 For stable source models (`CanonicalEvent`, `DeliveryReceipt`,
-`DeliveryObservation`, `AdapterDeliveryResult`), tests also compare top-level
+`DeliveryObservation`, `AdapterHandoffResult`), tests also compare top-level
 schema properties against source dataclass fields. If a source model adds or
 renames a field without updating the schema, the test fails. These
 source-drift tests live in `tests/test_docs_schema_drift.py`.

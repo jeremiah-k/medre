@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
-from medre.core.contracts.adapter import OutboundDeliveryObservationRecord
+from medre.core.contracts.delivery import PostHandoffObservation
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.events import (
     CanonicalEvent,
@@ -18,6 +18,7 @@ from medre.core.events.delivery import DeliverySource
 from medre.core.storage.backend import DeliveryOutboxItem
 from medre.runtime.evidence._storage_sections import _collect_storage_data_from_backend
 from medre.runtime.timeline import assemble_event_timeline
+from tests.helpers.delivery_callbacks import make_post_handoff_observation
 
 
 def _event(event_id: str = "evt-observation-1") -> CanonicalEvent:
@@ -71,7 +72,7 @@ async def _seed_attempt(
     return item
 
 
-def _record(**overrides) -> OutboundDeliveryObservationRecord:
+def _record(**overrides) -> PostHandoffObservation:
     values = {
         "event_id": "evt-observation-1",
         "adapter": "lxmf-main",
@@ -85,7 +86,7 @@ def _record(**overrides) -> OutboundDeliveryObservationRecord:
         "attempt_provenance": _provenance(**overrides.pop("_provenance_overrides", {})),
     }
     values.update(overrides)
-    return OutboundDeliveryObservationRecord(**values)
+    return make_post_handoff_observation(**values)
 
 
 def _provenance(**overrides) -> DeliveryAttemptProvenance:
@@ -130,8 +131,10 @@ async def test_observation_persists_idempotently_for_exact_sent_attempt(
     lifecycle = DeliveryLifecycleService()
     now = datetime.now(timezone.utc)
 
-    assert await lifecycle.record_delivery_observation(temp_storage, _record(), now)
-    assert not await lifecycle.record_delivery_observation(temp_storage, _record(), now)
+    assert await lifecycle.record_post_handoff_observation(temp_storage, _record(), now)
+    assert not await lifecycle.record_post_handoff_observation(
+        temp_storage, _record(), now
+    )
 
     observations = await temp_storage.list_delivery_observations_for_outbox(
         item.outbox_id
@@ -153,7 +156,7 @@ async def test_observation_can_arrive_while_handoff_attempt_is_in_progress(
     await _seed_attempt(temp_storage)
     lifecycle = DeliveryLifecycleService()
 
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(state="failed", error="provider reported failure"),
         datetime.now(timezone.utc),
@@ -169,7 +172,7 @@ async def test_observation_with_provenance_allows_pre_receipt_race(
     await _seed_attempt(temp_storage, status="queued")
     lifecycle = DeliveryLifecycleService()
 
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(attempt_provenance=_provenance()),
         datetime.now(timezone.utc),
@@ -183,7 +186,7 @@ async def test_observation_rejects_provenance_contradicting_durable_row(
     await _seed_attempt(temp_storage, status="queued")
     lifecycle = DeliveryLifecycleService()
 
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(
             attempt_number=None,
@@ -201,7 +204,7 @@ async def test_observation_rejects_contradictory_queued_receipt_provenance(
     await _append_queued_receipt(temp_storage, source="replay")
     lifecycle = DeliveryLifecycleService()
 
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(attempt_provenance=_provenance()),
         datetime.now(timezone.utc),
@@ -230,7 +233,7 @@ async def test_observation_rejects_corrupt_queued_receipt_identity(
     )
     lifecycle = DeliveryLifecycleService()
 
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(attempt_provenance=_provenance()),
         datetime.now(timezone.utc),
@@ -259,7 +262,7 @@ async def test_observation_rejects_contradictory_sent_attempt_evidence(
     )
     lifecycle = DeliveryLifecycleService()
 
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(attempt_provenance=_provenance()),
         datetime.now(timezone.utc),
@@ -279,7 +282,7 @@ async def test_observation_with_provenance_fails_closed_on_receipt_history_error
     )
     lifecycle = DeliveryLifecycleService()
 
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(attempt_provenance=_provenance()),
         datetime.now(timezone.utc),
@@ -291,7 +294,7 @@ async def test_failed_observation_does_not_reopen_sent_outbox(temp_storage) -> N
     await _seed_attempt(temp_storage, status="sent")
     lifecycle = DeliveryLifecycleService()
 
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(state="failed", error="provider later reported failure"),
         datetime.now(timezone.utc),
@@ -337,7 +340,7 @@ async def test_observation_rejects_stale_retry_attempt_without_mutating_outbox(
     await _seed_attempt(temp_storage, status="retry_wait")
     lifecycle = DeliveryLifecycleService()
 
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage, _record(), datetime.now(timezone.utc)
     )
     assert await temp_storage.count_delivery_observations() == 0
@@ -351,12 +354,12 @@ async def test_observation_rejects_attempt_and_plan_mismatch(temp_storage) -> No
     lifecycle = DeliveryLifecycleService()
     now = datetime.now(timezone.utc)
 
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(attempt_number=2, _provenance_overrides={"attempt_number": 2}),
         now,
     )
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(
             delivery_plan_id="wrong-plan",
@@ -371,7 +374,7 @@ async def test_native_channel_is_evidence_not_route_correlation(temp_storage) ->
     await _seed_attempt(temp_storage, status="sent")
     lifecycle = DeliveryLifecycleService()
 
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(native_channel_id="cc" * 16),
         datetime.now(timezone.utc),
@@ -394,7 +397,7 @@ async def test_structured_address_observation_does_not_require_target_channel(
     )
     lifecycle = DeliveryLifecycleService()
 
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(
             native_channel_id="aa" * 16,
@@ -416,12 +419,12 @@ async def test_stronger_confirmation_is_distinct_append_only_observation(
     lifecycle = DeliveryLifecycleService()
     now = datetime.now(timezone.utc)
 
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(confirmation_level="unknown"),
         now,
     )
-    assert await lifecycle.record_delivery_observation(
+    assert await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(confirmation_level="end_to_end"),
         now,
@@ -439,7 +442,7 @@ async def test_uncorrelated_observation_is_rejected(temp_storage) -> None:
     await _seed_attempt(temp_storage, status="sent")
     lifecycle = DeliveryLifecycleService()
 
-    assert not await lifecycle.record_delivery_observation(
+    assert not await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(
             outbox_id="outbox-never-admitted",
@@ -453,7 +456,7 @@ async def test_uncorrelated_observation_is_rejected(temp_storage) -> None:
 async def test_event_timeline_surfaces_post_handoff_observation(temp_storage) -> None:
     await _seed_attempt(temp_storage, status="sent")
     lifecycle = DeliveryLifecycleService()
-    await lifecycle.record_delivery_observation(
+    await lifecycle.record_post_handoff_observation(
         temp_storage, _record(), datetime.now(timezone.utc)
     )
 
@@ -475,7 +478,7 @@ async def test_storage_evidence_surfaces_observation_count_and_event_rows(
 ) -> None:
     await _seed_attempt(temp_storage, status="sent")
     lifecycle = DeliveryLifecycleService()
-    await lifecycle.record_delivery_observation(
+    await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(),
         datetime.now(timezone.utc),
@@ -500,7 +503,7 @@ async def test_storage_evidence_surfaces_observation_count_and_event_rows(
 async def test_observation_evidence_sanitizes_error_and_metadata(temp_storage) -> None:
     await _seed_attempt(temp_storage, status="sent")
     lifecycle = DeliveryLifecycleService()
-    await lifecycle.record_delivery_observation(
+    await lifecycle.record_post_handoff_observation(
         temp_storage,
         _record(
             state="failed",
@@ -546,14 +549,16 @@ class _FlakyLifecycle:
         self.failures = failures
         self.calls = 0
 
-    async def record_delivery_observation(self, storage, record, now) -> bool:
+    async def record_post_handoff_observation(self, storage, feedback, now) -> bool:
         self.calls += 1
         if self.calls <= self.failures:
             raise RuntimeError("storage contention")
         return True
 
 
-async def test_runner_record_delivery_observation_retries_once(temp_storage) -> None:
+async def test_runner_record_post_handoff_observation_retries_once(
+    temp_storage,
+) -> None:
     """A transient persistence failure gets one immediate re-attempt."""
     from medre.core.engine.pipeline.runner import PipelineRunner
     from medre.core.routing import Router
@@ -563,13 +568,13 @@ async def test_runner_record_delivery_observation_retries_once(temp_storage) -> 
         make_pipeline_config_for_pipeline(temp_storage, Router(routes=[]))
     )
     lifecycle = _FlakyLifecycle(failures=1)
-    runner._lifecycle = lifecycle
+    runner._delivery_feedback._lifecycle = lifecycle
 
-    await runner._record_delivery_observation(_record())
+    await runner._record_delivery_feedback(_record())
     assert lifecycle.calls == 2
 
 
-async def test_runner_record_delivery_observation_forfeits_after_retry(
+async def test_runner_record_post_handoff_observation_forfeits_after_retry(
     temp_storage, caplog
 ) -> None:
     """A callback whose re-attempt also fails is forfeited, not raised."""
@@ -583,13 +588,76 @@ async def test_runner_record_delivery_observation_forfeits_after_retry(
         make_pipeline_config_for_pipeline(temp_storage, Router(routes=[]))
     )
     lifecycle = _FlakyLifecycle(failures=99)
-    runner._lifecycle = lifecycle
+    runner._delivery_feedback._lifecycle = lifecycle
 
     with caplog.at_level(logging.ERROR):
-        await runner._record_delivery_observation(_record())
+        await runner._record_delivery_feedback(_record())
 
     assert lifecycle.calls == 2
     assert any(
-        "Failed to persist delivery observation" in record.message
+        "Failed to persist post-handoff observation" in record.message
         for record in caplog.records
+    )
+
+
+async def test_deferred_completion_repair_failure_does_not_reclassify_commit(
+    temp_storage, caplog
+) -> None:
+    """Post-commit projection repair failure is logged separately from finalization."""
+    import logging
+
+    from medre.core.contracts.delivery import (
+        AdapterHandoffResult,
+        DeferredHandoffCompleted,
+    )
+    from medre.core.engine.pipeline.delivery_feedback import DeliveryFeedbackDispatcher
+    from tests.helpers.delivery_callbacks import make_attempt_provenance
+
+    class _CommittedLifecycle:
+        calls = 0
+
+        async def finalize_deferred_handoff(self, storage, feedback, now) -> bool:
+            del storage, feedback, now
+            self.calls += 1
+            return True
+
+    async def _repair(_event_id: str) -> None:
+        raise RuntimeError("projection repair failed")
+
+    lifecycle = _CommittedLifecycle()
+    dispatcher = DeliveryFeedbackDispatcher(
+        storage=temp_storage,
+        lifecycle=lifecycle,  # type: ignore[arg-type]
+        outbox_manager=object(),  # type: ignore[arg-type]
+        native_ref_persisted_fn=_repair,
+        logger=logging.getLogger("test.delivery_feedback"),
+    )
+    feedback = DeferredHandoffCompleted(
+        attempt_provenance=make_attempt_provenance(
+            event_id="evt-repair",
+            target_adapter="mesh",
+            outbox_id="obox-repair",
+            attempt_number=1,
+            target_channel="0",
+        ),
+        handoff=AdapterHandoffResult(
+            native_message_id="native-1",
+            native_channel_id="0",
+            confirmation_level="local_transport",
+        ),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="test.delivery_feedback"):
+        await dispatcher.record(feedback)
+
+    assert lifecycle.calls == 1
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "Conversation projection repair failed after deferred native-ref persistence"
+        in message
+        for message in messages
+    )
+    assert not any(
+        "Failed to finalize deferred adapter hand-off" in message
+        for message in messages
     )

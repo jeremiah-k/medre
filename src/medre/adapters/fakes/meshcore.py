@@ -27,7 +27,6 @@ Usage
 from __future__ import annotations
 
 import logging
-from types import MappingProxyType
 from typing import Any
 
 from medre.adapters.meshcore.adapter import increment_classifier_counters
@@ -39,7 +38,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
@@ -133,11 +132,9 @@ _FAKE_MESHCORE_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=False,
-    delivery_receipts=False,
     store_and_forward=False,
     direct_messages=False,
     channels=True,
-    async_delivery=True,
     mesh_routing=True,
     max_text_bytes=512,
     max_text_chars=None,
@@ -306,7 +303,7 @@ class FakeMeshCoreAdapter(AdapterContract):
 
     # -- Outbound delivery --------------------------------------------------
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Accept an outbound rendered payload for delivery.
 
         This adapter consumes :class:`RenderingResult` only.  Passing a
@@ -323,7 +320,7 @@ class FakeMeshCoreAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult
+        AdapterHandoffResult
             Contains the deterministic native_message_id and
             native_channel_id from the fake client.
 
@@ -364,23 +361,17 @@ class FakeMeshCoreAdapter(AdapterContract):
         )
         packet_id = send_result["packet_id"]
 
-        return AdapterDeliveryResult(
+        return AdapterHandoffResult(
             native_message_id=str(packet_id),
             native_channel_id=str(channel_index),
-            delivery_note="fake adapter — simulated local acceptance",
-            metadata=MappingProxyType(
-                {
-                    # Nested MappingProxyType matches real adapter shape.
-                    # NOTE: MappingProxyType is not directly JSON-serializable;
-                    # consumers that persist metadata must cast via dict() first.
-                    "meshcore": MappingProxyType(
-                        {
-                            "schema_version": MESHCORE_NATIVE_SCHEMA_VERSION,
-                            "local_acceptance": True,
-                        }
-                    ),
-                }
-            ),
+            confirmation_level="local_transport",
+            note="fake adapter — simulated local acceptance",
+            metadata={
+                "meshcore": {
+                    "schema_version": MESHCORE_NATIVE_SCHEMA_VERSION,
+                    "local_acceptance": True,
+                },
+            },
         )
 
     # -- Inbound simulation -------------------------------------------------

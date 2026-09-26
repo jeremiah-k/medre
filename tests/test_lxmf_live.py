@@ -78,7 +78,7 @@ registration, outbound send, reconnection, teardown).
   When the SDK is not installed, non-fake ``start()`` raises
   ``LxmfConnectionError``.
 - **Session-backed deliver.**  ``deliver()`` sends via the session and
-  returns an ``AdapterDeliveryResult`` with native message ID and
+  returns an ``AdapterHandoffResult`` with native message ID and
   ``lxmf.delivery_state`` metadata (honest pending/sent semantics).
 - **Inbound callbacks.**  ``LxmfSession`` wires real LXMRouter delivery
   callbacks.  Inbound messages are normalised to plain dicts before
@@ -95,7 +95,7 @@ registration, outbound send, reconnection, teardown).
 - ``start()`` is idempotent — calling twice is a no-op.
 - Restart (start → stop → start → stop) works without state leaks.
 - Repeated start/stop cycles are stable.
-- ``deliver()`` returns an ``AdapterDeliveryResult`` with a native
+- ``deliver()`` returns an ``AdapterHandoffResult`` with a native
   message ID and ``lxmf`` delivery-state metadata.
 - ``simulate_inbound()`` exercises the same codec/classifier pipeline
   used by real inbound callbacks.
@@ -230,7 +230,6 @@ def _make_context(publish_inbound=None):
 
     return AdapterContext(
         adapter_id="lxmf-live-smoke",
-        event_bus=None,
         publish_inbound=publish_inbound or AsyncMock(),
         logger=logging.getLogger("test.lxmf-live"),
         clock=lambda: datetime.now(timezone.utc),
@@ -408,14 +407,14 @@ class TestLxmfLiveSmoke:
     # ===================================================================
 
     async def test_outbound_send_returns_delivery_result_fake(self):
-        """deliver() returns AdapterDeliveryResult with lxmf metadata.
+        """deliver() returns AdapterHandoffResult with lxmf metadata.
 
-        In fake mode, ``deliver()`` returns an ``AdapterDeliveryResult``
+        In fake mode, ``deliver()`` returns an ``AdapterHandoffResult``
         with a deterministic native message ID and ``lxmf.delivery_state``
         metadata set to ``"outbound"`` (honest pending semantics).
         """
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
         config = _make_fake_config()
         adapter = LxmfAdapter(config)
@@ -442,8 +441,8 @@ class TestLxmfLiveSmoke:
             )
             assert (
                 delivery is not None
-            ), "deliver() returned None — expected AdapterDeliveryResult"
-            assert isinstance(delivery, AdapterDeliveryResult)
+            ), "deliver() returned None — expected AdapterHandoffResult"
+            assert isinstance(delivery, AdapterHandoffResult)
             assert delivery.native_message_id is not None, "native_message_id is None"
             lxmf_meta = delivery.metadata.get("lxmf")
             assert isinstance(
@@ -759,10 +758,10 @@ class TestLxmfLiveSmoke:
         A single ordered round-trip that validates the complete adapter
         lifecycle in one test: start, deliver, verify health, stop,
         verify unknown.  Uses fake mode; ``deliver()`` returns a real
-        ``AdapterDeliveryResult`` with ``lxmf`` delivery-state metadata.
+        ``AdapterHandoffResult`` with ``lxmf`` delivery-state metadata.
         """
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
         from medre.core.rendering.renderer import RenderingResult
 
         config = _make_fake_config()
@@ -774,7 +773,7 @@ class TestLxmfLiveSmoke:
         info = await adapter.health_check()
         assert info.health == "healthy"
 
-        # 2. Deliver — returns AdapterDeliveryResult via session.
+        # 2. Deliver — returns AdapterHandoffResult via session.
         ts = int(time.time())
         result = RenderingResult(
             event_id=f"lifecycle-{ts}",
@@ -791,7 +790,7 @@ class TestLxmfLiveSmoke:
             adapter.deliver(result), 5.0, "fake deliver (lifecycle)"
         )
         assert delivery is not None, "deliver() returned None"
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id is not None, "native_message_id is None"
         lxmf_meta = delivery.metadata.get("lxmf")
         assert isinstance(lxmf_meta, dict)
@@ -848,7 +847,7 @@ class TestLxmfLiveSmoke:
         they do not hang or deadlock.
         """
         from medre.adapters.lxmf.adapter import LxmfAdapter
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
         from medre.core.rendering.renderer import RenderingResult
 
         config = _make_fake_config()
@@ -874,7 +873,7 @@ class TestLxmfLiveSmoke:
         )
         delivery = await bounded(adapter.deliver(result), 5.0, "fake deliver (bounded)")
         assert delivery is not None
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
 
         # Bounded stop
         await bounded(adapter.stop(), 5.0, "fake stop (bounded)")
@@ -1096,7 +1095,7 @@ class TestLxmfLiveSmoke:
         """
         from medre.adapters.lxmf.adapter import LxmfAdapter
         from medre.adapters.lxmf.errors import LxmfConnectionError
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
         from medre.core.rendering.renderer import RenderingResult
 
         if not LXMF_DESTINATION_HASH:
@@ -1132,7 +1131,7 @@ class TestLxmfLiveSmoke:
                 "lxmf deliver live send",
             )
             assert delivery is not None, "deliver() returned None"
-            assert isinstance(delivery, AdapterDeliveryResult)
+            assert isinstance(delivery, AdapterHandoffResult)
             assert (
                 delivery.native_message_id is not None
             ), "native_message_id is None — send did not produce an ID"
@@ -1274,7 +1273,7 @@ class TestLxmfTopologyLive:
 
         from medre.adapters.lxmf.adapter import LxmfAdapter
         from medre.adapters.lxmf.errors import LxmfConnectionError
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
         from medre.core.rendering.renderer import RenderingResult
 
         config = _make_config()
@@ -1307,7 +1306,7 @@ class TestLxmfTopologyLive:
                 "topology deliver",
             )
             assert delivery is not None
-            assert isinstance(delivery, AdapterDeliveryResult)
+            assert isinstance(delivery, AdapterHandoffResult)
             assert delivery.native_message_id is not None
         finally:
             await bounded(adapter.stop(), _ADAPTER_STOP_TIMEOUT, "topology send stop")

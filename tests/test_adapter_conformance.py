@@ -415,7 +415,6 @@ class TestPublishInbound:
 
         ctx = AdapterContext(
             adapter_id="test",
-            event_bus=None,
             publish_inbound=_collector,
             logger=__import__("logging").getLogger(f"test.{name}"),
             clock=lambda: datetime.now(timezone.utc),
@@ -562,7 +561,6 @@ async def _produce_inbound_events(adapter: AdapterContract, name: str) -> list[A
 
     ctx = AdapterContext(
         adapter_id="test",
-        event_bus=None,
         publish_inbound=collector,
         logger=__import__("logging").getLogger(f"test.{name}"),
         clock=lambda: datetime.now(timezone.utc),

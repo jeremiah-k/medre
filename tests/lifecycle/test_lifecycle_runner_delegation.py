@@ -8,14 +8,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from medre.core.contracts.adapter import OutboundNativeRefRecord
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.delivery_plan import DeliveryFailureKind
 from medre.core.routing import Router
 from medre.core.storage.backend import DeliveryOutboxItem, StorageBackend
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 
 from .conftest import _make_receipt
 
@@ -92,7 +94,7 @@ class TestDelegationIntegration:
         self,
         temp_storage: StorageBackend,
     ) -> None:
-        """PipelineRunner._finalize_queued_delivery delegates to lifecycle."""
+        """PipelineRunner._finalize_deferred_handoff delegates to lifecycle."""
         now = datetime.now(tz=timezone.utc)
         # Admit the parent event so the FKs on delivery_receipts.event_id
         # and delivery_outbox.event_id are satisfied
@@ -140,7 +142,7 @@ class TestDelegationIntegration:
 
         runner = _make_runner(temp_storage)
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id="evt-001",
                 target_adapter="mesh",
@@ -157,7 +159,7 @@ class TestDelegationIntegration:
             outbox_id="obox-delegate-qs",
             attempt_number=1,
         )
-        await runner._finalize_queued_delivery(record=record, now=now)
+        await runner._record_delivery_feedback(record)
 
         stored = await temp_storage.list_receipts_for_event("evt-001")
         sent = [r for r in stored if r.status == "sent"]

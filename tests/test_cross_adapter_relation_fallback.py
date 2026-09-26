@@ -515,8 +515,8 @@ class TestMissingNativeRefCrossAdapterDegradation:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_MC: mc_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -598,8 +598,8 @@ class TestMissingNativeRefCrossAdapterDegradation:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_LXMF: lx_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -785,8 +785,8 @@ class TestMeshtasticToMatrixReactionResolution:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={_MX: matrix_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()

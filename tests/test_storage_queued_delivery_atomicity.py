@@ -9,8 +9,8 @@ import pytest
 
 from medre.core.events import DeliveryReceipt, NativeMessageRef
 from medre.core.storage.backend import (
+    DeferredHandoffFinalization,
     DeliveryOutboxItem,
-    QueuedDeliveryFinalization,
     StorageError,
 )
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -115,7 +115,7 @@ def _sent_evidence(
         ({}, {"attempt_number": 0}, "attempt_number must be >= 1"),
     ],
 )
-async def test_finalize_queued_delivery_rejects_invalid_evidence(
+async def test_finalize_deferred_handoff_rejects_invalid_evidence(
     temp_storage: SQLiteStorage,
     native_updates: dict[str, object],
     receipt_updates: dict[str, object],
@@ -126,8 +126,8 @@ async def test_finalize_queued_delivery_rejects_invalid_evidence(
     candidate_receipt = msgspec.structs.replace(sent, **receipt_updates)
 
     with pytest.raises(ValueError, match=message):
-        await temp_storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(
+        await temp_storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(
                 native_ref=candidate_ref,
                 receipt=candidate_receipt,
             )
@@ -135,7 +135,7 @@ async def test_finalize_queued_delivery_rejects_invalid_evidence(
 
 
 @pytest.mark.asyncio
-async def test_finalize_queued_delivery_accepts_resolved_native_channel_evidence(
+async def test_finalize_deferred_handoff_accepts_resolved_native_channel_evidence(
     temp_storage: SQLiteStorage,
 ) -> None:
     """Native transport channel may differ from route-level target identity."""
@@ -143,8 +143,8 @@ async def test_finalize_queued_delivery_accepts_resolved_native_channel_evidence
     native_ref, sent = _sent_evidence(native_id="pkt-native-channel")
     native_ref = msgspec.structs.replace(native_ref, native_channel_id="3")
 
-    committed = await temp_storage.finalize_queued_delivery(
-        QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
+    committed = await temp_storage.finalize_deferred_handoff(
+        DeferredHandoffFinalization(native_ref=native_ref, receipt=sent)
     )
 
     assert committed is True
@@ -163,7 +163,7 @@ async def test_finalize_queued_delivery_accepts_resolved_native_channel_evidence
     "case",
     ["outbox", "event", "plan", "adapter", "channel", "attempt"],
 )
-async def test_finalize_queued_delivery_guards_full_outbox_identity(
+async def test_finalize_deferred_handoff_guards_full_outbox_identity(
     temp_storage: SQLiteStorage,
     case: str,
 ) -> None:
@@ -187,8 +187,8 @@ async def test_finalize_queued_delivery_guards_full_outbox_identity(
     elif case == "attempt":
         sent = msgspec.structs.replace(sent, attempt_number=2)
 
-    committed = await temp_storage.finalize_queued_delivery(
-        QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
+    committed = await temp_storage.finalize_deferred_handoff(
+        DeferredHandoffFinalization(native_ref=native_ref, receipt=sent)
     )
 
     assert committed is False
@@ -201,14 +201,14 @@ async def test_finalize_queued_delivery_guards_full_outbox_identity(
 
 
 @pytest.mark.asyncio
-async def test_finalize_queued_delivery_commits_all_evidence(
+async def test_finalize_deferred_handoff_commits_all_evidence(
     temp_storage: SQLiteStorage,
 ) -> None:
     await _seed_queued_attempt(temp_storage)
     native_ref, sent = _sent_evidence()
 
-    committed = await temp_storage.finalize_queued_delivery(
-        QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
+    committed = await temp_storage.finalize_deferred_handoff(
+        DeferredHandoffFinalization(native_ref=native_ref, receipt=sent)
     )
 
     assert committed is True
@@ -225,7 +225,7 @@ async def test_finalize_queued_delivery_commits_all_evidence(
 
 
 @pytest.mark.asyncio
-async def test_finalize_queued_delivery_stale_guard_commits_nothing(
+async def test_finalize_deferred_handoff_stale_guard_commits_nothing(
     temp_storage: SQLiteStorage,
 ) -> None:
     queued = await _seed_queued_attempt(temp_storage)
@@ -236,8 +236,8 @@ async def test_finalize_queued_delivery_stale_guard_commits_nothing(
     )
     native_ref, sent = _sent_evidence(native_id="pkt-stale")
 
-    committed = await temp_storage.finalize_queued_delivery(
-        QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
+    committed = await temp_storage.finalize_deferred_handoff(
+        DeferredHandoffFinalization(native_ref=native_ref, receipt=sent)
     )
 
     assert committed is False
@@ -247,7 +247,7 @@ async def test_finalize_queued_delivery_stale_guard_commits_nothing(
 
 
 @pytest.mark.asyncio
-async def test_finalize_queued_delivery_receipt_failure_rolls_back_all_tables(
+async def test_finalize_deferred_handoff_receipt_failure_rolls_back_all_tables(
     temp_storage: SQLiteStorage,
 ) -> None:
     queued = await _seed_queued_attempt(temp_storage)
@@ -273,8 +273,8 @@ async def test_finalize_queued_delivery_receipt_failure_rolls_back_all_tables(
     )
 
     with pytest.raises(StorageError):
-        await temp_storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
+        await temp_storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(native_ref=native_ref, receipt=sent)
         )
 
     assert (
@@ -287,7 +287,7 @@ async def test_finalize_queued_delivery_receipt_failure_rolls_back_all_tables(
 
 
 @pytest.mark.asyncio
-async def test_finalize_queued_delivery_rejects_conflicting_native_identity(
+async def test_finalize_deferred_handoff_rejects_conflicting_native_identity(
     temp_storage: SQLiteStorage,
 ) -> None:
     queued = await _seed_queued_attempt(temp_storage)
@@ -309,8 +309,8 @@ async def test_finalize_queued_delivery_rejects_conflicting_native_identity(
     native_ref, sent = _sent_evidence(native_id="pkt-conflict")
 
     with pytest.raises(StorageError, match="different canonical event"):
-        await temp_storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
+        await temp_storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(native_ref=native_ref, receipt=sent)
         )
 
     outbox = await temp_storage.get_outbox_item(OUTBOX_ID)
@@ -322,7 +322,7 @@ async def test_finalize_queued_delivery_rejects_conflicting_native_identity(
 
 
 @pytest.mark.asyncio
-async def test_finalize_queued_delivery_native_ref_id_collision_rolls_back(
+async def test_finalize_deferred_handoff_native_ref_id_collision_rolls_back(
     temp_storage: SQLiteStorage,
 ) -> None:
     queued = await _seed_queued_attempt(temp_storage)
@@ -343,8 +343,8 @@ async def test_finalize_queued_delivery_native_ref_id_collision_rolls_back(
     native_ref, sent = _sent_evidence(native_id="pkt-id-collision")
 
     with pytest.raises(StorageError):
-        await temp_storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(native_ref=native_ref, receipt=sent)
+        await temp_storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(native_ref=native_ref, receipt=sent)
         )
 
     assert (

@@ -100,8 +100,8 @@ async def _make_pipeline(
             "fake_meshcore": mesh_adapter,
             out_adapter_id: out_adapter,
         },
-        event_bus=EventBus(),
         rendering_pipeline=rp,
+        event_bus=EventBus(),
     )
 
     runner = PipelineRunner(config)
@@ -114,7 +114,6 @@ def _make_adapter_context_for_pipeline(adapter_id: str, runner: PipelineRunner) 
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=runner.handle_ingress,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -238,8 +237,8 @@ class TestMeshCorePipelineIntegration:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"mc-in": in_adapter, "local-mesh": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -290,8 +289,8 @@ class TestMeshCoreNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"meshcore-inbound": adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -357,8 +356,8 @@ class TestMeshCoreNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"meshcore-in": in_adapter, "meshcore-out": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -417,8 +416,8 @@ class TestMeshCoreNativeRefPersistence:
                     "meshcore-fail-in": in_adapter,
                     "meshcore-fail-out": out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -477,8 +476,8 @@ class TestMeshCoreNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"meshcore-dup": adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -571,8 +570,8 @@ class TestMeshCorePlatformRendererSelection:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"field-node": in_adapter, "field-out": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()

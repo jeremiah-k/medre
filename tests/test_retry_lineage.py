@@ -17,7 +17,7 @@ from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
 )
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
@@ -86,7 +86,7 @@ class _TransientThenSucceedAdapter(FakePresentationAdapter):
         self._fail_count = fail_count
         self._call_count: int = 0
 
-    async def deliver(self, result) -> AdapterDeliveryResult | None:
+    async def deliver(self, result) -> AdapterHandoffResult | None:
         self._call_count += 1
         if self._call_count <= self._fail_count:
             raise ConnectionError(
@@ -259,11 +259,11 @@ def _build_runner(
         fallback_resolver=fallback_resolver or FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters,
-        event_bus=EventBus(),
         rendering_pipeline=render_pipe,
         diagnostician=Diagnostician(),
         route_stats=RouteStats(),
         runtime_accounting=accounting,
+        event_bus=EventBus(),
     )
     return PipelineRunner(config)
 
@@ -272,7 +272,6 @@ async def _start_adapters(adapters: dict) -> None:
     for aid, adapter in adapters.items():
         ctx = AdapterContext(
             adapter_id=aid,
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=__import__("logging").getLogger(f"test.{aid}"),
             clock=lambda: datetime.now(timezone.utc),

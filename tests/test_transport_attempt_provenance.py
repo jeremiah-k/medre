@@ -15,7 +15,7 @@ from medre.adapters.meshtastic.queue import (
     QueueDeliveryResult,
     QueueTerminalResult,
 )
-from medre.core.contracts.adapter import AdapterContext, AdapterDeliveryResult
+from medre.core.contracts.adapter import AdapterContext, AdapterHandoffResult
 from medre.core.events import DeliveryAttemptProvenance
 from tests.helpers.meshtastic import make_meshtastic_config
 
@@ -33,19 +33,17 @@ def _provenance() -> DeliveryAttemptProvenance:
     )
 
 
-def _context(*, terminal: AsyncMock, native_ref: AsyncMock) -> AdapterContext:
+def _context(*, feedback: AsyncMock) -> AdapterContext:
     async def _publish(_event) -> None:
         return None
 
     return AdapterContext(
         adapter_id="mesh-provenance",
-        event_bus=None,
         publish_inbound=_publish,
         logger=logging.getLogger("test.mesh-provenance"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
-        record_outbound_terminal=terminal,
-        record_outbound_native_ref=native_ref,
+        report_delivery_feedback=feedback,
     )
 
 
@@ -109,54 +107,48 @@ async def test_meshtastic_queue_rejects_mirror_contradiction() -> None:
 
 async def test_meshtastic_async_callbacks_echo_exact_provenance() -> None:
     provenance = _provenance()
-    terminal = AsyncMock()
-    native_ref = AsyncMock()
+    feedback = AsyncMock()
     adapter = MeshtasticAdapter(
         make_meshtastic_config(adapter_id="mesh-provenance", connection_type="fake")
     )
-    adapter.ctx = _context(terminal=terminal, native_ref=native_ref)
+    adapter.ctx = _context(feedback=feedback)
 
     queue = MeshtasticOutboundQueue(delay_between_messages=0.0)
     await queue.enqueue({"text": "hello"}, 0, attempt_provenance=provenance)
     item = await queue.dequeue()
     assert item is not None
 
-    await adapter._report_queue_terminal(
+    await adapter._report_deferred_failure(
         QueueTerminalResult(
             item=item,
             outcome="permanent_failed",
             error="radio rejected send",
         )
     )
-    terminal_record = terminal.await_args.args[0]
+    terminal_record = feedback.await_args.args[0]
     assert terminal_record.attempt_provenance is provenance
-    assert terminal_record.outbox_id == provenance.outbox_id
-    assert terminal_record.attempt_number == provenance.attempt_number
+    assert terminal_record.outcome == "permanent_failed"
 
-    delivery = AdapterDeliveryResult(
+    delivery = AdapterHandoffResult(
         native_message_id="12345",
         native_channel_id="0",
         confirmation_level="local_transport",
     )
-    await adapter._record_delayed_outbound_ref(
-        QueueDeliveryResult(item=item, delivery_result=delivery),
-        provenance.event_id,
-        delivery,
+    await adapter._report_deferred_completion(
+        QueueDeliveryResult(item=item, handoff=delivery)
     )
-    native_record = native_ref.await_args.args[0]
-    assert native_record.attempt_provenance is provenance
-    assert native_record.outbox_id == provenance.outbox_id
-    assert native_record.attempt_number == provenance.attempt_number
+    completion = feedback.await_args.args[0]
+    assert completion.attempt_provenance is provenance
+    assert completion.handoff.native_message_id == "12345"
 
 
 async def test_meshtastic_callback_drops_corrupted_queue_mirror() -> None:
     provenance = _provenance()
-    terminal = AsyncMock()
-    native_ref = AsyncMock()
+    feedback = AsyncMock()
     adapter = MeshtasticAdapter(
         make_meshtastic_config(adapter_id="mesh-provenance", connection_type="fake")
     )
-    adapter.ctx = _context(terminal=terminal, native_ref=native_ref)
+    adapter.ctx = _context(feedback=feedback)
     item = {
         "event_id": "evt-corrupted",
         "delivery_plan_id": provenance.delivery_plan_id,
@@ -167,8 +159,8 @@ async def test_meshtastic_callback_drops_corrupted_queue_mirror() -> None:
         "attempt_provenance": provenance,
     }
 
-    await adapter._report_queue_terminal(
+    await adapter._report_deferred_failure(
         QueueTerminalResult(item=item, outcome="permanent_failed", error="failed")
     )
 
-    terminal.assert_not_awaited()
+    feedback.assert_not_awaited()

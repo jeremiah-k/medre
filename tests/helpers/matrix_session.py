@@ -40,7 +40,6 @@ def make_matrix_context(adapter_id: str = "matrix-test") -> AdapterContext:
     """Build an AdapterContext with minimal fakes."""
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),

@@ -106,7 +106,6 @@ class TestMedreAppConstruction:
             config=MagicMock(spec=["runtime"]),  # RuntimeConfig
             paths=MagicMock(),  # MedrePaths
             storage=MagicMock(),  # SQLiteStorage | None
-            event_bus=MagicMock(),  # EventBus
             rendering_pipeline=MagicMock(),  # RenderingPipeline
             router=MagicMock(),  # Router
             fallback_resolver=MagicMock(),  # FallbackResolver
@@ -115,6 +114,7 @@ class TestMedreAppConstruction:
             diagnostician=MagicMock(),  # Diagnostician
             adapters={},  # dict[str, AdapterContract]
             shutdown_event=asyncio.Event(),  # asyncio.Event
+            event_bus=MagicMock(),
         )
 
     def test_constructs_without_error(self) -> None:
@@ -139,7 +139,6 @@ class TestMedreAppConstruction:
             config=MagicMock(),
             paths=MagicMock(),
             storage=None,
-            event_bus=MagicMock(),
             rendering_pipeline=MagicMock(),
             router=MagicMock(),
             fallback_resolver=MagicMock(),
@@ -148,6 +147,7 @@ class TestMedreAppConstruction:
             diagnostician=MagicMock(),
             adapters={},
             shutdown_event=asyncio.Event(),
+            event_bus=MagicMock(),
         )
         assert app_none.storage is None
 
@@ -166,7 +166,6 @@ class TestMedreAppProperties:
             config=MagicMock(),
             paths=MagicMock(),
             storage=MagicMock(),
-            event_bus=MagicMock(),
             rendering_pipeline=MagicMock(),
             router=MagicMock(),
             fallback_resolver=MagicMock(),
@@ -175,6 +174,7 @@ class TestMedreAppProperties:
             diagnostician=MagicMock(),
             adapters={},
             shutdown_event=asyncio.Event(),
+            event_bus=MagicMock(),
         )
 
     def test_state_returns_initialized(self) -> None:
@@ -237,7 +237,6 @@ class TestTypeCheckingCompatibility:
             config=MagicMock(),
             paths=MagicMock(),
             storage=MagicMock(),
-            event_bus=MagicMock(),
             rendering_pipeline=MagicMock(),
             router=MagicMock(),
             fallback_resolver=MagicMock(),
@@ -246,6 +245,7 @@ class TestTypeCheckingCompatibility:
             diagnostician=MagicMock(),
             adapters={"adapter-1": MagicMock()},
             shutdown_event=asyncio.Event(),
+            event_bus=MagicMock(),
         )
         assert "adapter-1" in app.adapters
 
@@ -254,7 +254,6 @@ class TestTypeCheckingCompatibility:
             config=MagicMock(),
             paths=MagicMock(),
             storage=None,
-            event_bus=MagicMock(),
             rendering_pipeline=MagicMock(),
             router=MagicMock(),
             fallback_resolver=MagicMock(),
@@ -263,6 +262,7 @@ class TestTypeCheckingCompatibility:
             diagnostician=MagicMock(),
             adapters={},
             shutdown_event=asyncio.Event(),
+            event_bus=MagicMock(),
         )
         # All optional private fields should be their defaults
         assert app.route_stats is None

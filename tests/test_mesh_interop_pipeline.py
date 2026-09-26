@@ -221,9 +221,9 @@ class _MeshInteropHarness:
                     MC_ADAPTER: self.mc,
                     LX_ADAPTER: self.lx,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
                 runtime_accounting=RuntimeAccounting(),
+                event_bus=EventBus(),
             )
         )
 
@@ -239,7 +239,6 @@ class _MeshInteropHarness:
     def _context(self, adapter_id: str) -> AdapterContext:
         return AdapterContext(
             adapter_id=adapter_id,
-            event_bus=None,
             publish_inbound=self.runner.handle_ingress,
             logger=logging.getLogger(f"test.mesh_interop.{adapter_id}"),
             clock=lambda: datetime.now(timezone.utc),

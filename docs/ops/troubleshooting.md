@@ -734,8 +734,8 @@ Symptom-driven shortcuts for the common post-crash cases:
   restart/worker recovery may converge it; if the finding persists, inspect the
   outbox lease/status and the worker that should advance it.
 - **`terminal_outbox_nonterminal_receipt`**: the outbox is already terminal and
-  will not be reclaimed. Inspect the complete receipt chain and terminal callback
-  evidence directly; treat a persistent mismatch as missing or contradictory
+  will not be reclaimed. Inspect the complete receipt chain and deferred feedback/provider
+  observation evidence directly; treat a persistent mismatch as missing or contradictory
   receipt evidence rather than waiting for reclaim.
 - **`retry_wait_missing_next_retry`**: the scheduler cannot retry; replay the
   event or correct the metadata.

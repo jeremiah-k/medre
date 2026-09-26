@@ -19,7 +19,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -195,8 +195,8 @@ class TestStartupCleanupDrainSites:
                     health="ok",
                 )
 
-            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-                return None
+            async def deliver(self, result: Any) -> AdapterHandoffResult:
+                return AdapterHandoffResult()
 
         config = _config_with_two_fake_adapters()
         app = _build_app(config, tmp_paths)
@@ -286,8 +286,8 @@ class TestStartupCleanupDrainAccounting:
                     health="failed",
                 )
 
-            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-                return None
+            async def deliver(self, result: Any) -> AdapterHandoffResult:
+                return AdapterHandoffResult()
 
         # -- Beta: start() blocks until cancelled ------------------------
         class _BlockingStart(AdapterContract):
@@ -318,8 +318,8 @@ class TestStartupCleanupDrainAccounting:
                     health="ok",
                 )
 
-            async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-                return None
+            async def deliver(self, result: Any) -> AdapterHandoffResult:
+                return AdapterHandoffResult()
 
         config = _config_with_two_fake_adapters()
         app = _build_app(config, tmp_paths)

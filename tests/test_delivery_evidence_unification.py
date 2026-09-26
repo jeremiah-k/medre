@@ -40,7 +40,7 @@ from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.core.contracts.adapter import (
     AdapterContext,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterPermanentError,
     AdapterSendError,
 )
@@ -159,7 +159,6 @@ def _matrix_config(**overrides: Any) -> Any:
 def _adapter_context(adapter_id: str = "matrix-unif") -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -653,8 +652,8 @@ class TestSuccessReportNativeMessageId:
         assert outcome.receipt.adapter_message_id == "$native-matrix-evt-42"
 
     def test_adapter_delivery_result_native_id(self) -> None:
-        """AdapterDeliveryResult carries native_message_id from platform."""
-        result = AdapterDeliveryResult(
+        """AdapterHandoffResult carries native_message_id from platform."""
+        result = AdapterHandoffResult(
             native_message_id="$plat-123",
             native_channel_id="!room:test",
         )
@@ -1080,7 +1079,6 @@ class TestMeshtasticClassifierDiagnosticsCounters:
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="cls-diag",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1109,7 +1107,6 @@ class TestMeshtasticClassifierDiagnosticsCounters:
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="rej-diag",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),

@@ -12,7 +12,7 @@ import pytest
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.core.contracts.adapter import (
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
@@ -165,9 +165,9 @@ class TestFakeMeshtasticAdapterDeliver:
         delivery = await adapter.deliver(result)
         assert len(adapter.delivered_payloads) == 1
         assert adapter.delivered_payloads[0] is result
-        # Fake adapter returns AdapterDeliveryResult with deterministic ID
+        # Fake adapter returns AdapterHandoffResult with deterministic ID
         assert delivery is not None
-        assert isinstance(delivery, AdapterDeliveryResult)
+        assert isinstance(delivery, AdapterHandoffResult)
         assert delivery.native_message_id is not None
         assert delivery.native_channel_id == "0"
 

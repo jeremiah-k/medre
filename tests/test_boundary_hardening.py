@@ -57,7 +57,6 @@ def _make_context(
 ) -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=publish_inbound or _async_noop,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -473,8 +472,8 @@ async def test_meshcore_deliver_metadata_namespace():
     await adapter.stop()
 
 
-async def test_meshcore_deliver_delivery_status_sent():
-    """MeshCoreAdapter deliver() must return delivery_status='sent'."""
+async def test_meshcore_deliver_transport_handoff():
+    """MeshCoreAdapter deliver() must return disposition='transport_handoff'."""
     adapter = FakeMeshCoreAdapter()
     ctx = _make_context(adapter_id=adapter.adapter_id)
     await adapter.start(ctx)
@@ -488,8 +487,8 @@ async def test_meshcore_deliver_delivery_status_sent():
 
     assert result is not None
     assert (
-        result.delivery_status == "sent"
-    ), "MeshCoreAdapter must return delivery_status='sent' (synchronous local acceptance)"
+        result.disposition == "transport_handoff"
+    ), "MeshCoreAdapter must return disposition='transport_handoff' (synchronous local acceptance)"
 
     await adapter.stop()
 
@@ -533,8 +532,8 @@ async def test_lxmf_deliver_metadata_namespace():
     await adapter.stop()
 
 
-async def test_lxmf_deliver_delivery_status_sent():
-    """FakeLxmfAdapter deliver() returns delivery_status default ('sent')."""
+async def test_lxmf_deliver_transport_handoff():
+    """FakeLxmfAdapter deliver() returns a synchronous transport hand-off."""
     adapter = FakeLxmfAdapter()
     ctx = _make_context(adapter_id=adapter.adapter_id)
     await adapter.start(ctx)
@@ -551,8 +550,8 @@ async def test_lxmf_deliver_delivery_status_sent():
 
     assert result is not None
     # FakeLxmfAdapter uses the default delivery_status from
-    # AdapterDeliveryResult which is "sent".
-    assert result.delivery_status == "sent"
+    # AdapterHandoffResult which is "sent".
+    assert result.disposition == "transport_handoff"
 
     await adapter.stop()
 

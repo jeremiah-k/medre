@@ -47,8 +47,10 @@ decisions made by higher layers.
 3. The `delivery_receipts` table is the authoritative evidence trail. No
    component MAY rewrite, update, or delete a receipt row after creation.
 4. The `delivery_outbox` table is mutable operational state for non-terminal rows. Terminal outbox rows (`sent`, `dead_lettered`, `cancelled`, `abandoned`) MUST NOT be transitioned or reclaimed. If future work needs another delivery after a terminal state, it must create new evidence / a new attempt / a new outbox row — it MUST NOT mutate the terminal row.
-5. Adapters emit facts (`sent`, `enqueued`, errors). They do not own lifecycle
-   state and MUST NOT be treated as lifecycle authorities.
+5. Adapters emit closed hand-off and feedback facts. Synchronous hand-off
+   dispositions (`transport_handoff`, `deferred`) and asynchronous feedback
+   variants are transport facts, not lifecycle statuses, and MUST NOT be
+   treated as lifecycle authority.
 6. Projections, views, convergence diagnostics, and report dicts are derived.
    They MUST NOT be treated as lifecycle authorities and MUST NOT be used to
    drive state transitions.
@@ -72,7 +74,6 @@ These vocabularies are defined in `delivery_state.py` (§4 of
 | Receipt statuses              | `RECEIPT_STATUSES`              | `queued`, `sent`, `failed`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                 |
 | Outbox statuses               | `OUTBOX_STATUSES`               | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` |
 | Outcome statuses              | `OUTCOME_STATUSES`              | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            |
-| Adapter delivery statuses     | `ADAPTER_DELIVERY_STATUSES`     | `sent`, `enqueued`                                                                                  |
 | Terminal receipt statuses     | `TERMINAL_RECEIPT_STATUSES`     | `sent`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                                     |
 | Non-terminal receipt statuses | `NON_TERMINAL_RECEIPT_STATUSES` | `queued`, `failed`                                                                                  |
 | Terminal outbox statuses      | `TERMINAL_OUTBOX_STATUSES`      | `sent`, `dead_lettered`, `cancelled`, `abandoned`                                                   |
@@ -105,7 +106,6 @@ No MEDRE component responsible for delivery lifecycle state transitions MAY defi
 - receipt statuses
 - outbox statuses
 - outcome statuses
-- adapter `delivery_status` values
 
 Derived/report/operator vocabularies (such as convergence severity, health status, operator status, retry_state display labels, report enrichment fields, and recovery ownership classifications) are allowed when they are documented as non-authoritative and MUST NOT be used to drive lifecycle state transitions.
 
@@ -117,10 +117,11 @@ If a new delivery lifecycle status is needed, it MUST be added to `delivery_stat
 
 ### 3.1 Adapters Emit Facts
 
-Adapters are fact emitters, not lifecycle authorities. When an adapter calls
-back with a delivery result, the pipeline records what the adapter reported.
-The adapter does not directly mutate outbox state or append receipts — the
-pipeline does, based on adapter-reported facts.
+Adapters are fact emitters, not lifecycle authorities. A successful
+`deliver()` call returns one `AdapterHandoffResult`; later asynchronous facts,
+when the transport has them, arrive through the single `DeliveryFeedback`
+sink. The adapter does not directly mutate outbox state or append receipts —
+core maps those transport facts into durable lifecycle evidence.
 
 ### 3.2 No Lifecycle Authority
 
@@ -131,98 +132,107 @@ operational state.
 
 ### 3.3 Honest Recording
 
-Receipts record the adapter's reported outcome honestly. The pipeline MUST NOT
-upgrade a receipt status retroactively. If the adapter reports `sent`, the
-receipt says `sent`. If the adapter reports failure, the receipt says `failed`.
-See [routing-delivery.md](routing-delivery.md) §13.3.
+Core records the adapter's transport fact honestly without promoting its
+meaning. `transport_handoff` maps to a `sent` attempt receipt because the
+configured transport boundary accepted the work; it does **not** imply recipient
+delivery. `deferred` maps to `queued` attempt evidence until an exact
+`DeferredHandoffCompleted` or `DeferredHandoffFailed` fact arrives. Existing
+receipt rows remain immutable. See [routing-delivery.md](routing-delivery.md)
+§13.3.
 
-### 3.4 Async Queued Delivery Correlation
+### 3.4 Deferred Hand-off Correlation
 
-Queue-based adapters (e.g. Meshtastic) return `delivery_status="enqueued"`
-from `deliver()`, meaning the payload was accepted into an adapter-local queue
-but has **not** been sent to the radio. The pipeline records a `queued` receipt
-and a `queued` outbox item. When the adapter-local queue later completes the
-send, it reports the outcome to the pipeline via callbacks.
+An adapter that accepts work locally but has not yet reached its external
+transport boundary returns `AdapterHandoffResult(disposition="deferred")`.
+Meshtastic's local outbound queue is the first built-in example, but the
+contract is deliberately queue-neutral: a future provider SDK, HTTP job, or
+other asynchronous platform can use the same disposition. Core records a
+`queued` attempt receipt and keeps the outbox non-terminal.
 
 Before adapter hand-off, `TargetDeliveryService` creates one immutable
-`DeliveryAttemptProvenance` envelope while the exact dispatch context is still
+`DeliveryAttemptProvenance` envelope while the exact durable dispatch context is
 known. It contains the event-scoped delivery identity (event, plan, adapter,
-normalized channel), `outbox_id`, effective `attempt_number`, dispatch `source`
-(`live`, `replay`, or `retry`), and the optional named `replay_run_id`. The same
-object is stored alongside queue work and echoed on asynchronous callback
-records. It is framework metadata only and MUST NOT enter transport payloads.
+normalized route channel), `outbox_id`, effective `attempt_number`, dispatch
+`source` (`live`, `replay`, or `retry`), and optional named `replay_run_id`. For
+a durable deferred hand-off, the adapter stores that same envelope beside its
+local work item. It is framework metadata and MUST NOT enter the transport
+payload.
 
-The envelope is the callback authority. Core validates it against the durable
-outbox row before accepting callback evidence:
+Every asynchronous adapter fact crosses one
+`AdapterContext.report_delivery_feedback` sink as exactly one member of the
+closed `DeliveryFeedback` union:
 
-1. event/plan/adapter/channel identity and `outbox_id` MUST match the row;
+- `DeferredHandoffCompleted` — deferred work reached the external transport
+  boundary and carries the resulting `AdapterHandoffResult`;
+- `DeferredHandoffFailed` — deferred work terminated before transport hand-off
+  with a closed failure outcome;
+- `PostHandoffObservation` — append-only provider evidence observed after a
+  successful transport hand-off.
+
+Each feedback variant carries the `DeliveryAttemptProvenance` envelope exactly
+once. It does not duplicate event/plan/adapter/outbox/attempt scalar mirrors.
+The envelope is the asynchronous lineage authority. Core validates it against
+the durable outbox row and immutable receipt history before accepting evidence:
+
+1. event/plan/adapter/route-channel identity and `outbox_id` MUST match the row;
 2. `attempt_number` MUST match the row's effective generation (`active_attempt`
    while reserved, otherwise the finalized attempt number);
 3. durable dispatch `source` and named `replay_run_id`, when present on the row,
    MUST agree with the envelope; and
-4. every already-persisted receipt carrying that exact `outbox_id`/generation
-   MUST agree with the envelope's full delivery identity, dispatch source, and
-   replay origin. Receipt-history validation MUST be scoped by `outbox_id`
-   before checking those fields so malformed identity evidence cannot disappear
-   through the query used to validate it.
+4. every already-persisted receipt for that exact `outbox_id`/generation MUST
+   agree with the envelope's full delivery identity, dispatch source, and replay
+   origin. Receipt-history validation MUST be scoped by `outbox_id` before those
+   fields are checked so corrupt identity evidence cannot disappear through the
+   query used to validate it.
 
-`RenderingResult.outbox_id`, `delivery_plan_id`, and `attempt_number` and the
-equivalent callback fields remain compatibility/diagnostic mirrors. When an
-attempt envelope is present they are populated from it and contradictory values
-are rejected. They are not an alternate lineage authority.
+Receipt-history read failures fail closed. While the outbox is still
+`in_progress`, absence of current-attempt receipt evidence is a valid
+feedback-before-receipt race: core may finalize from the validated immutable
+envelope and outbox generation without reconstructing lineage from timing or
+mutable row fallbacks. Once the outbox has committed `queued`, the matching
+queued attempt receipt is required; its absence is an integrity failure and the
+feedback is rejected. A queued receipt, when present, supplies immutable
+parent/retry/rendering linkage; it never overrides the feedback envelope's
+source or replay origin. If completion wins the pre-receipt race, the sent
+receipt links directly to the outbox's prior receipt authority and queue-only
+retry/rendering fields remain absent rather than being guessed. If terminal
+failure wins the same race, its new attempt/lifecycle evidence likewise links
+from the outbox's prior receipt authority when one exists; missing queue-only
+retry/rendering fields are not invented.
 
-For queue terminal callbacks, `attempt_provenance` is required. A callback
-without it is hard-rejected. When a terminal callback supplies a native channel,
-that channel MUST independently match the admitted outbox target; transport
-evidence is not allowed to contradict the envelope merely because it is not a
-scalar provenance mirror. A queued receipt is used only for immutable
-`parent_receipt_id`/render/retry linkage when it is already available. Retry
-policy fields are inherited onto terminal attempt/lifecycle evidence; rendering
-evidence remains on the immutable queued parent and is reachable through the
-parent chain rather than copied onto failure receipts. If the terminal callback
-arrives before the queued receipt append, core may still commit the terminal
-outcome from the validated envelope. It MUST NOT reconstruct `source` or
-`replay_run_id` from callback timing, missing receipt evidence, or a mutable-row
-fallback. Contradictory row/receipt/callback provenance fails closed.
+Outbox-less/direct sends have no durable attempt envelope. They MAY complete
+transport work synchronously, but built-in adapters MUST NOT later emit durable
+`DeliveryFeedback` for such work because core has no durable attempt identity to
+which that fact could safely be attributed.
 
-Delayed native-reference and post-handoff observation callbacks from built-in
-asynchronous adapters also carry the same envelope and validate it against the
-outbox row. When immutable receipt evidence for that exact outbox generation is
-already present, those callbacks MUST also reject any receipt whose delivery
-identity, generation, dispatch source, or replay origin contradicts the
-envelope. Receipt-history reads for this check MUST be scoped by `outbox_id`, not
-by identity fields being validated. Failure to load receipt history fails
-closed; absence of receipt evidence remains a valid callback-before-receipt
-race. Every asynchronous callback record — terminal, queued-to-sent, and
-observation — requires the envelope; records without it are rejected at
-construction, and the supplemental sent receipt carries the envelope's
-dispatch provenance rather than any queued-receipt preference.
-Outbox-less/direct sends do not have such an envelope and therefore **MUST NOT**
-emit these asynchronous durable-evidence callbacks; transport work may still
-complete, but no callback lineage may be invented after hand-off.
-`native_channel_id` is transport evidence and **MUST NOT** be used as a generic
-correlation mirror for route-level `target_channel`. Adapters may resolve an
-unspecified route channel to a configured native default (or translate an alias);
-the outbox/envelope retains route identity while the native reference stores the
-resolved transport channel. Atomic queued-to-sent finalization therefore validates
-event, adapter, message ID, outbox generation, and route identity without requiring
-the native reference channel to equal the route-level target channel.
+`native_channel_id` belongs to transport evidence and is intentionally distinct
+from route-level `target_channel`. An adapter may resolve an unspecified route
+channel to a configured native default or translate an alias. Correlation is
+therefore based on provenance/outbox identity, not equality between the native
+channel and the route channel.
 
 Renderer output identity is validated before every adapter hand-off, including
-direct/outbox-less delivery where no attempt envelope exists. A renderer result
-whose event ID, target adapter, or normalized target channel contradicts the
-requested delivery is a renderer failure and MUST NOT reach the adapter.
+direct/outbox-less delivery. A renderer result whose event ID, target adapter,
+or normalized target channel contradicts the requested delivery is a renderer
+failure and MUST NOT reach the adapter.
 
-After queued-to-sent correlation succeeds, storage receives one validated
-`QueuedDeliveryFinalization` command. The sent receipt supplies the event-scoped
-delivery identity, outbox ID, and attempt generation; the outbound native
-reference must name the same event/adapter/normalized-channel/message. Storage
-MUST re-check the full `(event, plan, adapter, channel, outbox, attempt)` identity
-and atomically commit the native-message reference, immutable `sent` receipt,
-and outbox transition to `sent`. If the guarded row is no longer finalizable,
-or any insert fails, none of those writes may commit. The unavoidable
-external-send-to-database boundary remains an ambiguity boundary; MEDRE does not
-claim exactly-once transport delivery.
+For `DeferredHandoffCompleted`, storage receives one validated
+`DeferredHandoffFinalization` command. The completed hand-off may or may not
+carry a native message ID: some transports can prove local transport acceptance
+without assigning one. When a native ID exists, its `NativeMessageRef` is
+committed atomically with the immutable `sent` receipt and outbox transition;
+when it does not, the receipt/outbox transition remains valid without fabricating
+a reference. Storage re-checks the full durable attempt identity and generation
+before committing. If the guard is stale or any write fails, none of the
+finalization writes commit. The unavoidable external-send-to-database boundary
+remains an ambiguity boundary; MEDRE does not claim exactly-once transport
+delivery.
+
+`DeferredHandoffFailed` is mapped by core into canonical failure evidence and a
+guarded terminal/retry transition. `PostHandoffObservation` is append-only
+evidence and cannot rewrite receipt or outbox lifecycle state. Thus the unified
+feedback channel simplifies adapter integration without merging distinct
+authorities.
 
 ### 3.4.1 Attempt Identity Reservation
 
@@ -252,10 +262,9 @@ attempt.
   outlive its claim; lease expiry during a dispatch implies worker death or
   a renewal/storage failure, and the fences below remain the authority for
   anything a superseded worker still commits.
-- From the reservation commit onward, every callback validator — queued
-  delivery finalization, queue terminal reporting, and post-handoff
-  observations — admits the reserved attempt number and rejects earlier
-  attempts.
+- From the reservation commit onward, every asynchronous feedback validator —
+  deferred completion, deferred terminal failure, and post-handoff observation —
+  admits the reserved attempt number and rejects earlier attempts.
 - Finalization consumes the reservation atomically with its outcome
   transition: `attempt_number` advances to the reserved attempt and
   `active_attempt` clears in the same guarded statement. Explicit-attempt
@@ -275,8 +284,8 @@ attempt.
   final.
 - A dispatch creates one immutable `DeliveryAttemptProvenance` containing the
   reserved number, exact delivery identity, dispatch source, and optional replay
-  run. The rendered result, queue item, and asynchronous callback records carry
-  that same envelope, so callbacks echo exactly the identity/provenance the
+  run. The rendered result, deferred work item, and asynchronous feedback variants
+  carry that same envelope, so feedback echoes exactly the identity/provenance the
   outbox will admit. Receipt lineage (`parent_receipt_id`) is independent and
   still derives from immutable prior/queued receipt evidence when available.
 
@@ -291,7 +300,7 @@ moves the row to `retry_wait`, or `dead_lettered` when the retry budget is
 exhausted. A later dispatch reserves a strictly newer number. Reserved attempt
 identities are never reused.
 
-A queue terminal callback can win a narrow race after a retry dispatch returns
+Deferred delivery feedback can win a narrow race after a retry dispatch returns
 a `queued` receipt but before the retry worker commits its own queued outbox
 transition. If that CAS is rejected, lifecycle MAY re-read the authoritative
 outbox row and project an already-committed outcome only when the row is
@@ -300,29 +309,29 @@ unambiguous because reserved attempt identities are never reused for another
 dispatch. A different attempt or a still-reserved row remains superseded and
 MUST NOT be reclassified by runtime code.
 
-### 3.5 Stale Callback Protection
+### 3.5 Stale Feedback Protection
 
-A stale callback is a delayed adapter callback that arrives after the outbox
+Stale feedback is an asynchronous adapter fact that arrives after the outbox
 item it refers to has been reclaimed by a retry or reached a terminal state.
-Stale callbacks MUST NOT finalize a different delivery attempt.
+Stale feedback MUST NOT finalize a different delivery attempt.
 
-Attempt correlation in every callback path compares against the outbox row's
+Attempt correlation in every feedback path compares against the outbox row's
 effective attempt — `active_attempt` while a dispatch reservation is live,
 otherwise the stored `attempt_number` — so a superseded attempt becomes
 stale the moment the next dispatch reserves its identity, and the reserved
 attempt stays admissible for the whole handoff.
 
-When `finalize_queued_delivery` receives a callback with an `outbox_id`
-whose outbox item has a status other than `queued` or `in_progress`, the
-callback is rejected: a warning is logged and no supplemental receipt is
-created. This prevents an old in-memory queue callback from corrupting a
+When `finalize_deferred_handoff` receives completion feedback whose outbox item
+has a status other than `queued` or `in_progress`, the feedback is rejected: a
+warning is logged and no supplemental receipt is created. This prevents stale
+in-memory adapter work from corrupting a
 newly retried delivery attempt.
 
-### 3.6 Terminal Queue Outcome Reporting
+### 3.6 Deferred Hand-off Failure Reporting
 
-When a queue-based adapter cannot deliver a previously-enqueued item, it
-reports a terminal outcome to the pipeline via `QueueTerminalRecord` with one
-of four outcomes:
+When deferred adapter work cannot reach transport hand-off, the adapter reports
+a terminal fact through the unified `DeliveryFeedback` sink using
+`DeferredHandoffFailed` with one of four outcomes:
 
 | Outcome            | Meaning                                                 |
 | ------------------ | ------------------------------------------------------- |
@@ -503,12 +512,12 @@ named replay run. Every immutable receipt already carrying the same
 `outbox_id`/generation must also agree with the envelope. That history is loaded
 by `outbox_id` before identity/source validation so malformed evidence cannot be
 hidden by the read used to verify it. A queued receipt supplies
-parent/render/retry linkage only. If a terminal callback wins the first
-attempt-receipt append race, the validated envelope remains sufficient lineage
-authority; MEDRE does not infer live/replay/retry origin from row state or
-receipt timing. A receipt-history read failure still fails closed. Callbacks
-that do not match the validated row — stale attempts, contradictory provenance,
-terminal or reclaimed rows — are rejected; replay isolation never overrides row
+parent/render/retry linkage only. If deferred feedback wins the first attempt-receipt append race, the validated
+envelope remains sufficient lineage authority; MEDRE does not infer
+live/replay/retry origin from row state or receipt timing. A receipt-history read
+failure still fails closed. Feedback that does not match the validated row —
+stale attempts, contradictory provenance, terminal or reclaimed rows — is
+rejected; replay isolation never overrides row
 validation. See [diagnostics-evidence.md](diagnostics-evidence.md) §15 for the
 full requirement set.
 

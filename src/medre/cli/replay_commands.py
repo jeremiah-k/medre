@@ -104,8 +104,8 @@ async def _teardown_replay_runtime(app: Any, drain_timeout: float) -> None:
     # reach terminal state before teardown — an immediate stop would abort
     # asynchronous transfers (e.g. LXMF DIRECT link delivery) right after
     # acceptance.  Bounded by the documented shutdown drain limit; purely
-    # observational: delivery truth is recorded only by the real queue
-    # terminal callbacks through the lifecycle authority, never from
+    # observational: delivery truth is recorded only from typed adapter
+    # feedback/provider observations through lifecycle authority, never from
     # aggregate drain state.
     try:
         await _drain_inflight_deliveries(

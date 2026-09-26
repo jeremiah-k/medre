@@ -6,8 +6,8 @@ Verifies:
 - Metadata key splitting (meshtastic namespace vs transport keys).
 - Transport-specific namespace facts (reply_id, emoji, channel, packet_id).
 
-These tests exercise the adapter's _record_delayed_outbound_ref and
-_finalize_queued_delivery code paths, not the queue evidence counters
+These tests exercise the adapter's _report_deferred_completion and
+_finalize_deferred_handoff code paths, not the queue evidence counters
 (which live in test_meshtastic_queue_evidence.py).
 """
 
@@ -16,7 +16,12 @@ from __future__ import annotations
 import pytest
 
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
-from tests.helpers.delivery_callbacks import make_attempt_provenance
+from medre.core.contracts.delivery import DeferredHandoffCompleted
+from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.delivery_callbacks import (
+    make_attempt_provenance,
+    make_deferred_completion,
+)
 from tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
@@ -40,7 +45,6 @@ class TestSupplementalReceiptChannelCorrelation:
         Callback for ch 0 → sent receipt parents ch 0 queued receipt."""
         from datetime import datetime, timezone
 
-        from medre.core.contracts.adapter import OutboundNativeRefRecord
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.events.canonical import DeliveryReceipt
@@ -114,7 +118,7 @@ class TestSupplementalReceiptChannelCorrelation:
         )
 
         # Callback for channel "0".
-        record_ch0 = OutboundNativeRefRecord(
+        record_ch0 = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=event_id,
                 target_adapter="mesh-1",
@@ -132,10 +136,10 @@ class TestSupplementalReceiptChannelCorrelation:
             attempt_number=1,
             confirmation_level="local_transport",
         )
-        await runner._finalize_queued_delivery(record=record_ch0, now=now)
+        await runner._record_delivery_feedback(record_ch0)
 
         # Callback for channel "1".
-        record_ch1 = OutboundNativeRefRecord(
+        record_ch1 = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=event_id,
                 target_adapter="mesh-1",
@@ -153,7 +157,7 @@ class TestSupplementalReceiptChannelCorrelation:
             attempt_number=1,
             confirmation_level="local_transport",
         )
-        await runner._finalize_queued_delivery(record=record_ch1, now=now)
+        await runner._record_delivery_feedback(record_ch1)
 
         # Verify both supplemental receipts created.
         receipts = await temp_storage.list_receipts_for_event(event_id)
@@ -182,7 +186,6 @@ class TestSupplementalReceiptChannelCorrelation:
         """Callbacks without an outbox ID are rejected before candidate selection."""
         from datetime import datetime, timezone
 
-        from medre.core.contracts.adapter import OutboundNativeRefRecord
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.events.canonical import DeliveryReceipt
@@ -236,7 +239,7 @@ class TestSupplementalReceiptChannelCorrelation:
         # The pre-envelope ambiguous shape (plan ID only, no outbox) can no
         # longer be constructed; exact attempt provenance is mandatory.
         with pytest.raises(TypeError, match="attempt_provenance"):
-            OutboundNativeRefRecord(
+            make_deferred_completion(
                 event_id=event_id,
                 adapter="mesh-1",
                 native_channel_id=None,
@@ -252,7 +255,6 @@ class TestSupplementalReceiptChannelCorrelation:
         """One queued candidate + no channel on record → receipt appended."""
         from datetime import datetime, timezone
 
-        from medre.core.contracts.adapter import OutboundNativeRefRecord
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.events.canonical import DeliveryReceipt
@@ -306,7 +308,7 @@ class TestSupplementalReceiptChannelCorrelation:
         )
 
         # No channel but only one candidate → OK.
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=event_id,
                 target_adapter="mesh-1",
@@ -323,7 +325,7 @@ class TestSupplementalReceiptChannelCorrelation:
             outbox_id="obox-single",
             attempt_number=1,
         )
-        await runner._finalize_queued_delivery(record=record, now=now)
+        await runner._record_delivery_feedback(record)
 
         receipts = await temp_storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"]
@@ -336,7 +338,6 @@ class TestSupplementalReceiptChannelCorrelation:
         """Multiple queued receipts on same channel (retries) → last one wins."""
         from datetime import datetime, timedelta, timezone
 
-        from medre.core.contracts.adapter import OutboundNativeRefRecord
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.events.canonical import DeliveryReceipt
@@ -407,7 +408,7 @@ class TestSupplementalReceiptChannelCorrelation:
             )
         )
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=event_id,
                 target_adapter="mesh-1",
@@ -424,7 +425,7 @@ class TestSupplementalReceiptChannelCorrelation:
             outbox_id="obox-retry",
             attempt_number=2,
         )
-        await runner._finalize_queued_delivery(record=record, now=now)
+        await runner._record_delivery_feedback(record)
 
         receipts = await temp_storage.list_receipts_for_event(event_id)
         sent = [r for r in receipts if r.status == "sent"]
@@ -442,7 +443,7 @@ class TestSupplementalReceiptChannelCorrelation:
 
 class TestDeliveryPlanIdQueuePropagation:
     """Verify delivery_plan_id flows through the Meshtastic queue path
-    from enqueue → queue item → OutboundNativeRefRecord.
+    from enqueue → queue item → DeferredHandoffCompleted.
     """
 
     async def test_enqueue_stores_delivery_plan_id(self) -> None:
@@ -501,8 +502,7 @@ class TestDeliveryPlanIdQueuePropagation:
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
-        from medre.core.events.bus import EventBus
-        from medre.core.rendering.renderer import RenderingResult
+        from tests.helpers.delivery_callbacks import make_attempt_provenance
 
         config = MeshtasticConfig(
             adapter_id="test-dpid",
@@ -511,20 +511,31 @@ class TestDeliveryPlanIdQueuePropagation:
         adapter = MeshtasticAdapter(config)
         ctx = AdapterContext(
             adapter_id="test-dpid",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
+            report_delivery_feedback=AsyncMock(),
         )
         await adapter.start(ctx)
         try:
-            result = RenderingResult(
+            provenance = make_attempt_provenance(
                 event_id="evt-dpid",
                 target_adapter="test-dpid",
                 target_channel="0",
-                payload={"text": "hello", "channel_index": 0},
+                outbox_id="outbox-dpid",
+                attempt_number=1,
                 delivery_plan_id="plan-via-adapter",
+            )
+            result = RenderingResult(
+                event_id=provenance.event_id,
+                target_adapter=provenance.target_adapter,
+                target_channel=provenance.target_channel,
+                payload={"text": "hello", "channel_index": 0},
+                delivery_plan_id=provenance.delivery_plan_id,
+                outbox_id=provenance.outbox_id,
+                attempt_number=provenance.attempt_number,
+                attempt_provenance=provenance,
             )
             await adapter.deliver(result)
 
@@ -536,10 +547,10 @@ class TestDeliveryPlanIdQueuePropagation:
         finally:
             await adapter.stop()
 
-    async def test_record_delayed_outbound_ref_includes_delivery_plan_id(
+    async def test_report_deferred_completion_includes_delivery_plan_id(
         self,
     ) -> None:
-        """_record_delayed_outbound_ref builds record with delivery_plan_id."""
+        """_report_deferred_completion builds record with delivery_plan_id."""
         import asyncio
         import logging
         from datetime import datetime, timezone
@@ -550,9 +561,8 @@ class TestDeliveryPlanIdQueuePropagation:
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
-            AdapterDeliveryResult,
+            AdapterHandoffResult,
         )
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(
             adapter_id="test-rec",
@@ -567,12 +577,11 @@ class TestDeliveryPlanIdQueuePropagation:
 
         ctx = AdapterContext(
             adapter_id="test-rec",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
-            record_outbound_native_ref=mock_record_callback,
+            report_delivery_feedback=mock_record_callback,
         )
         await adapter.start(ctx)
         try:
@@ -592,32 +601,27 @@ class TestDeliveryPlanIdQueuePropagation:
                     ),
                     "delivery_plan_id": "plan-propagated",
                 },
-                delivery_result=AdapterDeliveryResult(
+                handoff=AdapterHandoffResult(
                     native_message_id="pkt-123",
                     native_channel_id="0",
-                    delivery_status="sent",
+                    disposition="transport_handoff",
                 ),
             )
 
-            await adapter._record_delayed_outbound_ref(
-                queue_result,
-                event_id="evt-rec",
-                delivery=queue_result.delivery_result,
-            )
+            await adapter._report_deferred_completion(queue_result)
 
-            # Verify the OutboundNativeRefRecord has delivery_plan_id.
+            # Verify the DeferredHandoffCompleted has delivery_plan_id.
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
-            assert hasattr(ref, "delivery_plan_id")
-            assert ref.delivery_plan_id == "plan-propagated"
-            assert ref.event_id == "evt-rec"
-            assert ref.native_message_id == "pkt-123"
+            assert ref.attempt_provenance.delivery_plan_id == "plan-propagated"
+            assert ref.attempt_provenance.event_id == "evt-rec"
+            assert ref.handoff.native_message_id == "pkt-123"
         finally:
             await adapter.stop()
 
 
 class TestMetadataKeySplitting:
-    """_record_delayed_outbound_ref splits delivery.metadata into namespaces.
+    """_report_deferred_completion splits delivery.metadata into namespaces.
 
     Covers adapter.py lines 975-981: the 3-branch loop body that sorts
     metadata keys into ``meshtastic_meta`` or ``send_meta``.
@@ -641,9 +645,8 @@ class TestMetadataKeySplitting:
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
-            AdapterDeliveryResult,
+            AdapterHandoffResult,
         )
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="test-meta1", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -655,12 +658,11 @@ class TestMetadataKeySplitting:
 
         ctx = AdapterContext(
             adapter_id="test-meta1",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
-            record_outbound_native_ref=mock_record_callback,
+            report_delivery_feedback=mock_record_callback,
         )
         await adapter.start(ctx)
         try:
@@ -676,7 +678,7 @@ class TestMetadataKeySplitting:
                         target_channel="0",
                     ),
                 },
-                delivery_result=AdapterDeliveryResult(
+                handoff=AdapterHandoffResult(
                     native_message_id="pkt-m1",
                     native_channel_id="0",
                     metadata=MappingProxyType(
@@ -684,19 +686,15 @@ class TestMetadataKeySplitting:
                     ),
                 ),
             )
-            await adapter._record_delayed_outbound_ref(
-                queue_result,
-                event_id="evt-m1",
-                delivery=queue_result.delivery_result,
-            )
+            await adapter._report_deferred_completion(queue_result)
 
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
             # Nested dict merged under "meshtastic" key; payload text also
             # lands in the meshtastic namespace per the namespace contract.
-            assert ref.metadata["meshtastic"]["hop_limit"] == 3
-            assert ref.metadata["meshtastic"]["priority"] == "high"
-            assert ref.metadata["meshtastic"]["text"] == "hi"
+            assert ref.handoff.metadata["meshtastic"]["hop_limit"] == 3
+            assert ref.handoff.metadata["meshtastic"]["priority"] == "high"
+            assert ref.handoff.metadata["meshtastic"]["text"] == "hi"
         finally:
             await adapter.stop()
 
@@ -713,9 +711,8 @@ class TestMetadataKeySplitting:
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
-            AdapterDeliveryResult,
+            AdapterHandoffResult,
         )
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="test-meta2", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -727,12 +724,11 @@ class TestMetadataKeySplitting:
 
         ctx = AdapterContext(
             adapter_id="test-meta2",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
-            record_outbound_native_ref=mock_record_callback,
+            report_delivery_feedback=mock_record_callback,
         )
         await adapter.start(ctx)
         try:
@@ -748,23 +744,19 @@ class TestMetadataKeySplitting:
                         target_channel="0",
                     ),
                 },
-                delivery_result=AdapterDeliveryResult(
+                handoff=AdapterHandoffResult(
                     native_message_id="pkt-m2",
                     native_channel_id="0",
                     metadata=MappingProxyType({"channel": 1, "packet_id": 99}),
                 ),
             )
-            await adapter._record_delayed_outbound_ref(
-                queue_result,
-                event_id="evt-m2",
-                delivery=queue_result.delivery_result,
-            )
+            await adapter._report_deferred_completion(queue_result)
 
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
             # Transport keys grouped under "meshtastic"
-            assert ref.metadata["meshtastic"]["channel"] == 1
-            assert ref.metadata["meshtastic"]["packet_id"] == 99
+            assert ref.handoff.metadata["meshtastic"]["channel"] == 1
+            assert ref.handoff.metadata["meshtastic"]["packet_id"] == 99
         finally:
             await adapter.stop()
 
@@ -783,9 +775,8 @@ class TestMetadataKeySplitting:
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
-            AdapterDeliveryResult,
+            AdapterHandoffResult,
         )
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="test-meta3", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -797,12 +788,11 @@ class TestMetadataKeySplitting:
 
         ctx = AdapterContext(
             adapter_id="test-meta3",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
-            record_outbound_native_ref=mock_record_callback,
+            report_delivery_feedback=mock_record_callback,
         )
         await adapter.start(ctx)
         try:
@@ -818,27 +808,23 @@ class TestMetadataKeySplitting:
                         target_channel="0",
                     ),
                 },
-                delivery_result=AdapterDeliveryResult(
+                handoff=AdapterHandoffResult(
                     native_message_id="pkt-m3",
                     native_channel_id="0",
                     metadata=MappingProxyType({"source_bridge": "matrix", "seq": 7}),
                 ),
             )
-            await adapter._record_delayed_outbound_ref(
-                queue_result,
-                event_id="evt-m3",
-                delivery=queue_result.delivery_result,
-            )
+            await adapter._report_deferred_completion(queue_result)
 
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
             # Delivery-result keys are normalized into the Meshtastic namespace
-            assert "source_bridge" not in ref.metadata
-            assert "seq" not in ref.metadata
-            assert ref.metadata["meshtastic"]["source_bridge"] == "matrix"
-            assert ref.metadata["meshtastic"]["seq"] == 7
+            assert "source_bridge" not in ref.handoff.metadata
+            assert "seq" not in ref.handoff.metadata
+            assert ref.handoff.metadata["meshtastic"]["source_bridge"] == "matrix"
+            assert ref.handoff.metadata["meshtastic"]["seq"] == 7
             # Payload text also in meshtastic namespace (transport context).
-            assert ref.metadata["meshtastic"]["text"] == "hi"
+            assert ref.handoff.metadata["meshtastic"]["text"] == "hi"
         finally:
             await adapter.stop()
 
@@ -858,9 +844,8 @@ class TestMetadataKeySplitting:
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
-            AdapterDeliveryResult,
+            AdapterHandoffResult,
         )
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="test-meta4", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -872,12 +857,11 @@ class TestMetadataKeySplitting:
 
         ctx = AdapterContext(
             adapter_id="test-meta4",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
-            record_outbound_native_ref=mock_record_callback,
+            report_delivery_feedback=mock_record_callback,
         )
         await adapter.start(ctx)
         try:
@@ -893,7 +877,7 @@ class TestMetadataKeySplitting:
                         target_channel="0",
                     ),
                 },
-                delivery_result=AdapterDeliveryResult(
+                handoff=AdapterHandoffResult(
                     native_message_id="pkt-m4",
                     native_channel_id="0",
                     metadata=MappingProxyType(
@@ -908,36 +892,32 @@ class TestMetadataKeySplitting:
                     ),
                 ),
             )
-            await adapter._record_delayed_outbound_ref(
-                queue_result,
-                event_id="evt-m4",
-                delivery=queue_result.delivery_result,
-            )
+            await adapter._report_deferred_completion(queue_result)
 
             assert len(recorded_refs) == 1
             ref = recorded_refs[0]
             # Nested meshtastic dict merged with transport key
-            mesh_ns = ref.metadata["meshtastic"]
+            mesh_ns = ref.handoff.metadata["meshtastic"]
             assert mesh_ns["schema_version"] == MESHTASTIC_NATIVE_SCHEMA_VERSION
             assert mesh_ns["hop_limit"] == 3
             assert mesh_ns["channel"] == 2
             # Other delivery-result keys are normalized into the Meshtastic namespace
-            assert "custom" not in ref.metadata
+            assert "custom" not in ref.handoff.metadata
             assert mesh_ns["custom"] == "value"
         finally:
             await adapter.stop()
 
 
 class TestDelayedOutboundRefMeshtasticNamespaceFacts:
-    """Verify that _record_delayed_outbound_ref stores all transport-specific
-    data under the meshtastic namespace in OutboundNativeRefRecord.metadata.
+    """Verify that _report_deferred_completion stores all transport-specific
+    data under the meshtastic namespace in DeferredHandoffCompleted.metadata.
     No transport keys (reply_id, emoji, channel, packet_id, meshnet_name,
     channel_name, text) should appear at the top level of metadata."""
 
     async def test_reply_id_and_emoji_in_meshtastic_namespace(self) -> None:
         """When the delivery metadata has meshtastic.reply_id and
         meshtastic.emoji from a structured send, these are preserved in
-        the OutboundNativeRefRecord.metadata meshtastic namespace."""
+        the DeferredHandoffCompleted.metadata meshtastic namespace."""
         import asyncio
         import logging
         from datetime import datetime, timezone
@@ -949,27 +929,24 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
-            AdapterDeliveryResult,
-            OutboundNativeRefRecord,
+            AdapterHandoffResult,
         )
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="test-ns-facts", connection_type="fake")
         adapter = MeshtasticAdapter(config)
 
-        recorded: list[OutboundNativeRefRecord] = []
+        recorded: list[DeferredHandoffCompleted] = []
 
-        async def on_ref(record: OutboundNativeRefRecord) -> None:
+        async def on_ref(record: DeferredHandoffCompleted) -> None:
             recorded.append(record)
 
         ctx = AdapterContext(
             adapter_id="test-ns-facts",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
-            record_outbound_native_ref=on_ref,
+            report_delivery_feedback=on_ref,
         )
         await adapter.start(ctx)
         try:
@@ -994,10 +971,10 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
                         target_channel="0",
                     ),
                 },
-                delivery_result=AdapterDeliveryResult(
+                handoff=AdapterHandoffResult(
                     native_message_id="789",
                     native_channel_id="0",
-                    delivery_status="sent",
+                    disposition="transport_handoff",
                     metadata=MappingProxyType(
                         {
                             "meshtastic": {
@@ -1010,15 +987,11 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
                     ),
                 ),
             )
-            await adapter._record_delayed_outbound_ref(
-                queue_result,
-                event_id="evt-reaction-ns",
-                delivery=queue_result.delivery_result,
-            )
+            await adapter._report_deferred_completion(queue_result)
 
             assert len(recorded) == 1
             ref = recorded[0]
-            mesh_ns = ref.metadata["meshtastic"]
+            mesh_ns = ref.handoff.metadata["meshtastic"]
 
             # All transport facts from the delivery snapshot are present.
             assert mesh_ns["packet_id"] == 789
@@ -1030,13 +1003,13 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
             assert mesh_ns["text"] == "👍"
 
             # No transport keys leak to top-level metadata.
-            assert "reply_id" not in ref.metadata
-            assert "emoji" not in ref.metadata
-            assert "channel" not in ref.metadata
-            assert "packet_id" not in ref.metadata
-            assert "meshnet_name" not in ref.metadata
-            assert "channel_name" not in ref.metadata
-            assert "text" not in ref.metadata
+            assert "reply_id" not in ref.handoff.metadata
+            assert "emoji" not in ref.handoff.metadata
+            assert "channel" not in ref.handoff.metadata
+            assert "packet_id" not in ref.handoff.metadata
+            assert "meshnet_name" not in ref.handoff.metadata
+            assert "channel_name" not in ref.handoff.metadata
+            assert "text" not in ref.handoff.metadata
         finally:
             await adapter.stop()
 
@@ -1056,27 +1029,24 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
         from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
-            AdapterDeliveryResult,
-            OutboundNativeRefRecord,
+            AdapterHandoffResult,
         )
-        from medre.core.events.bus import EventBus
 
         config = MeshtasticConfig(adapter_id="test-ns-plain", connection_type="fake")
         adapter = MeshtasticAdapter(config)
 
-        recorded: list[OutboundNativeRefRecord] = []
+        recorded: list[DeferredHandoffCompleted] = []
 
-        async def on_ref(record: OutboundNativeRefRecord) -> None:
+        async def on_ref(record: DeferredHandoffCompleted) -> None:
             recorded.append(record)
 
         ctx = AdapterContext(
             adapter_id="test-ns-plain",
-            event_bus=EventBus(),
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
-            record_outbound_native_ref=on_ref,
+            report_delivery_feedback=on_ref,
         )
         await adapter.start(ctx)
         try:
@@ -1094,24 +1064,20 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
                         target_channel="0",
                     ),
                 },
-                delivery_result=AdapterDeliveryResult(
+                handoff=AdapterHandoffResult(
                     native_message_id="321",
                     native_channel_id="0",
-                    delivery_status="sent",
+                    disposition="transport_handoff",
                     metadata=MappingProxyType(
                         {"meshtastic": {"packet_id": 321, "channel": 0}}
                     ),
                 ),
             )
-            await adapter._record_delayed_outbound_ref(
-                queue_result,
-                event_id="evt-plain-ns",
-                delivery=queue_result.delivery_result,
-            )
+            await adapter._report_deferred_completion(queue_result)
 
             assert len(recorded) == 1
             ref = recorded[0]
-            mesh_ns = ref.metadata["meshtastic"]
+            mesh_ns = ref.handoff.metadata["meshtastic"]
             assert mesh_ns["packet_id"] == 321
             assert mesh_ns["channel"] == 0
             assert "reply_id" not in mesh_ns

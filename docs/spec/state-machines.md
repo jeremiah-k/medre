@@ -71,20 +71,20 @@ current lifecycle outcome only when the guarded outbox transition commits and
 updates the row's `receipt_id`; a rejected late receipt stays historical. For
 outbox-less chains, durable append order remains the projection rule.
 
-| From (prev receipt status) | To (next receipt status) | Condition                                      |
-| -------------------------- | ------------------------ | ---------------------------------------------- |
-| —                          | `queued`                 | Queue-based adapter accepts event              |
-| —                          | `sent`                   | Synchronous adapter reports successful handoff |
-| —                          | `failed`                 | Adapter raises transient or permanent error    |
-| —                          | `suppressed`             | Loop/policy/capacity/shutdown suppression      |
-| `queued`                   | `sent`                   | Queue-based adapter reports native message ID  |
-| `queued`                   | `failed`                 | Queue terminal callback reports failed attempt |
-| `queued`                   | `cancelled`              | Queue terminal callback reports cancellation   |
-| `queued`                   | `abandoned`              | Queue terminal callback reports abandonment    |
-| `failed`                   | `failed`                 | Retry attempt also fails                       |
-| `failed`                   | `queued`                 | Retry attempt accepted by queue-based adapter  |
-| `failed`                   | `sent`                   | Retry attempt succeeds                         |
-| `failed`                   | `dead_lettered`          | Retry exhausted                                |
+| From (prev receipt status) | To (next receipt status) | Condition                                                                                                        |
+| -------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| —                          | `queued`                 | Adapter returns `AdapterHandoffResult(disposition="deferred")` and queued evidence commits before later feedback |
+| —                          | `sent`                   | Adapter returns `transport_handoff`, or deferred completion wins the pre-receipt persistence race                |
+| —                          | `failed`                 | Synchronous adapter call fails, or deferred terminal failure wins before queued evidence is visible              |
+| —                          | `suppressed`             | Loop/policy/capacity/shutdown suppression                                                                        |
+| `queued`                   | `sent`                   | `DeferredHandoffCompleted` proves the exact deferred attempt reached transport hand-off                          |
+| `queued`                   | `failed`                 | `DeferredHandoffFailed` records the causative failed attempt                                                     |
+| `queued`                   | `cancelled`              | Deferred failure reports explicit cancellation                                                                   |
+| `queued`                   | `abandoned`              | Deferred failure reports unrecoverable/abandoned work                                                            |
+| `failed`                   | `failed`                 | Retry attempt also fails                                                                                         |
+| `failed`                   | `queued`                 | Retry attempt is accepted for deferred hand-off                                                                  |
+| `failed`                   | `sent`                   | Retry attempt reaches transport hand-off                                                                         |
+| `failed`                   | `dead_lettered`          | Retry exhausted                                                                                                  |
 
 Receipts with `parent_receipt_id = None` are initial attempts. A new dispatch
 attempt increments `attempt_number`; lifecycle evidence keeps the causative
@@ -216,7 +216,7 @@ The outbox state machine has eight statuses:
 | `in_progress` | `queued`        | `mark_outbox_queued()`        | Adapter-local queue acceptance                                                                          |
 | `in_progress` | `pending`       | `release_outbox_claim()`      | Worker releases claim without delivery                                                                  |
 | `in_progress` | `sent`          | `mark_outbox_sent()`          | Adapter reports successful handoff                                                                      |
-| `queued`      | `sent`          | `mark_outbox_sent()`          | Queue-based adapter confirms send                                                                       |
+| `queued`      | `sent`          | `finalize_deferred_handoff()` | `DeferredHandoffCompleted` proves the exact deferred attempt reached transport hand-off                 |
 | `in_progress` | `retry_wait`    | `mark_outbox_retry_wait()`    | Transient failure, retry scheduled                                                                      |
 | `in_progress` | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure or no retry policy                                                                     |
 | `retry_wait`  | `dead_lettered` | `mark_outbox_dead_lettered()` | Terminal failure after retry                                                                            |
@@ -423,14 +423,13 @@ ingress → dedup → resolve_relations → store → reaction-to-reaction check
 
 The module `src/medre/core/engine/pipeline/delivery_state.py` is the internal source of truth for status vocabularies, terminal/claimable/accepted classification sets, and observed transition tables. It is a leaf module with no external imports.
 
-The module defines four status vocabularies as `frozenset` constants:
+The module defines three lifecycle status vocabularies as `frozenset` constants:
 
-| Constant                    | Values                                                                                              | Used by                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------- |
-| `RECEIPT_STATUSES`          | `queued`, `sent`, `failed`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                 | `DeliveryReceipt.status`         |
-| `OUTBOX_STATUSES`           | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` | `DeliveryOutboxItem.status`      |
-| `OUTCOME_STATUSES`          | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            | `DeliveryOutcome.status`         |
-| `ADAPTER_DELIVERY_STATUSES` | `sent`, `enqueued`                                                                                  | `OutboundResult.delivery_status` |
+| Constant           | Values                                                                                              | Used by                     |
+| ------------------ | --------------------------------------------------------------------------------------------------- | --------------------------- |
+| `RECEIPT_STATUSES` | `queued`, `sent`, `failed`, `dead_lettered`, `cancelled`, `abandoned`, `suppressed`                 | `DeliveryReceipt.status`    |
+| `OUTBOX_STATUSES`  | `pending`, `in_progress`, `queued`, `sent`, `retry_wait`, `dead_lettered`, `cancelled`, `abandoned` | `DeliveryOutboxItem.status` |
+| `OUTCOME_STATUSES` | `success`, `queued`, `transient_failure`, `permanent_failure`, `skipped`                            | `DeliveryOutcome.status`    |
 
 Classification subsets:
 

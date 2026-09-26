@@ -64,11 +64,11 @@ def build_retry_runner(
         fallback_resolver=fallback_resolver or FallbackResolver(),
         relation_resolver=RelationResolver(storage=storage),
         adapters=adapters,
-        event_bus=EventBus(),
         rendering_pipeline=render_pipe,
         diagnostician=Diagnostician(),
         route_stats=RouteStats(),
         runtime_accounting=accounting,
+        event_bus=EventBus(),
     )
     return PipelineRunner(config)
 
@@ -78,7 +78,6 @@ async def start_retry_adapters(adapters: dict) -> None:
     for adapter_id, adapter in adapters.items():
         context = AdapterContext(
             adapter_id=adapter_id,
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger(f"test.{adapter_id}"),
             clock=lambda: datetime.now(timezone.utc),

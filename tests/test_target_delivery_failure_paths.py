@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from medre.core.contracts.adapter import (
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterPermanentError,
     AdapterSendError,
 )
@@ -106,13 +106,13 @@ class _FakeAdapter:
 
     def __init__(
         self,
-        result: AdapterDeliveryResult | None = None,
+        result: AdapterHandoffResult | None = None,
         error: Exception | None = None,
     ) -> None:
         self._result = result
         self._error = error
 
-    async def deliver(self, rendering_result: Any) -> AdapterDeliveryResult | None:
+    async def deliver(self, rendering_result: Any) -> AdapterHandoffResult | None:
         if self._error is not None:
             raise self._error
         return self._result
@@ -317,7 +317,7 @@ class TestRenderingFailure:
             )
         )
         adapter = _FakeAdapter(
-            result=AdapterDeliveryResult(
+            result=AdapterHandoffResult(
                 native_message_id="should-not-exist",
                 native_channel_id=None,
             )
@@ -427,6 +427,24 @@ class TestAdapterLookupFailure:
 
 class TestAdapterDeliveryException:
     """Verify adapter.deliver() exceptions produce correct receipts."""
+
+    async def test_outboxless_deferred_handoff_fails_closed(self) -> None:
+        """Deferred success without durable attempt authority is a contract error."""
+        adapter = _FakeAdapter(result=AdapterHandoffResult(disposition="deferred"))
+        svc, storage = _make_service(adapters={"test_adapter": adapter})
+        event = _make_event()
+        route, plan = _make_route_and_plan()
+
+        with pytest.raises(_AdapterDeliveryError) as exc_info:
+            await svc.deliver_to_target(event, route, plan)
+
+        err = exc_info.value
+        assert "deferred hand-off requires durable attempt provenance" in err.error
+        assert err.receipt is not None
+        assert err.receipt.status == "failed"
+        assert err.receipt.failure_kind == DeliveryFailureKind.ADAPTER_PERMANENT.value
+        assert err.receipt.outbox_id is None
+        assert storage.native_refs == []
 
     async def test_adapter_raises_runtime_error(self) -> None:
         """Adapter RuntimeError → _AdapterDeliveryError with failed receipt."""
@@ -597,7 +615,7 @@ class TestDeadlineExceeded:
 
     async def test_deadline_exceeded_raises_adapter_delivery_error(self) -> None:
         """Plan with past deadline raises _AdapterDeliveryError."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -612,7 +630,7 @@ class TestDeadlineExceeded:
 
     async def test_deadline_exceeded_receipt_persisted(self) -> None:
         """Deadline-exceeded path persists a failure receipt."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -627,7 +645,7 @@ class TestDeadlineExceeded:
 
     async def test_no_deadline_allows_delivery(self) -> None:
         """Plan without deadline does not block a successful delivery."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan()
@@ -648,7 +666,7 @@ class TestInvalidDeliveryStrategy:
 
     async def test_invalid_strategy_raises_renderer_delivery_error(self) -> None:
         """Unknown strategy method raises _RendererDeliveryError."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan(method="bogus_strategy")
@@ -662,7 +680,7 @@ class TestInvalidDeliveryStrategy:
 
     async def test_invalid_strategy_receipt_has_planner_failure(self) -> None:
         """Invalid strategy receipt has failure_kind=PLANNER_FAILURE."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan(method="nonexistent")
@@ -676,7 +694,7 @@ class TestInvalidDeliveryStrategy:
 
     async def test_invalid_strategy_receipt_persisted(self) -> None:
         """Invalid strategy persists a failure receipt."""
-        adapter = _FakeAdapter(result=AdapterDeliveryResult(native_message_id="$id"))
+        adapter = _FakeAdapter(result=AdapterHandoffResult(native_message_id="$id"))
         svc, storage = _make_service(adapters={"test_adapter": adapter})
         event = _make_event()
         route, plan = _make_route_and_plan(method="garbage")
@@ -769,7 +787,7 @@ class TestCancelledErrorPropagation:
 
             async def deliver(
                 self, rendering_result: Any
-            ) -> AdapterDeliveryResult | None:
+            ) -> AdapterHandoffResult | None:
                 raise asyncio.CancelledError()
 
         return _CancelAdapter()

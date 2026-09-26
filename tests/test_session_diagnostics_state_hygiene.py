@@ -481,7 +481,6 @@ def make_adapter_context() -> Callable[[str], Any]:
     def _make(adapter_id: str = "mesh-test") -> AdapterContext:
         return AdapterContext(
             adapter_id=adapter_id,
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=__import__("logging").getLogger(f"test.{adapter_id}"),
             clock=lambda: datetime.now(timezone.utc),

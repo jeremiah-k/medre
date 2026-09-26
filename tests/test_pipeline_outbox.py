@@ -17,7 +17,8 @@ from medre.core.supervision.capacity import CapacityController
 from tests.helpers.async_utils import wait_until
 from tests.helpers.delivery_callbacks import (
     make_attempt_provenance,
-    make_terminal_record,
+    make_deferred_completion,
+    make_deferred_failure,
 )
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
@@ -286,12 +287,12 @@ class TestNoRetryPolicyDeadLetters:
     ) -> None:
         """A retryable transient failure with no retry policy dead-letters the
         outbox item instead of scheduling retry_wait."""
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
         class TransientFailAdapter(FakePresentationAdapter):
             async def deliver(
                 self, result: RenderingResult
-            ) -> AdapterDeliveryResult | None:
+            ) -> AdapterHandoffResult | None:
                 raise ConnectionError("transient failure for no-retry-policy test")
 
         adapter = TransientFailAdapter(adapter_id="transient_fail")
@@ -335,20 +336,20 @@ class TestNoRetryPolicyDeadLetters:
     ) -> None:
         """Queue-based delivery marks outbox as queued."""
         from medre.core.contracts.adapter import (
-            AdapterDeliveryResult,
+            AdapterHandoffResult,
         )
 
         # Create a queue-based fake adapter.
         class QueuedFakeAdapter(FakePresentationAdapter):
-            """Adapter that returns delivery_status='enqueued'."""
+            """Adapter that returns disposition='deferred'."""
 
             async def deliver(
                 self, result: RenderingResult
-            ) -> AdapterDeliveryResult | None:
+            ) -> AdapterHandoffResult | None:
                 self.delivered_payloads.append(result)
-                return AdapterDeliveryResult(
+                return AdapterHandoffResult(
                     native_message_id=None,
-                    delivery_status="enqueued",
+                    disposition="deferred",
                 )
 
         queued_adapter = QueuedFakeAdapter(adapter_id="fake_presentation")
@@ -405,7 +406,7 @@ class TestLiveDeliveryClaimRace:
         """A live in_progress item with an active lease should not be claimable."""
         import asyncio
 
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
         class BlockingAdapter(FakePresentationAdapter):
             def __init__(self) -> None:
@@ -414,10 +415,10 @@ class TestLiveDeliveryClaimRace:
 
             async def deliver(
                 self, result: RenderingResult
-            ) -> AdapterDeliveryResult | None:
+            ) -> AdapterHandoffResult | None:
                 self.delivered_payloads.append(result)
                 await self.release.wait()
-                return AdapterDeliveryResult(
+                return AdapterHandoffResult(
                     native_message_id=f"msg-{result.event_id}",
                     native_channel_id=result.target_channel,
                 )
@@ -664,7 +665,7 @@ class TestLeaseRenewal:
         """
         import asyncio
 
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
 
         class SlowAdapter(FakePresentationAdapter):
             """Adapter that simulates a slow send (like Meshtastic)."""
@@ -675,11 +676,11 @@ class TestLeaseRenewal:
 
             async def deliver(
                 self, result: RenderingResult
-            ) -> AdapterDeliveryResult | None:
+            ) -> AdapterHandoffResult | None:
                 self.delivered_payloads.append(result)
                 # Simulate a slow send — wait for the signal.
                 await asyncio.sleep(0.1)
-                return AdapterDeliveryResult(
+                return AdapterHandoffResult(
                     native_message_id=f"slow-{result.event_id}",
                     native_channel_id=result.target_channel,
                 )
@@ -827,20 +828,20 @@ class TestLeaseRenewal:
 
 
 class TestTargetedOutboxLookupRegression:
-    """Verify that _record_outbound_native_ref uses a targeted outbox lookup
-    instead of scanning, so that the correct row transitions to ``sent`` even
-    when more than 10 unrelated queued/in_progress rows exist."""
+    """Verify unified deferred completion targets the exact outbox row.
+
+    The regression guards against bounded/scanning lookups selecting the wrong
+    queued generation when many unrelated rows exist.
+    """
 
     async def test_matching_outbox_transitions_sent_despite_many_noise_rows(
         self,
         outbox_temp_storage: SQLiteStorage,
     ) -> None:
-        """Create 15 noise outbox rows + 1 target row, then call
-        _record_outbound_native_ref and assert only the target transitions."""
+        """Create 15 noise rows plus one target; only the target may finalize."""
         import uuid
         from datetime import datetime, timezone
 
-        from medre.core.contracts.adapter import OutboundNativeRefRecord
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.bus import EventBus
         from medre.core.events.canonical import DeliveryReceipt
@@ -921,7 +922,7 @@ class TestTargetedOutboxLookupRegression:
         await outbox_temp_storage.create_outbox_item(target_item)
         await outbox_temp_storage.mark_outbox_queued("obox-target-regression")
 
-        # -- 3. Create a "queued" receipt so _finalize_queued_delivery
+        # -- 3. Create a "queued" receipt so _finalize_deferred_handoff
         #         can find it and inherit plan/route context. ---------------
         now = datetime.now(tz=timezone.utc)
         queued_receipt = DeliveryReceipt(
@@ -957,7 +958,7 @@ class TestTargetedOutboxLookupRegression:
         )
         runner = PipelineRunner(config)
 
-        record = OutboundNativeRefRecord(
+        record = make_deferred_completion(
             attempt_provenance=make_attempt_provenance(
                 event_id=TARGET_EVENT_ID,
                 target_adapter=TARGET_ADAPTER,
@@ -974,7 +975,7 @@ class TestTargetedOutboxLookupRegression:
             outbox_id="obox-target-regression",
             attempt_number=1,
         )
-        await runner._record_outbound_native_ref(record)
+        await runner._record_delivery_feedback(record)
 
         # -- 5. Assert: target outbox item is now "sent" -------------------
         updated_target = await outbox_temp_storage.get_outbox_item(
@@ -1020,7 +1021,7 @@ class TestLeaseRenewalResilience:
         """
         import asyncio
 
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
         from medre.core.engine.pipeline import outbox_manager as outbox_mod
 
         # Short-circuit the renewal interval for a fast test.
@@ -1037,10 +1038,10 @@ class TestLeaseRenewalResilience:
 
             async def deliver(
                 self, result: RenderingResult
-            ) -> AdapterDeliveryResult | None:
+            ) -> AdapterHandoffResult | None:
                 self.delivered_payloads.append(result)
                 await self._release.wait()
-                return AdapterDeliveryResult(
+                return AdapterHandoffResult(
                     native_message_id=f"msg-{result.event_id}",
                     native_channel_id=result.target_channel,
                 )
@@ -1191,7 +1192,7 @@ class TestLeaseRenewalResilience:
         still run and the outbox must transition to a terminal status."""
         import asyncio
 
-        from medre.core.contracts.adapter import AdapterDeliveryResult
+        from medre.core.contracts.adapter import AdapterHandoffResult
         from medre.core.engine.pipeline import outbox_manager as outbox_mod
 
         monkeypatch.setattr(outbox_mod, "_OUTBOX_RENEWAL_INTERVAL_SECONDS", 0.05)
@@ -1213,10 +1214,10 @@ class TestLeaseRenewalResilience:
 
             async def deliver(
                 self, result: RenderingResult
-            ) -> AdapterDeliveryResult | None:
+            ) -> AdapterHandoffResult | None:
                 self.delivered_payloads.append(result)
                 await asyncio.sleep(0.15)
-                return AdapterDeliveryResult(
+                return AdapterHandoffResult(
                     native_message_id=f"msg-{result.event_id}",
                     native_channel_id=result.target_channel,
                 )
@@ -1318,10 +1319,10 @@ class TestRecordTerminalAttemptNumber:
         )
         await outbox_temp_storage.create_outbox_item(outbox_item)
 
-        record = make_terminal_record(
+        record = make_deferred_failure(
             event_id="evt-terminal-attempt",
             adapter="mesh-1",
-            native_channel_id="0",
+            provenance_channel="0",
             outcome="exhausted",
             error="retry budget exhausted",
             outbox_id="obox-attempt-3",
@@ -1332,7 +1333,7 @@ class TestRecordTerminalAttemptNumber:
         import logging
 
         with caplog.at_level(logging.WARNING):
-            await manager.record_terminal(record)
+            await manager.record_deferred_failure(record)
 
         # Mismatched attempt_number → terminal outcome rejected, no receipt.
         receipts = await outbox_temp_storage.list_receipts_for_event(

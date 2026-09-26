@@ -236,12 +236,11 @@ class RenderingResult:
         renderer returns.  ``None`` when the result was not produced
         by :meth:`RenderingPipeline.render` (e.g. manually constructed).
     delivery_plan_id:
-        Stable delivery-plan identity propagated to adapter callbacks
-        for validation.  Set by
+        Stable delivery-plan identity frozen into asynchronous attempt
+        provenance for validation.  Set by
         :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
-        after rendering, before adapter delivery.  Queue-based adapters
-        propagate this through their queue into
-        :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord`.
+        after rendering, before adapter delivery.  Deferred adapters carry
+        it with local work in immutable attempt provenance.
         The lifecycle service validates it against the outbox item but
         does NOT use it for receipt selection — ``outbox_id`` provides
         exact correlation.
@@ -249,16 +248,15 @@ class RenderingResult:
         Internal correlation key linking this render result to the durable
         outbox item tracking this delivery attempt.  Set by
         :class:`~medre.core.engine.pipeline.target_delivery.TargetDeliveryService`
-        alongside ``delivery_plan_id``.  Queue-based adapters propagate this
-        through their internal queue into
-        :class:`~medre.core.contracts.adapter.OutboundNativeRefRecord` for
-        exact outbox-level correlation.  **Not wire metadata, not public API.**
+        alongside ``delivery_plan_id``. Deferred adapters propagate it with
+        their local work in immutable attempt provenance for exact outbox-level
+        correlation. **Not wire metadata, not public API.**
     attempt_number:
         Compatibility mirror of the authoritative attempt-provenance generation.
     attempt_provenance:
         Immutable delivery-attempt envelope created by the pipeline once exact
-        outbox generation and dispatch provenance are known. Queue-backed
-        adapters carry this value through asynchronous callbacks.
+        outbox generation and dispatch provenance are known. Deferred adapters
+        carry this value through local work and asynchronous feedback.
     """
 
     event_id: str

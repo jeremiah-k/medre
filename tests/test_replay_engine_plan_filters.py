@@ -432,9 +432,9 @@ class TestReplayRelationCapabilityFiltering:
             _capabilities = caps
 
             async def deliver(self, rendering_result: Any) -> Any:
-                from medre.core.contracts.adapter import AdapterDeliveryResult
+                from medre.core.contracts.adapter import AdapterHandoffResult
 
-                return AdapterDeliveryResult(native_message_id="$delivered")
+                return AdapterHandoffResult(native_message_id="$delivered")
 
         adapters = {"no-reply": _NoReplyAdapter()}
         target = RouteTarget(adapter="no-reply")
@@ -494,9 +494,9 @@ class TestReplayRelationCapabilityFiltering:
             _capabilities = caps
 
             async def deliver(self, rendering_result: Any) -> Any:
-                from medre.core.contracts.adapter import AdapterDeliveryResult
+                from medre.core.contracts.adapter import AdapterHandoffResult
 
-                return AdapterDeliveryResult(native_message_id="$fb-delivered")
+                return AdapterHandoffResult(native_message_id="$fb-delivered")
 
         adapters = {"fallback-reply": _FallbackReplyAdapter()}
         target = RouteTarget(adapter="fallback-reply")

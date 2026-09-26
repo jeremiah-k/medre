@@ -867,7 +867,7 @@ class TestSendRealDestinationRecall:
         await session.stop()
 
 
-class TestFakeSendReturnsAdapterDeliveryResult:
+class TestFakeSendReturnsAdapterHandoffResult:
     """Fake send_text returns honest outbound/pending data, not None."""
 
     async def test_fake_send_returns_non_none_id(self) -> None:
@@ -1232,7 +1232,6 @@ class TestDeliveryStateMetadataNamespacing:
         adapter = LxmfAdapter(config)
         ctx = AdapterContext(
             adapter_id="lxmf-test",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1266,11 +1265,9 @@ class TestDeliveryStateMetadataNamespacing:
         await adapter.stop()
 
     async def test_lxmf_metadata_inner_is_frozen(self) -> None:
-        """Inner lxmf metadata dict is frozen (MappingProxyType) for
-        consistency with MeshCore metadata."""
+        """LXMF metadata is deeply immutable at the shared hand-off boundary."""
         import logging
         from datetime import datetime, timezone
-        from types import MappingProxyType
         from unittest.mock import AsyncMock
 
         from medre.adapters.lxmf.adapter import LxmfAdapter
@@ -1281,7 +1278,6 @@ class TestDeliveryStateMetadataNamespacing:
         adapter = LxmfAdapter(config)
         ctx = AdapterContext(
             adapter_id="lxmf-test",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1303,7 +1299,10 @@ class TestDeliveryStateMetadataNamespacing:
         delivery = await adapter.deliver(result)
         assert delivery is not None
         inner = delivery.metadata["lxmf"]
-        assert isinstance(inner, MappingProxyType)
+        assert isinstance(inner, dict)
+        assert dict(inner)["delivery_state"] == "outbound"
+        with pytest.raises(TypeError):
+            inner["delivery_state"] = "changed"  # type: ignore[index]
 
         await adapter.stop()
 
@@ -1322,7 +1321,6 @@ class TestDeliveryStateMetadataNamespacing:
         adapter = LxmfAdapter(config)
         ctx = AdapterContext(
             adapter_id="lxmf-test",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),

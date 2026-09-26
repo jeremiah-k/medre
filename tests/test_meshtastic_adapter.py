@@ -54,24 +54,40 @@ class TestMeshtasticAdapterLifecycle:
         info = await adapter.health_check()
         assert info.health == "unknown"
 
-    async def test_deliver_returns_none_scaffold(self) -> None:
-        """Real adapter deliver() enqueues and returns AdapterDeliveryResult with
-        delivery_note='locally enqueued' and native_message_id=None."""
+    async def test_deliver_returns_none_scaffold(self, make_adapter_context) -> None:
+        """Real adapter deliver() enqueues and returns AdapterHandoffResult with
+        note='locally enqueued' and native_message_id=None."""
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context(config.adapter_id)
         result = make_meshtastic_rendering_result()
         delivery = await adapter.deliver(result)
         assert delivery is not None
         assert delivery.native_message_id is None
-        assert delivery.delivery_note == "locally enqueued"
+        assert delivery.note == "locally enqueued"
 
-    async def test_deliver_enqueues_to_queue(self) -> None:
+    async def test_deliver_enqueues_to_queue(self, make_adapter_context) -> None:
         """deliver() puts the payload into the adapter-owned queue."""
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context(config.adapter_id)
         result = make_meshtastic_rendering_result()
         await adapter.deliver(result)
         assert adapter.queue.pending_count == 1
+
+    async def test_deliver_rejects_outboxless_deferred_work(self) -> None:
+        """Deferred admission requires immutable attempt provenance first."""
+        config = make_meshtastic_config(connection_type="fake")
+        adapter = MeshtasticAdapter(config)
+        result = make_meshtastic_rendering_result(outbox_id=None)
+
+        with pytest.raises(
+            AdapterPermanentError,
+            match="deferred Meshtastic delivery requires immutable attempt_provenance",
+        ):
+            await adapter.deliver(result)
+
+        assert adapter.queue.pending_count == 0
 
     async def test_deliver_rejects_canonical_event(self) -> None:
         config = make_meshtastic_config(connection_type="fake")
@@ -319,7 +335,6 @@ class TestMeshtasticAdapterConnectionModes:
             await adapter.start(
                 AdapterContext(
                     adapter_id="mesh-1",
-                    event_bus=None,
                     publish_inbound=AsyncMock(),
                     logger=__import__("logging").getLogger("test"),
                     clock=lambda: datetime.now(timezone.utc),
@@ -421,7 +436,6 @@ class TestMeshtasticAdapterPubsubSubscription:
             await adapter.start(
                 AdapterContext(
                     adapter_id="mesh-1",
-                    event_bus=None,
                     publish_inbound=AsyncMock(),
                     logger=__import__("logging").getLogger("test"),
                     clock=lambda: datetime.now(timezone.utc),
@@ -456,7 +470,6 @@ class TestMeshtasticAdapterPubsubSubscription:
             await adapter.start(
                 AdapterContext(
                     adapter_id="mesh-1",
-                    event_bus=None,
                     publish_inbound=AsyncMock(),
                     logger=__import__("logging").getLogger("test"),
                     clock=lambda: datetime.now(timezone.utc),
@@ -494,7 +507,6 @@ class TestMeshtasticAdapterPubsubSubscription:
             await adapter.start(
                 AdapterContext(
                     adapter_id="mesh-1",
-                    event_bus=None,
                     publish_inbound=AsyncMock(),
                     logger=__import__("logging").getLogger("test"),
                     clock=lambda: datetime.now(timezone.utc),
@@ -533,7 +545,6 @@ class TestMeshtasticAdapterPubsubSubscription:
             await adapter.start(
                 AdapterContext(
                     adapter_id="mesh-1",
-                    event_bus=None,
                     publish_inbound=AsyncMock(),
                     logger=__import__("logging").getLogger("test"),
                     clock=lambda: datetime.now(timezone.utc),
@@ -575,7 +586,6 @@ class TestMeshtasticAdapterPubsubSubscription:
             await adapter.start(
                 AdapterContext(
                     adapter_id="mesh-1",
-                    event_bus=None,
                     publish_inbound=AsyncMock(),
                     logger=__import__("logging").getLogger("test"),
                     clock=lambda: datetime.now(timezone.utc),
@@ -696,9 +706,12 @@ class TestMeshtasticAdapterQueueOwnership:
         assert "total_failed" in health
         assert health["pending_count"] == 0
 
-    async def test_deliver_enqueues_and_queue_pending_grows(self) -> None:
+    async def test_deliver_enqueues_and_queue_pending_grows(
+        self, make_adapter_context
+    ) -> None:
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = make_adapter_context(config.adapter_id)
         result = make_meshtastic_rendering_result()
         await adapter.deliver(result)
         assert adapter.queue.pending_count == 1
@@ -752,8 +765,8 @@ class TestMeshtasticAdapterQueueOwnership:
         # send_one processes the queue item
         result = await adapter.send_one()
         assert result is not None
-        assert result.delivery_result.native_message_id == "77"
-        assert result.delivery_result.native_channel_id == "0"
+        assert result.handoff.native_message_id == "77"
+        assert result.handoff.native_channel_id == "0"
         assert adapter.queue.pending_count == 0
         assert len(fake_client.sent) == 1
 

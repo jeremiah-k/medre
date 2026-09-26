@@ -58,8 +58,8 @@ from medre.core.routing.router import Router
 from medre.core.routing.stats import RouteStats
 from medre.core.storage.backend import (
     ConversationMembership,
+    DeferredHandoffFinalization,
     DeliveryOutboxItem,
-    QueuedDeliveryFinalization,
     StorageError,
     TerminalOutboxFinalization,
 )
@@ -401,9 +401,9 @@ class _FakeStorage:
             command,
         )
 
-    async def finalize_queued_delivery(
+    async def finalize_deferred_handoff(
         self,
-        command: QueuedDeliveryFinalization,
+        command: DeferredHandoffFinalization,
     ) -> bool:
         """In-memory mirror of the atomic storage contract: guarded outbox
         transition plus native ref plus sent receipt, or nothing."""
@@ -538,8 +538,8 @@ async def test_fake_storage_finalization_preserves_missing_native_channel_identi
     )
 
     with pytest.raises(StorageError):
-        await storage.finalize_queued_delivery(
-            QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
+        await storage.finalize_deferred_handoff(
+            DeferredHandoffFinalization(native_ref=native_ref, receipt=receipt)
         )
 
     assert outbox.status == "queued"
@@ -582,8 +582,8 @@ async def test_fake_storage_finalization_rejects_mismatched_receipt_attempt() ->
         outbox_id="obox-attempt",
     )
 
-    committed = await storage.finalize_queued_delivery(
-        QueuedDeliveryFinalization(native_ref=native_ref, receipt=receipt)
+    committed = await storage.finalize_deferred_handoff(
+        DeferredHandoffFinalization(native_ref=native_ref, receipt=receipt)
     )
 
     assert committed is False
@@ -598,12 +598,11 @@ def _make_ctx(
 ) -> AdapterContext:
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=AsyncMock(),
         publish_inbound=AsyncMock(),
         logger=logger or logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
-        record_outbound_native_ref=AsyncMock(),
+        report_delivery_feedback=AsyncMock(),
     )
 
 
@@ -785,9 +784,9 @@ def _build_pipeline_runner(
         fallback_resolver=FallbackResolver(),
         relation_resolver=RelationResolver(storage=store),
         adapters=adapters,
-        event_bus=event_bus,
         rendering_pipeline=rendering_pipeline,
         route_stats=RouteStats(),
+        event_bus=event_bus,
     )
     runner = PipelineRunner(config)
     return runner, store, router

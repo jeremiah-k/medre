@@ -84,8 +84,8 @@ async def _make_pipeline(
             "fake_meshtastic": mesh_adapter,
             out_adapter_id: out_adapter,
         },
-        event_bus=EventBus(),
         rendering_pipeline=rp,
+        event_bus=EventBus(),
     )
 
     runner = PipelineRunner(config)
@@ -98,7 +98,6 @@ def _make_adapter_context_for_pipeline(adapter_id: str, runner: PipelineRunner) 
 
     return AdapterContext(
         adapter_id=adapter_id,
-        event_bus=None,
         publish_inbound=runner.handle_ingress,
         logger=logging.getLogger(f"test.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
@@ -242,8 +241,8 @@ class TestMeshtasticPipelineIntegration:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"radio-in": in_adapter, "local-radio": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -327,8 +326,8 @@ class TestMeshtasticNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"mesh-inbound": adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -377,8 +376,8 @@ class TestMeshtasticNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"mesh-in": in_adapter, "mesh-out": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -431,8 +430,8 @@ class TestMeshtasticNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"mesh-fail-in": in_adapter, "mesh-fail-out": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -482,8 +481,8 @@ class TestMeshtasticNativeRefPersistence:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"mesh-dup": adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
 
@@ -594,8 +593,8 @@ class TestMeshtasticReplyRelation:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"mesh-source": in_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=RenderingPipeline(),
+                event_bus=EventBus(),
             )
         )
 
@@ -676,8 +675,8 @@ class TestMeshtasticReplyRelation:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"mesh-orphan": in_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=RenderingPipeline(),
+                event_bus=EventBus(),
             )
         )
 
@@ -764,8 +763,8 @@ class TestMeshtasticPlatformRendererSelection:
                 fallback_resolver=FallbackResolver(),
                 relation_resolver=RelationResolver(storage=temp_storage),
                 adapters={"local-node": in_adapter, "radio-out": out_adapter},
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()

@@ -54,11 +54,9 @@ Machine-readable capability declaration: [`meshcore-capabilities.json`](meshcore
 | deletes           | `"unsupported"`                          |
 | attachments       | `False`                                  |
 | metadata_fields   | `False`                                  |
-| delivery_receipts | `False`                                  |
 | store_and_forward | `False`                                  |
 | direct_messages   | `False` (outbound; inbound PRIV relayed) |
 | channels          | `True`                                   |
-| async_delivery    | `True`                                   |
 | mesh_routing      | `True`                                   |
 | max_text_bytes    | Configurable (default 512)               |
 
@@ -241,7 +239,7 @@ native_message_id=<derived identity>)`
     public key) when the SDK supplies it, including for channel broadcasts; it
     is absent only when the packet does not expose a `pubkey_prefix`.
 - **Outbound native ref:** `native_message_id` is extracted from the SDK send
-  result when available; `delivery_status="sent"` (default), with
+  result when available; `disposition="transport_handoff"` (default), with
   `metadata["meshcore"]["local_acceptance"]=True`.
 
 ---
@@ -259,13 +257,13 @@ command-response timeout/no-event conditions as `ERROR` events with reasons
 transport uncertainty and keeps them on the bounded retry path. Other explicit SDK
 `ERROR` responses remain permanent rejections. Local acceptance does not constitute
 RF end-to-end delivery. Success returns a `native_message_id` (if the SDK provides
-one). The `delivery_note` varies by send type: channel sends report `"MeshCore:
+one). The `AdapterHandoffResult.note` varies by send type: channel sends report `"MeshCore:
 channel send local-accepted only (no ACK protocol)"`; DM sends report `"MeshCore:
 DM sent with expected_ack captured as native_id; delivery confirmation not tracked"`.
 
-**No end-to-end confirmation.** The current MeshCore SDK does not provide delivery ACKs. The adapter reports `delivery_status="sent"` (the default adapter-level value) and carries `metadata["meshcore"]["local_acceptance"]=True` to indicate the message was accepted by the local SDK without network confirmation. Consumers MUST be tolerant of delivery uncertainty.
+**No end-to-end confirmation.** The current MeshCore SDK does not provide delivery ACKs. The adapter reports `disposition="transport_handoff"` (the default adapter-level value) and carries `metadata["meshcore"]["local_acceptance"]=True` to indicate the message was accepted by the local SDK without network confirmation. Consumers MUST be tolerant of delivery uncertainty.
 
-**Fake mode:** Returns `None` (no real delivery).
+**Fake mode:** Returns a synthetic `AdapterHandoffResult` in fake mode.
 
 ---
 
@@ -353,7 +351,7 @@ are deterministically degraded to inline fallback text.
 
 ## Known Limitations
 
-- **Pre-release maturity.** No end-to-end delivery confirmation; `delivery_status` is `"sent"` (the adapter-level default) while `metadata["meshcore"]["local_acceptance"]` is `True`.
+- **Pre-release maturity.** No end-to-end delivery confirmation; `disposition` is `"transport_handoff"` (the adapter-level default) while `metadata["meshcore"]["local_acceptance"]` is `True`.
 - **No reply or reaction support.** Capabilities declare both as `"unsupported"`. MeshCore has no built-in threading/reply mechanism.
 - **Sender identity is a pubkey prefix.** The 6-byte hex prefix is stable per sender but not human-readable. The adapter resolves a human-readable label from the local SDK contact cache when the sender is a known contact (see §Sender Identity Projection); otherwise the label fields are empty and only the opaque prefix is exposed via `{sender_id}`.
 - **Duplicate-send risk from retry.** The session retries transient send failures up to 3 times. If the first attempt was received by the remote node but the ACK was lost, the message will be sent again.

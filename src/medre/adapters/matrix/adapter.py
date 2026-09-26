@@ -16,7 +16,6 @@ import hashlib
 import logging
 import random
 import time
-from types import MappingProxyType
 from typing import Any, Callable
 
 from medre.adapters.matrix.codec import MatrixCodec
@@ -42,12 +41,12 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
     AdapterInfo,
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
 )
+from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.ingress import IngressProvenance
 from medre.core.rendering.renderer import RenderingResult
 
@@ -64,11 +63,9 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     deletes="unsupported",
     attachments=False,
     metadata_fields=False,
-    delivery_receipts=True,
     store_and_forward=False,
     direct_messages=True,
     channels=True,
-    async_delivery=True,
     topic_rooms=True,
 )
 
@@ -607,13 +604,13 @@ class MatrixAdapter(AdapterContract):
                 transient=False,
             )
 
-    async def deliver(self, result: RenderingResult) -> AdapterDeliveryResult | None:
+    async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
         """Send a pre-rendered payload to a Matrix room.
 
         The *result.payload* is expected to be an ``m.room.message``
         content dict already rendered by :class:`~medre.adapters.matrix.renderer.MatrixRenderer`.
 
-        On success, returns an :class:`AdapterDeliveryResult` populated
+        On success, returns an :class:`AdapterHandoffResult` populated
         with the ``event_id`` from the homeserver's ``RoomSendResponse``.
         If the response lacks an ``event_id``, the result is returned without one (the
         pipeline will not store a native ref in that case).
@@ -637,8 +634,8 @@ class MatrixAdapter(AdapterContract):
 
         Returns
         -------
-        AdapterDeliveryResult | None
-            Native delivery metadata from the Matrix homeserver.
+        AdapterHandoffResult
+            Native hand-off metadata from the Matrix homeserver.
 
         Raises
         ------
@@ -748,20 +745,16 @@ class MatrixAdapter(AdapterContract):
                         "homeserver returned empty/missing event_id; "
                         "delivery may not have been recorded"
                     )
-                return AdapterDeliveryResult(
+                return AdapterHandoffResult(
                     native_message_id=event_id,
                     native_channel_id=room_id,
                     confirmation_level="remote_service",
-                    metadata=MappingProxyType(
-                        {
-                            "matrix": MappingProxyType(
-                                {
-                                    "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
-                                    "txn_id": txn_id,
-                                }
-                            )
+                    metadata={
+                        "matrix": {
+                            "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
+                            "txn_id": txn_id,
                         }
-                    ),
+                    },
                 )
 
             except MatrixSendError as exc:

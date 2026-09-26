@@ -14,7 +14,7 @@ import pytest
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.fakes.transport import FakeTransportAdapter
-from medre.core.contracts.adapter import AdapterDeliveryResult
+from medre.core.contracts.adapter import AdapterHandoffResult
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.engine.pipeline.runner import _native_metadata_for_ref
 from medre.core.events import (
@@ -331,9 +331,9 @@ class TestPipelineNativeChannelIdNoFallback:
             received_events: list[object] = []
 
             async def deliver(self, payload: object):
-                from medre.core.contracts.adapter import AdapterDeliveryResult
+                from medre.core.contracts.adapter import AdapterHandoffResult
 
-                return AdapterDeliveryResult(
+                return AdapterHandoffResult(
                     native_message_id="msg-001",
                     native_channel_id=None,
                 )
@@ -383,9 +383,9 @@ class TestPipelineNativeChannelIdNoFallback:
             received_events: list[object] = []
 
             async def deliver(self, payload: object):
-                from medre.core.contracts.adapter import AdapterDeliveryResult
+                from medre.core.contracts.adapter import AdapterHandoffResult
 
-                return AdapterDeliveryResult(
+                return AdapterHandoffResult(
                     native_message_id=None,
                     native_channel_id="ch-1",
                 )
@@ -631,8 +631,8 @@ class TestOutboundNativeMetadataPersistence:
             adapter_id = "meta_out"
             platform = "test"
 
-            async def deliver(self, payload: object) -> AdapterDeliveryResult:
-                return AdapterDeliveryResult(
+            async def deliver(self, payload: object) -> AdapterHandoffResult:
+                return AdapterHandoffResult(
                     native_message_id="out-msg-001",
                     native_channel_id="ch-out",
                     metadata=MappingProxyType({"txn_id": "t-99", "epoch": 42}),
@@ -684,8 +684,8 @@ class TestOutboundNativeMetadataPersistence:
             adapter_id = "no_meta_out"
             platform = "test"
 
-            async def deliver(self, payload: object) -> AdapterDeliveryResult:
-                return AdapterDeliveryResult(
+            async def deliver(self, payload: object) -> AdapterHandoffResult:
+                return AdapterHandoffResult(
                     native_message_id="out-msg-002",
                     native_channel_id="ch-out",
                     metadata=MappingProxyType({}),
@@ -1043,8 +1043,8 @@ class TestRendererReceivesEnrichedRelation:
             adapter_id = "render_target"
             platform = "test"
 
-            async def deliver(self, payload: object) -> AdapterDeliveryResult:
-                return AdapterDeliveryResult(
+            async def deliver(self, payload: object) -> AdapterHandoffResult:
+                return AdapterHandoffResult(
                     native_message_id="delivered-001",
                     native_channel_id="ch-delivered",
                 )

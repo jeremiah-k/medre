@@ -28,7 +28,7 @@ from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
     AdapterContract,
-    AdapterDeliveryResult,
+    AdapterHandoffResult,
     AdapterInfo,
     AdapterRole,
 )
@@ -224,8 +224,8 @@ class SlowStopOnStartFailure(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class CancelledStopOnStartFailure(AdapterContract):
@@ -260,8 +260,8 @@ class CancelledStopOnStartFailure(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class FailingAdapter(AdapterContract):
@@ -290,8 +290,8 @@ class FailingAdapter(AdapterContract):
             health="failed",
         )
 
-    async def deliver(self, result: Any) -> AdapterDeliveryResult | None:
-        return None
+    async def deliver(self, result: Any) -> AdapterHandoffResult:
+        return AdapterHandoffResult()
 
 
 class SlowStopDouble:

@@ -31,6 +31,7 @@ from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.delivery_callbacks import with_attempt_provenance
 from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
 
@@ -96,8 +97,8 @@ class TestMeshtasticBridgeErrorMapping:
                     "err-fake-in": fake_in_adapter,
                     "err-mesh-out": mesh_out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -107,11 +108,11 @@ class TestMeshtasticBridgeErrorMapping:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="err-mesh-out",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.err-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 
@@ -192,8 +193,8 @@ class TestMeshtasticBridgeErrorMapping:
                     "perm-fake-in": fake_in_adapter,
                     "perm-mesh-out": mesh_out_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -203,11 +204,11 @@ class TestMeshtasticBridgeErrorMapping:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="perm-mesh-out",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.perm-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 
@@ -230,15 +231,25 @@ class TestMeshtasticBridgeErrorMapping:
         without being swallowed."""
         mesh_config = MeshtasticConfig(adapter_id="cancel-mesh", connection_type="fake")
         mesh_adapter = MeshtasticAdapter(mesh_config)
+        mesh_adapter.ctx = AdapterContext(
+            adapter_id="cancel-mesh",
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.bridge.cancel-mesh"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            report_delivery_feedback=AsyncMock(),
+        )
 
         # Patch queue.enqueue to raise CancelledError.
         mesh_adapter._queue.enqueue = AsyncMock(side_effect=asyncio.CancelledError())
 
-        result = RenderingResult(
-            event_id="evt-cancel",
-            target_adapter="cancel-mesh",
-            target_channel="0",
-            payload={"text": "cancel test", "channel_index": 0},
+        result = with_attempt_provenance(
+            RenderingResult(
+                event_id="evt-cancel",
+                target_adapter="cancel-mesh",
+                target_channel="0",
+                payload={"text": "cancel test", "channel_index": 0},
+            )
         )
 
         with pytest.raises(asyncio.CancelledError):
@@ -303,8 +314,8 @@ class TestMeshtasticBridgeErrorMapping:
                     "iso-mesh-out": mesh_out_adapter,
                     "iso-good-out": good_adapter,
                 },
-                event_bus=EventBus(),
                 rendering_pipeline=rp,
+                event_bus=EventBus(),
             )
         )
         await runner.start()
@@ -314,21 +325,21 @@ class TestMeshtasticBridgeErrorMapping:
         await mesh_out_adapter.start(
             AdapterContext(
                 adapter_id="iso-mesh-out",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.iso-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
         await good_adapter.start(
             AdapterContext(
                 adapter_id="iso-good-out",
-                event_bus=None,
                 publish_inbound=AsyncMock(),
                 logger=logging.getLogger("test.bridge.iso-good-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 

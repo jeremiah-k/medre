@@ -208,7 +208,6 @@ def _make_context():
 
     return AdapterContext(
         adapter_id="matrix-live-smoke",
-        event_bus=None,
         publish_inbound=AsyncMock(),
         logger=logging.getLogger("test.matrix-live"),
         clock=lambda: datetime.now(timezone.utc),
@@ -481,7 +480,6 @@ class TestMatrixLiveSmoke:
         publish_mock = AsyncMock()
         ctx = AdapterContext(
             adapter_id="matrix-live-smoke",
-            event_bus=None,
             publish_inbound=publish_mock,
             logger=logging.getLogger("test.matrix-live.echo"),
             clock=lambda: datetime.now(timezone.utc),
@@ -586,7 +584,6 @@ class TestMatrixLiveSmoke:
         publish_blocked = AsyncMock()
         ctx_blocked = AdapterContext(
             adapter_id="matrix-live-allowlist-blocked",
-            event_bus=None,
             publish_inbound=publish_blocked,
             logger=logging.getLogger("test.matrix-live.allowlist-blocked"),
             clock=lambda: datetime.now(timezone.utc),
@@ -658,7 +655,6 @@ class TestMatrixLiveSmoke:
         config_allowed = _make_config_with_allowlist({MATRIX_ROOM_ID})
         ctx_allowed = AdapterContext(
             adapter_id="matrix-live-allowlist-allowed",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.matrix-live.allowlist-allowed"),
             clock=lambda: datetime.now(timezone.utc),
@@ -701,7 +697,6 @@ class TestMatrixLiveSmoke:
         adapter = MatrixAdapter(_make_config())
         ctx = AdapterContext(
             adapter_id="matrix-live-smoke",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.matrix-live.health"),
             clock=lambda: datetime.now(timezone.utc),
@@ -752,7 +747,6 @@ class TestMatrixLiveSmoke:
         # Cycle 1
         ctx1 = AdapterContext(
             adapter_id="matrix-live-smoke",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.matrix-live.restart"),
             clock=lambda: datetime.now(timezone.utc),
@@ -773,7 +767,6 @@ class TestMatrixLiveSmoke:
         # Cycle 2 — same adapter instance, new context
         ctx2 = AdapterContext(
             adapter_id="matrix-live-smoke",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.matrix-live.restart"),
             clock=lambda: datetime.now(timezone.utc),
@@ -816,7 +809,6 @@ class TestMatrixLiveSmoke:
         adapter = MatrixAdapter(_make_config())
         ctx = AdapterContext(
             adapter_id="matrix-live-smoke",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.matrix-live.redelivery"),
             clock=lambda: datetime.now(timezone.utc),
@@ -917,7 +909,6 @@ class TestMatrixLiveSmoke:
         publish_mock = AsyncMock()
         ctx = AdapterContext(
             adapter_id="matrix-live-smoke",
-            event_bus=None,
             publish_inbound=publish_mock,
             logger=logging.getLogger("test.matrix-live.inbound"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1029,7 +1020,6 @@ class TestMatrixLiveSmoke:
         adapter = MatrixAdapter(_make_config())
         ctx = AdapterContext(
             adapter_id="matrix-live-smoke",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.matrix-live.diagnostics"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1136,7 +1126,6 @@ class TestMatrixLiveSmoke:
         adapter = MatrixAdapter(_make_config())
         ctx = AdapterContext(
             adapter_id="matrix-live-smoke",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.matrix-live.shutdown"),
             clock=lambda: datetime.now(timezone.utc),
@@ -1179,7 +1168,6 @@ class TestMatrixLiveLocalSynapse:
         adapter = MatrixAdapter(_make_config())
         ctx = AdapterContext(
             adapter_id="matrix-live-smoke",
-            event_bus=None,
             publish_inbound=AsyncMock(),
             logger=logging.getLogger("test.matrix-live.synapse"),
             clock=lambda: datetime.now(timezone.utc),
