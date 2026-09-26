@@ -245,7 +245,7 @@ mapping keys via `propertyNames`, `adapter_id` via `pattern` +
 uniqueness and env-token collisions are enforced by the loader and env
 layer, not by the schemas.
 
-### 3.4 Routes and Channel Mapping
+### 3.4 Routes and Context Mapping
 
 Routes are defined under `routes.<route_id>`. `RouteConfig` carries:
 
@@ -262,7 +262,7 @@ Routes are defined under `routes.<route_id>`. `RouteConfig` carries:
   [routing-delivery.md §2.8 Bridge Policy](routing-delivery.md#28-bridge-policy))
   and an optional per-route `retry` block.
 - Route-level `source_origin_label` / `dest_origin_label` (default `None` /
-  unset) and the optional `channel_room_map` described below.
+  unset) and the optional `context_map` described below.
 
 The full normative semantics for route matching, policy evaluation, and
 delivery fanout live in [routing-delivery.md](routing-delivery.md). The
@@ -271,30 +271,37 @@ operator-facing YAML examples, including policy and retry tables, live in
 Programmatically constructed `RouteConfig` values are subject to the same
 runtime-semantic invariants before expansion: both adapter sides MUST be
 non-empty, structured destinations MUST have exactly one destination adapter
-and no competing channel selector, and `channel_room_map` MUST NOT be combined
+and no competing channel selector, and `context_map` MUST NOT be combined
 with competing source/destination selectors.
 
-#### 3.4.1 channel_room_map
+#### 3.4.1 context_map
 
-For Matrix↔Meshtastic bridges, `channel_room_map` expands a single route
-into one leg per channel→room pair. Every entry MUST be a structured table:
+`context_map` expands a single route into one leg per entry. The map is
+keyed by the SOURCE-side opaque context; every value MUST be a structured
+table:
 
-| Key                   | Type           | Default | Notes                                                               |
-| --------------------- | -------------- | ------- | ------------------------------------------------------------------- |
-| `room`                | string         | —       | Canonical Matrix room ID starting with `!`. **Required.**           |
-| `source_origin_label` | string or null | `null`  | Per-entry forward-leg label. `null` inherits the route-level label. |
-| `dest_origin_label`   | string or null | `null`  | Per-entry reverse-leg label. `null` inherits the route-level label. |
+| Key                   | Type           | Default | Notes                                                                                                                                                                                                          |
+| --------------------- | -------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dest_context`        | string or null | `null`  | Opaque dest-side context. Exactly one of `dest_context` / `dest_destination`. **Required** unless `dest_destination` is set.                                                                                   |
+| `dest_destination`    | table or null  | `null`  | Structured destination (see [routing-delivery.md §2.3](routing-delivery.md#23-routedestination)). Exactly one of `dest_context` / `dest_destination`. Forward-only: requires `directionality: source_to_dest`. |
+| `source_origin_label` | string or null | `null`  | Per-entry forward-leg label. `null` inherits the route-level label.                                                                                                                                            |
+| `dest_origin_label`   | string or null | `null`  | Per-entry reverse-leg label. `null` inherits the route-level label.                                                                                                                                            |
 
 Unknown keys are rejected. Boolean label values are rejected before the
-generic string check, matching route-level label validation. Entries with only
-`room` inherit route-level and adapter-level origin labels normally.
+generic string check, matching route-level label validation. Entries with
+only `dest_context` inherit route-level and adapter-level origin labels
+normally.
 
-`channel_room_map` is mutually exclusive with `source_channel`,
+Contexts are **opaque strings owned by their adapters**. Generic config
+applies no transport-specific syntax validation: a Matrix room, a
+Meshtastic channel index, a Discord channel, or an MQTT topic are all just
+non-empty, stripped strings; each adapter owns its transport-specific
+validation. `context_map` is mutually exclusive with `source_channel`,
 `dest_channel`, `source_room`, and `dest_room`. When present, the route
-MUST have exactly one source and one dest adapter. Channel keys are
-integers `0`–`7` (Meshtastic supports up to 8 channels). Duplicate channel
-keys are rejected. Room values MUST be canonical Matrix room IDs (starting
-with `!`); aliases (`#…`) are not supported.
+MUST have exactly one source and one dest adapter. Map keys MUST already
+be stripped/normalized (`" 0"` and `"0 "` are rejected; `"0"` is
+accepted). Duplicate map keys are structurally impossible in YAML/TOML
+but are rejected for programmatic shapes where applicable.
 
 #### 3.4.2 Origin Label Precedence
 
@@ -303,7 +310,7 @@ The formatter variable is `{origin_label}`. Per expanded leg, the resolved
 value comes from the most-specific level that is not `null`/`None`:
 
 1. **Per-entry** `source_origin_label` (forward leg) or `dest_origin_label`
-   (reverse leg) on the matched `channel_room_map` entry, when set.
+   (reverse leg) on the matched `context_map` entry, when set.
 2. **Route-level** `source_origin_label` / `dest_origin_label` on
    `RouteConfig`, when set.
 3. **Adapter** `origin_label` from the source adapter config (default `""`).
@@ -324,24 +331,26 @@ machine-readable provenance source is the MEDRE metadata namespace
 (`medre.envelope` on Matrix, `fields[0xFD]` on LXMF,
 `RenderingResult.metadata` on all transports).
 
-#### 3.4.3 Same-Room Fan-In and Duplicate Matrix Rooms
+#### 3.4.3 Fan-In and Duplicate dest_context Values
 
-A `channel_room_map` MAY map two or more channel indices to the same
-Matrix room for Meshtastic→Matrix fan-in (e.g. multiple radio channels
-relaying into one shared room, each with its own `source_origin_label`).
-Whether duplicate rooms are accepted depends on whether the route's
-expansion creates a Matrix→Meshtastic leg:
+A `context_map` MAY map two or more source contexts to the same
+`dest_context` for forward-only fan-in (e.g. several source contexts
+relaying into one shared dest context, each with its own
+`source_origin_label`). Whether duplicate `dest_context` values are
+accepted depends on the route's directionality:
 
-- **Allowed** — no Matrix→Meshtastic leg is created (one-way
-  Meshtastic→Matrix routing). The inbound radio channel disambiguates the
-  source.
-- **Rejected** — a Matrix→Meshtastic leg is created. A Matrix event
-  arriving from the shared room would be ambiguous across channels.
+- **Allowed** — only forward legs exist
+  (`directionality: source_to_dest`). The inbound source context
+  disambiguates the source.
+- **Rejected** — reverse legs exist (`bidirectional`,
+  `dest_to_source`). Duplicate `dest_context` values would become
+  duplicate reverse-leg inbound source contexts, which is ambiguous.
 
-The check runs at runtime route-expansion time (in
-`medre.runtime.route_engine._validate_duplicate_rooms_for_direction`),
-where adapter platform assignments are known. See
-[routing-delivery.md §17.6](routing-delivery.md#176-duplicate-room-fan-in-for-channel_room_map)
+Entries carrying a structured `dest_destination` never participate in
+fan-in (each addresses a unique destination entity, and they are
+forward-only). The check runs at configuration validation time and fails
+with a `ConfigValidationError`. See
+[routing-delivery.md §17.6](routing-delivery.md#176-duplicate-dest_context-fan-in-for-context_map)
 for the full directionality decision matrix.
 
 #### 3.4.4 Removed Template Placeholders

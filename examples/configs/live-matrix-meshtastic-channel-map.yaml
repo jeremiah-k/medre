@@ -1,7 +1,7 @@
-# MEDRE Example: Live Matrix <-> Meshtastic Bridge with Multi-Channel Map
+# MEDRE Example: Live Matrix <-> Meshtastic Bridge with Multi-Context Map
 #
 # Bridges multiple Meshtastic radio channels to separate Matrix rooms using
-# channel_room_map.  Each channel gets its own dedicated room.
+# context_map.  Each channel context gets its own dedicated room.
 #
 # NOT for unattended production.  Use throwaway Matrix rooms and non-critical
 # Meshtastic channels.
@@ -15,7 +15,7 @@
 #   medre run --config examples/configs/live-matrix-meshtastic-channel-map.yaml
 
 runtime:
-  name: live-channel-map
+  name: live-context-map
   shutdown_timeout_seconds: 30
 
 logging:
@@ -32,7 +32,7 @@ storage:
 # Matrix transport
 # ---------------------------------------------------------------------------
 # Fill in your real homeserver URL, bot credentials, and room IDs below.
-# The bot auto-joins every room listed in the channel_room_map.
+# The bot auto-joins every room listed in the context_map dest_context values.
 adapters:
   matrix:
     main:
@@ -60,43 +60,42 @@ adapters:
       # port: 4403
 
 # ---------------------------------------------------------------------------
-# Route — multi-channel bridge via channel_room_map
+# Route — multi-context bridge via context_map
 # ---------------------------------------------------------------------------
-# channel_room_map expands this single route into one bidirectional pair
-# per channel.  Channel keys are Meshtastic channel indices (0-7).
-# Every entry is a table with a canonical Matrix room ID (! prefix) and
-# optional per-entry origin labels.
+# context_map expands this single route into one bidirectional pair per
+# entry.  The map key is the SOURCE-side opaque context — the context that
+# arrives ON the source adapter.  Here the radio side is the source, so the
+# keys are Meshtastic channel indices and the dest_context values are
+# Matrix rooms on the main adapter.  Every value is a structured table with
+# exactly one of dest_context / dest_destination plus optional per-entry
+# origin labels.
 #
-# The bot auto-joins every room listed here.  Channels not listed in the map
+# The bot auto-joins every room listed here.  Contexts not listed in the map
 # are silently dropped — packets on unmapped channels are not relayed.
 #
-# To add more channels, extend the map up to channel 7:
+# To add more channels, extend the map:
 #   "3":
-#     room: "!room3:example.com"
+#     dest_context: "!room3:example.com"
 #   "4":
-#     room: "!room4:example.com"
+#     dest_context: "!room4:example.com"
 #   ...
 
 routes:
   radio_map:
     source_adapters:
-      - main
-    dest_adapters:
       - radio
+    dest_adapters:
+      - main
     directionality: bidirectional
     enabled: true
-    channel_room_map:
+    context_map:
       "0":
-        room: "!general:example.com"
+        dest_context: "!general:example.com"
         source_origin_label: General
       "1":
-        room: "!admin:example.com"
+        dest_context: "!admin:example.com"
       "2":
-        room: "!alerts:example.com"
-      #   dest_origin_label: "Matrix Bridge"
-      # "1":
-      #   room: "!admin:example.com"
-      #   source_origin_label: "Admin"
+        dest_context: "!alerts:example.com"
       # Per-entry labels override the route-level source_origin_label /
       # dest_origin_label for this entry's legs only; an unset (or omitted)
       # label falls back to the route-level value, then the adapter
@@ -104,19 +103,49 @@ routes:
       # See docs/ops/configuration.md (Per-entry origin labels) and
       # docs/spec/routing-delivery.md §17.5.8.
 
-      # --- Fan-in alternative (commented out) ---
-      # Two (or more) Meshtastic channels can deliver into the SAME Matrix
-      # room when the route does not also create a Matrix→Meshtastic leg.
-      # Here directionality would need to be source_to_dest with a Meshtastic
-      # source and Matrix destination (swap source_adapters/dest_adapters and
-      # set directionality: source_to_dest to use this shape). Duplicate rooms
-      # are rejected at route expansion when a Matrix→Meshtastic leg would be
-      # created, because a Matrix event from the shared room is ambiguous
-      # across channels. See docs/spec/routing-delivery.md §17.6.
-      #
-      # "0":
-      #   room: "!shared:example.com"
-      #   source_origin_label: "LongFast"
-      # "1":
-      #   room: "!shared:example.com"
-      #   source_origin_label: "ShortFast"
+  # --- Structured-destination alternative route (commented out) ---
+  # A separate route at the routes: level (sibling of radio_map above).
+  # An entry may target a structured destination entity instead of a dest
+  # context (here: a Matrix room relaying into a fixed LXMF destination).
+  # Structured-destination entries are forward-only: they require
+  # directionality: source_to_dest. Using this route requires adding a
+  # matching adapters.lxmf.<id> section (e.g. adapters.lxmf.lxmf-node); no
+  # LXMF adapter is defined in this example config.
+  #
+  # matrix_to_lxmf_peer:
+  #   source_adapters:
+  #     - main
+  #   dest_adapters:
+  #     - lxmf-node
+  #   directionality: source_to_dest
+  #   enabled: true
+  #   context_map:
+  #     "!room:example.com":
+  #       dest_destination:
+  #         kind: lxmf_destination
+  #         destination_hash: "e5f6a7b8c9d0e1f2a1b2c3d4e5f6a7b8"
+  #         destination_name: "mobile-peer-1"
+
+  # --- Fan-in alternative route (commented out) ---
+  # Two (or more) source contexts can deliver into the SAME dest context
+  # when the route creates no reverse legs. Here the radio side is the
+  # source, so fan-in uses directionality: source_to_dest. Duplicate
+  # dest_context values are rejected at configuration validation when
+  # reverse legs would be created, because a dest-side event from the
+  # shared context is ambiguous across source contexts. See
+  # docs/spec/routing-delivery.md §17.6.
+  #
+  # radio_fan_in:
+  #   source_adapters:
+  #     - radio
+  #   dest_adapters:
+  #     - main
+  #   directionality: source_to_dest
+  #   enabled: true
+  #   context_map:
+  #     "0":
+  #       dest_context: "!shared:example.com"
+  #       source_origin_label: "LongFast"
+  #     "1":
+  #       dest_context: "!shared:example.com"
+  #       source_origin_label: "ShortFast"

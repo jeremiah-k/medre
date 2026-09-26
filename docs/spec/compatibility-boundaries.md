@@ -119,7 +119,7 @@ The current runtime rejects or ignores these abandoned development shapes:
 
 - flat or dotted transport-native fields in canonical event metadata;
 - unversioned built-in transport native metadata;
-- bare-string `channel_room_map` entries;
+- bare-string `context_map` entries;
 - the old replay renderer `render_event` hook;
 - the old `PipelineRunner.ingress_handler` callable;
 - the old direct-constructor LXMF relay-prefix argument;

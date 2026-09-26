@@ -98,16 +98,16 @@
           "default": null,
           "description": "Optional per-route retry policy. Null means no retry scheduling."
         },
-        "channel_room_map": {
+        "context_map": {
           "oneOf": [
             {
               "type": "object",
               "minProperties": 1,
               "propertyNames": {
-                "pattern": "^[0-7]$"
+                "pattern": "^[^\\s](.*[^\\s])?$"
               },
               "additionalProperties": {
-                "$ref": "#/$defs/ChannelRoomMapEntry"
+                "$ref": "#/$defs/ContextMapEntry"
               }
             },
             {
@@ -115,7 +115,7 @@
             }
           ],
           "default": null,
-          "description": "Mapping of Meshtastic channel strings ('0'–'7') to structured Matrix room mappings with required 'room' plus optional 'source_origin_label' / 'dest_origin_label'."
+          "description": "Mapping of source-side opaque context strings to structured entries with exactly one of 'dest_context' / 'dest_destination' plus optional 'source_origin_label' / 'dest_origin_label'. Contexts are opaque strings owned by their adapters; no transport-specific syntax is validated here. Mutually exclusive with source_channel/dest_channel/source_room/dest_room. Requires exactly one source and one dest adapter."
         },
         "source_origin_label": {
           "type": ["string", "null"],
@@ -140,7 +140,7 @@
             "properties": {
               "dest_channel": { "type": "null" },
               "dest_room": { "type": "null" },
-              "channel_room_map": { "type": "null" },
+              "context_map": { "type": "null" },
               "dest_adapters": { "maxItems": 1 }
             }
           }
@@ -253,16 +253,28 @@
         }
       ]
     },
-    "ChannelRoomMapEntry": {
-      "title": "ChannelRoomMapEntry",
-      "description": "A single channel_room_map entry mapping a Meshtastic channel index to a Matrix room ID, with optional per-entry origin labels that override the route-level labels for this entry's expanded legs only.",
+    "ContextMapEntry": {
+      "title": "ContextMapEntry",
+      "description": "A single context_map entry mapping a source-side opaque context to the dest side, with optional per-entry origin labels that override the route-level labels for this entry's expanded legs only.",
       "type": "object",
       "properties": {
-        "room": {
-          "type": "string",
+        "dest_context": {
+          "type": ["string", "null"],
           "minLength": 1,
-          "pattern": "^!",
-          "description": "Canonical Matrix room ID starting with '!'. Required."
+          "default": null,
+          "description": "Opaque dest-side context (e.g. a room, channel, or topic identifier — owned and validated by the dest adapter). Mutually exclusive with dest_destination; exactly one of the two is required."
+        },
+        "dest_destination": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RouteDestination"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Structured destination entity addressed by this entry. Mutually exclusive with dest_context; exactly one of the two is required. Entries carrying a structured destination expand forward legs only (they require route directionality 'source_to_dest')."
         },
         "source_origin_label": {
           "type": ["string", "null"],
@@ -275,8 +287,41 @@
           "description": "Per-entry reverse-leg source label. Null inherits the route-level dest_origin_label. An explicit empty string suppresses the adapter-level fallback for this entry's reverse leg."
         }
       },
-      "required": ["room"],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "dest_context": { "type": "string" } },
+            "required": ["dest_context"]
+          },
+          "then": {
+            "properties": { "dest_destination": { "type": "null" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "dest_destination": { "type": "object" } },
+            "required": ["dest_destination"]
+          },
+          "then": {
+            "properties": { "dest_context": { "type": "null" } }
+          }
+        },
+        {
+          "anyOf": [
+            {
+              "properties": {
+                "dest_context": { "type": "string", "minLength": 1 }
+              },
+              "required": ["dest_context"]
+            },
+            {
+              "properties": { "dest_destination": { "type": "object" } },
+              "required": ["dest_destination"]
+            }
+          ]
+        }
+      ]
     },
     "RouteConfigRef": {
       "title": "RouteConfig",
@@ -358,16 +403,16 @@
           ],
           "default": null
         },
-        "channel_room_map": {
+        "context_map": {
           "oneOf": [
             {
               "type": "object",
               "minProperties": 1,
               "propertyNames": {
-                "pattern": "^[0-7]$"
+                "pattern": "^[^\\s](.*[^\\s])?$"
               },
               "additionalProperties": {
-                "$ref": "#/$defs/ChannelRoomMapEntry"
+                "$ref": "#/$defs/ContextMapEntry"
               }
             },
             {
@@ -397,7 +442,7 @@
             "properties": {
               "dest_channel": { "type": "null" },
               "dest_room": { "type": "null" },
-              "channel_room_map": { "type": "null" },
+              "context_map": { "type": "null" },
               "dest_adapters": { "maxItems": 1 }
             }
           }

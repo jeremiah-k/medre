@@ -1342,13 +1342,11 @@ Routes register in the same order they appear in configuration. Registration is 
 ### 17.4 Offline Route Plan
 
 Route expansion is deterministic and computable offline. Given a parsed
-route configuration and the `adapter_id → platform` mapping (itself
-derivable from configuration alone via the adapter inventory), the full
-expanded route set — including the per-channel legs produced by
-`channel_room_map`, the reverse legs produced by bidirectional expansion,
-and the per-leg `origin_label` resolution — MUST be reproducible without
-starting any adapter, importing any transport SDK, or performing any
-network or hardware I/O.
+route configuration alone, the full expanded route set — including the
+per-context legs produced by `context_map`, the reverse legs produced by
+bidirectional expansion, and the per-leg `origin_label` resolution —
+MUST be reproducible without starting any adapter, importing any
+transport SDK, or performing any network or hardware I/O.
 
 The `medre routes plan` operator command is the offline rendering of this
 expansion. Its properties:
@@ -1357,7 +1355,7 @@ expansion. Its properties:
   _effective_ `origin_label` for every expanded leg — the value the
   renderer would emit — and identifies its source within the §17.5.2
   precedence chain. Provenance categories: `per_entry` (a structured
-  `channel_room_map` entry label), `route` (route-level
+  `context_map` entry label), `route` (route-level
   `source_origin_label` / `dest_origin_label`), `adapter` (the source
   adapter's `origin_label` applied as fallback at plan time, mirroring
   render-time attribution), or `unset` (no label resolved at any level
@@ -1365,16 +1363,16 @@ expansion. Its properties:
   string at the per-entry or route level is preserved as an
   `explicit_empty` suppression at that level. The relay-prefix
   resolution is therefore traceable end-to-end before runtime.
-- **Same-room fan-in is shown as allowed.** When a `channel_room_map`
-  maps two or more Meshtastic channel indices to one Matrix room and
-  the route creates no Matrix→Meshtastic leg (§17.6), the plan renders
-  the fan-in legs without error and annotates the decision.
-- **Duplicate-room ambiguity is reported per-route.** When the route's
-  expansion would create a Matrix→Meshtastic leg while two or more
-  `channel_room_map` entries share a Matrix room (§17.6), expansion
-  raises `RouteValidationError`; the offending route's legs are withheld
-  and the error is surfaced in the plan output, and the command exits
-  non-zero. Other routes in the same plan are still expanded and rendered.
+- **Forward-only fan-in is shown as allowed.** When a `context_map`
+  maps two or more source contexts to one `dest_context` and the route
+  creates no reverse legs (§17.6), the plan renders the fan-in legs
+  without error and annotates the decision.
+- **Duplicate-context ambiguity is rejected at configuration load.** When
+  two or more `context_map` entries share a `dest_context` while the
+  route's directionality creates reverse legs (§17.6), `RouteConfig`
+  construction fails with a `ConfigValidationError`; `medre routes plan`
+  and `medre run` exit non-zero with that load error and no plan is
+  rendered.
 
 The plan is observational: it describes the shape the router will receive. It is not delivery evidence and does not influence runtime matching, capability decisions, or receipt semantics.
 
@@ -1399,10 +1397,10 @@ LXMF, `RenderingResult.metadata` on all transports).
 `origin_label` is the platform-neutral, operator-defined source label for
 relay prefixes. It can be set at three levels:
 
-1. **Per-entry (channel_room_map only)** — `source_origin_label` and
-   `dest_origin_label` on a structured `channel_room_map` entry. These
+1. **Per-entry (context_map only)** — `source_origin_label` and
+   `dest_origin_label` on a structured `context_map` entry. These
    override the route-level and adapter-level labels for the expanded legs
-   of that one channel only. Both default to `nil` (unset, falls through).
+   of that one entry only. Both default to `nil` (unset, falls through).
    See §17.5.8 for the entry shape and full per-entry semantics.
 2. **Route level** — `source_origin_label` and `dest_origin_label` on
    `RouteConfig`. These direction-aware labels override the adapter-level
@@ -1417,7 +1415,7 @@ relay prefixes. It can be set at three levels:
 The precedence chain for `source_origin_label` on `RelayAttribution` is:
 
 1. Per-entry label (`source_origin_label` or `dest_origin_label` on the
-   matched `channel_room_map` entry), when it is not `nil`.
+   matched `context_map` entry), when it is not `nil`.
 2. Route-level label (`source_origin_label` or `dest_origin_label` after
    expansion) from the matched route, when it is not `None`.
 3. Adapter config `origin_label` from the source-attribution registry.
@@ -1449,7 +1447,7 @@ template alias is `{origin_label}`.
 | `route_id`            | `{route_id}`      | Matched route                                                | Route identification (may be empty if no route trace available) |
 
 Operators SHOULD prefer `{origin_label}` in cross-platform prefix templates.
-`origin_label` is the single MEDRE-generic label. For `channel_room_map`
+`origin_label` is the single MEDRE-generic label. For `context_map`
 legs, precedence is per-entry label > route-level
 `source_origin_label`/`dest_origin_label` (after direction expansion) >
 adapter config `origin_label` > empty string. General routes use the same
@@ -1573,27 +1571,32 @@ identity hashes are mapped to the generic fields. Adding a new transport
 requires implementing projection from that transport's native metadata to
 the generic fields. Core renderers and the shared formatter need no changes.
 
-**Per-context labels for `channel_room_map`.** A `channel_room_map`
+**Per-entry labels for `context_map`.** A `context_map`
 entry MAY carry its own origin labels in addition to the route-level
 `source_origin_label` / `dest_origin_label`. Every entry is a structured
-table with three fields:
+table with exactly one addressing field and up to two label fields:
 
-| Field                 | Type            | Default | Notes                                                              |
-| --------------------- | --------------- | ------- | ------------------------------------------------------------------ |
-| `room`                | `string`        | —       | Canonical Matrix room ID starting with `!`. Required.              |
-| `source_origin_label` | `string \| nil` | `nil`   | Per-entry forward-leg label. `nil` inherits the route-level label. |
-| `dest_origin_label`   | `string \| nil` | `nil`   | Per-entry reverse-leg label. `nil` inherits the route-level label. |
+| Field                 | Type            | Default | Notes                                                                                                                                             |
+| --------------------- | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dest_context`        | `string \| nil` | `nil`   | Opaque dest-side context. Exactly one of `dest_context` / `dest_destination`.                                                                     |
+| `dest_destination`    | `table \| nil`  | `nil`   | Structured destination (§2.3). Exactly one of `dest_context` / `dest_destination`. Forward-only: requires route `directionality: source_to_dest`. |
+| `source_origin_label` | `string \| nil` | `nil`   | Per-entry forward-leg label. `nil` inherits the route-level label.                                                                                |
+| `dest_origin_label`   | `string \| nil` | `nil`   | Per-entry reverse-leg label. `nil` inherits the route-level label.                                                                                |
 
-Structured entries accept only three keys: `room`, `source_origin_label`,
-and `dest_origin_label`. Any other keys MUST be rejected. A
-`source_origin_label` or `dest_origin_label` value that is a boolean or
-otherwise not a string MUST be rejected — the boolean check runs before
-the generic string check, matching the route-level label validation in
-§17.5.2. Bare room-ID values are not an alternate representation and MUST
-be rejected. An entry whose per-entry labels are absent or `nil` resolves
-those labels through the route-level precedence described below.
+Structured entries accept only these four keys: `dest_context`,
+`dest_destination`, `source_origin_label`, and `dest_origin_label`. Any
+other keys MUST be rejected. A `source_origin_label` or
+`dest_origin_label` value that is a boolean or otherwise not a string
+MUST be rejected — the boolean check runs before the generic string
+check, matching the route-level label validation in §17.5.2. Bare-string
+entries are not an alternate representation and MUST be rejected. The
+map key is the SOURCE-side opaque context; contexts are opaque strings
+owned by their adapters, and generic config applies no
+transport-specific syntax validation. An entry whose per-entry labels
+are absent or `nil` resolves those labels through the route-level
+precedence described below.
 
-The per-leg `origin_label` precedence for a `channel_room_map` route is:
+The per-leg `origin_label` precedence for a `context_map` route is:
 
 1. Per-entry label (`source_origin_label` or `dest_origin_label` on the
    matched entry), when it is not `nil`.
@@ -1608,11 +1611,11 @@ suppresses fallback for that leg: it is preserved verbatim onto
 the `{origin_label}` template variable resolves to empty. A `nil` or
 absent label falls through to the next level.
 
-Per-entry labels are scoped to `channel_room_map` entries only.
-Operators who need per-channel labels within a single general route (one
-not using `channel_room_map`) SHOULD still use separate routes per
-channel, each with its own direction-aware label. If the
-`channel_room_map` shape is not expressive enough for a given targeting
+Per-entry labels are scoped to `context_map` entries only.
+Operators who need per-context labels within a single general route (one
+not using `context_map`) SHOULD still use separate routes per
+context, each with its own direction-aware label. If the
+`context_map` shape is not expressive enough for a given targeting
 pattern (for example, distinct fanout across multiple destinations),
 operators SHOULD decompose the bridge into separate routes.
 
@@ -1672,60 +1675,58 @@ credentials, BLE pairing PINs, session blobs, and unredacted device
 secrets. The policy is enforced by existing adapter patterns and is
 restated here for clarity.
 
-## 17.6 Duplicate-Room Fan-In for `channel_room_map`
+## 17.6 Duplicate dest_context Fan-In for `context_map`
 
-A `channel_room_map` MAY map two or more Meshtastic channel indices to the
-same canonical Matrix room. Whether such duplicate room values are accepted
-depends on the legs the route expands, which are determined by the route's
-directionality and the source/dest platform orientation. The check runs at
-runtime expansion time (in `_validate_duplicate_rooms_for_direction`), not at
-config parse time, because resolving the forward/reverse legs requires the
-platform assignment that the pure config parser cannot determine.
+A `context_map` MAY map two or more source contexts to the same
+`dest_context`. Whether such duplicate `dest_context` values are accepted
+depends on the legs the route expands, which are determined solely by the
+route's `directionality`. The check runs at configuration validation time
+and fails with a `ConfigValidationError` carrying the `routes.<id>`
+section path — no adapter platform assignment is involved in the
+decision.
 
 ### 17.6.1 Why directionality decides
 
-Duplicate Matrix rooms are safe for Meshtastic→Matrix fan-in: when an inbound
-radio event arrives, the source Meshtastic channel unambiguously identifies
-which `channel_room_map` entry produced the leg, so multiple channels can
-deliver into one shared Matrix room without ambiguity. Each such leg carries
-its own per-entry `source_origin_label` (§17.5.8) so the relay prefix can
-distinguish the channels in the shared room.
+Duplicate `dest_context` values are safe for forward-only fan-in: when an
+inbound source event arrives, the source context (the map key)
+unambiguously identifies which `context_map` entry produced the leg, so
+multiple source contexts can deliver into one shared dest context without
+ambiguity. Each such leg carries its own per-entry `source_origin_label`
+(§17.5.8) so the relay prefix can distinguish the sources in the shared
+dest context.
 
-Duplicate Matrix rooms are ambiguous for Matrix→Meshtastic routing: a Matrix
-event arriving from the shared room could match two or more expanded legs
-that target different Meshtastic channels, with no signal in the Matrix event
-to pick one. Such configurations MUST be rejected.
+Duplicate `dest_context` values are ambiguous for any route that also
+creates reverse legs: a dest-side event arriving from the shared context
+would match two or more expanded reverse legs that target different
+source contexts, with no signal in the event to pick one. Such
+configurations MUST be rejected. Entries carrying a structured
+`dest_destination` never participate: they expand forward legs only, and
+each addresses a unique destination entity.
 
 ### 17.6.2 Directionality decision matrix
 
-`fwd_is_matrix_to_mesh` records whether the declared forward (source→dest)
-leg is Matrix→Meshtastic, derived from the source/dest adapter platforms.
-`create_fwd` / `create_rev` are derived from `RouteDirectionality`. A
-Matrix→Meshtastic leg exists when the forward leg is Matrix→Meshtastic and
-`create_fwd`, or when the forward leg is Meshtastic→Matrix and `create_rev`.
+`create_fwd` / `create_rev` are derived from `RouteDirectionality`.
+Reverse legs exist when `create_rev`.
 
-| Declared directionality | `fwd_is_matrix_to_mesh` | Matrix→Meshtastic leg created? | Duplicate rooms |
-| ----------------------- | ----------------------- | ------------------------------ | --------------- |
-| `source_to_dest`        | `True`                  | Yes (forward)                  | Rejected        |
-| `source_to_dest`        | `False`                 | No                             | Allowed         |
-| `dest_to_source`        | `True`                  | No                             | Allowed         |
-| `dest_to_source`        | `False`                 | Yes (reverse)                  | Rejected        |
-| `bidirectional`         | `True`                  | Yes (forward)                  | Rejected        |
-| `bidirectional`         | `False`                 | Yes (reverse)                  | Rejected        |
+| Declared directionality | Reverse legs created? | Duplicate `dest_context` values |
+| ----------------------- | --------------------- | ------------------------------- |
+| `source_to_dest`        | No                    | Allowed (forward-only fan-in)   |
+| `dest_to_source`        | Yes                   | Rejected                        |
+| `bidirectional`         | Yes                   | Rejected                        |
 
-A map with no duplicate room values is always accepted regardless of
-directionality — the ambiguity cannot arise.
+A map with no duplicate `dest_context` values is always accepted
+regardless of directionality — the ambiguity cannot arise.
 
 ### 17.6.3 Operator guidance
 
-For one-way Meshtastic→Matrix aggregation (for example, two radio channels
-relaying into a single Matrix room), use `directionality: source_to_dest` (or
-`dest_to_source`, depending on adapter orientation) with a Meshtastic source
-and a Matrix destination, and give each entry a distinct
-`source_origin_label`. For any topology that also routes Matrix→Meshtastic,
-each `channel_room_map` entry MUST use a distinct Matrix room. Operators who
-need both fan-in and Matrix→Meshtastic bridging for the same channels SHOULD
-split the channels into separate routes, each with its own dedicated room.
+For one-way aggregation (for example, two source contexts relaying into a
+single dest context), use `directionality: source_to_dest` with the
+shared-context side declared as the dest side, and give each entry a
+distinct `source_origin_label`. For any topology that also routes in the
+reverse direction, each `context_map` entry MUST use a distinct
+`dest_context`. Operators who need both fan-in and reverse bridging for
+the same pairs SHOULD split the entries into separate routes, each with
+its own dedicated dest context.
 
 ## 18. Non-Goals
 

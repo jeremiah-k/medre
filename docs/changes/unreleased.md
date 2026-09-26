@@ -11,6 +11,14 @@ this file once they land.
 
 ## Breaking Changes
 
+- **`channel_room_map` removed in favor of generic `context_map`.**
+  Route-level endpoint mapping is now a map of opaque source contexts to
+  structured entries (`dest_context` XOR `dest_destination`, plus optional
+  per-entry origin labels); the platform-specific channel/room ontology and
+  the `adapter_platforms` route-expansion parameter are gone. Expanded
+  mapping legs are named `__map{N}__fwd` / `__map{N}__rev`. Old configs
+  fail the generic unknown-key rejection with a hint toward
+  `context_map`. See `docs/changes/unreleased/215-generic-context-route-mapping.md`.
 - **Config format is YAML-only.** `medre.toml` / `config.toml` must be
   renamed to `.yaml` / `.yml`. The loader rejects `.toml` with a clear
   migration error. A leftover TOML file in an auto-discovery directory now
@@ -40,9 +48,9 @@ this file once they land.
 
 - **`medre routes plan`** renders the expanded route topology offline — no
   adapter startup, no SDK import, no network or hardware I/O. Shows per-leg
-  direction and platform pair, the effective `origin_label` with its
+  direction and transport pair, the effective `origin_label` with its
   provenance (`per_entry`, `route`, `adapter`, `unset`), allowed fan-in
-  decisions, and duplicate-room ambiguity errors (exit non-zero).
+  decisions, and duplicate-context ambiguity errors (exit non-zero).
 - **`medre support bundle`** collects a redacted offline diagnostic ZIP
   for issue reports: config check result, expanded route plan, adapter
   summary, environment info, redacted config copy, and schema presence.
@@ -69,22 +77,23 @@ this file once they land.
 
 ## Config & Schema
 
-- **Per-context origin labels for `channel_room_map`.** Each structured
+- **Per-context origin labels for `context_map`.** Each structured
   entry may carry its own `source_origin_label` / `dest_origin_label`
-  alongside `room`. Precedence: per-entry → route → adapter → empty string.
+  alongside its `dest_context` / `dest_destination`. Precedence:
+  per-entry → route → adapter → empty string.
   Explicit `""` suppresses fallback for that leg; an absent label falls
-  through. Bare-string room entries are rejected by the current prerelease
+  through. Bare-string context entries are rejected by the current prerelease
   contract.
-- **Duplicate-room fan-in.** A `channel_room_map` may map multiple
-  Meshtastic channels to one Matrix room for Meshtastic→Matrix fan-in.
-  Duplicate Matrix rooms are rejected only when the route creates a
-  Matrix→Meshtastic leg (ambiguous source); allowed otherwise.
+- **Duplicate-context fan-in.** A `context_map` may map multiple source
+  contexts to one `dest_context` for forward-only fan-in.
+  Duplicate `dest_context` values are rejected only when the route creates
+  reverse legs (ambiguous reverse-leg source); allowed otherwise.
 - **Direction-aware route origin labels.** `source_origin_label` (forward
   legs) and `dest_origin_label` (reverse legs) replace the single
   `origin_label` route field. Both default to `None` (fall back to adapter
-  `origin_label`). Structured `channel_room_map` entries may override these
-  labels per channel; general routes that need channel-specific attribution
-  still use separate routes per channel.
+  `origin_label`). Structured `context_map` entries may override these
+  labels per entry; general routes that need context-specific attribution
+  still use separate routes per context.
 - **YAML loader hardening.** Invalid-UTF-8 config files raise
   `ConfigFileError`. Exotic mapping key types (`!!omap`, `!!set`) raise
   `StrictYAMLError` in both the loader constructor and the post-parse type
