@@ -44,7 +44,7 @@ from medre.core.storage.backend import (
 )
 
 # Mixin imports — method groups composed via multiple inheritance.
-from medre.core.storage.sqlite._attachments import (
+from medre.core.storage.sqlite._attachments import (  # noqa: F401  -- public re-export surface
     StorageAttachmentAccess,
     _AttachmentsMixin,
 )
