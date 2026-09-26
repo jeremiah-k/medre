@@ -1280,6 +1280,82 @@ class TestRelationTargetFactAttachment:
         assert ref.native_channel_id == "0"
         assert ref.native_message_id == "native-1"
 
+    async def test_referential_ambiguous_refs_do_not_guess_native_target(self) -> None:
+        """Distinct destination copies stay ambiguous and unselected."""
+        storage = self._storage_with_target(
+            refs=[self._nref("native-1"), self._nref("native-2")]
+        )
+        enricher = _make_enricher(storage)
+        event = _make_event(relations=(_rel(target_event_id="target-001"),))
+
+        result = await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        relation = result.relations[0]
+        assert relation.target_native_ref is None
+        assert relation.target_fact is not None
+        assert relation.target_fact.status == "ambiguous"
+        assert relation.target_fact.native_message_id is None
+
+    async def test_identical_destination_refs_dedup_for_native_enrichment(self) -> None:
+        """Duplicate records for one native tuple still bind uniquely."""
+        storage = self._storage_with_target(
+            refs=[self._nref("native-1"), self._nref("native-1")]
+        )
+        enricher = _make_enricher(storage)
+        event = _make_event(relations=(_rel(target_event_id="target-001"),))
+
+        result = await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        relation = result.relations[0]
+        assert relation.target_native_ref is not None
+        assert relation.target_native_ref.native_message_id == "native-1"
+        assert relation.target_fact is not None
+        assert relation.target_fact.status == "bound"
+
+    async def test_call_local_snapshot_reads_each_target_once(self) -> None:
+        """Enrichment and binding share one snapshot without caller caches."""
+
+        class CountingStorage(FakeStorage):
+            def __init__(self) -> None:
+                super().__init__(
+                    events={
+                        "target-001": _make_target_event(
+                            event_id="target-001", text="original body"
+                        )
+                    },
+                    native_refs={"target-001": [self_ref]},
+                )
+                self.get_calls = 0
+                self.list_calls = 0
+
+            async def get(self, event_id: str) -> CanonicalEvent | None:
+                self.get_calls += 1
+                return await super().get(event_id)
+
+            async def list_native_refs_for_event(
+                self, event_id: str
+            ) -> list[NativeMessageRef]:
+                self.list_calls += 1
+                return await super().list_native_refs_for_event(event_id)
+
+        self_ref = self._nref("native-1")
+        storage = CountingStorage()
+        enricher = _make_enricher(storage)
+        event = _make_event(relations=(_rel(target_event_id="target-001"),))
+
+        result = await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        assert result.relations[0].target_fact is not None
+        assert result.relations[0].target_fact.status == "bound"
+        assert storage.get_calls == 1
+        assert storage.list_calls == 1
+
     async def test_referential_fact_is_out_of_scope_in_other_context(self) -> None:
         """Wrong context ⇒ out_of_scope fact, no native ref attached."""
         storage = self._storage_with_target(refs=[self._nref("native-1", channel="9")])

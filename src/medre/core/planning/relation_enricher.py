@@ -62,8 +62,9 @@ class RelationEnricher:
     For each relation that has a ``target_event_id`` but whose
     ``target_native_ref`` is either missing or not for the target adapter,
     this class looks up stored native refs for the target event and attaches
-    the best matching one.  When *target_channel* is provided, an exact
-    channel match is preferred over a bare adapter-only match.  This enables
+    one only when the destination resolves to exactly one distinct native
+    target tuple.  When *target_channel* is provided, only exact channel
+    matches are considered.  This enables
     structured replies / reactions in target-adapter native ID space.
 
     Additionally extracts original text and projected sender metadata
@@ -123,9 +124,10 @@ class RelationEnricher:
 
         For each relation that has a ``target_event_id`` but whose
         ``target_native_ref`` is either missing or not for *target_adapter*,
-        look up stored native refs for the target event and attach the
-        best matching one.  When *target_channel* is provided, an exact
-        channel match is preferred over a bare adapter-only match.  This
+        look up stored native refs for the target event and attach one only
+        when the destination resolves to exactly one distinct native target
+        tuple.  When *target_channel* is provided, only exact channel matches
+        are considered.  This
         enables structured replies / reactions in target-adapter native ID
         space.
 
@@ -171,8 +173,66 @@ class RelationEnricher:
             return event
 
         storage = self._storage
-        list_fn = cached_list_fn or getattr(storage, "list_native_refs_for_event", None)
-        get_fn = cached_get_fn or getattr(storage, "get", None)
+
+        # When the caller does not provide ingress-scoped caches, keep one
+        # call-local snapshot for the whole enrichment decision.  Phase 1
+        # native-ref enrichment, Phase 2 target metadata enrichment, and
+        # Phase 3 binding must not re-read the same target independently: a
+        # changing storage view could otherwise attach a ref from one
+        # snapshot and a binding fact from another.  Cache failures as well
+        # as successful reads so a failed proof cannot become authorized by
+        # a later read within the same decision.
+        if cached_get_fn is not None:
+            get_fn = cached_get_fn
+        else:
+            raw_get_fn = getattr(storage, "get", None)
+            if callable(raw_get_fn):
+                get_cache: dict[str, CanonicalEvent | None] = {}
+                get_errors: dict[str, Exception] = {}
+
+                async def _memoized_get(event_id: str) -> CanonicalEvent | None:
+                    if event_id in get_errors:
+                        raise get_errors[event_id]
+                    if event_id not in get_cache:
+                        try:
+                            get_cache[event_id] = await cast(
+                                Callable[[str], Awaitable[CanonicalEvent | None]],
+                                raw_get_fn,
+                            )(event_id)
+                        except Exception as exc:
+                            get_errors[event_id] = exc
+                            raise
+                    return get_cache[event_id]
+
+                get_fn = _memoized_get
+            else:
+                get_fn = None
+
+        if cached_list_fn is not None:
+            list_fn = cached_list_fn
+        else:
+            raw_list_fn = getattr(storage, "list_native_refs_for_event", None)
+            if callable(raw_list_fn):
+                list_cache: dict[str, list[NativeMessageRef]] = {}
+                list_errors: dict[str, Exception] = {}
+
+                async def _memoized_list(event_id: str) -> list[NativeMessageRef]:
+                    if event_id in list_errors:
+                        raise list_errors[event_id]
+                    if event_id not in list_cache:
+                        try:
+                            list_cache[event_id] = await cast(
+                                Callable[[str], Awaitable[list[NativeMessageRef]]],
+                                raw_list_fn,
+                            )(event_id)
+                        except Exception as exc:
+                            list_errors[event_id] = exc
+                            raise
+                    return list_cache[event_id]
+
+                list_fn = _memoized_list
+            else:
+                list_fn = None
 
         changed = False
         new_relations: list[EventRelation] = []
@@ -191,8 +251,8 @@ class RelationEnricher:
                     event=event,
                     target_adapter=target_adapter,
                     target_channel=target_channel,
-                    cached_get_fn=cached_get_fn,
-                    cached_list_fn=cached_list_fn,
+                    cached_get_fn=get_fn if callable(get_fn) else None,
+                    cached_list_fn=list_fn if callable(list_fn) else None,
                 )
                 new_relations.append(msgspec.structs.replace(rel, target_fact=fact))
                 changed = True
@@ -242,25 +302,30 @@ class RelationEnricher:
                         )
                         refs = []
 
-                    # Find ref matching target adapter.
+                    # Select a stored ref only when the destination has
+                    # exactly one distinct native target tuple.  Multiple
+                    # records for the SAME tuple are harmless duplicates;
+                    # multiple distinct tuples are ambiguous and core never
+                    # guesses between them.  This keeps synthesized
+                    # ``target_native_ref`` evidence consistent with the
+                    # binding authority's Phase 3 decision.
                     if target_channel is not None:
-                        # When target_channel is specified, only accept
-                        # exact channel match — no adapter-only fallback.
-                        matching = None
-                        for nref in refs:
-                            if (
-                                nref.adapter == target_adapter
-                                and nref.native_channel_id == target_channel
-                            ):
-                                matching = nref
-                                break
+                        candidates = [
+                            nref
+                            for nref in refs
+                            if nref.adapter == target_adapter
+                            and nref.native_channel_id == target_channel
+                        ]
                     else:
-                        # Without target_channel, fall back to adapter-only.
-                        matching = None
-                        for nref in refs:
-                            if nref.adapter == target_adapter:
-                                matching = nref
-                                break
+                        candidates = [
+                            nref for nref in refs if nref.adapter == target_adapter
+                        ]
+
+                    distinct: dict[tuple[str | None, str], NativeMessageRef] = {}
+                    for nref in candidates:
+                        key = (nref.native_channel_id, nref.native_message_id)
+                        distinct.setdefault(key, nref)
+                    matching = next(iter(distinct.values())) if len(distinct) == 1 else None
 
                     if matching is not None:
                         enriched_native_ref = NativeRef(
@@ -447,8 +512,8 @@ class RelationEnricher:
                 event=event,
                 target_adapter=target_adapter,
                 target_channel=target_channel,
-                cached_get_fn=cached_get_fn,
-                cached_list_fn=cached_list_fn,
+                cached_get_fn=get_fn if callable(get_fn) else None,
+                cached_list_fn=list_fn if callable(list_fn) else None,
             )
             current_rel = msgspec.structs.replace(
                 current_rel,

@@ -11,8 +11,12 @@ existing native replies/reactions and MMRelay fallback behavior.
   native tuple after deduplication; multiple distinct copies (retry/replay
   duplicates) are `ambiguous` and never guessed. Two rooms on one adapter, and
   two instances of the same platform, are strictly isolated; native-only
-  relations cannot bypass scope guards. Canonical event IDs remain canonical
-  and stored originals/relations stay immutable.
+  relations cannot bypass scope guards. Referential enrichment likewise
+  synthesizes a native target only when stored destination refs collapse to
+  one distinct native tuple; ambiguous copies remain unselected. Enrichment
+  and binding share one call-local storage snapshot when the caller does not
+  provide a broader cache. Canonical event IDs remain canonical and stored
+  originals/relations stay immutable.
 - `EventRelation` gains one core-computed field, `target_fact`
   (`RelationTargetFact`): an immutable resolved fact with statuses
   `bound` / `bound_owned` / `unresolved_target` / `out_of_scope` / `ambiguous` /
