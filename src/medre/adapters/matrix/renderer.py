@@ -1009,9 +1009,7 @@ class MatrixRenderer:
             "formatted_body": self._text_to_html(body),
         }
         if reply_target_id is not None:
-            content["m.relates_to"] = {
-                "m.in_reply_to": {"event_id": reply_target_id}
-            }
+            content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_target_id}}
 
         metadata = self._finalize_send_content(event, ctx, content)
         metadata.update(prefix_meta)

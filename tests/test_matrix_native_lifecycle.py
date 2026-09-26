@@ -416,9 +416,7 @@ class TestRendererThreads:
             _direct_ctx(),
         )
         content = _content_of(result)
-        assert content["m.relates_to"] == {
-            "m.in_reply_to": {"event_id": "$parent"}
-        }
+        assert content["m.relates_to"] == {"m.in_reply_to": {"event_id": "$parent"}}
         assert content["body"] == "reply only"
 
     async def test_thread_target_from_other_room_is_not_rendered(self) -> None:
@@ -509,9 +507,7 @@ class TestRendererRelationSelection:
             )
             rendered.append(_content_of(result))
 
-        assert rendered[0]["m.relates_to"] == {
-            "m.in_reply_to": {"event_id": "$reply"}
-        }
+        assert rendered[0]["m.relates_to"] == {"m.in_reply_to": {"event_id": "$reply"}}
         assert rendered[1]["m.relates_to"] == rendered[0]["m.relates_to"]
 
 
