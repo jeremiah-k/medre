@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+import msgspec
 import pytest
 
 from medre.core.events.canonical import (
@@ -73,7 +74,9 @@ def _ts() -> datetime:
 
 def _make_event(
     event_id: str = "src-001",
+    event_kind: str = "message.created",
     relations: tuple[EventRelation, ...] = (),
+    source_channel_id: str | None = None,
     payload: dict[str, Any] | None = None,
     metadata: EventMetadata | None = None,
     source_adapter: str = "src",
@@ -81,12 +84,12 @@ def _make_event(
 ) -> CanonicalEvent:
     return CanonicalEvent(
         event_id=event_id,
-        event_kind="message.created",
+        event_kind=event_kind,
         schema_version=1,
         timestamp=_ts(),
         source_adapter=source_adapter,
         source_transport_id=source_transport_id,
-        source_channel_id=None,
+        source_channel_id=source_channel_id,
         parent_event_id=None,
         lineage=(),
         relations=relations,
@@ -298,8 +301,15 @@ class TestAdapterOnlyFallback:
         result = await enricher.enrich_for_target(
             event, target_adapter="mesh-1", target_channel=None
         )
-        # No matching adapter — relation unchanged, event identity preserved.
-        assert result is event
+        # No matching adapter — native ref stays absent.  The target event
+        # is not stored, so the relation carries an unresolved target fact
+        # for this destination.
+        assert result is not event
+        assert result.relations[0].target_native_ref is None
+        fact = result.relations[0].target_fact
+        assert fact is not None
+        assert fact.status == "unresolved_target"
+        assert fact.reason == "unresolved_target:target_event_not_stored"
 
 
 # ===================================================================
@@ -654,7 +664,14 @@ class TestExistingMetadataNotOverwritten:
             event, target_adapter="mesh-1", target_channel="0"
         )
         assert result.relations[0].target_native_ref is existing
-        assert result is event
+        # Existing correct-channel ref is kept; the relation gains its
+        # destination-scoped target fact (event copy replaced).  The target
+        # canonical event is not stored, so the fact records that.
+        assert result is not event
+        fact = result.relations[0].target_fact
+        assert fact is not None
+        assert fact.status == "unresolved_target"
+        assert fact.reason == "unresolved_target:target_event_not_stored"
 
 
 # ===================================================================
@@ -1020,8 +1037,15 @@ class TestExistingAdapterMatchNoChannel:
         result = await enricher.enrich_for_target(
             event, target_adapter="mesh-1", target_channel=None
         )
-        assert result is event
+        # Adapter-matching ref kept; relation gains its target fact.  The
+        # target canonical event is not stored here, so the fact is
+        # unresolved even though the native ref binds for rendering.
+        assert result is not event
         assert result.relations[0].target_native_ref is existing
+        fact = result.relations[0].target_fact
+        assert fact is not None
+        assert fact.status == "unresolved_target"
+        assert fact.reason == "unresolved_target:target_event_not_stored"
 
 
 # ===================================================================
@@ -1115,3 +1139,196 @@ class TestNonDictTargetPayload:
         )
         # No crash; fallback_text remains None (non-dict payload skipped).
         assert result.relations[0].fallback_text is None
+
+
+# ===================================================================
+# Relation target facts (destination-scoped binding + eligibility)
+# ===================================================================
+
+
+class TestRelationTargetFactAttachment:
+    """``enrich_for_target`` attaches a core-computed ``target_fact``.
+
+    Semantics (contract §2):
+
+    * every relation with a ``target_event_id`` gets a fact scoped to the
+      exact destination (adapter instance + destination context);
+    * ``edit``/``delete`` relations ALWAYS get a fact, even when the target
+      is unresolved — the fact records WHY;
+    * existing ``target_native_ref`` enrichment for referential relations
+      is unchanged;
+    * stored events are never mutated; facts live on the returned copy only.
+    """
+
+    ORIGIN_CHANNEL = "room-src"
+
+    def _storage_with_target(
+        self,
+        *,
+        refs: list[NativeMessageRef] | None = None,
+        target_text: str = "original body",
+    ) -> FakeStorage:
+        # Target event with FULL identity facts so bound_owned proofs are
+        # reachable (source_channel_id must be non-empty on the original).
+        target = _make_target_event(event_id="target-001", text=target_text)
+        target = msgspec.structs.replace(target, source_channel_id=self.ORIGIN_CHANNEL)
+        return FakeStorage(
+            events={"target-001": target},
+            native_refs={"target-001": refs or []},
+        )
+
+    def _nref(
+        self,
+        msg_id: str,
+        *,
+        adapter: str = "mesh-1",
+        channel: str | None = "0",
+        direction: str = "outbound",
+    ) -> NativeMessageRef:
+        return _make_native_message_ref(
+            event_id="target-001",
+            adapter=adapter,
+            channel=channel,
+            msg_id=msg_id,
+            direction=direction,
+        )
+
+    async def test_referential_relation_gets_bound_fact(self) -> None:
+        storage = self._storage_with_target(refs=[self._nref("native-1")])
+        enricher = _make_enricher(storage)
+        event = _make_event(relations=(_rel(target_event_id="target-001"),))
+
+        result = await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        fact = result.relations[0].target_fact
+        assert fact is not None
+        assert fact.status == "bound"
+        assert fact.adapter == "mesh-1"
+        assert fact.native_channel_id == "0"
+        assert fact.native_message_id == "native-1"
+        assert fact.direction == "outbound"
+        assert fact.reason is None
+
+    async def test_edit_relation_without_target_id_gets_unresolved_fact(self) -> None:
+        storage = self._storage_with_target()
+        enricher = _make_enricher(storage)
+        rel = EventRelation(
+            relation_type="edit",
+            target_event_id=None,
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(event_kind="message.edited", relations=(rel,))
+
+        result = await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        fact = result.relations[0].target_fact
+        assert fact is not None
+        assert fact.status == "unresolved_target"
+        assert fact.reason is not None
+        assert fact.reason.startswith("unresolved_target:")
+
+    async def test_delete_relation_gets_bound_owned_fact(self) -> None:
+        """Matching identity facts + one outbound copy ⇒ mutation-eligible."""
+        storage = self._storage_with_target(refs=[self._nref("native-1")])
+        enricher = _make_enricher(storage)
+        rel = EventRelation(
+            relation_type="delete",
+            target_event_id="target-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        # The deleting event carries the same identity facts as the stored
+        # original (src / node-t / room-src) so the authorship proof holds.
+        event = _make_event(
+            event_id="src-del-1",
+            event_kind="message.deleted",
+            relations=(rel,),
+            source_transport_id="node-t",
+            source_channel_id=self.ORIGIN_CHANNEL,
+        )
+
+        result = await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        fact = result.relations[0].target_fact
+        assert fact is not None
+        assert fact.status == "bound_owned"
+        assert fact.direction == "outbound"
+        assert fact.native_message_id == "native-1"
+
+    async def test_referential_native_ref_enrichment_unchanged(self) -> None:
+        """Fact attachment does not alter existing target_native_ref output."""
+        storage = self._storage_with_target(refs=[self._nref("native-1")])
+        enricher = _make_enricher(storage)
+        event = _make_event(relations=(_rel(target_event_id="target-001"),))
+
+        result = await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        ref = result.relations[0].target_native_ref
+        assert ref is not None
+        assert ref.adapter == "mesh-1"
+        assert ref.native_channel_id == "0"
+        assert ref.native_message_id == "native-1"
+
+    async def test_referential_fact_is_out_of_scope_in_other_context(self) -> None:
+        """Wrong context ⇒ out_of_scope fact, no native ref attached."""
+        storage = self._storage_with_target(refs=[self._nref("native-1", channel="9")])
+        enricher = _make_enricher(storage)
+        event = _make_event(relations=(_rel(target_event_id="target-001"),))
+
+        result = await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        fact = result.relations[0].target_fact
+        assert fact is not None
+        assert fact.status == "out_of_scope"
+        assert fact.native_message_id is None
+
+    async def test_stored_event_is_never_mutated(self) -> None:
+        storage = self._storage_with_target(refs=[self._nref("native-1")])
+        enricher = _make_enricher(storage)
+        rel = EventRelation(
+            relation_type="delete",
+            target_event_id="target-001",
+            target_native_ref=None,
+            key=None,
+            fallback_text=None,
+        )
+        event = _make_event(
+            event_kind="message.deleted",
+            relations=(rel,),
+            source_transport_id="node-t",
+            source_channel_id=self.ORIGIN_CHANNEL,
+        )
+        stored = storage._events["target-001"]
+
+        await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        # The stored target event keeps fact-free relations.
+        assert stored.relations == ()
+        # And the input event object is not modified in place.
+        assert event.relations[0].target_fact is None
+
+    async def test_event_without_relations_returned_unchanged(self) -> None:
+        storage = self._storage_with_target()
+        enricher = _make_enricher(storage)
+        event = _make_event(relations=())
+
+        result = await enricher.enrich_for_target(
+            event, target_adapter="mesh-1", target_channel="0"
+        )
+
+        assert result is event

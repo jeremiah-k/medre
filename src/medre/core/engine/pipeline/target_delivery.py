@@ -73,6 +73,7 @@ from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     DeliveryPlan,
 )
+from medre.core.planning.relation_binding import mutation_binding_suppression_error
 from medre.core.rendering.renderer import CapabilityLevel as _CapLevel
 from medre.core.rendering.renderer import (
     DeliveryStrategyMethod,
@@ -688,6 +689,49 @@ class TargetDeliveryService:
             )
             await self._storage.append_receipt(_skip_receipt)
             return _skip_receipt
+
+        # Phase 2.75 (dynamic): relation-target binding gate for mutation
+        # events.  A ``message.edited`` / ``message.deleted`` event whose
+        # destination fact for its edit/delete relation is NOT
+        # ``bound_owned`` must not reach the renderer or the adapter: no
+        # native mutation is authorized in this destination, and no
+        # fallback ordinary message may be substituted.  The fact was
+        # computed by the runner-owned per-target enrichment from stored
+        # evidence immediately before this call, so replay and retry
+        # attempts re-bind at execution time and fail closed identically.
+        # The error string carries the stable reason code from the fact
+        # (``relation_target_not_bindable:<status>:<reason>``), distinct
+        # from the static ``capability_suppressed:`` reasons above.
+        _mutation_suppression_error = mutation_binding_suppression_error(_render_event)
+        if _mutation_suppression_error is not None:
+            self._log.info(
+                "relation_target_not_bindable: suppressing mutation delivery: "
+                "event_id=%s target_adapter=%s route_id=%s reason=%s",
+                event.event_id,
+                adapter_id,
+                route.id,
+                _mutation_suppression_error,
+            )
+            _gate_receipt = build_delivery_receipt(
+                receipt_id=receipt_id,
+                event_id=event.event_id,
+                delivery_plan_id=plan.plan_id,
+                target_adapter=adapter_id or "",
+                target_channel=target.channel,
+                route_id=route.id,
+                status="suppressed",
+                receipt_kind="lifecycle",
+                error=_mutation_suppression_error,
+                failure_kind=DeliveryFailureKind.CAPABILITY_SUPPRESSED.value,
+                attempt_number=attempt_number,
+                parent_receipt_id=parent_receipt_id,
+                source=source,
+                replay_run_id=replay_run_id,
+                outbox_id=outbox_id,
+                **self._lifecycle.extract_retry_fields(plan),
+            )
+            await self._storage.append_receipt(_gate_receipt)
+            return _gate_receipt
 
         # Validate the strategy method against the strict
         # DeliveryStrategyMethod literal type accepted by
