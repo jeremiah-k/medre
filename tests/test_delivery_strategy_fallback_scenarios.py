@@ -46,6 +46,18 @@ from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 # ===================================================================
 
 
+def _payload_content(result):
+    """Return the rendered wire content across renderers.
+
+    Matrix results unwrap their closed ``_matrix_operation`` envelope;
+    other renderers return the payload as-is.
+    """
+    operation = result.payload.get("_matrix_operation")
+    if operation is not None:
+        return operation["content"]
+    return result.payload
+
+
 def _ctx(
     *,
     delivery_strategy: DeliveryStrategyMethod = "direct",
@@ -342,11 +354,11 @@ class TestFallbackReactionText:
 
         result = await renderer.render(event, ctx)
 
-        body = result.payload.get("body", "")
+        body = _payload_content(result).get("body", "")
         assert isinstance(body, str)
         assert "\U0001f44d" in body
         assert "m.relates_to" not in result.payload
-        assert "_matrix_event_type" not in result.payload
+        assert "m.relates_to" not in _payload_content(result)
 
 
 # ===================================================================
@@ -608,7 +620,7 @@ class TestTextRendererEditDeleteThread:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert text == "[edited] corrected text"
         assert result.fallback_applied == "relation_edit"
 
@@ -621,7 +633,7 @@ class TestTextRendererEditDeleteThread:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert text == "[edited]"
         assert result.fallback_applied == "relation_edit"
 
@@ -639,7 +651,7 @@ class TestTextRendererEditDeleteThread:
 
         assert result.fallback_applied == "strategy_fallback_text"
         assert result.metadata.get("strategy_relation_type") == "edit"
-        assert "[edited]" in result.payload["text"]
+        assert "[edited]" in _payload_content(result)["text"]
 
     # -- Delete relation fallback ----------------------------------------
 
@@ -655,7 +667,7 @@ class TestTextRendererEditDeleteThread:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert text == "[deleted: the original message]"
         assert result.fallback_applied == "relation_delete"
 
@@ -671,7 +683,7 @@ class TestTextRendererEditDeleteThread:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         # target_event_id abbreviated to first 8 chars + ellipsis.
         assert "evt-abc" in text
         assert result.fallback_applied == "relation_delete"
@@ -688,7 +700,7 @@ class TestTextRendererEditDeleteThread:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert text == "[deleted]"
         assert result.fallback_applied == "relation_delete"
 
@@ -703,7 +715,7 @@ class TestTextRendererEditDeleteThread:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert "[thread: thread root msg]" in text
         assert "a thread reply" in text
         assert result.fallback_applied == "relation_thread"
@@ -718,7 +730,7 @@ class TestTextRendererEditDeleteThread:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert text == "[thread: thread root msg]"
         assert result.fallback_applied == "relation_thread"
 
@@ -736,7 +748,7 @@ class TestTextRendererEditDeleteThread:
 
         assert result.fallback_applied == "strategy_fallback_text"
         assert result.metadata.get("strategy_relation_type") == "thread"
-        assert "[thread:" in result.payload["text"]
+        assert "[thread:" in _payload_content(result)["text"]
 
 
 # ===================================================================
@@ -793,7 +805,7 @@ class TestReactionKeyFromPayload:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert isinstance(text, str)
         assert "👍" in text
         assert "reacted" in text.lower()
@@ -829,7 +841,7 @@ class TestReactionKeyFromPayload:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert "❤️" in text
         assert "👍" not in text
 

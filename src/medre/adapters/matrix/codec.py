@@ -313,18 +313,43 @@ class MatrixCodec(AdapterCodec):
         if relation is None:
             return ()
         relation_type = "delete" if relation.kind == "redaction" else relation.kind
-        return (
-            EventRelation(
-                relation_type=relation_type,
-                target_event_id=None,
-                target_native_ref=NativeRef(
-                    adapter=self._adapter_id,
-                    native_channel_id=room_id,
-                    native_message_id=relation.target_event_id,
-                ),
-                key=relation.key,
-                fallback_text=None,
+        relations: list[EventRelation] = [
+            self._native_relation(
+                relation_type, room_id, relation.target_event_id, relation.key
+            )
+        ]
+        # An explicit m.in_reply_to on a thread or edit event yields a
+        # SECOND canonical relation: the reply targets the explicit
+        # parent (not the thread root), so downstream capability
+        # decisions see plain-reply semantics for reply-in-thread.
+        # Thread-only events carry no reply relation and keep degrading
+        # by their own thread capability on other transports.
+        if relation.reply_to_event_id and relation.kind in ("thread", "edit"):
+            relations.append(
+                self._native_relation(
+                    "reply", room_id, relation.reply_to_event_id, None
+                )
+            )
+        return tuple(relations)
+
+    def _native_relation(
+        self,
+        relation_type: str,
+        room_id: str,
+        target_native_event_id: str,
+        key: str | None,
+    ) -> EventRelation:
+        """Build a canonical relation with a stored native target ref."""
+        return EventRelation(
+            relation_type=relation_type,  # type: ignore[arg-type]
+            target_event_id=None,
+            target_native_ref=NativeRef(
+                adapter=self._adapter_id,
+                native_channel_id=room_id,
+                native_message_id=target_native_event_id,
             ),
+            key=key,
+            fallback_text=None,
         )
 
     def _mmrelay_reaction(

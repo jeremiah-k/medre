@@ -24,6 +24,14 @@ from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticCo
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 from tests.helpers.native_metadata import meshtastic_native_data
 
+
+def _payload_content(result):
+    """Unwrap the closed _matrix_operation envelope to the wire content."""
+    operation = result.payload["_matrix_operation"]
+    assert operation["kind"] == "send_event", operation
+    return operation["content"]
+
+
 # Module-level aliases so existing test call-sites stay concise.
 _make_event = make_matrix_event
 
@@ -125,8 +133,8 @@ class TestMatrixRenderer:
             ),
         )
         assert isinstance(result, RenderingResult)
-        assert result.payload["msgtype"] == "m.text"
-        assert result.payload["body"] == "hello matrix"
+        assert _payload_content(result)["msgtype"] == "m.text"
+        assert _payload_content(result)["body"] == "hello matrix"
 
     async def test_render_includes_msgtype(self) -> None:
         renderer = MatrixRenderer()
@@ -137,7 +145,7 @@ class TestMatrixRenderer:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        assert result.payload["msgtype"] == "m.text"
+        assert _payload_content(result)["msgtype"] == "m.text"
 
     async def test_render_includes_body(self) -> None:
         renderer = MatrixRenderer()
@@ -148,7 +156,7 @@ class TestMatrixRenderer:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        assert result.payload["body"] == "specific body"
+        assert _payload_content(result)["body"] == "specific body"
 
     async def test_render_with_reply_relation(self) -> None:
         renderer = MatrixRenderer()
@@ -171,13 +179,13 @@ class TestMatrixRenderer:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert "m.relates_to" in result.payload
-        relates = result.payload["m.relates_to"]
+        assert "m.relates_to" in _payload_content(result)
+        relates = _payload_content(result)["m.relates_to"]
         assert "m.in_reply_to" in relates
         assert relates["m.in_reply_to"]["event_id"] == "$orig-native"
         # Body is just the relayed body, no manual fallback quoting
-        assert result.payload["body"] == "my reply"
-        assert "> <" not in result.payload["body"]
+        assert _payload_content(result)["body"] == "my reply"
+        assert "> <" not in _payload_content(result)["body"]
 
     async def test_render_with_reaction_relation(self) -> None:
         """Reaction relations render as native Matrix m.reaction payloads."""
@@ -201,14 +209,14 @@ class TestMatrixRenderer:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["_matrix_event_type"] == "m.reaction"
-        assert result.payload["m.relates_to"] == {
+        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
+        assert _payload_content(result)["m.relates_to"] == {
             "rel_type": "m.annotation",
             "event_id": "$orig-native",
             "key": "👍",
         }
-        assert "msgtype" not in result.payload
-        assert "body" not in result.payload
+        assert "msgtype" not in _payload_content(result)
+        assert "body" not in _payload_content(result)
 
     async def test_render_with_envelope(self) -> None:
         renderer = MatrixRenderer()
@@ -219,8 +227,8 @@ class TestMatrixRenderer:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        assert "medre" in result.payload
-        assert "envelope" in result.payload["medre"]
+        assert "medre" in _payload_content(result)
+        assert "envelope" in _payload_content(result)["medre"]
 
     async def test_render_truncates_very_long_body(self) -> None:
         renderer = MatrixRenderer()
@@ -233,7 +241,7 @@ class TestMatrixRenderer:
             ),
         )
         # Renderer passes body through without truncation
-        assert result.payload["body"] == long_body
+        assert _payload_content(result)["body"] == long_body
 
     async def test_render_returns_rendering_result(self) -> None:
         renderer = MatrixRenderer()
@@ -272,7 +280,7 @@ class TestMatrixRendererForeignRefs:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        assert "m.relates_to" not in result.payload
+        assert "m.relates_to" not in _payload_content(result)
 
     async def test_foreign_native_ref_not_used_for_reaction(self) -> None:
         """Meshtastic native ref must not produce true m.reaction."""
@@ -294,8 +302,8 @@ class TestMatrixRendererForeignRefs:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        assert "_matrix_event_type" not in result.payload
-        assert result.payload.get("msgtype") == "m.emote"
+        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
+        assert _payload_content(result).get("msgtype") == "m.emote"
 
     async def test_mmrelay_reply_id_preserved_in_fallback(self) -> None:
         """MMRelay meshtastic_replyId from relation metadata preserves KEY_REPLY_ID in fallback."""
@@ -318,8 +326,8 @@ class TestMatrixRendererForeignRefs:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        assert "meshtastic_replyId" in result.payload
-        assert result.payload["meshtastic_replyId"] == "42"
+        assert "meshtastic_replyId" in _payload_content(result)
+        assert _payload_content(result)["meshtastic_replyId"] == "42"
 
 
 class TestMatrixRendererReplySender:
@@ -351,7 +359,7 @@ class TestMatrixRendererReplySender:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["body"] == "my reply"
+        assert _payload_content(result)["body"] == "my reply"
 
     async def test_reply_body_no_fallback_quote(self) -> None:
         """No Matrix reply body contains '> <' fallback quoting."""
@@ -375,7 +383,7 @@ class TestMatrixRendererReplySender:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         assert "> <" not in body
 
     async def test_reply_body_with_relay_prefix(self) -> None:
@@ -421,7 +429,7 @@ class TestMatrixRendererReplySender:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         assert body == "[TadChilly] my reply"
         assert "> <" not in body
 
@@ -448,7 +456,7 @@ class TestMatrixRendererReplySender:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         assert (
-            result.payload["m.relates_to"]["m.in_reply_to"]["event_id"]
+            _payload_content(result)["m.relates_to"]["m.in_reply_to"]["event_id"]
             == "$orig-native"
         )
 
@@ -475,8 +483,8 @@ class TestMatrixRendererReplySender:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert "meshtastic_replyId" in result.payload
-        assert result.payload["meshtastic_replyId"] == "42"
+        assert "meshtastic_replyId" in _payload_content(result)
+        assert _payload_content(result)["meshtastic_replyId"] == "42"
 
     async def test_no_fallback_quote_any_sender_style(self) -> None:
         """No Matrix reply body contains '> <matrix>', '> <matrix-1>', or
@@ -502,7 +510,7 @@ class TestMatrixRendererReplySender:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         assert "> <matrix>" not in body
         assert "> <matrix-1>" not in body
         assert "> <Tad Chilly>" not in body
@@ -572,9 +580,9 @@ class TestMultiRadioSourceConfig:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
+        assert _payload_content(result)["body"] == "[Alice/AlphaNet]: hello mesh"
         # Verify origin_label is used rather than an unrelated placeholder value
-        assert "UNUSED-Alpha" not in result.payload["body"]
+        assert "UNUSED-Alpha" not in _payload_content(result)["body"]
 
     async def test_bravo_source_uses_bravo_prefix(self) -> None:
         """Event from radio-bravo resolves origin_label=BravoNet in target-local prefix."""
@@ -587,9 +595,9 @@ class TestMultiRadioSourceConfig:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["body"] == "[Bob/BravoNet]: hello mesh"
+        assert _payload_content(result)["body"] == "[Bob/BravoNet]: hello mesh"
         # Verify origin_label is used rather than an unrelated placeholder value
-        assert "UNUSED-Bravo" not in result.payload["body"]
+        assert "UNUSED-Bravo" not in _payload_content(result)["body"]
 
     async def test_unknown_source_renders_plain_output(self) -> None:
         """Event from unknown source renders plain Matrix output (no prefix/metadata)."""
@@ -608,9 +616,9 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # Unknown source → no prefix, plain body
-        assert result.payload["body"] == "hello mesh"
+        assert _payload_content(result)["body"] == "hello mesh"
         # No mmrelay metadata (no source config match)
-        assert "meshtastic_id" not in result.payload
+        assert "meshtastic_id" not in _payload_content(result)
 
     async def test_alpha_mmrelay_compat_enabled(self) -> None:
         """Event from radio-alpha (mmrelay_compat=True) gets mesh metadata."""
@@ -624,8 +632,8 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # mmrelay_compat=True → mesh provenance keys injected
-        assert "meshtastic_id" in result.payload
-        assert result.payload["meshtastic_id"] == "99"
+        assert "meshtastic_id" in _payload_content(result)
+        assert _payload_content(result)["meshtastic_id"] == "99"
 
     async def test_bravo_mmrelay_compat_disabled(self) -> None:
         """Event from radio-bravo (mmrelay_compat=False) omits mesh metadata."""
@@ -639,7 +647,7 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # mmrelay_compat=False → no mesh provenance keys
-        assert "meshtastic_id" not in result.payload
+        assert "meshtastic_id" not in _payload_content(result)
 
     async def test_mmrelay_no_displayname_leak_into_wire_fields(self) -> None:
         """Matrix displayname must NOT populate meshtastic_longname/shortname.
@@ -658,10 +666,10 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # mmrelay_compat=True → metadata injected
-        assert "meshtastic_id" in result.payload
+        assert "meshtastic_id" in _payload_content(result)
         # But displayname must NOT leak into wire fields
-        assert result.payload["meshtastic_longname"] == ""
-        assert result.payload["meshtastic_shortname"] == ""
+        assert _payload_content(result)["meshtastic_longname"] == ""
+        assert _payload_content(result)["meshtastic_shortname"] == ""
 
     async def test_reaction_prefix_resolves_per_source(self) -> None:
         """Reaction emote prefix resolves via target-local template with per-source origin_label."""
@@ -687,11 +695,11 @@ class TestMultiRadioSourceConfig:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         # mmrelay_compat default is True for alpha → emote fallback
         assert "Alice/AlphaNet" in body
         # KEY_MESHNET now sourced from origin_label in source_attribution
-        assert result.payload["meshtastic_meshnet"] == "AlphaNet"
+        assert _payload_content(result)["meshtastic_meshnet"] == "AlphaNet"
 
     async def test_reaction_meshnet_per_source(self) -> None:
         """Reaction KEY_MESHNET resolves from source origin_label."""
@@ -718,7 +726,7 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # KEY_MESHNET sourced from origin_label in source_attribution
-        assert result.payload["meshtastic_meshnet"] == "BravoNet"
+        assert _payload_content(result)["meshtastic_meshnet"] == "BravoNet"
 
     async def test_non_meshtastic_source_ignores_meshtastic_configs(self) -> None:
         """Non-Meshtastic source with Meshtastic source_configs renders plain output."""
@@ -737,13 +745,13 @@ class TestMultiRadioSourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # Plain output — no relay prefix from any Meshtastic config
-        assert result.payload["body"] == "Hello from elsewhere"
+        assert _payload_content(result)["body"] == "Hello from elsewhere"
         # No Meshtastic metadata keys
-        assert "meshtastic_id" not in result.payload
-        assert "meshtastic_meshnet" not in result.payload
-        assert "meshtastic_longname" not in result.payload
+        assert "meshtastic_id" not in _payload_content(result)
+        assert "meshtastic_meshnet" not in _payload_content(result)
+        assert "meshtastic_longname" not in _payload_content(result)
         # Standard Matrix content
-        assert result.payload["msgtype"] == "m.text"
+        assert _payload_content(result)["msgtype"] == "m.text"
 
 
 # ---------------------------------------------------------------------------
@@ -815,14 +823,14 @@ class TestRuntimeAssemblySourceConfig:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
+        assert _payload_content(result)["body"] == "[Alice/AlphaNet]: hello mesh"
         # alpha has mmrelay_compat=True → mesh metadata injected
-        assert "meshtastic_id" in result.payload
-        assert result.payload["meshtastic_id"] == "42"
+        assert "meshtastic_id" in _payload_content(result)
+        assert _payload_content(result)["meshtastic_id"] == "42"
         # KEY_MESHNET sourced from origin_label in source_attribution
-        assert result.payload["meshtastic_meshnet"] == "AlphaNet"
+        assert _payload_content(result)["meshtastic_meshnet"] == "AlphaNet"
         # Verify origin_label is used rather than an unrelated placeholder value
-        assert "UNUSED-Alpha" not in result.payload["body"]
+        assert "UNUSED-Alpha" not in _payload_content(result)["body"]
 
     async def test_runtime_source_b_renders_with_bravo_metadata(self) -> None:
         """Runtime assembly: event from radio-bravo uses bravo's prefix, no mmrelay metadata."""
@@ -835,12 +843,12 @@ class TestRuntimeAssemblySourceConfig:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["body"] == "[Bob/BravoNet]: hello mesh"
+        assert _payload_content(result)["body"] == "[Bob/BravoNet]: hello mesh"
         # bravo has mmrelay_compat=False → no mesh metadata
-        assert "meshtastic_id" not in result.payload
-        assert "meshtastic_meshnet" not in result.payload
+        assert "meshtastic_id" not in _payload_content(result)
+        assert "meshtastic_meshnet" not in _payload_content(result)
         # Verify origin_label is used rather than an unrelated placeholder value
-        assert "UNUSED-Bravo" not in result.payload["body"]
+        assert "UNUSED-Bravo" not in _payload_content(result)["body"]
 
     async def test_non_meshtastic_source_renders_plain_output(self) -> None:
         """Non-Meshtastic source renders plain Matrix output with no Meshtastic metadata."""
@@ -859,15 +867,15 @@ class TestRuntimeAssemblySourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # Plain output — no relay prefix
-        assert result.payload["body"] == "Hello from Matrix"
+        assert _payload_content(result)["body"] == "Hello from Matrix"
         # No Meshtastic metadata keys
-        assert "meshtastic_id" not in result.payload
-        assert "meshtastic_meshnet" not in result.payload
-        assert "meshtastic_longname" not in result.payload
-        assert "meshtastic_shortname" not in result.payload
-        assert "meshtastic_portnum" not in result.payload
+        assert "meshtastic_id" not in _payload_content(result)
+        assert "meshtastic_meshnet" not in _payload_content(result)
+        assert "meshtastic_longname" not in _payload_content(result)
+        assert "meshtastic_shortname" not in _payload_content(result)
+        assert "meshtastic_portnum" not in _payload_content(result)
         # Standard Matrix content
-        assert result.payload["msgtype"] == "m.text"
+        assert _payload_content(result)["msgtype"] == "m.text"
 
     async def test_unknown_meshtastic_source_renders_plain_output(self) -> None:
         """Unknown Meshtastic source (not in source_configs) renders plain output."""
@@ -886,10 +894,10 @@ class TestRuntimeAssemblySourceConfig:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # No prefix (source_configs has no matching entry)
-        assert result.payload["body"] == "hello mesh"
+        assert _payload_content(result)["body"] == "hello mesh"
         # No mmrelay metadata (no matching source_config)
-        assert "meshtastic_id" not in result.payload
-        assert "meshtastic_meshnet" not in result.payload
+        assert "meshtastic_id" not in _payload_content(result)
+        assert "meshtastic_meshnet" not in _payload_content(result)
 
 
 # ---------------------------------------------------------------------------
@@ -971,11 +979,11 @@ class TestMatrixFallbackText:
                 delivery_strategy="fallback_text",
             ),
         )
-        assert result.payload["msgtype"] == "m.text"
-        assert "m.relates_to" not in result.payload
+        assert _payload_content(result)["msgtype"] == "m.text"
+        assert "m.relates_to" not in _payload_content(result)
         assert result.fallback_applied == "strategy_fallback_text"
         # Body should contain degraded relation info and original text
-        assert "my reply" in result.payload["body"]
+        assert "my reply" in _payload_content(result)["body"]
 
     async def test_fallback_text_envelope_present(self) -> None:
         """Fallback-text strategy still embeds the MEDRE metadata envelope."""
@@ -988,8 +996,8 @@ class TestMatrixFallbackText:
                 delivery_strategy="fallback_text",
             ),
         )
-        assert "medre" in result.payload
-        assert "envelope" in result.payload["medre"]
+        assert "medre" in _payload_content(result)
+        assert "envelope" in _payload_content(result)["medre"]
 
     async def test_fallback_text_truncation_respects_max_text_chars(self) -> None:
         """Truncation applies to the final body including relay prefix."""
@@ -1014,7 +1022,7 @@ class TestMatrixFallbackText:
                 max_text_chars=10,
             ),
         )
-        body: str = result.payload["body"]
+        body: str = _payload_content(result)["body"]
         # The final body must respect max_text_chars=10 including prefix
         assert len(body) <= 10
         # Truncation occurred
@@ -1109,10 +1117,10 @@ class TestMatrixFallbackText:
             ),
         )
         # mmrelay metadata keys should be present
-        assert "meshtastic_id" in result.payload
-        assert result.payload["meshtastic_id"] == "99"
-        assert result.payload["meshtastic_longname"] == "Alice"
-        assert result.payload["meshtastic_shortname"] == "A"
+        assert "meshtastic_id" in _payload_content(result)
+        assert _payload_content(result)["meshtastic_id"] == "99"
+        assert _payload_content(result)["meshtastic_longname"] == "Alice"
+        assert _payload_content(result)["meshtastic_shortname"] == "A"
 
     async def test_fallback_without_relations_uses_fallback_path(self) -> None:
         """Fallback_text strategy without relations still uses _render_fallback_text."""
@@ -1126,8 +1134,8 @@ class TestMatrixFallbackText:
             ),
         )
         assert result.fallback_applied == "strategy_fallback_text"
-        assert result.payload["msgtype"] == "m.text"
-        assert "m.relates_to" not in result.payload
+        assert _payload_content(result)["msgtype"] == "m.text"
+        assert "m.relates_to" not in _payload_content(result)
 
     async def test_fallback_byte_truncation_applies(self) -> None:
         """Byte budget truncation applies to fallback body and reports metadata."""
@@ -1143,7 +1151,7 @@ class TestMatrixFallbackText:
                 max_text_bytes=20,
             ),
         )
-        rendered_body: str = result.payload["body"]
+        rendered_body: str = _payload_content(result)["body"]
         assert len(rendered_body.encode("utf-8")) <= 20
         assert result.truncated is True
         assert "original_text_bytes" in result.metadata
@@ -1192,7 +1200,7 @@ class TestMatrixReactionEmojiPrecedence:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["m.relates_to"]["key"] == "❤️"
+        assert _payload_content(result)["m.relates_to"]["key"] == "❤️"
 
     async def test_emoji_from_payload_key(self) -> None:
         """payload['key'] is used when rel.key is None."""
@@ -1216,7 +1224,7 @@ class TestMatrixReactionEmojiPrecedence:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["m.relates_to"]["key"] == "👍"
+        assert _payload_content(result)["m.relates_to"]["key"] == "👍"
 
     async def test_emoji_from_payload_emoji(self) -> None:
         """payload['emoji'] is used when rel.key and payload['key'] are absent."""
@@ -1240,7 +1248,7 @@ class TestMatrixReactionEmojiPrecedence:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["m.relates_to"]["key"] == "🎉"
+        assert _payload_content(result)["m.relates_to"]["key"] == "🎉"
 
     async def test_emoji_from_payload_body(self) -> None:
         """payload['body'] is used when all higher-precedence sources are absent."""
@@ -1264,7 +1272,7 @@ class TestMatrixReactionEmojiPrecedence:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["m.relates_to"]["key"] == "👍"
+        assert _payload_content(result)["m.relates_to"]["key"] == "👍"
 
     async def test_emoji_fallback_when_all_blank(self) -> None:
         """Falls back to ⚠️ when all sources are blank."""
@@ -1288,7 +1296,7 @@ class TestMatrixReactionEmojiPrecedence:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["m.relates_to"]["key"] == "\u26a0\ufe0f"
+        assert _payload_content(result)["m.relates_to"]["key"] == "\u26a0\ufe0f"
 
 
 class TestFallbackAppliedTyping:

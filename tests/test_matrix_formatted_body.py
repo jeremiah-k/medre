@@ -33,6 +33,12 @@ from medre.core.rendering.renderer import RenderingContext
 # ---------------------------------------------------------------------------
 
 
+def _payload_content(result):
+    """Unwrap the closed _matrix_operation envelope to the wire content."""
+    operation = result.payload["_matrix_operation"]
+    return operation["content"]
+
+
 def _make_event(
     event_id: str = "evt-1",
     payload: dict | None = None,
@@ -109,8 +115,8 @@ class TestOutboundFormattedBody:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        assert result.payload["format"] == "org.matrix.custom.html"
-        fb = result.payload["formatted_body"]
+        assert _payload_content(result)["format"] == "org.matrix.custom.html"
+        fb = _payload_content(result)["formatted_body"]
         assert "<p>" in fb
         assert "</p>" in fb
         assert "hello matrix" in fb
@@ -124,7 +130,7 @@ class TestOutboundFormattedBody:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        fb = result.payload["formatted_body"]
+        fb = _payload_content(result)["formatted_body"]
         assert "&lt;b&gt;bold&lt;/b&gt;" in fb
         # Raw HTML must NOT appear
         assert "<b>" not in fb.replace("<p>", "").replace("</p>", "").replace(
@@ -140,7 +146,7 @@ class TestOutboundFormattedBody:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        fb = result.payload["formatted_body"]
+        fb = _payload_content(result)["formatted_body"]
         assert "line1<br/>line2" in fb
         # Raw newline should not be present inside <p>
         assert "\n" not in fb.replace("<br/>", "")
@@ -155,7 +161,7 @@ class TestOutboundFormattedBody:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        fb = result.payload["formatted_body"]
+        fb = _payload_content(result)["formatted_body"]
         assert "line1<br/>line2" in fb
         # No stray \r should remain
         assert "\r" not in fb
@@ -170,7 +176,7 @@ class TestOutboundFormattedBody:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        fb = result.payload["formatted_body"]
+        fb = _payload_content(result)["formatted_body"]
         assert "line1<br/>line2" in fb
         assert "\r" not in fb
 
@@ -185,8 +191,8 @@ class TestOutboundFormattedBody:
             ),
         )
         assert result.fallback_applied == "strategy_fallback_text"
-        assert result.payload["format"] == "org.matrix.custom.html"
-        fb = result.payload["formatted_body"]
+        assert _payload_content(result)["format"] == "org.matrix.custom.html"
+        fb = _payload_content(result)["formatted_body"]
         assert "<p>" in fb
         assert "fallback msg" in fb
 
@@ -214,10 +220,10 @@ class TestOutboundFormattedBody:
                 target_adapter="matrix_instance", delivery_strategy="direct"
             ),
         )
-        assert result.payload["msgtype"] == "m.emote"
-        assert "format" in result.payload
-        assert "formatted_body" in result.payload
-        fb = result.payload["formatted_body"]
+        assert _payload_content(result)["msgtype"] == "m.emote"
+        assert "format" in _payload_content(result)
+        assert "formatted_body" in _payload_content(result)
+        fb = _payload_content(result)["formatted_body"]
         assert "<p>" in fb
         # The emote body contains the reaction text
         assert "reacted" in fb
@@ -244,7 +250,7 @@ class TestOutboundFormattedBody:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["_matrix_event_type"] == "m.reaction"
+        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
         assert "format" not in result.payload
         assert "formatted_body" not in result.payload
         assert "msgtype" not in result.payload

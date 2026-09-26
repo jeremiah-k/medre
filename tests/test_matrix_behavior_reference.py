@@ -29,6 +29,12 @@ from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingContext
 
 
+def _payload_content(result):
+    """Unwrap the closed _matrix_operation envelope to the wire content."""
+    operation = result.payload["_matrix_operation"]
+    return operation["content"]
+
+
 def _matrix_config(**overrides: Any) -> MatrixConfig:
     values: dict[str, Any] = {
         "adapter_id": "matrix-reference",
@@ -760,7 +766,7 @@ async def test_matrix_reply_render_uses_native_matrix_event_id() -> None:
         ),
     )
 
-    assert rendered.payload["m.relates_to"] == {
+    assert _payload_content(rendered)["m.relates_to"] == {
         "m.in_reply_to": {"event_id": "$original"}
     }
 

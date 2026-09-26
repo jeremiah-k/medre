@@ -35,6 +35,12 @@ from tests.helpers.native_metadata import (
 _make_event = make_matrix_event
 
 
+def _payload_content(result):
+    """Unwrap the closed _matrix_operation envelope to the wire content."""
+    operation = result.payload["_matrix_operation"]
+    return operation["content"]
+
+
 def _make_meshtastic_event(
     source_adapter: str = "radio-alpha",
     payload: dict | None = None,
@@ -182,8 +188,8 @@ class TestMatrixMissingTargetFallback:
         # No m.relates_to — cannot target Matrix-native reply without ref
         assert "m.relates_to" not in result.payload
         # Body must be clean relay text, no quoting
-        assert result.payload["body"] == "my reply"
-        assert "> <" not in result.payload["body"]
+        assert _payload_content(result)["body"] == "my reply"
+        assert "> <" not in _payload_content(result)["body"]
 
     async def test_reaction_no_native_ref_emote_fallback(self) -> None:
         """Reaction with target_native_ref=None produces m.emote fallback.
@@ -209,11 +215,11 @@ class TestMatrixMissingTargetFallback:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # Must NOT produce a true Matrix reaction
-        assert "_matrix_event_type" not in result.payload
-        assert "m.relates_to" not in result.payload
+        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
+        assert "m.relates_to" not in _payload_content(result)
         # Must produce emote fallback
-        assert result.payload["msgtype"] == "m.emote"
-        assert "👍" in result.payload["body"]
+        assert _payload_content(result)["msgtype"] == "m.emote"
+        assert "👍" in _payload_content(result)["body"]
 
     async def test_reply_with_resolved_native_ref_correct_structure(self) -> None:
         """Reply with resolved Matrix native ref produces correct m.in_reply_to.
@@ -243,7 +249,7 @@ class TestMatrixMissingTargetFallback:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        relates = result.payload["m.relates_to"]
+        relates = _payload_content(result)["m.relates_to"]
         # Must use native_message_id, NOT canonical target_event_id
         assert relates == {"m.in_reply_to": {"event_id": "$matrix-evt-abc123"}}
         assert "canonical-orig-001" not in str(relates)
@@ -276,15 +282,15 @@ class TestMatrixMissingTargetFallback:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # Must be a true Matrix reaction
-        assert result.payload["_matrix_event_type"] == "m.reaction"
-        assert result.payload["m.relates_to"] == {
+        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
+        assert _payload_content(result)["m.relates_to"] == {
             "rel_type": "m.annotation",
             "event_id": "$matrix-evt-def456",
             "key": "❤️",
         }
         # No body/msgtype on true reactions
-        assert "msgtype" not in result.payload
-        assert "body" not in result.payload
+        assert "msgtype" not in _payload_content(result)
+        assert "body" not in _payload_content(result)
         # Must NOT use canonical target_event_id
         assert "canonical-orig-002" not in str(result.payload)
 
@@ -310,9 +316,9 @@ class TestMatrixMissingTargetFallback:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        payload = result.payload
-        # Absolutely no m.annotation or _matrix_event_type
-        assert payload.get("_matrix_event_type") != "m.reaction"
+        payload = _payload_content(result)
+        # Absolutely no m.annotation; emote fallback is a room message
+        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
         if "m.relates_to" in payload:
             rel = payload["m.relates_to"]
             # If present, must NOT be m.annotation
@@ -348,7 +354,7 @@ class TestMatrixMissingTargetFallback:
         )
         assert "m.relates_to" not in result.payload
         # Body is clean relay text
-        assert result.payload["body"] == "my reply"
+        assert _payload_content(result)["body"] == "my reply"
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +390,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body: str = result.payload["body"]
+        body: str = _payload_content(result)["body"]
         assert "None" not in body
         # Fallback chain: longname → shortname → sender_id
         assert body == "[A]: hello mesh"
@@ -409,7 +415,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         assert "None" not in body
         # Fallback chain: shortname → compact longname → compact sender_id
         assert body == "[Alice]: hello mesh"
@@ -432,7 +438,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         assert "None" not in body
         assert body == "<node-42/node-42/node-42> hello mesh"
 
@@ -459,7 +465,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body: str = result.payload["body"]
+        body: str = _payload_content(result)["body"]
         # No prefix applied — body is unchanged
         assert body == "hello meshcore"
         assert "None" not in body
@@ -484,7 +490,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         # No prefix applied — body is unchanged
         assert body == "hello meshcore"
 
@@ -511,7 +517,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body: str = result.payload["body"]
+        body: str = _payload_content(result)["body"]
         # No prefix applied — body is unchanged
         assert body == "hello lxmf"
         assert "None" not in body
@@ -530,7 +536,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         assert "None" not in body
         # No prefix — body is unchanged
         assert body == "hello lxmf"
@@ -555,7 +561,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         # Unknown variable left unchanged in prefix
         assert "{bogus}" in body
         assert body == "[{bogus}] hello mesh"
@@ -583,7 +589,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         assert "[Alice/{weird}]" in body
 
     # -- Reaction prefix still uses core formatter --
@@ -623,7 +629,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body = result.payload["body"]
+        body = _payload_content(result)["body"]
         assert "None" not in body
         # Fallback chain: sender_label = shortname "A"
         assert "[A]" in body
@@ -660,7 +666,7 @@ class TestMatrixCoreAttributionIntegration:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["body"] == "[Alice/AlphaNet]: hello mesh"
+        assert _payload_content(result)["body"] == "[Alice/AlphaNet]: hello mesh"
 
     # -- Metadata recorded in rendered result --
 
@@ -738,7 +744,7 @@ class TestMatrixCoreAttributionIntegration:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # Emote fallback was rendered (no native target)
-        assert result.payload["msgtype"] == "m.emote"
+        assert _payload_content(result)["msgtype"] == "m.emote"
         # Reaction prefix metadata must be present and correct
         assert "relay_prefix_template" in result.metadata
         assert result.metadata["relay_prefix_template"] == "[{sender}] "
@@ -787,8 +793,8 @@ class TestMatrixCoreAttributionIntegration:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # True m.reaction — body removed
-        assert result.payload["_matrix_event_type"] == "m.reaction"
-        assert "body" not in result.payload
+        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
+        assert "body" not in _payload_content(result)
         # No stale body prefix metadata; true reactions return empty dict
         assert "relay_prefix_template" not in result.metadata
         assert "relay_prefix_rendered" not in result.metadata
@@ -814,7 +820,7 @@ class TestMatrixCoreAttributionIntegration:
         assert "relay_prefix_template" in result.metadata
         assert result.metadata["relay_prefix_template"] == "[{sender}] "
         assert result.metadata["relay_prefix_rendered"] == "[Bob] "
-        assert result.payload["body"] == "[Bob] hello mesh"
+        assert _payload_content(result)["body"] == "[Bob] hello mesh"
 
 
 # ---------------------------------------------------------------------------
@@ -849,7 +855,7 @@ class TestMatrixTargetLocalPrefix:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["body"] == "[East Mesh]: hello mesh"
+        assert _payload_content(result)["body"] == "[East Mesh]: hello mesh"
 
     async def test_origin_label_from_source_attribution_in_prefix(self) -> None:
         """Source origin_label from source_attribution registry appears in prefix."""
@@ -875,7 +881,7 @@ class TestMatrixTargetLocalPrefix:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        body: str = result.payload["body"]
+        body: str = _payload_content(result)["body"]
         assert "West Net" in body
         assert "!42" in body
 
@@ -890,5 +896,5 @@ class TestMatrixTargetLocalPrefix:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["body"] == "hello mesh"
+        assert _payload_content(result)["body"] == "hello mesh"
         assert "relay_prefix_template" not in result.metadata

@@ -42,19 +42,50 @@ Machine-readable capability declaration: [`matrix-capabilities.json`](matrix-cap
 > `"native"` = `TRUE`, `"fallback"` = degraded inline text, and
 > `"unsupported"` = `FALSE`.
 
-| Capability        | Value           |
-| ----------------- | --------------- |
-| text              | `True`          |
-| threads           | `"fallback"`    |
-| replies           | `"native"`      |
-| reactions         | `"native"`      |
-| edits             | `"unsupported"` |
-| deletes           | `"unsupported"` |
-| attachments       | `False`         |
-| store_and_forward | `False`         |
-| direct_messages   | `True`          |
-| channels          | `True`          |
-| topic_rooms       | `True`          |
+| Capability        | Value      |
+| ----------------- | ---------- |
+| text              | `True`     |
+| threads           | `"native"` |
+| replies           | `"native"` |
+| reactions         | `"native"` |
+| edits             | `"native"` |
+| deletes           | `"native"` |
+| attachments       | `False`    |
+| store_and_forward | `False`    |
+| direct_messages   | `True`     |
+| channels          | `True`     |
+| topic_rooms       | `True`     |
+
+### Mutation eligibility (native edits and deletes)
+
+Native `edits` and `deletes` are **mutation** operations: they act on a
+previously delivered native event, so delivery requires a destination-scoped
+binding proof, not merely the capability claim. Core relation binding computes
+a `RelationTargetFact` per delivery target, and the renderer/adapter treat it
+as the sole mutation authority:
+
+| Fact status           | Edit/delete behavior                                                               |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| `bound_owned`         | Delivered natively (`m.replace` edit / `redact_event` redaction).                  |
+| `bound`               | Suppressed for mutations (referential relations still render); reason carries why. |
+| `unresolved_target`   | Suppressed — the target canonical event is unknown or not stored.                  |
+| `out_of_scope`        | Suppressed — target stored but zero native copies in this destination.             |
+| `ambiguous`           | Suppressed — multiple distinct native targets match; MEDRE never guesses.          |
+| `not_authorized`      | Suppressed — authorship/ownership proof failed (e.g. inbound-only copy).           |
+| `binding_unavailable` | Suppressed — storage read failure; always fail closed.                             |
+
+Suppressed mutation deliveries produce lifecycle receipts with
+`status="suppressed"` / `failure_kind=CAPABILITY_SUPPRESSED` and a stable
+`relation_target_not_bindable:<reason>` error string. No adapter call, no
+fallback ordinary message, and no sent receipt/native ref is produced. Binding
+is recomputed from current stored facts on every attempt (including replays),
+so a previously-owned target that became ambiguous fails closed on retry.
+
+Unresolved targets therefore degrade **silently-but-evidently** (suppression
+with a machine-readable reason), never as fabricated messages or guessed
+targets. The renderer additionally fails closed (raises) if a mutation ever
+reaches native rendering without a `bound_owned` fact — defense-in-depth
+against a missing core gate.
 
 ---
 
@@ -193,7 +224,9 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 - **Plain text messages** — `m.room.message` with `m.text` msgtype, optional relay prefix, and MEDRE metadata envelope.
 - **Native replies** — `m.relates_to.m.in_reply_to` with `event_id`, plus `KEY_REPLY_ID` when MMRelay metadata is available.
-- **Native reactions** — `m.reaction` event type (via internal `_matrix_event_type` key) with `m.annotation`.
+- **Native reactions** — `m.reaction` event type with `m.annotation` (a deliberately plaintext event type; see E2EE notes below).
+- **Native edits** — `m.replace` / `m.new_content` room messages with exactly one relay attribution and a `"* "` fallback body, targeted at the bound original copy.
+- **Native deletes** — `redact_event` operations through the dedicated redaction endpoint, guarded by the mutation-eligibility rules above.
 - **MMRelay emote reaction fallback** — `m.emote` with `KEY_EMOJI=1`, `KEY_REPLY_ID`, and full mesh metadata (used when `mmrelay_compatibility=True` or no Matrix-native target exists).
 
 ---
@@ -433,9 +466,10 @@ excluded. The generic `metadata.transport.transport_encrypted` field records
 whether the normalized event arrived through Matrix encryption; Matrix-specific
 verification detail remains native.
 
-Edits, redactions, threads, and attachments are **inbound normalization
-semantics**, not outbound capability claims. The outbound capability profile
-below remains authoritative for what MEDRE can currently render back to Matrix.
+Inbound edit, redaction, thread, and attachment normalization is the ingress
+contract; the outbound capability profile below is authoritative for what
+MEDRE renders back to Matrix. Native edits/deletes additionally require the
+mutation-eligibility rules in [Capabilities](#capabilities).
 
 ---
 
@@ -443,28 +477,37 @@ below remains authoritative for what MEDRE can currently render back to Matrix.
 
 Matrix is a presentation adapter with rich native relation support. The Matrix renderer handles all rendering within its native format.
 
-| Relation type | Capability level | Strategy        | Rendering path                                                                 |
-| ------------- | ---------------- | --------------- | ------------------------------------------------------------------------------ |
-| Replies       | `"native"`       | `direct`        | `m.in_reply_to` with `event_id` in `m.relates_to`                              |
-| Reactions     | `"native"`       | `direct`        | `m.reaction` event type with `m.annotation`                                    |
-| Edits         | `"unsupported"`  | `skip`          | No delivery. Edit events targeting this adapter are suppressed.                |
-| Deletes       | `"unsupported"`  | `skip`          | No delivery. Delete events targeting this adapter are suppressed.              |
-| Threads       | `"fallback"`     | `fallback_text` | Deterministic inline thread context; native thread emission is not advertised. |
+| Relation type | Capability level | Strategy | Rendering path                                                                                   |
+| ------------- | ---------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| Replies       | `"native"`       | `direct` | `m.in_reply_to` with `event_id` in `m.relates_to`                                                |
+| Reactions     | `"native"`       | `direct` | `m.reaction` event type with `m.annotation`                                                      |
+| Edits         | `"native"`       | `direct` | `m.replace` / `m.new_content` — only for `bound_owned` targets; otherwise suppressed (see above) |
+| Deletes       | `"native"`       | `direct` | `redact_event` — only for `bound_owned` targets; otherwise suppressed (see above)                |
+| Threads       | `"native"`       | `direct` | `m.thread` rooted at the bound thread root, with spec reply-fallback parent semantics            |
 
-Matrix declares `threads="fallback"`; unsupported relation types remain
-planning-time skips. Thread relations therefore select `fallback_text` in normal
-live planning.
+Every outbound render wraps its wire content in a closed
+`_matrix_operation` envelope (`send_event` / `redact_event`); the adapter
+validates the envelope strictly, pops it before transport, and dispatches on
+its `kind`. The old `_matrix_event_type` magic key no longer exists.
+Mutation deliveries additionally require a `bound_owned` target fact —
+see [Mutation eligibility](#mutation-eligibility-native-edits-and-deletes).
 
 When `fallback_text` is supplied for a relation, the Matrix renderer produces its
 native message format with the relation context embedded as inline text. This is a
 renderer contract, not a test-only quirk; any code path that populates
 `fallback_text` on a routed relation triggers the same inline-text rendering path.
 
-**Thread capability:** Matrix has underlying `m.thread` protocol support, but MEDRE has
-not yet verified native thread emission; the current profile deliberately degrades
-threads to inline fallback text.
+**Thread capability:** threads are native. The `m.relates_to` root is the bound
+destination thread root; an explicit bound reply relation on the same event
+becomes the parent with `is_falling_back=false`, otherwise the root itself is
+the fallback parent with `is_falling_back=true`. An unbound root degrades to a
+plain message without `m.relates_to` (honest degradation — never a fabricated
+or source-platform ID). An explicit reply-in-thread (thread + reply relations
+inbound) inherits plain-reply capability semantics downstream: a destination
+with `replies="unsupported"` skips the delivery even though a thread-only
+event would degrade to inline text there.
 
-**Payload requirement:** The Matrix renderer produces Matrix-native payloads (`m.room.message` with msgtype/body/`m.relates_to`). The adapter transports these payloads via `room_send` without modification.
+**Payload requirement:** The Matrix renderer produces closed outbound operation payloads. The adapter transports `send_event` wire content via `room_send` and `redact_event` operations via `room_redact` — nothing under `_matrix_operation` reaches the homeserver.
 
 ---
 
@@ -488,20 +531,29 @@ shared cooldown.
 
 This is server-directed backpressure, not a second retry engine. MEDRE does not
 change mindroom-nio's client-global 429 policy because that policy also covers sync,
-join, and key-management requests; the interception is filtered to room-send error
-responses. The adapter does not sleep through a MEDRE-owned cooldown, does not
+join, and key-management requests; the interception is filtered to room-send and
+room-redact error responses (`RoomSendError` and `RoomRedactError` are filtered
+separately — redaction 429s reach MEDRE's retry owner exactly like sends, before
+the SDK sleeps or retries). The adapter does not sleep through a MEDRE-owned cooldown, does not
 consume additional Matrix transaction IDs, and does not override route retry limits.
 Both the in-memory shared cooldown and durable hint scheduling are bounded to 30 days
 so a hostile or broken value cannot park delivery indefinitely.
 
 ## Known Limitations
 
-- **No outbound edit or delete rendering.** Inbound `m.replace` and redaction
-  events are normalized canonically, but target capabilities remain
-  `edits="unsupported"` and `deletes="unsupported"`.
+- **Mutations require proof, not just capability.** `edits="native"` and
+  `deletes="native"` are gated by the destination-scoped `bound_owned`
+  binding proof (see [Mutation eligibility](#mutation-eligibility-native-edits-and-deletes));
+  unresolvable or unauthorized targets are suppressed with a stable reason,
+  never guessed.
+- **Native edits are text-only.** Binary attachments are unsupported outbound
+  (`attachments=False`), so edits of media events are out of scope; text edits
+  render `m.replace`/`m.new_content`.
 - **Duplicate-send risk.** The deterministic `tx_id` reduces duplicates within the
   homeserver's dedup window, but duplicates are still possible across restarts, replay,
-  or changed delivery identity.
+  or changed delivery identity. Redactions use their own deterministic
+  transaction ids (operation kind + target folded in), so a redaction never
+  deduplicates against a send or a different redaction.
 - **Peer-device trust is permissive.** Own-device cross-signing is implemented
   with the currently pinned `mindroom-nio` release, but MEDRE does not yet expose
   an operator-configurable policy for verifying peer devices. `ignore_unverified_devices=True` remains intentional for
@@ -513,6 +565,27 @@ so a hostile or broken value cannot park delivery indefinitely.
   `attachments=False` remains the outbound capability.
 - **Room-state tracking cap.** Maximum 10 000 rooms tracked in session `_room_states`; oldest evicted on overflow.
 - **Self-message suppression** only matches `config.user_id`; bot-to-bot echoes from other Matrix users are not suppressed.
+
+---
+
+## Plaintext Event Types and E2EE
+
+- **Edits encrypt like normal sends.** `m.replace` edits are `m.room.message`
+  events and go through the same room-message encryption path as ordinary
+  sends: in encrypted rooms `m.new_content` travels inside the encrypted
+  payload and only `m.relates_to` stays cleartext (spec-mandated). No message
+  text leaks in plaintext.
+- **Redactions are protocol-plaintext by design.** `m.room.redaction` is sent
+  through the dedicated redaction endpoint (never the encrypted room-message
+  path) and carries no message content — only the `redacts` target and an
+  optional neutral reason. There is nothing to encrypt and nothing to leak;
+  MEDRE does not attempt to encrypt it.
+- **Reactions are plaintext event types.** `m.reaction` annotation events are
+  intentionally not encrypted (per the pinned SDK: "Reactions do not support
+  encryption yet"); their content is only the annotation relationship and key.
+  MEDRE surfaces no message content through them.
+- Crypto secrets are never persisted: native metadata keeps only safe
+  provenance booleans, and session diagnostics expose no tokens or keys.
 
 ---
 

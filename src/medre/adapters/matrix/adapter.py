@@ -33,6 +33,10 @@ from medre.adapters.matrix.errors import (
 )
 from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
+from medre.adapters.matrix.outbound import (
+    MatrixOutboundEnvelopeError,
+    MatrixOutboundOperation,
+)
 from medre.adapters.matrix.relations import MatrixRelationHandler
 from medre.adapters.matrix.session import MatrixSession
 from medre.config.adapters.matrix import MatrixConfig
@@ -57,10 +61,10 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
-    threads="fallback",
+    threads="native",
     reactions="native",
-    edits="unsupported",
-    deletes="unsupported",
+    edits="native",
+    deletes="native",
     attachments=False,
     metadata_fields=False,
     store_and_forward=False,
@@ -186,6 +190,31 @@ def _matrix_txn_id(result: RenderingResult, room_id: str) -> str:
         result.target_adapter,
         result.target_channel or "",
         room_id,
+    ]
+    digest = hashlib.sha256(
+        "".join(f"{len(p)}:{p}|" for p in parts).encode("utf-8")
+    ).hexdigest()
+    return f"medre_{digest[:32]}"
+
+
+def _matrix_redact_txn_id(
+    result: RenderingResult, room_id: str, redacts_event_id: str
+) -> str:
+    """Deterministic Matrix transaction ID for redaction operations.
+
+    Same input scheme as :func:`_matrix_txn_id`, plus the operation kind
+    and ``redacts_event_id``.  Folding both in guarantees a redaction can
+    never share a transaction id with a send, nor with a redaction of a
+    different target, so homeserver deduplication can never collapse a
+    redaction into a different operation.
+    """
+    parts = [
+        result.event_id,
+        result.target_adapter,
+        result.target_channel or "",
+        room_id,
+        "redact_event",
+        redacts_event_id,
     ]
     digest = hashlib.sha256(
         "".join(f"{len(p)}:{p}|" for p in parts).encode("utf-8")
@@ -605,14 +634,24 @@ class MatrixAdapter(AdapterContract):
             )
 
     async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
-        """Send a pre-rendered payload to a Matrix room.
+        """Deliver a rendered Matrix operation to a room.
 
-        The *result.payload* is expected to be an ``m.room.message``
-        content dict already rendered by :class:`~medre.adapters.matrix.renderer.MatrixRenderer`.
+        The *result.payload* must carry a closed ``_matrix_operation``
+        envelope produced by :class:`~medre.adapters.matrix.renderer.MatrixRenderer`:
+
+        * ``send_event`` — wire ``content`` is sent with ``event_type``
+          through :meth:`MatrixSession.room_send` (existing retry /
+          cooldown / rate-limit / txn path, unchanged);
+        * ``redact_event`` — ``redacts_event_id`` (and optional neutral
+          ``reason``) is sent through :meth:`MatrixSession.room_redact`
+          with the same shared guards and a redaction-specific
+          deterministic txn.
 
         On success, returns an :class:`AdapterHandoffResult` populated
-        with the ``event_id`` from the homeserver's ``RoomSendResponse``.
-        If the response lacks an ``event_id``, the result is returned without one (the
+        with the ``event_id`` from the homeserver's response (for a
+        redaction, the redaction event's own ID, so its native ref
+        records to the canonical mutation event).  If the response lacks
+        an ``event_id``, the result is returned without one (the
         pipeline will not store a native ref in that case).
 
         Implements bounded retry for transient network errors:
@@ -630,7 +669,7 @@ class MatrixAdapter(AdapterContract):
         Parameters
         ----------
         result:
-            The rendered payload to deliver.
+            The rendered operation to deliver.
 
         Returns
         -------
@@ -643,9 +682,9 @@ class MatrixAdapter(AdapterContract):
             If a transient error occurs (network, timeout) after
             exhausting retries.  ``transient`` is ``True``.
         AdapterPermanentError
-            If a permanent error occurs (encrypted-room rejection,
-            missing client, invalid room, non-transient session error).
-            ``transient`` is ``False``.
+            If a permanent error occurs (missing/invalid envelope,
+            encrypted-room rejection, missing client, invalid room,
+            non-transient session error).  ``transient`` is ``False``.
         asyncio.CancelledError
             Propagates without swallowing task cancellation.
         """
@@ -658,6 +697,25 @@ class MatrixAdapter(AdapterContract):
         )
         if not room_id:
             raise AdapterPermanentError("no room_id in result")
+
+        # Closed outbound-operation envelope (contract §4).  Every native
+        # Matrix render wraps its wire content under the single
+        # ``_matrix_operation`` key.  Missing or malformed envelopes are
+        # permanent failures — deliver() never guesses intent and never
+        # leaks envelope fields to the homeserver.
+        try:
+            operation = MatrixOutboundOperation.from_payload(result.payload)
+        except MatrixOutboundEnvelopeError as exc:
+            raise AdapterPermanentError(
+                f"invalid Matrix outbound operation envelope: {exc}"
+            ) from exc
+        if operation is None:
+            raise AdapterPermanentError(
+                "missing _matrix_operation envelope: Matrix deliver() "
+                "requires a closed MatrixOutboundOperation payload"
+            )
+
+        is_redaction = operation.kind == "redact_event"
 
         # Auto-join configured target room if not already joined.
         if (
@@ -673,28 +731,30 @@ class MatrixAdapter(AdapterContract):
                         f"Failed to auto-join configured room {room_id}"
                     )
 
-        try:
-            self._check_encrypted_room_safety(room_id)
-        except MatrixSendError as exc:
-            if exc.transient:
-                raise AdapterSendError(str(exc), transient=True) from exc
-            else:
-                raise AdapterPermanentError(str(exc)) from exc
-
-        # Create a clean copy and strip routing metadata so room_id
-        # does not leak into the Matrix event content.
-        content = dict(result.payload)
-        content.pop("room_id", None)
-
-        # Pop the internal _matrix_event_type key that the renderer uses
-        # to signal non-default event types (e.g. m.reaction).  The key
-        # must never leak into the homeserver content.
-        raw_message_type = content.pop("_matrix_event_type", None)
-        if isinstance(raw_message_type, str):
-            stripped = raw_message_type.strip()
-            message_type = stripped if stripped else "m.room.message"
+        if is_redaction:
+            # Encrypted-room safety, per actual redaction semantics: a
+            # redaction event carries no message content (only the
+            # ``redacts`` target and a neutral reason) and the pinned SDK
+            # never encrypts the dedicated redaction endpoint, so the
+            # content-leak policy enforced for room sends does not apply.
+            # Membership, cooldown, retry classification, txn identity,
+            # and handoff validation below are all shared with sends.
+            redacts_event_id = operation.redacts_event_id or ""
+            if not redacts_event_id:
+                raise AdapterPermanentError(
+                    "redact_event operation missing redacts_event_id"
+                )
+            txn_id = _matrix_redact_txn_id(result, room_id, redacts_event_id)
         else:
-            message_type = "m.room.message"
+            wire_content = dict(operation.content or {})
+            wire_content.pop("room_id", None)
+            try:
+                self._check_encrypted_room_safety(room_id)
+            except MatrixSendError as exc:
+                if exc.transient:
+                    raise AdapterSendError(str(exc), transient=True) from exc
+                raise AdapterPermanentError(str(exc)) from exc
+            txn_id = _matrix_txn_id(result, room_id)
 
         # Fail fast while a shared server-directed cooldown is active: one
         # gate per delivery, outside the in-adapter retry loop, so the
@@ -702,24 +762,30 @@ class MatrixAdapter(AdapterContract):
         # of being misclassified by the generic retry handler below.
         self._defer_for_outbound_cooldown()
 
-        # Compute a deterministic transaction ID once before the retry
-        # loop so all retry attempts reuse the same txn_id.  This allows
-        # the Matrix homeserver to deduplicate retries.
-        txn_id = _matrix_txn_id(result, room_id)
-
         # Bounded retry for transient errors
         last_exc: BaseException | None = None
         for attempt in range(_MAX_DELIVERY_RETRIES):
             try:
-                response = await self._session.room_send(
-                    room_id=room_id,
-                    message_type=message_type,
-                    content=content,
-                    ignore_unverified_devices=self._should_ignore_unverified_devices(),
-                    tx_id=txn_id,
-                )
+                if is_redaction:
+                    response = await self._session.room_redact(
+                        room_id=room_id,
+                        event_id=redacts_event_id,
+                        reason=operation.reason,
+                        tx_id=txn_id,
+                    )
+                else:
+                    response = await self._session.room_send(
+                        room_id=room_id,
+                        message_type=operation.event_type or "m.room.message",
+                        content=wire_content,
+                        ignore_unverified_devices=self._should_ignore_unverified_devices(),
+                        tx_id=txn_id,
+                    )
 
-                # Check for nio error responses (no event_id)
+                # Check for nio error responses (no event_id).  Shared
+                # classification: RoomSendResponse and RoomRedactResponse
+                # both carry event_id; RoomSendError/RoomRedactError and
+                # other error responses do not.
                 if not hasattr(response, "event_id"):
                     # Rate-limit response → transient, surface immediately
                     if _is_nio_rate_limited_response(response):
@@ -745,15 +811,19 @@ class MatrixAdapter(AdapterContract):
                         "homeserver returned empty/missing event_id; "
                         "delivery may not have been recorded"
                     )
+                operation_metadata: dict[str, object] = {
+                    "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
+                    "txn_id": txn_id,
+                    "operation": operation.kind,
+                }
+                if is_redaction:
+                    operation_metadata["redacts_event_id"] = redacts_event_id
                 return AdapterHandoffResult(
                     native_message_id=event_id,
                     native_channel_id=room_id,
                     confirmation_level="remote_service",
                     metadata={
-                        "matrix": {
-                            "schema_version": MATRIX_NATIVE_SCHEMA_VERSION,
-                            "txn_id": txn_id,
-                        }
+                        "matrix": operation_metadata,
                     },
                 )
 

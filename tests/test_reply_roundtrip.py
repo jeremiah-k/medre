@@ -72,6 +72,12 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # ===================================================================
 
 
+def _payload_content(result):
+    """Unwrap the closed _matrix_operation envelope to the wire content."""
+    operation = result.payload["_matrix_operation"]
+    return operation["content"]
+
+
 class _StubMeshtasticConfig:
     """Minimal duck-typed config for MatrixRenderer source_configs."""
 
@@ -330,7 +336,7 @@ class TestMatrixToMeshtasticToMatrixRoundtrip:
 
             # Matrix adapter received the reply.
             assert len(matrix.delivered_payloads) == 1
-            payload = matrix.delivered_payloads[0].payload
+            payload = _payload_content(matrix.delivered_payloads[0])
 
             # m.in_reply_to points to the ORIGINAL Matrix event.
             relates_to = payload.get("m.relates_to")
