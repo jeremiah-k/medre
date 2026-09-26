@@ -16,10 +16,10 @@ import pytest
 
 from medre.adapters.lxmf.renderer import LxmfRenderer
 from medre.config.errors import ConfigValidationError
+from medre.config.route_expansion import expand_route_config
 from medre.config.routes import RouteConfig, RouteDestinationConfig
 from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.routing.models import RouteDestination
-from medre.runtime.route_engine import _expand_route_config
 from tests.helpers.rendering_evidence import make_context
 from tests.helpers.rendering_evidence import make_event as _make_event
 
@@ -113,12 +113,12 @@ def test_destination_unknown_keys_with_mixed_types_stay_validation_errors() -> N
         RouteConfig.from_dict("matrix-to-lxmf", data)
 
 
-def test_destination_conflicts_with_channel_room_map() -> None:
+def test_destination_conflicts_with_context_map() -> None:
     data = _route_dict(
         source_adapters=["radio"],
-        channel_room_map={"0": {"room": "!abc:example.org"}},
+        context_map={"0": {"dest_context": "!abc:example.org"}},
     )
-    with pytest.raises(ConfigValidationError, match="channel_room_map"):
+    with pytest.raises(ConfigValidationError, match="context_map"):
         RouteConfig.from_dict("matrix-to-lxmf", data)
 
 
@@ -165,9 +165,9 @@ def test_dest_channel_hash_selector_still_supported() -> None:
 
 def test_forward_leg_targets_carry_destination() -> None:
     rc = RouteConfig.from_dict("matrix-to-lxmf", _route_dict())
-    routes = _expand_route_config(rc)
-    assert len(routes) == 1
-    (target,) = routes[0].targets
+    legs = expand_route_config(rc)
+    assert len(legs) == 1
+    (target,) = legs[0].route.targets
     assert target.destination == RouteDestination(
         kind="lxmf_destination",
         destination_hash=_VALID_HASH,
@@ -181,12 +181,11 @@ def test_reverse_leg_targets_carry_no_destination() -> None:
         "matrix-to-lxmf",
         _route_dict(directionality="bidirectional"),
     )
-    forward, reverse = (
-        _expand_route_config(rc, swap_direction=False)[0],
-        _expand_route_config(rc, swap_direction=True)[0],
-    )
-    assert forward.targets[0].destination is not None
-    assert reverse.targets[0].destination is None
+    legs = expand_route_config(rc)
+    forward = next(leg for leg in legs if leg.direction == "source_to_dest")
+    reverse = next(leg for leg in legs if leg.direction == "dest_to_source")
+    assert forward.route.targets[0].destination is not None
+    assert reverse.route.targets[0].destination is None
 
 
 async def test_structured_destination_wins() -> None:

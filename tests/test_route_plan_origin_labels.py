@@ -9,7 +9,7 @@ The plan applies the same precedence chain as render-time attribution,
 so the reported ``source_origin_label`` is the effective label the
 renderer would use, including adapter-level fallback:
 
-1. ``per_entry`` — a ``channel_room_map`` entry's
+1. ``per_entry`` — a ``context_map`` entry's
    ``source_origin_label`` / ``dest_origin_label`` (highest priority).
 2. ``route`` — the route-level ``source_origin_label`` /
    ``dest_origin_label``.
@@ -21,15 +21,18 @@ renderer would use, including adapter-level fallback:
 
 An explicit empty string (``""``) at the per-entry or route level
 suppresses fallback below that level for that leg; an absent/``null``
-label falls through to the next level.
+label falls through to the next level.  The label side is purely
+direction-relative: forward legs use the config route's source side,
+reverse legs its dest side.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from medre.config.loader import load_config
-from medre.config.routes import RouteConfig
+from medre.config.routes import ContextMapEntry, RouteConfig
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.runtime.route_plan import (
     _resolve_effective_origin_label,
@@ -98,13 +101,13 @@ def _load(tmp_path: Path, routes_yaml: str, adapters: str = _ADAPTERS) -> object
     return config
 
 
-def _crm_leg(plan, route_id: str, channel: str):
-    """Return the single channel_room_map leg for *route_id* on *channel*."""
+def _ctx_leg(plan, route_id: str, context: str):
+    """Return the single context_map leg for *route_id* on *context*."""
     entry = next(e for e in plan.routes if e.route_id == route_id)
-    matches = [leg for leg in entry.legs if leg.channel_room_map_key == channel]
+    matches = [leg for leg in entry.legs if leg.mapping_source_context == context]
     assert (
         len(matches) == 1
-    ), f"expected one leg on channel {channel!r}, got {len(matches)}"
+    ), f"expected one leg on context {context!r}, got {len(matches)}"
     return matches[0]
 
 
@@ -114,7 +117,7 @@ def _crm_leg(plan, route_id: str, channel: str):
 
 
 def test_per_entry_label_wins(tmp_path: Path) -> None:
-    """A channel_room_map entry's source_origin_label is attributed to per_entry."""
+    """A context_map entry's source_origin_label is attributed to per_entry."""
     config = _load(
         tmp_path,
         "routes:\n"
@@ -122,13 +125,13 @@ def test_per_entry_label_wins(tmp_path: Path) -> None:
         "    source_adapters: [radio]\n"
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n"
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n"
         "        source_origin_label: EntryLabel\n",
     )
     plan = build_route_plan(config)
-    leg = _crm_leg(plan, "mesh_to_matrix", "0")
+    leg = _ctx_leg(plan, "mesh_to_matrix", "0")
     assert leg.source_origin_label == "EntryLabel"
     assert leg.source_origin_label_source == "per_entry"
 
@@ -148,18 +151,18 @@ def test_route_level_label_when_no_per_entry(tmp_path: Path) -> None:
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
         "    source_origin_label: RouteLabel\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n",
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n",
     )
     plan = build_route_plan(config)
-    leg = _crm_leg(plan, "mesh_to_matrix", "0")
+    leg = _ctx_leg(plan, "mesh_to_matrix", "0")
     assert leg.source_origin_label == "RouteLabel"
     assert leg.source_origin_label_source == "route"
 
 
-def test_route_level_label_on_non_crm_forward_leg(tmp_path: Path) -> None:
-    """A non-channel_room_map route's forward leg uses source_origin_label."""
+def test_route_level_label_on_plain_forward_leg(tmp_path: Path) -> None:
+    """A non-context_map route's forward leg uses source_origin_label."""
     config = _load(
         tmp_path,
         "routes:\n"
@@ -188,8 +191,8 @@ def test_route_level_label_on_non_crm_forward_leg(tmp_path: Path) -> None:
 # ===========================================================================
 
 
-def test_non_crm_route_falls_back_to_adapter_label(tmp_path: Path) -> None:
-    """A non-CRM route with no route labels uses the source adapter's label.
+def test_plain_route_falls_back_to_adapter_label(tmp_path: Path) -> None:
+    """A plain route with no route labels uses the source adapter's label.
 
     The matrix source adapter has origin_label='AdapterMatrix'. With no
     route-level source_origin_label, the plan reports that value as the
@@ -214,8 +217,8 @@ def test_non_crm_route_falls_back_to_adapter_label(tmp_path: Path) -> None:
     assert leg.source_origin_label_source == "adapter"
 
 
-def test_crm_route_falls_back_to_adapter_label_per_leg(tmp_path: Path) -> None:
-    """A channel_room_map route with no per-entry/route labels falls back per leg.
+def test_ctx_route_falls_back_to_adapter_label_per_leg(tmp_path: Path) -> None:
+    """A context_map route with no per-entry/route labels falls back per leg.
 
     The meshtastic source adapter (radio) has origin_label='AdapterMesh'.
     Each expanded mesh→matrix leg reports AdapterMesh attributed to
@@ -228,11 +231,11 @@ def test_crm_route_falls_back_to_adapter_label_per_leg(tmp_path: Path) -> None:
         "    source_adapters: [radio]\n"
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n"
-        "      1:\n"
-        "        room: '!b:fake.local'\n",
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n"
+        '      "1":\n'
+        "        dest_context: '!b:fake.local'\n",
     )
     plan = build_route_plan(config)
     entry = next(e for e in plan.routes if e.route_id == "mesh_to_matrix")
@@ -284,13 +287,13 @@ def test_per_entry_label_overrides_adapter_fallback(tmp_path: Path) -> None:
         "    source_adapters: [radio]\n"
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n"
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n"
         "        source_origin_label: EntryOverride\n",
     )
     plan = build_route_plan(config)
-    leg = _crm_leg(plan, "mesh_to_matrix", "0")
+    leg = _ctx_leg(plan, "mesh_to_matrix", "0")
     assert leg.source_origin_label == "EntryOverride"
     assert leg.source_origin_label_source == "per_entry"
 
@@ -305,12 +308,12 @@ def test_route_level_label_overrides_adapter_fallback(tmp_path: Path) -> None:
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
         "    source_origin_label: RouteOverride\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n",
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n",
     )
     plan = build_route_plan(config)
-    leg = _crm_leg(plan, "mesh_to_matrix", "0")
+    leg = _ctx_leg(plan, "mesh_to_matrix", "0")
     assert leg.source_origin_label == "RouteOverride"
     assert leg.source_origin_label_source == "route"
 
@@ -338,13 +341,13 @@ def test_explicit_empty_per_entry_suppresses_adapter_fallback(
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
         "    source_origin_label: RouteDefault\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n"
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n"
         "        source_origin_label: ''\n",
     )
     plan = build_route_plan(config)
-    leg = _crm_leg(plan, "mesh_to_matrix", "0")
+    leg = _ctx_leg(plan, "mesh_to_matrix", "0")
     assert leg.source_origin_label == ""
     assert leg.source_origin_label_source == "per_entry"
 
@@ -366,12 +369,12 @@ def test_explicit_empty_route_level_suppresses_adapter_fallback(
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
         "    source_origin_label: ''\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n",
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n",
     )
     plan = build_route_plan(config)
-    leg = _crm_leg(plan, "mesh_to_matrix", "0")
+    leg = _ctx_leg(plan, "mesh_to_matrix", "0")
     assert leg.source_origin_label == ""
     assert leg.source_origin_label_source == "route"
 
@@ -396,13 +399,13 @@ def test_explicit_null_per_entry_falls_back_to_route(tmp_path: Path) -> None:
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
         "    source_origin_label: RouteDefault\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n"
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n"
         "        source_origin_label: null\n",
     )
     plan = build_route_plan(config)
-    leg = _crm_leg(plan, "mesh_to_matrix", "0")
+    leg = _ctx_leg(plan, "mesh_to_matrix", "0")
     assert leg.source_origin_label == "RouteDefault"
     assert leg.source_origin_label_source == "route"
 
@@ -420,13 +423,13 @@ def test_explicit_null_per_entry_falls_back_to_adapter(tmp_path: Path) -> None:
         "    source_adapters: [radio]\n"
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n"
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n"
         "        source_origin_label: null\n",
     )
     plan = build_route_plan(config)
-    leg = _crm_leg(plan, "mesh_to_matrix", "0")
+    leg = _ctx_leg(plan, "mesh_to_matrix", "0")
     assert leg.source_origin_label == "AdapterMesh"
     assert leg.source_origin_label_source == "adapter"
 
@@ -445,13 +448,13 @@ def test_no_labels_anywhere_yields_unset(tmp_path: Path) -> None:
         "    source_adapters: [radio]\n"
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n",
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n",
         adapters=_ADAPTERS_NO_ORIGIN,
     )
     plan = build_route_plan(config)
-    leg = _crm_leg(plan, "mesh_to_matrix", "0")
+    leg = _ctx_leg(plan, "mesh_to_matrix", "0")
     assert leg.source_origin_label is None
     assert leg.source_origin_label_source == "unset"
 
@@ -486,7 +489,7 @@ def test_bidirectional_reverse_leg_without_dest_label_is_unset_when_adapter_empt
 def test_bidirectional_reverse_leg_uses_dest_origin_label(tmp_path: Path) -> None:
     """The reverse leg of a bidirectional route uses dest_origin_label.
 
-    For a non-channel_room_map bidirectional route, the forward leg's
+    For a non-context_map bidirectional route, the forward leg's
     provenance comes from source_origin_label and the reverse leg's from
     dest_origin_label. Both override any adapter fallback.
     """
@@ -512,16 +515,16 @@ def test_bidirectional_reverse_leg_uses_dest_origin_label(tmp_path: Path) -> Non
 
 
 # ===========================================================================
-# Channel_room_map reverse leg provenance (dest_origin_label side)
+# Context_map reverse leg provenance (dest_origin_label side)
 # ===========================================================================
 
 
-def test_crm_bidirectional_reverse_uses_dest_label(tmp_path: Path) -> None:
-    """A channel_room_map bidirectional route's reverse leg uses dest labels.
+def test_ctx_bidirectional_reverse_uses_dest_label(tmp_path: Path) -> None:
+    """A context_map bidirectional route's reverse leg uses dest labels.
 
-    With Meshtastic declared as source, the forward leg is mesh→matrix
-    (uses source_origin_label) and the reverse leg is matrix→mesh (uses
-    dest_origin_label).  This mirrors the non-crm bidirectional split.
+    With the radio side declared as source, the forward leg is
+    radio→main (uses source-side labels) and the reverse leg is
+    main→radio (uses dest-side labels).
     """
     config = _load(
         tmp_path,
@@ -532,17 +535,17 @@ def test_crm_bidirectional_reverse_uses_dest_label(tmp_path: Path) -> None:
         "    directionality: bidirectional\n"
         "    source_origin_label: MeshSide\n"
         "    dest_origin_label: MatrixSide\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n"
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n"
         "        source_origin_label: EntryMesh\n"
         "        dest_origin_label: EntryMatrix\n",
     )
     plan = build_route_plan(config)
     entry = next(e for e in plan.routes if e.route_id == "bridge")
-    # Bidirectional crm with 1 channel → 2 legs (mesh→matrix and matrix→mesh).
+    # Bidirectional context_map with 1 entry → 2 legs (radio→main and main→radio).
     assert len(entry.legs) == 2
-    # Forward leg: radio → main (mesh → matrix).
+    # Forward leg: radio → main.
     fwd = next(
         leg
         for leg in entry.legs
@@ -550,7 +553,7 @@ def test_crm_bidirectional_reverse_uses_dest_label(tmp_path: Path) -> None:
     )
     assert fwd.source_origin_label == "EntryMesh"
     assert fwd.source_origin_label_source == "per_entry"
-    # Reverse leg: main → radio (matrix → mesh).
+    # Reverse leg: main → radio.
     rev = next(
         leg
         for leg in entry.legs
@@ -564,8 +567,31 @@ def test_crm_bidirectional_reverse_uses_dest_label(tmp_path: Path) -> None:
 # 8. Direct helper contract: returns (effective_label, source) tuple
 #
 # The helper is exercised end-to-end through build_route_plan above; these
-# focused unit tests pin the tuple return shape and the empty-match guard.
+# focused unit tests pin the tuple return shape, the per-entry branch, and
+# the unset guard using lightweight synthetic legs.
 # ===========================================================================
+
+
+def _synthetic_leg(source_adapter: str, *, mapping_source_context: str | None = None):
+    """Build a minimal leg-like object for the helper unit tests."""
+    route = Route(
+        id="synthetic",
+        source=RouteSource(
+            adapter=source_adapter,
+            event_kinds=(),
+            channel=None,
+            origin_label=None,
+        ),
+        targets=[RouteTarget(adapter="main", channel=None)],
+        enabled=True,
+    )
+    return SimpleNamespace(
+        route=route,
+        config_route_id="synthetic",
+        direction="source_to_dest",
+        mapping_source_context=mapping_source_context,
+        mapping_dest_context=None,
+    )
 
 
 def test_resolve_effective_origin_label_adapter_branch_direct() -> None:
@@ -581,22 +607,10 @@ def test_resolve_effective_origin_label_adapter_branch_direct() -> None:
         dest_adapters=("main",),
         # source_origin_label is None (default) → route_label is None.
     )
-    route = Route(
-        id="synthetic",
-        source=RouteSource(
-            adapter="radio",
-            event_kinds=(),
-            channel=None,
-            origin_label=None,
-        ),
-        targets=[RouteTarget(adapter="main", channel=None)],
-        enabled=True,
-    )
     effective, source = _resolve_effective_origin_label(
-        route=route,
+        leg=_synthetic_leg("radio"),
         rc=rc,
-        is_forward=True,
-        adapter_platforms={"radio": "meshtastic", "main": "matrix"},
+        side_is_source=True,
         adapter_origin_labels={"radio": "AdapterMesh", "main": "AdapterMatrix"},
     )
     assert source == "adapter"
@@ -614,23 +628,34 @@ def test_resolve_effective_origin_label_empty_adapter_is_unset_direct() -> None:
         source_adapters=("radio",),
         dest_adapters=("main",),
     )
-    route = Route(
-        id="synthetic",
-        source=RouteSource(
-            adapter="radio",
-            event_kinds=(),
-            channel=None,
-            origin_label=None,
-        ),
-        targets=[RouteTarget(adapter="main", channel=None)],
-        enabled=True,
-    )
     effective, source = _resolve_effective_origin_label(
-        route=route,
+        leg=_synthetic_leg("radio"),
         rc=rc,
-        is_forward=True,
-        adapter_platforms={"radio": "meshtastic"},
+        side_is_source=True,
         adapter_origin_labels={"radio": ""},
     )
     assert source == "unset"
     assert effective is None
+
+
+def test_resolve_effective_origin_label_per_entry_branch_direct() -> None:
+    """A mapping leg with an entry label resolves through the per-entry level."""
+    rc = RouteConfig(
+        route_id="synthetic",
+        source_adapters=("radio",),
+        dest_adapters=("main",),
+        context_map={
+            "0": ContextMapEntry(
+                dest_context="dst-0",
+                source_origin_label="EntryLabel",
+            )
+        },
+    )
+    effective, source = _resolve_effective_origin_label(
+        leg=_synthetic_leg("radio", mapping_source_context="0"),
+        rc=rc,
+        side_is_source=True,
+        adapter_origin_labels={"radio": "AdapterMesh"},
+    )
+    assert source == "per_entry"
+    assert effective == "EntryLabel"

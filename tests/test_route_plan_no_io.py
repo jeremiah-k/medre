@@ -191,11 +191,11 @@ def test_plan_with_fake_meshtastic_only(tmp_path: Path) -> None:
         "    source_adapters: [radio]\n"
         "    dest_adapters: [main]\n"
         "    directionality: source_to_dest\n"
-        "    channel_room_map:\n"
-        "      0:\n"
-        "        room: '!a:fake.local'\n"
-        "      1:\n"
-        "        room: '!b:fake.local'\n"
+        "    context_map:\n"
+        '      "0":\n'
+        "        dest_context: '!a:fake.local'\n"
+        '      "1":\n'
+        "        dest_context: '!b:fake.local'\n"
     )
     p = tmp_path / "config.yaml"
     p.write_text(yaml_text)
@@ -206,7 +206,7 @@ def test_plan_with_fake_meshtastic_only(tmp_path: Path) -> None:
     # Every leg's source is the fake Meshtastic adapter.
     for leg in entry.legs:
         assert leg.source_adapter_id == "radio"
-        assert leg.source_platform == "meshtastic"
+        assert leg.source_transport == "meshtastic"
 
 
 def test_plan_with_disabled_real_adapter_does_not_touch_it(tmp_path: Path) -> None:

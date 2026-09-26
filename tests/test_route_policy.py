@@ -459,7 +459,7 @@ class TestConvertBridgePolicy:
     @staticmethod
     def _convert(bp: BridgePolicy) -> RoutePolicy | None:
         """Import and call the private converter under test."""
-        from medre.runtime.route_engine import _convert_bridge_policy
+        from medre.config.route_expansion import _convert_bridge_policy
 
         return _convert_bridge_policy(bp)
 

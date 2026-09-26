@@ -11,7 +11,13 @@ import pytest
 
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
-from medre.config.routes import ChannelRoomMapEntry, RouteConfig
+from medre.config.route_expansion import expand_route_config
+from medre.config.routes import (
+    ContextMapEntry,
+    RouteConfig,
+    RouteDestinationConfig,
+    RouteDirectionality,
+)
 
 # ---------------------------------------------------------------------------
 # Unknown route-level key rejection
@@ -161,52 +167,128 @@ def test_removed_route_key_meshnet_name_rejected() -> None:
     assert exc_info.value.section_path == "routes.migrate"
 
 
-def test_direct_route_config_rejects_bare_channel_room_map_entry() -> None:
+def test_direct_route_config_rejects_bare_context_map_entry() -> None:
     """Direct construction enforces the normalized structured map shape."""
-    with pytest.raises(ConfigValidationError, match="structured entry with required"):
+    with pytest.raises(
+        ConfigValidationError, match="direct construction requires ContextMapEntry"
+    ):
         RouteConfig(
             route_id="direct-bare-map",
-            source_adapters=("mesh",),
-            dest_adapters=("matrix",),
-            channel_room_map={"0": "!room:example.org"},  # type: ignore[dict-item]
+            source_adapters=("radio",),
+            dest_adapters=("chat",),
+            context_map={"0": "!room:example.org"},  # type: ignore[dict-item]
         )
 
 
-def test_direct_route_config_rejects_non_normalized_channel_key() -> None:
-    """Direct construction requires normalized channel-string keys."""
-    with pytest.raises(ConfigValidationError, match="normalized string form"):
+def test_direct_route_config_rejects_unstripped_context_key() -> None:
+    """Direct construction requires stripped/normalized context keys."""
+    with pytest.raises(ConfigValidationError, match="stripped/normalized"):
         RouteConfig(
             route_id="direct-key-shape",
-            source_adapters=("mesh",),
-            dest_adapters=("matrix",),
-            channel_room_map={
-                "00": ChannelRoomMapEntry(room="!room:example.org"),
+            source_adapters=("radio",),
+            dest_adapters=("chat",),
+            context_map={
+                " 0": ContextMapEntry(dest_context="!room:example.org"),
             },
         )
 
 
-def test_channel_room_map_entry_validates_direct_construction() -> None:
-    """Direct entry construction enforces the parsed room/label shape."""
+def test_context_map_entry_validates_direct_construction() -> None:
+    """Direct entry construction enforces the parsed context/label shape."""
+    with pytest.raises(ConfigValidationError, match="exactly one of"):
+        ContextMapEntry()
     with pytest.raises(ConfigValidationError, match="must be a non-empty string"):
-        ChannelRoomMapEntry(room="")
-    with pytest.raises(ConfigValidationError, match="canonical Matrix room ID"):
-        ChannelRoomMapEntry(room="room:example.org")
-    with pytest.raises(ConfigValidationError, match="room alias"):
-        ChannelRoomMapEntry(room="#alias:example.org")
+        ContextMapEntry(dest_context="")
+    with pytest.raises(
+        ConfigValidationError, match="must already be stripped/normalized"
+    ):
+        ContextMapEntry(dest_context="  !room:example.org  ")
     with pytest.raises(ConfigValidationError, match="source_origin_label"):
-        ChannelRoomMapEntry(
-            room="!room:example.org",
+        ContextMapEntry(
+            dest_context="!room:example.org",
             source_origin_label=True,  # type: ignore[arg-type]
         )
-    assert ChannelRoomMapEntry(room="  !room:example.org  ").room == "!room:example.org"
+    entry = ContextMapEntry(dest_context="!room:example.org")
+    assert entry.dest_context == "!room:example.org"
 
 
-def test_direct_route_config_rejects_empty_channel_room_map() -> None:
+def test_direct_route_config_rejects_empty_context_map() -> None:
     """Direct route construction matches parser rejection of an empty map."""
     with pytest.raises(ConfigValidationError, match="must not be empty"):
         RouteConfig(
             route_id="direct-empty-map",
-            source_adapters=("mesh",),
-            dest_adapters=("matrix",),
-            channel_room_map={},
+            source_adapters=("radio",),
+            dest_adapters=("chat",),
+            context_map={},
         )
+
+
+def test_expand_route_config_rejects_multi_adapter_context_map() -> None:
+    """The compiler re-checks the one-source/one-dest fence even for a
+    directly constructed route that mutated after config validation."""
+    rc = RouteConfig(
+        route_id="direct-fanout",
+        source_adapters=("radio_adapter",),
+        dest_adapters=("chat_adapter",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        context_map={"a": ContextMapEntry(dest_context="!room:example.org")},
+    )
+    object.__setattr__(rc, "dest_adapters", ("chat_adapter", "chat_adapter_2"))
+
+    with pytest.raises(
+        ConfigValidationError,
+        match="exactly one source adapter and one dest adapter",
+    ):
+        expand_route_config(rc)
+
+
+def test_expand_route_config_rejects_expansion_token_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two source contexts may never share an expansion token. The SHA-256
+    derivation makes natural collisions implausible, so the fence is pinned
+    by forcing the token derivation and asserting the split-routes error."""
+    rc = RouteConfig(
+        route_id="direct-collide",
+        source_adapters=("radio_adapter",),
+        dest_adapters=("chat_adapter",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        context_map={
+            "a": ContextMapEntry(dest_context="!room-a:example.org"),
+            "b": ContextMapEntry(dest_context="!room-b:example.org"),
+        },
+    )
+    monkeypatch.setattr(
+        "medre.config.route_expansion._context_map_token",
+        lambda _ctx: "h_dead",
+    )
+
+    with pytest.raises(
+        ConfigValidationError, match="collide on expansion token 'h_dead'"
+    ):
+        expand_route_config(rc)
+
+
+def test_expand_route_config_rejects_context_map_channel_conflict() -> None:
+    """The compiler re-checks context_map/channel mutual exclusion even for
+    a directly constructed route that mutated after config validation."""
+    rc = RouteConfig(
+        route_id="direct-conflict",
+        source_adapters=("radio_adapter",),
+        dest_adapters=("chat_adapter",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        context_map={
+            "a": ContextMapEntry(
+                dest_destination=RouteDestinationConfig(
+                    kind="lxmf_destination",
+                    destination_hash="21c0c1b9aabbccddeeff001122334455",
+                )
+            )
+        },
+    )
+    object.__setattr__(rc, "dest_channel", "#leak")
+
+    with pytest.raises(
+        ConfigValidationError, match="context_map is mutually exclusive with"
+    ):
+        expand_route_config(rc)

@@ -103,21 +103,20 @@ redaction scope.
 `medre routes plan --config <path>` renders the expanded route topology
 the runtime will build, **without performing any live network or hardware
 I/O**. No adapter is started, no SDK is imported, no transport is
-contacted — the plan is computed purely from the parsed config plus the
-configured adapter platforms.
+contacted — the plan is computed purely from the parsed config.
 
 What the plan shows:
 
 - The configured adapters (id, transport, kind, `origin_label`).
 - Every expanded route leg, one row per leg, including the legs produced
-  by `channel_room_map` expansion and bidirectional reverse legs.
-- The direction of each leg (forward / reverse, and the platform pair).
+  by `context_map` expansion and bidirectional reverse legs.
+- The direction of each leg (forward / reverse, and the transport pair).
 - The resolved `origin_label` per leg and its provenance — per-entry,
   route-level, adapter fallback, or unset — so the relay-prefix
   precedence chain is visible end-to-end.
-- Fan-in decisions: when a `channel_room_map` maps multiple Meshtastic
-  channels into one Matrix room and the route only creates
-  Meshtastic→Matrix legs, the plan annotates the fan-in as allowed.
+- Fan-in decisions: when a `context_map` maps multiple source contexts
+  into one `dest_context` and the route only creates forward legs
+  (`source_to_dest`), the plan annotates the fan-in as allowed.
 
 The plan is **observational, not delivery evidence**. It describes the
 shape the router will receive; it does not record, prove, or guarantee
@@ -476,44 +475,88 @@ routes:
 | `max_delay_seconds` | float | `60.0`  | Upper bound for backoff delay.                       |
 | `jitter`            | bool  | `false` | Whether to add jitter to backoff.                    |
 
-#### channel_room_map
+#### context_map
 
-For Matrix↔Meshtastic bridges, `channel_room_map` expands a single route into N channel→room pairs:
+`context_map` expands a single route into N legs, one per map entry. The
+map is keyed by the SOURCE-side opaque context; each value is a structured
+table:
 
 ```yaml
 routes:
-  multi_channel_bridge:
+  multi_context_bridge:
     source_adapters:
-      - main
-    dest_adapters:
       - radio
+    dest_adapters:
+      - main
     directionality: bidirectional
     enabled: true
-    channel_room_map:
+    context_map:
       "0":
-        room: "!general:example.com"
+        dest_context: "!general:example.com"
       "1":
-        room: "!admin:example.com"
+        dest_context: "!admin:example.com"
+```
+
+The map key is the SOURCE-side opaque context — here the Meshtastic channel
+indices arriving on the `radio` adapter; the `dest_context` values are
+Matrix rooms on the `main` adapter.
+
+Contexts are **opaque strings owned by their adapters**. Generic config
+applies no transport-specific syntax validation — a Matrix room, a
+Meshtastic channel index, a Discord channel, or an MQTT topic are all
+just non-empty, stripped strings. Configuration genericity example (no
+such adapters ship with MEDRE; the shape is what matters):
+
+```yaml
+routes:
+  discord_meshcore_bridge:
+    source_adapters:
+      - discord-bot
+    dest_adapters:
+      - meshcore-node
+    directionality: bidirectional
+    enabled: true
+    context_map:
+      "general-chat":
+        dest_context: "t-100" # MeshCore channel tag
+      "ops-chat":
+        dest_context: "t-200"
+        source_origin_label: "Discord Ops"
+
+  mqtt_matrix_drop:
+    source_adapters:
+      - mqtt-client
+    dest_adapters:
+      - main
+    directionality: source_to_dest
+    enabled: true
+    context_map:
+      "sensors/home/temperature":
+        dest_context: "!sensors:example.com"
 ```
 
 Limitations:
 
-- Room IDs must be canonical (`!` prefix). Aliases not supported.
 - Mutually exclusive with `source_room`, `dest_room`, `source_channel`, `dest_channel`.
 - Route must have exactly one source and one destination adapter.
-- Channel keys 0–7 only (Meshtastic supports up to 8 channels).
-- Two or more entries can share the same Matrix room for Meshtastic→Matrix
-  fan-in (multiple radio channels relaying into one room). Duplicate rooms
-  are rejected at route expansion when the route also creates a
-  Matrix→Meshtastic leg — a Matrix event from a shared room is ambiguous
-  across channels. See the Routing and Delivery Specification §17.6 for the
-  full directionality decision matrix.
+- Map keys must already be stripped/normalized (`" 0"` is rejected).
+- Each entry carries exactly one of `dest_context` (opaque dest-side
+  context) or `dest_destination` (a structured destination entity, e.g.
+  an LXMF destination).
+- Entries with `dest_destination` are forward-only: they require
+  `directionality: source_to_dest`.
+- Two or more entries can share the same `dest_context` for forward-only
+  fan-in (multiple source contexts relaying into one dest context).
+  Duplicate `dest_context` values are rejected at configuration
+  validation when the route also creates reverse legs — a dest-side
+  event from a shared context is ambiguous across source contexts. See
+  the Routing and Delivery Specification §17.6 for the full
+  directionality decision matrix.
 
-Fan-in example — two Meshtastic channels delivering into one Matrix room,
-each with its own `source_origin_label` so the relay prefix distinguishes
-them. This shape is valid only when the route does not also create a
-Matrix→Meshtastic leg (here `source_to_dest` with a Meshtastic source and a
-Matrix destination):
+Fan-in example — two source contexts delivering into one shared dest
+context, each with its own `source_origin_label` so the relay prefix
+distinguishes them. This shape is valid only when the route creates no
+reverse legs (`source_to_dest`):
 
 ```yaml
 routes:
@@ -524,43 +567,63 @@ routes:
       - main
     directionality: source_to_dest
     enabled: true
-    channel_room_map:
+    context_map:
       "0":
-        room: "!room:example.com"
+        dest_context: "!room:example.com"
         source_origin_label: "LongFast"
       "1":
-        room: "!room:example.com"
+        dest_context: "!room:example.com"
         source_origin_label: "ShortFast"
+```
+
+An entry may instead target a structured destination — for example a
+Matrix room relaying into a fixed LXMF destination:
+
+```yaml
+routes:
+  matrix_to_lxmf_peer:
+    source_adapters:
+      - main
+    dest_adapters:
+      - lxmf-node
+    directionality: source_to_dest
+    enabled: true
+    context_map:
+      "!room:example.com":
+        dest_destination:
+          kind: lxmf_destination
+          destination_hash: "e5f6a7b8c9d0e1f2a1b2c3d4e5f6a7b8"
+          destination_name: "mobile-peer-1"
 ```
 
 #### Per-entry origin labels
 
-Each `channel_room_map` entry is a structured table with required `room` and
-optional origin labels. This lets channels bridged by the same route show
-different attribution text in the relay prefix (for example, the channel
-name):
+Each `context_map` entry is a structured table with exactly one of
+`dest_context` / `dest_destination` plus optional origin labels. This
+lets contexts bridged by the same route show different attribution text
+in the relay prefix (for example, the channel name):
 
 ```yaml
 routes:
   radio_matrix:
     source_adapters:
-      - main
+      - radio
     dest_adapters:
       - ops
     directionality: bidirectional
     enabled: true
-    channel_room_map:
+    context_map:
       "0":
-        room: "!longfast:example.com"
+        dest_context: "!longfast:example.com"
         source_origin_label: "LongFast"
         dest_origin_label: "Matrix Ops"
       "1":
-        room: "!shortfast:example.com"
+        dest_context: "!shortfast:example.com"
         source_origin_label: "ShortFast"
 ```
 
-Here channel 0 bridges to `!longfast:example.com` and tags both legs of
-that mapping; channel 1 bridges to `!shortfast:example.com` and tags
+Here context `"0"` bridges to `!longfast:example.com` and tags both legs of
+that mapping; context `"1"` bridges to `!shortfast:example.com` and tags
 only its forward leg, leaving the reverse leg to inherit the
 route-level `dest_origin_label` (or the adapter `origin_label`).
 How labels resolve for each expanded leg, from most to least specific:
@@ -581,7 +644,7 @@ Keep in mind:
 - `origin_label` is human-readable attribution only. It is not a routing
   key, not a transport identity, and not delivery evidence. It never
   affects which route matches an event.
-- Use separate routes when the `channel_room_map` shape cannot express
+- Use separate routes when the `context_map` shape cannot express
   the targeting you need (for example, distinct fanout across multiple
   destinations). Per-entry labels do not change targeting — they only
   label the legs the map already expands.

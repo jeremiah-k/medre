@@ -1241,13 +1241,14 @@ class TestAdapterConfigExampleCoverage:
 
 
 # ===========================================================================
-# 7. Structured ChannelRoomMapEntry in routing example (TC-009)
+# 7. Structured ContextMapEntry in routing example (TC-009)
 # ===========================================================================
 
 
-class TestStructuredChannelRoomMapEntry:
-    """Verify the structured ChannelRoomMapEntry shape (dict with 'room'
-    key) appears in at least one example payload."""
+class TestStructuredContextMapEntry:
+    """Verify the structured ContextMapEntry shape (dict with a
+    dest_context/dest_destination key) appears in at least one example
+    payload."""
 
     @staticmethod
     def _example_routes() -> list[dict]:
@@ -1263,54 +1264,62 @@ class TestStructuredChannelRoomMapEntry:
 
     def test_routing_example_has_structured_entry(self) -> None:
         """routing-config-example.json must contain at least one structured
-        channel_room_map entry (a dict with a 'room' key, not a bare string).
-        """
-        crm = next(
+        context_map entry (a dict with a dest_context or dest_destination
+        key, not a bare string)."""
+        context_map = next(
             (
-                r.get("channel_room_map")
+                r.get("context_map")
                 for r in self._example_routes()
-                if r.get("channel_room_map")
+                if r.get("context_map")
             ),
             None,
         )
-        assert crm is not None, "routing-config-example.json missing channel_room_map"
+        assert (
+            context_map is not None
+        ), "routing-config-example.json missing context_map"
         assert isinstance(
-            crm, dict
-        ), f"channel_room_map must be a dict, got {type(crm)}"
+            context_map, dict
+        ), f"context_map must be a dict, got {type(context_map)}"
 
         structured_entries = [
-            key for key, val in crm.items() if isinstance(val, dict) and "room" in val
+            key
+            for key, val in context_map.items()
+            if isinstance(val, dict)
+            and ("dest_context" in val or "dest_destination" in val)
         ]
         assert structured_entries, (
-            "No structured ChannelRoomMapEntry found in "
-            "routing-config-example.json channel_room_map. "
+            "No structured ContextMapEntry found in "
+            "routing-config-example.json context_map. "
             "Expected at least one entry shaped like "
-            '{"room": "!...", "source_origin_label": ...}'
+            '{"dest_context": "...", "source_origin_label": ...} or '
+            '{"dest_destination": {...}}'
         )
 
-    def test_structured_entry_has_required_room_field(self) -> None:
-        """The structured entry must have a 'room' field starting with '!'."""
-        crm = next(
-            (
-                r["channel_room_map"]
-                for r in self._example_routes()
-                if r.get("channel_room_map")
-            ),
+    def test_structured_entry_has_exactly_one_addressing_field(self) -> None:
+        """Each structured entry carries dest_context XOR dest_destination."""
+        context_map = next(
+            (r["context_map"] for r in self._example_routes() if r.get("context_map")),
             None,
         )
-        assert crm is not None
-        for key, val in crm.items():
-            if isinstance(val, dict):
-                assert (
-                    "room" in val
-                ), f"channel_room_map[{key!r}] is a dict but missing 'room'"
+        assert context_map is not None
+        for key, val in context_map.items():
+            assert isinstance(val, dict), (
+                f"context_map[{key!r}] must be a structured table, " f"got {type(val)}"
+            )
+            has_context = "dest_context" in val
+            has_destination = "dest_destination" in val
+            assert has_context or has_destination, (
+                f"context_map[{key!r}] is a dict but missing both "
+                "'dest_context' and 'dest_destination'"
+            )
+            assert not (has_context and has_destination), (
+                f"context_map[{key!r}] carries both 'dest_context' and "
+                "'dest_destination' — exactly one is allowed"
+            )
+            if has_context:
                 assert isinstance(
-                    val["room"], str
-                ), f"channel_room_map[{key!r}].room must be a string"
-                assert val["room"].startswith("!"), (
-                    f"channel_room_map[{key!r}].room must start with '!', "
-                    f"got {val['room']!r}"
-                )
+                    val["dest_context"], str
+                ), f"context_map[{key!r}].dest_context must be a string"
 
 
 # ===========================================================================

@@ -156,17 +156,23 @@ adapters:
 #                         leg of this route (dest→source).  Same semantics
 #                         as source_origin_label but applied when direction
 #                         is swapped during expansion.
-#   channel_room_map    - optional mapping of Meshtastic channel strings
-#                         ("0"-"7") to structured entries with required
-#                         ``room`` plus optional per-entry
+#   context_map         - optional mapping of source-side opaque context
+#                         strings to structured entries carrying exactly one
+#                         of ``dest_context`` (an opaque context on the dest
+#                         side) or ``dest_destination`` (a structured
+#                         destination), plus optional per-entry
 #                         ``source_origin_label`` / ``dest_origin_label``.
-#                         When present, the route is expanded at runtime
-#                         into per-channel legs.  Mutually exclusive with
+#                         When present, the route is expanded at the
+#                         configuration seam into per-context Route legs.
+#                         Mutually exclusive with
 #                         source_channel/dest_channel/source_room/dest_room.
 #                         Requires exactly one source and one dest adapter.
+#                         Contexts are opaque strings owned by their
+#                         adapters; generic config applies no transport
+#                         syntax validation.
 #
-#   Per-channel origin labels are supported via the structured
-#   channel_room_map entry shape (see the commented example below).
+#   Per-context origin labels are supported via the structured
+#   context_map entry shape (see the commented example below).
 #
 # Policy (routes.<id>.policy):
 #   allowed_event_types      - event kinds to permit (e.g. ["message.created",
@@ -252,21 +258,41 @@ routes:
   #   policy:
   #     allowed_event_types: [message.created]
 
-  # --- Route with structured channel_room_map ---
-  # Maps Meshtastic channels to Matrix rooms.  Each value may be a bare
-  # room-ID string (channel → room) or a structured table carrying ``room``
-  # plus optional per-entry ``source_origin_label`` / ``dest_origin_label``
-  # for fine-grained relay-prefix attribution per channel.
-  # Uncomment and adjust to match your setup.
-  # channel_mapped_bridge:
+  # --- Route with structured context_map ---
+  # Maps source-side opaque contexts to dest-side contexts.  Each value is
+  # a structured table carrying exactly one of ``dest_context`` or
+  # ``dest_destination`` plus optional per-entry ``source_origin_label`` /
+  # ``dest_origin_label`` for fine-grained relay-prefix attribution per
+  # context.  Contexts are opaque strings owned by their adapters.
+  # This disabled route is parseable documentation; enable and adjust it
+  # when the referenced contexts exist in your transports.
+  context_mapped_bridge:
+    source_adapters: [radio]
+    dest_adapters: [main]
+    directionality: bidirectional
+    enabled: false
+    context_map:
+      "0":
+        dest_context: '!general:example.com'
+      "1":
+        dest_context: '!ops:example.com'
+        source_origin_label: Ops
+        dest_origin_label: Matrix-Ops
+  #
+  # --- Route with a structured destination (context_map entry) ---
+  # An entry may instead target a structured destination entity (e.g. an
+  # LXMF destination).  Structured-destination entries are forward-only:
+  # they require directionality "source_to_dest".
+  # Requires adapters.lxmf.lxmf_node to be enabled.
+  # lxmf_out:
   #   source_adapters: [main]
-  #   dest_adapters: [radio]
+  #   dest_adapters: [lxmf_node]
   #   directionality: source_to_dest
   #   enabled: true
-  #   channel_room_map:
-  #     "0": '!general:example.com'
-  #     "1":
-  #       room: '!ops:example.com'
-  #       source_origin_label: Ops
-  #       dest_origin_label: Matrix-Ops
+  #   context_map:
+  #     '!room:example.com':
+  #       dest_destination:
+  #         kind: lxmf_destination
+  #         destination_hash: e5f6a7b8c9d0e1f2a1b2c3d4e5f6a7b8
+  #         destination_name: bob
 """

@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from medre.config.route_expansion import expand_route_config
 from medre.config.routes import RouteConfig, RouteDirectionality
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import (
@@ -31,7 +32,6 @@ from medre.core.rendering.renderer import (
     RenderingResult,
 )
 from medre.core.routing.models import RouteSource
-from medre.runtime.route_engine import _expand_route_config
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -101,9 +101,9 @@ def test_standard_expansion_threads_source_origin_label() -> None:
             "source_origin_label": "East Relay",
         },
     )
-    routes = _expand_route_config(rc)
-    assert len(routes) == 1
-    assert routes[0].source.origin_label == "East Relay"
+    legs = expand_route_config(rc)
+    assert len(legs) == 1
+    assert legs[0].route.source.origin_label == "East Relay"
 
 
 def test_standard_expansion_none_when_unset() -> None:
@@ -111,9 +111,9 @@ def test_standard_expansion_none_when_unset() -> None:
         "r2",
         {"source_adapters": ["src-a"], "dest_adapters": ["dst-b"]},
     )
-    routes = _expand_route_config(rc)
-    assert len(routes) == 1
-    assert routes[0].source.origin_label is None
+    legs = expand_route_config(rc)
+    assert len(legs) == 1
+    assert legs[0].route.source.origin_label is None
 
 
 def test_swap_direction_uses_dest_origin_label() -> None:
@@ -128,9 +128,10 @@ def test_swap_direction_uses_dest_origin_label() -> None:
             "dest_origin_label": "West Relay",
         },
     )
-    routes = _expand_route_config(rc, swap_direction=True)
-    assert len(routes) == 1
-    assert routes[0].source.origin_label == "West Relay"
+    legs = expand_route_config(rc)
+    assert len(legs) == 1
+    assert legs[0].direction == "dest_to_source"
+    assert legs[0].route.source.origin_label == "West Relay"
 
 
 def test_forward_uses_source_origin_label() -> None:
@@ -144,9 +145,9 @@ def test_forward_uses_source_origin_label() -> None:
             "dest_origin_label": "Reverse Label",
         },
     )
-    routes = _expand_route_config(rc)
-    assert len(routes) == 1
-    assert routes[0].source.origin_label == "Forward Label"
+    legs = expand_route_config(rc)
+    assert len(legs) == 1
+    assert legs[0].route.source.origin_label == "Forward Label"
 
 
 def test_multi_source_threads_label_to_each_leg() -> None:
@@ -158,9 +159,9 @@ def test_multi_source_threads_label_to_each_leg() -> None:
             "source_origin_label": "Shared Label",
         },
     )
-    routes = _expand_route_config(rc)
-    assert len(routes) == 2
-    assert all(r.source.origin_label == "Shared Label" for r in routes)
+    legs = expand_route_config(rc)
+    assert len(legs) == 2
+    assert all(leg.route.source.origin_label == "Shared Label" for leg in legs)
 
 
 # ---------------------------------------------------------------------------

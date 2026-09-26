@@ -5,14 +5,14 @@ from __future__ import annotations
 import pytest
 
 from medre.config.errors import ConfigValidationError
+from medre.config.route_expansion import expand_route_configs
 from medre.config.routes import (
-    ChannelRoomMapEntry,
+    ContextMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDestinationConfig,
     RouteDirectionality,
 )
-from medre.runtime.route_engine import RouteValidationError, build_runtime_routes
 
 
 def test_string_bidirectional_expands_both_directions() -> None:
@@ -23,12 +23,9 @@ def test_string_bidirectional_expands_both_directions() -> None:
         directionality="bidirectional",  # type: ignore[arg-type]
     )
     assert rc.directionality is RouteDirectionality.BIDIRECTIONAL
-    routes = build_runtime_routes(
-        RouteConfigSet(routes=(rc,)),
-        {"main": "matrix", "radio": "meshtastic"},
-    )
-    assert len(routes) == 2
-    by_id = {route.id: route for route in routes}
+    legs = expand_route_configs(RouteConfigSet(routes=(rc,)))
+    assert len(legs) == 2
+    by_id = {leg.route.id: leg.route for leg in legs}
     assert set(by_id) == {"mx_bridge", "mx_bridge__rev_0"}
     assert by_id["mx_bridge"].source.adapter == "main"
     assert {target.adapter for target in by_id["mx_bridge"].targets} == {"radio"}
@@ -43,26 +40,20 @@ def test_unknown_directionality_raises_loudly() -> None:
         dest_adapters=("radio",),
     )
     object.__setattr__(rc, "directionality", "sideways")
-    with pytest.raises(RouteValidationError, match="unrecognized directionality"):
-        build_runtime_routes(
-            RouteConfigSet(routes=(rc,)),
-            {"main": "matrix", "radio": "meshtastic"},
-        )
+    with pytest.raises(ConfigValidationError, match="unrecognized directionality"):
+        expand_route_configs(RouteConfigSet(routes=(rc,)))
 
 
-def test_channel_room_map_unknown_directionality_raises_loudly() -> None:
+def test_context_map_unknown_directionality_raises_loudly() -> None:
     rc = RouteConfig(
         route_id="tampered_map",
         source_adapters=("main",),
         dest_adapters=("radio",),
-        channel_room_map={"0": ChannelRoomMapEntry(room="!room:example.com")},
+        context_map={"0": ContextMapEntry(dest_context="!room:example.com")},
     )
     object.__setattr__(rc, "directionality", "sideways")
-    with pytest.raises(RouteValidationError, match="unrecognized directionality"):
-        build_runtime_routes(
-            RouteConfigSet(routes=(rc,)),
-            {"main": "matrix", "radio": "meshtastic"},
-        )
+    with pytest.raises(ConfigValidationError, match="unrecognized directionality"):
+        expand_route_configs(RouteConfigSet(routes=(rc,)))
 
 
 def test_construction_coerces_plain_directionality_strings() -> None:
@@ -142,11 +133,8 @@ def test_expansion_carries_room_channel_to_reverse_target() -> None:
         dest_channel="0",
         directionality="bidirectional",  # type: ignore[arg-type]
     )
-    routes = build_runtime_routes(
-        RouteConfigSet(routes=(rc,)),
-        {"main": "matrix", "radio": "meshtastic"},
-    )
-    reverse = {route.id: route for route in routes}["mx_bridge__rev_0"]
+    legs = expand_route_configs(RouteConfigSet(routes=(rc,)))
+    reverse = {leg.route.id: leg.route for leg in legs}["mx_bridge__rev_0"]
     assert reverse.source.adapter == "radio"
     assert reverse.source.channel == "0"
     assert {target.adapter: target.channel for target in reverse.targets} == {
@@ -160,11 +148,10 @@ def test_standard_expansion_rejects_empty_source_adapters() -> None:
         source_adapters=(),
         dest_adapters=("radio",),
     )
-    with pytest.raises(RouteValidationError, match="source_adapters must not be empty"):
-        build_runtime_routes(
-            RouteConfigSet(routes=(rc,)),
-            {"radio": "meshtastic"},
-        )
+    with pytest.raises(
+        ConfigValidationError, match="source_adapters must not be empty"
+    ):
+        expand_route_configs(RouteConfigSet(routes=(rc,)))
 
 
 def test_standard_expansion_rejects_empty_dest_adapters() -> None:
@@ -173,11 +160,8 @@ def test_standard_expansion_rejects_empty_dest_adapters() -> None:
         source_adapters=("main",),
         dest_adapters=(),
     )
-    with pytest.raises(RouteValidationError, match="dest_adapters must not be empty"):
-        build_runtime_routes(
-            RouteConfigSet(routes=(rc,)),
-            {"main": "matrix"},
-        )
+    with pytest.raises(ConfigValidationError, match="dest_adapters must not be empty"):
+        expand_route_configs(RouteConfigSet(routes=(rc,)))
 
 
 def test_programmatic_structured_destination_requires_single_dest_adapter() -> None:
@@ -190,11 +174,10 @@ def test_programmatic_structured_destination_requires_single_dest_adapter() -> N
             destination_hash="ab" * 16,
         ),
     )
-    with pytest.raises(RouteValidationError, match="requires exactly one dest adapter"):
-        build_runtime_routes(
-            RouteConfigSet(routes=(rc,)),
-            {"main": "matrix", "lx_a": "lxmf", "lx_b": "lxmf"},
-        )
+    with pytest.raises(
+        ConfigValidationError, match="requires exactly one dest adapter"
+    ):
+        expand_route_configs(RouteConfigSet(routes=(rc,)))
 
 
 def test_programmatic_structured_destination_rejects_channel_selector() -> None:
@@ -208,25 +191,18 @@ def test_programmatic_structured_destination_rejects_channel_selector() -> None:
             destination_hash="ab" * 16,
         ),
     )
-    with pytest.raises(RouteValidationError, match="mutually exclusive"):
-        build_runtime_routes(
-            RouteConfigSet(routes=(rc,)),
-            {"main": "matrix", "lx_a": "lxmf"},
-        )
+    with pytest.raises(ConfigValidationError, match="mutually exclusive"):
+        expand_route_configs(RouteConfigSet(routes=(rc,)))
 
 
-def test_programmatic_channel_room_map_rejects_selector_conflict() -> None:
-    rc = RouteConfig(
-        route_id="map_conflict",
-        source_adapters=("main",),
-        dest_adapters=("radio",),
-        source_channel="!room:example.com",
-        channel_room_map={"0": ChannelRoomMapEntry(room="!room:example.com")},
-    )
-    with pytest.raises(
-        RouteValidationError, match="channel_room_map is mutually exclusive"
-    ):
-        build_runtime_routes(
-            RouteConfigSet(routes=(rc,)),
-            {"main": "matrix", "radio": "meshtastic"},
+def test_programmatic_context_map_rejects_selector_conflict() -> None:
+    """context_map conflicts are rejected at construction (__post_init__
+    parity with from_dict)."""
+    with pytest.raises(ConfigValidationError, match="context_map.*mutually exclusive"):
+        RouteConfig(
+            route_id="map_conflict",
+            source_adapters=("main",),
+            dest_adapters=("radio",),
+            source_channel="!room:example.com",
+            context_map={"0": ContextMapEntry(dest_context="!room:example.com")},
         )

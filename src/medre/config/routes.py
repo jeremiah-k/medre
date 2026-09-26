@@ -9,15 +9,18 @@ It is deliberately **transport-agnostic**: adapter IDs, event kinds,
 channel IDs, and sender IDs are plain strings with no SDK imports.
 
 This module is the canonical home for route config dataclasses.
-:mod:`medre.runtime.route_engine` owns runtime route expansion and
-topology; it imports from this module.  :mod:`medre.config` must not
-import from :mod:`medre.runtime`.
+:mod:`medre.config.route_expansion` owns route expansion (config →
+core :class:`~medre.core.routing.models.Route` legs); it imports from
+this module.  :mod:`medre.config` must not import from
+:mod:`medre.runtime`.
 
 Public symbols
 --------------
 * :class:`RouteDirectionality` — direction of flow between source/dest
 * :class:`BridgePolicy` — static allowlist policy for a route
 * :class:`RouteRetryConfig` — per-route retry policy for transient failures
+* :class:`RouteDestinationConfig` — structured destination addressing
+* :class:`ContextMapEntry` — one ``context_map`` entry (source context → dest)
 * :class:`RouteConfig` — a single named route definition
 * :class:`RouteConfigSet` — ordered, validated collection of routes
 """
@@ -378,42 +381,105 @@ class RouteRetryConfig:
 
 
 # ---------------------------------------------------------------------------
-# Channel-room-map entry (per-entry structured value for channel_room_map)
+# Context-map entry (per-entry structured value for context_map)
 # ---------------------------------------------------------------------------
 
 
-# Canonical field names accepted in a structured channel_room_map entry.
-_CRM_ENTRY_KNOWN_KEYS: frozenset[str] = frozenset(
-    {"room", "source_origin_label", "dest_origin_label"}
+# Canonical field names accepted in a structured context_map entry.
+_CONTEXT_MAP_ENTRY_KNOWN_KEYS: frozenset[str] = frozenset(
+    {"dest_context", "dest_destination", "source_origin_label", "dest_origin_label"}
 )
 
 
-def _normalize_matrix_room_id(
+def _validate_context_map_key(
+    raw_key: Any,
+    *,
+    route_id: str,
+    section_path: str,
+) -> str:
+    """Validate a single ``context_map`` key and return its string form.
+
+    Context keys are opaque strings — no transport-specific syntax is
+    validated here (adapters own their transport validation).  Keys must
+    already be stripped/normalized: an unstripped key such as ``" 0"``
+    is rejected rather than silently normalized so that YAML/TOML
+    spellings and programmatic keys cannot drift apart.
+
+    Boolean keys are rejected explicitly (bool-before-str pattern);
+    integer keys are accepted in parsed config and normalized to their
+    decimal string form (direct construction must use the string form).
+
+    Returns
+    -------
+    str
+        The validated key in its string form.
+
+    Raises
+    ----------
+    ConfigValidationError
+        If the key is a boolean, not a string/integer, empty, or not
+        already stripped.
+    """
+    if isinstance(raw_key, bool):
+        raise ConfigValidationError(
+            f"Route {route_id!r}: context_map key {raw_key!r} is a boolean, "
+            "expected a string",
+            section_path=section_path,
+        )
+    if isinstance(raw_key, int):
+        key = str(raw_key)
+    elif isinstance(raw_key, str):
+        key = raw_key
+    else:
+        raise ConfigValidationError(
+            f"Route {route_id!r}: context_map key {raw_key!r} is not a string, "
+            f"got {type(raw_key).__name__}",
+            section_path=section_path,
+        )
+    if not key.strip():
+        raise ConfigValidationError(
+            f"Route {route_id!r}: context_map key {raw_key!r} must be a "
+            "non-empty string",
+            section_path=section_path,
+        )
+    if key != key.strip():
+        raise ConfigValidationError(
+            f"Route {route_id!r}: context_map key {raw_key!r} must already be "
+            f"stripped/normalized; use {key.strip()!r}",
+            section_path=section_path,
+        )
+    return key
+
+
+def _validate_context_value(
     value: Any,
     *,
     context: str,
     section_path: str | None = None,
 ) -> str:
-    """Return a stripped canonical Matrix room ID or raise a config error."""
-    if not isinstance(value, str) or not value.strip():
+    """Validate an opaque context value: a non-empty, already-stripped string.
+
+    Like context_map *keys*, context values are opaque and must already
+    be normalized — an unstripped value would silently fail the
+    string-equality routing match against adapter-supplied channel IDs.
+    """
+    if isinstance(value, bool) or not isinstance(value, str):
         raise ConfigValidationError(
-            f"{context} must be a non-empty string, got {value!r}",
+            f"{context} must be a string, got {type(value).__name__}: {value!r}",
             section_path=section_path,
         )
-    room = value.strip()
-    if room.startswith("#"):
+    if not value.strip():
         raise ConfigValidationError(
-            f"{context} is a room alias ({room!r}); aliases are not supported "
-            "yet — use canonical room IDs starting with '!'",
+            f"{context} must be a non-empty string",
             section_path=section_path,
         )
-    if not room.startswith("!"):
+    if value != value.strip():
         raise ConfigValidationError(
-            f"{context} {room!r} must be a canonical Matrix room ID starting "
-            "with '!'",
+            f"{context} {value!r} must already be stripped/normalized; "
+            f"use {value.strip()!r}",
             section_path=section_path,
         )
-    return room
+    return value
 
 
 def _normalize_optional_origin_label(
@@ -441,45 +507,69 @@ def _normalize_optional_origin_label(
 
 
 @dataclass(frozen=True)
-class ChannelRoomMapEntry:
-    """A single ``channel_room_map`` entry with optional per-entry origin labels.
+class ContextMapEntry:
+    """One ``context_map`` entry: source-side opaque context -> dest side.
 
-    Each entry maps a Meshtastic channel index to a canonical Matrix room
-    ID and optionally carries ``source_origin_label`` / ``dest_origin_label``
-    that override the route-level labels for the expanded legs of this
-    channel only.
+    Each entry maps one source-side context (the ``context_map`` key) to
+    the dest side of the bridge: either another opaque context
+    (``dest_context``) or a structured destination
+    (``dest_destination``) — exactly one of the two.  Entries optionally
+    carry ``source_origin_label`` / ``dest_origin_label`` that override
+    the route-level labels for this entry's forward/reverse legs.
 
     Attributes
     ----------
-    room:
-        Canonical Matrix room ID starting with ``!``.
+    dest_context:
+        Opaque dest-side context string (e.g. a room ID, channel index,
+        or topic).  Mutually exclusive with ``dest_destination``.
+    dest_destination:
+        Structured destination addressing
+        (:class:`RouteDestinationConfig`).  Mutually exclusive with
+        ``dest_context``; entries carrying one require route
+        directionality ``source_to_dest``.
     source_origin_label:
-        Per-entry forward-leg source label.  ``None`` means "fall back to
-        the route-level ``source_origin_label``".  An explicit ``""`` means
-        "suppress the adapter-level fallback for this entry's forward leg".
+        Per-entry forward-leg source label.  ``None`` means "fall back
+        to the route-level ``source_origin_label``".  An explicit ``""``
+        means "suppress the adapter-level fallback for this entry's
+        forward leg".
     dest_origin_label:
         Per-entry reverse-leg source label. Same semantics as
-        ``source_origin_label`` but applied when the direction is swapped
-        during expansion.
+        ``source_origin_label`` but applied when the direction is
+        swapped during expansion.
 
     Direct construction and parsed configuration use the same
     :class:`ConfigValidationError` invariant family. Parsed route errors also
     carry the route section path.
     """
 
-    room: str
+    dest_context: str | None = None
+    dest_destination: RouteDestinationConfig | None = None
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "room",
-            _normalize_matrix_room_id(
-                self.room,
-                context="channel_room_map room",
-            ),
-        )
+        if (self.dest_context is None) == (self.dest_destination is None):
+            raise ConfigValidationError(
+                "context_map entry must set exactly one of 'dest_context' "
+                "or 'dest_destination'"
+            )
+        if self.dest_context is not None:
+            object.__setattr__(
+                self,
+                "dest_context",
+                _validate_context_value(
+                    self.dest_context,
+                    context="context_map entry 'dest_context'",
+                ),
+            )
+        if self.dest_destination is not None and not isinstance(
+            self.dest_destination, RouteDestinationConfig
+        ):
+            raise ConfigValidationError(
+                "context_map entry 'dest_destination' must be a "
+                f"RouteDestinationConfig, got "
+                f"{type(self.dest_destination).__name__}"
+            )
         for field_name, value in (
             ("source_origin_label", self.source_origin_label),
             ("dest_origin_label", self.dest_origin_label),
@@ -490,218 +580,226 @@ class ChannelRoomMapEntry:
                 _normalize_optional_origin_label(
                     value,
                     field_name=field_name,
-                    context="channel_room_map entry",
+                    context="context_map entry",
                 ),
             )
 
 
-# ---------------------------------------------------------------------------
-# Channel-room-map parsing helpers (extracted from RouteConfig.from_dict)
-# ---------------------------------------------------------------------------
-
-
-def _validate_channel_key(
-    raw_key: Any,
-    route_id: str,
-    section_path: str,
-) -> str:
-    """Validate a single ``channel_room_map`` key and return its normalised form.
-
-    Responsibilities:
-
-    * Reject boolean keys (explicit ``bool`` check before ``int``).
-    * Accept integer or string keys, normalising to a string.
-    * Parse to ``int`` and validate the range 0–7.
-
-    Does **not** check duplicates — the caller handles that via a
-    ``seen_channels`` set.
-
-    Parameters
-    ----------
-    raw_key:
-        The raw key from the ``channel_room_map`` table.
-    route_id:
-        Route ID for error messages.
-    section_path:
-        Dot-separated config path for error messages.
-
-    Returns
-    -------
-    str
-        The normalised channel string (e.g. ``"0"``).
-
-    Raises
-    ------
-    ConfigValidationError
-        If the key is a boolean, not an integer/string, not a valid
-        integer, or outside the 0–7 range.
-    """
-    if isinstance(raw_key, bool):
-        raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map channel key "
-            f"{raw_key!r} is a boolean, expected an integer 0–7",
-            section_path=section_path,
-        )
-    if isinstance(raw_key, int):
-        ch_str = str(raw_key)
-    elif isinstance(raw_key, str):
-        ch_str = raw_key
-    else:
-        raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map channel key "
-            f"{raw_key!r} is not an integer or string",
-            section_path=section_path,
-        )
-    # Must be a valid integer 0–7.
-    try:
-        ch_int = int(ch_str)
-    except (ValueError, TypeError):
-        raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map channel key "
-            f"{raw_key!r} is not a valid integer channel",
-            section_path=section_path,
-        ) from None
-    if ch_int < 0 or ch_int > 7:
-        raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map channel "
-            f"{ch_int!r} is out of range (must be 0–7)",
-            section_path=section_path,
-        )
-    return str(ch_int)
-
-
-def _parse_channel_room_map_entry(
+def _parse_context_map_entry(
     raw_value: Any,
+    *,
     route_id: str,
-    ch_normalized: str,
+    key: str,
     section_path: str,
-) -> tuple[str, str | None, str | None]:
-    """Parse a structured ``channel_room_map`` entry value.
+) -> ContextMapEntry:
+    """Parse one structured ``context_map`` entry value.
 
-    ``raw_value`` MUST be a structured mapping with required ``room`` and
-    optional ``source_origin_label`` / ``dest_origin_label`` keys. Unknown
-    keys are rejected. Both labels use the bool-before-str check pattern.
-
-    Parameters
-    ----------
-    raw_value:
-        The raw value associated with the channel key.
-    route_id:
-        Route ID for error messages.
-    ch_normalized:
-        The already-normalised channel string (used in error messages and
-        to build the per-entry ``section_path``).
-    section_path:
-        Dot-separated config path for the route (the per-entry path is
-        derived as ``{section_path}.channel_room_map.{ch_normalized}``).
-
-    Returns
-    -------
-    tuple[str, str | None, str | None]
-        ``(room_value_raw, entry_source_label, entry_dest_label)``.  The
-        room value is **not** validated here — the caller runs it through
-        :func:`_validate_room_string`.
+    ``raw_value`` must be a mapping with exactly one of ``dest_context``
+    (opaque non-empty stripped string) or ``dest_destination``
+    (structured destination table), plus optional
+    ``source_origin_label`` / ``dest_origin_label``.  Unknown keys are
+    rejected.  Labels use the bool-before-str check pattern.
 
     Raises
     ------
     ConfigValidationError
-        If the value is not a mapping, contains unknown keys, is missing the
-        ``room`` key, or has a label that is not a string.
+        On shape violations; errors carry section path
+        ``<section_path>.context_map.<key>``.
     """
-    entry_path = f"{section_path}.channel_room_map.{ch_normalized}"
+    entry_path = f"{section_path}.context_map.{key}"
     if not isinstance(raw_value, dict):
         raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map entry for "
-            f"channel {ch_normalized!r} must be a table/object with required "
-            f"'room', got {type(raw_value).__name__}",
+            f"Route {route_id!r}: context_map entry for context {key!r} must "
+            f"be a table/object, got {type(raw_value).__name__}",
             section_path=entry_path,
         )
 
-    unknown = set(raw_value.keys()) - _CRM_ENTRY_KNOWN_KEYS
+    unknown = set(raw_value.keys()) - _CONTEXT_MAP_ENTRY_KNOWN_KEYS
     if unknown:
         raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map entry for "
-            f"channel {ch_normalized!r} has unknown key(s) "
-            f"{sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))}. "
-            f"Accepted keys: {sorted(_CRM_ENTRY_KNOWN_KEYS)}",
+            f"Route {route_id!r}: context_map entry for context {key!r} has "
+            f"unknown key(s) {sorted(unknown, key=lambda k: (type(k).__name__, repr(k)))}. "
+            f"Accepted keys: {sorted(_CONTEXT_MAP_ENTRY_KNOWN_KEYS)}",
             section_path=entry_path,
         )
-    if "room" not in raw_value:
+
+    dest_context_raw = raw_value.get("dest_context")
+    dest_destination_raw = raw_value.get("dest_destination")
+    if (dest_context_raw is None) == (dest_destination_raw is None):
         raise ConfigValidationError(
-            f"Route {route_id!r}: channel_room_map entry for "
-            f"channel {ch_normalized!r} is missing required "
-            f"'room' key",
+            f"Route {route_id!r}: context_map entry for context {key!r} must "
+            f"set exactly one of 'dest_context' or 'dest_destination'",
             section_path=entry_path,
         )
-    room_value_raw = raw_value["room"]
-    context = (
-        f"Route {route_id!r}: channel_room_map entry " f"for channel {ch_normalized!r}"
-    )
-    entry_source_label = _normalize_optional_origin_label(
+
+    context = f"Route {route_id!r}: context_map entry for context {key!r}"
+    dest_context: str | None = None
+    if dest_context_raw is not None:
+        dest_context = _validate_context_value(
+            dest_context_raw,
+            context=f"{context}: 'dest_context'",
+            section_path=entry_path,
+        )
+
+    dest_destination: RouteDestinationConfig | None = None
+    if dest_destination_raw is not None:
+        dest_destination = RouteDestinationConfig.from_dict(
+            route_id,
+            dest_destination_raw,
+            field_name="dest_destination",
+            section_path=entry_path,
+        )
+
+    source_label = _normalize_optional_origin_label(
         raw_value.get("source_origin_label"),
         field_name="source_origin_label",
         context=context,
         section_path=entry_path,
     )
-    entry_dest_label = _normalize_optional_origin_label(
+    dest_label = _normalize_optional_origin_label(
         raw_value.get("dest_origin_label"),
         field_name="dest_origin_label",
         context=context,
         section_path=entry_path,
     )
-    return room_value_raw, entry_source_label, entry_dest_label
-
-
-def _validate_room_string(
-    room_value_raw: Any,
-    route_id: str,
-    ch_normalized: str,
-    section_path: str,
-) -> str:
-    """Validate and normalise a ``channel_room_map`` room value.
-
-    Responsibilities:
-
-    * Require a non-empty string (after ``strip()``).
-    * Strip surrounding whitespace.
-    * Reject ``#`` room aliases.
-    * Require the ``!`` canonical-room-ID prefix.
-
-    Does **not** check duplicates — duplicate-room ambiguity is validated
-    at runtime route expansion (see :mod:`medre.runtime.route_engine`),
-    where adapter platforms are known and the routing direction can
-    disambiguate fan-in from ambiguous Matrix→Meshtastic routing.
-
-    Parameters
-    ----------
-    room_value_raw:
-        The raw room value extracted from the entry (string or table).
-    route_id:
-        Route ID for error messages.
-    ch_normalized:
-        The normalised channel string (for error messages).
-    section_path:
-        Dot-separated config path for error messages.
-
-    Returns
-    -------
-    str
-        The validated, stripped room string.
-
-    Raises
-    ------
-    ConfigValidationError
-        If the value is not a non-empty string, is a ``#`` alias, or
-        does not start with ``!``.
-    """
-    return _normalize_matrix_room_id(
-        room_value_raw,
-        context=(
-            f"Route {route_id!r}: channel_room_map room "
-            f"for channel {ch_normalized!r}"
-        ),
-        section_path=section_path,
+    return ContextMapEntry(
+        dest_context=dest_context,
+        dest_destination=dest_destination,
+        source_origin_label=source_label,
+        dest_origin_label=dest_label,
     )
+
+
+def _validate_context_map_route(rc: RouteConfig) -> None:
+    """Validate route-level ``context_map`` invariants after construction.
+
+    Shared by :meth:`RouteConfig.from_dict` and direct construction so
+    both paths enforce the identical invariant family (construction
+    parity).  Runs after room→channel aliasing, so the channel checks
+    cover ``source_room``/``dest_room`` too.
+
+    Checks:
+
+    * map shape — a non-empty dict of stripped string keys mapped to
+      :class:`ContextMapEntry` instances;
+    * mutual exclusion with ``source_channel``/``dest_channel`` (the
+      room aliases fold into these) and route-level ``dest_destination``;
+    * exactly one source adapter and one dest adapter;
+    * entries carrying ``dest_destination`` require directionality
+      ``source_to_dest``;
+    * duplicate ``dest_context`` values are rejected when the
+      directionality creates reverse (dest→source) legs — they would
+      become ambiguous reverse-leg inbound source contexts.  They stay
+      valid fan-in for forward-only (``source_to_dest``) routes.
+    """
+    assert rc.context_map is not None  # guarded by caller
+    section_path = f"routes.{rc.route_id}"
+
+    if not isinstance(rc.context_map, dict):
+        raise ConfigValidationError(
+            f"Route {rc.route_id!r}: context_map must be a dict",
+            section_path=section_path,
+        )
+    if not rc.context_map:
+        raise ConfigValidationError(
+            f"Route {rc.route_id!r}: context_map must not be empty",
+            section_path=section_path,
+        )
+    for raw_key, entry in rc.context_map.items():
+        key_str = _validate_context_map_key(
+            raw_key,
+            route_id=rc.route_id,
+            section_path=f"{section_path}.context_map.{raw_key}",
+        )
+        if key_str != raw_key:
+            raise ConfigValidationError(
+                f"Route {rc.route_id!r}: context_map key {raw_key!r} must use "
+                f"normalized string form {key_str!r}",
+                section_path=f"{section_path}.context_map.{raw_key}",
+            )
+        if not isinstance(entry, ContextMapEntry):
+            raise ConfigValidationError(
+                f"Route {rc.route_id!r}: context_map entry for context "
+                f"{raw_key!r} must be a structured entry with exactly one of "
+                f"'dest_context' or 'dest_destination'; direct construction "
+                f"requires ContextMapEntry, got {type(entry).__name__}",
+                section_path=f"{section_path}.context_map.{raw_key}",
+            )
+
+    # Mutual exclusion with targeting fields (rooms alias into channels).
+    conflicts = [
+        name
+        for name, value in (
+            ("source_channel/source_room", rc.source_channel),
+            ("dest_channel/dest_room", rc.dest_channel),
+            ("dest_destination", rc.dest_destination),
+        )
+        if value is not None
+    ]
+    if conflicts:
+        raise ConfigValidationError(
+            f"Route {rc.route_id!r}: 'context_map' is mutually exclusive with "
+            f"{conflicts}. The map supplies those fields during expansion.",
+            section_path=section_path,
+        )
+
+    # The map pairs one source side with one dest side.
+    if len(rc.source_adapters) != 1:
+        raise ConfigValidationError(
+            f"Route {rc.route_id!r}: 'context_map' requires exactly one "
+            f"source adapter, got {len(rc.source_adapters)}",
+            section_path=section_path,
+        )
+    if len(rc.dest_adapters) != 1:
+        raise ConfigValidationError(
+            f"Route {rc.route_id!r}: 'context_map' requires exactly one "
+            f"dest adapter, got {len(rc.dest_adapters)}",
+            section_path=section_path,
+        )
+
+    # Structured destinations address one specific entity; a reverse leg
+    # would need inbound identity semantics they cannot provide.
+    structured_keys = sorted(
+        key
+        for key, entry in rc.context_map.items()
+        if entry.dest_destination is not None
+    )
+    if structured_keys and rc.directionality is not RouteDirectionality.SOURCE_TO_DEST:
+        raise ConfigValidationError(
+            f"Route {rc.route_id!r}: context_map entries with "
+            f"'dest_destination' ({structured_keys}) require directionality "
+            f"'source_to_dest'; {rc.directionality.value!r} would need "
+            "inbound identity semantics a structured destination cannot "
+            "provide",
+            section_path=section_path,
+        )
+
+    # Ambiguous duplicate dest contexts in the directions actually enabled.
+    if rc.directionality in (
+        RouteDirectionality.DEST_TO_SOURCE,
+        RouteDirectionality.BIDIRECTIONAL,
+    ):
+        seen: set[str] = set()
+        dupes: set[str] = set()
+        for entry in rc.context_map.values():
+            if entry.dest_context is None:
+                continue
+            if entry.dest_context in seen:
+                dupes.add(entry.dest_context)
+            seen.add(entry.dest_context)
+        if dupes:
+            raise ConfigValidationError(
+                f"Route {rc.route_id!r}: context_map has duplicate "
+                f"dest_context value(s) {sorted(dupes)}, and directionality "
+                f"{rc.directionality.value!r} creates reverse (dest→source) "
+                "legs. Duplicate dest_context values are valid fan-in only "
+                "for forward-only ('source_to_dest') routes, where each "
+                "source context keeps its own forward leg; on a route with "
+                "reverse legs they become duplicate inbound source contexts. "
+                "Use distinct dest_context values or split the entries into "
+                "separate routes.",
+                section_path=section_path,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -898,7 +996,7 @@ _ROUTE_KNOWN_FIELDS: frozenset[str] = frozenset(
         "dest_destination",
         "source_origin_label",
         "dest_origin_label",
-        "channel_room_map",
+        "context_map",
         "policy",
         "retry",
     }
@@ -934,24 +1032,27 @@ class RouteConfig:
         targets (routing-delivery spec §2.3/§2.4 identity/hash form).
         Mutually exclusive with ``dest_channel`` and ``dest_room`` — a
         route target has exactly one addressing authority — and with
-        ``channel_room_map``.  Applies to the route's configured dest
-        side only; reverse expansion legs deliver to the source side,
-        which carries no destination.
+        ``context_map``.  Applies to the route's configured dest side
+        only; reverse expansion legs deliver to the source side, which
+        carries no destination.
     policy:
         Optional static bridge policy.  ``None`` means "no restrictions".
     retry:
         Optional per-route retry policy for transient delivery failures.
         ``None`` means no retry scheduling for this route.
-    channel_room_map:
-        Optional mapping of Meshtastic channel strings ("0"–"7") to
-        structured entries carrying required ``room`` plus optional
-        ``source_origin_label`` / ``dest_origin_label``. After parsing, values
-        are normalised to :class:`ChannelRoomMapEntry`. When
-        present, the route is expanded at runtime into per-channel legs
-        instead of using ``source_channel`` / ``dest_channel`` directly.
-        Mutually exclusive with ``source_channel``, ``dest_channel``,
-        ``source_room``, and ``dest_room``.  Requires exactly one source
-        and one dest adapter.
+    context_map:
+        Optional mapping of source-side opaque context strings to
+        structured :class:`ContextMapEntry` values carrying exactly one
+        of ``dest_context`` / ``dest_destination`` plus optional
+        ``source_origin_label`` / ``dest_origin_label``. When present,
+        the route is expanded at the configuration seam
+        (:mod:`medre.config.route_expansion`) into one leg per mapped
+        context (plus reverse legs per directionality) instead of using
+        ``source_channel`` / ``dest_channel`` directly. Mutually
+        exclusive with ``source_channel``, ``dest_channel``,
+        ``source_room``, ``dest_room``, and route-level
+        ``dest_destination``.  Requires exactly one source and one dest
+        adapter.
     source_origin_label:
         Optional source-side human-readable label used for the forward
         leg of this route (source→dest).  When set, it is threaded into
@@ -979,12 +1080,12 @@ class RouteConfig:
     dest_destination: RouteDestinationConfig | None = None
     policy: BridgePolicy | None = None
     retry: RouteRetryConfig | None = None
-    channel_room_map: dict[str, ChannelRoomMapEntry] | None = None
+    context_map: dict[str, ContextMapEntry] | None = None
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
 
     def __post_init__(self) -> None:
-        """Normalize enum-typed fields and the ``channel_room_map`` shape.
+        """Normalize enum-typed fields and the ``context_map`` shape.
 
         ``directionality`` is coerced from its config string form so that
         programmatically constructed routes behave identically to YAML-loaded
@@ -1036,39 +1137,9 @@ class RouteConfig:
             object.__setattr__(self, "source_channel", self.source_room)
         if self.dest_channel is None and self.dest_room is not None:
             object.__setattr__(self, "dest_channel", self.dest_room)
-        if self.channel_room_map is None:
+        if self.context_map is None:
             return
-        section_path = f"routes.{self.route_id}"
-        if not isinstance(self.channel_room_map, dict):
-            raise ConfigValidationError(
-                f"Route {self.route_id!r}: channel_room_map must be a dict",
-                section_path=section_path,
-            )
-        if not self.channel_room_map:
-            raise ConfigValidationError(
-                f"Route {self.route_id!r}: channel_room_map must not be empty",
-                section_path=section_path,
-            )
-        for channel, entry in self.channel_room_map.items():
-            normalized_channel = _validate_channel_key(
-                channel,
-                self.route_id,
-                section_path,
-            )
-            if normalized_channel != channel:
-                raise ConfigValidationError(
-                    f"Route {self.route_id!r}: channel_room_map key {channel!r} "
-                    f"must use normalized string form {normalized_channel!r}",
-                    section_path=section_path,
-                )
-            if not isinstance(entry, ChannelRoomMapEntry):
-                raise ConfigValidationError(
-                    f"Route {self.route_id!r}: channel_room_map entry for "
-                    f"channel {channel!r} must be a structured entry with required "
-                    f"'room'; direct construction requires ChannelRoomMapEntry, got "
-                    f"{type(entry).__name__}",
-                    section_path=f"{section_path}.channel_room_map.{channel}",
-                )
+        _validate_context_map_route(self)
 
     @classmethod
     def from_dict(cls, route_id: str, data: dict[str, Any]) -> Self:
@@ -1247,87 +1318,48 @@ class RouteConfig:
                 )
             dest_origin_label = raw_dest_label
 
-        # --- channel_room_map ---
-        raw_crm = data.pop("channel_room_map", None)
-        channel_room_map: dict[str, ChannelRoomMapEntry] | None = None
-        if raw_crm is not None:
-            if not isinstance(raw_crm, dict):
+        # --- context_map ---
+        raw_context_map = data.pop("context_map", None)
+        context_map: dict[str, ContextMapEntry] | None = None
+        if raw_context_map is not None:
+            if not isinstance(raw_context_map, dict):
                 raise ConfigValidationError(
-                    f"Route {route_id!r}: 'channel_room_map' must be a table "
-                    f"(dict), got {type(raw_crm).__name__}",
+                    f"Route {route_id!r}: 'context_map' must be a table "
+                    f"(dict), got {type(raw_context_map).__name__}",
                     section_path=section_path,
                 )
-            # Mutual exclusion with targeting fields.
-            _crm_exclusive = {
-                "source_channel": source_channel,
-                "dest_channel": dest_channel,
-                "source_room": source_room,
-                "dest_room": dest_room,
-                "dest_destination": dest_destination,
-            }
-            conflicting = [k for k, v in _crm_exclusive.items() if v is not None]
-            if conflicting:
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: 'channel_room_map' is mutually "
-                    f"exclusive with {conflicting}. The map supplies those "
-                    f"fields during expansion.",
-                    section_path=section_path,
+            # Validate and normalize entries.  Route-level invariants
+            # (mutual exclusion, adapter counts, directionality gating,
+            # duplicate-dest-context ambiguity) are enforced by
+            # ``_validate_context_map_route`` in ``__post_init__`` so that
+            # parsing and direct construction share one code path.
+            #
+            # NOTE: duplicate *dest_context* values across entries are
+            # validated there too — valid fan-in for forward-only routes,
+            # rejected when reverse legs would make them ambiguous.
+            normalized: dict[str, ContextMapEntry] = {}
+            seen_keys: set[str] = set()
+            for raw_key, raw_value in raw_context_map.items():
+                key = _validate_context_map_key(
+                    raw_key,
+                    route_id=route_id,
+                    section_path=f"{section_path}.context_map.{raw_key}",
                 )
-            # Require exactly one source and one dest adapter.
-            if len(source_adapters) > 1:
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: 'channel_room_map' requires exactly "
-                    f"one source adapter, got {len(source_adapters)}",
-                    section_path=section_path,
-                )
-            if len(dest_adapters) > 1:
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: 'channel_room_map' requires exactly "
-                    f"one dest adapter, got {len(dest_adapters)}",
-                    section_path=section_path,
-                )
-            # Validate and normalize entries.
-            # NOTE: duplicate *rooms* across the map are intentionally
-            # permitted here — multiple Meshtastic channels may fan into
-            # the same Matrix room. Ambiguity for Matrix→Meshtastic
-            # routing is enforced at runtime expansion (see
-            # :mod:`medre.runtime.route_engine`), where adapter platforms
-            # and route directionality are known. Duplicate *channels*
-            # remain rejected below.
-            normalized: dict[str, ChannelRoomMapEntry] = {}
-            seen_channels: set[str] = set()
-            for raw_key, raw_value in raw_crm.items():
-                ch_normalized = _validate_channel_key(raw_key, route_id, section_path)
-                if ch_normalized in seen_channels:
+                if key in seen_keys:
                     raise ConfigValidationError(
-                        f"Route {route_id!r}: channel_room_map has duplicate "
-                        f"channel {ch_normalized!r}",
-                        section_path=section_path,
+                        f"Route {route_id!r}: context_map has duplicate "
+                        f"context key {key!r}",
+                        section_path=f"{section_path}.context_map.{raw_key}",
                     )
-                seen_channels.add(ch_normalized)
+                seen_keys.add(key)
 
-                room_value_raw, entry_source_label, entry_dest_label = (
-                    _parse_channel_room_map_entry(
-                        raw_value, route_id, ch_normalized, section_path
-                    )
-                )
-                room_value = _validate_room_string(
-                    room_value_raw, route_id, ch_normalized, section_path
-                )
-                normalized[ch_normalized] = ChannelRoomMapEntry(
-                    room=room_value,
-                    source_origin_label=entry_source_label,
-                    dest_origin_label=entry_dest_label,
-                )
-            channel_room_map = normalized
-
-            # Reject empty channel_room_map — at least one mapping is required.
-            if not channel_room_map:
-                raise ConfigValidationError(
-                    f"Route {route_id!r}: 'channel_room_map' must have at "
-                    f"least one mapping",
+                normalized[key] = _parse_context_map_entry(
+                    raw_value,
+                    route_id=route_id,
+                    key=key,
                     section_path=section_path,
                 )
+            context_map = normalized
 
         # --- policy ---
         raw_policy = data.pop("policy", None)
@@ -1377,6 +1409,13 @@ class RouteConfig:
                 f"{section_path}. Accepted keys: "
                 f"{sorted(_ROUTE_KNOWN_FIELDS)}"
             )
+            if "channel_room_map" in data:
+                msg += (
+                    ". Key 'channel_room_map' was removed in favor of "
+                    "'context_map': a generic mapping of opaque source-side "
+                    "contexts to entries with 'dest_context' or "
+                    "'dest_destination'"
+                )
             raise ConfigValidationError(msg, section_path=section_path)
 
         # --- self-route check ---
@@ -1416,7 +1455,7 @@ class RouteConfig:
             dest_destination=dest_destination,
             policy=policy,
             retry=retry,
-            channel_room_map=channel_room_map,
+            context_map=context_map,
             source_origin_label=source_origin_label,
             dest_origin_label=dest_origin_label,
         )

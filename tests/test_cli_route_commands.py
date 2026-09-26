@@ -17,6 +17,7 @@ from tests.helpers.cli import (
     CONFIG_WITH_ROUTES,
     _run_cli,
     _run_cli_both,
+    _run_cli_raw,
 )
 
 pytestmark = pytest.mark.usefixtures("isolated_config_env")
@@ -379,3 +380,58 @@ class TestRoutesList:
         assert "source_room:" in output
         assert "dest_room:" in output
         assert "event_types:" in output
+
+
+# ---------------------------------------------------------------------------
+# Runtime route-expansion fence in `routes validate`
+# ---------------------------------------------------------------------------
+
+_CONFIG_CONTEXT_MAP_ROUTE = """\
+runtime:
+  name: validate-ctx
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok_main
+      room_allowlist: ['!room:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+routes:
+  mapped:
+    source_adapters: [radio]
+    dest_adapters: [main]
+    directionality: source_to_dest
+    context_map:
+      "0":
+        dest_context: '!room0:fake.local'
+      "1":
+        dest_context: '!room1:fake.local'
+"""
+
+
+def test_validate_surfaces_runtime_expansion_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`routes validate` re-runs the startup route compilation and reports
+    expansion failures in its Errors section instead of passing silently."""
+    monkeypatch.setattr(
+        "medre.config.route_expansion._context_map_token",
+        lambda _ctx: "h_dead",
+    )
+    p = tmp_path / "config.yaml"
+    p.write_text(_CONFIG_CONTEXT_MAP_ROUTE)
+
+    stdout, _stderr, code = _run_cli_raw("routes", "validate", "--config", str(p))
+
+    assert code != 0
+    assert "collide on expansion token 'h_dead'" in stdout

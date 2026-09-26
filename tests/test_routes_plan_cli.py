@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from medre.cli.route_commands import _format_structured_destination
 from tests.helpers.cli import _run_cli_raw
 
 pytestmark = pytest.mark.usefixtures("isolated_config_env")
@@ -97,8 +98,10 @@ routes:
     directionality: source_to_dest
 """
 
-# Matrix source + source_to_dest + duplicate rooms → ambiguous (rejected).
-_CONFIG_DUPLICATE_ROOM_AMBIGUOUS = """\
+# Bidirectional + duplicate dest_context values → ambiguous (rejected at
+# configuration validation, because reverse legs would share an inbound
+# source context).
+_CONFIG_DUPLICATE_CONTEXT_BIDIR = """\
 runtime:
   name: plan-cli-ambiguous
 storage:
@@ -122,16 +125,16 @@ routes:
   fanout:
     source_adapters: [main]
     dest_adapters: [radio]
-    directionality: source_to_dest
-    channel_room_map:
-      0:
-        room: '!shared:fake.local'
-      1:
-        room: '!shared:fake.local'
+    directionality: bidirectional
+    context_map:
+      "0":
+        dest_context: '!shared:fake.local'
+      "1":
+        dest_context: '!shared:fake.local'
 """
 
-# Meshtastic source + source_to_dest + duplicate rooms → fan-in (allowed).
-_CONFIG_SAME_ROOM_FANIN = """\
+# Forward-only + duplicate dest_context values → fan-in (allowed).
+_CONFIG_SAME_CONTEXT_FANIN = """\
 runtime:
   name: plan-cli-fanin
 storage:
@@ -156,11 +159,11 @@ routes:
     source_adapters: [radio]
     dest_adapters: [main]
     directionality: source_to_dest
-    channel_room_map:
-      0:
-        room: '!shared:fake.local'
-      1:
-        room: '!shared:fake.local'
+    context_map:
+      "0":
+        dest_context: '!shared:fake.local'
+      "1":
+        dest_context: '!shared:fake.local'
 """
 
 # Route with no per-entry or route-level labels so the plan applies the
@@ -348,52 +351,57 @@ def test_unknown_adapter_no_traceback(tmp_path: Path) -> None:
 
 
 # ===========================================================================
-# 6. Duplicate-room ambiguity fails → exit nonzero
+# 6. Duplicate dest_context with reverse legs → rejected at config load
 # ===========================================================================
 
 
-def test_duplicate_room_ambiguity_fails(tmp_path: Path) -> None:
-    """A Matrix→Meshtastic route with duplicate rooms fails (ambiguous)."""
-    cfg = _write_config(tmp_path, _CONFIG_DUPLICATE_ROOM_AMBIGUOUS)
-    stdout, _stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+def test_duplicate_context_rejection_fails_nonzero(tmp_path: Path) -> None:
+    """Duplicate dest_context values with reverse legs fail config load."""
+    cfg = _write_config(tmp_path, _CONFIG_DUPLICATE_CONTEXT_BIDIR)
+    stdout, stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
     assert code != 0
-    assert "fanout" in stdout
-    # The error mentions the duplicate room and the ambiguity.
-    combined = stdout
+    combined = stdout + stderr
     assert "!shared:fake.local" in combined
 
 
-def test_duplicate_room_ambiguity_explains_problem(tmp_path: Path) -> None:
-    """The error message explains the Matrix→Meshtastic ambiguity."""
-    cfg = _write_config(tmp_path, _CONFIG_DUPLICATE_ROOM_AMBIGUOUS)
+def test_duplicate_context_rejection_explains_problem(tmp_path: Path) -> None:
+    """The rejection message references the shared context."""
+    cfg = _write_config(tmp_path, _CONFIG_DUPLICATE_CONTEXT_BIDIR)
     stdout, stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
     combined = stdout + stderr
-    # The ambiguity error references the route and the duplicate room.
-    assert "fanout" in combined
+    assert code != 0
     assert "shared" in combined
 
 
 # ===========================================================================
-# 7. Same-room fan-in allowed → plan succeeds with fan-in warning
+# 7. Forward-only fan-in allowed → plan succeeds with fan-in warning
 # ===========================================================================
 
 
-def test_same_room_fanin_allowed(tmp_path: Path) -> None:
-    """Meshtastic→Matrix fan-in with a shared room is allowed (exit 0)."""
-    cfg = _write_config(tmp_path, _CONFIG_SAME_ROOM_FANIN)
+def test_same_context_fanin_allowed(tmp_path: Path) -> None:
+    """Forward-only fan-in with a shared dest_context is allowed (exit 0)."""
+    cfg = _write_config(tmp_path, _CONFIG_SAME_CONTEXT_FANIN)
     stdout, _stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
     assert code == 0
     assert "fanin" in stdout
     assert "2 leg(s)" in stdout
 
 
-def test_same_room_fanin_emits_warning(tmp_path: Path) -> None:
+def test_same_context_fanin_emits_warning(tmp_path: Path) -> None:
     """The fan-in case emits a fan-in annotation under the route."""
-    cfg = _write_config(tmp_path, _CONFIG_SAME_ROOM_FANIN)
+    cfg = _write_config(tmp_path, _CONFIG_SAME_CONTEXT_FANIN)
     stdout, _stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
     assert code == 0
     assert "fan-in" in stdout
     assert "!shared:fake.local" in stdout
+
+
+def test_plan_renders_context_map_line(tmp_path: Path) -> None:
+    """Mapped legs print a ``context_map: <source> → <dest>`` line."""
+    cfg = _write_config(tmp_path, _CONFIG_SAME_CONTEXT_FANIN)
+    stdout, _stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+    assert code == 0
+    assert "context_map:" in stdout
 
 
 # ===========================================================================
@@ -550,3 +558,89 @@ def test_plan_json_shows_adapter_provenance(tmp_path: Path) -> None:
     leg = bridge["legs"][0]
     assert leg["source_origin_label"] == "AdapterMatrix"
     assert leg["source_origin_label_source"] == "adapter"
+
+
+# ---------------------------------------------------------------------------
+# Structured destination rendering
+# ---------------------------------------------------------------------------
+
+_CONFIG_CONTEXT_MAP_STRUCTURED = """\
+runtime:
+  name: plan-cli-structured
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok_main
+      room_allowlist: ['!shared:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+routes:
+  mapped:
+    source_adapters: [radio]
+    dest_adapters: [main]
+    directionality: source_to_dest
+    context_map:
+      "0":
+        dest_destination:
+          kind: lxmf_destination
+          destination_hash: 21c0c1b9aabbccddeeff001122334455
+          destination_name: bob
+      "1":
+        dest_context: '!shared:fake.local'
+"""
+
+
+def test_plan_renders_structured_destinations(tmp_path: Path) -> None:
+    """Mapping legs with a structured destination render
+    ``context_map: <src> → <kind> <hash> (name)``; plain-context legs keep
+    the dest-context fallback."""
+    cfg = _write_config(tmp_path, _CONFIG_CONTEXT_MAP_STRUCTURED)
+    stdout, _stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+
+    assert code == 0
+    assert (
+        "context_map: 0 → lxmf_destination 21c0c1b9aabbccddeeff001122334455 (bob)"
+    ) in stdout
+    assert "context_map: 1 → !shared:fake.local" in stdout
+
+
+class _Leg:
+    """Minimal RoutePlanLeg stand-in for the destination formatter."""
+
+    def __init__(
+        self,
+        *,
+        kind: str | None,
+        hash_: str | None,
+        name: str | None,
+    ) -> None:
+        self.dest_destination_kind = kind
+        self.dest_destination_hash = hash_
+        self.dest_destination_name = name
+
+
+def test_format_structured_destination_arms() -> None:
+    """``<kind> <hash> (name)`` with each part omitted when absent."""
+    fmt = _format_structured_destination
+    full = _Leg(kind="lxmf_destination", hash_="h1", name="bob")
+    assert fmt(full) == "lxmf_destination h1 (bob)"
+    assert fmt(_Leg(kind="lxmf_destination", hash_="h1", name=None)) == (
+        "lxmf_destination h1"
+    )
+    assert fmt(_Leg(kind="lxmf_destination", hash_=None, name="bob")) == (
+        "lxmf_destination bob"
+    )
+    assert fmt(_Leg(kind="lxmf_destination", hash_=None, name=None)) == (
+        "lxmf_destination"
+    )
+    assert fmt(_Leg(kind=None, hash_="h1", name=None)) == "? h1"

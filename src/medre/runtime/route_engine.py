@@ -1,13 +1,15 @@
 """Deterministic runtime routing engine that bridges config routes to the core Router.
 
-This module converts :class:`RouteConfigSet` entries into core
-:class:`~medre.core.routing.models.Route` objects, validates adapter
-references against the assembled runtime adapter IDs, and registers
-them with the :class:`~medre.core.routing.router.Router`.
+This module validates adapter references against the assembled runtime
+adapter IDs, delegates config→core route expansion to the configuration
+compiler (:mod:`medre.config.route_expansion`), and registers the
+resulting core :class:`~medre.core.routing.models.Route` objects with
+the :class:`~medre.core.routing.router.Router`.
 
-It is deliberately transport-agnostic and SDK-free.  Route ordering is
-deterministic: routes are registered in the same order they appear in
-the :class:`RouteConfigSet`.
+It is deliberately transport-agnostic and SDK-free: it contains no
+platform-specific expansion logic.  Route ordering is deterministic:
+routes are registered in the same order they appear in the
+:class:`RouteConfigSet`.
 
 Public symbols
 --------------
@@ -20,7 +22,6 @@ Public symbols
 * :class:`DegradedRoute` — a route registered with partial target loss
 * :class:`SkippedRoute` — a route skipped due to adapter build failure
 * :class:`UnavailableRoute` — a route unavailable due to unknown adapter refs
-* :class:`ExpandedRouteProvenance` — explicit expansion mapping with config origin
 * :class:`RouteEligibility` — structured route readiness metadata
 * :class:`RouteRegistrationResult` — frozen dataclass with routes and eligibility
 * :class:`RouteStartupReadiness` — startup-derived route readiness from adapter states
@@ -33,18 +34,16 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from medre.core.routing.models import Route, RouteDestination, RouteSource, RouteTarget
+from medre.core.routing.models import Route
 from medre.core.routing.router import Router
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
-    from medre.config.routes import BridgePolicy, RouteConfig, RouteConfigSet
+    from medre.config.routes import RouteConfigSet
     from medre.core.lifecycle.states import AdapterState
-    from medre.core.policies.route_policy import RoutePolicy
 
 __all__ = [
     "DegradedRoute",
-    "ExpandedRouteProvenance",
     "RouteEligibility",
     "RouteOperationalState",
     "RouteRegistrationResult",
@@ -177,31 +176,6 @@ class UnavailableRoute:
     route_id: str
     reason: str
     missing_adapter_ids: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class ExpandedRouteProvenance:
-    """Explicit mapping from an expanded route to its config route origin.
-
-    Carries the triple ``(config_route_id, expanded_route_id, Route)``
-    so that downstream consumers can deterministically map any expanded
-    route back to the configuration entry that produced it — without
-    relying on string-prefix inference.
-
-    Attributes
-    ----------
-    config_route_id:
-        The route ID from the :class:`RouteConfig`.
-    expanded_route_id:
-        The route ID assigned to the expanded :class:`Route` (may equal
-        *config_route_id* for single-source non-swapped routes).
-    route:
-        The expanded core :class:`Route` object.
-    """
-
-    config_route_id: str
-    expanded_route_id: str
-    route: Route
 
 
 @dataclass(frozen=True)
@@ -362,555 +336,19 @@ def validate_route_adapter_refs(
 
 
 # ---------------------------------------------------------------------------
-# BridgePolicy → RoutePolicy conversion
+# Config → core Route expansion (delegated to the config compiler)
 # ---------------------------------------------------------------------------
 
 
-def _convert_bridge_policy(bp: BridgePolicy) -> RoutePolicy | None:
-    """Convert a config :class:`BridgePolicy` to a core :class:`RoutePolicy`.
-
-    Excludes ``allowed_event_types`` (already enforced structurally via
-    :attr:`RouteSource.event_kinds`).  Returns ``None`` when all
-    remaining allowlist fields are empty (no policy to enforce).
-
-    This function lives in the runtime layer to avoid core importing
-    config.
-    """
-    from medre.core.policies.route_policy import RoutePolicy
-
-    if not (
-        bp.allowed_source_adapters
-        or bp.allowed_dest_adapters
-        or bp.room_allowlist
-        or bp.channel_allowlist
-        or bp.sender_allowlist
-    ):
-        return None
-
-    return RoutePolicy(
-        allowed_source_adapters=bp.allowed_source_adapters,
-        allowed_dest_adapters=bp.allowed_dest_adapters,
-        room_allowlist=bp.room_allowlist,
-        channel_allowlist=bp.channel_allowlist,
-        sender_allowlist=bp.sender_allowlist,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Config → core Route conversion
-# ---------------------------------------------------------------------------
-
-
-def _expand_route_config(
-    rc: RouteConfig,
-    *,
-    swap_direction: bool = False,
-) -> list[Route]:
-    """Expand a single :class:`RouteConfig` into one or more core :class:`Route` objects.
-
-    Expansion rules:
-
-    * One ``RouteConfig`` with N source adapters produces N ``Route``
-      objects — one per source adapter.
-    * Each expanded route gets all dest adapters as :class:`RouteTarget`
-      entries.
-    * If *swap_direction* is ``True``, source and dest adapters are
-      swapped (used for ``dest_to_source`` and the reverse leg of
-      ``bidirectional`` routes).
-    * The :class:`BridgePolicy` ``allowed_event_types`` are mapped to
-      :attr:`RouteSource.event_kinds` when non-empty.
-    * Route IDs are suffixed to ensure uniqueness when expanding.
-
-    Parameters
-    ----------
-    rc:
-        The route configuration to expand.
-    swap_direction:
-        If ``True``, treat dest_adapters as source and source_adapters
-        as dest.
-
-    Returns
-    -------
-    list[Route]
-        Expanded core route objects, all sharing the ``enabled`` flag
-        from *rc*.
-    """
-
-    if swap_direction:
-        source_ids = rc.dest_adapters
-        dest_ids = rc.source_adapters
-        source_channel = rc.dest_channel
-        dest_channel = rc.source_channel
-        origin_label = rc.dest_origin_label
-        # Reverse legs deliver to the configured source side, which has no
-        # structured destination: ``dest_destination`` addresses the route's
-        # configured dest side only.
-        destination = None
-    else:
-        source_ids = rc.source_adapters
-        dest_ids = rc.dest_adapters
-        source_channel = rc.source_channel
-        dest_channel = rc.dest_channel
-        origin_label = rc.source_origin_label
-        destination = (
-            None
-            if rc.dest_destination is None
-            else RouteDestination(
-                kind=rc.dest_destination.kind,
-                destination_hash=rc.dest_destination.destination_hash,
-                destination_name=rc.dest_destination.destination_name,
-                metadata=dict(rc.dest_destination.metadata),
-            )
-        )
-
-    # BridgePolicy event types → RouteSource event_kinds
-    event_kinds: tuple[str, ...] = ()
-    if rc.policy is not None and rc.policy.allowed_event_types:
-        event_kinds = rc.policy.allowed_event_types
-
-    # BridgePolicy → RoutePolicy (excludes allowed_event_types).
-    route_policy: RoutePolicy | None = None
-    if rc.policy is not None:
-        route_policy = _convert_bridge_policy(rc.policy)
-
-    routes: list[Route] = []
-
-    for src_idx, src_id in enumerate(source_ids):
-        # Build a deterministic route ID that is unique across expansions.
-        # For a single source adapter, use the original route_id.
-        # For multiple, append an index suffix.
-        if len(source_ids) == 1 and not swap_direction:
-            route_id = rc.route_id
-        elif swap_direction:
-            route_id = f"{rc.route_id}__rev_{src_idx}"
-        else:
-            route_id = f"{rc.route_id}__{src_idx}"
-
-        targets = [
-            RouteTarget(adapter=did, channel=dest_channel, destination=destination)
-            for did in dest_ids
-        ]
-
-        source = RouteSource(
-            adapter=src_id,
-            event_kinds=event_kinds,
-            channel=source_channel,
-            origin_label=origin_label,
-        )
-
-        route = Route(
-            id=route_id,
-            source=source,
-            targets=targets,
-            enabled=rc.enabled,
-            policy=route_policy,
-        )
-        routes.append(route)
-
-    return routes
-
-
-def _validate_duplicate_rooms_for_direction(
-    rc: RouteConfig,
-    *,
-    fwd_is_matrix_to_mesh: bool,
-) -> None:
-    """Reject duplicate Matrix rooms when the route creates a Matrix→Meshtastic leg.
-
-    Duplicate room values across a ``channel_room_map`` are safe for
-    Meshtastic→Matrix fan-in (the inbound radio channel disambiguates the
-    source event) but ambiguous for Matrix→Meshtastic routing, because a
-    Matrix event arriving from the shared room could target multiple
-    Meshtastic channels with no way to pick one.  This route-level check
-    runs after platform assignment and directionality are known, which the
-    pure config parser cannot determine.
-
-    Parameters
-    ----------
-    rc:
-        The route configuration.  Must have a non-``None``
-        ``channel_room_map``.
-    fwd_is_matrix_to_mesh:
-        ``True`` when the forward (source→dest) leg is Matrix→Meshtastic;
-        ``False`` when it is Meshtastic→Matrix.
-
-    Raises
-    ------
-    RouteValidationError
-        If two or more entries share a room value *and* the route's
-        directionality plus platform assignment creates a
-        Matrix→Meshtastic leg.
-    """
-    from medre.config.routes import RouteDirectionality
-
-    assert rc.channel_room_map is not None  # guarded by caller
-
-    # Collect room values from the sole supported entry shape.
-    seen: set[str] = set()
-    dupes: set[str] = set()
-    for entry in rc.channel_room_map.values():
-        room = entry.room
-        if room in seen:
-            dupes.add(room)
-        seen.add(room)
-
-    # No duplicate rooms → always safe regardless of direction.
-    if not dupes:
-        return
-
-    # Route-level directionality decision (all channels share the same
-    # source/dest adapters and directionality, so compute once).
-    direction = rc.directionality
-    create_fwd = direction in (
-        RouteDirectionality.SOURCE_TO_DEST,
-        RouteDirectionality.BIDIRECTIONAL,
-    )
-    create_rev = direction in (
-        RouteDirectionality.DEST_TO_SOURCE,
-        RouteDirectionality.BIDIRECTIONAL,
-    )
-    if fwd_is_matrix_to_mesh:
-        create_matrix_to_mesh = create_fwd
-    else:
-        create_matrix_to_mesh = create_rev
-
-    if create_matrix_to_mesh:
-        raise RouteValidationError(
-            f"Route {rc.route_id!r}: channel_room_map has duplicate Matrix "
-            f"room(s) {sorted(dupes)}, and this route's directionality "
-            f"creates a Matrix→Meshtastic leg. Duplicate rooms are allowed "
-            f"only for Meshtastic→Matrix fan-in (the inbound channel "
-            f"disambiguates the source). Matrix→Meshtastic routing from a "
-            f"shared room is ambiguous: a Matrix event from that room could "
-            f"target multiple Meshtastic channels. Use distinct rooms per "
-            f"channel, or split the channels into separate routes."
-        )
-
-
-def _expand_channel_room_map_route(
-    rc: RouteConfig,
-    adapter_platforms: dict[str, str],
-) -> list[Route]:
-    """Expand a channel_room_map route into per-channel core Route objects.
-
-    The route must have exactly one source adapter and one dest adapter.
-    From *adapter_platforms* we determine which is Matrix and which is
-    Meshtastic.  For each channel→room entry in the map we create one
-    or two routes depending on *rc.directionality*.
-
-    Route IDs are deterministic:
-    ``"{route_id}__ch{ch}__matrix_to_meshtastic"`` and
-    ``"{route_id}__ch{ch}__meshtastic_to_matrix"``.
-
-    Parameters
-    ----------
-    rc:
-        A :class:`RouteConfig` whose ``channel_room_map`` is not ``None``.
-    adapter_platforms:
-        Mapping of adapter ID → platform string (e.g. ``"matrix"``,
-        ``"meshtastic"``).
-
-    Returns
-    -------
-    list[Route]
-        Expanded routes.
-
-    Raises
-    ------
-    RouteValidationError
-        If platform lookup fails for an adapter.
-    """
-    from medre.config.routes import RouteDirectionality
-
-    assert rc.channel_room_map is not None  # guarded by caller
-
-    if len(rc.source_adapters) != 1 or len(rc.dest_adapters) != 1:
-        raise RouteValidationError(
-            f"Route {rc.route_id!r}: channel_room_map requires exactly "
-            f"one source adapter and one dest adapter"
-        )
-
-    src_id = rc.source_adapters[0]
-    dst_id = rc.dest_adapters[0]
-
-    # Resolve platforms.
-    src_platform = adapter_platforms.get(src_id)
-    dst_platform = adapter_platforms.get(dst_id)
-
-    if src_platform is None:
-        raise RouteValidationError(
-            f"Route {rc.route_id!r}: cannot determine platform for "
-            f"source adapter {src_id!r}; adapter_platforms has no entry"
-        )
-    if dst_platform is None:
-        raise RouteValidationError(
-            f"Route {rc.route_id!r}: cannot determine platform for "
-            f"dest adapter {dst_id!r}; adapter_platforms has no entry"
-        )
-
-    # Identify Matrix and Meshtastic adapters and determine which leg
-    # corresponds to the "forward" (source→dest) direction.
-    platforms = {src_platform, dst_platform}
-    if "matrix" not in platforms or "meshtastic" not in platforms:
-        raise RouteValidationError(
-            f"Route {rc.route_id!r}: channel_room_map requires one "
-            f"Matrix and one Meshtastic adapter, got platforms "
-            f"{src_platform!r} and {dst_platform!r}"
-        )
-
-    if src_platform == "matrix" and dst_platform == "meshtastic":
-        matrix_id = src_id
-        meshtastic_id = dst_id
-        # Forward = source→dest = matrix→meshtastic
-        fwd_is_matrix_to_mesh = True
-    elif src_platform == "meshtastic" and dst_platform == "matrix":
-        matrix_id = dst_id
-        meshtastic_id = src_id
-        # Forward = source→dest = meshtastic→matrix
-        fwd_is_matrix_to_mesh = False
-    else:
-        # Should not reach here given the check above, but defensive.
-        raise RouteValidationError(
-            f"Route {rc.route_id!r}: channel_room_map requires one "
-            f"Matrix and one Meshtastic adapter"
-        )
-
-    # Route-level duplicate-room ambiguity check. Duplicate Matrix rooms
-    # are safe only for Meshtastic→Matrix fan-in; they are ambiguous for
-    # any route that also creates a Matrix→Meshtastic leg. Must run before
-    # the per-channel loop since it is a route-level decision.
-    _validate_duplicate_rooms_for_direction(
-        rc, fwd_is_matrix_to_mesh=fwd_is_matrix_to_mesh
-    )
-
-    # BridgePolicy event types → RouteSource event_kinds
-    event_kinds: tuple[str, ...] = ()
-    if rc.policy is not None and rc.policy.allowed_event_types:
-        event_kinds = rc.policy.allowed_event_types
-
-    # BridgePolicy → RoutePolicy (excludes allowed_event_types).
-    route_policy: RoutePolicy | None = None
-    if rc.policy is not None:
-        route_policy = _convert_bridge_policy(rc.policy)
-
-    direction = rc.directionality
-    routes: list[Route] = []
-
-    for ch, entry in sorted(rc.channel_room_map.items()):
-        room_id = entry.room
-        entry_source_label = entry.source_origin_label
-        entry_dest_label = entry.dest_origin_label
-
-        # Resolve effective per-entry labels: entry label takes precedence
-        # over route-level label.  Use 'is not None' so that an explicit
-        # empty string ("") is preserved (sentinel for suppress fallback).
-        effective_source_label = (
-            entry_source_label
-            if entry_source_label is not None
-            else rc.source_origin_label
-        )
-        effective_dest_label = (
-            entry_dest_label if entry_dest_label is not None else rc.dest_origin_label
-        )
-
-        # Determine which legs to create based on directionality.
-        create_fwd = direction in (
-            RouteDirectionality.SOURCE_TO_DEST,
-            RouteDirectionality.BIDIRECTIONAL,
-        )
-        create_rev = direction in (
-            RouteDirectionality.DEST_TO_SOURCE,
-            RouteDirectionality.BIDIRECTIONAL,
-        )
-
-        if fwd_is_matrix_to_mesh:
-            create_matrix_to_mesh = create_fwd
-            create_mesh_to_matrix = create_rev
-        else:
-            create_matrix_to_mesh = create_rev
-            create_mesh_to_matrix = create_fwd
-
-        # Matrix→Meshtastic leg
-        if create_matrix_to_mesh:
-            fwd_id = f"{rc.route_id}__ch{ch}__matrix_to_meshtastic"
-            # Forward leg uses effective source-side label;
-            # reverse leg uses effective dest-side label.
-            if fwd_is_matrix_to_mesh:
-                fwd_label = effective_source_label
-            else:
-                fwd_label = effective_dest_label
-            routes.append(
-                Route(
-                    id=fwd_id,
-                    source=RouteSource(
-                        adapter=matrix_id,
-                        event_kinds=event_kinds,
-                        channel=room_id,
-                        origin_label=fwd_label,
-                    ),
-                    targets=[RouteTarget(adapter=meshtastic_id, channel=ch)],
-                    enabled=rc.enabled,
-                    policy=route_policy,
-                )
-            )
-
-        # Meshtastic→Matrix leg
-        if create_mesh_to_matrix:
-            rev_id = f"{rc.route_id}__ch{ch}__meshtastic_to_matrix"
-            if fwd_is_matrix_to_mesh:
-                rev_label = effective_dest_label
-            else:
-                rev_label = effective_source_label
-            routes.append(
-                Route(
-                    id=rev_id,
-                    source=RouteSource(
-                        adapter=meshtastic_id,
-                        event_kinds=event_kinds,
-                        channel=ch,
-                        origin_label=rev_label,
-                    ),
-                    targets=[RouteTarget(adapter=matrix_id, channel=room_id)],
-                    enabled=rc.enabled,
-                    policy=route_policy,
-                )
-            )
-
-    return routes
-
-
-def _expand_all_routes(
-    route_config_set: RouteConfigSet,
-    adapter_platforms: dict[str, str] | None = None,
-) -> tuple[list[Route], dict[str, str]]:
-    """Expand enabled route configs into core Route objects with provenance.
-
-    Parameters
-    ----------
-    route_config_set:
-        The validated route configuration set.
-    adapter_platforms:
-        Mapping of adapter ID → platform string.  Required for routes
-        that use ``channel_room_map``.
-
-    Returns
-    -------
-    tuple[list[Route], dict[str, str]]
-        A pair of (expanded routes, provenance mapping).
-        The provenance dict maps ``expanded_route_id → config_route_id``.
-    """
-    from medre.config.routes import RouteDirectionality
-
-    if adapter_platforms is None:
-        adapter_platforms = {}
-
-    all_routes: list[Route] = []
-    provenance: dict[str, str] = {}  # expanded_id → config_route_id
-
-    for rc in route_config_set.routes:
-        if not rc.enabled:
-            _logger.debug("Skipping disabled route %r", rc.route_id)
-            continue
-
-        direction = rc.directionality
-        if not isinstance(direction, RouteDirectionality):
-            raise RouteValidationError(
-                f"Route {rc.route_id!r}: unrecognized directionality "
-                f"{direction!r}; expected one of "
-                f"{', '.join(d.value for d in RouteDirectionality)}"
-            )
-
-        if rc.channel_room_map is not None and (
-            len(rc.source_adapters) != 1 or len(rc.dest_adapters) != 1
-        ):
-            raise RouteValidationError(
-                f"Route {rc.route_id!r}: channel_room_map requires exactly "
-                "one source adapter and one dest adapter"
-            )
-
-        # ``RouteConfig.from_dict`` rejects these shapes during config
-        # parsing, but direct/programmatic construction bypasses that parser.
-        # Validate the runtime-semantic invariants here as a final boundary so
-        # an enabled direct route can never disappear into zero expansions or
-        # produce a target with two competing addressing authorities.
-        if not rc.source_adapters:
-            raise RouteValidationError(
-                f"Route {rc.route_id!r}: source_adapters must not be empty"
-            )
-        if not rc.dest_adapters:
-            raise RouteValidationError(
-                f"Route {rc.route_id!r}: dest_adapters must not be empty"
-            )
-        if rc.dest_destination is not None:
-            if len(rc.dest_adapters) != 1:
-                raise RouteValidationError(
-                    f"Route {rc.route_id!r}: dest_destination addresses one "
-                    f"transport-specific entity and requires exactly one dest "
-                    f"adapter, got {len(rc.dest_adapters)}"
-                )
-            if rc.dest_channel is not None:
-                raise RouteValidationError(
-                    f"Route {rc.route_id!r}: dest_destination is mutually "
-                    "exclusive with dest_channel/dest_room"
-                )
-        if rc.channel_room_map is not None:
-            conflicts = [
-                name
-                for name, value in (
-                    ("source_channel/source_room", rc.source_channel),
-                    ("dest_channel/dest_room", rc.dest_channel),
-                    ("dest_destination", rc.dest_destination),
-                )
-                if value is not None
-            ]
-            if conflicts:
-                raise RouteValidationError(
-                    f"Route {rc.route_id!r}: channel_room_map is mutually "
-                    f"exclusive with {conflicts}"
-                )
-
-        new_routes: list[Route] = []
-        if rc.channel_room_map is not None:
-            # channel_room_map expansion — bypasses standard expansion.
-            new_routes = _expand_channel_room_map_route(rc, adapter_platforms)
-        elif direction == RouteDirectionality.SOURCE_TO_DEST:
-            new_routes = _expand_route_config(rc)
-        elif direction == RouteDirectionality.DEST_TO_SOURCE:
-            new_routes = _expand_route_config(rc, swap_direction=True)
-        elif direction == RouteDirectionality.BIDIRECTIONAL:
-            new_routes = _expand_route_config(rc)
-            new_routes.extend(_expand_route_config(rc, swap_direction=True))
-
-        # Validate expanded route IDs are unique before accumulating.
-        for r in new_routes:
-            if r.id in provenance:
-                raise RouteValidationError(
-                    f"Expanded route ID collision: {r.id!r} from route "
-                    f"{rc.route_id!r} conflicts with route "
-                    f"{provenance[r.id]!r}. Route IDs must be unique and "
-                    f"must not match the expansion pattern "
-                    f"'<id>__<N>', '<id>__rev_<N>', or '<id>__ch<channel>__<direction>'."
-                )
-            provenance[r.id] = rc.route_id
-
-        all_routes.extend(new_routes)
-
-    return all_routes, provenance
-
-
-def build_runtime_routes(
-    route_config_set: RouteConfigSet,
-    adapter_platforms: dict[str, str] | None = None,
-) -> list[Route]:
+def build_runtime_routes(route_config_set: RouteConfigSet) -> list[Route]:
     """Convert a :class:`RouteConfigSet` into core :class:`Route` objects.
 
     Only **enabled** routes are included.  Disabled routes are silently
-    skipped.  Route expansion handles:
-
-    * ``source_to_dest`` — forward direction only.
-    * ``dest_to_source`` — reverse direction only (sources become dests).
-    * ``bidirectional`` — both forward and reverse legs.
-    * ``channel_room_map`` — per-channel expansion for Matrix↔Meshtastic.
+    skipped.  Expansion itself (including ``context_map`` mapping
+    expansion) is owned by
+    :func:`medre.config.route_expansion.expand_route_configs` — the single
+    expansion authority; this function is a thin adapter that unwraps the
+    expanded legs into the ordered :class:`Route` list the runtime consumes.
 
     Loop-prevention note
     --------------------
@@ -925,18 +363,22 @@ def build_runtime_routes(
     ----------
     route_config_set:
         The validated route configuration set.
-    adapter_platforms:
-        Mapping of adapter ID → platform string (e.g. ``"matrix"``,
-        ``"meshtastic"``).  Required for routes using
-        ``channel_room_map``.
 
     Returns
     -------
     list[Route]
         Ordered list of core route objects ready for registration.
+
+    Raises
+    ------
+    ConfigValidationError
+        If expansion fails (e.g. duplicate expanded route IDs across the
+        set, or a direct-constructed route violating runtime-semantic
+        boundary invariants).
     """
-    routes, _provenance = _expand_all_routes(route_config_set, adapter_platforms)
-    return routes
+    from medre.config.route_expansion import expand_route_configs
+
+    return [leg.route for leg in expand_route_configs(route_config_set)]
 
 
 # ---------------------------------------------------------------------------
@@ -1038,7 +480,6 @@ def register_routes(
     route_config_set: RouteConfigSet,
     adapter_ids: frozenset[str],
     built_adapter_ids: frozenset[str] | None = None,
-    adapter_platforms: dict[str, str] | None = None,
 ) -> RouteRegistrationResult:
     """Build, validate, and register runtime routes on a :class:`Router`.
 
@@ -1047,8 +488,8 @@ def register_routes(
 
     1. Validates that all enabled route adapter references resolve to
        known adapter IDs.
-    2. Converts :class:`RouteConfigSet` entries into core :class:`Route`
-       objects.
+    2. Expands :class:`RouteConfigSet` entries into core :class:`Route`
+       objects via the config compiler, with explicit provenance.
     3. Degrades routes that reference adapters which failed to build:
        routes with a failed source adapter are skipped; routes with
        failed target adapters have those targets removed.  This only
@@ -1074,10 +515,6 @@ def register_routes(
         for consistent behavior when build status is unavailable.  When provided, routes whose
         source or target adapters are in *adapter_ids* but not in
         *built_adapter_ids* are degraded rather than raising.
-    adapter_platforms:
-        Mapping of adapter ID → platform string (e.g. ``"matrix"``,
-        ``"meshtastic"``).  Required for routes using
-        ``channel_room_map``.
 
     Returns
     -------
@@ -1092,6 +529,10 @@ def register_routes(
     RouteValidationError
         If any enabled route references an adapter ID that is not in
         *adapter_ids* (i.e. a truly unknown / typo'd adapter ID).
+    ConfigValidationError
+        If config route expansion fails in the compiler (e.g. duplicate
+        expanded route IDs across the set, or a direct-constructed route
+        violating runtime-semantic boundary invariants).
     """
     if built_adapter_ids is None:
         built_adapter_ids = adapter_ids
@@ -1108,8 +549,14 @@ def register_routes(
     # Step 1: Validate adapter references against configured IDs.
     validate_route_adapter_refs(route_config_set, adapter_ids)
 
-    # Step 2: Build core routes with explicit provenance.
-    routes, provenance = _expand_all_routes(route_config_set, adapter_platforms)
+    # Step 2: Expand core routes via the config compiler, deriving the
+    # explicit provenance mapping (expanded route ID → config route ID)
+    # from the returned legs — no string-prefix inference.
+    from medre.config.route_expansion import expand_route_configs
+
+    legs = expand_route_configs(route_config_set)
+    routes = [leg.route for leg in legs]
+    provenance = {leg.route.id: leg.config_route_id for leg in legs}
 
     if not routes:
         _logger.info("No enabled routes to register")

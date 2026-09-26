@@ -164,7 +164,7 @@
     },
     "routes": {
       "type": "object",
-      "description": "Route definitions keyed by route_id. Each value is a RouteConfig table. Detailed route policy / retry / channel_room_map validation is done by routing-config.schema.json and the typed RouteConfig dataclass at load time.",
+      "description": "Route definitions keyed by route_id. Each value is a RouteConfig table. Detailed route policy / retry / context_map validation is done by routing-config.schema.json and the typed RouteConfig dataclass at load time.",
       "patternProperties": {
         "^[A-Za-z0-9_-]+$": { "$ref": "#/$defs/RouteEntry" }
       },
@@ -174,7 +174,7 @@
   "$defs": {
     "RouteEntry": {
       "title": "RouteEntry",
-      "description": "A single route definition, keyed by route_id in the routes mapping. Mirrors RouteConfig from routing-config.schema.json with route_id optional (it is the mapping key). Policy / retry / channel_room_map are modelled as plain objects here; their internal shape is enforced by the component schema and the typed dataclass.",
+      "description": "A single route definition, keyed by route_id in the routes mapping. Mirrors RouteConfig from routing-config.schema.json with route_id optional (it is the mapping key). Policy / retry / context_map are modelled as plain objects here; their internal shape is enforced by the component schema and the typed dataclass.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -242,10 +242,10 @@
           "default": null,
           "description": "Optional per-route retry policy. Shape validated by routing-config.schema.json RouteRetryConfig."
         },
-        "channel_room_map": {
+        "context_map": {
           "type": ["object", "null"],
           "default": null,
-          "description": "Optional Meshtastic channel → Matrix room mapping. Shape validated by routing-config.schema.json."
+          "description": "Optional mapping of source-side opaque context strings to dest contexts or structured destinations. Shape validated by routing-config.schema.json. Contexts are opaque strings owned by their adapters."
         },
         "source_origin_label": {
           "type": ["string", "null"],

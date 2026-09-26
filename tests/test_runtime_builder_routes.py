@@ -12,6 +12,7 @@ import pytest
 
 from medre.adapters.matrix.runtime import prepare_matrix_runtime_config
 from medre.config.adapters.matrix import MatrixConfig
+from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     AdapterConfigSet,
     MatrixRuntimeConfig,
@@ -22,7 +23,7 @@ from medre.config.model import (
 )
 from medre.config.paths import MedrePaths, resolve
 from medre.config.routes import (
-    ChannelRoomMapEntry,
+    ContextMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -377,15 +378,13 @@ def _prepare_matrix_config(
     config: RuntimeConfig, paths: MedrePaths, adapter_id: str
 ) -> MatrixConfig:
     """Run Matrix-owned preparation against the expanded runtime routes."""
-    platforms: dict[str, str] = {}
     runtime_config: MatrixRuntimeConfig | None = None
     for transport, current_id, rtc in config.adapters.all_configs():
-        platforms[current_id] = transport
         if transport == "matrix" and current_id == adapter_id:
             runtime_config = rtc
     assert runtime_config is not None
     assert runtime_config.config is not None
-    routes = tuple(build_runtime_routes(config.routes, platforms))
+    routes = tuple(build_runtime_routes(config.routes))
     return prepare_matrix_runtime_config(
         runtime_config.config,
         adapter_id=adapter_id,
@@ -790,20 +789,20 @@ class TestMatrixAutoJoinRoomsDerivation:
 
 
 # ---------------------------------------------------------------------------
-# channel_room_map builder integration
+# context_map builder integration
 # ---------------------------------------------------------------------------
 
 
-class TestChannelRoomMapBuilderIntegration:
-    """RuntimeBuilder.build() succeeds with channel_room_map routes.
+class TestContextMapBuilderIntegration:
+    """RuntimeBuilder.build() succeeds with context_map routes.
 
     Verifies that adapter-owned preparation and register_routes() consume the
     same expanded route model without transport branches in RuntimeBuilder.
     """
 
-    def test_build_with_channel_room_map_succeeds(self, tmp_paths: MedrePaths) -> None:
-        """Full builder.build() with a channel_room_map route registers
-        expanded per-channel routes on the router."""
+    def test_build_with_context_map_succeeds(self, tmp_paths: MedrePaths) -> None:
+        """Full builder.build() with a context_map route registers
+        expanded per-context routes on the router."""
         rt_matrix = MatrixRuntimeConfig(
             adapter_id="fm",
             enabled=True,
@@ -817,13 +816,13 @@ class TestChannelRoomMapBuilderIntegration:
             config=make_fake_meshtastic_config(),
         )
         route = RouteConfig(
-            route_id="crm_bridge",
-            source_adapters=("fm",),
-            dest_adapters=("ft",),
+            route_id="ctx_bridge",
+            source_adapters=("ft",),
+            dest_adapters=("fm",),
             directionality=RouteDirectionality.BIDIRECTIONAL,
-            channel_room_map={
-                "0": ChannelRoomMapEntry(room="!room0:test.org"),
-                "1": ChannelRoomMapEntry(room="!room1:test.org"),
+            context_map={
+                "0": ContextMapEntry(dest_context="!room0:test.org"),
+                "1": ContextMapEntry(dest_context="!room1:test.org"),
             },
         )
         config = RuntimeConfig(
@@ -841,18 +840,15 @@ class TestChannelRoomMapBuilderIntegration:
         assert "fm" in app.adapters
         assert "ft" in app.adapters
 
-        # Expanded routes registered: 2 channels × 2 directions = 4 routes.
+        # Expanded routes registered: 2 entries × 2 directions = 4 routes.
         route_ids = list(app.router._routes.keys())
         assert len(route_ids) == 4
-        assert "crm_bridge__ch0__matrix_to_meshtastic" in route_ids
-        assert "crm_bridge__ch0__meshtastic_to_matrix" in route_ids
-        assert "crm_bridge__ch1__matrix_to_meshtastic" in route_ids
-        assert "crm_bridge__ch1__meshtastic_to_matrix" in route_ids
+        assert all(route_id.startswith("ctx_bridge__maph") for route_id in route_ids)
+        assert sum(route_id.endswith("__fwd") for route_id in route_ids) == 2
+        assert sum(route_id.endswith("__rev") for route_id in route_ids) == 2
 
-    def test_build_with_channel_room_map_source_to_dest(
-        self, tmp_paths: MedrePaths
-    ) -> None:
-        """Source-to-dest channel_room_map produces only forward legs."""
+    def test_build_with_context_map_source_to_dest(self, tmp_paths: MedrePaths) -> None:
+        """Source-to-dest context_map produces only forward legs."""
         rt_matrix = MatrixRuntimeConfig(
             adapter_id="fm",
             enabled=True,
@@ -866,12 +862,12 @@ class TestChannelRoomMapBuilderIntegration:
             config=make_fake_meshtastic_config(),
         )
         route = RouteConfig(
-            route_id="crm_one_way",
+            route_id="ctx_one_way",
             source_adapters=("ft",),
             dest_adapters=("fm",),
             directionality=RouteDirectionality.SOURCE_TO_DEST,
-            channel_room_map={
-                "0": ChannelRoomMapEntry(room="!room0:test.org"),
+            context_map={
+                "0": ContextMapEntry(dest_context="!room0:test.org"),
             },
         )
         config = RuntimeConfig(
@@ -886,14 +882,16 @@ class TestChannelRoomMapBuilderIntegration:
         app = builder.build()
 
         route_ids = list(app.router._routes.keys())
-        # ft is meshtastic, fm is matrix. Source→dest = meshtastic→matrix.
+        # ft is the config source → only forward legs exist.
         assert len(route_ids) == 1
-        assert "crm_one_way__ch0__meshtastic_to_matrix" in route_ids
+        assert route_ids[0].startswith("ctx_one_way__maph")
+        assert route_ids[0].endswith("__fwd")
 
-    def test_matrix_auto_join_rooms_includes_channel_room_map_rooms(
+    def test_matrix_auto_join_rooms_includes_context_map_rooms(
         self, tmp_paths: MedrePaths
     ) -> None:
-        """channel_room_map rooms appear in derived auto-join rooms."""
+        """context_map dest contexts on the Matrix side appear in derived
+        auto-join rooms."""
         rt_matrix = MatrixRuntimeConfig(
             adapter_id="fm",
             enabled=True,
@@ -907,13 +905,13 @@ class TestChannelRoomMapBuilderIntegration:
             config=make_fake_meshtastic_config(),
         )
         route = RouteConfig(
-            route_id="crm_bridge",
-            source_adapters=("fm",),
-            dest_adapters=("ft",),
+            route_id="ctx_bridge",
+            source_adapters=("ft",),
+            dest_adapters=("fm",),
             directionality=RouteDirectionality.BIDIRECTIONAL,
-            channel_room_map={
-                "0": ChannelRoomMapEntry(room="!room0:test.org"),
-                "3": ChannelRoomMapEntry(room="!room3:test.org"),
+            context_map={
+                "0": ContextMapEntry(dest_context="!room0:test.org"),
+                "3": ContextMapEntry(dest_context="!room3:test.org"),
             },
         )
         config = RuntimeConfig(
@@ -968,3 +966,30 @@ class TestChannelRoomMapBuilderIntegration:
         prepared = _prepare_matrix_config(config, tmp_paths, "fm")
         assert "!active_room:test.org" in prepared.auto_join_rooms
         assert "!disabled_room:test.org" not in prepared.auto_join_rooms
+
+
+def test_route_expansion_error_is_runtime_config_error(
+    tmp_paths: MedrePaths,
+) -> None:
+    """Compiler validation failures stay inside the runtime error boundary."""
+    mapped = RouteConfig(
+        route_id="mapped",
+        source_adapters=("source",),
+        dest_adapters=("dest",),
+        context_map={"ctx": ContextMapEntry(dest_context="room")},
+    )
+    generated_id = build_runtime_routes(RouteConfigSet(routes=(mapped,)))[0].id
+    shadow = RouteConfig(
+        route_id=generated_id,
+        source_adapters=("other-source",),
+        dest_adapters=("other-dest",),
+    )
+    config = RuntimeConfig(
+        storage=StorageConfig(backend="memory"),
+        routes=RouteConfigSet(routes=(mapped, shadow)),
+    )
+
+    with pytest.raises(RuntimeConfigError, match="Invalid route configuration") as exc:
+        RuntimeBuilder(config, tmp_paths).build()
+
+    assert isinstance(exc.value.__cause__, ConfigValidationError)

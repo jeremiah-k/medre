@@ -485,31 +485,57 @@ class TestConfigCheckSectionStrictValidation:
 
 
 # ---------------------------------------------------------------------------
-# config sample — structured channel_room_map documentation
+# config sample — structured context_map documentation
 # ---------------------------------------------------------------------------
 
 
-class TestSampleConfigStructuredChannelRoomMap:
+class TestSampleConfigStructuredContextMap:
     """The generated sample config documents the structured
-    ``channel_room_map`` entry shape added for per-context origin labels.
+    ``context_map`` entry shape added for per-context origin labels.
 
     Operators running ``medre config sample`` should see both the
-    ``channel_room_map`` field name and the structured-entry field names
-    (``source_origin_label`` / ``dest_origin_label``) so they can discover
+    ``context_map`` field name and the structured-entry field names
+    (``dest_context`` / ``dest_destination``) so they can discover
     the shape without reading the spec.
     """
 
-    def test_sample_mentions_channel_room_map(self) -> None:
-        """Sample output mentions ``channel_room_map`` by name."""
+    def test_sample_mentions_context_map(self) -> None:
+        """Sample output mentions ``context_map`` by name."""
         output = _run_cli("config", "sample")
-        assert "channel_room_map" in output
+        assert "context_map" in output
+
+    def test_sample_documents_structured_entry_fields(self) -> None:
+        """Sample documents the structured entry addressing fields."""
+        output = _run_cli("config", "sample")
+        assert "dest_context" in output
+        assert "dest_destination" in output
 
     def test_sample_documents_structured_entry_labels(self) -> None:
         """Sample documents per-entry ``source_origin_label`` and
-        ``dest_origin_label`` fields used by the structured CRM shape."""
+        ``dest_origin_label`` fields used by the structured mapping shape."""
         output = _run_cli("config", "sample")
         assert "source_origin_label" in output
         assert "dest_origin_label" in output
+
+    def test_sample_structured_destination_uses_configured_adapter_id(self) -> None:
+        """Commented LXMF example names the adapter declared by the sample."""
+        output = _run_cli("config", "sample")
+        assert "Requires adapters.lxmf.lxmf_node to be enabled." in output
+        assert "#   dest_adapters: [lxmf_node]" in output
+
+    def test_sample_has_no_scalar_mapping_entries(self) -> None:
+        """The parseable sample uses only structured mapping entries."""
+        output = _run_cli("config", "sample")
+        parsed = parse_yaml_config(output)
+        route = parsed["routes"]["context_mapped_bridge"]
+        entry = route["context_map"]["1"]
+        assert entry == {
+            "dest_context": "!ops:example.com",
+            "source_origin_label": "Ops",
+            "dest_origin_label": "Matrix-Ops",
+        }
+        # Structured-destination documentation intentionally remains commented.
+        assert "dest_destination:" in output
 
 
 def test_route_unknown_adapter_ref_exits_nonzero(tmp_path: Path) -> None:
