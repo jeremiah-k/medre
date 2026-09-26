@@ -113,8 +113,10 @@ def _api_request(
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return resp.status, dict(resp.headers), resp.read()
     except urllib.error.HTTPError as exc:  # pragma: no cover - diagnostics path
+        detail = exc.read().decode()[:400]
+        exc.close()
         raise RuntimeError(
-            f"HTTP {exc.code} for {method} {url}: {exc.read().decode()[:400]}"
+            f"HTTP {exc.code} for {method} {url}: {detail}"
         ) from exc
 
 
@@ -406,17 +408,35 @@ class _AttachmentHarness:
             )
 
     async def wait_for_file_admission(
-        self, timeout: float = _ADMISSION_WAIT_SECONDS
+        self, filename: str, timeout: float = _ADMISSION_WAIT_SECONDS
     ) -> AdmissionResult:
+        """Wait for the durable admission whose descriptor declares *filename*.
+
+        The SDK's initial sync treats the tail of the room timeline as live
+        provenance, so media from earlier tests in the session-scoped source
+        room can also be admitted with full bytes by a fresh adapter; match
+        on the declared filename to select the event this test uploaded.
+        """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             for result, attachment in self.admissions:
-                if result.created and attachment is not None:
+                if not (result.created and attachment is not None):
+                    continue
+                canonical = await self.storage.get(result.event_id)
+                descriptor = (
+                    canonical.payload.get("attachment")
+                    if canonical is not None
+                    else None
+                )
+                if (
+                    isinstance(descriptor, dict)
+                    and descriptor.get("filename") == filename
+                ):
                     return result
             await asyncio.sleep(0.25)
         raise AssertionError(
-            f"no durable attachment admission observed within {timeout}s "
-            f"(admissions seen: {len(self.admissions)})"
+            f"no durable attachment admission for {filename!r} within "
+            f"{timeout}s (admissions seen: {len(self.admissions)})"
         )
 
     async def wait_for_relay(
@@ -498,7 +518,7 @@ class TestSynapseAttachmentSmoke:
                     },
                 },
             )
-            result = await harness.wait_for_file_admission()
+            result = await harness.wait_for_file_admission("relay-photo.png")
             assert result.attachment is not None and result.attachment.retained
             assert result.attachment.size_bytes == len(_MEDIA_BYTES)
             # Retained bytes are verifiably the uploaded payload.
@@ -599,7 +619,7 @@ class TestSynapseAttachmentSmoke:
                 },
             },
         )
-        result = await harness.wait_for_file_admission()
+        result = await harness.wait_for_file_admission("restart.bin")
         content_ref = result.attachment.content_ref
         await harness.stop()
         await storage.close()
@@ -826,7 +846,7 @@ class TestSynapseEncryptedAttachmentSmoke:
             ), f"encrypted send failed: {send_response}"
 
             try:
-                result = await harness.wait_for_file_admission()
+                result = await harness.wait_for_file_admission("secret-photo.png")
                 assert result.attachment is not None and result.attachment.retained
                 stored = await storage.load_attachment_content(
                     result.event_id, result.attachment.content_ref
@@ -908,7 +928,7 @@ class TestSynapseEncryptedAttachmentSmoke:
                     },
                 },
             )
-            result = await harness.wait_for_file_admission()
+            result = await harness.wait_for_file_admission("into-e2ee.bin")
             assert result.attachment.retained
 
             # Initialise the receiving client BEFORE the relay so its
