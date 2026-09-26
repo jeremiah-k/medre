@@ -16,7 +16,7 @@ These tests always run (no env vars required, no radio hardware needed).
 - ``TestMeshtasticDrainLifecycle`` — drain task creation, idempotent start,
   stop cancellation, diagnostics ``drain_task_running`` field.
 - ``TestMeshtasticDeliverLifecycle`` — deliver() at different lifecycle stages
-  in fake mode (before start, after stop, multiple stops).
+  in fake mode (before context installation, after stop, multiple stops).
 - ``TestMeshtasticQueueMetrics`` — queue counter accuracy, diagnostics key
   presence, metric stability across lifecycle.
 - ``TestMeshtasticFailureClassification`` — scaffold tests verifying failure
@@ -29,6 +29,8 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from tests.helpers.delivery_callbacks import with_attempt_provenance
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,6 +53,7 @@ def _make_context():
         logger=logging.getLogger("test.meshtastic-nosdk"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
+        report_delivery_feedback=AsyncMock(),
     )
 
 
@@ -72,11 +75,13 @@ def _make_rendering_result(
     """Build a minimal ``RenderingResult`` for deliver() tests."""
     from medre.core.rendering.renderer import RenderingResult
 
-    return RenderingResult(
-        event_id=event_id,
-        target_adapter="meshtastic-fake-test",
-        target_channel=None,
-        payload={"text": text, "channel_index": channel_index},
+    return with_attempt_provenance(
+        RenderingResult(
+            event_id=event_id,
+            target_adapter="meshtastic-fake-test",
+            target_channel=None,
+            payload={"text": text, "channel_index": channel_index},
+        )
     )
 
 
@@ -579,27 +584,23 @@ class TestMeshtasticDrainLifecycle:
 class TestMeshtasticDeliverLifecycle:
     """Tests for deliver() behaviour at different lifecycle stages in fake mode.
 
-    In fake mode, deliver() does not require start() — the queue is always
-    available.  These tests document and verify that fake-mode deliver()
-    works before start, after stop, and across multiple stop cycles.
+    Fake mode does not require a hardware transport, but deferred delivery still
+    requires runtime context so completion/failure feedback has an authority sink.
+    These tests verify rejection before context installation and queue persistence
+    after a normal start/stop lifecycle.
     """
 
-    async def test_deliver_before_start_works_in_fake_mode(self):
-        """In fake mode, deliver() works before start().
-
-        The adapter's deliver() guards against non-started state only for
-        non-fake connection types.  Fake mode bypasses this check because
-        the queue is created in __init__ and does not depend on start().
-        """
+    async def test_deliver_before_context_fails_closed_in_fake_mode(self):
+        """Deferred fake-mode delivery still requires an installed feedback sink."""
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.core.contracts.adapter import AdapterPermanentError
 
         config = _make_fake_config()
         adapter = MeshtasticAdapter(config)
 
         result_obj = _make_rendering_result(text="pre-start deliver")
-        delivery = await _bounded(adapter.deliver(result_obj))
-        assert delivery is not None
-        assert delivery.note == "locally enqueued"
+        with pytest.raises(AdapterPermanentError, match="report_delivery_feedback"):
+            await _bounded(adapter.deliver(result_obj))
 
     async def test_deliver_after_stop_still_works_fake(self):
         """In fake mode, deliver() after stop() still enqueues.
@@ -630,6 +631,7 @@ class TestMeshtasticDeliverLifecycle:
 
         config = _make_fake_config()
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = _make_context()
 
         # Before any deliver
         assert adapter.diagnostics()["queue_pending"] == 0
@@ -692,6 +694,7 @@ class TestMeshtasticQueueMetrics:
 
         config = _make_fake_config()
         adapter = MeshtasticAdapter(config)
+        adapter.ctx = _make_context()
 
         for i in range(5):
             result_obj = _make_rendering_result(
@@ -745,6 +748,7 @@ class TestMeshtasticQueueMetrics:
         config = _make_fake_config()
         adapter = MeshtasticAdapter(config)
         ctx = _make_context()
+        adapter.ctx = ctx
 
         # Enqueue before start
         result_obj = _make_rendering_result(text="persistent msg")

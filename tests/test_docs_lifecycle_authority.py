@@ -84,6 +84,29 @@ def _parsed_delivery_results(
     return tuple(records)
 
 
+def _inside_pytest_raises(node: ast.AST) -> bool:
+    """Return whether *node* is nested under an intentional ``pytest.raises`` block."""
+    parent = getattr(node, "parent", None)
+    while parent is not None and not isinstance(
+        parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)
+    ):
+        if isinstance(parent, ast.With):
+            for item in parent.items:
+                expr = item.context_expr
+                if not isinstance(expr, ast.Call):
+                    continue
+                func = expr.func
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == "raises"
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "pytest"
+                ):
+                    return True
+        parent = getattr(parent, "parent", None)
+    return False
+
+
 def _resolve_name_to_dict_literal(call_node: ast.AST, name: str) -> ast.Dict | None:
     """Best-effort resolution for local `name = {...}` bindings in the same scope.
 
@@ -155,6 +178,10 @@ def _parse_adapter_results(
             is_target = True
 
         if not is_target:
+            continue
+        # Contract-rejection tests intentionally construct invalid values. They
+        # are not accepted mocks and must not be treated as policy violations.
+        if _inside_pytest_raises(node):
             continue
 
         ds_value: str | None = None

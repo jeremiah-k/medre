@@ -153,6 +153,7 @@ def _make_adapter_context(
         logger=logging.getLogger(f"test.cross_adapter.{adapter_id}"),
         clock=lambda: datetime.now(timezone.utc),
         shutdown_event=asyncio.Event(),
+        report_delivery_feedback=runner._record_delivery_feedback,
     )
 
 

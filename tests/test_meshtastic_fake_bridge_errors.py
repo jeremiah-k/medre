@@ -33,6 +33,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
+from tests.helpers.delivery_callbacks import with_attempt_provenance
 
 # ===================================================================
 # 3. Error mapping bridge
@@ -111,6 +112,7 @@ class TestMeshtasticBridgeErrorMapping:
                 logger=logging.getLogger("test.bridge.err-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 
@@ -206,6 +208,7 @@ class TestMeshtasticBridgeErrorMapping:
                 logger=logging.getLogger("test.bridge.perm-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 
@@ -228,15 +231,25 @@ class TestMeshtasticBridgeErrorMapping:
         without being swallowed."""
         mesh_config = MeshtasticConfig(adapter_id="cancel-mesh", connection_type="fake")
         mesh_adapter = MeshtasticAdapter(mesh_config)
+        mesh_adapter.ctx = AdapterContext(
+            adapter_id="cancel-mesh",
+            publish_inbound=AsyncMock(),
+            logger=logging.getLogger("test.bridge.cancel-mesh"),
+            clock=lambda: datetime.now(timezone.utc),
+            shutdown_event=asyncio.Event(),
+            report_delivery_feedback=AsyncMock(),
+        )
 
         # Patch queue.enqueue to raise CancelledError.
         mesh_adapter._queue.enqueue = AsyncMock(side_effect=asyncio.CancelledError())
 
-        result = RenderingResult(
-            event_id="evt-cancel",
-            target_adapter="cancel-mesh",
-            target_channel="0",
-            payload={"text": "cancel test", "channel_index": 0},
+        result = with_attempt_provenance(
+            RenderingResult(
+                event_id="evt-cancel",
+                target_adapter="cancel-mesh",
+                target_channel="0",
+                payload={"text": "cancel test", "channel_index": 0},
+            )
         )
 
         with pytest.raises(asyncio.CancelledError):
@@ -316,6 +329,7 @@ class TestMeshtasticBridgeErrorMapping:
                 logger=logging.getLogger("test.bridge.iso-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
         await good_adapter.start(
@@ -325,6 +339,7 @@ class TestMeshtasticBridgeErrorMapping:
                 logger=logging.getLogger("test.bridge.iso-good-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 

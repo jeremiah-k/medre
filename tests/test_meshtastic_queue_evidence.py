@@ -18,6 +18,8 @@ import pytest
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from tests.helpers.delivery_callbacks import with_attempt_provenance
+
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     RetryExecutor,
@@ -134,25 +136,30 @@ class TestAdapterDeliverOnFullQueue:
             logger=logging.getLogger("test"),
             clock=lambda: datetime.now(timezone.utc),
             shutdown_event=asyncio.Event(),
+            report_delivery_feedback=AsyncMock(),
         )
         await adapter.start(ctx)
         try:
             # Fill the queue.
             for i in range(adapter._queue.max_queue_size):
-                result = RenderingResult(
-                    event_id=f"evt-{i}",
-                    target_adapter="test-full",
-                    target_channel="0",
-                    payload={"text": f"msg-{i}", "channel_index": 0},
+                result = with_attempt_provenance(
+                    RenderingResult(
+                        event_id=f"evt-{i}",
+                        target_adapter="test-full",
+                        target_channel="0",
+                        payload={"text": f"msg-{i}", "channel_index": 0},
+                    )
                 )
                 await adapter.deliver(result)
 
             # One more should trigger AdapterSendError(transient=True).
-            overflow_result = RenderingResult(
-                event_id="evt-overflow",
-                target_adapter="test-full",
-                target_channel="0",
-                payload={"text": "overflow", "channel_index": 0},
+            overflow_result = with_attempt_provenance(
+                RenderingResult(
+                    event_id="evt-overflow",
+                    target_adapter="test-full",
+                    target_channel="0",
+                    payload={"text": "overflow", "channel_index": 0},
+                )
             )
             with pytest.raises(AdapterSendError) as exc_info:
                 await adapter.deliver(overflow_result)

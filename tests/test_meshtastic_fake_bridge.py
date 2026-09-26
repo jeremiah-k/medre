@@ -48,6 +48,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
+from tests.helpers.delivery_callbacks import with_attempt_provenance
 
 # ===================================================================
 # 1. Meshtastic inbound -> fake outbound
@@ -641,6 +642,7 @@ class TestFakeInboundToMeshtasticOutbound:
                 logger=logging.getLogger("test.bridge.bridge-mesh-out"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 
@@ -663,26 +665,38 @@ class TestFakeInboundToMeshtasticOutbound:
             adapter_id="bridge-enqueue-id", connection_type="fake"
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
-
-        result = RenderingResult(
-            event_id="evt-enqueue",
-            target_adapter="bridge-enqueue-id",
-            target_channel="0",
-            payload={"text": "enqueue test", "channel_index": 0},
+        await mesh_adapter.start(
+            AdapterContext(
+                adapter_id="bridge-enqueue-id",
+                publish_inbound=AsyncMock(),
+                logger=logging.getLogger("test.bridge.bridge-enqueue-id"),
+                clock=lambda: datetime.now(timezone.utc),
+                shutdown_event=asyncio.Event(),
+                report_delivery_feedback=AsyncMock(),
+            )
         )
-        delivery = await mesh_adapter.deliver(result)
+        try:
+            result = with_attempt_provenance(
+                RenderingResult(
+                    event_id="evt-enqueue",
+                    target_adapter="bridge-enqueue-id",
+                    target_channel="0",
+                    payload={"text": "enqueue test", "channel_index": 0},
+                )
+            )
+            delivery = await mesh_adapter.deliver(result)
 
-        assert delivery is not None
-        assert delivery.native_message_id is None
-        assert delivery.native_channel_id == "0"
-        assert delivery.note == "locally enqueued"
+            assert delivery.native_message_id is None
+            assert delivery.native_channel_id == "0"
+            assert delivery.note == "locally enqueued"
+        finally:
+            await mesh_adapter.stop()
 
     async def test_sent_receipt_without_outbound_native_ref(
         self, temp_storage: SQLiteStorage
     ) -> None:
-        """Pipeline records a 'sent' receipt for MeshtasticAdapter local
-        enqueue, but NO outbound native ref is stored (because
-        native_message_id is None)."""
+        """Pipeline records a ``queued`` receipt for Meshtastic local
+        admission, but no outbound native ref before transport hand-off."""
         fake_in_config = MeshtasticConfig(adapter_id="bridge-fake-nref")
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
@@ -739,6 +753,7 @@ class TestFakeInboundToMeshtasticOutbound:
                 logger=logging.getLogger("test.bridge.bridge-mesh-nref"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 
@@ -827,6 +842,7 @@ class TestFakeInboundToMeshtasticOutbound:
                 logger=logging.getLogger("test.bridge.bridge-mesh-qh"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 
@@ -906,6 +922,7 @@ class TestFakeInboundToMeshtasticOutbound:
                 logger=logging.getLogger("test.bridge.bridge-mesh-rend"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 
@@ -991,6 +1008,7 @@ class TestFakeInboundToMeshtasticOutbound:
                 logger=logging.getLogger("test.bridge.bridge-mesh-acc"),
                 clock=lambda: datetime.now(timezone.utc),
                 shutdown_event=asyncio.Event(),
+                report_delivery_feedback=runner._record_delivery_feedback,
             )
         )
 

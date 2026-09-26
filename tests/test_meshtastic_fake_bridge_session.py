@@ -25,6 +25,7 @@ from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.delivery_callbacks import with_attempt_provenance
 from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
 
 # ===================================================================
@@ -223,13 +224,23 @@ class TestMeshtasticSendOneBridge:
 
         ctx = make_adapter_context("sendone-mesh")
         await adapter.start(ctx)
+        assert adapter._drain_task is not None
+        adapter._drain_task.cancel()
+        try:
+            await adapter._drain_task
+        except asyncio.CancelledError:
+            pass
+        adapter._drain_task = None
 
-        # Enqueue via deliver.
-        result = RenderingResult(
-            event_id="evt-sendone",
-            target_adapter="sendone-mesh",
-            target_channel="0",
-            payload={"text": "send one test", "channel_index": 0},
+        # Enqueue via deliver. The normal drain is paused so send_one() owns
+        # the transport boundary deterministically in this focused test.
+        result = with_attempt_provenance(
+            RenderingResult(
+                event_id="evt-sendone",
+                target_adapter="sendone-mesh",
+                target_channel="0",
+                payload={"text": "send one test", "channel_index": 0},
+            )
         )
         delivery = await adapter.deliver(result)
         assert delivery is not None
@@ -254,12 +265,17 @@ class TestMeshtasticSendOneBridge:
         """send_one() returns None in fake mode (no real client)."""
         config = MeshtasticConfig(adapter_id="sendone-noclient", connection_type="fake")
         adapter = MeshtasticAdapter(config)
+        # No session startup is needed for the no-client branch. Install only
+        # the deferred-feedback context required for local queue admission.
+        adapter.ctx = make_adapter_context("sendone-noclient")
 
-        result = RenderingResult(
-            event_id="evt-no-client",
-            target_adapter="sendone-noclient",
-            target_channel="0",
-            payload={"text": "no client", "channel_index": 0},
+        result = with_attempt_provenance(
+            RenderingResult(
+                event_id="evt-no-client",
+                target_adapter="sendone-noclient",
+                target_channel="0",
+                payload={"text": "no client", "channel_index": 0},
+            )
         )
         await adapter.deliver(result)
         assert adapter.queue.pending_count == 1

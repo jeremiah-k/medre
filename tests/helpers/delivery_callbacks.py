@@ -2,10 +2,35 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Literal
 
 from medre.core.contracts.delivery import DeferredHandoffFailed
 from medre.core.events import DeliveryAttemptProvenance, DeliverySource
+from medre.core.rendering.renderer import RenderingResult
+
+
+def with_attempt_provenance(
+    result: RenderingResult,
+    *,
+    outbox_id: str | None = None,
+    delivery_plan_id: str | None = None,
+    attempt_number: int = 1,
+    source: DeliverySource = "live",
+    replay_run_id: str | None = None,
+) -> RenderingResult:
+    """Return *result* carrying one exact immutable delivery-attempt envelope."""
+    provenance = DeliveryAttemptProvenance(
+        event_id=result.event_id,
+        delivery_plan_id=delivery_plan_id or f"plan:{result.event_id}",
+        target_adapter=result.target_adapter,
+        target_channel=result.target_channel,
+        outbox_id=outbox_id or f"outbox:{result.event_id}",
+        attempt_number=attempt_number,
+        source=source,
+        replay_run_id=replay_run_id,
+    )
+    return replace(result, attempt_provenance=provenance)
 
 
 def make_deferred_failure(

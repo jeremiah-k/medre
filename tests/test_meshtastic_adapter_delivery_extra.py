@@ -146,8 +146,7 @@ class TestHandoffDispositionDeferredVsTransport:
         assert queue_result.item.get("event_id") == "evt-lifecycle"
 
     async def test_enqueued_and_sent_are_distinguishable(self) -> None:
-        """Two AdapterHandoffResult instances — one enqueued, one sent —
-        are distinguishable by delivery_status."""
+        """Deferred admission and transport hand-off have distinct dispositions."""
         # Enqueued result (from adapter.deliver)
         adapter, ctx = self._started_deferred_adapter()
         await adapter.start(ctx)
