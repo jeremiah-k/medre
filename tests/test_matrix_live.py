@@ -132,6 +132,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.helpers.matrix import matrix_send_payload
+
 # ---------------------------------------------------------------------------
 # Module-level marker — entire file is tagged "live" so it is excluded by the
 # default ``addopts = "-m 'not live'"`` in pyproject.toml.
@@ -337,10 +339,12 @@ class TestMatrixLiveSmoke:
                 event_id=f"live-smoke-{ts}",
                 target_adapter="matrix-live-smoke",
                 target_channel=MATRIX_ROOM_ID,
-                payload={
-                    "msgtype": "m.text",
-                    "body": f"MEDRE live smoke test (ts={ts}) — safe to ignore",
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": f"MEDRE live smoke test (ts={ts}) — safe to ignore",
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "live-smoke"},
             )
             delivery = await asyncio.wait_for(
@@ -386,10 +390,12 @@ class TestMatrixLiveSmoke:
             event_id=f"lifecycle-{ts}",
             target_adapter="matrix-live-smoke",
             target_channel=MATRIX_ROOM_ID,
-            payload={
-                "msgtype": "m.text",
-                "body": f"MEDRE lifecycle test (ts={ts}) — safe to ignore",
-            },
+            payload=matrix_send_payload(
+                {
+                    "msgtype": "m.text",
+                    "body": f"MEDRE lifecycle test (ts={ts}) — safe to ignore",
+                }
+            ),
             metadata={"renderer": "matrix", "test": "lifecycle"},
         )
         delivery = await asyncio.wait_for(
@@ -495,10 +501,7 @@ class TestMatrixLiveSmoke:
                 event_id=f"live-echo-{ts}",
                 target_adapter="matrix-live-smoke",
                 target_channel=MATRIX_ROOM_ID,
-                payload={
-                    "msgtype": "m.text",
-                    "body": body_text,
-                },
+                payload=matrix_send_payload({"msgtype": "m.text", "body": body_text}),
                 metadata={"renderer": "matrix", "test": "echo-suppression"},
             )
             delivery = await asyncio.wait_for(
@@ -606,12 +609,15 @@ class TestMatrixLiveSmoke:
                 event_id=f"live-allowlist-blocked-{ts}",
                 target_adapter="matrix-live-allowlist-blocked",
                 target_channel=MATRIX_ROOM_ID,
-                payload={
-                    "msgtype": "m.text",
-                    "body": (
-                        f"MEDRE allowlist blocked test (ts={ts}) " f"— safe to ignore"
-                    ),
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": (
+                            f"MEDRE allowlist blocked test (ts={ts}) "
+                            f"— safe to ignore"
+                        ),
+                    }
+                ),
                 metadata={
                     "renderer": "matrix",
                     "test": "allowlist-blocked",
@@ -824,10 +830,14 @@ class TestMatrixLiveSmoke:
                 event_id=canonical_id,
                 target_adapter="matrix-live-smoke",
                 target_channel=MATRIX_ROOM_ID,
-                payload={
-                    "msgtype": "m.text",
-                    "body": f"MEDRE adapter redelivery smoke test (ts={ts}) — safe to ignore",
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": (
+                            f"MEDRE adapter redelivery smoke test (ts={ts}) — safe to ignore"
+                        ),
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "redelivery-smoke"},
             )
             delivery1 = await asyncio.wait_for(
@@ -844,10 +854,14 @@ class TestMatrixLiveSmoke:
                 event_id=canonical_id,
                 target_adapter="matrix-live-smoke",
                 target_channel=MATRIX_ROOM_ID,
-                payload={
-                    "msgtype": "m.text",
-                    "body": f"MEDRE adapter redelivery smoke test (ts={ts}) — safe to ignore",
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": (
+                            f"MEDRE adapter redelivery smoke test (ts={ts}) — safe to ignore"
+                        ),
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "redelivery-smoke"},
             )
             delivery2 = await asyncio.wait_for(
@@ -1033,10 +1047,14 @@ class TestMatrixLiveSmoke:
                 event_id=f"live-diagnostics-{ts}",
                 target_adapter="matrix-live-smoke",
                 target_channel=MATRIX_ROOM_ID,
-                payload={
-                    "msgtype": "m.text",
-                    "body": f"MEDRE diagnostics snapshot test (ts={ts}) — safe to ignore",
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": (
+                            f"MEDRE diagnostics snapshot test (ts={ts}) — safe to ignore"
+                        ),
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "diagnostics-snapshot"},
             )
             delivery = await asyncio.wait_for(
@@ -1180,10 +1198,14 @@ class TestMatrixLiveLocalSynapse:
                 event_id=f"synapse-smoke-{ts}",
                 target_adapter="matrix-live-smoke",
                 target_channel=MATRIX_ROOM_ID,
-                payload={
-                    "msgtype": "m.text",
-                    "body": f"MEDRE Synapse live smoke test (ts={ts}) — safe to ignore",
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": (
+                            f"MEDRE Synapse live smoke test (ts={ts}) — safe to ignore"
+                        ),
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "synapse-smoke"},
             )
             delivery = await asyncio.wait_for(

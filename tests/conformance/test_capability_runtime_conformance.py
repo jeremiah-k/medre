@@ -218,8 +218,8 @@ class TestCapabilityTransportProfileRelationConformance:
         decision = _resolver.decide(event, matrix_capabilities)
         assert decision.delivery_strategy == "direct"
 
-    def test_matrix_profile_edits_unsupported(self, matrix_capabilities):
-        """Matrix transport profile: edits=unsupported -> skip for edits."""
+    def test_matrix_profile_edits_native(self, matrix_capabilities):
+        """Matrix transport profile: edits=native -> direct for edits."""
         rel = EventRelation(
             relation_type="edit",
             target_event_id=None,
@@ -242,7 +242,7 @@ class TestCapabilityTransportProfileRelationConformance:
             metadata=EventMetadata(),
         )
         decision = _resolver.decide(event, matrix_capabilities)
-        assert decision.delivery_strategy == "skip"
+        assert decision.delivery_strategy == "direct"
 
     def test_meshtastic_profile_replies_native(self, meshtastic_capabilities):
         """Meshtastic transport profile: replies=native -> direct."""

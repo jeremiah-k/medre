@@ -34,6 +34,7 @@ from medre.interop.mmrelay import (
     KEY_TEXT,
     PORTNUM_TEXT,
 )
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
@@ -278,7 +279,7 @@ class TestMeshtasticToMatrixMappedReaction:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
 
-        payload = result.payload
+        payload = _payload_content(result)
         # msgtype must be m.emote, not m.text
         assert payload["msgtype"] == "m.emote"
 
@@ -355,11 +356,14 @@ class TestMeshtasticToMatrixMappedReaction:
         )
 
         # Even with a Matrix target ref, mmrelay_compat=True → emote
-        assert result.payload["msgtype"] == "m.emote"
-        assert 'reacted 👍 to "original text from Matrix"' in result.payload["body"]
-        assert result.payload[KEY_REPLY_ID] == "2728143522"
-        # NOT a true m.reaction
-        assert "_matrix_event_type" not in result.payload
+        assert _payload_content(result)["msgtype"] == "m.emote"
+        assert (
+            'reacted 👍 to "original text from Matrix"'
+            in _payload_content(result)["body"]
+        )
+        assert _payload_content(result)[KEY_REPLY_ID] == "2728143522"
+        # NOT a true m.reaction — emote fallback is a room message
+        assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
 
 
 class TestMeshtasticToMatrixUnknownReplyIdFallback:
@@ -388,10 +392,10 @@ class TestMeshtasticToMatrixUnknownReplyIdFallback:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
 
-        assert result.payload["msgtype"] == "m.emote"
-        assert KEY_EMOJI in result.payload
-        assert KEY_REPLY_ID not in result.payload
-        assert "reacted" in result.payload["body"]
+        assert _payload_content(result)["msgtype"] == "m.emote"
+        assert KEY_EMOJI in _payload_content(result)
+        assert KEY_REPLY_ID not in _payload_content(result)
+        assert "reacted" in _payload_content(result)["body"]
 
     @pytest.mark.asyncio
     async def test_minimal_metadata_no_crash(self) -> None:
@@ -407,9 +411,9 @@ class TestMeshtasticToMatrixUnknownReplyIdFallback:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
 
-        assert result.payload["msgtype"] == "m.emote"
-        assert KEY_EMOJI in result.payload
-        assert "reacted 🔥" in result.payload["body"]
+        assert _payload_content(result)["msgtype"] == "m.emote"
+        assert KEY_EMOJI in _payload_content(result)
+        assert "reacted 🔥" in _payload_content(result)["body"]
 
 
 # ===========================================================================
@@ -429,8 +433,8 @@ class TestRendererEmitsReactionKey:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
 
-        assert result.payload[KEY_EMOJI] == EMOJI_FLAG_VALUE
-        assert result.payload[KEY_REACTION_KEY] == "👍"
+        assert _payload_content(result)[KEY_EMOJI] == EMOJI_FLAG_VALUE
+        assert _payload_content(result)[KEY_REACTION_KEY] == "👍"
 
     @pytest.mark.asyncio
     async def test_emote_fallback_emits_symbol_not_body(self) -> None:
@@ -442,10 +446,10 @@ class TestRendererEmitsReactionKey:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
 
-        assert result.payload[KEY_REACTION_KEY] == "❤️"
+        assert _payload_content(result)[KEY_REACTION_KEY] == "❤️"
         # body is the full emote text, not just the emoji
-        assert result.payload["body"] != "❤️"
-        assert "reacted" in result.payload["body"]
+        assert _payload_content(result)["body"] != "❤️"
+        assert "reacted" in _payload_content(result)["body"]
 
     @pytest.mark.asyncio
     async def test_no_target_also_emits_key_reaction_key(self) -> None:
@@ -457,8 +461,8 @@ class TestRendererEmitsReactionKey:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
 
-        assert result.payload[KEY_EMOJI] == EMOJI_FLAG_VALUE
-        assert result.payload[KEY_REACTION_KEY] == "🔥"
+        assert _payload_content(result)[KEY_EMOJI] == EMOJI_FLAG_VALUE
+        assert _payload_content(result)[KEY_REACTION_KEY] == "🔥"
 
 
 class TestCodecDecodesReactionKey:

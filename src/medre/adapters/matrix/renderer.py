@@ -11,8 +11,21 @@ Selection is via the rendering pipeline's platform registry: when the
 pipeline populates the adapter's platform as ``"matrix"``, the renderer
 matches on that platform string directly.
 
-**Supported relation types**: text messages, native replies, and
-reactions (true ``m.reaction`` or MMRelay emote fallback).
+**Supported relation types**: text messages, native replies, native
+threads, native edits (``m.replace``), and reactions (true
+``m.reaction`` or MMRelay emote fallback).  Native deletes render as
+``redact_event`` operations.
+
+Every native render emits a closed
+:class:`~medre.adapters.matrix.outbound.MatrixOutboundOperation`
+envelope under the single ``_matrix_operation`` payload key;
+``MatrixAdapter.deliver`` pops and dispatches it before transport.
+
+**Mutation authorization**: edits and deletes render natively only when
+the relation's core-computed ``target_fact.status == "bound_owned"``.
+A mutation that reaches native rendering without that fact raises
+:class:`MatrixNativeMutationError` (renderer-level fail-close) — it
+never degrades into an ordinary message.
 """
 
 from __future__ import annotations
@@ -23,6 +36,7 @@ from medre.adapters._attribution_dispatch import project_source_fields
 from medre.adapters._native_metadata_dispatch import current_native_namespace
 from medre.adapters.matrix.event_shape import mmrelay_interop_fields
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
+from medre.adapters.matrix.outbound import MatrixOutboundOperation
 from medre.core.events import CanonicalEvent, EventRelation
 from medre.core.rendering.attribution import (
     RelayAttribution,
@@ -52,6 +66,33 @@ from medre.interop.mmrelay import (
     PORTNUM_TEXT,
     derive_meshnet_value,
 )
+
+
+class MatrixNativeMutationError(RuntimeError):
+    """Fail-close signal: an unauthorized native mutation reached rendering.
+
+    Raised by the Matrix renderer when an edit or delete arrives in
+    native mode without a ``bound_owned`` relation target fact.  The
+    core delivery gate should have suppressed the delivery before
+    rendering; this render-time guard is defense-in-depth so a missing
+    suppression can never degrade a mutation into an ordinary message
+    (which would fabricate content) or an unauthorized redaction.
+    """
+
+
+def _find_relation(
+    relations: tuple[EventRelation, ...],
+    relation_type: str,
+) -> EventRelation | None:
+    """Return the first relation of *relation_type*, or ``None``.
+
+    Relation tuple order is incidental; scanning keeps thread+reply and
+    edit+reply rendering order-independent.
+    """
+    for rel in relations:
+        if rel.relation_type == relation_type:
+            return rel
+    return None
 
 
 class MatrixRenderer:
@@ -271,20 +312,29 @@ class MatrixRenderer:
 
         **Strategy fallback** — when ``ctx.delivery_strategy`` is
         ``"fallback_text"``, relation semantics are degraded into plain
-        text within the Matrix payload body.  Native ``m.relates_to`` and
-        ``_matrix_event_type`` fields are **not** emitted.  The body is
-        produced using the same deterministic wording as
+        text within the Matrix payload body.  Native ``m.relates_to``
+        fields are **not** emitted.  The body is produced using the same
+        deterministic wording as
         :class:`~medre.core.rendering.text.TextRenderer` so that relation
         information is preserved as readable text.  The result carries
         ``fallback_applied="strategy_fallback_text"``.
 
         **Native / direct mode** — replies preserve ``m.in_reply_to``
         and inject ``KEY_REPLY_ID`` from native/relation metadata when
-        available.  Reactions render as true ``m.reaction`` (with
-        internal ``_matrix_event_type='m.reaction'``) when a target
-        event/native Matrix id is available and mmrelay_compat is false.
-        When mmrelay_compat is true or the target is missing, an
-        ``m.emote`` fallback is rendered with MMRelay keys.
+        available.  Reactions render as true ``m.reaction`` events when
+        a target event/native Matrix id is available and mmrelay_compat
+        is false.  When mmrelay_compat is true or the target is missing,
+        an ``m.emote`` fallback is rendered with MMRelay keys.
+
+        Threads render as native ``m.thread`` events rooted at the bound
+        destination thread root.  Edits render ``m.replace`` /
+        ``m.new_content`` events; deletes render ``redact_event``
+        operations (mutation-authorized facts only — see
+        :class:`MatrixNativeMutationError`).
+
+        Every native render wraps its wire content in a closed
+        ``send_event`` (or ``redact_event``) operation envelope under
+        the ``_matrix_operation`` payload key.
 
         Parameters
         ----------
@@ -313,13 +363,36 @@ class MatrixRenderer:
         # ------------------------------------------------------------------
         # Native / direct path
         # ------------------------------------------------------------------
+        relations = event.relations
+        edit_rel = _find_relation(relations, "edit")
+        delete_rel = _find_relation(relations, "delete")
+        thread_rel = _find_relation(relations, "thread")
+        reply_rel = _find_relation(relations, "reply")
+        reaction_rel = _find_relation(relations, "reaction")
+
+        # Mutations are fail-closed operations: they either render as
+        # authorized native mutations or raise — never ordinary messages.
+        if edit_rel is not None:
+            return self._render_edit(event, ctx, edit_rel)
+        if delete_rel is not None:
+            return self._render_delete(event, ctx, delete_rel)
+
+        # Thread rendering with reply-fallback parent semantics.  If the root
+        # is unbound, an independently bound explicit reply parent is retained
+        # as a plain reply; otherwise the event degrades to an ordinary
+        # message.  _render_thread owns that decision.
+        if thread_rel is not None:
+            return self._render_thread(event, ctx, thread_rel, reply_rel)
+
         body = str(event.payload.get("text", event.payload.get("body", "")))
 
         # Determine if a reaction relation is present before applying the
         # body-level prefix — reactions manage their own prefix metadata.
-        _is_reaction = (
-            event.relations and event.relations[0].relation_type == "reaction"
-        )
+        # Reply/reaction tuple order is incidental.  A reply takes
+        # precedence when both relations are present; otherwise render the
+        # reaction independent of where it appears in the tuple.
+        selected_reaction = reaction_rel if reply_rel is None else None
+        _is_reaction = selected_reaction is not None
 
         # Apply relay prefix for mesh→Matrix direction (skip for reactions;
         # reactions produce their own prefix in the emote fallback body or
@@ -338,47 +411,48 @@ class MatrixRenderer:
             "format": "org.matrix.custom.html",
             "formatted_body": self._text_to_html(body),
         }
+        event_type = "m.room.message"
 
-        # Handle relations — reply and reaction
-        if event.relations:
-            rel = event.relations[0]
-
-            if rel.relation_type == "reply":
-                mx_event_id = self._matrix_target_event_id(rel, target_adapter)
-                native_data: dict[str, object] = {}
-                if event.metadata and event.metadata.native:
-                    native_data = dict(event.metadata.native.data)
-                # Extract MMRelay meshtastic_replyId from relation metadata
-                rel_meta = getattr(rel, "metadata", {}) or {}
-                mmrelay_id = rel_meta.get("meshtastic_reply_id")
-                if mmrelay_id in (None, ""):
-                    mmrelay_id = mmrelay_interop_fields(native_data).get(KEY_REPLY_ID)
-                if mx_event_id:
-                    # Matrix-native reply — render m.in_reply_to with Matrix event ID.
-                    # No manual fallback quoting: Matrix clients handle display
-                    # via m.relates_to.m.in_reply_to natively.
-                    content["body"] = body
-                    content["m.relates_to"] = {
-                        "m.in_reply_to": {
-                            "event_id": mx_event_id,
-                        }
+        # Handle relations — reply and reaction.  Relation tuple order is
+        # incidental; mutation/thread cases were handled above and reply wins
+        # the remaining tie deterministically.
+        if reply_rel is not None:
+            rel = reply_rel
+            mx_event_id = self._matrix_target_event_id(
+                rel, target_adapter, target_channel
+            )
+            native_data: dict[str, object] = {}
+            if event.metadata and event.metadata.native:
+                native_data = dict(event.metadata.native.data)
+            # Extract MMRelay meshtastic_replyId from relation metadata
+            rel_meta = getattr(rel, "metadata", {}) or {}
+            mmrelay_id = rel_meta.get("meshtastic_reply_id")
+            if mmrelay_id in (None, ""):
+                mmrelay_id = mmrelay_interop_fields(native_data).get(KEY_REPLY_ID)
+            if mx_event_id:
+                # Matrix-native reply — render m.in_reply_to with Matrix event ID.
+                # No manual fallback quoting: Matrix clients handle display
+                # via m.relates_to.m.in_reply_to natively.
+                content["body"] = body
+                content["m.relates_to"] = {
+                    "m.in_reply_to": {
+                        "event_id": mx_event_id,
                     }
-                # Always inject KEY_REPLY_ID when a Matrix-native target or MMRelay metadata is present
-                # (used by MMRelay-compatible Matrix consumers)
-                mx_reply_id = (
-                    mmrelay_id if mmrelay_id not in (None, "") else mx_event_id
-                )
-                if mx_reply_id not in (None, ""):
-                    content[KEY_REPLY_ID] = str(mx_reply_id)
+                }
+            # Always inject KEY_REPLY_ID when a Matrix-native target or MMRelay metadata is present
+            # (used by MMRelay-compatible Matrix consumers)
+            mx_reply_id = mmrelay_id if mmrelay_id not in (None, "") else mx_event_id
+            if mx_reply_id not in (None, ""):
+                content[KEY_REPLY_ID] = str(mx_reply_id)
 
-            elif rel.relation_type == "reaction":
-                reaction_prefix_meta = self._render_reaction(
-                    rel,
-                    content,
-                    target_adapter,
-                    event,
-                    ctx,
-                )
+        elif selected_reaction is not None:
+            reaction_prefix_meta, event_type = self._render_reaction(
+                selected_reaction,
+                content,
+                target_adapter,
+                event,
+                ctx,
+            )
 
         # Embed metadata envelope
         envelope = MatrixMetadataEnvelope(
@@ -396,15 +470,19 @@ class MatrixRenderer:
 
         metadata: dict[str, object] = {
             "renderer": self.name,
+            "matrix_operation": "send_event",
         }
         metadata.update(prefix_meta)
         metadata.update(reaction_prefix_meta)
+        self._note_rendered_text(metadata, content)
+
+        operation = MatrixOutboundOperation.send_event(event_type, content)
 
         return RenderingResult(
             event_id=event.event_id,
             target_adapter=target_adapter,
             target_channel=target_channel,
-            payload=content,
+            payload=operation.to_payload(),
             metadata=metadata,
             fallback_applied=None,
         )
@@ -421,9 +499,9 @@ class MatrixRenderer:
         """Render event with degraded relation text for fallback_text strategy.
 
         Produces a valid Matrix content payload (``msgtype``/``body``/MEDRE
-        envelope) without native ``m.relates_to`` or reaction-specific
-        ``_matrix_event_type`` fields.  Relation semantics are expressed as
-        deterministic plain text in the ``body`` using the same wording as
+        envelope) without native ``m.relates_to`` fields.  Relation
+        semantics are expressed as deterministic plain text in the
+        ``body`` using the same wording as
         :class:`~medre.core.rendering.text.TextRenderer`.
 
         Sets ``fallback_applied="strategy_fallback_text"`` on the result.
@@ -480,8 +558,10 @@ class MatrixRenderer:
 
         result_metadata: dict[str, object] = {
             "renderer": self.name,
+            "matrix_operation": "send_event",
         }
         result_metadata.update(prefix_meta)
+        self._note_rendered_text(result_metadata, content)
         if truncated:
             result_metadata["original_length"] = original_length
             result_metadata["original_text_bytes"] = original_text_bytes
@@ -489,11 +569,13 @@ class MatrixRenderer:
             if ctx.max_text_bytes is not None:
                 result_metadata["max_text_bytes"] = ctx.max_text_bytes
 
+        operation = MatrixOutboundOperation.send_event("m.room.message", content)
+
         return RenderingResult(
             event_id=event.event_id,
             target_adapter=ctx.target_adapter,
             target_channel=ctx.target_channel,
-            payload=content,
+            payload=operation.to_payload(),
             metadata=result_metadata,
             truncated=truncated,
             fallback_applied="strategy_fallback_text",
@@ -504,11 +586,16 @@ class MatrixRenderer:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _matrix_target_event_id(rel: Any, target_adapter: str) -> str | None:
+    def _matrix_target_event_id(
+        rel: Any,
+        target_adapter: str,
+        target_channel: str | None = None,
+    ) -> str | None:
         """Return a Matrix-native target event ID from a relation, or ``None``.
 
         A Matrix-native target ID is valid only when the relation's
-        ``target_native_ref`` belongs to *target_adapter* and has a
+        ``target_native_ref`` belongs to *target_adapter*, belongs to
+        *target_channel* when that destination room is known, and has a
         non-empty ``native_message_id``.
 
         The canonical ``rel.target_event_id`` is **never** used as a Matrix
@@ -520,6 +607,11 @@ class MatrixRenderer:
             return None
         adapter = getattr(ref, "adapter", None)
         if adapter != target_adapter:
+            return None
+        if (
+            target_channel is not None
+            and getattr(ref, "native_channel_id", None) != target_channel
+        ):
             return None
         mid = getattr(ref, "native_message_id", None)
         return str(mid) if mid else None
@@ -642,32 +734,37 @@ class MatrixRenderer:
         target_adapter: str,
         event: CanonicalEvent,
         ctx: RenderingContext | None = None,
-    ) -> dict[str, object]:
+    ) -> tuple[dict[str, object], str]:
         """Render a reaction relation into the Matrix content dict.
 
         When a Matrix-native target ID (owned by *target_adapter*) is
         available and mmrelay_compat is false, produces a true
-        ``m.reaction`` via an internal ``_matrix_event_type`` key
-        (consumed by the adapter).
+        ``m.reaction`` event (the caller emits it with event type
+        ``"m.reaction"``).
 
         When mmrelay_compat is true or no Matrix-native target exists,
-        falls back to an ``m.emote`` with MMRelay-compatible body and
-        full mesh metadata.
+        falls back to an ``m.emote`` ``m.room.message`` with
+        MMRelay-compatible body and full mesh metadata.
 
         The canonical ``rel.target_event_id`` is **never** used as a
         Matrix event ID — it is an internal MEDRE canonical ID.
 
-        Returns a dict of reaction-specific prefix metadata to be merged
-        into the rendering result metadata.  Empty dict when no prefix
-        metadata applies (e.g. true ``m.reaction`` annotations).
+        Returns a ``(reaction_prefix_meta, event_type)`` tuple.
+        ``reaction_prefix_meta`` is empty for true ``m.reaction``
+        annotations (no prefix metadata applies) and carries prefix
+        diagnostics for the emote fallback.
         """
-        mx_event_id = self._matrix_target_event_id(rel, target_adapter)
+        mx_event_id = self._matrix_target_event_id(
+            rel,
+            target_adapter,
+            ctx.target_channel if ctx is not None else None,
+        )
 
         # Extract MMRelay reply ID from relation metadata for fallback
         rel_meta = getattr(rel, "metadata", {}) or {}
 
         if mx_event_id is not None and not self._get_mmrelay_compat(event):
-            # True Matrix reaction — adapter will use _matrix_event_type
+            # True Matrix reaction — emitted as an m.reaction event
             # Remove default msgtype/body/format/formatted_body set at top of render()
             content.pop("msgtype", None)
             content.pop("body", None)
@@ -679,10 +776,8 @@ class MatrixRenderer:
                 "event_id": mx_event_id,
                 "key": symbol,
             }
-            # Internal key consumed by adapter; never leaks to homeserver
-            content["_matrix_event_type"] = "m.reaction"
             # True m.reaction carries no prefix metadata — body is removed.
-            return {}
+            return {}, "m.reaction"
         else:
             # mmrelay_compat or missing Matrix-native target → m.emote fallback
             symbol = self._extract_reaction_symbol(rel, event)
@@ -734,7 +829,353 @@ class MatrixRenderer:
             )
             content[KEY_PORTNUM] = PORTNUM_TEXT
 
-            return _reaction_prefix_meta
+            return _reaction_prefix_meta, "m.room.message"
+
+    # ------------------------------------------------------------------
+    # Native thread / edit / delete rendering
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _bound_native_target(
+        rel: EventRelation | None,
+        target_adapter: str,
+        target_channel: str | None = None,
+    ) -> str | None:
+        """Return the bound destination native ID for a referential relation.
+
+        Referential authority stays with the stored ``target_native_ref``
+        (adapter-scoped); a destination-scoped ``target_fact`` from core
+        binding is honored when it confirms the same destination.  Source
+        platform IDs and canonical event IDs are never returned.
+        """
+        if rel is None:
+            return None
+        ref_id = MatrixRenderer._matrix_target_event_id(
+            rel, target_adapter, target_channel
+        )
+        if ref_id:
+            return ref_id
+        fact = getattr(rel, "target_fact", None)
+        if (
+            fact is not None
+            and getattr(fact, "status", None) in ("bound", "bound_owned")
+            and getattr(fact, "adapter", None) == target_adapter
+            and (
+                target_channel is None
+                or getattr(fact, "native_channel_id", None) == target_channel
+            )
+            and getattr(fact, "native_message_id", None)
+        ):
+            return str(fact.native_message_id)
+        return None
+
+    @staticmethod
+    def _require_bound_owned_target(
+        rel: EventRelation,
+        target_adapter: str,
+        target_channel: str | None = None,
+    ) -> str:
+        """Return the mutation target native ID, enforcing ``bound_owned``.
+
+        Raises :class:`MatrixNativeMutationError` when the relation's
+        core-computed ``target_fact`` is missing, not ``bound_owned``, or
+        carries no usable destination native ID.  This is the
+        renderer-level fail-close: mutations never degrade into ordinary
+        messages and never act on unproven targets.
+        """
+        fact = getattr(rel, "target_fact", None)
+        if fact is None or getattr(fact, "status", None) != "bound_owned":
+            raise MatrixNativeMutationError(
+                "native mutation refused: relation target_fact is not "
+                f"bound_owned (status={getattr(fact, 'status', None)!r})"
+            )
+        fact_adapter = getattr(fact, "adapter", None)
+        fact_channel = getattr(fact, "native_channel_id", None)
+        fact_id = getattr(fact, "native_message_id", None)
+        if (
+            fact_id
+            and fact_adapter == target_adapter
+            and (target_channel is None or fact_channel == target_channel)
+        ):
+            return str(fact_id)
+        # bound_owned but no usable destination-scoped id — fail closed.
+        raise MatrixNativeMutationError(
+            "native mutation refused: bound_owned fact carries no "
+            "destination native_message_id for "
+            f"adapter={target_adapter!r} channel={target_channel!r}"
+        )
+
+    def _render_thread(
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext,
+        thread_rel: EventRelation,
+        reply_rel: EventRelation | None,
+    ) -> RenderingResult:
+        """Render a thread relation as a native ``m.thread`` event.
+
+        The thread root must be a bound destination native ID.  If it is
+        unbound but an independent explicit reply parent is bound, the event
+        degrades to a plain reply to that parent.  If neither target is bound,
+        it degrades to an ordinary message without ``m.relates_to`` (never a
+        fabricated source-platform ID).
+
+        Parent selection: an explicit bound reply relation on the same
+        event becomes ``m.in_reply_to`` with ``is_falling_back=false``;
+        otherwise the root itself is the fallback parent with
+        ``is_falling_back=true`` (spec fallback-parent semantics).
+        Tuple order of thread/reply relations is incidental.
+        """
+        target_adapter = ctx.target_adapter
+        root_id = self._bound_native_target(
+            thread_rel, target_adapter, ctx.target_channel
+        )
+        parent_id = self._bound_native_target(
+            reply_rel, target_adapter, ctx.target_channel
+        )
+
+        if not root_id:
+            # The thread itself cannot be represented natively in this room.
+            # Preserve an independently bound explicit parent as a plain reply;
+            # otherwise degrade all the way to an ordinary message.
+            return self._render_plain_message(
+                event,
+                ctx,
+                reply_target_id=parent_id,
+            )
+        if parent_id:
+            relates_to: dict[str, object] = {
+                "rel_type": "m.thread",
+                "event_id": root_id,
+                "is_falling_back": False,
+                "m.in_reply_to": {"event_id": parent_id},
+            }
+        else:
+            relates_to = {
+                "rel_type": "m.thread",
+                "event_id": root_id,
+                "is_falling_back": True,
+                "m.in_reply_to": {"event_id": root_id},
+            }
+
+        body = str(event.payload.get("text", event.payload.get("body", "")))
+        body, prefix_meta = self._apply_matrix_relay_prefix(
+            event, body, target_adapter, ctx
+        )
+
+        content: dict[str, object] = {
+            "msgtype": "m.text",
+            "body": body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": self._text_to_html(body),
+            "m.relates_to": relates_to,
+        }
+
+        metadata = self._finalize_send_content(event, ctx, content)
+
+        metadata.update(prefix_meta)
+        metadata["matrix_thread_root"] = root_id
+        if parent_id:
+            metadata["matrix_thread_parent"] = parent_id
+
+        operation = MatrixOutboundOperation.send_event("m.room.message", content)
+        return RenderingResult(
+            event_id=event.event_id,
+            target_adapter=target_adapter,
+            target_channel=ctx.target_channel,
+            payload=operation.to_payload(),
+            metadata=metadata,
+            fallback_applied=None,
+        )
+
+    def _render_plain_message(
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext,
+        *,
+        reply_target_id: str | None = None,
+    ) -> RenderingResult:
+        """Render a plain message, optionally retaining one bound reply."""
+        target_adapter = ctx.target_adapter
+        body = str(event.payload.get("text", event.payload.get("body", "")))
+        body, prefix_meta = self._apply_matrix_relay_prefix(
+            event, body, target_adapter, ctx
+        )
+
+        content: dict[str, object] = {
+            "msgtype": "m.text",
+            "body": body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": self._text_to_html(body),
+        }
+        if reply_target_id is not None:
+            content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_target_id}}
+
+        metadata = self._finalize_send_content(event, ctx, content)
+        metadata.update(prefix_meta)
+
+        operation = MatrixOutboundOperation.send_event("m.room.message", content)
+        return RenderingResult(
+            event_id=event.event_id,
+            target_adapter=target_adapter,
+            target_channel=ctx.target_channel,
+            payload=operation.to_payload(),
+            metadata=metadata,
+            fallback_applied=None,
+        )
+
+    def _render_edit(
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext,
+        edit_rel: EventRelation,
+    ) -> RenderingResult:
+        """Render an edit relation as a native ``m.replace`` event.
+
+        Wire shape (spec event replacements):
+
+        * top-level ``body`` is the ``"* "`` fallback for clients that
+          do not understand replacements;
+        * ``m.new_content`` carries the new msgtype/body/format/
+          formatted_body with exactly ONE relay attribution applied to
+          the new body;
+        * ``m.relates_to`` is ``{"rel_type": "m.replace", "event_id":
+          <bound ORIGINAL copy native id>}``.
+
+        Matrix replacement semantics preserve the original event's
+        ``m.relates_to``.  The replacement therefore carries only its
+        ``m.replace`` relationship; relation data inside ``m.new_content``
+        would be ignored by Matrix clients/servers.
+
+        Requires a ``bound_owned`` target fact (renderer fail-close).
+        Text only — binary attachments are unsupported and unchanged.
+        """
+        target_adapter = ctx.target_adapter
+        original_id = self._require_bound_owned_target(
+            edit_rel,
+            target_adapter,
+            ctx.target_channel,
+        )
+
+        new_text = str(event.payload.get("text", event.payload.get("body", "")))
+        # Exactly one relay attribution: applied once to the new body.
+        new_body, prefix_meta = self._apply_matrix_relay_prefix(
+            event, new_text, target_adapter, ctx
+        )
+        fallback_body = f"* {new_body}"
+
+        new_content: dict[str, object] = {
+            "msgtype": "m.text",
+            "body": new_body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": self._text_to_html(new_body),
+        }
+        content: dict[str, object] = {
+            "msgtype": "m.text",
+            "body": fallback_body,
+            "format": "org.matrix.custom.html",
+            "formatted_body": self._text_to_html(fallback_body),
+            "m.new_content": new_content,
+            "m.relates_to": {
+                "rel_type": "m.replace",
+                "event_id": original_id,
+            },
+        }
+
+        metadata = self._finalize_send_content(event, ctx, content)
+        metadata.update(prefix_meta)
+        metadata["matrix_edit_target"] = original_id
+
+        operation = MatrixOutboundOperation.send_event("m.room.message", content)
+        return RenderingResult(
+            event_id=event.event_id,
+            target_adapter=target_adapter,
+            target_channel=ctx.target_channel,
+            payload=operation.to_payload(),
+            metadata=metadata,
+            fallback_applied=None,
+        )
+
+    def _render_delete(
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext,
+        delete_rel: EventRelation,
+    ) -> RenderingResult:
+        """Render a delete relation as a ``redact_event`` operation.
+
+        Only ``bound_owned`` targets are redacted (renderer-level
+        fail-close; the core delivery gate suppresses everything else
+        before rendering).  The reason is neutral; no content envelope
+        and no fabricated body are emitted.
+        """
+        target_adapter = ctx.target_adapter
+        target_id = self._require_bound_owned_target(
+            delete_rel,
+            target_adapter,
+            ctx.target_channel,
+        )
+
+        operation = MatrixOutboundOperation.redact(target_id)
+
+        return RenderingResult(
+            event_id=event.event_id,
+            target_adapter=target_adapter,
+            target_channel=ctx.target_channel,
+            payload=operation.to_payload(),
+            metadata={
+                "renderer": self.name,
+                "matrix_operation": "redact_event",
+                "matrix_redacts_event_id": target_id,
+            },
+            fallback_applied=None,
+        )
+
+    def _finalize_send_content(
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext,
+        content: dict[str, object],
+    ) -> dict[str, object]:
+        """Attach provenance envelope and optional MMRelay metadata.
+
+        Shared by the thread/edit/plain native renders.  Returns the
+        result-metadata dict (renderer name + operation kind).
+        """
+        envelope = MatrixMetadataEnvelope(
+            canonical_event_id=event.event_id,
+            source_adapter=event.source_adapter,
+            source_channel=event.source_channel_id or "",
+            metadata_mode="safe",
+        )
+        content.update(envelope.to_content())
+        if self._get_mmrelay_compat(event):
+            self._inject_mmrelay_metadata(event, content, ctx.source_origin_label)
+        metadata: dict[str, object] = {
+            "renderer": self.name,
+            "matrix_operation": "send_event",
+        }
+        self._note_rendered_text(metadata, content)
+        return metadata
+
+    @staticmethod
+    def _note_rendered_text(
+        metadata: dict[str, object],
+        content: dict[str, object],
+    ) -> None:
+        """Record rendered-text metrics for delivery evidence.
+
+        The closed outbound envelope moves wire content off the payload
+        top level, so the evidence extractor's payload-key fallback can no
+        longer see the rendered body; renderer metadata is the supported
+        channel for these metrics.  True ``m.reaction`` annotations carry
+        no body and stay metric-free.
+        """
+        body = content.get("body")
+        if not isinstance(body, str):
+            return
+        metadata.setdefault("rendered_text_chars", len(body))
+        metadata.setdefault("rendered_text_bytes", len(body.encode("utf-8")))
 
     # ------------------------------------------------------------------
     # Private helpers

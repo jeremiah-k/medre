@@ -39,6 +39,7 @@ from medre.interop.mmrelay import (
     KEY_TEXT,
     PORTNUM_TEXT,
 )
+from tests.helpers.matrix import matrix_payload_content
 
 
 def _make_event(
@@ -84,9 +85,10 @@ class TestMatrixRendererStandalone:
         )
 
         assert isinstance(result, RenderingResult)
-        assert result.payload["msgtype"] == "m.text"
-        assert result.payload["body"] == "hello from mesh"
-        assert "medre" in result.payload
+        content = matrix_payload_content(result)
+        assert content["msgtype"] == "m.text"
+        assert content["body"] == "hello from mesh"
+        assert "medre" in content
 
 
 # ======================================================================

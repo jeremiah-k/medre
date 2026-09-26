@@ -89,6 +89,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
+from tests.helpers.matrix import matrix_payload_content
 
 from .conftest import E2EETestEnvironment, close_nio_client, close_nio_store
 from .synapse_helpers import make_context as _make_context
@@ -533,7 +534,7 @@ class TestSynapseE2EESmoke:
                     (
                         p
                         for p in fake_out.delivered_payloads
-                        if p.payload.get("body") == body_text
+                        if matrix_payload_content(p).get("body") == body_text
                     ),
                     None,
                 )

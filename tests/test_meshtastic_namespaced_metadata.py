@@ -15,6 +15,7 @@ from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_events import make_meshtastic_event
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
@@ -321,7 +322,7 @@ async def test_matrix_renderer_uses_versioned_packet_id() -> None:
         event,
         RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
     )
-    assert result.payload["meshtastic_id"] == "111"
+    assert matrix_payload_content(result)["meshtastic_id"] == "111"
 
 
 async def test_matrix_renderer_does_not_read_root_packet_id() -> None:
@@ -334,7 +335,7 @@ async def test_matrix_renderer_does_not_read_root_packet_id() -> None:
         event,
         RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
     )
-    assert result.payload["meshtastic_id"] == ""
+    assert matrix_payload_content(result)["meshtastic_id"] == ""
 
 
 async def test_matrix_renderer_packet_id_zero_preserved() -> None:
@@ -347,4 +348,4 @@ async def test_matrix_renderer_packet_id_zero_preserved() -> None:
         event,
         RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
     )
-    assert result.payload["meshtastic_id"] == "0"
+    assert matrix_payload_content(result)["meshtastic_id"] == "0"

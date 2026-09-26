@@ -290,9 +290,13 @@ class TestReactions:
 class TestEdits:
     """edits: message edit support level."""
 
-    def test_all_transports_edits_unsupported(self) -> None:
-        """No adapter implements edits.  Honest omission."""
-        for transport in TRANSPORTS:
+    def test_matrix_edits_native(self) -> None:
+        """Matrix implements destination-bound native replacements."""
+        assert _get_fake_caps("matrix").edits == "native"
+
+    def test_other_transports_edits_unsupported(self) -> None:
+        """Non-Matrix adapters still make an honest unsupported claim."""
+        for transport in ("meshtastic", "meshcore", "lxmf"):
             assert (
                 _get_fake_caps(transport).edits == "unsupported"
             ), f"{transport} unexpectedly declares edits support"
@@ -472,15 +476,16 @@ def test_meshcore_direct_messages_false_despite_inbound_relay() -> None:
     assert json_caps["direct_messages"] is False
 
 
-def test_matrix_edits_unsupported_despite_matrix_spec_support() -> None:
-    """Matrix spec supports edits/redactions but MEDRE has no implementation.
-    Correct to not declare until implemented.  Honest underclaim."""
+def test_matrix_native_mutation_capabilities_match_implementation() -> None:
+    """Matrix advertises the destination-bound edit/redaction lifecycle."""
     fake_caps = _get_fake_caps("matrix")
-    assert fake_caps.edits == "unsupported"
-    assert fake_caps.deletes == "unsupported"
+    assert fake_caps.edits == "native"
+    assert fake_caps.deletes == "native"
+    assert fake_caps.threads == "native"
     json_caps = _load_json_caps("matrix")
-    assert json_caps["edits"] == "unsupported"
-    assert json_caps["deletes"] == "unsupported"
+    assert json_caps["edits"] == "native"
+    assert json_caps["deletes"] == "native"
+    assert json_caps["threads"] == "native"
 
 
 # ---------------------------------------------------------------------------

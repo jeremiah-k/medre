@@ -24,6 +24,7 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -452,8 +453,8 @@ class TestMatrixPlatformRendererSelection:
         assert result.metadata["renderer"] == "matrix"
 
         # Proves Matrix payload shape (msgtype + body)
-        assert result.payload["msgtype"] == "m.text"
-        assert result.payload["body"] == "platform dispatch test"
+        assert _payload_content(result)["msgtype"] == "m.text"
+        assert _payload_content(result)["body"] == "platform dispatch test"
 
         # Outbound delivery returned a deterministic native_message_id
         assert isinstance(result, RenderingResult)

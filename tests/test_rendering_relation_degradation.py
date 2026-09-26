@@ -18,6 +18,7 @@ import pytest
 from medre.core.events import (
     EventRelation,
 )
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.rendering_evidence import (
     make_context,
     make_event,
@@ -236,8 +237,9 @@ class TestRelationFallbackDegradation:
         )
         result = await renderer.render(event, ctx)
         assert result.fallback_applied == "strategy_fallback_text"
-        assert "m.relates_to" not in result.payload
-        body = result.payload.get("body", "")
+        content = matrix_payload_content(result)
+        assert "m.relates_to" not in content
+        body = content.get("body", "")
         assert isinstance(body, str)
         assert len(body) > 0
 
@@ -532,9 +534,10 @@ class TestThreadRelationCapability:
             delivery_strategy="fallback_text",
         )
         result = await renderer.render(event, ctx)
-        assert "m.relates_to" not in result.payload
+        content = matrix_payload_content(result)
+        assert "m.relates_to" not in content
         assert result.fallback_applied == "strategy_fallback_text"
-        assert "thread" in str(result.payload.get("body", "")).lower()
+        assert "thread" in str(content.get("body", "")).lower()
 
     async def test_meshcore_fallback_thread_degrades_text(self) -> None:
         """MeshCore fallback_text thread degrades to inline text."""

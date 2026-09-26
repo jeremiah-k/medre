@@ -77,6 +77,7 @@ from medre.core.rendering.renderer import RenderingContext, RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ===================================================================
 # Shared helpers
@@ -800,7 +801,7 @@ class TestMeshtasticToMatrixReactionResolution:
 
             # Matrix adapter received the rendered payload.
             assert len(matrix_adapter.delivered_payloads) == 1
-            payload = matrix_adapter.delivered_payloads[0].payload
+            payload = _payload_content(matrix_adapter.delivered_payloads[0])
 
             # meshtastic_replyId matches the original packet ID.
             assert str(payload.get("meshtastic_replyId")) == str(_MESH_PKT)
@@ -810,7 +811,7 @@ class TestMeshtasticToMatrixReactionResolution:
 
             # Native Matrix reaction annotation is NOT present — the
             # cross-adapter path uses meshtastic_* fields, not m.reaction.
-            assert payload.get("_matrix_event_type") != "m.reaction"
+            assert payload.get("m.relates_to", {}).get("rel_type") != "m.annotation"
             relates_to = payload.get("m.relates_to")
             if relates_to:
                 assert relates_to.get("rel_type") != "m.annotation"

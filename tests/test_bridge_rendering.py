@@ -28,6 +28,7 @@ from medre.config.adapters.meshcore import MeshCoreConfig
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
 from medre.core.rendering.renderer import RenderingPipeline
+from tests.helpers.matrix import matrix_payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -199,7 +200,7 @@ class TestMeshtasticRendersForMatrix:
 
         assert result.target_adapter == "matrix-target"
         assert result.event_id == event.event_id
-        payload = result.payload
+        payload = matrix_payload_content(result)
         assert payload["msgtype"] == "m.text"
         assert payload["body"] == "Hello from mesh"
 
@@ -214,8 +215,9 @@ class TestMeshtasticRendersForMatrix:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
-        assert "medre" in result.payload
-        envelope = result.payload["medre"]["envelope"]
+        payload = matrix_payload_content(result)
+        assert "medre" in payload
+        envelope = payload["medre"]["envelope"]
         assert envelope["source_adapter"] == "mesh-src"
         assert envelope["canonical_event_id"] == event.event_id
 
@@ -229,7 +231,7 @@ class TestMeshtasticRendersForMatrix:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
-        assert result.payload["body"] == "text-val"
+        assert matrix_payload_content(result)["body"] == "text-val"
 
     @pytest.mark.asyncio
     async def test_metadata_renderer_name(self) -> None:
@@ -263,7 +265,7 @@ class TestSourceDisplayNameHandling:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-out", "matrix")
 
-        envelope = result.payload["medre"]["envelope"]
+        envelope = matrix_payload_content(result)["medre"]["envelope"]
         assert envelope["source_adapter"] == "meshtastic-radio-1"
         assert envelope["source_channel"] == "ch-1"
 
@@ -344,7 +346,7 @@ class TestReplyThreadContext:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
-        payload = result.payload
+        payload = matrix_payload_content(result)
         assert "m.relates_to" in payload
         reply_ref = payload["m.relates_to"]["m.in_reply_to"]
         assert reply_ref["event_id"] == "$orig-matrix-event"
@@ -376,7 +378,7 @@ class TestReplyThreadContext:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
-        assert "m.relates_to" not in result.payload
+        assert "m.relates_to" not in matrix_payload_content(result)
 
     @pytest.mark.asyncio
     async def test_meshtastic_reply_no_special_handling(self) -> None:
@@ -439,8 +441,9 @@ class TestEmptyPayloadHandling:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
-        assert result.payload["body"] == ""
-        assert result.payload["msgtype"] == "m.text"
+        content = matrix_payload_content(result)
+        assert content["body"] == ""
+        assert content["msgtype"] == "m.text"
 
     @pytest.mark.asyncio
     async def test_empty_payload_meshcore(self) -> None:
@@ -514,7 +517,7 @@ class TestEscapingSafety:
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
         # Matrix body is plain text, not HTML-escaped
-        assert result.payload["body"] == text
+        assert matrix_payload_content(result)["body"] == text
 
     @pytest.mark.asyncio
     async def test_control_characters(self) -> None:
@@ -542,7 +545,7 @@ class TestEscapingSafety:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
-        assert result.payload["body"] == text
+        assert matrix_payload_content(result)["body"] == text
 
     @pytest.mark.asyncio
     async def test_very_long_text_truncated_by_byte_budget(self) -> None:
@@ -597,6 +600,6 @@ class TestEscapingSafety:
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
         # The reply body includes the fallback text verbatim
-        body = result.payload["body"]
+        body = matrix_payload_content(result)["body"]
         assert isinstance(body, str)
         assert "reply with <special> & chars" in body

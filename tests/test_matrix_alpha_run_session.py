@@ -35,6 +35,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.helpers.matrix import matrix_send_payload
+
 # ---------------------------------------------------------------------------
 # Module-level marker
 # ---------------------------------------------------------------------------
@@ -370,10 +372,12 @@ class TestMatrixAlphaDirectAdapter:
                 event_id=f"alpha-session-{ts}",
                 target_adapter="matrix-alpha-session",
                 target_channel=MATRIX_ROOM_ID,
-                payload={
-                    "msgtype": "m.text",
-                    "body": f"MEDRE alpha session test (ts={ts}) — safe to ignore",
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": f"MEDRE alpha session test (ts={ts}) — safe to ignore",
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "alpha-session"},
             )
             delivery = await asyncio.wait_for(
@@ -424,10 +428,12 @@ class TestMatrixAlphaDirectAdapter:
                 event_id=f"alpha-diag-{ts}",
                 target_adapter="matrix-alpha-diag",
                 target_channel=MATRIX_ROOM_ID,
-                payload={
-                    "msgtype": "m.text",
-                    "body": f"MEDRE alpha diag test (ts={ts}) — safe to ignore",
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": f"MEDRE alpha diag test (ts={ts}) — safe to ignore",
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "alpha-diag"},
             )
             await asyncio.wait_for(adapter.deliver(result), timeout=_DELIVER_TIMEOUT)

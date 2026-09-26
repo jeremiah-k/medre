@@ -43,6 +43,7 @@ from medre.core.rendering.evidence import RenderingEvidence
 from medre.core.rendering.renderer import (
     RenderingResult,
 )
+from tests.helpers.matrix import matrix_payload_content
 
 # Reuse helpers from the flow module.
 from tests.helpers.native_metadata import meshtastic_native_data
@@ -174,7 +175,7 @@ class TestMeshtasticToMatrixReply:
         ctx = _matrix_rendering_context()
 
         result = await renderer.render(event, ctx)
-        relates = result.payload.get("m.relates_to")
+        relates = matrix_payload_content(result).get("m.relates_to")
         assert relates is not None
         assert relates["m.in_reply_to"]["event_id"] == "$orig001"
 
@@ -195,7 +196,7 @@ class TestMeshtasticToMatrixReply:
         ctx = _matrix_rendering_context(delivery_strategy="fallback_text")
 
         result = await renderer.render(event, ctx)
-        assert "m.relates_to" not in result.payload
+        assert "m.relates_to" not in matrix_payload_content(result)
         assert result.fallback_applied == "strategy_fallback_text"
 
 
@@ -292,7 +293,7 @@ class TestCrossPlatformReactions:
         ctx = _matrix_rendering_context()
 
         result = await renderer.render(event, ctx)
-        relates = result.payload.get("m.relates_to", {})
+        relates = matrix_payload_content(result).get("m.relates_to", {})
         assert relates.get("rel_type") == "m.annotation"
         assert relates.get("key") == "\u2764\ufe0f"
 

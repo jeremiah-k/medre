@@ -27,6 +27,7 @@ from medre.core.events import (
 )
 from medre.core.planning.delivery_plan import DeliveryStrategyMethod
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -113,7 +114,7 @@ async def test_reply_uses_native_ref_owned_by_target_adapter() -> None:
     event = _event(relations=(_reply_rel(adapter=_TARGET, native_message_id="$mx-1"),))
     result = await renderer.render(event, _ctx())
 
-    relates = result.payload.get("m.relates_to")
+    relates = _payload_content(result).get("m.relates_to")
     assert relates is not None
     assert relates["m.in_reply_to"]["event_id"] == "$mx-1"  # type: ignore[index]
 
@@ -126,7 +127,7 @@ async def test_reply_ignores_cross_adapter_native_ref() -> None:
     )
     result = await renderer.render(event, _ctx())
 
-    assert result.payload.get("m.relates_to") is None
+    assert _payload_content(result).get("m.relates_to") is None
 
 
 async def test_reply_without_native_ref_no_relates_to() -> None:
@@ -142,7 +143,7 @@ async def test_reply_without_native_ref_no_relates_to() -> None:
     event = _event(relations=(rel,))
     result = await renderer.render(event, _ctx())
 
-    assert result.payload.get("m.relates_to") is None
+    assert _payload_content(result).get("m.relates_to") is None
 
 
 async def test_reply_with_empty_native_message_id_no_relates_to() -> None:
@@ -151,7 +152,7 @@ async def test_reply_with_empty_native_message_id_no_relates_to() -> None:
     event = _event(relations=(_reply_rel(adapter=_TARGET, native_message_id=""),))
     result = await renderer.render(event, _ctx())
 
-    assert result.payload.get("m.relates_to") is None
+    assert _payload_content(result).get("m.relates_to") is None
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +169,8 @@ async def test_reaction_true_m_reaction_when_native_target_exists() -> None:
     )
     result = await renderer.render(event, _ctx())
 
-    assert result.payload.get("_matrix_event_type") == "m.reaction"
-    relates = result.payload["m.relates_to"]
+    assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
+    relates = _payload_content(result)["m.relates_to"]
     assert relates["rel_type"] == "m.annotation"  # type: ignore[index]
     assert relates["event_id"] == "$mx-r1"  # type: ignore[index]
 
@@ -184,8 +185,8 @@ async def test_reaction_emote_fallback_when_no_native_target() -> None:
     result = await renderer.render(event, _ctx())
 
     # No true m.reaction; should be emote fallback
-    assert result.payload.get("_matrix_event_type") is None
-    assert result.payload["msgtype"] == "m.emote"
+    assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
+    assert _payload_content(result)["msgtype"] == "m.emote"
 
 
 async def test_reaction_emote_fallback_when_no_native_ref_at_all() -> None:
@@ -201,7 +202,7 @@ async def test_reaction_emote_fallback_when_no_native_ref_at_all() -> None:
     event = _event(relations=(rel,), payload={"body": "👍"})
     result = await renderer.render(event, _ctx())
 
-    assert result.payload["msgtype"] == "m.emote"
+    assert _payload_content(result)["msgtype"] == "m.emote"
 
 
 # ---------------------------------------------------------------------------
@@ -215,10 +216,10 @@ async def test_no_relations_renders_plain_text() -> None:
     event = _event()
     result = await renderer.render(event, _ctx())
 
-    assert result.payload["msgtype"] == "m.text"
-    assert result.payload["body"] == "hello"
-    assert "m.relates_to" not in result.payload
-    assert "_matrix_event_type" not in result.payload
+    assert _payload_content(result)["msgtype"] == "m.text"
+    assert _payload_content(result)["body"] == "hello"
+    assert "m.relates_to" not in _payload_content(result)
+    assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
 
 
 # ---------------------------------------------------------------------------
@@ -240,44 +241,43 @@ async def test_stale_native_target_emitted_without_validation() -> None:
     )
     result = await renderer.render(event, _ctx())
 
-    relates = result.payload["m.relates_to"]
+    relates = _payload_content(result)["m.relates_to"]
     assert relates["m.in_reply_to"]["event_id"] == "$mx-deleted-event"  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
-# Multiple relations — only relations[0] is used
+# Multiple relations — semantic selection is order-independent
 # ---------------------------------------------------------------------------
 
 
-async def test_multiple_relations_uses_only_first() -> None:
-    """When an event carries multiple relations, only relations[0] is rendered."""
+async def test_reply_precedence_when_reply_is_first() -> None:
+    """Reply wins over reaction regardless of tuple position."""
     renderer = MatrixRenderer()
     rel1 = _reply_rel(adapter=_TARGET, native_message_id="$mx-first")
     rel2 = _reaction_rel(adapter=_TARGET, native_message_id="$mx-second")
     event = _event(relations=(rel1, rel2))
     result = await renderer.render(event, _ctx())
 
-    # First relation is a reply — m.relates_to should be a reply, not a reaction
-    relates = result.payload["m.relates_to"]
+    # Reply is selected semantically, not because it is first.
+    relates = _payload_content(result)["m.relates_to"]
     assert "m.in_reply_to" in relates  # type: ignore[operator]
     assert relates["m.in_reply_to"]["event_id"] == "$mx-first"  # type: ignore[index]
     # No reaction annotation from rel2
-    assert result.payload.get("_matrix_event_type") is None
+    assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
 
 
-async def test_second_relation_ignored_when_first_is_reaction() -> None:
-    """Second relation is ignored; first (reaction) determines the output."""
+async def test_reply_precedence_when_reaction_is_first() -> None:
+    """Reply still wins when the reaction appears first."""
     renderer = MatrixRenderer()
     rel1 = _reaction_rel(adapter=_TARGET, native_message_id="$mx-r-first", key="🔥")
     rel2 = _reply_rel(adapter=_TARGET, native_message_id="$mx-reply-second")
     event = _event(relations=(rel1, rel2), payload={"body": "🔥"})
     result = await renderer.render(event, _ctx())
 
-    # First relation is a reaction — should render m.reaction
-    assert result.payload.get("_matrix_event_type") == "m.reaction"
-    relates = result.payload["m.relates_to"]
-    assert relates["rel_type"] == "m.annotation"  # type: ignore[index]
-    assert relates["key"] == "🔥"  # type: ignore[index]
+    assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
+    relates = _payload_content(result)["m.relates_to"]
+    assert "m.in_reply_to" in relates  # type: ignore[operator]
+    assert relates["m.in_reply_to"]["event_id"] == "$mx-reply-second"  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------
@@ -286,11 +286,11 @@ async def test_second_relation_ignored_when_first_is_reaction() -> None:
 
 
 async def test_fallback_text_strategy_no_native_relates_to() -> None:
-    """Under fallback_text strategy, no m.relates_to or _matrix_event_type."""
+    """Under fallback_text strategy, no native m.relates_to is emitted."""
     renderer = MatrixRenderer()
     event = _event(relations=(_reply_rel(adapter=_TARGET, native_message_id="$mx-fb"),))
     result = await renderer.render(event, _ctx(delivery_strategy="fallback_text"))
 
-    assert "m.relates_to" not in result.payload
-    assert "_matrix_event_type" not in result.payload
+    assert "m.relates_to" not in _payload_content(result)
+    assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
     assert result.fallback_applied == "strategy_fallback_text"

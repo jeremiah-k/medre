@@ -114,10 +114,17 @@ def extract_matrix_relation(
             )
 
     if rel_type == "m.replace" and target is not None:
+        # Matrix replacement semantics preserve the original event's
+        # relationship metadata.  A valid edit of a reply therefore omits
+        # m.in_reply_to from the replacement event.  Preserve any non-standard
+        # wire value in native metadata for diagnostics, but do not promote it
+        # into a separate canonical reply relation in the codec.
+        reply_target = extract_reply_target(source)
         return MatrixRelationDescriptor(
             kind="edit",
             target_event_id=target,
             rel_type="m.replace",
+            reply_to_event_id=reply_target,
         )
 
     if rel_type == "m.thread" and target is not None:

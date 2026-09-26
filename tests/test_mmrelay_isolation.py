@@ -45,6 +45,7 @@ from medre.interop.mmrelay import (
     derive_meshnet_value,
 )
 from tests.helpers.ast_imports import all_imports, parse_python
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 
@@ -345,11 +346,12 @@ async def test_displayname_does_not_populate_names_inject_path() -> None:
             target_platform="matrix",
         ),
     )
-    assert result.payload[KEY_LONGNAME] == ""
-    assert result.payload[KEY_SHORTNAME] == ""
+    content = matrix_payload_content(result)
+    assert content[KEY_LONGNAME] == ""
+    assert content[KEY_SHORTNAME] == ""
     # displayname must not leak into any other mmrelay wire field either.
-    assert "Alice Display" not in str(result.payload[KEY_LONGNAME])
-    assert "Alice Display" not in str(result.payload[KEY_SHORTNAME])
+    assert "Alice Display" not in str(content[KEY_LONGNAME])
+    assert "Alice Display" not in str(content[KEY_SHORTNAME])
 
 
 async def test_displayname_does_not_populate_names_reaction_path() -> None:
@@ -376,8 +378,9 @@ async def test_displayname_does_not_populate_names_reaction_path() -> None:
             target_platform="matrix",
         ),
     )
-    assert result.payload[KEY_LONGNAME] == ""
-    assert result.payload[KEY_SHORTNAME] == ""
+    content = matrix_payload_content(result)
+    assert content[KEY_LONGNAME] == ""
+    assert content[KEY_SHORTNAME] == ""
 
 
 async def test_displayname_ignored_even_alongside_empty_names() -> None:
@@ -404,8 +407,9 @@ async def test_displayname_ignored_even_alongside_empty_names() -> None:
     )
     # Empty namespaced value short-circuits to "" via the `or` chain;
     # displayname must NOT fill in.
-    assert result.payload[KEY_LONGNAME] == ""
-    assert result.payload[KEY_SHORTNAME] == ""
+    content = matrix_payload_content(result)
+    assert content[KEY_LONGNAME] == ""
+    assert content[KEY_SHORTNAME] == ""
 
 
 # ---------------------------------------------------------------------------
@@ -447,8 +451,9 @@ async def test_meshnet_from_route_label_not_native_wire_data() -> None:
             source_origin_label="Route Net",
         ),
     )
-    assert result.payload[KEY_MESHNET] == "Route Net"
-    assert result.payload[KEY_MESHNET] != "Wire Meshnet"
+    content = matrix_payload_content(result)
+    assert content[KEY_MESHNET] == "Route Net"
+    assert content[KEY_MESHNET] != "Wire Meshnet"
 
 
 async def test_meshnet_from_adapter_label_not_native_wire_data() -> None:
@@ -478,8 +483,9 @@ async def test_meshnet_from_adapter_label_not_native_wire_data() -> None:
             target_platform="matrix",
         ),
     )
-    assert result.payload[KEY_MESHNET] == "Adapter Net"
-    assert result.payload[KEY_MESHNET] != "Wire Meshnet"
+    content = matrix_payload_content(result)
+    assert content[KEY_MESHNET] == "Adapter Net"
+    assert content[KEY_MESHNET] != "Wire Meshnet"
 
 
 async def test_meshnet_empty_when_no_labels_not_native_wire_data() -> None:
@@ -501,8 +507,9 @@ async def test_meshnet_empty_when_no_labels_not_native_wire_data() -> None:
             target_platform="matrix",
         ),
     )
-    assert result.payload[KEY_MESHNET] == ""
-    assert result.payload[KEY_MESHNET] != "Wire Meshnet"
+    content = matrix_payload_content(result)
+    assert content[KEY_MESHNET] == ""
+    assert content[KEY_MESHNET] != "Wire Meshnet"
 
 
 # ---------------------------------------------------------------------------

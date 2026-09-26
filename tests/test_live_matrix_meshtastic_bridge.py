@@ -47,6 +47,7 @@ from tests.helpers.live_config import (
     meshtastic_env_set,
     write_live_bridge_yaml,
 )
+from tests.helpers.matrix import matrix_send_payload
 
 # ---------------------------------------------------------------------------
 # Module-level marker — entire file tagged "live" so it is excluded by the
@@ -331,12 +332,15 @@ class TestMatrixToMeshtasticSmoke:
                 event_id=f"live-bridge-{ts}",
                 target_adapter="matrix",
                 target_channel=room_id,
-                payload={
-                    "msgtype": "m.text",
-                    "body": (
-                        f"MEDRE live bridge smoke test (ts={ts}) " f"— safe to ignore"
-                    ),
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": (
+                            f"MEDRE live bridge smoke test (ts={ts}) "
+                            f"— safe to ignore"
+                        ),
+                    }
+                ),
                 metadata={
                     "renderer": "matrix",
                     "test": "live-bridge-smoke",

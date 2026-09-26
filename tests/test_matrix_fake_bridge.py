@@ -33,6 +33,7 @@ import pytest
 from medre.adapters.fakes.matrix import FakeMatrixAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.errors import MatrixSendError
+from medre.adapters.matrix.outbound import MatrixOutboundOperation
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
@@ -53,6 +54,7 @@ from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.async_utils import wait_until
 from tests.helpers.delivery_receipts import assert_terminal_failure_pair
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 
 # ---------------------------------------------------------------------------
@@ -317,7 +319,7 @@ class TestMatrixInboundToFakeOutbound:
             assert len(fake_adapter.delivered_payloads) == 1
             rendered = fake_adapter.delivered_payloads[0]
             assert isinstance(rendered, RenderingResult)
-            assert rendered.payload["body"] == "hello from matrix bridge"
+            assert _payload_content(rendered)["body"] == "hello from matrix bridge"
 
             # Delivery receipt persisted
             rows = await temp_storage._read_all(
@@ -1098,7 +1100,9 @@ class TestMatrixBridgeDirectErrorBoundary:
             event_id="evt-trans-boundary",
             target_adapter="matrix-bridge",
             target_channel="!room:example.com",
-            payload={"msgtype": "m.text", "body": "test"},
+            payload=MatrixOutboundOperation.send_event(
+                "m.room.message", {"msgtype": "m.text", "body": "test"}
+            ).to_payload(),
         )
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
@@ -1120,7 +1124,9 @@ class TestMatrixBridgeDirectErrorBoundary:
             event_id="evt-perm-boundary",
             target_adapter="matrix-bridge",
             target_channel="!room:example.com",
-            payload={"msgtype": "m.text", "body": "test"},
+            payload=MatrixOutboundOperation.send_event(
+                "m.room.message", {"msgtype": "m.text", "body": "test"}
+            ).to_payload(),
         )
         with pytest.raises(AdapterPermanentError):
             await adapter.deliver(result)
@@ -1133,7 +1139,9 @@ class TestMatrixBridgeDirectErrorBoundary:
             event_id="evt-no-client-boundary",
             target_adapter="matrix-bridge",
             target_channel="!room:example.com",
-            payload={"msgtype": "m.text", "body": "test"},
+            payload=MatrixOutboundOperation.send_event(
+                "m.room.message", {"msgtype": "m.text", "body": "test"}
+            ).to_payload(),
         )
         with pytest.raises(AdapterPermanentError, match="session is not initialized"):
             await adapter.deliver(result)
@@ -1149,7 +1157,9 @@ class TestMatrixBridgeDirectErrorBoundary:
             event_id="evt-no-room-boundary",
             target_adapter="matrix-bridge",
             target_channel=None,
-            payload={"msgtype": "m.text", "body": "test"},
+            payload=MatrixOutboundOperation.send_event(
+                "m.room.message", {"msgtype": "m.text", "body": "test"}
+            ).to_payload(),
         )
         with pytest.raises(AdapterPermanentError, match="no room_id"):
             await adapter.deliver(result)
@@ -1172,7 +1182,9 @@ class TestMatrixBridgeDirectErrorBoundary:
             event_id="evt-ok-boundary",
             target_adapter="matrix-bridge",
             target_channel="!ok_room:example.com",
-            payload={"msgtype": "m.text", "body": "test"},
+            payload=MatrixOutboundOperation.send_event(
+                "m.room.message", {"msgtype": "m.text", "body": "test"}
+            ).to_payload(),
         )
         delivery = await adapter.deliver(result)
         assert isinstance(delivery, AdapterHandoffResult)

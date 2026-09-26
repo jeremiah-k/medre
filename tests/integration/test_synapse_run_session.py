@@ -54,6 +54,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
+from tests.helpers.matrix import matrix_payload_content
 
 from .conftest import (
     _RUN_ARTIFACT_DIR,
@@ -246,13 +247,13 @@ class TestSynapseRunSession:
                 (
                     p
                     for p in fake_out.delivered_payloads
-                    if p.payload.get("body") == body_text
+                    if matrix_payload_content(p).get("body") == body_text
                 ),
                 None,
             )
             assert rendered is not None, (
                 f"Expected a rendered payload with body {body_text!r}, "
-                f"got bodies: {[p.payload.get('body') for p in fake_out.delivered_payloads]}"
+                f"got bodies: {[matrix_payload_content(p).get('body') for p in fake_out.delivered_payloads]}"
             )
             # -- Assert: canonical event persisted --
             canonical_id = await temp_storage.resolve_native_ref(
@@ -548,13 +549,13 @@ class TestSynapseRunSession:
                 (
                     p
                     for p in fake_out.delivered_payloads
-                    if p.payload.get("body") == body_text
+                    if matrix_payload_content(p).get("body") == body_text
                 ),
                 None,
             )
             assert rendered is not None, (
                 f"Expected a rendered payload with body {body_text!r}, "
-                f"got bodies: {[p.payload.get('body') for p in fake_out.delivered_payloads]}"
+                f"got bodies: {[matrix_payload_content(p).get('body') for p in fake_out.delivered_payloads]}"
             )
 
             logger.info(

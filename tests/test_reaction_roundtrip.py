@@ -50,6 +50,7 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 
@@ -336,7 +337,7 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
             # Matrix adapter received the rendered payload.
             assert len(matrix_adapter.delivered_payloads) == 1
             result = matrix_adapter.delivered_payloads[0]
-            payload = result.payload
+            payload = _payload_content(result)
 
             # -- Verify emote reaction rendering --------------------------
             assert payload["msgtype"] == "m.emote"
@@ -673,7 +674,7 @@ class TestMultiRadioReactionRoundtrip:
 
             # -- Verify Matrix output (emote fallback) ---------------------
             assert len(matrix_adapter.delivered_payloads) == 1
-            mx_payload = matrix_adapter.delivered_payloads[0].payload
+            mx_payload = _payload_content(matrix_adapter.delivered_payloads[0])
             assert mx_payload["msgtype"] == "m.emote"
             mx_body = str(mx_payload["body"])
             assert f"reacted {_EMOJI}" in mx_body
@@ -955,7 +956,7 @@ class TestMissingNativeRefFallbackRoundtrip:
 
             # Matrix adapter received a payload.
             assert len(matrix_adapter.delivered_payloads) == 1
-            payload = matrix_adapter.delivered_payloads[0].payload
+            payload = _payload_content(matrix_adapter.delivered_payloads[0])
 
             # Safe emote rendering — no crash, valid output.
             assert payload["msgtype"] == "m.emote"

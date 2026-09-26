@@ -50,6 +50,7 @@ from medre.core.rendering.renderer import RenderingContext, RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 
@@ -411,7 +412,7 @@ class TestMeshtasticToMatrixReplyResolution:
             # Matrix adapter received the rendered payload.
             assert len(matrix_adapter.delivered_payloads) == 1
             result = matrix_adapter.delivered_payloads[0]
-            payload = result.payload
+            payload = matrix_payload_content(result)
 
             # -- Verify m.relates_to.m.in_reply_to -------------------------
             relates_to_raw = payload.get("m.relates_to")

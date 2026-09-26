@@ -67,6 +67,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.helpers.matrix import matrix_send_payload
 from tests.helpers.soak import (
     _make_meshtastic_config,
     _validate_meshtastic_soak_env,
@@ -229,7 +230,9 @@ class TestMatrixSoak:
                 event_id="soak-end-check",
                 target_adapter="matrix-soak",
                 target_channel=os.environ["MATRIX_ROOM_ID"],
-                payload={"msgtype": "m.text", "body": "MEDRE soak end-check"},
+                payload=matrix_send_payload(
+                    {"msgtype": "m.text", "body": "MEDRE soak end-check"}
+                ),
             )
             delivery = await adapter.deliver(result)
             assert delivery is not None, "Soak-end send returned None"
@@ -270,10 +273,12 @@ class TestMatrixSoak:
                             event_id=f"soak-msg-{send_count}",
                             target_adapter="matrix-soak",
                             target_channel=os.environ["MATRIX_ROOM_ID"],
-                            payload={
-                                "msgtype": "m.text",
-                                "body": f"MEDRE soak msg #{send_count}",
-                            },
+                            payload=matrix_send_payload(
+                                {
+                                    "msgtype": "m.text",
+                                    "body": f"MEDRE soak msg #{send_count}",
+                                }
+                            ),
                         )
                         delivery = await adapter.deliver(result)
                         if delivery and delivery.native_message_id:

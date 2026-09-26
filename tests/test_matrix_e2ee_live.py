@@ -24,6 +24,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.helpers.matrix import matrix_send_payload
+
 # Skip entire module unless all env vars are set.
 _REQUIRED_ENV = [
     "MATRIX_HOMESERVER",
@@ -123,7 +125,9 @@ class TestLiveE2EESend:
             result = RenderingResult(
                 event_id="$live-test-event",
                 target_adapter="matrix-e2ee-live",
-                payload={"msgtype": "m.text", "body": "meshnet e2ee live test"},
+                payload=matrix_send_payload(
+                    {"msgtype": "m.text", "body": "meshnet e2ee live test"}
+                ),
                 target_channel=room_id,
             )
             deliver_result = await adapter.deliver(result)
@@ -229,7 +233,9 @@ class TestLiveE2EERestart:
             result = RenderingResult(
                 event_id="$live-restart-event",
                 target_adapter="matrix-e2ee-live",
-                payload={"msgtype": "m.text", "body": "meshnet e2ee restart test"},
+                payload=matrix_send_payload(
+                    {"msgtype": "m.text", "body": "meshnet e2ee restart test"}
+                ),
                 target_channel=room_id,
             )
             deliver_result = await adapter.deliver(result)

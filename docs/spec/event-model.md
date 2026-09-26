@@ -130,6 +130,7 @@ class EventRelation(msgspec.Struct, frozen=True):
     key: str | None                       # Relation-specific key (e.g., emoji for reactions)
     fallback_text: str | None             # Degraded text representation for relation types the target cannot render natively
     metadata: dict[str, object] = {}      # Arbitrary key-value metadata (frozen)
+    target_fact: RelationTargetFact | None = None   # Core-computed destination-scoped binding fact (in-flight only)
 ```
 
 ### 2.2 Field Reference
@@ -142,6 +143,7 @@ class EventRelation(msgspec.Struct, frozen=True):
 | `key`               | `str \| None`                                              | —       | Type-specific data. For `reaction`, this is the emoji or reaction identifier.                                                                                                                                                                                                                                                                                                                          |
 | `fallback_text`     | `str \| None`                                              | —       | Human-readable text carrying the semantic content of this relation when the target adapter's capability level is `"fallback"`. Used by the target-native renderer to produce degraded text output within its native format (e.g., inline `[Alice] re: original msg > reply text` inside a Matrix message body). Not a generic text payload. Not used when capability is `"native"` or `"unsupported"`. |
 | `metadata`          | `dict[str, object]`                                        | `{}`    | Arbitrary key-value metadata. Frozen via `_FrozenDict` at construction.                                                                                                                                                                                                                                                                                                                                |
+| `target_fact`       | `RelationTargetFact \| None`                               | `None`  | Core-computed destination-scoped binding and mutation-eligibility fact (Section 2.6). Derived exclusively from stored canonical events and `NativeMessageRef` records — never from wire/user relation metadata. Present only on in-flight enriched copies; never persisted into `canonical_events`.                                                                                                    |
 
 ### 2.3 Valid Relation Types
 
@@ -209,6 +211,109 @@ routed to a Matrix adapter (replies = `"native"`) is rendered as a native
 declared replies = `"fallback"`, the MeshCore renderer would produce its
 native channel message format with the reply context embedded as inline text
 drawn from `fallback_text`.
+
+### 2.6 Relation Target Facts (`target_fact`)
+
+`target_fact` carries a core-computed, destination-scoped binding and
+mutation-eligibility decision for one relation. It is produced by
+`RelationBindingAuthority` (in `medre.core.planning.relation_binding`) and
+attached by `RelationEnricher.enrich_for_target` to every relation with a
+`target_event_id` and to every `edit`/`delete` relation — mutation relations
+always receive a fact, even when unresolved, so the fact records WHY binding
+failed. Existing `target_native_ref` enrichment for referential relations
+(reply/reaction/thread) is unchanged by fact computation.
+
+#### 2.6.1 Definition
+
+```python
+RelationTargetStatus = Literal[
+    "bound",               # exactly one native target bound in this destination (referential ops)
+    "bound_owned",         # mutation-eligible: proven authorship + exactly one OUTBOUND copy
+    "unresolved_target",   # target canonical event unknown (no target_event_id or not stored)
+    "out_of_scope",        # target stored, but zero native refs in this adapter+context
+    "ambiguous",           # multiple DISTINCT native targets match (never guess)
+    "not_authorized",      # mutation: identity/ownership proof failed (incl. inbound-only)
+    "binding_unavailable", # storage read failed — ALWAYS fail closed
+]
+
+class RelationTargetFact(msgspec.Struct, frozen=True):
+    status: RelationTargetStatus
+    adapter: str | None = None
+    native_channel_id: str | None = None
+    native_message_id: str | None = None
+    native_thread_id: str | None = None
+    direction: str | None = None      # "inbound" | "outbound" | None; "outbound" when bound_owned
+    reason: str | None = None         # stable machine-readable snake_case reason code + context
+```
+
+#### 2.6.2 Binding Semantics
+
+Binding is destination-scoped. Candidates are stored `NativeMessageRef`
+records with `adapter == <destination adapter instance>` and — when the
+destination context (native room/channel id) is known —
+`native_channel_id == <destination context>`. When the destination context is
+unknown (legacy replay contexts), adapter-only matching is allowed. Identical
+`(native_channel_id, native_message_id)` tuples are deduplicated; more than
+one DISTINCT tuple yields `ambiguous`. Core never guesses.
+
+Status rules:
+
+| Status                | Meaning                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bound`               | Exactly one distinct native tuple after dedup in this destination. Direction may be `inbound` or `outbound` — valid for reply/reaction/thread rendering.                                                                                                                                                                                                                                 |
+| `bound_owned`         | Mutation-eligible. Requires ALL of: (a) target canonical event stored; (b) original `source_adapter`, `source_transport_id`, `source_channel_id` all present/non-empty on the original AND the mutation event and pairwise equal; (c) exactly one distinct OUTBOUND candidate (all stored records for the tuple must be outbound); (d) no storage read failure anywhere in the decision. |
+| `unresolved_target`   | Target canonical event unknown: no `target_event_id` (and no usable relation-native ref), or the target id is not stored.                                                                                                                                                                                                                                                                |
+| `out_of_scope`        | Target stored, but zero native refs match this adapter+context.                                                                                                                                                                                                                                                                                                                          |
+| `ambiguous`           | Multiple DISTINCT native tuples match. Never resolved by guessing.                                                                                                                                                                                                                                                                                                                       |
+| `not_authorized`      | A candidate was identified but the mutation authorship proof failed (identity facts missing/unequal, inbound-only match, direction conflict).                                                                                                                                                                                                                                            |
+| `binding_unavailable` | A storage read failed or a required read authority was unavailable. ALWAYS fails closed; never authorizes.                                                                                                                                                                                                                                                                               |
+
+`reason` carries a stable machine-readable snake_case code prefixed by the
+status family, e.g. `unresolved_target:target_event_not_stored`,
+`out_of_scope:no_native_refs_in_destination`,
+`ambiguous:multiple_distinct_native_targets`,
+`binding_unavailable:storage_read_failed`,
+`not_authorized:inbound_only_match`,
+`not_authorized:identity_mismatch`. The inability-to-bind statuses
+(`unresolved_target` / `out_of_scope` / `ambiguous` /
+`binding_unavailable`) are always distinguishable from the authorization
+failure status (`not_authorized`).
+
+#### 2.6.3 Immutability and Provenance
+
+1. Facts are computed exclusively from stored canonical events and stored
+   `NativeMessageRef` records. Relation `metadata`, payload flags, and any
+   other wire/user-supplied data are never inputs; adversarial relation
+   metadata cannot forge eligibility.
+2. Codecs and adapters MUST NOT populate `target_fact`. It is core-computed
+   at delivery-planning time.
+3. Facts live only on in-flight enriched event copies. They are never
+   persisted into `canonical_events` (or `event_relations`), and stored
+   canonical evidence is never mutated to carry one. Every delivery,
+   replay, and retry attempt recomputes facts from current stored state.
+4. A relation admitted without a fact stays fact-free in storage; the
+   stored relation row shape is unchanged.
+
+#### 2.6.4 Authorization Rules
+
+`target_fact` is the sole authority for native mutation authorization.
+Renderers and adapters MUST NOT derive mutation authorization from relation
+`metadata` or from `target_native_ref` alone.
+
+1. A `message.edited` / `message.deleted` event (primary semantic `edit` /
+   `delete` relation) may be delivered as a native mutation to a destination
+   only when that destination's fact status is `bound_owned`.
+2. Any other status suppresses the mutation delivery for that target before
+   rendering and adapter invocation — no adapter call, no fallback ordinary
+   message, no sent receipt or native ref (see Routing and Delivery
+   Specification, Dynamic mutation binding suppression). The suppression
+   error string carries the fact's stable reason code:
+   `relation_target_not_bindable:<status>:<reason>`.
+3. Referential relations (reply/reaction/thread) never require
+   `bound_owned`; `bound` (or an existing adapter-scoped
+   `target_native_ref`) is sufficient for native relation rendering.
+4. `binding_unavailable` and missing facts fail closed identically to
+   `not_authorized`: absence of authorization evidence is never success.
 
 ---
 
@@ -666,7 +771,7 @@ The event model lives in:
 ```text
 core/events/
     __init__.py
-    canonical.py     # CanonicalEvent, EventRelation, NativeRef, NativeMessageRef, DeliveryReceipt, EventRecordKind
+    canonical.py     # CanonicalEvent, EventRelation, RelationTargetFact, NativeRef, NativeMessageRef, DeliveryReceipt, EventRecordKind
     kinds.py         # EventKind constants, KNOWN_KINDS, is_registered()
     schema.py        # SchemaRegistry, SchemaVersion, CURRENT_SCHEMA_VERSION
     metadata.py      # EventMetadata, TransportMetadata, RoutingMetadata, RadioMetadata, TelemetryMetadata, NativeMetadata

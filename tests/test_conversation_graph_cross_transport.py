@@ -73,6 +73,7 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix import matrix_payload_content
 
 # ===================================================================
 # Shared helpers
@@ -375,7 +376,7 @@ class TestReplyMatrixToMeshtastic:
 
             # Matrix adapter received the reply with m.in_reply_to.
             assert len(matrix.delivered_payloads) == 1
-            payload = matrix.delivered_payloads[0].payload
+            payload = matrix_payload_content(matrix.delivered_payloads[0])
             relates_to = payload.get("m.relates_to")
             assert isinstance(relates_to, dict)
             in_reply_to = relates_to.get("m.in_reply_to")

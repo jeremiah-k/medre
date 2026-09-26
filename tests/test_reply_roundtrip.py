@@ -66,6 +66,7 @@ from medre.core.rendering.renderer import RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ===================================================================
 # Shared helpers for source_configs construction
@@ -330,7 +331,7 @@ class TestMatrixToMeshtasticToMatrixRoundtrip:
 
             # Matrix adapter received the reply.
             assert len(matrix.delivered_payloads) == 1
-            payload = matrix.delivered_payloads[0].payload
+            payload = _payload_content(matrix.delivered_payloads[0])
 
             # m.in_reply_to points to the ORIGINAL Matrix event.
             relates_to = payload.get("m.relates_to")

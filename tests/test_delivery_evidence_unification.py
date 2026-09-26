@@ -54,6 +54,7 @@ from medre.core.planning.delivery_plan import (
 from medre.core.rendering.renderer import RenderingResult
 from medre.runtime.evidence._bundle import collect_evidence_bundle
 from medre.runtime.reporting import delivery_receipt_to_report_dict
+from tests.helpers.matrix import matrix_send_payload
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -139,7 +140,7 @@ def _matrix_result(
         event_id=event_id,
         target_adapter="matrix-unif",
         target_channel=target_channel,
-        payload={"msgtype": "m.text", "body": body},
+        payload=matrix_send_payload({"msgtype": "m.text", "body": body}),
     )
 
 

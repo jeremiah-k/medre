@@ -27,6 +27,7 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 
 def _matrix_config(**overrides: Any) -> MatrixConfig:
@@ -760,7 +761,7 @@ async def test_matrix_reply_render_uses_native_matrix_event_id() -> None:
         ),
     )
 
-    assert rendered.payload["m.relates_to"] == {
+    assert _payload_content(rendered)["m.relates_to"] == {
         "m.in_reply_to": {"event_id": "$original"}
     }
 

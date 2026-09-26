@@ -19,6 +19,7 @@ from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
 from medre.interop.mmrelay import KEY_LONGNAME, KEY_SHORTNAME
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.native_metadata import meshtastic_native_data
 
@@ -92,7 +93,7 @@ async def test_reaction_longname_from_namespaced_key() -> None:
         event,
         RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
     )
-    assert result.payload[KEY_LONGNAME] == "Namespaced Node"
+    assert matrix_payload_content(result)[KEY_LONGNAME] == "Namespaced Node"
 
 
 @pytest.mark.asyncio
@@ -110,7 +111,7 @@ async def test_reaction_shortname_from_namespaced_key() -> None:
         event,
         RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
     )
-    assert result.payload[KEY_SHORTNAME] == "NN"
+    assert matrix_payload_content(result)[KEY_SHORTNAME] == "NN"
 
 
 @pytest.mark.asyncio
@@ -127,4 +128,4 @@ async def test_reaction_longname_uses_current_namespace() -> None:
         event,
         RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
     )
-    assert result.payload[KEY_LONGNAME] == "Primary"
+    assert matrix_payload_content(result)[KEY_LONGNAME] == "Primary"
