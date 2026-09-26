@@ -54,6 +54,7 @@ from tests.operational.test_matrix_meshtastic_flow import (
     _mesh_rendering_context,
     _meshtastic_inbound_event,
 )
+from tests.helpers.matrix import matrix_payload_content
 
 # ===========================================================================
 # Matrix -> Meshtastic reply rendering
@@ -174,7 +175,7 @@ class TestMeshtasticToMatrixReply:
         ctx = _matrix_rendering_context()
 
         result = await renderer.render(event, ctx)
-        relates = result.payload.get("m.relates_to")
+        relates = matrix_payload_content(result).get("m.relates_to")
         assert relates is not None
         assert relates["m.in_reply_to"]["event_id"] == "$orig001"
 
@@ -292,7 +293,7 @@ class TestCrossPlatformReactions:
         ctx = _matrix_rendering_context()
 
         result = await renderer.render(event, ctx)
-        relates = result.payload.get("m.relates_to", {})
+        relates = matrix_payload_content(result).get("m.relates_to", {})
         assert relates.get("rel_type") == "m.annotation"
         assert relates.get("key") == "\u2764\ufe0f"
 

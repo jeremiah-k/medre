@@ -36,22 +36,11 @@ from .conftest import (
     make_reply_event,
     make_text_event,
 )
+from tests.helpers.matrix import rendered_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Matrix rendering conformance
 # ---------------------------------------------------------------------------
-
-
-def _payload_content(result):
-    """Return the rendered wire content across renderers.
-
-    Matrix results unwrap their closed ``_matrix_operation`` envelope;
-    other renderers return the payload as-is.
-    """
-    operation = result.payload.get("_matrix_operation")
-    if operation is not None:
-        return operation["content"]
-    return result.payload
 
 
 class TestMatrixRenderingConformance:

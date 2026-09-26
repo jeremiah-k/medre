@@ -28,22 +28,11 @@ from medre.core.rendering.renderer import (
     DeliveryStrategyMethod,
     RenderingContext,
 )
+from tests.helpers.matrix import rendered_payload_content as _payload_content
 
 # ===================================================================
 # Helpers
 # ===================================================================
-
-
-def _payload_content(result):
-    """Return the rendered wire content across renderers.
-
-    Matrix results unwrap their closed ``_matrix_operation`` envelope;
-    other renderers return the payload as-is.
-    """
-    operation = result.payload.get("_matrix_operation")
-    if operation is not None:
-        return operation["content"]
-    return result.payload
 
 
 def _ctx(
@@ -203,7 +192,6 @@ class TestMatrixFallbackText:
         assert len(str(_payload_content(result)["body"])) > 0
 
         # No native relation fields emitted.
-        assert "m.relates_to" not in _payload_content(result)
         assert "m.relates_to" not in _payload_content(result)
 
         # Evidence it was fallback, not native.

@@ -352,9 +352,10 @@ class TestFakeMatrixCapabilities:
         caps = _FAKE_MATRIX_CAPABILITIES
         assert caps.text is True
         assert caps.replies == "native"
+        assert caps.threads == "native"
         assert caps.reactions == "native"
-        assert caps.edits == "unsupported"
-        assert caps.deletes == "unsupported"
+        assert caps.edits == "native"
+        assert caps.deletes == "native"
         assert caps.attachments is False
         assert caps.direct_messages is True
         assert caps.channels is True
@@ -370,7 +371,8 @@ class TestFakeMatrixCapabilities:
         assert result["supports_direct_messages"] is True
         assert result["supports_channels"] is True
         assert result["supports_reactions"] is True  # native → True
-        assert result["supports_edits"] is False
+        assert result["supports_edits"] is True
+        assert result["supports_deletes"] is True
         assert result["supports_topic_rooms"] is True
 
     @pytest.mark.asyncio

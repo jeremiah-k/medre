@@ -45,6 +45,7 @@ from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 from tests.helpers.native_metadata import matrix_native_data
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -58,12 +59,6 @@ _SRC_MESHTASTIC = {
 _SRC_MATRIX = {
     "matrix-1": _StubMeshtasticConfig(adapter_id="matrix-1", mmrelay_compatibility=True)
 }
-
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    return operation["content"]
 
 
 def _make_config(**overrides: Any) -> MatrixConfig:

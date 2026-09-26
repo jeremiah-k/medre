@@ -40,22 +40,11 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
+from tests.helpers.matrix import rendered_payload_content as _payload_content
 
 # ===================================================================
 # Helpers
 # ===================================================================
-
-
-def _payload_content(result):
-    """Return the rendered wire content across renderers.
-
-    Matrix results unwrap their closed ``_matrix_operation`` envelope;
-    other renderers return the payload as-is.
-    """
-    operation = result.payload.get("_matrix_operation")
-    if operation is not None:
-        return operation["content"]
-    return result.payload
 
 
 def _ctx(

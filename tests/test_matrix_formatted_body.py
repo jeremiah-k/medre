@@ -27,16 +27,11 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Outbound helpers
 # ---------------------------------------------------------------------------
-
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    return operation["content"]
 
 
 def _make_event(
@@ -250,11 +245,13 @@ class TestOutboundFormattedBody:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
-        assert "format" not in result.payload
-        assert "formatted_body" not in result.payload
-        assert "msgtype" not in result.payload
-        assert "body" not in result.payload
+        operation = result.payload["_matrix_operation"]
+        assert operation["event_type"] == "m.reaction"
+        content = _payload_content(result)
+        assert "format" not in content
+        assert "formatted_body" not in content
+        assert "msgtype" not in content
+        assert "body" not in content
 
 
 # ===================================================================

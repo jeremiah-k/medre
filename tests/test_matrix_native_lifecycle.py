@@ -296,9 +296,8 @@ class TestRendererDeletes:
         assert operation.redacts_event_id == "$owned"
         assert operation.reason == "Deleted by original author via MEDRE relay"
         assert operation.content is None
-        # No fabricated message body anywhere in the payload.
-        assert "msgtype" not in result.payload
-        assert "body" not in result.payload
+        # A redaction payload is the closed operation envelope only.
+        assert set(result.payload) == {MATRIX_OPERATION_KEY}
 
     async def test_delete_without_bound_owned_fact_fails_closed(self) -> None:
         renderer = MatrixRenderer()

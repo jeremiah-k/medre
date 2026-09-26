@@ -37,6 +37,7 @@ from tests.helpers.matrix_adapter import (
     make_fake_nio_event,
     wire_mock_session,
 )
+from tests.helpers.matrix import matrix_send_payload
 
 _ROOM = "!room:example.com"
 _ENCRYPTED_ROOM = "!enc:example.com"
@@ -61,7 +62,7 @@ def _make_result(room: str = _ROOM, event_id: str = "evt-1") -> RenderingResult:
         event_id=event_id,
         target_adapter="matrix-1",
         target_channel=room,
-        payload={"msgtype": "m.text", "body": "hello"},
+        payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
     )
 
 

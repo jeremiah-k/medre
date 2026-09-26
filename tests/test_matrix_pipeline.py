@@ -24,16 +24,11 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    return operation["content"]
 
 
 def _make_pipeline_config(

@@ -1376,7 +1376,7 @@ async def test_enrichment_miss_no_matching_adapter(
 async def test_enrichment_without_native_ref_lookup_is_noop(
     temp_storage: SQLiteStorage,
 ) -> None:
-    """Storage without native-ref lookup leaves the immutable event untouched."""
+    """Missing native refs still yields an explicit unresolved target fact."""
     runner = PipelineRunner(
         make_pipeline_config_for_pipeline(
             storage=temp_storage, router=Router(routes=[]), adapters={}
@@ -1410,5 +1410,9 @@ async def test_enrichment_without_native_ref_lookup_is_noop(
     runner._config.storage = _MinimalStorage()  # type: ignore[assignment]
     enriched = await runner._enrich_relations_for_target(event, "any_adapter")
 
-    assert enriched is event
+    assert enriched is not event
     assert enriched.relations[0].target_native_ref is None
+    fact = enriched.relations[0].target_fact
+    assert fact is not None
+    assert fact.status == "unresolved_target"
+    assert fact.reason == "unresolved_target:target_event_not_stored"

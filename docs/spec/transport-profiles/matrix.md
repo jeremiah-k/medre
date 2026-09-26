@@ -76,8 +76,8 @@ as the sole mutation authority:
 
 Suppressed mutation deliveries produce lifecycle receipts with
 `status="suppressed"` / `failure_kind=CAPABILITY_SUPPRESSED` and a stable
-`relation_target_not_bindable:<reason>` error string. No adapter call, no
-fallback ordinary message, and no sent receipt/native ref is produced. Binding
+`relation_target_not_bindable:<status>:<reason>` error string. No adapter call,
+no fallback ordinary message, and no sent receipt/native ref is produced. Binding
 is recomputed from current stored facts on every attempt (including replays),
 so a previously-owned target that became ambiguous fails closed on retry.
 

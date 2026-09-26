@@ -23,13 +23,7 @@ from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 from tests.helpers.native_metadata import meshtastic_native_data
-
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    assert operation["kind"] == "send_event", operation
-    return operation["content"]
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 
 # Module-level aliases so existing test call-sites stay concise.

@@ -55,16 +55,11 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.async_utils import wait_until
 from tests.helpers.delivery_receipts import assert_terminal_failure_pair
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    return operation["content"]
 
 
 def _make_matrix_config(**overrides: Any) -> MatrixConfig:

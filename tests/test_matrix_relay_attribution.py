@@ -30,15 +30,10 @@ from tests.helpers.native_metadata import (
     meshcore_native_data,
     meshtastic_native_data,
 )
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # Module-level aliases for concise call-sites in this test file.
 _make_event = make_matrix_event
-
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    return operation["content"]
 
 
 def _make_meshtastic_event(

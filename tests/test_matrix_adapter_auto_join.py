@@ -18,6 +18,7 @@ from tests.helpers.matrix_session import (
     make_matrix_config,
     make_matrix_context,
 )
+from tests.helpers.matrix import matrix_send_payload
 
 # ===================================================================
 # auto-join integration
@@ -94,7 +95,7 @@ class TestAdapterDeliverAutoJoin:
                 event_id="evt-1",
                 target_adapter="matrix-test",
                 target_channel="!target:server",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 metadata={},
             )
             # Set up room_send to return a valid response.
@@ -127,7 +128,7 @@ class TestAdapterDeliverAutoJoin:
                 event_id="evt-1",
                 target_adapter="matrix-test",
                 target_channel="!target:server",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 metadata={},
             )
             with pytest.raises(AdapterPermanentError, match="auto-join"):
@@ -158,7 +159,7 @@ class TestAdapterDeliverAutoJoin:
                 event_id="evt-1",
                 target_adapter="matrix-test",
                 target_channel="!unconfigured:server",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 metadata={},
             )
             await adapter.deliver(result)
@@ -188,7 +189,7 @@ class TestAdapterDeliverAutoJoin:
                 event_id="evt-1",
                 target_adapter="matrix-test",
                 target_channel="!target:server",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 metadata={},
             )
             await adapter.deliver(result)

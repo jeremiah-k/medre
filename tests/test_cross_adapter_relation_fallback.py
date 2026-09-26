@@ -77,16 +77,11 @@ from medre.core.rendering.renderer import RenderingContext, RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ===================================================================
 # Shared helpers
 # ===================================================================
-
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    return operation["content"]
 
 
 class _StubMeshtasticConfig:

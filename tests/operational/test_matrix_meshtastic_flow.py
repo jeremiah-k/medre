@@ -72,6 +72,7 @@ from tests.helpers.storage_outbox import (
     find_existing_replay_run_claim,
     reserve_guarded_outbox_attempt,
 )
+from tests.helpers.matrix import matrix_payload_content
 
 # ---------------------------------------------------------------------------
 # Local fakes / helpers
@@ -967,8 +968,9 @@ class TestMeshtasticToMatrixRuntimePath:
             matrix_adapter = runner._config.adapters["test_matrix"]
             assert len(matrix_adapter.delivered_payloads) == 1
             delivered = matrix_adapter.delivered_payloads[0]
-            assert delivered.payload.get("msgtype") == "m.text"
-            assert delivered.payload.get("body") == "Radio check"
+            content = matrix_payload_content(delivered)
+            assert content.get("msgtype") == "m.text"
+            assert content.get("body") == "Radio check"
 
             # Native message ref persisted for outbound.
             outbound_refs = [
@@ -1038,7 +1040,7 @@ class TestMeshtasticToMatrixRuntimePath:
             matrix_adapter = runner._config.adapters["test_matrix"]
             assert len(matrix_adapter.delivered_payloads) == 1
             delivered = matrix_adapter.delivered_payloads[0]
-            relates = delivered.payload.get("m.relates_to")
+            relates = matrix_payload_content(delivered).get("m.relates_to")
             assert relates is not None
             assert relates["m.in_reply_to"]["event_id"] == "$orig001"
         finally:
@@ -1104,9 +1106,10 @@ class TestMeshtasticToMatrixTextRender:
 
         result = await renderer.render(event, ctx)
 
-        assert result.payload["msgtype"] == "m.text"
-        assert result.payload["body"] == "Radio check"
-        assert "medre" in result.payload
+        content = matrix_payload_content(result)
+        assert content["msgtype"] == "m.text"
+        assert content["body"] == "Radio check"
+        assert "medre" in content
 
     @pytest.mark.asyncio
     async def test_evidence_snapshot_attached(self) -> None:

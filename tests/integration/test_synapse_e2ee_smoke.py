@@ -92,6 +92,8 @@ from medre.core.supervision.accounting import RuntimeAccounting
 
 from .conftest import E2EETestEnvironment, close_nio_client, close_nio_store
 from .synapse_helpers import make_context as _make_context
+from tests.helpers.matrix import matrix_payload_content
+
 from .synapse_helpers import (
     send_client_side_encrypted_message,
     send_encrypted_message_as_test_user,
@@ -533,7 +535,7 @@ class TestSynapseE2EESmoke:
                     (
                         p
                         for p in fake_out.delivered_payloads
-                        if p.payload.get("body") == body_text
+                        if matrix_payload_content(p).get("body") == body_text
                     ),
                     None,
                 )

@@ -7,6 +7,7 @@ model for MEDRE.
 
 from __future__ import annotations
 
+
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -27,12 +28,8 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    return operation["content"]
 
 
 def _matrix_config(**overrides: Any) -> MatrixConfig:

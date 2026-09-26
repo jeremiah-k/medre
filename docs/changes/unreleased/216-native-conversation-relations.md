@@ -32,7 +32,7 @@ existing native replies/reactions and MMRelay fallback behavior.
   in the actual destination adapter/context. Inbound originals, cross-actor,
   cross-origin, wrong-context, missing, or ambiguous targets — and any storage
   read failure (`binding_unavailable`) — produce explicit non-success evidence
-  with stable reason codes (`relation_target_not_bindable:<status>`): no
+  with stable reason codes (`relation_target_not_bindable:<status>:<reason>`): no
   transport mutation call, no fallback ordinary message pretending to be an
   edit/delete, and no successful sent receipt or native ref. Replay/retry
   re-binds at execution time and can never retarget an operation.

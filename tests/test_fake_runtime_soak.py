@@ -24,6 +24,7 @@ from tests.helpers.fake_runtime import (
     make_multi_adapter_config,
     make_two_adapter_config_with_route,
 )
+from tests.helpers.matrix import matrix_payload_content
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -226,9 +227,7 @@ class TestFullFakeRuntimeHappyPath:
             # -- Rendering completed (delivery payload produced) --
             payload = beta.delivered_payloads[0]
             expected_text = "Full pipeline integration test"
-            assert (
-                payload.payload["body"] == expected_text
-            )  # MatrixRenderer produces {"body": ..., "msgtype": ...}
+            assert matrix_payload_content(payload)["body"] == expected_text
             assert payload.target_adapter == "mx_beta"
 
             # -- DeliveryReceipt with full field verification --

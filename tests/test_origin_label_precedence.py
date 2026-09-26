@@ -47,6 +47,7 @@ from tests.helpers.native_metadata import (
     meshcore_native_data,
     meshtastic_native_data,
 )
+from tests.helpers.matrix import matrix_payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -108,7 +109,7 @@ async def test_matrix_route_label_overrides_adapter_label() -> None:
             source_origin_label="Route Label",
         ),
     )
-    assert result.payload["body"] == "[Route Label] hello"
+    assert matrix_payload_content(result)["body"] == "[Route Label] hello"
 
 
 async def test_matrix_adapter_label_used_when_no_route_label() -> None:
@@ -137,7 +138,7 @@ async def test_matrix_adapter_label_used_when_no_route_label() -> None:
             source_origin_label=None,
         ),
     )
-    assert result.payload["body"] == "[Adapter Label] hello"
+    assert matrix_payload_content(result)["body"] == "[Adapter Label] hello"
 
 
 async def test_matrix_missing_label_safe() -> None:
@@ -159,8 +160,9 @@ async def test_matrix_missing_label_safe() -> None:
             target_platform="matrix",
         ),
     )
-    assert result.payload["body"] == "[] hello"
-    assert "None" not in result.payload["body"]
+    content = matrix_payload_content(result)
+    assert content["body"] == "[] hello"
+    assert "None" not in content["body"]
 
 
 # ===================================================================
@@ -199,7 +201,7 @@ async def test_mmrelay_meshnet_from_route_label() -> None:
             source_origin_label="Route Net",
         ),
     )
-    assert result.payload[KEY_MESHNET] == "Route Net"
+    assert matrix_payload_content(result)[KEY_MESHNET] == "Route Net"
 
 
 async def test_mmrelay_meshnet_fallback_to_adapter() -> None:
@@ -232,7 +234,7 @@ async def test_mmrelay_meshnet_fallback_to_adapter() -> None:
             target_platform="matrix",
         ),
     )
-    assert result.payload[KEY_MESHNET] == "Adapter Net"
+    assert matrix_payload_content(result)[KEY_MESHNET] == "Adapter Net"
 
 
 # ===================================================================
@@ -471,7 +473,7 @@ async def test_meshtastic_to_matrix_sender_and_origin_label() -> None:
             source_origin_label="Route East",
         ),
     )
-    assert result.payload["body"] == "[RadioOp/Route East] hello"
+    assert matrix_payload_content(result)["body"] == "[RadioOp/Route East] hello"
 
 
 async def test_matrix_to_meshtastic_sender_short_and_origin_label() -> None:
@@ -746,7 +748,7 @@ async def test_matrix_empty_route_label_suppresses_adapter_label() -> None:
             source_origin_label="",
         ),
     )
-    body = result.payload.get("body", "")
+    body = str(matrix_payload_content(result).get("body", ""))
     assert body.startswith("[] ")  # empty label, NOT "[Adapter Label]"
     assert "Adapter Label" not in body
 

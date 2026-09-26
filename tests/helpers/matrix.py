@@ -17,7 +17,50 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from medre.adapters.matrix.outbound import (
+    MATRIX_OPERATION_KEY,
+    MatrixOutboundOperation,
+)
 from medre.config.adapters.matrix import MatrixConfig
+from medre.core.rendering.renderer import RenderingResult
+
+
+def matrix_payload_content(result: RenderingResult) -> dict[str, object]:
+    """Return wire content from a closed Matrix ``send_event`` result.
+
+    Test assertions should inspect this content rather than reaching through
+    ``_matrix_operation`` independently.  The helper deliberately asserts the
+    closed envelope shape so a malformed renderer result fails at the common
+    seam instead of producing misleading downstream assertion failures.
+    """
+    operation = result.payload.get(MATRIX_OPERATION_KEY)
+    assert isinstance(operation, dict), "missing Matrix outbound operation"
+    assert operation.get("kind") == "send_event"
+    content = operation.get("content")
+    assert isinstance(content, dict), "Matrix send_event content must be a dict"
+    return content
+
+
+def rendered_payload_content(result: RenderingResult) -> dict[str, object]:
+    """Return renderer wire content, unwrapping Matrix send envelopes.
+
+    Cross-renderer conformance tests use this helper when the same assertion
+    surface covers Matrix and non-Matrix renderers. Matrix results are
+    unwrapped through :func:`matrix_payload_content`; other renderer payloads
+    are returned unchanged.
+    """
+    if MATRIX_OPERATION_KEY in result.payload:
+        return matrix_payload_content(result)
+    return result.payload
+
+
+def matrix_send_payload(
+    content: dict[str, object],
+    *,
+    event_type: str = "m.room.message",
+) -> dict[str, object]:
+    """Wrap hand-authored Matrix wire content in the closed send envelope."""
+    return MatrixOutboundOperation.send_event(event_type, content).to_payload()
 
 
 def make_nio_event(

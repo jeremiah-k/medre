@@ -40,6 +40,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tests.helpers.matrix import matrix_send_payload
+
 from tests.helpers.live_config import (
     all_live_env_set,
     build_live_bridge_runtime_config,
@@ -331,12 +333,15 @@ class TestMatrixToMeshtasticSmoke:
                 event_id=f"live-bridge-{ts}",
                 target_adapter="matrix",
                 target_channel=room_id,
-                payload={
-                    "msgtype": "m.text",
-                    "body": (
-                        f"MEDRE live bridge smoke test (ts={ts}) " f"— safe to ignore"
-                    ),
-                },
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": (
+                            f"MEDRE live bridge smoke test (ts={ts}) "
+                            f"— safe to ignore"
+                        ),
+                    }
+                ),
                 metadata={
                     "renderer": "matrix",
                     "test": "live-bridge-smoke",

@@ -36,12 +36,7 @@ from tests.fixtures.matrix_packets import (
     make_room_send_response_none_event_id,
 )
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
-
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    return operation["content"]
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 
 def _send_payload(content: dict[str, object]) -> dict[str, object]:

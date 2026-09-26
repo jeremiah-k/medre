@@ -26,6 +26,7 @@ from tests.helpers.matrix_session import (
     make_matrix_context,
 )
 from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
+from tests.helpers.matrix import matrix_send_payload
 
 _STOP_TEST_WATCHDOG_SECONDS = 1.0
 
@@ -768,7 +769,7 @@ class TestRoomStateTracking:
             result = RenderingResult(
                 event_id="evt_tracked",
                 target_adapter="matrix-test",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 target_channel="!tracked_enc:example.com",
             )
             with pytest.raises(AdapterPermanentError, match="encrypted but E2EE"):
@@ -795,7 +796,7 @@ class TestRoomStateTracking:
             result = RenderingResult(
                 event_id="evt_plain",
                 target_adapter="matrix-test",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 target_channel="!plain:example.com",
             )
             deliver_result = await adapter.deliver(result)
@@ -824,7 +825,7 @@ class TestRoomStateTracking:
             result = RenderingResult(
                 event_id="evt_fallback",
                 target_adapter="matrix-test",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 target_channel=room_id,
             )
             with pytest.raises(AdapterPermanentError, match="encrypted but E2EE"):
@@ -865,7 +866,7 @@ class TestDeliveryRetry:
             result = RenderingResult(
                 event_id="evt_retry",
                 target_adapter="matrix-test",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 target_channel="!room:example.com",
             )
 
@@ -899,7 +900,7 @@ class TestDeliveryRetry:
             result = RenderingResult(
                 event_id="evt_max_retry",
                 target_adapter="matrix-test",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 target_channel="!room:example.com",
             )
 
@@ -937,7 +938,7 @@ class TestDeliveryRetry:
             result = RenderingResult(
                 event_id="evt_non_transient",
                 target_adapter="matrix-test",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 target_channel="!room:example.com",
             )
 
@@ -978,7 +979,7 @@ class TestDeliveryRetry:
             result = RenderingResult(
                 event_id="evt_diag",
                 target_adapter="matrix-test",
-                payload={"msgtype": "m.text", "body": "hello"},
+                payload=matrix_send_payload({"msgtype": "m.text", "body": "hello"}),
                 target_channel="!room:example.com",
             )
             await adapter.deliver(result)

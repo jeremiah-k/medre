@@ -27,18 +27,13 @@ from medre.core.events import (
 )
 from medre.core.planning.delivery_plan import DeliveryStrategyMethod
 from medre.core.rendering.renderer import RenderingContext
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 _TARGET = "chat-instance"
-
-
-def _payload_content(result):
-    """Unwrap the closed _matrix_operation envelope to the wire content."""
-    operation = result.payload["_matrix_operation"]
-    return operation["content"]
 
 
 def _ctx(
@@ -132,7 +127,7 @@ async def test_reply_ignores_cross_adapter_native_ref() -> None:
     )
     result = await renderer.render(event, _ctx())
 
-    assert result.payload.get("m.relates_to") is None
+    assert _payload_content(result).get("m.relates_to") is None
 
 
 async def test_reply_without_native_ref_no_relates_to() -> None:
@@ -148,7 +143,7 @@ async def test_reply_without_native_ref_no_relates_to() -> None:
     event = _event(relations=(rel,))
     result = await renderer.render(event, _ctx())
 
-    assert result.payload.get("m.relates_to") is None
+    assert _payload_content(result).get("m.relates_to") is None
 
 
 async def test_reply_with_empty_native_message_id_no_relates_to() -> None:
@@ -157,7 +152,7 @@ async def test_reply_with_empty_native_message_id_no_relates_to() -> None:
     event = _event(relations=(_reply_rel(adapter=_TARGET, native_message_id=""),))
     result = await renderer.render(event, _ctx())
 
-    assert result.payload.get("m.relates_to") is None
+    assert _payload_content(result).get("m.relates_to") is None
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ from medre.core.events import (
 from medre.core.rendering.renderer import RenderingContext
 from medre.interop.mmrelay import KEY_MESHNET
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
+from tests.helpers.matrix import matrix_payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -133,7 +134,7 @@ async def test_key_meshnet_from_origin_label() -> None:
         event,
         RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
     )
-    assert result.payload[KEY_MESHNET] == "East Radio"
+    assert matrix_payload_content(result)[KEY_MESHNET] == "East Radio"
 
 
 async def test_key_meshnet_empty_when_no_origin_label() -> None:
@@ -154,7 +155,7 @@ async def test_key_meshnet_empty_when_no_origin_label() -> None:
         event,
         RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
     )
-    assert result.payload[KEY_MESHNET] == ""
+    assert matrix_payload_content(result)[KEY_MESHNET] == ""
 
 
 # ===================================================================

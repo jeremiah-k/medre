@@ -959,9 +959,14 @@ class TestEnrichRelationsForTarget:
         )
 
         enriched = await runner._enrich_relations_for_target(event, "target_adapter")
-        # Same object — no changes needed.
-        assert enriched is event
+        # The existing destination ref is preserved, while the in-flight
+        # relation now also carries a binding fact.  The canonical target is
+        # not stored in this fixture, so that fact is unresolved.
+        assert enriched is not event
         assert enriched.relations[0].target_native_ref is existing_nref
+        fact = enriched.relations[0].target_fact
+        assert fact is not None
+        assert fact.status == "unresolved_target"
 
     async def test_enrichment_no_relations(self) -> None:
         """Event with no relations returns same event."""
