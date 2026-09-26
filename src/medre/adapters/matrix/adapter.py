@@ -1047,6 +1047,18 @@ class MatrixAdapter(AdapterContract):
             if exc.transient:
                 raise AdapterSendError(str(exc), transient=True) from exc
             raise AdapterPermanentError(str(exc)) from exc
+        except Exception as exc:
+            # nio may propagate an exhausted aiohttp/OS transport exception
+            # from upload().  Normalize it through the same classifier as
+            # ordinary Matrix sends so adapter callers never receive a raw
+            # network exception and durable retry ownership stays in core.
+            if _is_transient_error(exc):
+                self._transient_delivery_failures += 1
+                raise AdapterSendError(
+                    f"media upload transport failure: {exc}", transient=True
+                ) from exc
+            self._permanent_delivery_failures += 1
+            raise AdapterPermanentError(str(exc)) from exc
 
         self._outbound_attachment_transfers += 1
 
@@ -1068,6 +1080,16 @@ class MatrixAdapter(AdapterContract):
             errcode = getattr(response, "errcode", None)
             if errcode:
                 err_msg = f"{errcode}: {err_msg}"
+            http_status = getattr(response, "status_code", None)
+            if not isinstance(http_status, int):
+                transport_response = getattr(response, "transport_response", None)
+                http_status = getattr(transport_response, "status", None)
+            if isinstance(http_status, int) and 500 <= http_status <= 599:
+                self._transient_delivery_failures += 1
+                raise AdapterSendError(
+                    f"media upload transient failure (HTTP {http_status}): {err_msg}",
+                    transient=True,
+                )
             self._permanent_delivery_failures += 1
             raise AdapterPermanentError(f"media upload failed: {err_msg}")
 

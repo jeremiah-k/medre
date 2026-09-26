@@ -158,6 +158,15 @@ class AttachmentTransferPermits:
             raise AttachmentTransferPermitTimeoutError(
                 "attachment transfer permit acquisition timed out"
             ) from exc
+        if self._closed:
+            # ``close()`` may race a waiter that already passed the first
+            # check.  Such a task was not an in-flight holder at shutdown,
+            # so return the acquired slot and fail instead of starting a new
+            # binary transfer after the gate closed.
+            self._semaphore.release()
+            raise AttachmentTransferPermitTimeoutError(
+                "attachment transfer permits are closed"
+            )
         try:
             yield
         finally:

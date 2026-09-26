@@ -236,7 +236,10 @@ class StubEgressSession:
             }
         )
         index = min(len(self.upload_calls) - 1, len(self._upload_responses) - 1)
-        return self._upload_responses[index]
+        outcome = self._upload_responses[index]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
 
     async def room_send(
         self,
@@ -624,6 +627,40 @@ async def test_upload_rate_limit_is_transient_and_opens_cooldown() -> None:
         await adapter.deliver(send_media_result())
     assert second.value.transient is True
     assert len(session.upload_calls) == 1
+
+
+async def test_upload_exhausted_network_error_is_transient() -> None:
+    stored = StoredAttachmentContent(
+        content_ref=CONTENT_REF, size_bytes=7, data=STORED_BYTES
+    )
+    session = StubEgressSession(upload_responses=[OSError("connection reset")])
+    adapter = make_adapter(session, make_seam(StubContentStore(stored=stored)))
+
+    with pytest.raises(AdapterSendError) as excinfo:
+        await adapter.deliver(send_media_result())
+    assert excinfo.value.transient is True
+    assert "media upload transport failure" in str(excinfo.value)
+    assert adapter._transient_delivery_failures == 1
+    assert adapter._permanent_delivery_failures == 0
+
+
+async def test_upload_server_5xx_is_transient() -> None:
+    response = SimpleNamespace(
+        errcode="M_UNKNOWN",
+        transport_response=SimpleNamespace(status=503),
+    )
+    stored = StoredAttachmentContent(
+        content_ref=CONTENT_REF, size_bytes=7, data=STORED_BYTES
+    )
+    session = StubEgressSession(upload_responses=[(response, None)])
+    adapter = make_adapter(session, make_seam(StubContentStore(stored=stored)))
+
+    with pytest.raises(AdapterSendError) as excinfo:
+        await adapter.deliver(send_media_result())
+    assert excinfo.value.transient is True
+    assert "HTTP 503" in str(excinfo.value)
+    assert adapter._transient_delivery_failures == 1
+    assert adapter._permanent_delivery_failures == 0
 
 
 async def test_upload_permanent_error_is_permanent() -> None:

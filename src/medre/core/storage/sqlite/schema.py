@@ -282,7 +282,7 @@ CREATE TABLE IF NOT EXISTS adapter_checkpoints (
 -- pre-release shape guard.
 CREATE TABLE IF NOT EXISTS attachment_blobs (
     content_ref TEXT PRIMARY KEY,
-    size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+    size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
     media_kind TEXT,
     mime_type TEXT,
     created_at TEXT NOT NULL,

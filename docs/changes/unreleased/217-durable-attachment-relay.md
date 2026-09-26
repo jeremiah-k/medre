@@ -84,6 +84,12 @@ previously stored files.
   snapshot, runtime-wide transfer permits (`max_concurrent_transfers`,
   closed at shutdown so in-flight transfers finish under their deadline and
   no new acquisition starts), and association-scoped content access.
+- Hardening from adversarial review: quota-rejected bytes are never written or
+  associated behind an unavailable descriptor; zero-byte attachments retain
+  normally with measured size `0`; a transfer waiter that has not acquired a
+  permit before shutdown cannot start after the gate closes; and Matrix media
+  upload HTTP 5xx responses plus exhausted network failures remain transient
+  even when nio uses `M_UNKNOWN` or raises a transport exception.
 - The Matrix capability profile now advertises `attachments: true`
   (spec table updated to match) with the policy gate, bounded-download
   model, and edit rejection documented next to the claim. Other transports

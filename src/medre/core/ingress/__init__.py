@@ -25,6 +25,8 @@ from medre.core.ingress.types import (
     IngressWorkStatus,
 )
 
+from medre.core.ingress.worker import DurableIngressWorker
+
 __all__ = [
     "AdapterCheckpoint",
     "AdmissionResult",

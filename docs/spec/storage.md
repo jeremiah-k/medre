@@ -1100,7 +1100,7 @@ native event.
 ```sql
 CREATE TABLE IF NOT EXISTS attachment_blobs (
     content_ref TEXT PRIMARY KEY,
-    size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+    size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
     media_kind TEXT,
     mime_type TEXT,
     created_at TEXT NOT NULL,
@@ -1112,8 +1112,9 @@ Durable attachment content, stored **content-addressed**: `content_ref` is
 `sha256:<64 lowercase hex>` computed by core admission from the supplied
 bytes, and one row exists per unique retained byte string. Identical content
 admitted by multiple events is stored once (`INSERT OR IGNORE`) and consumes
-quota once — dedup never double-counts. `size_bytes` is the measured length
-of `data`, never a wire-declared value; `data` is the plaintext payload (see
+quota once — dedup never double-counts. `size_bytes` is the non-negative
+measured length of `data` (zero-byte files are valid), never a wire-declared
+value; `data` is the plaintext payload (see
 [security-privacy.md §2.5](security-privacy.md#25-durable-attachment-content)).
 Ordinary event queries never select `data`.
 
@@ -1127,9 +1128,9 @@ Retention policy is quota-shaped and operator-owned:
   `oversized` unavailable descriptor and the transaction never stores the
   oversized content.
 - Reaching the quota rejects new content explicitly (the event still admits
-  with an honest `quota_exceeded` unavailable descriptor); **nothing is
-  evicted**. There is no eviction, GC, or TTL. Raising (or lowering)
-  capacity is an operator action.
+  with an honest `quota_exceeded` unavailable descriptor); rejected bytes and
+  their event association are not written. **Nothing is evicted**. There is
+  no eviction, GC, or TTL. Raising (or lowering) capacity is an operator action.
 
 Existing schema-version-1 databases gain both attachment tables
 automatically: the tables are created by `CREATE TABLE IF NOT EXISTS` at

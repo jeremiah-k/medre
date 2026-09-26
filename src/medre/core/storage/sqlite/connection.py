@@ -457,9 +457,15 @@ def sync_admit_ingress(
 
             for sql, params in chosen_event_ops:
                 db.execute(sql, params)
-            if attachment_plan is not None and attachment_fact is not None:
+            if (
+                attachment_plan is not None
+                and attachment_fact is not None
+                and attachment_fact.retained
+            ):
                 # Content and association follow the canonical event insert
-                # in the same transaction (foreign keys are immediate).
+                # in the same transaction (foreign keys are immediate).  A
+                # quota/size rejection commits only the unavailable event
+                # descriptor; rejected bytes never enter durable storage.
                 for sql, params in attachment_plan.retain_ops:
                     db.execute(sql, params)
             if native_insert is not None:

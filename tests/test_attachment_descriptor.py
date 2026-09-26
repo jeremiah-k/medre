@@ -19,6 +19,7 @@ Run narrowly::
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import UTC, datetime
 
@@ -330,8 +331,40 @@ class TestAtomicAdmission:
             descriptor = attachment_descriptor_from_event_payload(stored.payload)
             assert descriptor is not None
             assert descriptor.unavailable_reason == "quota_exceeded"
-            with pytest.raises(AttachmentContentUnavailableError):
-                await storage.load_attachment_content("evt-q2", "sha256:" + "0" * 64)
+            rejected_ref = "sha256:" + hashlib.sha256(b"abcdefghij").hexdigest()
+            # Quota rejection is authoritative: the bytes and event association
+            # must not be persisted behind an unavailable descriptor.
+            assert await storage.attachment_retained_bytes() == 10
+            with pytest.raises(AttachmentContentUnavailableError) as excinfo:
+                await storage.load_attachment_content("evt-q2", rejected_ref)
+            assert excinfo.value.reason == "association_missing"
+        finally:
+            await storage.close()
+
+    async def test_empty_attachment_is_retained_with_zero_measured_size(self) -> None:
+        storage = SQLiteStorage(":memory:")
+        await storage.initialize()
+        try:
+            result = await _admit(
+                storage,
+                _file_event("evt-empty", _declared()),
+                b"",
+                limits=AttachmentLimits(
+                    max_attachment_bytes=64, max_retained_bytes=64
+                ),
+            )
+            fact = result.attachment
+            assert fact is not None and fact.retained
+            assert fact.size_bytes == 0
+            assert fact.content_ref == (
+                "sha256:" + hashlib.sha256(b"").hexdigest()
+            )
+            loaded = await storage.load_attachment_content(
+                "evt-empty", fact.content_ref
+            )
+            assert loaded.data == b""
+            assert loaded.size_bytes == 0
+            assert await storage.attachment_retained_bytes() == 0
         finally:
             await storage.close()
 
@@ -495,6 +528,35 @@ class TestTransferPermits:
         with pytest.raises(AttachmentTransferPermitTimeoutError):
             async with permits.acquire():
                 pass
+
+    async def test_waiter_cannot_start_after_close(self) -> None:
+        permits = AttachmentTransferPermits(
+            max_concurrent=1, acquire_timeout_seconds=1.0
+        )
+        holder_ready = asyncio.Event()
+        release_holder = asyncio.Event()
+        waiter_entered = False
+
+        async def hold() -> None:
+            async with permits.acquire():
+                holder_ready.set()
+                await release_holder.wait()
+
+        async def wait_for_slot() -> None:
+            nonlocal waiter_entered
+            async with permits.acquire():
+                waiter_entered = True
+
+        holder = asyncio.create_task(hold())
+        await holder_ready.wait()
+        waiter = asyncio.create_task(wait_for_slot())
+        await asyncio.sleep(0)
+        permits.close()
+        release_holder.set()
+        await holder
+        with pytest.raises(AttachmentTransferPermitTimeoutError, match="closed"):
+            await waiter
+        assert waiter_entered is False
 
     async def test_release_on_error(self) -> None:
         permits = AttachmentTransferPermits(

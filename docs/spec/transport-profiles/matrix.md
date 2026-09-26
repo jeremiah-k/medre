@@ -255,7 +255,12 @@ The Matrix renderer (`MatrixRenderer`) produces:
 
 **Remote delivery:** The homeserver is responsible for fan-out. MEDRE treats the returned `event_id` as confirmation of _local acceptance only_ — it does not track whether other federation servers or clients received the event.
 
-**Rate-limit handling:** `M_LIMIT_EXCEEDED` / HTTP 429 raises `AdapterSendError(transient=True)` immediately so the pipeline retry worker can honour `retry_after_ms`.
+**Rate-limit handling:** `M_LIMIT_EXCEEDED` / HTTP 429 raises
+`AdapterSendError(transient=True)` immediately so the pipeline retry worker can
+honour `retry_after_ms`. Media-upload HTTP 5xx responses and exhausted network
+transport failures are also transient even when nio reports the generic
+`M_UNKNOWN` errcode; the HTTP status/transport failure remains the classification
+authority for retryable server/network failures.
 
 **Permanent errors** (`M_FORBIDDEN`, `M_NOT_FOUND`, encrypted-room without crypto, etc.) raise `AdapterPermanentError` without retry.
 
