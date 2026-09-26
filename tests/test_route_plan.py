@@ -1,7 +1,7 @@
 """Model tests for :func:`medre.runtime.route_plan.build_route_plan`.
 
 Covers the plan model itself — adapter inventory, route expansion into
-legs, ``channel_room_map`` fan-out, disabled-route handling, and loop
+legs, ``context_map`` fan-out, disabled-route handling, and loop
 detection — without touching the CLI.  Provenance (``source_origin_label`` /
 ``source_origin_label_source``) has its own dedicated file
 (:mod:`tests.test_route_plan_origin_labels`).
@@ -83,10 +83,10 @@ routes:
     enabled: false
 """
 
-# A channel_room_map route (Matrix→Meshtastic, source_to_dest).
-_CONFIG_CHANNEL_ROOM_MAP = """\
+# A context_map route (radio→Matrix, source_to_dest).
+_CONFIG_CONTEXT_MAP = """\
 runtime:
-  name: plan-crm
+  name: plan-ctx
 storage:
   backend: memory
 adapters:
@@ -109,17 +109,17 @@ routes:
     source_adapters: [radio]
     dest_adapters: [main]
     directionality: source_to_dest
-    channel_room_map:
-      0:
-        room: '!a:fake.local'
-      1:
-        room: '!b:fake.local'
+    context_map:
+      "0":
+        dest_context: '!a:fake.local'
+      "1":
+        dest_context: '!b:fake.local'
 """
 
-# A channel_room_map route with structured entries (per-entry labels).
-_CONFIG_CHANNEL_ROOM_MAP_STRUCTURED = """\
+# A context_map route with per-entry origin labels.
+_CONFIG_CONTEXT_MAP_LABELED = """\
 runtime:
-  name: plan-crm-structured
+  name: plan-ctx-labeled
 storage:
   backend: memory
 adapters:
@@ -142,13 +142,46 @@ routes:
     source_adapters: [radio]
     dest_adapters: [main]
     directionality: source_to_dest
-    channel_room_map:
-      0:
-        room: '!a:fake.local'
+    context_map:
+      "0":
+        dest_context: '!a:fake.local'
         source_origin_label: ChannelA
-      1:
-        room: '!b:fake.local'
+      "1":
+        dest_context: '!b:fake.local'
         source_origin_label: ChannelB
+"""
+
+# A context_map entry with a structured dest_destination (forward-only).
+_CONFIG_CONTEXT_MAP_STRUCTURED_DEST = """\
+runtime:
+  name: plan-ctx-structured
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok_main
+      encryption_mode: plaintext
+  lxmf:
+    lxmf-node:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+routes:
+  matrix_to_lxmf:
+    source_adapters: [main]
+    dest_adapters: [lxmf-node]
+    directionality: source_to_dest
+    context_map:
+      '!room:fake.local':
+        dest_destination:
+          kind: lxmf_destination
+          destination_hash: 'e5f6a7b8c9d0e1f2a1b2c3d4e5f6a7b8'
+          destination_name: mobile-peer-1
 """
 
 # Truly minimal config — runtime only, no adapters, no routes.
@@ -220,8 +253,8 @@ def test_simple_route_produces_one_forward_leg(tmp_path: Path) -> None:
     assert leg.direction == "source_to_dest"
     assert leg.source_adapter_id == "main"
     assert leg.dest_adapter_id == "radio"
-    assert leg.source_platform == "matrix"
-    assert leg.dest_platform == "meshtastic"
+    assert leg.source_transport == "matrix"
+    assert leg.dest_transport == "meshtastic"
     assert leg.config_route_id == "matrix_to_radio"
     assert leg.enabled is True
 
@@ -303,65 +336,109 @@ def test_disabled_route_carries_disabled_warning(tmp_path: Path) -> None:
 
 
 # ===========================================================================
-# 5. channel_room_map route → multiple legs, one per channel
+# 5. context_map route → multiple legs, one per entry
 # ===========================================================================
 
 
-def test_channel_room_map_produces_one_leg_per_channel(tmp_path: Path) -> None:
-    """A 2-entry channel_room_map expands to 2 legs."""
-    config = _load(tmp_path, _CONFIG_CHANNEL_ROOM_MAP)
+def test_context_map_produces_one_leg_per_entry(tmp_path: Path) -> None:
+    """A 2-entry context_map expands to 2 legs."""
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP)
     plan = build_route_plan(config)
     entry = _entry_by_id(plan, "mesh_to_matrix")
     assert len(entry.legs) == 2
     assert plan.total_legs == 2
 
 
-def test_channel_room_map_legs_carry_key_and_room(tmp_path: Path) -> None:
-    """Each leg carries its channel_room_map_key and resolved room."""
-    config = _load(tmp_path, _CONFIG_CHANNEL_ROOM_MAP)
+def test_context_map_legs_carry_mapping_contexts(tmp_path: Path) -> None:
+    """Each leg carries its mapping_source_context and dest context."""
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP)
     plan = build_route_plan(config)
     entry = _entry_by_id(plan, "mesh_to_matrix")
-    by_channel = {leg.channel_room_map_key: leg for leg in entry.legs}
-    assert set(by_channel) == {"0", "1"}
-    assert by_channel["0"].channel_room_map_room == "!a:fake.local"
-    assert by_channel["1"].channel_room_map_room == "!b:fake.local"
+    by_context = {leg.mapping_source_context: leg for leg in entry.legs}
+    assert set(by_context) == {"0", "1"}
+    assert by_context["0"].mapping_dest_context == "!a:fake.local"
+    assert by_context["1"].mapping_dest_context == "!b:fake.local"
+    # The dest context is also the leg's delivery target channel.
+    assert by_context["0"].dest_channel == "!a:fake.local"
+    assert by_context["1"].dest_channel == "!b:fake.local"
 
 
-def test_channel_room_map_leg_source_is_meshtastic(tmp_path: Path) -> None:
-    """source_to_dest with a Meshtastic source produces mesh→matrix legs."""
-    config = _load(tmp_path, _CONFIG_CHANNEL_ROOM_MAP)
+def test_context_map_leg_ids_use_map_scheme(tmp_path: Path) -> None:
+    """Mapping leg IDs follow the deterministic __map<N>__fwd scheme."""
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP)
+    plan = build_route_plan(config)
+    entry = _entry_by_id(plan, "mesh_to_matrix")
+    ids = sorted(leg.expanded_route_id for leg in entry.legs)
+    assert ids == [
+        "mesh_to_matrix__map0__fwd",
+        "mesh_to_matrix__map1__fwd",
+    ]
+
+
+def test_context_map_leg_source_is_radio(tmp_path: Path) -> None:
+    """source_to_dest legs run from the config source to the config dest."""
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP)
     plan = build_route_plan(config)
     entry = _entry_by_id(plan, "mesh_to_matrix")
     for leg in entry.legs:
         assert leg.source_adapter_id == "radio"
-        assert leg.source_platform == "meshtastic"
+        assert leg.source_transport == "meshtastic"
         assert leg.dest_adapter_id == "main"
-        assert leg.dest_platform == "matrix"
+        assert leg.dest_transport == "matrix"
         assert leg.direction == "source_to_dest"
+        assert leg.mapping_source_context is not None
+
+
+def test_context_map_mapping_fields_none_on_plain_legs(tmp_path: Path) -> None:
+    """Non-mapping legs carry None mapping provenance fields."""
+    config = _load(tmp_path, _CONFIG_SIMPLE)
+    plan = build_route_plan(config)
+    leg = _entry_by_id(plan, "matrix_to_radio").legs[0]
+    assert leg.mapping_source_context is None
+    assert leg.mapping_dest_context is None
+    assert leg.dest_destination_kind is None
+    assert leg.dest_destination_hash is None
 
 
 # ===========================================================================
-# 6. channel_room_map with structured entries → per-entry origin labels
+# 6. context_map with per-entry origin labels
 # ===========================================================================
 
 
-def test_structured_channel_room_map_carries_per_entry_labels(tmp_path: Path) -> None:
-    """Structured entries thread their source_origin_label onto each leg."""
-    config = _load(tmp_path, _CONFIG_CHANNEL_ROOM_MAP_STRUCTURED)
+def test_labeled_context_map_carries_per_entry_labels(tmp_path: Path) -> None:
+    """Labeled entries thread their source_origin_label onto each leg."""
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP_LABELED)
     plan = build_route_plan(config)
     entry = _entry_by_id(plan, "mesh_to_matrix")
-    by_channel = {leg.channel_room_map_key: leg for leg in entry.legs}
-    assert by_channel["0"].source_origin_label == "ChannelA"
-    assert by_channel["1"].source_origin_label == "ChannelB"
+    by_context = {leg.mapping_source_context: leg for leg in entry.legs}
+    assert by_context["0"].source_origin_label == "ChannelA"
+    assert by_context["1"].source_origin_label == "ChannelB"
 
 
-def test_structured_channel_room_map_provenance_is_per_entry(tmp_path: Path) -> None:
+def test_labeled_context_map_provenance_is_per_entry(tmp_path: Path) -> None:
     """Per-entry labels are attributed to the 'per_entry' source."""
-    config = _load(tmp_path, _CONFIG_CHANNEL_ROOM_MAP_STRUCTURED)
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP_LABELED)
     plan = build_route_plan(config)
     entry = _entry_by_id(plan, "mesh_to_matrix")
     for leg in entry.legs:
         assert leg.source_origin_label_source == "per_entry"
+
+
+def test_structured_destination_leg_exposes_display_fields(tmp_path: Path) -> None:
+    """Structured-destination mapping legs surface the target destination."""
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP_STRUCTURED_DEST)
+    plan = build_route_plan(config)
+    entry = _entry_by_id(plan, "matrix_to_lxmf")
+    assert entry.error is None
+    assert len(entry.legs) == 1
+    leg = entry.legs[0]
+    assert leg.mapping_source_context == "!room:fake.local"
+    assert leg.mapping_dest_context is None
+    assert leg.dest_destination_kind == "lxmf_destination"
+    assert leg.dest_destination_hash == "e5f6a7b8c9d0e1f2a1b2c3d4e5f6a7b8"
+    assert leg.dest_destination_name == "mobile-peer-1"
+    assert leg.dest_channel is None
+    assert leg.expanded_route_id == "matrix_to_lxmf__map0__fwd"
 
 
 # ===========================================================================

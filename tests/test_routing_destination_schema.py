@@ -85,7 +85,7 @@ def test_structured_destination_rejects_selectors_and_multiple_adapters() -> Non
         jsonschema.validate(
             instance={
                 **_route(valid),
-                "channel_room_map": {"0": {"room": "!room:example.org"}},
+                "context_map": {"0": {"dest_context": "!room:example.org"}},
             },
             schema=_SCHEMA,
         )

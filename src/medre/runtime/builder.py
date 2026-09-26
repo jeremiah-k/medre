@@ -386,18 +386,14 @@ class RuntimeBuilder:
         )
 
         # 10. Construct adapters from RuntimeConfig
-        # 10.0 Build adapter_id → transport mapping for route expansion.
-        adapter_platforms: dict[str, str] = {}
-        for transport, adapter_id, _rtc in self._config.adapters.all_configs():
-            adapter_platforms[adapter_id] = transport
-
         # 10.1 Expand routes once for adapter-owned runtime preparation hooks.
         #      The generic builder does not interpret transport-specific route
         #      semantics; registered adapters may opt into a preparation hook.
+        #      Config→route expansion is owned by the config compiler.
         from medre.runtime.route_engine import build_runtime_routes
 
         self._adapter_preparation_routes = tuple(
-            build_runtime_routes(self._config.routes, adapter_platforms)
+            build_runtime_routes(self._config.routes)
         )
 
         # 10.2 Run adapter-owned configuration preparation as fail-closed
@@ -435,7 +431,6 @@ class RuntimeBuilder:
             self._config.routes,
             configured_enabled_ids,
             built_adapter_ids,
-            adapter_platforms=adapter_platforms,
         )
 
         # 10.6. Build route-level retry policies mapping.

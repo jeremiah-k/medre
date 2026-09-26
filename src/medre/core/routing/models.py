@@ -17,6 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from medre.core.events.metadata import FrozenDict
+
 if TYPE_CHECKING:
     from medre.core.policies.route_policy import RoutePolicy
 
@@ -87,6 +89,15 @@ class RouteDestination:
     destination_hash: str | None
     destination_name: str | None
     metadata: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Deep-freeze metadata so RouteDestination values are recursively
+        # immutable: nested dicts become FrozenDict and lists become
+        # tuples, while ``isinstance(metadata, dict)`` stays true for
+        # readers and msgspec serialisation.  No JSON-safety or
+        # reserved-key validation happens here — that contract belongs
+        # to delivery metadata.
+        object.__setattr__(self, "metadata", FrozenDict(self.metadata))
 
 
 # ---------------------------------------------------------------------------

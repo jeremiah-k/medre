@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
 
 from medre.config.loader import load_config
 from medre.config.routes import RouteConfigSet, RouteDirectionality
 
 from .exit_codes import EXIT_CONFIG, EXIT_OK
 from .json import to_json
+
+if TYPE_CHECKING:
+    from medre.runtime.route_plan import RoutePlanLeg
 
 
 def _routes_validate(config_path: str | None) -> None:
@@ -85,16 +89,13 @@ def _routes_validate(config_path: str | None) -> None:
             route_errors[rid] = re_list
 
     # Validate route expansion and expanded ID uniqueness (matches startup).
+    from medre.config.errors import ConfigValidationError as _CVE
     from medre.runtime.route_engine import RouteValidationError as _RVE
     from medre.runtime.route_engine import build_runtime_routes as _build_runtime_routes
 
-    adapter_platforms: dict[str, str] = {}
-    for _transport, _adapter_id, _rtc in config.adapters.all_configs():
-        adapter_platforms[_adapter_id] = _transport
-
     try:
-        _build_runtime_routes(routes, adapter_platforms)
-    except _RVE as exc:
+        _build_runtime_routes(routes)
+    except (_RVE, _CVE) as exc:
         errors.append(str(exc))
 
     # Print route-by-route summary
@@ -316,7 +317,7 @@ def _routes_plan(config_path: str | None, as_json: bool = False) -> None:
     """Render the expanded route plan (offline — no adapter I/O).
 
     Walks every config route, expands enabled ones into per-leg detail
-    (including ``channel_room_map`` fan-out, origin-label provenance, and
+    (including ``context_map`` fan-out, origin-label provenance, and
     fan-in annotations), and reports detected loops.  Disabled routes
     are listed separately.  Exits nonzero on config or expansion errors.
     """
@@ -347,11 +348,27 @@ def _plan_has_errors(plan) -> bool:
     return any(entry.error is not None for entry in plan.routes)
 
 
-def _format_adapter_ref(adapter_id: str, platform: str | None) -> str:
-    """Render ``platform:adapter_id`` (or just ``adapter_id``)."""
-    if platform:
-        return f"{platform}:{adapter_id}"
+def _format_adapter_ref(adapter_id: str, transport: str | None) -> str:
+    """Render ``transport:adapter_id`` (or just ``adapter_id``)."""
+    if transport:
+        return f"{transport}:{adapter_id}"
     return adapter_id
+
+
+def _format_structured_destination(leg: RoutePlanLeg) -> str:
+    """Render a structured ``dest_destination`` for a mapping leg.
+
+    Form: ``<kind> <hash> (name)`` with the name part omitted when
+    absent, falling back to the name alone when no hash is set.
+    """
+    kind = leg.dest_destination_kind or "?"
+    hash_ = leg.dest_destination_hash
+    name = leg.dest_destination_name
+    if hash_:
+        return f"{kind} {hash_} ({name})" if name else f"{kind} {hash_}"
+    if name:
+        return f"{kind} {name}"
+    return kind
 
 
 def _format_origin_label(value: str | None, source: str) -> str:
@@ -406,13 +423,17 @@ def _render_route_plan(plan) -> None:
         if entry.error is not None:
             print(f"    \u2717 error: {entry.error}")
         for idx, leg in enumerate(entry.legs, start=1):
-            src = _format_adapter_ref(leg.source_adapter_id, leg.source_platform)
-            dst = _format_adapter_ref(leg.dest_adapter_id, leg.dest_platform)
+            src = _format_adapter_ref(leg.source_adapter_id, leg.source_transport)
+            dst = _format_adapter_ref(leg.dest_adapter_id, leg.dest_transport)
             print(f"    Leg {idx}: {src} \u2192 {dst}  [{leg.direction}]")
-            if leg.channel_room_map_key is not None:
-                room = leg.channel_room_map_room or "?"
+            if leg.mapping_source_context is not None:
+                if leg.dest_destination_kind is not None:
+                    dest_desc = _format_structured_destination(leg)
+                else:
+                    dest_desc = leg.mapping_dest_context or "?"
                 print(
-                    f"           channel_room_map: ch={leg.channel_room_map_key} \u2192 {room}"
+                    f"           context_map: {leg.mapping_source_context} "
+                    f"\u2192 {dest_desc}"
                 )
             elif leg.source_channel is not None or leg.dest_channel is not None:
                 parts: list[str] = []

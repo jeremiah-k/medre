@@ -1030,7 +1030,7 @@ class TestExpandedRouteIDCollision:
             enabled=True,
         )
         rcs = RouteConfigSet(routes=(r1, r2))
-        with pytest.raises(RouteValidationError) as exc_info:
+        with pytest.raises(ConfigValidationError) as exc_info:
             build_runtime_routes(rcs)
         msg = str(exc_info.value)
         assert "Expanded route ID collision" in msg

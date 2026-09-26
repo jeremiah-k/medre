@@ -4,7 +4,7 @@ Regression tests for a bug in :func:`apply_route_overrides`: when an
 existing config route was overridden via ``MEDRE_ROUTE__<TOKEN>__<FIELD>``
 env vars, the override path rebuilt the route through
 :meth:`RouteConfig.from_dict` and carried forward complex fields
-(``channel_room_map``, ``policy``, ``retry``) but **dropped**
+(``context_map``, ``policy``, ``retry``) but **dropped**
 ``source_origin_label`` and ``dest_origin_label``.
 
 Origin labels are not settable via env vars (they are not in the
@@ -33,7 +33,7 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.routes import (
-    ChannelRoomMapEntry,
+    ContextMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -162,7 +162,7 @@ class TestEnvOverridePreservesOriginLabels:
 
 class TestEnvOverridePreservesOriginLabelsWithComplexFields:
     """Origin labels survive the override round-trip alongside other complex
-    fields (channel_room_map, policy, retry) that were already preserved."""
+    fields (context_map, policy, retry) that were already preserved."""
 
     def test_labels_and_complex_fields_all_preserved(
         self, monkeypatch: pytest.MonkeyPatch
@@ -175,7 +175,7 @@ class TestEnvOverridePreservesOriginLabelsWithComplexFields:
             dest_adapters=("adapter-b",),
             directionality=RouteDirectionality.SOURCE_TO_DEST,
             enabled=True,
-            channel_room_map={"0": ChannelRoomMapEntry(room="!room0:matrix.org")},
+            context_map={"0": ContextMapEntry(dest_context="!room0:matrix.org")},
             policy=BridgePolicy(allowed_event_types=("message",)),
             retry=RouteRetryConfig(enabled=True, max_attempts=5),
             source_origin_label="Source",
@@ -195,8 +195,8 @@ class TestEnvOverridePreservesOriginLabelsWithComplexFields:
         route = result.routes.routes[0]
         assert route.enabled is False
         # All preserved complex fields.
-        assert route.channel_room_map == {
-            "0": ChannelRoomMapEntry(room="!room0:matrix.org")
+        assert route.context_map == {
+            "0": ContextMapEntry(dest_context="!room0:matrix.org")
         }
         assert route.policy is not None
         assert route.policy.allowed_event_types == ("message",)

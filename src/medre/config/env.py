@@ -1217,13 +1217,14 @@ def _build_route_data_from_env_fields(
         # origin labels (source_origin_label / dest_origin_label), which are
         # not in the env-settable field list and must survive the override
         # round-trip so existing relay-prefix attribution is not dropped.
-        if existing.channel_room_map is not None:
-            # ``existing.channel_room_map`` uses the sole supported in-memory
-            # shape: ``dict[str, ChannelRoomMapEntry]``. Re-serialize entries
-            # before validating the override result.
-            route_data["channel_room_map"] = {
-                ch: dataclasses.asdict(entry)
-                for ch, entry in existing.channel_room_map.items()
+        if existing.context_map is not None:
+            # ``existing.context_map`` uses the sole supported in-memory
+            # shape: ``dict[str, ContextMapEntry]``. Re-serialize entries —
+            # including nested structured destinations — before validating
+            # the override result.
+            route_data["context_map"] = {
+                key: dataclasses.asdict(entry)
+                for key, entry in existing.context_map.items()
             }
         if existing.policy is not None:
             route_data["policy"] = dataclasses.asdict(existing.policy)

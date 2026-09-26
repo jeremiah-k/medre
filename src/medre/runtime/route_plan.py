@@ -3,16 +3,20 @@
 Produces a deterministic, JSON-safe expansion of route configs without
 starting any adapter or performing network/hardware I/O.
 
-The plan reuses the pure expansion functions in
-:mod:`medre.runtime.route_engine` (:func:`_expand_route_config`,
-:func:`_expand_channel_room_map_route`, :func:`check_route_loops`) and adds
-two things the engine does not surface on its own:
+The plan reuses the config compiler's pure expansion function
+(:func:`medre.config.route_expansion.expand_route_config`) plus the
+engine's :func:`~medre.runtime.route_engine.check_route_loops`, and adds
+two things the expansion alone does not surface:
 
 * per-leg origin-label provenance including adapter fallback
   (per-entry → route → adapter → unset), so the plan shows the
   *effective* label the renderer would use rather than only what the
-  expansion engine copied onto the Route object; and
-* a config-level walk that includes disabled routes (the engine skips them).
+  expansion copied onto the Route object; and
+* a config-level walk that includes disabled routes (the compiler's
+  ``expand_route_configs`` skips them).
+
+Expansion failures are attributed per route via the leg provenance
+fields — the plan never parses expanded route IDs.
 
 No adapter SDK is imported and no adapter is started.
 """
@@ -22,16 +26,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from medre.config.errors import ConfigValidationError
+from medre.config.route_expansion import EXPANSION_ID_PATTERNS_HINT, expand_route_config
 from medre.config.routes import RouteDirectionality
-from medre.runtime.route_engine import (
-    RouteValidationError,
-    _expand_channel_room_map_route,
-    _expand_route_config,
-    check_route_loops,
-)
+from medre.runtime.route_engine import RouteValidationError, check_route_loops
 
 if TYPE_CHECKING:
     from medre.config.model import RuntimeConfig
+    from medre.config.route_expansion import ExpandedRouteLeg
+    from medre.config.routes import RouteConfig
 
 __all__ = [
     "AdapterSummary",
@@ -64,8 +67,8 @@ class RoutePlanLeg:
     Attributes
     ----------
     expanded_route_id:
-        The full ID assigned by expansion (may include ``__ch<N>__`` /
-        ``__rev_<N>`` / ``__<N>`` suffixes).
+        The full ID assigned by expansion (may include ``__<N>`` /
+        ``__rev_<N>`` / ``__map<N>__{fwd,rev}`` suffixes).
     config_route_id:
         Provenance: the config-level route ID this leg was produced from.
     enabled:
@@ -75,16 +78,17 @@ class RoutePlanLeg:
         config route's declared source/dest adapters.
     source_adapter_id / dest_adapter_id:
         Physical source and destination adapter IDs for this leg.
-    source_platform / dest_platform:
-        Transport platform string for each side (``"matrix"``,
-        ``"meshtastic"``, ...), or ``None`` if unknown.
+    source_transport / dest_transport:
+        Registered transport name for each side (the adapter inventory's
+        transport label), or ``None`` if unknown.
     source_channel / dest_channel:
-        Resolved channel/room values carried on the expanded leg.
-    channel_room_map_key:
-        The ``channel_room_map`` key (e.g. ``"0"``) when this leg was
-        produced by channel_room_map expansion, else ``None``.
-    channel_room_map_room:
-        The Matrix room ID for that key, else ``None``.
+        Resolved context values carried on the expanded leg.
+    mapping_source_context / mapping_dest_context:
+        The ``context_map`` source key and destination context when this
+        leg was produced by ``context_map`` expansion, else ``None``.
+    dest_destination_kind / dest_destination_hash / dest_destination_name:
+        Operator-visible display fields for structured destinations
+        carried on the expanded leg's target, else ``None``.
     source_origin_label:
         The effective origin label value for this leg, including
         adapter-level ``origin_label`` fallback.  May be ``None`` (no
@@ -92,8 +96,8 @@ class RoutePlanLeg:
         the per-entry or route level).
     source_origin_label_source:
         Live provenance category describing where *source_origin_label*
-        came from: ``"per_entry"`` (a ``channel_room_map`` entry's
-        label), ``"route"`` (route-level ``source_origin_label`` /
+        came from: ``"per_entry"`` (a ``context_map`` entry's label),
+        ``"route"`` (route-level ``source_origin_label`` /
         ``dest_origin_label``), ``"adapter"`` (source adapter's
         ``origin_label`` fallback applied at plan time), or ``"unset"``
         (no label resolved at any level).  When *source_origin_label*
@@ -107,12 +111,15 @@ class RoutePlanLeg:
     direction: str
     source_adapter_id: str
     dest_adapter_id: str
-    source_platform: str | None
-    dest_platform: str | None
+    source_transport: str | None
+    dest_transport: str | None
     source_channel: str | None
     dest_channel: str | None
-    channel_room_map_key: str | None
-    channel_room_map_room: str | None
+    mapping_source_context: str | None
+    mapping_dest_context: str | None
+    dest_destination_kind: str | None
+    dest_destination_hash: str | None
+    dest_destination_name: str | None
     source_origin_label: str | None
     source_origin_label_source: str
 
@@ -137,7 +144,7 @@ class RoutePlanEntry:
         Non-blocking notes, e.g. fan-in annotations.
     error:
         Non-``None`` when expansion failed for this route (e.g.
-        duplicate-room ambiguity, platform mismatch, ID collision).
+        ambiguous duplicate contexts, ID collision).
     """
 
     route_id: str
@@ -168,7 +175,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
 
     Walks every config route (including disabled ones), expands each
     enabled route in isolation so failures are attributed precisely,
-    resolves origin-label provenance per leg, detects duplicate-room
+    resolves origin-label provenance per leg, annotates forward-only
     fan-in, and runs loop detection over the aggregate expansion.
 
     Parameters
@@ -184,11 +191,11 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
     rather than raised.
     """
     # -- Adapter inventory + lookup maps ------------------------------------
-    adapter_platforms: dict[str, str] = {}
+    adapter_transports: dict[str, str] = {}
     adapter_origin_labels: dict[str, str] = {}
     adapters: list[AdapterSummary] = []
     for transport, adapter_id, rtc in config.adapters.all_configs():
-        adapter_platforms[adapter_id] = transport
+        adapter_transports[adapter_id] = transport
         origin = ""
         if rtc.config is not None:
             origin = getattr(rtc.config, "origin_label", "") or ""
@@ -223,10 +230,10 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
 
         # Validate adapter references before expansion: a route that points
         # at adapters not in config would otherwise expand with
-        # source_platform=None and a misleadingly clean plan. Captured as a
+        # source_transport=None and a misleadingly clean plan. Captured as a
         # per-route error (like other expansion failures), not raised.
-        missing = [aid for aid in rc.source_adapters if aid not in adapter_platforms]
-        missing += [aid for aid in rc.dest_adapters if aid not in adapter_platforms]
+        missing = [aid for aid in rc.source_adapters if aid not in adapter_transports]
+        missing += [aid for aid in rc.dest_adapters if aid not in adapter_transports]
         if missing:
             route_entries.append(
                 RoutePlanEntry(
@@ -236,15 +243,15 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                     legs=[],
                     warnings=[],
                     error=f"references unknown adapter(s): {sorted(set(missing))}. "
-                    f"Configured adapters: {sorted(adapter_platforms.keys())}",
+                    f"Configured adapters: {sorted(adapter_transports.keys())}",
                 )
             )
             continue
 
         # Expand just this route so a failure is attributable to it.
         try:
-            expanded = _expand_single_route(rc, adapter_platforms)
-        except RouteValidationError as exc:
+            expanded_legs = expand_route_config(rc)
+        except (RouteValidationError, ConfigValidationError) as exc:
             route_entries.append(
                 RoutePlanEntry(
                     route_id=rc.route_id,
@@ -257,18 +264,17 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
             )
             continue
 
-        # Cross-route expanded-ID uniqueness (engine checks within a single
-        # call; here we check across routes).
+        # Cross-route expanded-ID uniqueness (the compiler checks within a
+        # full-set expansion; here we check across per-route expansions).
         collision_error = None
-        for r in expanded:
-            if r.id in seen_expanded_ids:
+        for leg in expanded_legs:
+            if leg.route.id in seen_expanded_ids:
                 collision_error = (
-                    f"Expanded route ID collision: {r.id!r} from route "
+                    f"Expanded route ID collision: {leg.route.id!r} from route "
                     f"{rc.route_id!r} conflicts with route "
-                    f"{seen_expanded_ids[r.id]!r}. Route IDs must be unique "
-                    f"and must not match the expansion pattern "
-                    f"'<id>__<N>', '<id>__rev_<N>', or "
-                    f"'<id>__ch<channel>__<direction>'."
+                    f"{seen_expanded_ids[leg.route.id]!r}. Route IDs must be "
+                    f"unique and must not match the expansion patterns "
+                    f"{EXPANSION_ID_PATTERNS_HINT}."
                 )
                 break
         if collision_error is not None:
@@ -284,17 +290,17 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
             )
             continue
 
-        for r in expanded:
-            seen_expanded_ids[r.id] = rc.route_id
+        for leg in expanded_legs:
+            seen_expanded_ids[leg.route.id] = rc.route_id
 
         legs = [
             _build_leg(
-                r,
+                leg,
                 rc,
-                adapter_platforms=adapter_platforms,
+                adapter_transports=adapter_transports,
                 adapter_origin_labels=adapter_origin_labels,
             )
-            for r in expanded
+            for leg in expanded_legs
         ]
         warnings = _route_warnings(rc)
 
@@ -308,7 +314,7 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
                 error=None,
             )
         )
-        all_expanded_routes.extend(expanded)
+        all_expanded_routes.extend(leg.route for leg in expanded_legs)
 
     # -- Loop detection over the aggregate expansion ------------------------
     loops = check_route_loops(all_expanded_routes)
@@ -328,86 +334,53 @@ def build_route_plan(config: RuntimeConfig) -> RoutePlan:
 # ---------------------------------------------------------------------------
 
 
-def _expand_single_route(rc, adapter_platforms: dict[str, str]) -> list:
-    """Dispatch a single RouteConfig to the right expander.
-
-    Mirrors the per-route branch of ``_expand_all_routes`` without the
-    provenance bookkeeping, so a failure is attributable to *rc* alone.
-    """
-    if rc.channel_room_map is not None:
-        return _expand_channel_room_map_route(rc, adapter_platforms)
-    direction = rc.directionality
-    if direction == RouteDirectionality.SOURCE_TO_DEST:
-        return _expand_route_config(rc)
-    if direction == RouteDirectionality.DEST_TO_SOURCE:
-        return _expand_route_config(rc, swap_direction=True)
-    if direction == RouteDirectionality.BIDIRECTIONAL:
-        return _expand_route_config(rc) + _expand_route_config(rc, swap_direction=True)
-    return []
-
-
-def _channel_room_map_key(expanded_id: str, route_id: str) -> str | None:
-    """Extract the ``channel_room_map`` key from an expanded route ID.
-
-    Expanded IDs for channel_room_map legs look like
-    ``"{route_id}__ch{ch}__matrix_to_meshtastic"``.  Returns ``None`` for
-    IDs that do not carry the ``__ch`` marker.
-    """
-    marker = f"{route_id}__ch"
-    if not expanded_id.startswith(marker):
-        return None
-    rest = expanded_id[len(marker) :]
-    # rest == "{ch}__matrix_to_meshtastic" (or meshtastic_to_matrix)
-    return rest.split("__", 1)[0]
-
-
 def _build_leg(
-    route,
-    rc,
+    leg: ExpandedRouteLeg,
+    rc: RouteConfig,
     *,
-    adapter_platforms: dict[str, str],
+    adapter_transports: dict[str, str],
     adapter_origin_labels: dict[str, str],
 ) -> RoutePlanLeg:
-    """Build a :class:`RoutePlanLeg` from an expanded Route and its config."""
+    """Build a :class:`RoutePlanLeg` from an expanded leg and its config."""
+    route = leg.route
     source_adapter = route.source.adapter or ""
     # targets always has at least one entry for valid routes.
     dest_adapter = ""
+    destination = None
     if route.targets:
         dest_adapter = route.targets[0].adapter or ""
+        destination = route.targets[0].destination
 
     # Direction relative to the config's declared source/dest adapters.
-    is_forward = source_adapter in rc.source_adapters
-    direction = "source_to_dest" if is_forward else "dest_to_source"
-
-    # channel_room_map key/room (None for non-channel_room_map legs).
-    crm_key = _channel_room_map_key(route.id, rc.route_id)
-    crm_room: str | None = None
-    if crm_key is not None and rc.channel_room_map is not None:
-        entry = rc.channel_room_map.get(crm_key)
-        if entry is not None:
-            crm_room = entry.room
+    is_forward = leg.direction == "source_to_dest"
 
     effective_label, label_source = _resolve_effective_origin_label(
-        route=route,
+        leg=leg,
         rc=rc,
-        is_forward=is_forward,
-        adapter_platforms=adapter_platforms,
+        side_is_source=is_forward,
         adapter_origin_labels=adapter_origin_labels,
     )
 
     return RoutePlanLeg(
         expanded_route_id=route.id,
-        config_route_id=rc.route_id,
+        config_route_id=leg.config_route_id,
         enabled=route.enabled,
-        direction=direction,
+        direction=leg.direction,
         source_adapter_id=source_adapter,
         dest_adapter_id=dest_adapter,
-        source_platform=adapter_platforms.get(source_adapter),
-        dest_platform=adapter_platforms.get(dest_adapter),
+        source_transport=adapter_transports.get(source_adapter),
+        dest_transport=adapter_transports.get(dest_adapter),
         source_channel=route.source.channel,
         dest_channel=route.targets[0].channel if route.targets else None,
-        channel_room_map_key=crm_key,
-        channel_room_map_room=crm_room,
+        mapping_source_context=leg.mapping_source_context,
+        mapping_dest_context=leg.mapping_dest_context,
+        dest_destination_kind=None if destination is None else destination.kind,
+        dest_destination_hash=(
+            None if destination is None else destination.destination_hash
+        ),
+        dest_destination_name=(
+            None if destination is None else destination.destination_name
+        ),
         source_origin_label=effective_label,
         source_origin_label_source=label_source,
     )
@@ -415,10 +388,9 @@ def _build_leg(
 
 def _resolve_effective_origin_label(
     *,
-    route,
-    rc,
-    is_forward: bool,
-    adapter_platforms: dict[str, str],
+    leg: ExpandedRouteLeg,
+    rc: RouteConfig,
+    side_is_source: bool,
     adapter_origin_labels: dict[str, str],
 ) -> tuple[str | None, str]:
     """Resolve the effective origin label and its provenance source.
@@ -433,30 +405,16 @@ def _resolve_effective_origin_label(
     3. Source adapter ``origin_label`` fallback (when non-empty).
     4. ``None`` (unset).
 
-    The expansion engine only carries per-entry and route-level labels
-    onto the expanded :class:`Route` object; the adapter fallback is
-    applied here so the plan reports the effective label the renderer
-    would use.
+    The expansion copies the effective per-entry/route-level label onto
+    the expanded :class:`Route` object; the adapter fallback is applied
+    here so the plan reports the effective label the renderer would use.
+    The label side is purely direction-relative: forward legs use the
+    config route's source side, reverse legs its dest side.
     """
-    # Which config-level label side applies to this physical leg.
-    # channel_room_map legs select source/dest side based on physical
-    # direction and which config adapter is Matrix.
-    if rc.channel_room_map is not None and rc.source_adapters:
-        fwd_is_matrix_to_mesh = adapter_platforms.get(rc.source_adapters[0]) == "matrix"
-        leg_is_matrix_to_mesh = adapter_platforms.get(route.source.adapter) == "matrix"
-        if leg_is_matrix_to_mesh:
-            side_is_source = fwd_is_matrix_to_mesh
-        else:
-            side_is_source = not fwd_is_matrix_to_mesh
-    else:
-        # Non-channel_room_map: forward leg uses source side, reverse dest.
-        side_is_source = is_forward
-
-    # Per-entry label (channel_room_map only).
+    # Per-entry label (context_map legs only, keyed by leg provenance).
     entry_label: str | None = None
-    crm_key = _channel_room_map_key(route.id, rc.route_id)
-    if crm_key is not None and rc.channel_room_map is not None:
-        entry = rc.channel_room_map.get(crm_key)
+    if leg.mapping_source_context is not None and rc.context_map is not None:
+        entry = rc.context_map.get(leg.mapping_source_context)
         if entry is not None:
             entry_label = (
                 entry.source_origin_label if side_is_source else entry.dest_origin_label
@@ -471,25 +429,38 @@ def _resolve_effective_origin_label(
         # Route-level label wins (includes explicit "" suppression).
         return (route_label, "route")
     # No per-entry or route-level label: apply adapter fallback.
-    src_adapter = route.source.adapter
+    src_adapter = leg.route.source.adapter
     adapter_label = adapter_origin_labels.get(src_adapter, "") if src_adapter else ""
     if adapter_label:
         return (adapter_label, "adapter")
     return (None, "unset")
 
 
-def _route_warnings(rc) -> list[str]:
-    """Non-blocking warnings for a config route (e.g. fan-in annotation)."""
+def _route_warnings(rc: RouteConfig) -> list[str]:
+    """Non-blocking warnings for a config route (e.g. fan-in annotation).
+
+    Fan-in — several source contexts sharing one ``dest_context`` — is
+    only meaningful when the route creates forward legs exclusively
+    (``source_to_dest``); with reverse legs present the config rejects
+    duplicate ``dest_context`` values outright.  Entries carrying a
+    structured ``dest_destination`` never participate (each addresses a
+    unique destination entity).
+    """
     warnings: list[str] = []
-    if rc.channel_room_map is None or len(rc.channel_room_map) < 2:
+    context_map = rc.context_map
+    if not context_map or len(context_map) < 2:
         return warnings
-    room_to_channels: dict[str, list[str]] = {}
-    for ch, entry in rc.channel_room_map.items():
-        room_to_channels.setdefault(entry.room, []).append(ch)
-    for room, channels in sorted(room_to_channels.items()):
-        if len(channels) > 1:
+    if rc.directionality != RouteDirectionality.SOURCE_TO_DEST:
+        return warnings
+    dest_to_sources: dict[str, list[str]] = {}
+    for key, entry in context_map.items():
+        if entry.dest_context is None:
+            continue
+        dest_to_sources.setdefault(entry.dest_context, []).append(key)
+    for dest_context, source_keys in sorted(dest_to_sources.items()):
+        if len(source_keys) > 1:
             warnings.append(
-                f"fan-in: same room {room} for channels "
-                f"{', '.join(sorted(channels))}"
+                f"fan-in: same dest_context {dest_context} for source contexts "
+                f"{', '.join(sorted(source_keys))}"
             )
     return warnings

@@ -113,8 +113,8 @@ class TestCoreBoundaryComprehensive:
 class TestRouteEngineBoundaryComprehensive:
     """Route engine must not import adapter implementations or SDKs.
 
-    It may use platform strings like 'matrix' and 'meshtastic' for
-    channel_room_map expansion, but must not import adapter modules.
+    It must not import adapter modules; route expansion itself is
+    transport-agnostic config compilation.
     """
 
     _BANNED_PREFIXES: tuple[str, ...] = (

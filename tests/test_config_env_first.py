@@ -32,7 +32,7 @@ from medre.config.model import (
 )
 from medre.config.routes import (
     BridgePolicy,
-    ChannelRoomMapEntry,
+    ContextMapEntry,
     RouteConfig,
     RouteConfigSet,
     RouteDirectionality,
@@ -965,14 +965,14 @@ class TestProvenanceTargetTransportBackfill:
 
 
 def _make_config_with_route_complex() -> RuntimeConfig:
-    """RuntimeConfig with a route that has channel_room_map, policy, and retry."""
+    """RuntimeConfig with a route that has context_map, policy, and retry."""
     route = RouteConfig(
         route_id="toml-route",
         source_adapters=("adapter-a",),
         dest_adapters=("adapter-b",),
         directionality=RouteDirectionality.SOURCE_TO_DEST,
         enabled=True,
-        channel_room_map={"0": ChannelRoomMapEntry(room="!room1:matrix.org")},
+        context_map={"0": ContextMapEntry(dest_context="!room1:matrix.org")},
         policy=BridgePolicy(allowed_event_types=("message",)),
         retry=RouteRetryConfig(enabled=True, max_attempts=5),
     )
@@ -986,13 +986,13 @@ def _make_config_with_route_complex() -> RuntimeConfig:
 
 
 class TestRouteOverridePreservesComplexFields:
-    """When overriding an existing route via env, complex fields (channel_room_map,
-    policy, retry) that cannot be set via env vars are preserved (lines 1102-1107)."""
+    """When overriding an existing route via env, complex fields (context_map,
+    policy, retry) that cannot be set via env vars are preserved."""
 
-    def test_channel_room_map_preserved_on_override(
+    def test_context_map_preserved_on_override(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """channel_room_map is preserved when overriding a route via env."""
+        """context_map is preserved when overriding a route via env."""
         monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__ENABLED", "false")
         base = _make_config_with_route_complex()
         result = apply_env_overrides(base)
@@ -1000,8 +1000,8 @@ class TestRouteOverridePreservesComplexFields:
         assert len(result.routes.routes) == 1
         route = result.routes.routes[0]
         assert route.enabled is False
-        assert route.channel_room_map == {
-            "0": ChannelRoomMapEntry(room="!room1:matrix.org")
+        assert route.context_map == {
+            "0": ContextMapEntry(dest_context="!room1:matrix.org")
         }
 
     def test_policy_preserved_on_override(
