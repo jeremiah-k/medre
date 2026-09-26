@@ -18,12 +18,11 @@ import pytest
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
-from tests.helpers.delivery_callbacks import with_attempt_provenance
-
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     RetryExecutor,
 )
+from tests.helpers.delivery_callbacks import with_attempt_provenance
 
 
 class TestQueueMaxQueueSizeValidation:

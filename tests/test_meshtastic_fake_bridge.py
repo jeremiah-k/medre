@@ -47,8 +47,8 @@ from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
-from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
 from tests.helpers.delivery_callbacks import with_attempt_provenance
+from tests.helpers.meshtastic_bridge import make_adapter_context, make_text_packet
 
 # ===================================================================
 # 1. Meshtastic inbound -> fake outbound

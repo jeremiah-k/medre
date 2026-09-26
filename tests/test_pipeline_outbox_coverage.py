@@ -326,9 +326,11 @@ class TestUnknownTerminalOutcome:
             attempt_number=1,
             provenance_channel="ch-1",
         )
-        # Override outcome to an unknown value via object.__setattr__
-        # since the dataclass is frozen.
-        object.__setattr__(record, "outcome", "totally_unknown_outcome")
+        # Corrupt the frozen msgspec struct with force_setattr; the unknown
+        # outcome must be ignored without durable state changing.
+        from msgspec.structs import force_setattr
+
+        force_setattr(record, "outcome", "totally_unknown_outcome")
 
         await manager.record_deferred_failure(record)
 
