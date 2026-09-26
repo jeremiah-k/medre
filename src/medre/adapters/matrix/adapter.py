@@ -18,11 +18,15 @@ import random
 import time
 from typing import Any, Callable
 
+from msgspec import structs as _msgspec_structs
+
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.adapters.matrix.errors import (
     MATRIX_PERMANENT_ERRCODES,
     MatrixConnectionError,
+    MatrixMediaTransientError,
+    MatrixMediaUnavailableError,
     MatrixSendError,
 )
 from medre.adapters.matrix.errors import (
@@ -31,7 +35,10 @@ from medre.adapters.matrix.errors import (
 from medre.adapters.matrix.errors import (
     retry_after_seconds_from_ms as _retry_after_seconds_from_ms,
 )
-from medre.adapters.matrix.event_shape import MATRIX_NATIVE_SCHEMA_VERSION
+from medre.adapters.matrix.event_shape import (
+    MATRIX_NATIVE_SCHEMA_VERSION,
+    attachment_candidate_from_matrix_media,
+)
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.outbound import (
     MatrixOutboundEnvelopeError,
@@ -51,7 +58,15 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.contracts.delivery import AdapterHandoffResult
-from medre.core.ingress import IngressProvenance
+from medre.core.events.attachments import ATTACHMENT_PAYLOAD_KEY
+from medre.core.events.kinds import EventKind
+from medre.core.ingress import (
+    AttachmentTransferPermitTimeoutError,
+    InboundAttachmentContent,
+    IngressProvenance,
+)
+from medre.core.ingress.content import AttachmentContentUnavailableError
+from medre.core.ingress.types import DurableIngressDeferredError
 from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
@@ -65,7 +80,7 @@ _MATRIX_CAPABILITIES = AdapterCapabilities(
     reactions="native",
     edits="native",
     deletes="native",
-    attachments=False,
+    attachments=True,
     metadata_fields=False,
     store_and_forward=False,
     direct_messages=True,
@@ -263,6 +278,11 @@ class MatrixAdapter(AdapterContract):
         "_inbound_filtered_allowlist",
         "_inbound_filtered_encryption_policy",
         "_inbound_suppressed_startup",
+        # Attachment transfer diagnostics
+        "_inbound_attachment_retained",
+        "_inbound_attachment_unavailable",
+        "_inbound_attachment_deferred",
+        "_outbound_attachment_transfers",
     )
 
     adapter_id: str
@@ -301,6 +321,11 @@ class MatrixAdapter(AdapterContract):
         self._inbound_filtered_allowlist: int = 0
         self._inbound_filtered_encryption_policy: int = 0
         self._inbound_suppressed_startup: int = 0
+        # Attachment transfer diagnostics
+        self._inbound_attachment_retained: int = 0
+        self._inbound_attachment_unavailable: int = 0
+        self._inbound_attachment_deferred: int = 0
+        self._outbound_attachment_transfers: int = 0
 
     @property
     def _sync_failure(self) -> Exception | None:
@@ -351,6 +376,11 @@ class MatrixAdapter(AdapterContract):
         self._inbound_filtered_allowlist = 0
         self._inbound_filtered_encryption_policy = 0
         self._inbound_suppressed_startup = 0
+        # Attachment transfer diagnostics — reset on start
+        self._inbound_attachment_retained = 0
+        self._inbound_attachment_unavailable = 0
+        self._inbound_attachment_deferred = 0
+        self._outbound_attachment_transfers = 0
         self.ctx = ctx
 
         if not HAS_NIO:
@@ -715,6 +745,11 @@ class MatrixAdapter(AdapterContract):
                 "requires a closed MatrixOutboundOperation payload"
             )
 
+        if operation.kind == "send_media":
+            # Binary delivery owns its own permit/deadline/upload path; it
+            # never falls through to the plain room-send branch below.
+            return await self._deliver_send_media(result, room_id, operation)
+
         is_redaction = operation.kind == "redact_event"
 
         # Auto-join configured target room if not already joined.
@@ -762,14 +797,41 @@ class MatrixAdapter(AdapterContract):
         # of being misclassified by the generic retry handler below.
         self._defer_for_outbound_cooldown()
 
-        # Bounded retry for transient errors
+        return await self._dispatch_room_operation(
+            room_id=room_id,
+            operation=operation,
+            txn_id=txn_id,
+            redacts_event_id=redacts_event_id if is_redaction else None,
+            wire_content=None if is_redaction else wire_content,
+        )
+
+    async def _dispatch_room_operation(
+        self,
+        *,
+        room_id: str,
+        operation: MatrixOutboundOperation,
+        txn_id: str,
+        redacts_event_id: str | None,
+        wire_content: dict[str, Any] | None,
+    ) -> AdapterHandoffResult:
+        """Send one room operation with the shared bounded retry policy.
+
+        The single retry loop and error classification for redactions,
+        plain sends, and post-upload media sends: transient network errors
+        back off up to :data:`_MAX_DELIVERY_RETRIES` attempts with the
+        deterministic transaction id; rate limits surface immediately as
+        structured transient hints; permanent responses raise without
+        retry.  ``redacts_event_id`` selects the redaction path;
+        ``wire_content`` is required for send paths.
+        """
+        is_redaction = redacts_event_id is not None
         last_exc: BaseException | None = None
         for attempt in range(_MAX_DELIVERY_RETRIES):
             try:
                 if is_redaction:
                     response = await self._session.room_redact(
                         room_id=room_id,
-                        event_id=redacts_event_id,
+                        event_id=redacts_event_id or "",
                         reason=operation.reason,
                         tx_id=txn_id,
                     )
@@ -777,7 +839,7 @@ class MatrixAdapter(AdapterContract):
                     response = await self._session.room_send(
                         room_id=room_id,
                         message_type=operation.event_type or "m.room.message",
-                        content=wire_content,
+                        content=dict(wire_content or {}),
                         ignore_unverified_devices=self._should_ignore_unverified_devices(),
                         tx_id=txn_id,
                     )
@@ -885,6 +947,156 @@ class MatrixAdapter(AdapterContract):
 
         # Safety net: if loop exhausts without raising, classify as permanent. Currently unreachable.
         raise AdapterPermanentError(f"Delivery failed: {last_exc}") from last_exc
+
+    async def _deliver_send_media(
+        self,
+        result: RenderingResult,
+        room_id: str,
+        operation: MatrixOutboundOperation,
+    ) -> AdapterHandoffResult:
+        """Deliver a ``send_media`` operation to THIS adapter's homeserver.
+
+        Order of authority (each gate before any bytes move):
+
+        1. Generic attachment policy must be enabled — disabling it also
+           stops outbound transfers of previously stored files.
+        2. Auto-join for configured rooms, then the encrypted-room send
+           policy: an encrypted destination with inactive crypto fails
+           closed *before upload*, so no plaintext bytes are ever uploaded
+           to an encrypted room.
+        3. One transfer permit covers loading the retained bytes (through
+           the runtime-injected association-scoped seam — never generic
+           database access) and uploading them; each stage also carries
+           the policy transfer deadline.
+        4. Upload to this session's homeserver: ordinary media upload for
+           plaintext rooms; for encrypted rooms the bytes are encrypted
+           client-side first and the wire ``file`` object is built from
+           the transient SDK decryption info (keys never persist).
+        5. Only the successful room-message handoff (shared retry loop,
+           deterministic txn id, existing evidence/native-ref ownership)
+           produces sent evidence.  A crash between upload and send may
+           orphan an unused remote upload — a real protocol limitation;
+           there is no upload-idempotency state by design.
+        """
+        seam = self.ctx.attachments if self.ctx is not None else None
+        if seam is None or not seam.policy.enabled:
+            raise AdapterPermanentError("attachment_unavailable:policy_disabled")
+        if self._session is None:
+            raise AdapterPermanentError("session is not initialized")
+
+        if self._config.auto_join_rooms and room_id in self._config.auto_join_rooms:
+            if not self._session.is_room_member(room_id):
+                joined = await self._session.ensure_joined(room_id)
+                if not joined:
+                    raise AdapterPermanentError(
+                        f"Failed to auto-join configured room {room_id}"
+                    )
+
+        try:
+            self._check_encrypted_room_safety(room_id)
+        except MatrixSendError as exc:
+            if exc.transient:
+                raise AdapterSendError(str(exc), transient=True) from exc
+            raise AdapterPermanentError(str(exc)) from exc
+
+        self._defer_for_outbound_cooldown()
+
+        timeout = float(seam.policy.transfer_timeout_seconds)
+        try:
+            async with seam.permits.acquire():
+                stored = await asyncio.wait_for(
+                    seam.content.load_for_event(
+                        result.event_id, operation.content_ref or ""
+                    ),
+                    timeout=timeout,
+                )
+                encrypt = bool(self._session.is_room_encrypted(room_id))
+                template = dict(operation.content or {})
+                info = template.get("info")
+                info = dict(info) if isinstance(info, dict) else {}
+                info["size"] = stored.size_bytes
+                template["info"] = info
+                filename = template.get("filename")
+                filename = filename if isinstance(filename, str) and filename else None
+                mime = info.get("mimetype")
+                content_type = (
+                    mime
+                    if isinstance(mime, str) and mime
+                    else "application/octet-stream"
+                )
+                response, keys = await asyncio.wait_for(
+                    self._session.upload_media(
+                        data=stored.data,
+                        content_type=content_type,
+                        filename=filename,
+                        encrypt=encrypt,
+                    ),
+                    timeout=timeout,
+                )
+        except AttachmentContentUnavailableError as exc:
+            raise AdapterPermanentError(f"attachment_unavailable:{exc.reason}") from exc
+        except AttachmentTransferPermitTimeoutError as exc:
+            raise AdapterSendError(
+                f"attachment transfer permit: {exc}", transient=True
+            ) from exc
+        except asyncio.TimeoutError as exc:
+            raise AdapterSendError(
+                f"attachment transfer timed out: {exc}", transient=True
+            ) from exc
+        except MatrixSendError as exc:
+            if exc.transient:
+                raise AdapterSendError(str(exc), transient=True) from exc
+            raise AdapterPermanentError(str(exc)) from exc
+
+        self._outbound_attachment_transfers += 1
+
+        content_uri = getattr(response, "content_uri", None)
+        if not content_uri:
+            if _is_nio_rate_limited_response(response):
+                self._transient_delivery_failures += 1
+                self._outbound_rate_limit_events += 1
+                retry_after_seconds = _retry_after_seconds_from_ms(
+                    getattr(response, "retry_after_ms", None)
+                )
+                self._remember_outbound_cooldown(retry_after_seconds)
+                raise AdapterSendError(
+                    f"Matrix upload rate-limited: {response}",
+                    transient=True,
+                    retry_after_seconds=retry_after_seconds,
+                )
+            err_msg = str(response)
+            errcode = getattr(response, "errcode", None)
+            if errcode:
+                err_msg = f"{errcode}: {err_msg}"
+            self._permanent_delivery_failures += 1
+            raise AdapterPermanentError(f"media upload failed: {err_msg}")
+
+        wire_content = dict(template)
+        if encrypt:
+            if not isinstance(keys, dict) or not keys:
+                self._permanent_delivery_failures += 1
+                raise AdapterPermanentError(
+                    "encrypted media upload returned no decryption metadata"
+                )
+            wire_content["file"] = {
+                **keys,
+                "url": content_uri,
+                "mimetype": info.get("mimetype"),
+            }
+        else:
+            wire_content["url"] = content_uri
+        wire_content.pop("room_id", None)
+
+        txn_id = _matrix_txn_id(result, room_id)
+        return await self._dispatch_room_operation(
+            room_id=room_id,
+            operation=MatrixOutboundOperation.send_event(
+                "m.room.message", wire_content
+            ),
+            txn_id=txn_id,
+            redacts_event_id=None,
+            wire_content=wire_content,
+        )
 
     # -- Inbound callback ---------------------------------------------------
 
@@ -994,7 +1206,12 @@ class MatrixAdapter(AdapterContract):
                 await self.publish_inbound(canonical)
                 self._inbound_published += 1
             else:
-                result = await self.admit_inbound(canonical, provenance)
+                canonical, attachment_content = await self._prepare_inbound_attachment(
+                    event, canonical, provenance
+                )
+                result = await self.admit_inbound(
+                    canonical, provenance, attachment=attachment_content
+                )
                 if result.created:
                     self._inbound_published += 1
                 else:
@@ -1014,6 +1231,181 @@ class MatrixAdapter(AdapterContract):
                     "MatrixAdapter %s: error processing inbound event",
                     self.adapter_id,
                 )
+
+    # -- Inbound attachment acquisition --------------------------------------
+
+    @staticmethod
+    def _event_with_attachment_payload(
+        canonical: Any, descriptor_payload: dict[str, object]
+    ) -> Any:
+        """Return a copy of *canonical* carrying *descriptor_payload*."""
+        return _msgspec_structs.replace(
+            canonical,
+            payload={
+                **canonical.payload,
+                ATTACHMENT_PAYLOAD_KEY: descriptor_payload,
+            },
+        )
+
+    @staticmethod
+    def _native_media_projection(canonical: Any) -> dict[str, Any] | None:
+        """Return the Matrix native media projection, if any."""
+        metadata = canonical.metadata
+        if metadata is None or metadata.native is None:
+            return None
+        matrix_ns = metadata.native.data.get("matrix")
+        if not isinstance(matrix_ns, dict):
+            return None
+        media = matrix_ns.get("media")
+        return media if isinstance(media, dict) else None
+
+    async def _prepare_inbound_attachment(
+        self,
+        native_event: dict[str, Any],
+        canonical: Any,
+        provenance: IngressProvenance,
+    ) -> tuple[Any, InboundAttachmentContent | None]:
+        """Decide and acquire inbound attachment bytes before admission.
+
+        Decision order (zero network until every gate passes):
+
+        1. Not a ``message.file`` event, or no native media projection →
+           untouched event, no descriptor.
+        2. Attachment policy disabled (or no seam) → descriptor-only
+           admission with ``policy_disabled``.
+        3. No durable admission callable → ``not_retained``.
+        4. History provenance → ``history_suppressed`` (startup backlog is
+           suppressed earlier, before decode).
+        5. Malformed/missing locator → ``malformed_source``.
+        6. Otherwise: bounded authenticated download under one transfer
+           permit and the policy deadline; encrypted sources are verified
+           (structure + ciphertext SHA-256) and decrypted with the pinned
+           SDK before admission.  Success yields the declared descriptor
+           plus ``InboundAttachmentContent`` for atomic core admission.
+
+        Permanent media problems admit the event descriptor-only with the
+        stable reason — the sync cursor keeps advancing.  Transient
+        failures (network, timeouts, permit contention) raise
+        ``DurableIngressDeferredError`` so the existing durable-ingress
+        ownership redispatches; they are never converted into an immutable
+        unavailable admission.
+        """
+        if canonical.event_kind != EventKind.MESSAGE_FILE:
+            return canonical, None
+        media = self._native_media_projection(canonical)
+        declared = attachment_candidate_from_matrix_media(media)
+        if declared is None:
+            return canonical, None
+
+        seam = self.ctx.attachments if self.ctx is not None else None
+        if seam is None or not seam.policy.enabled:
+            self._inbound_attachment_unavailable += 1
+            return (
+                self._event_with_attachment_payload(
+                    canonical, declared.with_unavailable("policy_disabled").to_payload()
+                ),
+                None,
+            )
+        if self.ctx is None or self.ctx.admit_inbound is None:
+            self._inbound_attachment_unavailable += 1
+            return (
+                self._event_with_attachment_payload(
+                    canonical, declared.with_unavailable("not_retained").to_payload()
+                ),
+                None,
+            )
+        if provenance == "history":
+            self._inbound_attachment_unavailable += 1
+            return (
+                self._event_with_attachment_payload(
+                    canonical,
+                    declared.with_unavailable("history_suppressed").to_payload(),
+                ),
+                None,
+            )
+        locator = media.get("mxc_uri") if media is not None else None
+        encrypted = bool(media.get("encrypted")) if media is not None else False
+        if not isinstance(locator, str) or not locator:
+            self._inbound_attachment_unavailable += 1
+            return (
+                self._event_with_attachment_payload(
+                    canonical,
+                    declared.with_unavailable("malformed_source").to_payload(),
+                ),
+                None,
+            )
+        if self._session is None:
+            self._inbound_attachment_unavailable += 1
+            return (
+                self._event_with_attachment_payload(
+                    canonical, declared.with_unavailable("not_retained").to_payload()
+                ),
+                None,
+            )
+
+        timeout = float(seam.policy.transfer_timeout_seconds)
+        try:
+            async with seam.permits.acquire():
+                data = await asyncio.wait_for(
+                    self._session.download_media(
+                        mxc=locator,
+                        max_bytes=seam.policy.max_attachment_bytes,
+                        timeout_seconds=timeout,
+                    ),
+                    timeout=timeout,
+                )
+                if encrypted:
+                    source = native_event.get("source") or {}
+                    content = source.get("content") or {}
+                    file_info = content.get("file")
+                    data = await asyncio.to_thread(
+                        self._session.decrypt_media_attachment,
+                        ciphertext=data,
+                        file_info=file_info,
+                    )
+        except MatrixMediaUnavailableError as exc:
+            self._inbound_attachment_unavailable += 1
+            if self.ctx is not None:
+                self.ctx.logger.debug(
+                    "MatrixAdapter %s: attachment %s unavailable (%s)",
+                    self.adapter_id,
+                    canonical.event_id,
+                    exc.reason,
+                )
+            return (
+                self._event_with_attachment_payload(
+                    canonical, declared.with_unavailable(exc.reason).to_payload()
+                ),
+                None,
+            )
+        except AttachmentTransferPermitTimeoutError as exc:
+            self._inbound_attachment_deferred += 1
+            raise DurableIngressDeferredError(
+                canonical.event_id, (f"attachment permit acquisition: {exc}",)
+            ) from exc
+        except asyncio.TimeoutError as exc:
+            self._inbound_attachment_deferred += 1
+            raise DurableIngressDeferredError(
+                canonical.event_id, ("attachment fetch timed out",)
+            ) from exc
+        except MatrixMediaTransientError as exc:
+            self._inbound_attachment_deferred += 1
+            raise DurableIngressDeferredError(
+                canonical.event_id, (f"attachment fetch transient failure: {exc}",)
+            ) from exc
+        except OSError as exc:
+            self._inbound_attachment_deferred += 1
+            raise DurableIngressDeferredError(
+                canonical.event_id, (f"attachment fetch network failure: {exc}",)
+            ) from exc
+
+        self._inbound_attachment_retained += 1
+        return (
+            self._event_with_attachment_payload(
+                canonical, declared.to_declared_payload()
+            ),
+            InboundAttachmentContent(data=data, declared_size=declared.size_bytes),
+        )
 
     # -- Codec access -------------------------------------------------------
 
@@ -1130,6 +1522,13 @@ class MatrixAdapter(AdapterContract):
                     self._inbound_filtered_encryption_policy
                 ),
                 "inbound_suppressed_startup": self._inbound_suppressed_startup,
+                # Attachment transfer diagnostics
+                "inbound_attachment_retained": self._inbound_attachment_retained,
+                "inbound_attachment_unavailable": (
+                    self._inbound_attachment_unavailable
+                ),
+                "inbound_attachment_deferred": self._inbound_attachment_deferred,
+                "outbound_attachment_transfers": self._outbound_attachment_transfers,
             }
         return {
             "connected": False,
@@ -1211,4 +1610,9 @@ class MatrixAdapter(AdapterContract):
                 self._inbound_filtered_encryption_policy
             ),
             "inbound_suppressed_startup": self._inbound_suppressed_startup,
+            # Attachment transfer diagnostics
+            "inbound_attachment_retained": self._inbound_attachment_retained,
+            "inbound_attachment_unavailable": self._inbound_attachment_unavailable,
+            "inbound_attachment_deferred": self._inbound_attachment_deferred,
+            "outbound_attachment_transfers": self._outbound_attachment_transfers,
         }

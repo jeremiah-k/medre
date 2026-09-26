@@ -91,7 +91,7 @@ _FAKE_MATRIX_CAPABILITIES = AdapterCapabilities(
     reactions="native",
     edits="native",
     deletes="native",
-    attachments=False,
+    attachments=True,
     metadata_fields=False,
     store_and_forward=False,
     direct_messages=True,
@@ -153,6 +153,9 @@ class FakeMatrixAdapter(AdapterContract):
         self.delivered_payloads: list[RenderingResult] = []
         self.sent_operations: list[MatrixOutboundOperation] = []
         self.inbound_events: list[CanonicalEvent] = []
+        #: (content_ref, stored bytes) for send_media operations resolved
+        #: through the attachments seam, in delivery order.
+        self.sent_media: list[tuple[str, bytes]] = []
         self._started: bool = False
 
     # -- Lifecycle ----------------------------------------------------------
@@ -251,6 +254,30 @@ class FakeMatrixAdapter(AdapterContract):
 
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)
+
+        if operation is not None and operation.kind == "send_media":
+            # Mirror the real adapter's seam resolution: retained bytes load
+            # through the association-scoped runtime seam only, and a
+            # missing/forbidden association is a permanent failure — the
+            # fake never fabricates content.  Without a seam configured the
+            # fake accepts the operation (it has no homeserver to upload
+            # to) so plain-envelope tests keep working.
+            seam = self.ctx.attachments if self.ctx is not None else None
+            if seam is not None and seam.policy.enabled:
+                from medre.core.ingress.content import (
+                    AttachmentContentUnavailableError,
+                )
+
+                try:
+                    stored = await seam.content.load_for_event(
+                        result.event_id, operation.content_ref or ""
+                    )
+                except AttachmentContentUnavailableError as exc:
+                    raise AdapterPermanentError(
+                        f"attachment_unavailable:{exc.reason}"
+                    ) from exc
+                self.sent_media.append((operation.content_ref or "", stored.data))
+                _trim(self.sent_media)
 
         if operation is not None and operation.kind == "redact_event":
             # A redaction's native ref records to its own canonical
