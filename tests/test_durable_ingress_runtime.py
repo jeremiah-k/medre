@@ -57,7 +57,9 @@ async def test_durable_runtime_callbacks_delegate() -> None:
         "s2",
         metadata_json='{"recovered":true}',
     )
-    runner.admit_ingress.assert_awaited_once_with(event, "recovered")
+    runner.admit_ingress.assert_awaited_once_with(
+        event, "recovered", attachment=None, attachment_limits=None
+    )
 
 
 async def test_durable_runtime_callbacks_handle_missing_storage() -> None:
