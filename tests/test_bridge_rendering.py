@@ -378,7 +378,7 @@ class TestReplyThreadContext:
         pipeline = _make_pipeline()
         result = await _render(pipeline, event, "matrix-target", "matrix")
 
-        assert "m.relates_to" not in result.payload
+        assert "m.relates_to" not in matrix_payload_content(result)
 
     @pytest.mark.asyncio
     async def test_meshtastic_reply_no_special_handling(self) -> None:

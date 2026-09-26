@@ -500,12 +500,16 @@ renderer contract, not a test-only quirk; any code path that populates
 **Thread capability:** threads are native. The `m.relates_to` root is the bound
 destination thread root; an explicit bound reply relation on the same event
 becomes the parent with `is_falling_back=false`, otherwise the root itself is
-the fallback parent with `is_falling_back=true`. An unbound root degrades to a
-plain message without `m.relates_to` (honest degradation — never a fabricated
-or source-platform ID). An explicit reply-in-thread (thread + reply relations
-inbound) inherits plain-reply capability semantics downstream: a destination
-with `replies="unsupported"` skips the delivery even though a thread-only
-event would degrade to inline text there.
+the fallback parent with `is_falling_back=true`. Inbound fallback parents with
+`is_falling_back=true` are compatibility metadata, not explicit reply intent,
+and do not create a canonical `reply` relation. If the thread root is unbound
+but an explicit reply parent is independently bound in the destination room,
+the renderer degrades to a plain Matrix reply to that parent; only when both
+targets are unbound does it emit an ordinary message without `m.relates_to`.
+An explicit reply-in-thread (thread + reply relations inbound) inherits
+plain-reply capability semantics downstream: a destination with
+`replies="unsupported"` skips the delivery even though a thread-only event
+would degrade to inline text there.
 
 **Payload requirement:** The Matrix renderer produces closed outbound operation payloads. The adapter transports `send_event` wire content via `room_send` and `redact_event` operations via `room_redact` — nothing under `_matrix_operation` reaches the homeserver.
 

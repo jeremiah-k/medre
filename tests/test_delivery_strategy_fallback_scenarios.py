@@ -346,7 +346,6 @@ class TestFallbackReactionText:
         body = _payload_content(result).get("body", "")
         assert isinstance(body, str)
         assert "\U0001f44d" in body
-        assert "m.relates_to" not in result.payload
         assert "m.relates_to" not in _payload_content(result)
 
 

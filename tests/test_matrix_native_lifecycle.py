@@ -79,12 +79,13 @@ def _fact(
     status: str = "bound_owned",
     native_message_id: str = "$orig-copy",
     adapter: str = _ADAPTER,
+    native_channel_id: str = _ROOM,
     reason: str = "authorship proven",
 ) -> RelationTargetFact:
     return RelationTargetFact(
         status=status,
         adapter=adapter,
-        native_channel_id=_ROOM,
+        native_channel_id=native_channel_id,
         native_message_id=native_message_id,
         native_thread_id=None,
         direction="outbound" if status == "bound_owned" else None,
@@ -96,6 +97,7 @@ def _rel(
     relation_type: str,
     *,
     native_id: str | None = None,
+    native_channel_id: str = _ROOM,
     fact: RelationTargetFact | None = None,
     key: str | None = None,
 ) -> EventRelation:
@@ -105,7 +107,7 @@ def _rel(
         target_native_ref=(
             NativeRef(
                 adapter=_ADAPTER,
-                native_channel_id=_ROOM,
+                native_channel_id=native_channel_id,
                 native_message_id=native_id,
             )
             if native_id
@@ -139,8 +141,15 @@ def _lifecycle_event(
     )
 
 
-def _direct_ctx(target_adapter: str = _ADAPTER) -> RenderingContext:
-    return RenderingContext(target_adapter=target_adapter, delivery_strategy="direct")
+def _direct_ctx(
+    target_adapter: str = _ADAPTER,
+    target_channel: str = _ROOM,
+) -> RenderingContext:
+    return RenderingContext(
+        target_adapter=target_adapter,
+        target_channel=target_channel,
+        delivery_strategy="direct",
+    )
 
 
 def _op_of(result: RenderingResult) -> MatrixOutboundOperation:
@@ -240,7 +249,7 @@ class TestRendererEdits:
         assert str(content["body"]).count("[mesh]") == 1
         assert str(content["m.new_content"]["body"]).count("[mesh]") == 1
 
-    async def test_edit_mirrors_bound_reply_into_new_content(self) -> None:
+    async def test_edit_does_not_embed_relation_in_new_content(self) -> None:
         renderer = MatrixRenderer()
         edit_rel = _rel("edit", native_id="$orig", fact=_fact())
         reply_rel = _rel(
@@ -250,7 +259,7 @@ class TestRendererEdits:
             _lifecycle_event((edit_rel, reply_rel)), _direct_ctx()
         )
         new_content = _content_of(result)["m.new_content"]
-        assert new_content["m.relates_to"] == {"m.in_reply_to": {"event_id": "$parent"}}
+        assert "m.relates_to" not in new_content
         # Top-level relates_to stays the edit relation.
         assert _content_of(result)["m.relates_to"]["rel_type"] == "m.replace"
 
@@ -271,6 +280,19 @@ class TestRendererEdits:
             "edit",
             native_id="$orig",
             fact=_fact(native_message_id="$elsewhere", adapter="matrix-2"),
+        )
+        with pytest.raises(MatrixNativeMutationError):
+            await renderer.render(_lifecycle_event((edit_rel,)), _direct_ctx())
+
+    async def test_edit_bound_owned_fact_for_other_room_fails_closed(self) -> None:
+        renderer = MatrixRenderer()
+        edit_rel = _rel(
+            "edit",
+            native_id="$orig",
+            fact=_fact(
+                native_message_id="$elsewhere",
+                native_channel_id="!other:server",
+            ),
         )
         with pytest.raises(MatrixNativeMutationError):
             await renderer.render(_lifecycle_event((edit_rel,)), _direct_ctx())
@@ -312,6 +334,22 @@ class TestRendererDeletes:
                     _lifecycle_event((delete_rel,), kind="message.deleted"),
                     _direct_ctx(),
                 )
+
+    async def test_delete_bound_owned_fact_for_other_room_fails_closed(self) -> None:
+        renderer = MatrixRenderer()
+        delete_rel = _rel(
+            "delete",
+            native_id="$owned",
+            fact=_fact(
+                native_message_id="$elsewhere",
+                native_channel_id="!other:server",
+            ),
+        )
+        with pytest.raises(MatrixNativeMutationError):
+            await renderer.render(
+                _lifecycle_event((delete_rel,), kind="message.deleted"),
+                _direct_ctx(),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +402,117 @@ class TestRendererThreads:
         assert "m.relates_to" not in content
         assert content["msgtype"] == "m.text"
         assert content["body"] == "edited text"
+
+    async def test_thread_with_unbound_root_preserves_bound_reply(self) -> None:
+        renderer = MatrixRenderer()
+        thread_rel = _rel("thread", native_id=None)
+        reply_rel = _rel("reply", native_id="$parent")
+        result = await renderer.render(
+            _lifecycle_event(
+                (thread_rel, reply_rel),
+                kind="message.created",
+                body="reply only",
+            ),
+            _direct_ctx(),
+        )
+        content = _content_of(result)
+        assert content["m.relates_to"] == {
+            "m.in_reply_to": {"event_id": "$parent"}
+        }
+        assert content["body"] == "reply only"
+
+    async def test_thread_target_from_other_room_is_not_rendered(self) -> None:
+        renderer = MatrixRenderer()
+        thread_rel = _rel(
+            "thread",
+            native_id="$thread-root",
+            native_channel_id="!other:server",
+        )
+        result = await renderer.render(
+            _lifecycle_event((thread_rel,), kind="message.created"),
+            _direct_ctx(),
+        )
+        assert "m.relates_to" not in _content_of(result)
+
+    async def test_thread_fact_from_other_room_is_not_rendered(self) -> None:
+        renderer = MatrixRenderer()
+        thread_rel = _rel(
+            "thread",
+            native_id=None,
+            fact=_fact(
+                status="bound",
+                native_message_id="$thread-root",
+                native_channel_id="!other:server",
+            ),
+        )
+        result = await renderer.render(
+            _lifecycle_event((thread_rel,), kind="message.created"),
+            _direct_ctx(),
+        )
+        assert "m.relates_to" not in _content_of(result)
+
+
+class TestRendererRelationSelection:
+    async def test_reply_target_from_other_room_is_not_rendered(self) -> None:
+        renderer = MatrixRenderer()
+        reply_rel = _rel(
+            "reply",
+            native_id="$reply",
+            native_channel_id="!other:server",
+        )
+        result = await renderer.render(
+            _lifecycle_event(
+                (reply_rel,),
+                kind="message.created",
+                body="reply",
+            ),
+            _direct_ctx(),
+        )
+        assert "m.relates_to" not in _content_of(result)
+
+    async def test_reaction_target_from_other_room_uses_emote_fallback(self) -> None:
+        renderer = MatrixRenderer()
+        reaction_rel = _rel(
+            "reaction",
+            native_id="$reaction",
+            native_channel_id="!other:server",
+            key="👍",
+        )
+        result = await renderer.render(
+            _lifecycle_event(
+                (reaction_rel,),
+                kind="message.reacted",
+                body="👍",
+            ),
+            _direct_ctx(),
+        )
+        operation = _op_of(result)
+        assert operation.event_type == "m.room.message"
+        content = _content_of(result)
+        assert content["msgtype"] == "m.emote"
+        assert "m.relates_to" not in content
+
+    async def test_reply_and_reaction_precedence_is_order_independent(self) -> None:
+        renderer = MatrixRenderer()
+        reply_rel = _rel("reply", native_id="$reply")
+        reaction_rel = _rel("reaction", native_id="$reaction", key="👍")
+
+        rendered: list[dict[str, object]] = []
+        for relations in ((reply_rel, reaction_rel), (reaction_rel, reply_rel)):
+            result = await renderer.render(
+                _lifecycle_event(
+                    relations,
+                    kind="message.created",
+                    body="mixed relation",
+                ),
+                _direct_ctx(),
+            )
+            rendered.append(_content_of(result))
+
+        assert rendered[0]["m.relates_to"] == {
+            "m.in_reply_to": {"event_id": "$reply"}
+        }
+        assert rendered[1]["m.relates_to"] == rendered[0]["m.relates_to"]
 
 
 # ---------------------------------------------------------------------------

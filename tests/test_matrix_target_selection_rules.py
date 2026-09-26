@@ -246,19 +246,19 @@ async def test_stale_native_target_emitted_without_validation() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Multiple relations — only relations[0] is used
+# Multiple relations — semantic selection is order-independent
 # ---------------------------------------------------------------------------
 
 
-async def test_multiple_relations_uses_only_first() -> None:
-    """When an event carries multiple relations, only relations[0] is rendered."""
+async def test_reply_precedence_when_reply_is_first() -> None:
+    """Reply wins over reaction regardless of tuple position."""
     renderer = MatrixRenderer()
     rel1 = _reply_rel(adapter=_TARGET, native_message_id="$mx-first")
     rel2 = _reaction_rel(adapter=_TARGET, native_message_id="$mx-second")
     event = _event(relations=(rel1, rel2))
     result = await renderer.render(event, _ctx())
 
-    # First relation is a reply — m.relates_to should be a reply, not a reaction
+    # Reply is selected semantically, not because it is first.
     relates = _payload_content(result)["m.relates_to"]
     assert "m.in_reply_to" in relates  # type: ignore[operator]
     assert relates["m.in_reply_to"]["event_id"] == "$mx-first"  # type: ignore[index]
@@ -266,19 +266,18 @@ async def test_multiple_relations_uses_only_first() -> None:
     assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
 
 
-async def test_second_relation_ignored_when_first_is_reaction() -> None:
-    """Second relation is ignored; first (reaction) determines the output."""
+async def test_reply_precedence_when_reaction_is_first() -> None:
+    """Reply still wins when the reaction appears first."""
     renderer = MatrixRenderer()
     rel1 = _reaction_rel(adapter=_TARGET, native_message_id="$mx-r-first", key="🔥")
     rel2 = _reply_rel(adapter=_TARGET, native_message_id="$mx-reply-second")
     event = _event(relations=(rel1, rel2), payload={"body": "🔥"})
     result = await renderer.render(event, _ctx())
 
-    # First relation is a reaction — should render m.reaction
-    assert result.payload["_matrix_operation"]["event_type"] == "m.reaction"
+    assert result.payload["_matrix_operation"]["event_type"] == "m.room.message"
     relates = _payload_content(result)["m.relates_to"]
-    assert relates["rel_type"] == "m.annotation"  # type: ignore[index]
-    assert relates["key"] == "🔥"  # type: ignore[index]
+    assert "m.in_reply_to" in relates  # type: ignore[operator]
+    assert relates["m.in_reply_to"]["event_id"] == "$mx-reply-second"  # type: ignore[index]
 
 
 # ---------------------------------------------------------------------------

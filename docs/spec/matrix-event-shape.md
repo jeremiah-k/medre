@@ -56,16 +56,17 @@ semantics.
 When `m.thread` includes `m.in_reply_to`, the thread root is the canonical
 `thread` target. `native.matrix.relation.reply_to_event_id` stores the parent
 event ID from `m.in_reply_to.event_id`; it does not replace the thread root.
-An explicit `m.in_reply_to` additionally yields a SECOND canonical relation:
-a `reply` relation whose target is the explicit parent. Thread-only events
-carry no reply relation. Downstream, an explicit reply-in-thread therefore
-inherits plain-reply capability semantics (a destination with
-`replies="unsupported"` skips the delivery even when `threads="fallback"`
-would degrade it to inline text), while a plain thread event keeps the pure
-`thread` capability path. The same co-carriage applies to `m.replace` events
-that carry `m.in_reply_to` (the conventional in-thread edit shape): the edit
-relation targets the original event and a `reply` relation targets the
-carried parent.
+When `is_falling_back` is `true`, that parent exists only as compatibility
+fallback for clients without thread support and MUST NOT become a canonical
+`reply` relation. When `is_falling_back` is `false` or omitted, the parent is
+an explicit reply inside the thread and additionally yields a SECOND canonical
+relation: a `reply` relation whose target is the explicit parent. Downstream,
+only that explicit reply-in-thread inherits plain-reply capability semantics.
+
+`m.replace` events produce only the canonical `edit` relation. Matrix applies
+`m.new_content` while preserving the original event's `m.relates_to`, so an
+edit of a reply does not restate `m.in_reply_to` on the replacement event and
+MEDRE MUST NOT infer a second reply relation from such a non-standard payload.
 
 Redactions use canonical relation type `delete`. Their Matrix-native descriptor
 uses `kind="redaction"` to preserve the source wire concept without expanding the
@@ -242,11 +243,11 @@ new message lives in `m.new_content` with exactly one relay attribution:
 The edit target is the bound ORIGINAL destination copy native id
 (`rel.target_fact.native_message_id` — the renderer fail-closes on any
 non-`bound_owned` fact and never falls back to relation metadata or
-`target_native_ref`). Bound reply/thread relations carried by the edit event
-itself are mirrored into `m.new_content["m.relates_to"]`. `m.new_content` is
-sent inside the encrypted payload for encrypted rooms (edits are room
-messages and encrypt exactly like normal sends); only `m.relates_to` stays
-cleartext, per the spec.
+`target_native_ref`). Replacement semantics preserve the original event's
+`m.relates_to`; any `m.relates_to` inside `m.new_content` would be ignored and
+MUST NOT be emitted. `m.new_content` is sent inside the encrypted payload for
+encrypted rooms (edits are room messages and encrypt exactly like normal
+sends); only the top-level replacement `m.relates_to` stays cleartext.
 
 ### 9.3 Redactions (`m.room.redaction`)
 
@@ -292,6 +293,8 @@ Sent as `send_event` with `event_type="m.room.message"`:
 The root is the bound destination thread root. An explicit bound reply
 relation on the same event becomes the parent with `is_falling_back=false`;
 without one, the root itself is the fallback parent and `is_falling_back`
-is `true` (spec fallback-parent semantics). An unbound root degrades to a
-plain message without `m.relates_to` — source-platform IDs are never placed
-into destination content.
+is `true` (spec fallback-parent semantics). If the root is unbound but an
+independent explicit reply parent is bound in the destination room, MEDRE
+degrades to a plain Matrix reply to that parent. Only when neither target is
+bindable does it degrade to an ordinary message without `m.relates_to`.
+Source-platform IDs are never placed into destination content.

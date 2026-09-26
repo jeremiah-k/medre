@@ -196,7 +196,7 @@ class TestMeshtasticToMatrixReply:
         ctx = _matrix_rendering_context(delivery_strategy="fallback_text")
 
         result = await renderer.render(event, ctx)
-        assert "m.relates_to" not in result.payload
+        assert "m.relates_to" not in matrix_payload_content(result)
         assert result.fallback_applied == "strategy_fallback_text"
 
 

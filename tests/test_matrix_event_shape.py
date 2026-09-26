@@ -213,13 +213,11 @@ def test_matrix_thread_takes_precedence_over_reply_fallback() -> None:
     event = codec.decode(native)
 
     assert event.payload["body"] == "thread reply"
-    # Explicit m.in_reply_to yields BOTH a thread relation (root) and a
-    # reply relation (explicit parent).
-    assert len(event.relations) == 2
+    # is_falling_back=true marks m.in_reply_to as compatibility fallback for
+    # unthreaded clients, not explicit user reply intent.
+    assert len(event.relations) == 1
     assert event.relations[0].relation_type == "thread"
     assert event.relations[0].target_native_ref.native_message_id == "$thread-root"
-    assert event.relations[1].relation_type == "reply"
-    assert event.relations[1].target_native_ref.native_message_id == "$latest"
     assert event.source_native_ref is not None
     assert event.source_native_ref.native_thread_id == "$thread-root"
     assert _matrix_data(event)["relation"] == {
@@ -229,6 +227,30 @@ def test_matrix_thread_takes_precedence_over_reply_fallback() -> None:
         "reply_to_event_id": "$latest",
         "is_falling_back": True,
     }
+
+
+def test_matrix_thread_explicit_reply_yields_second_relation() -> None:
+    codec = MatrixCodec("matrix-1", _config())
+    native = _event(
+        content={
+            "msgtype": "m.text",
+            "body": "reply in thread",
+            "m.relates_to": {
+                "rel_type": "m.thread",
+                "event_id": "$thread-root",
+                "is_falling_back": False,
+                "m.in_reply_to": {"event_id": "$explicit-parent"},
+            },
+        }
+    )
+
+    event = codec.decode(native)
+
+    assert len(event.relations) == 2
+    assert event.relations[0].relation_type == "thread"
+    assert event.relations[0].target_native_ref.native_message_id == "$thread-root"
+    assert event.relations[1].relation_type == "reply"
+    assert event.relations[1].target_native_ref.native_message_id == "$explicit-parent"
 
 
 def test_matrix_thread_without_explicit_reply_stays_single_relation() -> None:
@@ -251,7 +273,7 @@ def test_matrix_thread_without_explicit_reply_stays_single_relation() -> None:
     assert event.relations[0].target_native_ref.native_message_id == "$thread-root"
 
 
-def test_matrix_edit_with_in_reply_to_keeps_reply_relation() -> None:
+def test_matrix_edit_with_nonstandard_in_reply_to_does_not_infer_reply() -> None:
     codec = MatrixCodec("matrix-1", _config())
     native = _event(
         content={
@@ -269,11 +291,12 @@ def test_matrix_edit_with_in_reply_to_keeps_reply_relation() -> None:
     event = codec.decode(native)
 
     assert event.event_kind == EventKind.MESSAGE_EDITED
-    assert len(event.relations) == 2
+    assert len(event.relations) == 1
     assert event.relations[0].relation_type == "edit"
     assert event.relations[0].target_native_ref.native_message_id == "$target"
-    assert event.relations[1].relation_type == "reply"
-    assert event.relations[1].target_native_ref.native_message_id == "$thread-root"
+    # Preserve the non-standard wire detail for diagnostics without promoting
+    # it to canonical user intent.
+    assert _matrix_data(event)["relation"]["reply_to_event_id"] == "$thread-root"
 
 
 def test_matrix_redaction_maps_to_generic_delete_relation() -> None:

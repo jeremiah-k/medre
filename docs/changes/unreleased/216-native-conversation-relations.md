@@ -46,8 +46,10 @@ existing native replies/reactions and MMRelay fallback behavior.
   body, exactly-once relay attribution, `"* "` fallback body) targeting the
   ORIGINAL message's destination copy — never the previous edit's event ID.
   Each edit's returned native ID is recorded on its own canonical mutation
-  event. Bound reply/thread semantics are preserved in `m.new_content` rather
-  than edited away. Edits are text-only; attachments remain unsupported.
+  event. Matrix replacement semantics preserve the original event's relation;
+  MEDRE does not emit ignored `m.relates_to` data inside `m.new_content` or
+  synthesize a second reply relation from a replacement event. Edits are
+  text-only; attachments remain unsupported.
 - Native deletes: a real pinned-SDK `room_redact` request
   (pinned `mindroom-nio`) against the proven owned destination copy, with
   deterministic transaction identity (operation kind + redaction target folded
@@ -58,10 +60,11 @@ existing native replies/reactions and MMRelay fallback behavior.
 - Native threads: `m.thread` rooted at the correctly bound destination root
   with spec-compliant fallback-parent semantics (`is_falling_back`), explicit
   reply-in-thread parents resolved separately from the root, order-independent
-  rendering, and honest degradation (plain message, no `m.relates_to`) when
-  the root cannot be bound. Inbound Matrix thread events now carry both a
-  `thread` relation (root) and a `reply` relation (explicit parent) at the
-  codec seam; graph root-selection rules are unchanged.
+  rendering, and honest degradation. Compatibility fallback parents
+  (`is_falling_back=true`) do not become canonical replies; explicit parents
+  (`false`/omitted) do. If only the root is unbound, an independently bound
+  explicit parent is retained as a plain reply; if neither binds, relation
+  metadata is omitted. Graph root-selection rules are unchanged.
 - Matrix capability profile now advertises `edits: native`, `deletes: native`,
   `threads: native` with mutation-eligibility and unresolved-target behavior
   documented next to the claims; attachments remain unsupported. Other

@@ -368,6 +368,7 @@ class MatrixRenderer:
         delete_rel = _find_relation(relations, "delete")
         thread_rel = _find_relation(relations, "thread")
         reply_rel = _find_relation(relations, "reply")
+        reaction_rel = _find_relation(relations, "reaction")
 
         # Mutations are fail-closed operations: they either render as
         # authorized native mutations or raise — never ordinary messages.
@@ -376,9 +377,10 @@ class MatrixRenderer:
         if delete_rel is not None:
             return self._render_delete(event, ctx, delete_rel)
 
-        # Thread rendering with reply-fallback parent semantics.  An
-        # unbound root degrades to a plain message (honest degradation,
-        # matching reply behavior), handled inside _render_thread.
+        # Thread rendering with reply-fallback parent semantics.  If the root
+        # is unbound, an independently bound explicit reply parent is retained
+        # as a plain reply; otherwise the event degrades to an ordinary
+        # message.  _render_thread owns that decision.
         if thread_rel is not None:
             return self._render_thread(event, ctx, thread_rel, reply_rel)
 
@@ -386,7 +388,11 @@ class MatrixRenderer:
 
         # Determine if a reaction relation is present before applying the
         # body-level prefix — reactions manage their own prefix metadata.
-        _is_reaction = bool(relations) and relations[0].relation_type == "reaction"
+        # Reply/reaction tuple order is incidental.  A reply takes
+        # precedence when both relations are present; otherwise render the
+        # reaction independent of where it appears in the tuple.
+        selected_reaction = reaction_rel if reply_rel is None else None
+        _is_reaction = selected_reaction is not None
 
         # Apply relay prefix for mesh→Matrix direction (skip for reactions;
         # reactions produce their own prefix in the emote fallback body or
@@ -407,46 +413,46 @@ class MatrixRenderer:
         }
         event_type = "m.room.message"
 
-        # Handle relations — reply and reaction
-        if event.relations:
-            rel = event.relations[0]
-
-            if rel.relation_type == "reply":
-                mx_event_id = self._matrix_target_event_id(rel, target_adapter)
-                native_data: dict[str, object] = {}
-                if event.metadata and event.metadata.native:
-                    native_data = dict(event.metadata.native.data)
-                # Extract MMRelay meshtastic_replyId from relation metadata
-                rel_meta = getattr(rel, "metadata", {}) or {}
-                mmrelay_id = rel_meta.get("meshtastic_reply_id")
-                if mmrelay_id in (None, ""):
-                    mmrelay_id = mmrelay_interop_fields(native_data).get(KEY_REPLY_ID)
-                if mx_event_id:
-                    # Matrix-native reply — render m.in_reply_to with Matrix event ID.
-                    # No manual fallback quoting: Matrix clients handle display
-                    # via m.relates_to.m.in_reply_to natively.
-                    content["body"] = body
-                    content["m.relates_to"] = {
-                        "m.in_reply_to": {
-                            "event_id": mx_event_id,
-                        }
+        # Handle relations — reply and reaction.  Relation tuple order is
+        # incidental; mutation/thread cases were handled above and reply wins
+        # the remaining tie deterministically.
+        if reply_rel is not None:
+            rel = reply_rel
+            mx_event_id = self._matrix_target_event_id(
+                rel, target_adapter, target_channel
+            )
+            native_data: dict[str, object] = {}
+            if event.metadata and event.metadata.native:
+                native_data = dict(event.metadata.native.data)
+            # Extract MMRelay meshtastic_replyId from relation metadata
+            rel_meta = getattr(rel, "metadata", {}) or {}
+            mmrelay_id = rel_meta.get("meshtastic_reply_id")
+            if mmrelay_id in (None, ""):
+                mmrelay_id = mmrelay_interop_fields(native_data).get(KEY_REPLY_ID)
+            if mx_event_id:
+                # Matrix-native reply — render m.in_reply_to with Matrix event ID.
+                # No manual fallback quoting: Matrix clients handle display
+                # via m.relates_to.m.in_reply_to natively.
+                content["body"] = body
+                content["m.relates_to"] = {
+                    "m.in_reply_to": {
+                        "event_id": mx_event_id,
                     }
-                # Always inject KEY_REPLY_ID when a Matrix-native target or MMRelay metadata is present
-                # (used by MMRelay-compatible Matrix consumers)
-                mx_reply_id = (
-                    mmrelay_id if mmrelay_id not in (None, "") else mx_event_id
-                )
-                if mx_reply_id not in (None, ""):
-                    content[KEY_REPLY_ID] = str(mx_reply_id)
+                }
+            # Always inject KEY_REPLY_ID when a Matrix-native target or MMRelay metadata is present
+            # (used by MMRelay-compatible Matrix consumers)
+            mx_reply_id = mmrelay_id if mmrelay_id not in (None, "") else mx_event_id
+            if mx_reply_id not in (None, ""):
+                content[KEY_REPLY_ID] = str(mx_reply_id)
 
-            elif rel.relation_type == "reaction":
-                reaction_prefix_meta, event_type = self._render_reaction(
-                    rel,
-                    content,
-                    target_adapter,
-                    event,
-                    ctx,
-                )
+        elif selected_reaction is not None:
+            reaction_prefix_meta, event_type = self._render_reaction(
+                selected_reaction,
+                content,
+                target_adapter,
+                event,
+                ctx,
+            )
 
         # Embed metadata envelope
         envelope = MatrixMetadataEnvelope(
@@ -580,11 +586,16 @@ class MatrixRenderer:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _matrix_target_event_id(rel: Any, target_adapter: str) -> str | None:
+    def _matrix_target_event_id(
+        rel: Any,
+        target_adapter: str,
+        target_channel: str | None = None,
+    ) -> str | None:
         """Return a Matrix-native target event ID from a relation, or ``None``.
 
         A Matrix-native target ID is valid only when the relation's
-        ``target_native_ref`` belongs to *target_adapter* and has a
+        ``target_native_ref`` belongs to *target_adapter*, belongs to
+        *target_channel* when that destination room is known, and has a
         non-empty ``native_message_id``.
 
         The canonical ``rel.target_event_id`` is **never** used as a Matrix
@@ -596,6 +607,11 @@ class MatrixRenderer:
             return None
         adapter = getattr(ref, "adapter", None)
         if adapter != target_adapter:
+            return None
+        if (
+            target_channel is not None
+            and getattr(ref, "native_channel_id", None) != target_channel
+        ):
             return None
         mid = getattr(ref, "native_message_id", None)
         return str(mid) if mid else None
@@ -738,7 +754,11 @@ class MatrixRenderer:
         annotations (no prefix metadata applies) and carries prefix
         diagnostics for the emote fallback.
         """
-        mx_event_id = self._matrix_target_event_id(rel, target_adapter)
+        mx_event_id = self._matrix_target_event_id(
+            rel,
+            target_adapter,
+            ctx.target_channel if ctx is not None else None,
+        )
 
         # Extract MMRelay reply ID from relation metadata for fallback
         rel_meta = getattr(rel, "metadata", {}) or {}
@@ -817,7 +837,9 @@ class MatrixRenderer:
 
     @staticmethod
     def _bound_native_target(
-        rel: EventRelation | None, target_adapter: str
+        rel: EventRelation | None,
+        target_adapter: str,
+        target_channel: str | None = None,
     ) -> str | None:
         """Return the bound destination native ID for a referential relation.
 
@@ -828,7 +850,9 @@ class MatrixRenderer:
         """
         if rel is None:
             return None
-        ref_id = MatrixRenderer._matrix_target_event_id(rel, target_adapter)
+        ref_id = MatrixRenderer._matrix_target_event_id(
+            rel, target_adapter, target_channel
+        )
         if ref_id:
             return ref_id
         fact = getattr(rel, "target_fact", None)
@@ -836,13 +860,21 @@ class MatrixRenderer:
             fact is not None
             and getattr(fact, "status", None) in ("bound", "bound_owned")
             and getattr(fact, "adapter", None) == target_adapter
+            and (
+                target_channel is None
+                or getattr(fact, "native_channel_id", None) == target_channel
+            )
             and getattr(fact, "native_message_id", None)
         ):
             return str(fact.native_message_id)
         return None
 
     @staticmethod
-    def _require_bound_owned_target(rel: EventRelation, target_adapter: str) -> str:
+    def _require_bound_owned_target(
+        rel: EventRelation,
+        target_adapter: str,
+        target_channel: str | None = None,
+    ) -> str:
         """Return the mutation target native ID, enforcing ``bound_owned``.
 
         Raises :class:`MatrixNativeMutationError` when the relation's
@@ -858,13 +890,19 @@ class MatrixRenderer:
                 f"bound_owned (status={getattr(fact, 'status', None)!r})"
             )
         fact_adapter = getattr(fact, "adapter", None)
+        fact_channel = getattr(fact, "native_channel_id", None)
         fact_id = getattr(fact, "native_message_id", None)
-        if fact_id and fact_adapter == target_adapter:
+        if (
+            fact_id
+            and fact_adapter == target_adapter
+            and (target_channel is None or fact_channel == target_channel)
+        ):
             return str(fact_id)
         # bound_owned but no usable destination-scoped id — fail closed.
         raise MatrixNativeMutationError(
             "native mutation refused: bound_owned fact carries no "
-            f"destination native_message_id for adapter {target_adapter!r}"
+            "destination native_message_id for "
+            f"adapter={target_adapter!r} channel={target_channel!r}"
         )
 
     def _render_thread(
@@ -876,9 +914,11 @@ class MatrixRenderer:
     ) -> RenderingResult:
         """Render a thread relation as a native ``m.thread`` event.
 
-        The thread root must be a bound destination native ID; an
-        unbound root degrades honestly to a plain message without
-        ``m.relates_to`` (never a fabricated source-platform ID).
+        The thread root must be a bound destination native ID.  If it is
+        unbound but an independent explicit reply parent is bound, the event
+        degrades to a plain reply to that parent.  If neither target is bound,
+        it degrades to an ordinary message without ``m.relates_to`` (never a
+        fabricated source-platform ID).
 
         Parent selection: an explicit bound reply relation on the same
         event becomes ``m.in_reply_to`` with ``is_falling_back=false``;
@@ -887,13 +927,22 @@ class MatrixRenderer:
         Tuple order of thread/reply relations is incidental.
         """
         target_adapter = ctx.target_adapter
-        root_id = self._bound_native_target(thread_rel, target_adapter)
+        root_id = self._bound_native_target(
+            thread_rel, target_adapter, ctx.target_channel
+        )
+        parent_id = self._bound_native_target(
+            reply_rel, target_adapter, ctx.target_channel
+        )
 
         if not root_id:
-            # Unbound root — render a plain message without m.relates_to.
-            return self._render_plain_message(event, ctx)
-
-        parent_id = self._bound_native_target(reply_rel, target_adapter)
+            # The thread itself cannot be represented natively in this room.
+            # Preserve an independently bound explicit parent as a plain reply;
+            # otherwise degrade all the way to an ordinary message.
+            return self._render_plain_message(
+                event,
+                ctx,
+                reply_target_id=parent_id,
+            )
         if parent_id:
             relates_to: dict[str, object] = {
                 "rel_type": "m.thread",
@@ -943,8 +992,10 @@ class MatrixRenderer:
         self,
         event: CanonicalEvent,
         ctx: RenderingContext,
+        *,
+        reply_target_id: str | None = None,
     ) -> RenderingResult:
-        """Render a plain ``m.room.message`` with no relation metadata."""
+        """Render a plain message, optionally retaining one bound reply."""
         target_adapter = ctx.target_adapter
         body = str(event.payload.get("text", event.payload.get("body", "")))
         body, prefix_meta = self._apply_matrix_relay_prefix(
@@ -957,6 +1008,10 @@ class MatrixRenderer:
             "format": "org.matrix.custom.html",
             "formatted_body": self._text_to_html(body),
         }
+        if reply_target_id is not None:
+            content["m.relates_to"] = {
+                "m.in_reply_to": {"event_id": reply_target_id}
+            }
 
         metadata = self._finalize_send_content(event, ctx, content)
         metadata.update(prefix_meta)
@@ -989,15 +1044,20 @@ class MatrixRenderer:
         * ``m.relates_to`` is ``{"rel_type": "m.replace", "event_id":
           <bound ORIGINAL copy native id>}``.
 
-        Bound reply/thread relations carried by the edit event itself
-        are mirrored into ``m.new_content["m.relates_to"]`` so the
-        source platform's asserted relation metadata survives the edit.
+        Matrix replacement semantics preserve the original event's
+        ``m.relates_to``.  The replacement therefore carries only its
+        ``m.replace`` relationship; relation data inside ``m.new_content``
+        would be ignored by Matrix clients/servers.
 
         Requires a ``bound_owned`` target fact (renderer fail-close).
         Text only — binary attachments are unsupported and unchanged.
         """
         target_adapter = ctx.target_adapter
-        original_id = self._require_bound_owned_target(edit_rel, target_adapter)
+        original_id = self._require_bound_owned_target(
+            edit_rel,
+            target_adapter,
+            ctx.target_channel,
+        )
 
         new_text = str(event.payload.get("text", event.payload.get("body", "")))
         # Exactly one relay attribution: applied once to the new body.
@@ -1012,10 +1072,6 @@ class MatrixRenderer:
             "format": "org.matrix.custom.html",
             "formatted_body": self._text_to_html(new_body),
         }
-        mirrored = self._mirror_edit_relations(event, edit_rel, target_adapter)
-        if mirrored is not None:
-            new_content["m.relates_to"] = mirrored
-
         content: dict[str, object] = {
             "msgtype": "m.text",
             "body": fallback_body,
@@ -1042,52 +1098,6 @@ class MatrixRenderer:
             fallback_applied=None,
         )
 
-    def _mirror_edit_relations(
-        self,
-        event: CanonicalEvent,
-        edit_rel: EventRelation,
-        target_adapter: str,
-    ) -> dict[str, object] | None:
-        """Mirror bound reply/thread relations into an edit's new content.
-
-        An edit event that itself carries bound reply/thread relations
-        (its own semantics on the source platform) keeps them inside
-        ``m.new_content["m.relates_to"]``.  Only destination-native IDs
-        are used; unbound relations are omitted (never replaced with
-        canonical or source-platform identifiers).
-        """
-        thread_rel = _find_relation(event.relations, "thread")
-        reply_rel = _find_relation(event.relations, "reply")
-
-        root_id = (
-            self._bound_native_target(thread_rel, target_adapter)
-            if thread_rel is not None
-            else None
-        )
-        parent_id = (
-            self._bound_native_target(reply_rel, target_adapter)
-            if reply_rel is not None
-            else None
-        )
-
-        if root_id:
-            if parent_id:
-                return {
-                    "rel_type": "m.thread",
-                    "event_id": root_id,
-                    "is_falling_back": False,
-                    "m.in_reply_to": {"event_id": parent_id},
-                }
-            return {
-                "rel_type": "m.thread",
-                "event_id": root_id,
-                "is_falling_back": True,
-                "m.in_reply_to": {"event_id": root_id},
-            }
-        if parent_id:
-            return {"m.in_reply_to": {"event_id": parent_id}}
-        return None
-
     def _render_delete(
         self,
         event: CanonicalEvent,
@@ -1102,7 +1112,11 @@ class MatrixRenderer:
         and no fabricated body are emitted.
         """
         target_adapter = ctx.target_adapter
-        target_id = self._require_bound_owned_target(delete_rel, target_adapter)
+        target_id = self._require_bound_owned_target(
+            delete_rel,
+            target_adapter,
+            ctx.target_channel,
+        )
 
         operation = MatrixOutboundOperation.redact(target_id)
 

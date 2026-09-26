@@ -181,7 +181,7 @@ class TestMatrixMissingTargetFallback:
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
         # No m.relates_to — cannot target Matrix-native reply without ref
-        assert "m.relates_to" not in result.payload
+        assert "m.relates_to" not in _payload_content(result)
         # Body must be clean relay text, no quoting
         assert _payload_content(result)["body"] == "my reply"
         assert "> <" not in _payload_content(result)["body"]
@@ -347,7 +347,7 @@ class TestMatrixMissingTargetFallback:
             event,
             RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
         )
-        assert "m.relates_to" not in result.payload
+        assert "m.relates_to" not in _payload_content(result)
         # Body is clean relay text
         assert _payload_content(result)["body"] == "my reply"
 
