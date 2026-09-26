@@ -74,7 +74,6 @@ def _leg(routes: list, direction: str, source_context: str = "0"):
     return matches[0]
 
 
-
 # ===========================================================================
 # 1. Distinct per-entry labels land on distinct forward legs
 # ===========================================================================

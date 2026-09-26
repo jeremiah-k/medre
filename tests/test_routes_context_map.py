@@ -781,15 +781,15 @@ class TestContextMapExpansion:
             dest_origin_label="Chat",
         )
         legs = expand_route_config(rc)
-        by_mapping = {
-            (leg.mapping_source_context, leg.direction): leg for leg in legs
-        }
+        by_mapping = {(leg.mapping_source_context, leg.direction): leg for leg in legs}
         # Entry without labels falls back to route-level labels.
         assert by_mapping[("0", "source_to_dest")].route.source.origin_label == "Radio"
         assert by_mapping[("0", "dest_to_source")].route.source.origin_label == "Chat"
         # Entry labels take precedence over route-level labels.
         assert by_mapping[("1", "source_to_dest")].route.source.origin_label == "Ops"
-        assert by_mapping[("1", "dest_to_source")].route.source.origin_label == "Chat-Ops"
+        assert (
+            by_mapping[("1", "dest_to_source")].route.source.origin_label == "Chat-Ops"
+        )
 
     def test_explicit_empty_label_suppresses_fallback(self) -> None:
         """An explicit "" entry label is preserved (suppression sentinel)."""
@@ -804,13 +804,9 @@ class TestContextMapExpansion:
             source_origin_label="Radio",
         )
         legs = expand_route_config(rc)
-        by_mapping = {
-            (leg.mapping_source_context, leg.direction): leg for leg in legs
-        }
+        by_mapping = {(leg.mapping_source_context, leg.direction): leg for leg in legs}
         assert by_mapping[("0", "source_to_dest")].route.source.origin_label == ""
-        assert (
-            by_mapping[("1", "source_to_dest")].route.source.origin_label == "Radio"
-        )
+        assert by_mapping[("1", "source_to_dest")].route.source.origin_label == "Radio"
 
     def test_expand_route_config_ignores_enabled_flag(self) -> None:
         """expand_route_config expands disabled routes; callers filter."""

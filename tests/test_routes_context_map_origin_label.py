@@ -83,7 +83,6 @@ def _leg(legs: list, direction: str, index: int = 0) -> Route:
     return matches[0].route
 
 
-
 # ===========================================================================
 # Source = radio adapter → Dest = chat adapter
 # ===========================================================================

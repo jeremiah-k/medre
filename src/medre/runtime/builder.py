@@ -398,9 +398,7 @@ class RuntimeBuilder:
                 build_runtime_routes(self._config.routes)
             )
         except ConfigValidationError as exc:
-            raise RuntimeConfigError(
-                f"Invalid route configuration: {exc}"
-            ) from exc
+            raise RuntimeConfigError(f"Invalid route configuration: {exc}") from exc
 
         # 10.2 Run adapter-owned configuration preparation as fail-closed
         #      preflight. Preparation derives/validates configuration; it is

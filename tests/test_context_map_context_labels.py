@@ -57,7 +57,6 @@ def _leg(routes: list, direction: str, source_context: str = "0"):
     return matches[0]
 
 
-
 # ===========================================================================
 # 1. Structured shape parses with per-entry labels
 # ===========================================================================
