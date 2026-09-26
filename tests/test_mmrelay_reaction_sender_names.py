@@ -19,9 +19,9 @@ from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
 from medre.interop.mmrelay import KEY_LONGNAME, KEY_SHORTNAME
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.native_metadata import meshtastic_native_data
-from tests.helpers.matrix import matrix_payload_content
 
 # Source-config mapping for Meshtastic-originated reactions.
 _SRC_MESHTASTIC = {

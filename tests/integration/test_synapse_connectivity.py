@@ -31,9 +31,9 @@ from medre.adapters.matrix.compat import HAS_NIO
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterContext
 from tests.helpers.async_utils import wait_until
+from tests.helpers.matrix import matrix_send_payload
 
 from .conftest import SynapseEnvironment
-from tests.helpers.matrix import matrix_send_payload
 
 logger = logging.getLogger(__name__)
 
@@ -171,10 +171,12 @@ class TestSynapseConnectivity:
                 event_id=f"int-smoke-{ts}",
                 target_adapter="synapse-integration",
                 target_channel=synapse_env.test_room_id,
-                payload=matrix_send_payload({
-                    "msgtype": "m.text",
-                    "body": f"MEDRE integration smoke test (ts={ts}) — safe to ignore",
-                }),
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": f"MEDRE integration smoke test (ts={ts}) — safe to ignore",
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "docker-integration"},
             )
             delivery = await adapter.deliver(result)

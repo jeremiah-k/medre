@@ -45,9 +45,9 @@ from medre.interop.mmrelay import (
     derive_meshnet_value,
 )
 from tests.helpers.ast_imports import all_imports, parse_python
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
-from tests.helpers.matrix import matrix_payload_content
 
 # ---------------------------------------------------------------------------
 # Structural isolation guard (AST-based)

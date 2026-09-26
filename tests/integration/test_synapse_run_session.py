@@ -54,6 +54,7 @@ from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
+from tests.helpers.matrix import matrix_payload_content
 
 from .conftest import (
     _RUN_ARTIFACT_DIR,
@@ -64,7 +65,6 @@ from .conftest import (
 from .synapse_helpers import INBOUND_FALLBACK as _INBOUND_FALLBACK
 from .synapse_helpers import INBOUND_SYNC_LOOP as _INBOUND_SYNC_LOOP
 from .synapse_helpers import wait_for_sync_or_fallback as _wait_for_sync_or_fallback
-from tests.helpers.matrix import matrix_payload_content
 
 logger = logging.getLogger(__name__)
 

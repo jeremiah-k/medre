@@ -7,7 +7,6 @@ model for MEDRE.
 
 from __future__ import annotations
 
-
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -29,7 +28,6 @@ from medre.core.contracts.adapter import AdapterContext
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingContext
 from tests.helpers.matrix import matrix_payload_content as _payload_content
-
 
 
 def _matrix_config(**overrides: Any) -> MatrixConfig:

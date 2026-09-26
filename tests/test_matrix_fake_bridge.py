@@ -54,8 +54,8 @@ from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.async_utils import wait_until
 from tests.helpers.delivery_receipts import assert_terminal_failure_pair
-from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 from tests.helpers.matrix import matrix_payload_content as _payload_content
+from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 
 # ---------------------------------------------------------------------------
 # Helpers

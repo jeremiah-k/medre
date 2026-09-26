@@ -12,7 +12,6 @@ Tests cover:
 
 from __future__ import annotations
 
-
 from typing import Any
 
 import pytest
@@ -35,10 +34,10 @@ from medre.interop.mmrelay import (
     KEY_TEXT,
     PORTNUM_TEXT,
 )
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
-from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers (imported from tests.helpers.matrix_stubs)
@@ -49,7 +48,6 @@ from tests.helpers.matrix import matrix_payload_content as _payload_content
 _SRC_MESHTASTIC = {
     "mesh-1": _StubMeshtasticConfig(adapter_id="mesh-1", mmrelay_compatibility=True)
 }
-
 
 
 def _make_config(**overrides: Any) -> MatrixConfig:

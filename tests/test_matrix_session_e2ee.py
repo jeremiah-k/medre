@@ -17,13 +17,13 @@ from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.contracts.adapter import AdapterPermanentError
 from tests.helpers.async_utils import wait_until
+from tests.helpers.matrix import matrix_send_payload
 from tests.helpers.matrix_session import (
     fast_sleep_patch,
     make_matrix_config,
     make_matrix_context,
 )
 from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
-from tests.helpers.matrix import matrix_send_payload
 
 # ===================================================================
 # TestMegolmEventHandling
@@ -252,7 +252,9 @@ class TestEncryptedRoomSafety:
                 result = RenderingResult(
                     event_id="evt_4",
                     target_adapter="matrix-test",
-                    payload=matrix_send_payload({"msgtype": "m.text", "body": "secret"}),
+                    payload=matrix_send_payload(
+                        {"msgtype": "m.text", "body": "secret"}
+                    ),
                     target_channel=room_id,
                 )
                 deliver_result = await adapter.deliver(result)

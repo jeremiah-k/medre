@@ -501,9 +501,7 @@ class TestMatrixLiveSmoke:
                 event_id=f"live-echo-{ts}",
                 target_adapter="matrix-live-smoke",
                 target_channel=MATRIX_ROOM_ID,
-                payload=matrix_send_payload(
-                    {"msgtype": "m.text", "body": body_text}
-                ),
+                payload=matrix_send_payload({"msgtype": "m.text", "body": body_text}),
                 metadata={"renderer": "matrix", "test": "echo-suppression"},
             )
             delivery = await asyncio.wait_for(

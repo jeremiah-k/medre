@@ -29,6 +29,7 @@ from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingPipeline,
 )
+from tests.helpers.matrix import rendered_payload_content as _payload_content
 
 from .conftest import (
     MATRIX_ADAPTER_ID,
@@ -36,7 +37,6 @@ from .conftest import (
     make_reply_event,
     make_text_event,
 )
-from tests.helpers.matrix import rendered_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Matrix rendering conformance

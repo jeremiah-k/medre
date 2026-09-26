@@ -18,6 +18,7 @@ import pytest
 from medre.core.events import (
     EventRelation,
 )
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.rendering_evidence import (
     make_context,
     make_event,
@@ -26,7 +27,6 @@ from tests.helpers.rendering_evidence import (
     make_meshcore_renderer,
     make_meshtastic_renderer,
 )
-from tests.helpers.matrix import matrix_payload_content
 
 # ---------------------------------------------------------------------------
 # Relation-specific helper

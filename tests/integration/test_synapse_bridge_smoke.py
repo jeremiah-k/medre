@@ -77,14 +77,13 @@ from medre.core.storage.backend import StorageBackend
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.accounting import RuntimeAccounting
 from tests.helpers.async_utils import wait_until
+from tests.helpers.matrix import matrix_payload_content, matrix_send_payload
 
 from .conftest import SynapseEnvironment
 from .synapse_helpers import INBOUND_FALLBACK as _INBOUND_FALLBACK
 from .synapse_helpers import INBOUND_SYNC_LOOP as _INBOUND_SYNC_LOOP
 from .synapse_helpers import make_context as _make_context
 from .synapse_helpers import wait_for_sync_or_fallback as _wait_for_sync_or_fallback
-from tests.helpers.matrix import matrix_send_payload
-from tests.helpers.matrix import matrix_payload_content
 
 logger = logging.getLogger(__name__)
 
@@ -191,10 +190,12 @@ class TestSynapseBridgeSmoke:
                 event_id=f"bridge-out-{ts}",
                 target_adapter="synapse-bridge-bot",
                 target_channel=synapse_env.test_room_id,
-                payload=matrix_send_payload({
-                    "msgtype": "m.text",
-                    "body": f"MEDRE bridge outbound smoke (ts={ts})",
-                }),
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": f"MEDRE bridge outbound smoke (ts={ts})",
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "bridge-smoke"},
             )
             delivery = await adapter.deliver(result)
@@ -655,10 +656,12 @@ class TestSynapseBridgeSmoke:
                 event_id=f"bridge-shutdown-{ts}",
                 target_adapter="synapse-bridge-bot",
                 target_channel=synapse_env.test_room_id,
-                payload=matrix_send_payload({
-                    "msgtype": "m.text",
-                    "body": f"MEDRE shutdown test (ts={ts})",
-                }),
+                payload=matrix_send_payload(
+                    {
+                        "msgtype": "m.text",
+                        "body": f"MEDRE shutdown test (ts={ts})",
+                    }
+                ),
                 metadata={"renderer": "matrix", "test": "shutdown"},
             )
             delivery = await adapter.deliver(result)

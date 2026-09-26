@@ -15,6 +15,7 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_events import (
     make_matrix_event,
     make_meshtastic_event,
@@ -23,8 +24,6 @@ from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 from tests.helpers.native_metadata import meshtastic_native_data
-from tests.helpers.matrix import matrix_payload_content as _payload_content
-
 
 # Module-level aliases so existing test call-sites stay concise.
 _make_event = make_matrix_event

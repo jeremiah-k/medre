@@ -325,7 +325,9 @@ class RelationEnricher:
                     for nref in candidates:
                         key = (nref.native_channel_id, nref.native_message_id)
                         distinct.setdefault(key, nref)
-                    matching = next(iter(distinct.values())) if len(distinct) == 1 else None
+                    matching = (
+                        next(iter(distinct.values())) if len(distinct) == 1 else None
+                    )
 
                     if matching is not None:
                         enriched_native_ref = NativeRef(

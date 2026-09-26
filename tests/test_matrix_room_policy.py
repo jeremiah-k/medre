@@ -32,12 +32,12 @@ from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import AdapterPermanentError
 from medre.core.ingress import AdmissionResult
 from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.matrix import matrix_send_payload
 from tests.helpers.matrix_adapter import (
     make_adapter_context,
     make_fake_nio_event,
     wire_mock_session,
 )
-from tests.helpers.matrix import matrix_send_payload
 
 _ROOM = "!room:example.com"
 _ENCRYPTED_ROOM = "!enc:example.com"

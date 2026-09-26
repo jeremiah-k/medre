@@ -40,8 +40,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tests.helpers.matrix import matrix_send_payload
-
 from tests.helpers.live_config import (
     all_live_env_set,
     build_live_bridge_runtime_config,
@@ -49,6 +47,7 @@ from tests.helpers.live_config import (
     meshtastic_env_set,
     write_live_bridge_yaml,
 )
+from tests.helpers.matrix import matrix_send_payload
 
 # ---------------------------------------------------------------------------
 # Module-level marker — entire file tagged "live" so it is excluded by the

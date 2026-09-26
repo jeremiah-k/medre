@@ -50,9 +50,9 @@ from medre.core.rendering.renderer import RenderingContext, RenderingPipeline
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
-from tests.helpers.matrix import matrix_payload_content
 
 # ===================================================================
 # Shared helper for source_configs construction

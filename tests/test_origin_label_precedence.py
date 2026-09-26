@@ -38,6 +38,7 @@ from medre.interop.mmrelay import (
     KEY_MESHNET,
     derive_meshnet_value,
 )
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
@@ -47,7 +48,6 @@ from tests.helpers.native_metadata import (
     meshcore_native_data,
     meshtastic_native_data,
 )
-from tests.helpers.matrix import matrix_payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers

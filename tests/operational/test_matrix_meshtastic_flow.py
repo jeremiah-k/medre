@@ -63,6 +63,7 @@ from medre.core.storage.backend import (
     StorageError,
     TerminalOutboxFinalization,
 )
+from tests.helpers.matrix import matrix_payload_content
 from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 from tests.helpers.storage_outbox import (
     allocate_new_outbox_generation,
@@ -72,7 +73,6 @@ from tests.helpers.storage_outbox import (
     find_existing_replay_run_claim,
     reserve_guarded_outbox_attempt,
 )
-from tests.helpers.matrix import matrix_payload_content
 
 # ---------------------------------------------------------------------------
 # Local fakes / helpers

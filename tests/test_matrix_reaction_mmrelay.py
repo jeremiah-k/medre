@@ -40,12 +40,12 @@ from medre.interop.mmrelay import (
     KEY_TEXT,
     PORTNUM_TEXT,
 )
+from tests.helpers.matrix import matrix_payload_content as _payload_content
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
 from tests.helpers.matrix_stubs import StubMatrixConfig as _StubMatrixConfig
 from tests.helpers.matrix_stubs import StubMeshtasticConfig as _StubMeshtasticConfig
 from tests.helpers.matrix_stubs import StubSourceAttribution as _StubSourceAttribution
 from tests.helpers.native_metadata import matrix_native_data
-from tests.helpers.matrix import matrix_payload_content as _payload_content
 
 # ---------------------------------------------------------------------------
 # Helpers

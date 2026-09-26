@@ -39,8 +39,8 @@ from medre.core.rendering.renderer import (
 from medre.core.rendering.text import TextRenderer
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 from tests.helpers.matrix import rendered_payload_content as _payload_content
+from tests.helpers.pipeline import make_event, make_pipeline_config_for_pipeline
 
 # ===================================================================
 # Helpers

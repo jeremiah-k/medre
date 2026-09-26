@@ -43,6 +43,7 @@ from medre.core.rendering.evidence import RenderingEvidence
 from medre.core.rendering.renderer import (
     RenderingResult,
 )
+from tests.helpers.matrix import matrix_payload_content
 
 # Reuse helpers from the flow module.
 from tests.helpers.native_metadata import meshtastic_native_data
@@ -54,7 +55,6 @@ from tests.operational.test_matrix_meshtastic_flow import (
     _mesh_rendering_context,
     _meshtastic_inbound_event,
 )
-from tests.helpers.matrix import matrix_payload_content
 
 # ===========================================================================
 # Matrix -> Meshtastic reply rendering

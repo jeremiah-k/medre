@@ -20,13 +20,13 @@ from medre.adapters.matrix.errors import MatrixConnectionError, MatrixSendError
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
 from tests.helpers.async_utils import bounded_cancel_and_reap, wait_until
+from tests.helpers.matrix import matrix_send_payload
 from tests.helpers.matrix_session import (
     fast_sleep_patch,
     make_matrix_config,
     make_matrix_context,
 )
 from tests.helpers.matrix_session import mock_nio as _mock_nio  # noqa: F401
-from tests.helpers.matrix import matrix_send_payload
 
 _STOP_TEST_WATCHDOG_SECONDS = 1.0
 

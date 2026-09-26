@@ -33,11 +33,11 @@ from medre.core.contracts.adapter import (
     AdapterSendError,
 )
 from medre.core.rendering.renderer import RenderingResult
-from tests.helpers.matrix import matrix_send_payload
 from tests.helpers.delivery_callbacks import (
     make_attempt_provenance,
     make_deferred_completion,
 )
+from tests.helpers.matrix import matrix_send_payload
 
 # ---------------------------------------------------------------------------
 # Helpers

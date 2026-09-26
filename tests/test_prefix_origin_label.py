@@ -25,8 +25,8 @@ from medre.core.events import (
 )
 from medre.core.rendering.renderer import RenderingContext
 from medre.interop.mmrelay import KEY_MESHNET
-from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 from tests.helpers.matrix import matrix_payload_content
+from tests.helpers.native_metadata import matrix_native_data, meshtastic_native_data
 
 # ---------------------------------------------------------------------------
 # Helpers

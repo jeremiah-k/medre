@@ -14,11 +14,11 @@ import pytest
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.core.contracts.adapter import AdapterPermanentError
 from medre.core.rendering.renderer import RenderingResult
+from tests.helpers.matrix import matrix_send_payload
 from tests.helpers.matrix_session import (
     make_matrix_config,
     make_matrix_context,
 )
-from tests.helpers.matrix import matrix_send_payload
 
 # ===================================================================
 # auto-join integration
