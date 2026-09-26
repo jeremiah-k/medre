@@ -38,6 +38,10 @@ from medre.adapters.matrix.event_shape import mmrelay_interop_fields
 from medre.adapters.matrix.metadata import MatrixMetadataEnvelope
 from medre.adapters.matrix.outbound import MatrixOutboundOperation
 from medre.core.events import CanonicalEvent, EventRelation
+from medre.core.events.attachments import (
+    attachment_descriptor_from_event_payload,
+)
+from medre.core.events.kinds import EventKind
 from medre.core.rendering.attribution import (
     RelayAttribution,
     build_relay_attribution,
@@ -67,6 +71,18 @@ from medre.interop.mmrelay import (
     derive_meshnet_value,
 )
 
+# Transport-neutral media kind → Matrix wire msgtype.  Unknown or missing
+# kinds deliberately fall back to ``m.file`` — never a guessed image/exec.
+_MEDIA_MSGTYPE_BY_KIND: dict[str, str] = {
+    "image": "m.image",
+    "audio": "m.audio",
+    "video": "m.video",
+    "file": "m.file",
+}
+
+# Stable non-success reason for rejected media edits (input or target).
+_MEDIA_EDIT_UNSUPPORTED = "attachment_edit_unsupported"
+
 
 class MatrixNativeMutationError(RuntimeError):
     """Fail-close signal: an unauthorized native mutation reached rendering.
@@ -77,6 +93,17 @@ class MatrixNativeMutationError(RuntimeError):
     rendering; this render-time guard is defense-in-depth so a missing
     suppression can never degrade a mutation into an ordinary message
     (which would fabricate content) or an unauthorized redaction.
+    """
+
+
+class MatrixAttachmentUnavailableError(RuntimeError):
+    """Fail-close signal: retained attachment content is not deliverable.
+
+    Rendered when a ``message.file`` event's canonical descriptor is
+    explicitly unavailable (policy disabled, content never retained,
+    quota-rejected, …) or absent.  The message carries the stable reason
+    code ``attachment_unavailable:<reason>`` so delivery evidence explains
+    capability-versus-availability.  A text substitute is never sent.
     """
 
 
@@ -376,6 +403,14 @@ class MatrixRenderer:
             return self._render_edit(event, ctx, edit_rel)
         if delete_rel is not None:
             return self._render_delete(event, ctx, delete_rel)
+
+        # File/media events render as closed send_media operations when
+        # retained content exists; an unavailable descriptor fails closed
+        # with a stable reason instead of degrading to a text message.
+        # This precedes thread handling: media inside a thread carries its
+        # thread/reply relation inside the media template.
+        if event.event_kind == EventKind.MESSAGE_FILE:
+            return self._render_media(event, ctx, thread_rel, reply_rel)
 
         # Thread rendering with reply-fallback parent semantics.  If the root
         # is unbound, an independently bound explicit reply parent is retained
@@ -905,6 +940,103 @@ class MatrixRenderer:
             f"adapter={target_adapter!r} channel={target_channel!r}"
         )
 
+    def _render_media(
+        self,
+        event: CanonicalEvent,
+        ctx: RenderingContext,
+        thread_rel: EventRelation | None,
+        reply_rel: EventRelation | None,
+    ) -> RenderingResult:
+        """Render a ``message.file`` event as a closed ``send_media`` op.
+
+        The wire template carries the correct Matrix msgtype for the
+        descriptor's media kind (unknown content stays ``m.file``, never a
+        guessed executable/image), safe filename/MIME/info metadata, the
+        preserved caption with exactly one relay attribution, and the
+        destination-scoped reply/thread relation when one is bound.  The
+        operation references the event's durable ``content_ref`` only —
+        no bytes, no key material, and never a source MXC forwarded as a
+        delivered file.  An unavailable descriptor fails closed with the
+        stable ``attachment_unavailable:<reason>`` code.
+        """
+        target_adapter = ctx.target_adapter
+        descriptor = attachment_descriptor_from_event_payload(event.payload)
+        if descriptor is None:
+            raise MatrixAttachmentUnavailableError(
+                "attachment_unavailable:not_retained"
+            )
+        if not descriptor.retained:
+            raise MatrixAttachmentUnavailableError(
+                f"attachment_unavailable:{descriptor.unavailable_reason}"
+            )
+
+        msgtype = _MEDIA_MSGTYPE_BY_KIND.get(descriptor.kind, "m.file")
+        caption = str(event.payload.get("body", ""))
+        if not caption and descriptor.filename:
+            caption = descriptor.filename
+        caption, prefix_meta = self._apply_matrix_relay_prefix(
+            event, caption, target_adapter, ctx
+        )
+
+        info: dict[str, object] = {"size": descriptor.size_bytes}
+        if descriptor.mime_type:
+            info["mimetype"] = descriptor.mime_type
+        if descriptor.width is not None:
+            info["w"] = descriptor.width
+        if descriptor.height is not None:
+            info["h"] = descriptor.height
+        if descriptor.duration_ms is not None:
+            info["duration"] = descriptor.duration_ms
+
+        template: dict[str, object] = {
+            "msgtype": msgtype,
+            "body": caption,
+            "info": info,
+        }
+        if descriptor.filename:
+            template["filename"] = descriptor.filename
+
+        root_id = self._bound_native_target(
+            thread_rel, target_adapter, ctx.target_channel
+        )
+        parent_id = self._bound_native_target(
+            reply_rel, target_adapter, ctx.target_channel
+        )
+        if root_id:
+            if parent_id:
+                template["m.relates_to"] = {
+                    "rel_type": "m.thread",
+                    "event_id": root_id,
+                    "is_falling_back": False,
+                    "m.in_reply_to": {"event_id": parent_id},
+                }
+            else:
+                template["m.relates_to"] = {
+                    "rel_type": "m.thread",
+                    "event_id": root_id,
+                    "is_falling_back": True,
+                    "m.in_reply_to": {"event_id": root_id},
+                }
+        elif parent_id:
+            template["m.relates_to"] = {"m.in_reply_to": {"event_id": parent_id}}
+
+        metadata = self._finalize_send_content(event, ctx, template)
+        metadata.update(prefix_meta)
+        metadata["matrix_operation"] = "send_media"
+        metadata["attachment_kind"] = descriptor.kind
+
+        operation = MatrixOutboundOperation.send_media(
+            descriptor.content_ref or "", template
+        )
+        return RenderingResult(
+            event_id=event.event_id,
+            target_adapter=target_adapter,
+            target_channel=ctx.target_channel,
+            payload=operation.to_payload(),
+            metadata=metadata,
+            fallback_applied=None,
+        )
+
     def _render_thread(
         self,
         event: CanonicalEvent,
@@ -1024,6 +1156,41 @@ class MatrixRenderer:
             fallback_applied=None,
         )
 
+    @staticmethod
+    def _reject_media_edit(event: CanonicalEvent, edit_rel: EventRelation) -> None:
+        """Reject media replacement edits with a stable non-success reason.
+
+        Two cases fail closed before any wire rendering:
+
+        * the edit's own effective content is a media msgtype (a source
+          attempted to replace content with a media message); or
+        * the trusted binding fact says the stored original is a
+          ``message.file`` event — its bytes cannot change via edit.
+
+        Text edits, replies, reactions, and threads are unaffected.  The
+        rejection never converts the event into a text edit or claims the
+        attachment bytes changed.
+        """
+        effective_msgtype = event.payload.get("msgtype")
+        if isinstance(effective_msgtype, str) and effective_msgtype in (
+            "m.image",
+            "m.audio",
+            "m.video",
+            "m.file",
+        ):
+            raise MatrixNativeMutationError(
+                f"{_MEDIA_EDIT_UNSUPPORTED}: edit content is a media "
+                f"msgtype ({effective_msgtype}); media replacement is not "
+                "supported"
+            )
+        fact = getattr(edit_rel, "target_fact", None)
+        target_kind = getattr(fact, "target_event_kind", None) if fact else None
+        if target_kind == EventKind.MESSAGE_FILE:
+            raise MatrixNativeMutationError(
+                f"{_MEDIA_EDIT_UNSUPPORTED}: edit targets a stored media "
+                "original (message.file); attachment bytes are immutable"
+            )
+
     def _render_edit(
         self,
         event: CanonicalEvent,
@@ -1051,6 +1218,7 @@ class MatrixRenderer:
         Text only — binary attachments are unsupported and unchanged.
         """
         target_adapter = ctx.target_adapter
+        self._reject_media_edit(event, edit_rel)
         original_id = self._require_bound_owned_target(
             edit_rel,
             target_adapter,
