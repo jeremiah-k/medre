@@ -372,7 +372,8 @@ class TestFakeMatrixCapabilities:
         assert result["supports_channels"] is True
         assert result["supports_reactions"] is True  # native → True
         assert result["supports_edits"] is True
-        assert result["supports_deletes"] is True
+        # Deletes surface as the raw relation level, not a boolean.
+        assert result["deletes_level"] == "native"
         assert result["supports_topic_rooms"] is True
 
     @pytest.mark.asyncio
