@@ -68,7 +68,7 @@ class RoutePlanLeg:
     ----------
     expanded_route_id:
         The full ID assigned by expansion (may include ``__<N>`` /
-        ``__rev_<N>`` / ``__map<N>__{fwd,rev}`` suffixes).
+        ``__rev_<N>`` / ``__map<token>__{fwd,rev}`` suffixes).
     config_route_id:
         Provenance: the config-level route ID this leg was produced from.
     enabled:

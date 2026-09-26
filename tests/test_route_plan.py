@@ -363,16 +363,16 @@ def test_context_map_legs_carry_mapping_contexts(tmp_path: Path) -> None:
     assert by_context["1"].dest_channel == "!b:fake.local"
 
 
-def test_context_map_leg_ids_use_map_scheme(tmp_path: Path) -> None:
-    """Mapping leg IDs follow the deterministic __map<N>__fwd scheme."""
+def test_context_map_leg_ids_use_stable_token_scheme(tmp_path: Path) -> None:
+    """Mapping leg IDs use stable content-derived tokens, not ordinals."""
     config = _load(tmp_path, _CONFIG_CONTEXT_MAP)
     plan = build_route_plan(config)
     entry = _entry_by_id(plan, "mesh_to_matrix")
-    ids = sorted(leg.expanded_route_id for leg in entry.legs)
-    assert ids == [
-        "mesh_to_matrix__map0__fwd",
-        "mesh_to_matrix__map1__fwd",
-    ]
+    ids = [leg.expanded_route_id for leg in entry.legs]
+    assert len(ids) == 2
+    assert len(set(ids)) == 2
+    assert all(route_id.startswith("mesh_to_matrix__maph") for route_id in ids)
+    assert all(route_id.endswith("__fwd") for route_id in ids)
 
 
 def test_context_map_leg_source_is_radio(tmp_path: Path) -> None:
@@ -438,7 +438,8 @@ def test_structured_destination_leg_exposes_display_fields(tmp_path: Path) -> No
     assert leg.dest_destination_hash == "e5f6a7b8c9d0e1f2a1b2c3d4e5f6a7b8"
     assert leg.dest_destination_name == "mobile-peer-1"
     assert leg.dest_channel is None
-    assert leg.expanded_route_id == "matrix_to_lxmf__map0__fwd"
+    assert leg.expanded_route_id.startswith("matrix_to_lxmf__maph")
+    assert leg.expanded_route_id.endswith("__fwd")
 
 
 # ===========================================================================

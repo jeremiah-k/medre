@@ -842,10 +842,9 @@ class TestContextMapBuilderIntegration:
         # Expanded routes registered: 2 entries × 2 directions = 4 routes.
         route_ids = list(app.router._routes.keys())
         assert len(route_ids) == 4
-        assert "ctx_bridge__map0__fwd" in route_ids
-        assert "ctx_bridge__map0__rev" in route_ids
-        assert "ctx_bridge__map1__fwd" in route_ids
-        assert "ctx_bridge__map1__rev" in route_ids
+        assert all(route_id.startswith("ctx_bridge__maph") for route_id in route_ids)
+        assert sum(route_id.endswith("__fwd") for route_id in route_ids) == 2
+        assert sum(route_id.endswith("__rev") for route_id in route_ids) == 2
 
     def test_build_with_context_map_source_to_dest(self, tmp_paths: MedrePaths) -> None:
         """Source-to-dest context_map produces only forward legs."""
@@ -884,7 +883,8 @@ class TestContextMapBuilderIntegration:
         route_ids = list(app.router._routes.keys())
         # ft is the config source → only forward legs exist.
         assert len(route_ids) == 1
-        assert "ctx_one_way__map0__fwd" in route_ids
+        assert route_ids[0].startswith("ctx_one_way__maph")
+        assert route_ids[0].endswith("__fwd")
 
     def test_matrix_auto_join_rooms_includes_context_map_rooms(
         self, tmp_paths: MedrePaths

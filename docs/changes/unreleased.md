@@ -16,7 +16,7 @@ this file once they land.
   structured entries (`dest_context` XOR `dest_destination`, plus optional
   per-entry origin labels); the platform-specific channel/room ontology and
   the `adapter_platforms` route-expansion parameter are gone. Expanded
-  mapping legs are named `__map{N}__fwd` / `__map{N}__rev`. Old configs
+  mapping legs use stable source-context tokens: `__map<token>__fwd` / `__map<token>__rev`. Old configs
   fail the generic unknown-key rejection with a hint toward
   `context_map`. See `docs/changes/unreleased/215-generic-context-route-mapping.md`.
 - **Config format is YAML-only.** `medre.toml` / `config.toml` must be

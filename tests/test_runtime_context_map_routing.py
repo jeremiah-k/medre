@@ -475,7 +475,8 @@ class TestSyntheticTransportGenericity:
         evt = _make_event(source_adapter=_DISCORD_ID, source_channel_id="general-chat")
         matched = router.match(evt)
         assert len(matched) == 1
-        assert matched[0].id == "synthetic_bridge__map0__fwd"
+        assert matched[0].id.startswith("synthetic_bridge__maph")
+        assert matched[0].id.endswith("__fwd")
 
         targets = router.resolve_targets(evt, matched[0])
         assert [(t.adapter, t.channel) for t in targets] == [
@@ -492,7 +493,8 @@ class TestSyntheticTransportGenericity:
         )
         matched = router.match(evt)
         assert len(matched) == 1
-        assert matched[0].id == "synthetic_bridge__map1__rev"
+        assert matched[0].id.startswith("synthetic_bridge__maph")
+        assert matched[0].id.endswith("__rev")
 
         targets = router.resolve_targets(evt, matched[0])
         assert [(t.adapter, t.channel) for t in targets] == [(_DISCORD_ID, "ops-chat")]
@@ -530,7 +532,13 @@ class TestSyntheticTransportGenericity:
             RouteConfigSet(routes=(rc,)),
             frozenset({_DISCORD_ID, _MQTT_ID}),
         )
-        assert result.provenance == {
-            "synthetic_bridge__map0__fwd": "synthetic_bridge",
-            "synthetic_bridge__map0__rev": "synthetic_bridge",
+        assert len(result.provenance) == 2
+        assert set(result.provenance.values()) == {"synthetic_bridge"}
+        assert {route_id.rsplit("__", 1)[1] for route_id in result.provenance} == {
+            "fwd",
+            "rev",
         }
+        assert all(
+            route_id.startswith("synthetic_bridge__maph")
+            for route_id in result.provenance
+        )

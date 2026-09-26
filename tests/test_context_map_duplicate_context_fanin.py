@@ -78,7 +78,7 @@ def test_same_context_source_to_dest_allowed() -> None:
     ``source_to_dest`` produces only forward legs, so the duplicate
     target context is unambiguous (the inbound source context
     disambiguates the event).  Each entry expands into its own
-    deterministic ``{route_id}__map<i>__fwd`` leg.
+    deterministic content-derived ``{route_id}__map<token>__fwd`` leg.
     """
     cmap = {
         "0": ContextMapEntry(dest_context=_SHARED_CONTEXT, source_origin_label="Ops"),
@@ -94,12 +94,13 @@ def test_same_context_source_to_dest_allowed() -> None:
 
     # Two legs, one per entry, both targeting the shared context.
     assert len(legs) == 2
-    by_id = {leg.route.id: leg.route for leg in legs}
-    expected_ids = {"fanin__map0__fwd", "fanin__map1__fwd"}
-    assert set(by_id) == expected_ids
+    by_context = {leg.mapping_source_context: leg.route for leg in legs}
+    assert set(by_context) == {"0", "1"}
+    assert all(leg.route.id.startswith("fanin__maph") for leg in legs)
+    assert all(leg.route.id.endswith("__fwd") for leg in legs)
 
     for key, label in (("0", "Ops"), ("1", "Tactical")):
-        leg = by_id[f"fanin__map{int(key)}__fwd"]
+        leg = by_context[key]
         # Source side: radio adapter, context-scoped.
         assert leg.source.adapter == "radio_adapter"
         assert leg.source.channel == key
@@ -143,10 +144,9 @@ def test_fan_in_full_set_expansion() -> None:
         context_map=_shared_map(),
     )
     legs = expand_route_configs(RouteConfigSet(routes=(rc,)))
-    assert sorted(leg.route.id for leg in legs) == [
-        "fanin__map0__fwd",
-        "fanin__map1__fwd",
-    ]
+    assert [leg.mapping_source_context for leg in legs] == ["0", "1"]
+    assert all(leg.route.id.startswith("fanin__maph") for leg in legs)
+    assert all(leg.route.id.endswith("__fwd") for leg in legs)
 
 
 # ===========================================================================
@@ -273,13 +273,13 @@ def test_unique_contexts_baseline_expands() -> None:
     legs = expand_route_config(rc)
     # 2 entries x bidirectional = 4 legs.
     assert len(legs) == 4
-    ids = sorted(leg.route.id for leg in legs)
-    assert ids == [
-        "fanout__map0__fwd",
-        "fanout__map0__rev",
-        "fanout__map1__fwd",
-        "fanout__map1__rev",
+    assert [(leg.mapping_source_context, leg.direction) for leg in legs] == [
+        ("0", "source_to_dest"),
+        ("0", "dest_to_source"),
+        ("1", "source_to_dest"),
+        ("1", "dest_to_source"),
     ]
+    assert len({leg.route.id for leg in legs}) == 4
 
 
 # ===========================================================================

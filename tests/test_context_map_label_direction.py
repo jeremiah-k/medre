@@ -60,20 +60,19 @@ def _structured_entry(
     return entry
 
 
-def _leg(routes: list, direction: str, index: int = 0):
-    """Return the single expanded leg for a direction and map index."""
-    suffix = "fwd" if direction == "source_to_dest" else "rev"
+def _leg(routes: list, direction: str, source_context: str = "0"):
+    """Return the single expanded leg for a direction and source context."""
     matches = [
         leg
         for leg in routes
-        if leg.direction == direction
-        and leg.route.id.endswith(f"__map{index}__{suffix}")
+        if leg.direction == direction and leg.mapping_source_context == source_context
     ]
     assert len(matches) == 1, (
-        f"expected exactly one {direction!r} leg on map index {index!r}, "
-        f"got ids={[leg.route.id for leg in routes]}"
+        f"expected exactly one {direction!r} leg for source context "
+        f"{source_context!r}, got ids={[leg.route.id for leg in routes]}"
     )
     return matches[0]
+
 
 
 # ===========================================================================
@@ -105,8 +104,8 @@ def test_two_entries_distinct_source_labels() -> None:
     )
     legs = expand_route_config(rc)
 
-    fwd0 = _leg(legs, "source_to_dest", 0)
-    fwd1 = _leg(legs, "source_to_dest", 1)
+    fwd0 = _leg(legs, "source_to_dest", "0")
+    fwd1 = _leg(legs, "source_to_dest", "1")
     # Each forward leg resolves its own source context and its own label.
     assert fwd0.route.source.channel == "0"
     assert fwd1.route.source.channel == "1"
@@ -133,8 +132,8 @@ def test_distinct_dest_contexts_distinct_labels() -> None:
     )
     legs = expand_route_config(rc)
 
-    fwd_a = _leg(legs, "source_to_dest", 0)
-    fwd_b = _leg(legs, "source_to_dest", 1)
+    fwd_a = _leg(legs, "source_to_dest", "chan-a")
+    fwd_b = _leg(legs, "source_to_dest", "chan-b")
     assert fwd_a.route.source.channel == "chan-a"
     assert fwd_a.route.targets[0].channel == "!roomA:example.com"
     assert fwd_b.route.targets[0].channel == "!roomB:example.com"
@@ -164,8 +163,8 @@ def test_entry_source_label_does_not_leak_onto_reverse_leg() -> None:
     )
     legs = expand_route_config(rc)
 
-    fwd = _leg(legs, "source_to_dest", 0)
-    rev = _leg(legs, "dest_to_source", 0)
+    fwd = _leg(legs, "source_to_dest", "0")
+    rev = _leg(legs, "dest_to_source", "0")
     # Forward leg: entry source label wins.
     assert fwd.route.source.origin_label == "Entry Src"
     # Reverse leg: entry source label does NOT leak; route dest wins
@@ -190,8 +189,8 @@ def test_entry_dest_label_does_not_leak_onto_forward_leg() -> None:
     )
     legs = expand_route_config(rc)
 
-    fwd = _leg(legs, "source_to_dest", 0)
-    rev = _leg(legs, "dest_to_source", 0)
+    fwd = _leg(legs, "source_to_dest", "0")
+    rev = _leg(legs, "dest_to_source", "0")
     # Forward leg: entry has no source label → route source wins.
     assert fwd.route.source.origin_label == "Route Src"
     # Reverse leg: entry dest label wins.
@@ -224,8 +223,8 @@ def test_both_entry_labels_override_both_route_labels() -> None:
     )
     legs = expand_route_config(rc)
 
-    fwd = _leg(legs, "source_to_dest", 0)
-    rev = _leg(legs, "dest_to_source", 0)
+    fwd = _leg(legs, "source_to_dest", "0")
+    rev = _leg(legs, "dest_to_source", "0")
     assert fwd.route.source.origin_label == "Entry Src"
     assert rev.route.source.origin_label == "Entry Dst"
 
@@ -250,8 +249,8 @@ def test_entry_source_label_only_no_route_label_reverse_is_none() -> None:
     )
     legs = expand_route_config(rc)
 
-    fwd = _leg(legs, "source_to_dest", 0)
-    rev = _leg(legs, "dest_to_source", 0)
+    fwd = _leg(legs, "source_to_dest", "0")
+    rev = _leg(legs, "dest_to_source", "0")
     assert fwd.route.source.origin_label == "Entry Src"
     # Reverse leg: no entry dest, no route dest → None.
     assert rev.route.source.origin_label is None
@@ -272,8 +271,8 @@ def test_entry_dest_label_only_no_route_label_forward_is_none() -> None:
     )
     legs = expand_route_config(rc)
 
-    fwd = _leg(legs, "source_to_dest", 0)
-    rev = _leg(legs, "dest_to_source", 0)
+    fwd = _leg(legs, "source_to_dest", "0")
+    rev = _leg(legs, "dest_to_source", "0")
     assert fwd.route.source.origin_label is None
     assert rev.route.source.origin_label == "Entry Dst"
 
@@ -303,14 +302,14 @@ def test_mixed_entries_one_overrides_one_inherits() -> None:
     legs = expand_route_config(rc)
 
     # Entry 0: both legs use the entry labels.
-    fwd0 = _leg(legs, "source_to_dest", 0)
-    rev0 = _leg(legs, "dest_to_source", 0)
+    fwd0 = _leg(legs, "source_to_dest", "0")
+    rev0 = _leg(legs, "dest_to_source", "0")
     assert fwd0.route.source.origin_label == "Entry Src 0"
     assert rev0.route.source.origin_label == "Entry Dst 0"
 
     # Entry 1: both legs fall back to the route-level labels.
-    fwd1 = _leg(legs, "source_to_dest", 1)
-    rev1 = _leg(legs, "dest_to_source", 1)
+    fwd1 = _leg(legs, "source_to_dest", "1")
+    rev1 = _leg(legs, "dest_to_source", "1")
     assert fwd1.route.source.origin_label == "Route Src"
     assert rev1.route.source.origin_label == "Route Dst"
 
@@ -339,7 +338,8 @@ def test_source_to_dest_per_entry_source_label_applies() -> None:
     legs = expand_route_config(rc)
     # Only the forward leg exists.
     assert len(legs) == 1
-    assert legs[0].route.id == "t__map0__fwd"
+    assert legs[0].route.id.startswith("t__maph")
+    assert legs[0].route.id.endswith("__fwd")
     assert legs[0].route.source.origin_label == "Entry Src"
 
 
@@ -362,7 +362,8 @@ def test_dest_to_source_per_entry_dest_label_applies() -> None:
     legs = expand_route_config(rc)
     # Only the reverse leg exists.
     assert len(legs) == 1
-    assert legs[0].route.id == "t__map0__rev"
+    assert legs[0].route.id.startswith("t__maph")
+    assert legs[0].route.id.endswith("__rev")
     assert legs[0].route.source.origin_label == "Entry Dst"
 
 

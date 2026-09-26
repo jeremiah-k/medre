@@ -69,19 +69,19 @@ def _map_config(
 
 
 def _leg(legs: list, direction: str, index: int = 0) -> Route:
-    """Return the single expanded route with the given direction and map index."""
-    suffix = "fwd" if direction == "source_to_dest" else "rev"
+    """Return the single expanded leg for a direction and source context."""
+    source_context = str(index)
     matches = [
-        leg.route
+        leg
         for leg in legs
-        if leg.direction == direction
-        and leg.route.id.endswith(f"__map{index}__{suffix}")
+        if leg.direction == direction and leg.mapping_source_context == source_context
     ]
     assert len(matches) == 1, (
-        f"expected exactly one {direction!r} leg on map index {index!r}, "
-        f"got ids={[leg.route.id for leg in legs]}"
+        f"expected exactly one {direction!r} leg for source context "
+        f"{source_context!r}, got ids={[leg.route.id for leg in legs]}"
     )
-    return matches[0]
+    return matches[0].route
+
 
 
 # ===========================================================================
@@ -227,7 +227,8 @@ def test_source_to_dest_only_carries_source_label() -> None:
     legs = expand_route_config(rc)
     # Only the forward leg is created.
     assert len(legs) == 1
-    assert legs[0].route.id == "bridge__map0__fwd"
+    assert legs[0].route.id.startswith("bridge__maph")
+    assert legs[0].route.id.endswith("__fwd")
     assert legs[0].route.source.origin_label == "Only Forward"
 
 
@@ -241,7 +242,8 @@ def test_dest_to_source_only_carries_dest_label() -> None:
     legs = expand_route_config(rc)
     # Only the reverse leg is created.
     assert len(legs) == 1
-    assert legs[0].route.id == "bridge__map0__rev"
+    assert legs[0].route.id.startswith("bridge__maph")
+    assert legs[0].route.id.endswith("__rev")
     assert legs[0].route.source.origin_label == "Only Reverse"
 
 
@@ -259,7 +261,8 @@ def test_dest_to_source_swapped_declaration_carries_dest_label() -> None:
     )
     legs = expand_route_config(rc)
     assert len(legs) == 1
-    assert legs[0].route.id == "mesh_bridge__map0__rev"
+    assert legs[0].route.id.startswith("mesh_bridge__maph")
+    assert legs[0].route.id.endswith("__rev")
     assert legs[0].route.source.origin_label == "Rev"
 
 

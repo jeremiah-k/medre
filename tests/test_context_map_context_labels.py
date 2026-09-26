@@ -43,21 +43,19 @@ _BASE_DATA: dict[str, object] = {
 }
 
 
-def _leg(routes: list, direction: str, index: int = 0):
-    """Return the single expanded leg for a direction and map index."""
+def _leg(routes: list, direction: str, source_context: str = "0"):
+    """Return the single expanded leg for a direction and source context."""
     matches = [
         leg
         for leg in routes
-        if leg.direction == direction
-        and leg.route.id.endswith(
-            f"__map{index}__{'fwd' if direction == 'source_to_dest' else 'rev'}"
-        )
+        if leg.direction == direction and leg.mapping_source_context == source_context
     ]
     assert len(matches) == 1, (
-        f"expected exactly one {direction!r} leg on map index {index!r}, "
-        f"got ids={[leg.route.id for leg in routes]}"
+        f"expected exactly one {direction!r} leg for source context "
+        f"{source_context!r}, got ids={[leg.route.id for leg in routes]}"
     )
     return matches[0]
+
 
 
 # ===========================================================================
@@ -146,8 +144,8 @@ def test_per_entry_source_label_other_context_keeps_route_label() -> None:
         },
     )
     legs = expand_route_config(rc)
-    fwd0 = _leg(legs, "source_to_dest", 0)
-    fwd1 = _leg(legs, "source_to_dest", 1)
+    fwd0 = _leg(legs, "source_to_dest", "0")
+    fwd1 = _leg(legs, "source_to_dest", "1")
     assert fwd0.route.source.origin_label == "Entry Level"
     assert fwd1.route.source.origin_label == "Route Level"
 
@@ -275,8 +273,8 @@ def test_explicit_null_and_empty_string_contrast_in_same_route() -> None:
         },
     )
     legs = expand_route_config(rc)
-    fwd0 = _leg(legs, "source_to_dest", 0)
-    fwd1 = _leg(legs, "source_to_dest", 1)
+    fwd0 = _leg(legs, "source_to_dest", "0")
+    fwd1 = _leg(legs, "source_to_dest", "1")
     # Context 0: None -> route-level label.
     assert fwd0.route.source.origin_label == "Route Level"
     # Context 1: "" -> stays empty (suppressed).

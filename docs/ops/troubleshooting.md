@@ -526,7 +526,7 @@ when a route uses `context_map`. `medre routes plan` instead shows
 one row per **expanded leg**, including the per-context legs produced by
 the map:
 
-- The expanded route ID (e.g. `<route>__map0__fwd`).
+- The expanded route ID (e.g. `<route>__map<token>__fwd`).
 - The `context_map: <source_context> -> <dest_context>` mapping line
   (or the structured destination form) for each mapped leg.
 - The transport direction of each leg.

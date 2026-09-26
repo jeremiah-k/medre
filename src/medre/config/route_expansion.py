@@ -12,9 +12,10 @@ Expansion shapes
   (``route_id`` / ``route_id__<N>``) and, when the directionality
   creates them, N reverse legs (``route_id__rev_<N>``) whose source and
   dest sides are swapped.
-* ``context_map`` routes — one forward leg per mapped context
-  (``route_id__map<i>__fwd``) and, when the directionality creates
-  them, one reverse leg (``route_id__map<i>__rev``) with adapters,
+* ``context_map`` routes — one forward leg per mapped context using a
+  stable content-derived token (``route_id__map<token>__fwd``) and, when
+  the directionality creates them, one reverse leg
+  (``route_id__map<token>__rev``) with adapters,
   contexts, and label sides swapped.
 
 It is deliberately transport-agnostic and SDK-free: contexts are
@@ -30,6 +31,7 @@ Public symbols
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 
@@ -55,8 +57,11 @@ __all__ = [
 #: collision error and the runtime route plan's cross-route collision
 #: report stay word-for-word in sync.
 EXPANSION_ID_PATTERNS_HINT = (
-    "'<id>__<N>', '<id>__rev_<N>', '<id>__map<N>__fwd', or " "'<id>__map<N>__rev'"
+    "'<id>__<N>', '<id>__rev_<N>', '<id>__map<token>__fwd', or "
+    "'<id>__map<token>__rev'"
 )
+
+_CONTEXT_MAP_TOKEN_HEX_LENGTH = 32
 
 _logger = logging.getLogger(__name__)
 
@@ -318,12 +323,29 @@ def _expand_standard_route(
 # ---------------------------------------------------------------------------
 
 
+def _context_map_token(source_context: str) -> str:
+    """Return the stable route-ID token for one mapped source context.
+
+    Mapping-leg IDs participate in durable route/plan provenance.  They must
+    therefore depend on the mapped context itself, not its ordinal position in
+    the current map: adding an unrelated key must not rename existing legs.
+    A short SHA-256 token keeps arbitrary opaque contexts out of route IDs while
+    remaining deterministic across processes and configuration reloads.
+    """
+    digest = hashlib.sha256(source_context.encode("utf-8")).hexdigest()[
+        :_CONTEXT_MAP_TOKEN_HEX_LENGTH
+    ]
+    return f"h{digest}"
+
+
 def _expand_context_map_route(rc: RouteConfig) -> list[ExpandedRouteLeg]:
     """Expand a ``context_map`` route into per-context core route legs.
 
-    Entries are iterated in sorted-key order with index ``i``; forward
-    legs are ``<route_id>__map<i>__fwd`` and reverse legs are
-    ``<route_id>__map<i>__rev``.  The forward leg carries the source
+    Entries are iterated in sorted-key order for deterministic output.
+    Their IDs use a stable token derived from the source context, so adding or
+    removing an unrelated mapping does not rename existing durable route
+    identities.  Forward legs are ``<route_id>__map<token>__fwd`` and reverse
+    legs are ``<route_id>__map<token>__rev``.  The forward leg carries the source
     side as ``RouteSource.channel`` and the entry's dest side on the
     target; the reverse leg (only for entries with ``dest_context``)
     swaps adapters, contexts, and label sides and never carries a
@@ -347,7 +369,18 @@ def _expand_context_map_route(rc: RouteConfig) -> list[ExpandedRouteLeg]:
 
     legs: list[ExpandedRouteLeg] = []
 
-    for i, (key, entry) in enumerate(sorted(rc.context_map.items())):
+    tokens: dict[str, str] = {}
+    for key, entry in sorted(rc.context_map.items()):
+        token = _context_map_token(key)
+        prior_key = tokens.get(token)
+        if prior_key is not None and prior_key != key:
+            raise ConfigValidationError(
+                f"Route {rc.route_id!r}: context_map source contexts "
+                f"{prior_key!r} and {key!r} collide on expansion token "
+                f"{token!r}; split the mappings into separate routes",
+                section_path=f"routes.{rc.route_id}",
+            )
+        tokens[token] = key
         # Resolve effective per-entry labels: entry label takes precedence
         # over route-level label.  Use 'is not None' so that an explicit
         # empty string ("") is preserved (sentinel for suppress fallback).
@@ -366,7 +399,7 @@ def _expand_context_map_route(rc: RouteConfig) -> list[ExpandedRouteLeg]:
             legs.append(
                 ExpandedRouteLeg(
                     route=Route(
-                        id=f"{rc.route_id}__map{i}__fwd",
+                        id=f"{rc.route_id}__map{token}__fwd",
                         source=RouteSource(
                             adapter=src_id,
                             event_kinds=event_kinds,
@@ -396,7 +429,7 @@ def _expand_context_map_route(rc: RouteConfig) -> list[ExpandedRouteLeg]:
             legs.append(
                 ExpandedRouteLeg(
                     route=Route(
-                        id=f"{rc.route_id}__map{i}__rev",
+                        id=f"{rc.route_id}__map{token}__rev",
                         source=RouteSource(
                             adapter=dst_id,
                             event_kinds=event_kinds,

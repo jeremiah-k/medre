@@ -486,6 +486,41 @@ routes:
 # ---------------------------------------------------------------------------
 
 
+def test_mapping_leg_ids_are_stable_when_unrelated_context_is_inserted() -> None:
+    """Durable mapping-leg identity must not depend on map ordinals."""
+    before = RouteConfig(
+        route_id="stable",
+        source_adapters=("src",),
+        dest_adapters=("dst",),
+        context_map={
+            "bravo": ContextMapEntry(dest_context="room-b"),
+            "charlie": ContextMapEntry(dest_context="room-c"),
+        },
+    )
+    after = RouteConfig(
+        route_id="stable",
+        source_adapters=("src",),
+        dest_adapters=("dst",),
+        context_map={
+            "alpha": ContextMapEntry(dest_context="room-a"),
+            "bravo": ContextMapEntry(dest_context="room-b"),
+            "charlie": ContextMapEntry(dest_context="room-c"),
+        },
+    )
+
+    before_ids = {
+        leg.mapping_source_context: leg.route.id for leg in expand_route_config(before)
+    }
+    after_ids = {
+        leg.mapping_source_context: leg.route.id for leg in expand_route_config(after)
+    }
+
+    assert before_ids["bravo"] == after_ids["bravo"]
+    assert before_ids["charlie"] == after_ids["charlie"]
+    assert before_ids["bravo"] != before_ids["charlie"]
+    assert "__maph" in before_ids["bravo"]
+
+
 class TestContextMapExpansion:
     """Compiler expansion of context_map routes."""
 
@@ -513,12 +548,15 @@ class TestContextMapExpansion:
     def test_bidirectional_2_contexts_4_legs(self) -> None:
         """2 contexts x bidirectional = 4 legs."""
         legs = expand_route_config(self._map_config())
-        assert [leg.route.id for leg in legs] == [
-            "bridge__map0__fwd",
-            "bridge__map0__rev",
-            "bridge__map1__fwd",
-            "bridge__map1__rev",
+        assert [(leg.mapping_source_context, leg.direction) for leg in legs] == [
+            ("0", "source_to_dest"),
+            ("0", "dest_to_source"),
+            ("1", "source_to_dest"),
+            ("1", "dest_to_source"),
         ]
+        ids = [leg.route.id for leg in legs]
+        assert len(ids) == len(set(ids))
+        assert all(route_id.startswith("bridge__maph") for route_id in ids)
 
     def test_forward_leg_fields(self) -> None:
         """Forward leg: source side is the map key, target carries dest_context."""
@@ -576,7 +614,8 @@ class TestContextMapExpansion:
         legs = expand_route_config(rc)
         assert len(legs) == 1
         assert legs[0].direction == "source_to_dest"
-        assert legs[0].route.id == "bridge__map0__fwd"
+        assert legs[0].route.id.startswith("bridge__maph")
+        assert legs[0].route.id.endswith("__fwd")
         assert legs[0].route.source.adapter == "radio_adapter"
 
     def test_dest_to_source_only(self) -> None:
@@ -588,7 +627,8 @@ class TestContextMapExpansion:
         legs = expand_route_config(rc)
         assert len(legs) == 1
         assert legs[0].direction == "dest_to_source"
-        assert legs[0].route.id == "bridge__map0__rev"
+        assert legs[0].route.id.startswith("bridge__maph")
+        assert legs[0].route.id.endswith("__rev")
         assert legs[0].route.source.adapter == "chat_adapter"
 
     def test_structured_destination_forward_leg(self) -> None:
@@ -610,7 +650,9 @@ class TestContextMapExpansion:
             },
         )
         legs = expand_route_config(rc)
-        assert [leg.route.id for leg in legs] == ["lxmf_out__map0__fwd"]
+        assert len(legs) == 1
+        assert legs[0].route.id.startswith("lxmf_out__maph")
+        assert legs[0].route.id.endswith("__fwd")
         target = legs[0].route.targets[0]
         assert target.channel is None
         assert target.destination is not None
@@ -648,12 +690,11 @@ class TestContextMapExpansion:
             },
         )
         legs = expand_route_config(rc)
-        ids = [leg.route.id for leg in legs]
-        assert ids == [
-            "bridge__map0__fwd",
-            "bridge__map0__rev",
-            "bridge__map1__fwd",
-            "bridge__map1__rev",
+        assert [(leg.mapping_source_context, leg.direction) for leg in legs] == [
+            ("a", "source_to_dest"),
+            ("a", "dest_to_source"),
+            ("b", "source_to_dest"),
+            ("b", "dest_to_source"),
         ]
         assert legs[0].route.source.channel == "a"
 
@@ -740,13 +781,15 @@ class TestContextMapExpansion:
             dest_origin_label="Chat",
         )
         legs = expand_route_config(rc)
-        by_id = {leg.route.id: leg for leg in legs}
+        by_mapping = {
+            (leg.mapping_source_context, leg.direction): leg for leg in legs
+        }
         # Entry without labels falls back to route-level labels.
-        assert by_id["bridge__map0__fwd"].route.source.origin_label == "Radio"
-        assert by_id["bridge__map0__rev"].route.source.origin_label == "Chat"
+        assert by_mapping[("0", "source_to_dest")].route.source.origin_label == "Radio"
+        assert by_mapping[("0", "dest_to_source")].route.source.origin_label == "Chat"
         # Entry labels take precedence over route-level labels.
-        assert by_id["bridge__map1__fwd"].route.source.origin_label == "Ops"
-        assert by_id["bridge__map1__rev"].route.source.origin_label == "Chat-Ops"
+        assert by_mapping[("1", "source_to_dest")].route.source.origin_label == "Ops"
+        assert by_mapping[("1", "dest_to_source")].route.source.origin_label == "Chat-Ops"
 
     def test_explicit_empty_label_suppresses_fallback(self) -> None:
         """An explicit "" entry label is preserved (suppression sentinel)."""
@@ -761,9 +804,13 @@ class TestContextMapExpansion:
             source_origin_label="Radio",
         )
         legs = expand_route_config(rc)
-        by_id = {leg.route.id: leg for leg in legs}
-        assert by_id["bridge__map0__fwd"].route.source.origin_label == ""
-        assert by_id["bridge__map1__fwd"].route.source.origin_label == "Radio"
+        by_mapping = {
+            (leg.mapping_source_context, leg.direction): leg for leg in legs
+        }
+        assert by_mapping[("0", "source_to_dest")].route.source.origin_label == ""
+        assert (
+            by_mapping[("1", "source_to_dest")].route.source.origin_label == "Radio"
+        )
 
     def test_expand_route_config_ignores_enabled_flag(self) -> None:
         """expand_route_config expands disabled routes; callers filter."""
@@ -775,7 +822,9 @@ class TestContextMapExpansion:
             context_map={"0": ContextMapEntry(dest_context="!room0:example.com")},
         )
         legs = expand_route_config(disabled)
-        assert [leg.route.id for leg in legs] == ["off__map0__fwd"]
+        assert len(legs) == 1
+        assert legs[0].route.id.startswith("off__maph")
+        assert legs[0].route.id.endswith("__fwd")
 
     def test_expand_route_configs_skips_disabled(self) -> None:
         enabled = self._map_config(route_id="on")
@@ -887,8 +936,9 @@ class TestExpansionBoundaries:
             dest_adapters=("b",),
             context_map={"0": ContextMapEntry(dest_context="!room:example.com")},
         )
+        generated_id = expand_route_config(map_route)[0].route.id
         shadow = RouteConfig(
-            route_id="xmap__map0__fwd",
+            route_id=generated_id,
             source_adapters=("q",),
             dest_adapters=("z",),
         )
@@ -898,8 +948,8 @@ class TestExpansionBoundaries:
         for pattern in (
             "<id>__<N>",
             "<id>__rev_<N>",
-            "<id>__map<N>__fwd",
-            "<id>__map<N>__rev",
+            "<id>__map<token>__fwd",
+            "<id>__map<token>__rev",
         ):
             assert pattern in msg
 
@@ -945,11 +995,11 @@ class TestGenericTransports:
             },
         )
         legs = expand_route_config(rc)
-        assert [leg.route.id for leg in legs] == [
-            "relay__map0__fwd",
-            "relay__map0__rev",
-            "relay__map1__fwd",
-            "relay__map1__rev",
+        assert [(leg.mapping_source_context, leg.direction) for leg in legs] == [
+            ("guild-channel-42", "source_to_dest"),
+            ("guild-channel-42", "dest_to_source"),
+            ("guild-channel-43", "source_to_dest"),
+            ("guild-channel-43", "dest_to_source"),
         ]
         fwd = legs[0].route
         assert fwd.source.adapter == "discord_bot"
@@ -978,7 +1028,6 @@ class TestGenericTransports:
             },
         )
         legs = expand_route_configs(RouteConfigSet(routes=(rc,)))
-        assert [leg.route.id for leg in legs] == [
-            "slack_relay__map0__fwd",
-            "slack_relay__map1__fwd",
-        ]
+        assert [leg.mapping_source_context for leg in legs] == ["C001", "C002"]
+        assert all(leg.route.id.startswith("slack_relay__maph") for leg in legs)
+        assert all(leg.route.id.endswith("__fwd") for leg in legs)

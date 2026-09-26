@@ -25,8 +25,11 @@ configuration seam.
   expanded-ID→config-route provenance from the compiler's legs, and
   adapter-reference validation remains the sole runtime-owned check
   (`RouteValidationError`).
-- Expanded mapping legs are named `"{route_id}__map{N}__fwd"` and
-  `"{route_id}__map{N}__rev"` in `sorted(key)` entry order, replacing the
+- Expanded mapping legs are emitted in `sorted(key)` order and named with a
+  stable source-context token: `"{route_id}__map<token>__fwd"` and
+  `"{route_id}__map<token>__rev"`. The token is derived from the source
+  context, so inserting/removing an unrelated map entry does not rename
+  existing legs, replacing the
   platform-named `__ch{key}__matrix_to_meshtastic` /
   `__ch{key}__meshtastic_to_matrix` IDs.
 - `medre routes plan` reads the compiler per route: legs carry
