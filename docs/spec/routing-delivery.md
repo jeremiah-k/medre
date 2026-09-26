@@ -768,16 +768,29 @@ CREATE TABLE delivery_receipts (
 
 Each delivery attempt passes through the rendering pipeline before reaching the adapter. The rendering pipeline produces a `RenderingResult` whose `truncated` and `fallback_applied` fields are evidence signals explaining the rendering decision. These signals are durable: the `rendering_evidence` column on `delivery_receipts` stores a structured record of the rendering evidence for each delivery attempt.
 
-`rendering_evidence` is attached **only** for `sent` and `queued` receipt statuses. The following paths leave `rendering_evidence` as `None`:
+`rendering_evidence` is attached to the attempt receipt produced after rendering.
+For immediate hand-off that is the `sent` receipt; for deferred hand-off it is the
+`queued` receipt. The following paths leave `rendering_evidence` as `None`:
 
 | Path                                       | Status             | `rendering_evidence` |
 | ------------------------------------------ | ------------------ | -------------------- |
-| Successful delivery                        | `sent`             | Populated            |
-| Queued for delivery                        | `queued`           | Populated            |
+| Immediate successful hand-off              | `sent`             | Populated            |
+| Deferred local admission                   | `queued`           | Populated            |
+| Deferred completion wins pre-receipt race  | `sent`             | `None`               |
 | Post-planning suppression                  | `suppressed`       | `None`               |
 | Pre-outbox skip (loop, policy, capability) | No receipt created | N/A                  |
 | Rendering failure                          | `failed`           | `None`               |
 | Adapter failure                            | `failed`           | `None`               |
+
+The pre-receipt race is intentional. A validated deferred completion may finalize
+while the outbox is still `in_progress`, before the pipeline has appended the
+`queued` attempt receipt. Core does not invent queue-only rendering/retry evidence
+on that early `sent` row. The later immutable `queued` row retains the original
+`rendering_evidence`, while outbox authority remains pointed at the already
+committed `sent` receipt. Consumers that need rendering evidence for a deferred
+attempt MUST inspect that attempt's receipt history rather than assuming the
+current lifecycle-authoritative row contains it. See
+[delivery-lifecycle.md](delivery-lifecycle.md) §3.4.
 
 When inspecting a receipt, operators can determine:
 

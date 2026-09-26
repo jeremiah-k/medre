@@ -610,14 +610,28 @@ The `RenderingResult.metadata` dict sits between these two: it MAY carry renderi
 
 ### 14.4 Durable Receipt Attachment
 
-Rendering evidence becomes durable through attachment to delivery receipts. The `DeliveryReceipt` dataclass carries a `rendering_evidence` field (see Routing and Delivery Specification, § 8.1) that stores a structured record of the rendering evidence for each delivery attempt.
+Rendering evidence becomes durable through attachment to delivery-attempt receipt
+history. The `DeliveryReceipt` dataclass carries a `rendering_evidence` field (see
+Routing and Delivery Specification, § 8.1) that stores the structured rendering
+record.
 
 The attachment flow:
 
-1. The rendering pipeline produces a `RenderingResult` with `truncated` and `fallback_applied` fields.
-2. The delivery pipeline records the delivery outcome and creates a `DeliveryReceipt`.
-3. The `rendering_evidence` field on the receipt stores the rendering evidence, making it durable and queryable.
-4. Operators inspecting a receipt chain can determine: was content truncated, was fallback applied, what strategy was used.
+1. The rendering pipeline produces a `RenderingResult` with `truncated` and
+   `fallback_applied` fields.
+2. The delivery pipeline records the hand-off result and creates the attempt receipt.
+3. The attempt's `sent` (immediate) or `queued` (deferred) receipt stores the
+   rendering evidence, making it durable and queryable.
+4. Operators inspecting the receipt chain can determine: was content truncated, was
+   fallback applied, what strategy was used.
+
+A validated deferred completion can arrive while its outbox is still `in_progress`,
+before the `queued` receipt has been appended. In that intentional race, the early
+`sent` row omits queue-only rendering/retry fields rather than reconstructing them
+from timing; the later immutable `queued` row retains the rendering evidence.
+Evidence consumers therefore inspect the attempt's receipt history when they need
+rendering context instead of assuming the lifecycle-authoritative row always carries
+it. See Delivery Lifecycle Specification §3.4.
 
 The `FallbackApplied` literal vocabulary (`"relation_reply"`, `"relation_reaction"`, `"relation_edit"`, `"relation_delete"`, `"relation_thread"`, `"strategy_fallback_text"`) provides a closed set of fallback reasons.
 
