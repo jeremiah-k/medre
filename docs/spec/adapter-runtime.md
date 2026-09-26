@@ -476,14 +476,16 @@ Every renderer invocation receives a frozen `RenderingContext` carrying all disp
 ```python
 @dataclass(frozen=True)
 class RenderingContext:
-    delivery_strategy: DeliveryStrategyMethod  # "direct", "fallback_text", "skip", etc.
-    target_adapter: str                        # Target adapter instance name
-    target_channel: str | None                 # Target channel, if applicable
-    target_platform: str | None                # Platform name (e.g. "matrix", "meshtastic")
-    max_text_chars: int | None                 # Character budget from adapter capabilities
-    max_text_bytes: int | None                 # UTF-8 byte budget from adapter capabilities
-    capability_level: CapabilityDecisionLevel  # "native", "fallback", or "unsupported"
-    capability_policy: str | None              # Optional policy hint (e.g. "strict", "lenient")
+    delivery_strategy: DeliveryStrategyMethod
+    target_adapter: str
+    target_channel: str | None = None
+    target_platform: str | None = None
+    max_text_chars: int | None = None
+    max_text_bytes: int | None = None
+    capability_level: CapabilityLevel = "native"
+    capability_policy: str | None = None
+    source_origin_label: str | None = None
+    target_destination: RouteDestination | None = None
 ```
 
 `delivery_strategy` is a **context hint, not a renderer selector**. When the strategy is `"fallback_text"`, the target-native renderer still produces its native output format (e.g. a Matrix renderer produces Matrix msgtype/body, a Meshtastic renderer produces Meshtastic text). The pipeline does **not** bypass target-native renderers or switch to a generic text renderer based on this field. Instead, the target-native renderer uses the hint to degrade relation rendering to inline text within its own format.
@@ -496,20 +498,31 @@ class RenderingContext:
 
 `capability_policy` is a **reserved field**. It is defined in `RenderingContext` for a future explicit capability-policy stage and defaults to `None`. The current pipeline does not set it. Renderers **MUST NOT** depend on `capability_policy` for dispatch decisions unless they also control the code that populates it.
 
+`source_origin_label` is the route-resolved source attribution label supplied to renderers. `None` means no route-level override is present and the renderer may fall back to adapter/native attribution according to the routing specification.
+
+`target_destination` carries the structured route destination when one exists. Renderers that address a specific entity **MUST** prefer this structured destination over the convenience `target_channel` value; `None` means the target is channel-addressed only.
+
 ### 10.2 RenderingResult
 
 The `RenderingResult` is the output of a rendering pass, ready for adapter delivery. It is produced by the `RenderingPipeline` and consumed by adapters.
 
+The renderer owns `payload`, rendering metadata, and truncation/fallback facts. The rendering pipeline adds the immutable `rendering_evidence` snapshot after the renderer returns. Immediately before adapter delivery, `TargetDeliveryService` stamps the durable delivery identity onto the same frozen value: `delivery_plan_id`, `outbox_id`, `attempt_number`, and the authoritative `attempt_provenance`. Those fields are framework-internal hand-off context, not wire metadata. When provenance is present it is authoritative; the scalar plan/outbox/attempt fields are compatibility mirrors validated and backfilled from it. An outbox-backed result without `attempt_provenance` is invalid.
+
 ```python
 @dataclass(frozen=True)
 class RenderingResult:
-    event_id:         str                        # Original canonical event ID
-    target_adapter:   str                        # Target adapter instance name
-    target_channel:   str | None                 # Target channel, if applicable
-    payload:          dict[str, object]          # Rendered payload in adapter-ready format
-    metadata:         dict[str, object] = field(default_factory=dict)
-    truncated:        bool = False               # Whether content was truncated
-    fallback_applied: FallbackApplied | None = None          # Fallback strategy applied, if any
+    event_id: str
+    target_adapter: str
+    target_channel: str | None
+    payload: dict[str, object]
+    metadata: dict[str, object] = field(default_factory=dict)
+    truncated: bool = False
+    fallback_applied: FallbackApplied | None = None
+    rendering_evidence: RenderingEvidence | None = None
+    delivery_plan_id: str | None = None
+    outbox_id: str | None = None
+    attempt_number: int | None = None
+    attempt_provenance: DeliveryAttemptProvenance | None = None
 ```
 
 ### 10.3 Rendering Boundary

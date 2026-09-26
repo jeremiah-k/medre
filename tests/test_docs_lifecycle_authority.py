@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import re
+from dataclasses import fields
 from functools import cache
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from medre.core.engine.pipeline.delivery_state import (
     TERMINAL_OUTBOX_STATUSES,
     TERMINAL_RECEIPT_STATUSES,
 )
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -70,6 +72,25 @@ def _extract_backtick_statuses(text: str) -> set[str]:
 def _adapter_py_files() -> list[Path]:
     """Return all ``.py`` files under ``src/medre/adapters/``."""
     return sorted(ADAPTERS_DIR.rglob("*.py"))
+
+
+def _documented_dataclass_fields(path: Path, class_name: str) -> tuple[str, ...]:
+    """Return ordered field names from one normative Python dataclass snippet."""
+    content = _read(path)
+    pattern = re.compile(
+        rf"```python\n@dataclass(?:\([^\n]*\))?\nclass {re.escape(class_name)}:\n"
+        r"(?P<body>.*?)```",
+        re.DOTALL,
+    )
+    match = pattern.search(content)
+    if match is None:
+        raise AssertionError(f"Cannot find normative {class_name} dataclass snippet")
+    names: list[str] = []
+    for line in match.group("body").splitlines():
+        field_match = re.match(r"    ([A-Za-z_]\w*)\s*:", line)
+        if field_match is not None:
+            names.append(field_match.group(1))
+    return tuple(names)
 
 
 @cache
@@ -1005,7 +1026,36 @@ class TestLxmfProfileContract:
 
 
 # ===========================================================================
-# 13. §24 rule 6: bounded in-call retry wording
+# 13. Rendering contract shape alignment
+# ===========================================================================
+
+
+class TestRenderingContractShapeAlignment:
+    """Normative rendering dataclass snippets must mirror runtime fields exactly."""
+
+    _ADAPTER_RUNTIME_MD = SPEC_DIR / "adapter-runtime.md"
+
+    @pytest.mark.parametrize(
+        ("contract", "runtime_type"),
+        (
+            ("RenderingContext", RenderingContext),
+            ("RenderingResult", RenderingResult),
+        ),
+    )
+    def test_normative_rendering_fields_match_runtime(
+        self, contract: str, runtime_type: type[object]
+    ) -> None:
+        documented = _documented_dataclass_fields(self._ADAPTER_RUNTIME_MD, contract)
+        runtime = tuple(field.name for field in fields(runtime_type))
+        assert documented == runtime, (
+            f"adapter-runtime.md {contract} fields drifted from runtime:\n"
+            f"  documented={documented!r}\n"
+            f"  runtime={runtime!r}"
+        )
+
+
+# ===========================================================================
+# 14. §24 rule 6: bounded in-call retry wording
 # ===========================================================================
 
 
