@@ -425,8 +425,9 @@ class MeshtasticAdapter(AdapterContract):
                 f"the inbound path."
             )
 
-        # Lifecycle/startup state missing — cannot be repaired by retry.
-        # Fake mode does not require start (queue is always available).
+        # Real transports require an active startup lifecycle. Fake mode has no
+        # hardware-session requirement, but deferred admission still requires
+        # an installed feedback context below.
         if not self._started and self._config.connection_type != "fake":
             raise AdapterPermanentError("Adapter not started")
 
