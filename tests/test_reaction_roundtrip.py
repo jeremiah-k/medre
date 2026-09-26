@@ -64,6 +64,12 @@ _ROOM = "!room:server"
 # ===================================================================
 
 
+def _payload_content(result):
+    """Unwrap the closed _matrix_operation envelope to the wire content."""
+    operation = result.payload["_matrix_operation"]
+    return operation["content"]
+
+
 def _make_matrix_config(**overrides):
     defaults = dict(
         adapter_id=_MATRIX,
@@ -336,7 +342,7 @@ class TestMeshtasticTapbackToMatrixRoundtrip:
             # Matrix adapter received the rendered payload.
             assert len(matrix_adapter.delivered_payloads) == 1
             result = matrix_adapter.delivered_payloads[0]
-            payload = result.payload
+            payload = _payload_content(result)
 
             # -- Verify emote reaction rendering --------------------------
             assert payload["msgtype"] == "m.emote"
@@ -673,7 +679,7 @@ class TestMultiRadioReactionRoundtrip:
 
             # -- Verify Matrix output (emote fallback) ---------------------
             assert len(matrix_adapter.delivered_payloads) == 1
-            mx_payload = matrix_adapter.delivered_payloads[0].payload
+            mx_payload = _payload_content(matrix_adapter.delivered_payloads[0])
             assert mx_payload["msgtype"] == "m.emote"
             mx_body = str(mx_payload["body"])
             assert f"reacted {_EMOJI}" in mx_body
@@ -955,7 +961,7 @@ class TestMissingNativeRefFallbackRoundtrip:
 
             # Matrix adapter received a payload.
             assert len(matrix_adapter.delivered_payloads) == 1
-            payload = matrix_adapter.delivered_payloads[0].payload
+            payload = _payload_content(matrix_adapter.delivered_payloads[0])
 
             # Safe emote rendering — no crash, valid output.
             assert payload["msgtype"] == "m.emote"

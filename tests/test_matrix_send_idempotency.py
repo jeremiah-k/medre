@@ -35,6 +35,7 @@ from medre.adapters.matrix.adapter import (
     _matrix_txn_id,
     _NioRateLimitError,
 )
+from medre.adapters.matrix.outbound import MatrixOutboundOperation
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
     MAX_ADAPTER_RETRY_AFTER_SECONDS,
@@ -77,11 +78,14 @@ def _make_result(
     target_channel: str = "!room:example.com",
     body: str = "hello",
 ) -> RenderingResult:
+    operation = MatrixOutboundOperation.send_event(
+        "m.room.message", {"msgtype": "m.text", "body": body}
+    )
     return RenderingResult(
         event_id=event_id,
         target_adapter=target_adapter,
         target_channel=target_channel,
-        payload={"msgtype": "m.text", "body": body},
+        payload=operation.to_payload(),
     )
 
 

@@ -42,6 +42,18 @@ from .conftest import (
 # ---------------------------------------------------------------------------
 
 
+def _payload_content(result):
+    """Return the rendered wire content across renderers.
+
+    Matrix results unwrap their closed ``_matrix_operation`` envelope;
+    other renderers return the payload as-is.
+    """
+    operation = result.payload.get("_matrix_operation")
+    if operation is not None:
+        return operation["content"]
+    return result.payload
+
+
 class TestMatrixRenderingConformance:
     """Assert Matrix renderer output matches MEDRE rendering contracts."""
 
@@ -55,8 +67,8 @@ class TestMatrixRenderingConformance:
             target_platform="matrix",
         )
         result = await matrix_renderer.render(event, ctx)
-        assert result.payload.get("msgtype") == "m.text"
-        assert result.payload.get("body") == "Hello Matrix"
+        assert _payload_content(result).get("msgtype") == "m.text"
+        assert _payload_content(result).get("body") == "Hello Matrix"
 
     @pytest.mark.asyncio
     async def test_matrix_direct_reply_includes_m_relates_to(self, matrix_renderer):
@@ -72,7 +84,7 @@ class TestMatrixRenderingConformance:
             target_platform="matrix",
         )
         result = await matrix_renderer.render(event, ctx)
-        relates = result.payload.get("m.relates_to")
+        relates = _payload_content(result).get("m.relates_to")
         assert relates is not None
         assert "m.in_reply_to" in relates
         assert relates["m.in_reply_to"]["event_id"] == "$orig_001"
@@ -92,9 +104,9 @@ class TestMatrixRenderingConformance:
             target_platform="matrix",
         )
         result = await matrix_renderer.render(event, ctx)
-        assert "m.relates_to" not in result.payload
+        assert "m.relates_to" not in _payload_content(result)
         assert result.fallback_applied == "strategy_fallback_text"
-        assert "Fallback reply" in result.payload.get("body", "")
+        assert "Fallback reply" in _payload_content(result).get("body", "")
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +150,9 @@ class TestMeshtasticRenderingConformance:
             target_platform="meshtastic",
         )
         result = await meshtastic_renderer.render(event, ctx)
-        assert result.payload.get("channel_index") == 0
+        assert _payload_content(result).get("channel_index") == 0
         assert result.fallback_applied == "strategy_fallback_text"
-        assert "Fallback reply" in result.payload.get("text", "")
+        assert "Fallback reply" in _payload_content(result).get("text", "")
 
     @pytest.mark.asyncio
     async def test_meshtastic_byte_budget_truncation_evidence(
@@ -160,7 +172,7 @@ class TestMeshtasticRenderingConformance:
         )
         result = await meshtastic_renderer.render(event, ctx)
         assert result.truncated is True
-        rendered_text = result.payload.get("text", "")
+        rendered_text = _payload_content(result).get("text", "")
         assert len(rendered_text.encode("utf-8")) <= 227
         assert result.metadata.get("max_text_bytes") == 227
         assert result.metadata.get("truncated") is True

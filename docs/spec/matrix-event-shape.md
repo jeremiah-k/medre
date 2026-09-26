@@ -56,6 +56,16 @@ semantics.
 When `m.thread` includes `m.in_reply_to`, the thread root is the canonical
 `thread` target. `native.matrix.relation.reply_to_event_id` stores the parent
 event ID from `m.in_reply_to.event_id`; it does not replace the thread root.
+An explicit `m.in_reply_to` additionally yields a SECOND canonical relation:
+a `reply` relation whose target is the explicit parent. Thread-only events
+carry no reply relation. Downstream, an explicit reply-in-thread therefore
+inherits plain-reply capability semantics (a destination with
+`replies="unsupported"` skips the delivery even when `threads="fallback"`
+would degrade it to inline text), while a plain thread event keeps the pure
+`thread` capability path. The same co-carriage applies to `m.replace` events
+that carry `m.in_reply_to` (the conventional in-thread edit shape): the edit
+relation targets the original event and a `reply` relation targets the
+carried parent.
 
 Redactions use canonical relation type `delete`. Their Matrix-native descriptor
 uses `kind="redaction"` to preserve the source wire concept without expanding the
@@ -167,9 +177,121 @@ that consumer.
 
 ## 8. Non-Goals
 
-This contract does not change Matrix outbound capabilities. Inbound edit,
-redaction, media, and thread normalization does not imply native outbound edit,
-delete, attachment, or thread support.
+This document defines an ingress serialization contract; outbound wire behavior
+is owned by the [Matrix transport profile](transport-profiles/matrix.md), which
+now documents native edits, deletes, and threads alongside their mutation
+eligibility rules.
 
 This contract also does not integrate MMRelay into MEDRE. It defines a stable
 serialization boundary that MMRelay or another producer can adopt independently.
+
+## 9. Outbound Native Lifecycle Wire Shapes
+
+The Matrix renderer emits closed outbound operations instead of magic content
+keys. The old `_matrix_event_type` convention is removed.
+
+### 9.1 Operation envelope
+
+Every outbound Matrix render carries exactly one operation under the single
+payload key `_matrix_operation` (module
+`medre.adapters.matrix.outbound`, struct `MatrixOutboundOperation`):
+
+```json
+{
+  "_matrix_operation": {
+    "kind": "send_event",
+    "event_type": "m.room.message",
+    "content": { "msgtype": "m.text", "body": "..." },
+    "redacts_event_id": null,
+    "reason": null
+  }
+}
+```
+
+- `kind` is `send_event` (text, reply, reaction, thread, edit — anything with
+  wire content) or `redact_event`.
+- `send_event` requires non-empty `event_type` and `content`; `redact_event`
+  requires `redacts_event_id`. Mixing per-kind fields is invalid, unknown
+  fields are rejected, and a missing envelope is a permanent delivery error.
+  Nothing under `_matrix_operation` ever reaches the homeserver.
+- The envelope deliberately carries no room identity; routing stays in
+  `RenderingResult.target_channel`.
+
+### 9.2 Edits (`m.replace`)
+
+Sent as `send_event` with `event_type="m.room.message"`. Per the spec's event
+replacements rules, the top-level `body` is the `"* "` fallback, and the real
+new message lives in `m.new_content` with exactly one relay attribution:
+
+```json
+{
+  "msgtype": "m.text",
+  "body": "* edited text",
+  "format": "org.matrix.custom.html",
+  "formatted_body": "<p>* edited text</p>",
+  "m.new_content": {
+    "msgtype": "m.text",
+    "body": "edited text",
+    "format": "org.matrix.custom.html",
+    "formatted_body": "<p>edited text</p>"
+  },
+  "m.relates_to": { "rel_type": "m.replace", "event_id": "$original_copy" }
+}
+```
+
+The edit target is the bound ORIGINAL destination copy native id
+(`rel.target_fact.native_message_id` — the renderer fail-closes on any
+non-`bound_owned` fact and never falls back to relation metadata or
+`target_native_ref`). Bound reply/thread relations carried by the edit event
+itself are mirrored into `m.new_content["m.relates_to"]`. `m.new_content` is
+sent inside the encrypted payload for encrypted rooms (edits are room
+messages and encrypt exactly like normal sends); only `m.relates_to` stays
+cleartext, per the spec.
+
+### 9.3 Redactions (`m.room.redaction`)
+
+Deletes render `send_event`-free `redact_event` operations:
+
+```json
+{
+  "_matrix_operation": {
+    "kind": "redact_event",
+    "redacts_event_id": "$owned_copy",
+    "reason": "Deleted by original author via MEDRE relay"
+  }
+}
+```
+
+The adapter delivers them through the dedicated
+`PUT /rooms/{roomId}/redact/{eventId}/{txnId}` endpoint
+(`MatrixSession.room_redact`) with a deterministic transaction id that folds
+in the operation kind and target, so a redaction never shares a transaction
+with a send or a different target. `m.room.redaction` is an intentionally
+plaintext event type: the redaction request carries no message content, so
+there is nothing to encrypt; the same is true for `m.reaction` annotations,
+which the pinned SDK sends unencrypted even in encrypted rooms.
+
+### 9.4 Threads (`m.thread`)
+
+Sent as `send_event` with `event_type="m.room.message"`:
+
+```json
+{
+  "msgtype": "m.text",
+  "body": "...",
+  "...": "...",
+  "m.relates_to": {
+    "rel_type": "m.thread",
+    "event_id": "$thread_root",
+    "is_falling_back": false,
+    "m.in_reply_to": { "event_id": "$explicit_parent" }
+  }
+}
+```
+
+The root is the bound destination thread root. An explicit bound reply
+relation on the same event becomes the parent with `is_falling_back=false`;
+without one, the root itself is the fallback parent and `is_falling_back`
+is `true` (spec fallback-parent semantics). An unbound root degrades to a
+plain message without `m.relates_to` — source-platform IDs are never placed
+into destination content.

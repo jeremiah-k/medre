@@ -75,6 +75,7 @@ from medre.core.planning.delivery_plan import (
     RetryPolicy,
 )
 from medre.core.planning.fallback_resolution import FallbackResolver
+from medre.core.planning.relation_binding import mutation_binding_suppression_error
 from medre.core.planning.relation_enricher import RelationEnricher, SenderProjectionFn
 from medre.core.planning.relation_resolution import RelationResolver
 from medre.core.rendering.renderer import RenderingPipeline, RenderingResult
@@ -940,6 +941,23 @@ class PipelineRunner:
             evidence = contexts[key]
             _plan_id, adapter, channel, _route_id = key
             enriched = await self._enrich_relations_for_target(event, adapter, channel)
+            # Replay re-render re-binds at execution time through the same
+            # relation binding authority as live delivery.  A mutation event
+            # whose freshly bound destination fact is not ``bound_owned``
+            # fails closed: no rendering result is produced for that
+            # historical destination context, so no un-authorized native
+            # mutation render can ever be captured or delivered.
+            _mutation_error = mutation_binding_suppression_error(enriched)
+            if _mutation_error is not None:
+                self._log.info(
+                    "relation_target_not_bindable: suppressing replay re-render: "
+                    "event_id=%s target_adapter=%s target_channel=%s reason=%s",
+                    event.event_id,
+                    adapter,
+                    channel,
+                    _mutation_error,
+                )
+                continue
             strategy_raw = evidence.get("delivery_strategy")
             strategy: Literal["direct", "fallback_text"] = (
                 "fallback_text" if strategy_raw == "fallback_text" else "direct"

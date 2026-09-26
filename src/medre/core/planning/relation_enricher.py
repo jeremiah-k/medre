@@ -39,6 +39,10 @@ from medre.core.events.canonical import (
     NativeMessageRef,
     NativeRef,
 )
+from medre.core.planning.relation_binding import (
+    MUTATION_RELATION_TYPES,
+    RelationBindingAuthority,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -69,6 +73,18 @@ class RelationEnricher:
     (see :data:`SenderProjectionFn`); native identity keys such as
     ``displayname`` or ``meshtastic.longname`` are never read here.
 
+    For every relation carrying a ``target_event_id`` — and for every
+    ``edit``/``delete`` mutation relation, even an unresolved one — a
+    core-computed :class:`~medre.core.events.canonical.RelationTargetFact`
+    is attached as ``target_fact``.  The fact is computed by
+    :class:`~medre.core.planning.relation_binding.RelationBindingAuthority`
+    from stored canonical events and ``NativeMessageRef`` records only
+    (never wire/user relation metadata), is scoped to the exact
+    destination (adapter instance + destination context when known), and
+    is the sole authority for native mutation authorization.  Facts live
+    only on the in-flight enriched copy returned by this method; stored
+    canonical events are never mutated.
+
     Parameters
     ----------
     storage:
@@ -86,6 +102,10 @@ class RelationEnricher:
     ) -> None:
         self._storage = storage
         self._log: logging.Logger = logger or _logger
+        self._binding_authority = RelationBindingAuthority(
+            storage,
+            logger=self._log,
+        )
 
     async def enrich_for_target(
         self,
@@ -136,6 +156,13 @@ class RelationEnricher:
                 ``original_sender_displayname`` is left unset.  Native
                 identity keys are never read regardless of this argument.
 
+        A ``target_fact`` (see
+        :class:`~medre.core.events.canonical.RelationTargetFact`) is
+        attached to every relation with a ``target_event_id`` and to every
+        ``edit``/``delete`` relation even when unresolved; the fact records
+        the destination-scoped binding status and, for mutations, the
+        ``bound_owned`` eligibility decision with a stable reason code.
+
         Returns a new event when any relation is enriched; returns the
         original event unchanged otherwise.  **Never mutates** the stored
         original event.
@@ -152,7 +179,23 @@ class RelationEnricher:
 
         for rel in event.relations:
             if not rel.target_event_id:
-                new_relations.append(rel)
+                # Mutation relations (edit/delete) ALWAYS get a target fact,
+                # even when the target cannot be resolved — the fact records
+                # WHY binding failed so the delivery gate can fail closed.
+                # Referential relations without a target ID are unchanged.
+                if rel.relation_type not in MUTATION_RELATION_TYPES:
+                    new_relations.append(rel)
+                    continue
+                fact = await self._binding_authority.bind(
+                    rel,
+                    event=event,
+                    target_adapter=target_adapter,
+                    target_channel=target_channel,
+                    cached_get_fn=cached_get_fn,
+                    cached_list_fn=cached_list_fn,
+                )
+                new_relations.append(msgspec.structs.replace(rel, target_fact=fact))
+                changed = True
                 continue
 
             current_rel = rel
@@ -391,8 +434,30 @@ class RelationEnricher:
                         exc_info=True,
                     )
 
+            # -- Phase 3: Destination-scoped target fact -----------------------
+            # Every relation carrying a target_event_id gets a
+            # core-computed RelationTargetFact for THIS destination (exact
+            # adapter instance + exact destination context when known).
+            # For mutation relations the fact additionally carries the
+            # bound_owned eligibility decision.  Binding reads stored
+            # canonical events and NativeMessageRef records only; it never
+            # mutates them and never consumes wire/user relation metadata.
+            fact = await self._binding_authority.bind(
+                current_rel,
+                event=event,
+                target_adapter=target_adapter,
+                target_channel=target_channel,
+                cached_get_fn=cached_get_fn,
+                cached_list_fn=cached_list_fn,
+            )
+            current_rel = msgspec.structs.replace(
+                current_rel,
+                target_fact=fact,
+            )
+            fact_changed = True
+
             new_relations.append(current_rel)
-            if native_ref_changed or text_changed:
+            if native_ref_changed or text_changed or fact_changed:
                 changed = True
 
         if not changed:

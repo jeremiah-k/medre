@@ -19,6 +19,7 @@ from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.errors import MatrixSendError
+from medre.adapters.matrix.outbound import MatrixOutboundOperation
 from medre.adapters.matrix.renderer import MatrixRenderer
 from medre.config.adapters.matrix import MatrixConfig
 from medre.core.contracts.adapter import (
@@ -26,8 +27,8 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterSendError,
 )
-from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
-from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.rendering.renderer import RenderingResult
 from tests.fixtures.matrix_packets import (
     make_room_send_error,
     make_room_send_response,
@@ -35,6 +36,17 @@ from tests.fixtures.matrix_packets import (
     make_room_send_response_none_event_id,
 )
 from tests.helpers.matrix_adapter import wire_mock_session as _wire_mock_session
+
+
+def _payload_content(result):
+    """Unwrap the closed _matrix_operation envelope to the wire content."""
+    operation = result.payload["_matrix_operation"]
+    return operation["content"]
+
+
+def _send_payload(content: dict[str, object]) -> dict[str, object]:
+    """Wrap wire content in a closed send_event envelope for deliver()."""
+    return MatrixOutboundOperation.send_event("m.room.message", content).to_payload()
 
 
 class TestMatrixBoundaries:
@@ -165,7 +177,7 @@ class TestMatrixBoundaries:
             event_id="evt-out-001",
             target_adapter="fake_matrix",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
             metadata={"renderer": "matrix"},
         )
         delivery = await adapter.deliver(result)
@@ -274,11 +286,13 @@ class TestMatrixDeliveryHygiene:
             event_id="evt-1",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={
-                "msgtype": "m.text",
-                "body": "hello",
-                "room_id": "!room:server",
-            },
+            payload=_send_payload(
+                {
+                    "msgtype": "m.text",
+                    "body": "hello",
+                    "room_id": "!room:server",
+                }
+            ),
         )
         await adapter.deliver(result)
 
@@ -307,7 +321,7 @@ class TestMatrixDeliveryHygiene:
             event_id="evt-2",
             target_adapter="matrix-1",
             target_channel="!target:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         await adapter.deliver(result)
 
@@ -327,7 +341,7 @@ class TestMatrixDeliveryHygiene:
             event_id="evt-3",
             target_adapter="matrix-1",
             target_channel=None,
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(
             (MatrixSendError, AdapterPermanentError), match="no room_id"
@@ -346,7 +360,7 @@ class TestMatrixDeliveryHygiene:
         mock_client.room_send = AsyncMock(return_value=_FakeResponse())
         _wire_mock_session(adapter, mock_client, config=config)
 
-        payload: dict[str, object] = {
+        wire_content: dict[str, object] = {
             "msgtype": "m.text",
             "body": "hello",
             "room_id": "!room:server",
@@ -355,12 +369,12 @@ class TestMatrixDeliveryHygiene:
             event_id="evt-4",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload=payload,
+            payload=_send_payload(wire_content),
         )
         await adapter.deliver(result)
 
-        # Original payload still has room_id
-        assert "room_id" in payload
+        # Original wire content still has room_id
+        assert "room_id" in wire_content
 
 
 # ===================================================================
@@ -474,7 +488,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-ok",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         delivery = await adapter.deliver(result)
         assert isinstance(delivery, AdapterHandoffResult)
@@ -496,7 +510,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-err",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterPermanentError, match="M_FORBIDDEN"):
             await adapter.deliver(result)
@@ -516,7 +530,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-none",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterPermanentError, match="empty/missing event_id"):
             await adapter.deliver(result)
@@ -536,7 +550,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-empty",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterPermanentError, match="empty/missing event_id"):
             await adapter.deliver(result)
@@ -551,7 +565,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-no-client",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterPermanentError, match="session is not initialized"):
             await adapter.deliver(result)
@@ -568,7 +582,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-no-room",
             target_adapter="matrix-1",
             target_channel=None,
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterPermanentError, match="no room_id"):
             await adapter.deliver(result)
@@ -588,7 +602,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-fail-no-ref",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         # Must raise, not silently return a bad native ref
         with pytest.raises(AdapterPermanentError):
@@ -609,7 +623,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-dup-annot",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterPermanentError, match="M_DUPLICATE_ANNOTATION"):
             await adapter.deliver(result)
@@ -629,7 +643,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-dup-annot-msg",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterPermanentError) as exc_info:
             await adapter.deliver(result)
@@ -660,7 +674,7 @@ class TestMatrixDeliveryNioResponseHardening:
             event_id="evt-rate-limit-retry",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
 
         with pytest.raises(AdapterSendError) as exc_info:
@@ -699,7 +713,7 @@ class TestMatrixDeliveryIgnoreUnverifiedDevices:
             event_id="evt-iud-default",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         await adapter.deliver(result)
 
@@ -724,7 +738,7 @@ class TestMatrixDeliveryIgnoreUnverifiedDevices:
             event_id="evt-iud-true",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         await adapter.deliver(result)
 
@@ -748,7 +762,7 @@ class TestMatrixCancelledErrorPropagation:
             event_id="evt-cancel",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(asyncio.CancelledError):
             await adapter.deliver(result)
@@ -767,7 +781,7 @@ class TestMatrixCancelledErrorPropagation:
             event_id="evt-cancel-not-perm",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(asyncio.CancelledError):
             await adapter.deliver(result)
@@ -784,7 +798,7 @@ class TestMatrixCancelledErrorPropagation:
             event_id="evt-permanent-nc",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterPermanentError, match="session is not initialized"):
             await adapter.deliver(result)
@@ -806,7 +820,7 @@ class TestMatrixCancelledErrorPropagation:
             event_id="evt-send-transient",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterSendError) as exc_info:
             await adapter.deliver(result)
@@ -829,38 +843,39 @@ class TestMatrixCancelledErrorPropagation:
             event_id="evt-send-permanent",
             target_adapter="matrix-1",
             target_channel="!room:server",
-            payload={"msgtype": "m.text", "body": "hello"},
+            payload=_send_payload({"msgtype": "m.text", "body": "hello"}),
         )
         with pytest.raises(AdapterPermanentError):
             await adapter.deliver(result)
 
 
 # ===================================================================
-# Matrix capabilities: edits and deletes explicitly unsupported
+# Matrix capabilities: native edits and deletes (binding-gated)
 # ===================================================================
 
 
 class TestMatrixCapabilitiesEditsDeletes:
-    """Matrix adapter explicitly declares edits and deletes as unsupported.
+    """Matrix adapter declares edits and deletes as native mutations.
 
-    The Matrix protocol supports m.replace (edits) and redactions (deletes),
-    but MEDRE's Matrix adapter does not implement them.  The capabilities
-    must reflect this explicitly so the pipeline can degrade gracefully.
+    Native edit/delete delivery is additionally gated per destination by the
+    core relation-binding authority (``bound_owned`` proof); see
+    ``tests/test_matrix_native_lifecycle.py`` for the renderer fail-close
+    and suppression behavior.
     """
 
-    def test_edits_unsupported(self) -> None:
-        """edits capability is 'unsupported'."""
+    def test_edits_native(self) -> None:
+        """edits capability is 'native'."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
         caps = adapter._capabilities
-        assert caps.edits == "unsupported"
+        assert caps.edits == "native"
 
-    def test_deletes_unsupported(self) -> None:
-        """deletes capability is 'unsupported'."""
+    def test_deletes_native(self) -> None:
+        """deletes capability is 'native'."""
         config = _make_matrix_config()
         adapter = MatrixAdapter(config)
         caps = adapter._capabilities
-        assert caps.deletes == "unsupported"
+        assert caps.deletes == "native"
 
     def test_replies_native(self) -> None:
         """replies capability is 'native'."""
@@ -875,53 +890,6 @@ class TestMatrixCapabilitiesEditsDeletes:
         adapter = MatrixAdapter(config)
         caps = adapter._capabilities
         assert caps.reactions == "native"
-
-    async def test_renderer_ignores_edit_relations(self) -> None:
-        """MatrixRenderer does not crash or produce malformed output for edit relations.
-
-        Since edits are unsupported, an edit relation should not cause
-        the renderer to produce a malformed payload.  The renderer
-        treats unknown relation types as pass-through (no special handling).
-        """
-        renderer = MatrixRenderer()
-        # Build an event with an edit relation (which the renderer doesn't
-        # handle specially — it falls through to plain text rendering)
-        edit_rel = EventRelation(
-            relation_type="edit",
-            target_event_id="orig-001",
-            target_native_ref=NativeRef(
-                adapter="matrix-1",
-                native_channel_id="!room:server",
-                native_message_id="$orig-native",
-            ),
-            key=None,
-            fallback_text="original text",
-        )
-        event = CanonicalEvent(
-            event_id="evt-edit-1",
-            event_kind="message.created",
-            schema_version=1,
-            timestamp=datetime.now(timezone.utc),
-            source_adapter="src",
-            source_transport_id="node-1",
-            source_channel_id="ch-0",
-            parent_event_id=None,
-            lineage=(),
-            relations=(edit_rel,),
-            payload={"body": "edited message"},
-            metadata=EventMetadata(),
-        )
-        rendering = await renderer.render(
-            event,
-            RenderingContext(target_adapter="matrix-1", delivery_strategy="direct"),
-        )
-        # The render coroutine must return a valid result without crashing
-        # The renderer handles edit relations the same as unrecognized
-        # relation types — no special m.relates_to for edits.
-        assert rendering.payload["msgtype"] == "m.text"
-        assert rendering.payload["body"] == "edited message"
-        # No m.relates_to for edit (unsupported)
-        assert "m.relates_to" not in rendering.payload
 
 
 # ---------------------------------------------------------------------------

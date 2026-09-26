@@ -177,6 +177,18 @@
           "additionalProperties": true,
           "default": {},
           "description": "Arbitrary key-value metadata attached to this relation."
+        },
+        "target_fact": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RelationTargetFact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional core-computed destination-scoped binding and mutation-eligibility fact. Computed from stored canonical events and NativeMessageRef records only (never wire metadata); exists only on in-flight enriched copies and is never persisted into canonical_events."
         }
       },
       "required": [
@@ -186,6 +198,59 @@
         "key",
         "fallback_text"
       ],
+      "additionalProperties": false
+    },
+    "RelationTargetFact": {
+      "title": "RelationTargetFact",
+      "description": "Core-computed destination-scoped binding + mutation-eligibility fact. Built exclusively by core relation binding from stored canonical events and NativeMessageRef records; user/wire-supplied relation metadata is never an input. Renderers/adapters treat it as the sole authority for native mutation authorization. Never persisted into canonical_events.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "bound",
+            "bound_owned",
+            "unresolved_target",
+            "out_of_scope",
+            "ambiguous",
+            "not_authorized",
+            "binding_unavailable"
+          ],
+          "description": "Resolved destination-scoped binding status. binding_unavailable ALWAYS fails closed; not_authorized is an authorization failure, distinct from the inability-to-bind statuses."
+        },
+        "adapter": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Exact destination adapter instance id the fact was computed for."
+        },
+        "native_channel_id": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Native channel of the bound candidate copy; null when unbound."
+        },
+        "native_message_id": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Native message id of the bound candidate copy; null when unbound."
+        },
+        "native_thread_id": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Native thread id of the bound candidate copy, when applicable."
+        },
+        "direction": {
+          "type": ["string", "null"],
+          "enum": ["inbound", "outbound", null],
+          "default": null,
+          "description": "Direction of the bound candidate; always 'outbound' when status is bound_owned."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Stable machine-readable snake_case reason code + context (e.g. 'ambiguous:multiple_distinct_native_targets'); null for clean binds."
+        }
+      },
+      "required": ["status"],
       "additionalProperties": false
     },
     "EventMetadata": {

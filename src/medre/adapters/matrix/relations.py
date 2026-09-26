@@ -114,10 +114,17 @@ def extract_matrix_relation(
             )
 
     if rel_type == "m.replace" and target is not None:
+        # Edits may co-carry reply context in the same ``m.relates_to``
+        # (the conventional in-thread edit shape: the ``m.in_reply_to``
+        # event id identifies the thread root or the replied-to parent).
+        # The codec keeps that relation alongside the edit relation so
+        # downstream renders never strip asserted relation metadata.
+        reply_target = extract_reply_target(source)
         return MatrixRelationDescriptor(
             kind="edit",
             target_event_id=target,
             rel_type="m.replace",
+            reply_to_event_id=reply_target,
         )
 
     if rel_type == "m.thread" and target is not None:

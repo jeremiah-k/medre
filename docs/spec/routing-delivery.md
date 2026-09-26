@@ -976,13 +976,51 @@ Delivery suppression falls into three distinct categories:
 
 The following table shows concrete scenarios and which suppression category applies:
 
-| Scenario                                                                           | Guard / Trigger                                       | Outcome                                                                        | Receipt?               | Renderer? | Adapter? |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------- | --------- | -------- |
-| Meshtastic reaction → Meshtastic target where target has `reactions="unsupported"` | Capability `"unsupported"` for reaction relation type | `DeliveryOutcome(status="skipped")`, `failure_kind="capability_suppressed"`    | Yes                    | No        | No       |
-| Matrix message routed back to same Matrix adapter (`target == source`)             | Self-loop guard (`target_adapter == source_adapter`)  | `DeliveryOutcome(status="skipped")`, `failure_kind="loop_suppressed"`          | Yes                    | No        | No       |
-| Route-policy `sender_allowlist` denies sender                                      | Route-policy evaluator denial                         | `DeliveryOutcome(status="skipped")`, `failure_kind="policy_suppressed"`        | Yes                    | No        | No       |
-| Delivery plan constructed with `method="skip"` after Phase 2.75 planning           | Post-planning skip gate                               | `DeliveryReceipt(status="suppressed")`, `failure_kind="capability_suppressed"` | Yes (defense-in-depth) | No        | No       |
-| Event matches zero routes                                                          | No matching route in routing engine                   | No `DeliveryOutcome` produced                                                  | None                   | No        | No       |
+| Scenario                                                                                                   | Guard / Trigger                                         | Outcome                                                                                                                             | Receipt?               | Renderer? | Adapter? |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | --------- | -------- |
+| Meshtastic reaction → Meshtastic target where target has `reactions="unsupported"`                         | Capability `"unsupported"` for reaction relation type   | `DeliveryOutcome(status="skipped")`, `failure_kind="capability_suppressed"`                                                         | Yes                    | No        | No       |
+| Matrix message routed back to same Matrix adapter (`target == source`)                                     | Self-loop guard (`target_adapter == source_adapter`)    | `DeliveryOutcome(status="skipped")`, `failure_kind="loop_suppressed"`                                                               | Yes                    | No        | No       |
+| Route-policy `sender_allowlist` denies sender                                                              | Route-policy evaluator denial                           | `DeliveryOutcome(status="skipped")`, `failure_kind="policy_suppressed"`                                                             | Yes                    | No        | No       |
+| Delivery plan constructed with `method="skip"` after Phase 2.75 planning                                   | Post-planning skip gate                                 | `DeliveryReceipt(status="suppressed")`, `failure_kind="capability_suppressed"`                                                      | Yes (defense-in-depth) | No        | No       |
+| `message.edited`/`message.deleted` whose destination relation fact is not `bound_owned` (e.g. `ambiguous`) | Dynamic mutation binding gate (pre-render, pre-adapter) | `DeliveryOutcome(status="skipped")`, `failure_kind="capability_suppressed"`, error `relation_target_not_bindable:<status>:<reason>` | Yes                    | No        | No       |
+| Event matches zero routes                                                                                  | No matching route in routing engine                     | No `DeliveryOutcome` produced                                                                                                       | None                   | No        | No       |
+
+#### 11.2.3 Dynamic Mutation Binding Suppression
+
+A mutation delivery (`message.edited` / `message.deleted` with an `edit` /
+`delete` relation) is authorized per destination by the core-computed
+`RelationTargetFact` on the relation (Event Model Specification, Section 2.6).
+The per-target relation enrichment re-binds the relation immediately before
+target execution, and `TargetDeliveryService` enforces the result in a
+pre-render, pre-adapter gate: if the destination fact is not `bound_owned`,
+that target's delivery is SUPPRESSED.
+
+Suppressed mutation deliveries produce:
+
+- `DeliveryOutcome(status="skipped")` with
+  `failure_kind="capability_suppressed"`;
+- a `DeliveryReceipt(status="suppressed")` (`receipt_kind="lifecycle"`) whose
+  `error` carries the stable dynamic reason code
+  `relation_target_not_bindable:<status>:<reason>` (e.g.
+  `relation_target_not_bindable:ambiguous:multiple_distinct_native_targets`);
+- NO adapter call, NO fallback ordinary message, NO sent receipt, and NO
+  outbound native ref.
+
+**Static vs dynamic reasons.** The static capability path emits
+`capability_suppressed: <capability reason>` when an adapter's declared
+capability for the relation type is `"unsupported"`. The dynamic gate emits
+`relation_target_not_bindable:<status>:<reason>` when the adapter supports
+the relation type but the specific target cannot be bound or authorized in
+this destination right now. The reason families are disjoint by prefix.
+
+**Replay and retry fail closed.** Replay re-render (`render_replay_event`)
+and the retry path through target delivery re-bind at execution time with the
+same authority and enforce the same rule. Binding is recomputed per attempt
+from current stored facts; retries never retarget. A previously-owned target
+that has since become `ambiguous` (or whose storage reads fail) suppresses
+the retry/replay attempt instead of delivering. Storage read failures during
+binding surface as suppression/failure evidence (`binding_unavailable`
+family), never as success.
 
 ## 12. Policy Pipeline
 

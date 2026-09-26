@@ -15,7 +15,8 @@
       "target_native_ref": null,
       "key": null,
       "fallback_text": "Original message text",
-      "metadata": {}
+      "metadata": {},
+      "target_fact": null
     }
   ],
   "payload": {

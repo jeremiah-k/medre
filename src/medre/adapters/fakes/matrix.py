@@ -2,15 +2,28 @@
 
 :class:`FakeMatrixAdapter` simulates a Matrix presentation adapter
 without any real network or ``mindroom-nio`` dependency.  It mirrors
-:class:`~medre.adapters.fakes.presentation.FakePresentationAdapter`
-precisely and is intended solely for use in unit and integration tests.
+:class:`~medre.adapters.matrix.adapter.MatrixAdapter` delivery semantics
+closely enough for unit and integration tests.
 
 Capabilities
 ------------
 * text messaging
-* native replies and reactions
+* native replies, reactions, threads, edits, and deletes
 * delivery receipts
-* no attachments, edits, or deletes
+* no attachments
+
+Outbound operations
+-------------------
+``deliver`` consumes the same closed ``_matrix_operation`` envelope as
+the real adapter (``send_event`` / ``redact_event``; including
+redaction support).  Envelope-bearing payloads are strictly validated
+and recorded in :attr:`sent_operations`; a redaction produces its own
+deterministic ``$fake_redact_*`` native event id so its native ref
+records to the mutation event, never to the redacted message.
+Plain content payloads without an envelope (hand-authored test results
+and generic renderer outputs) are accepted as simple ``m.room.message``
+sends, mirroring the pre-envelope fake contract downstream tests rely
+on.
 
 Usage
 -----
@@ -30,6 +43,10 @@ import logging
 import uuid
 from typing import Any
 
+from medre.adapters.matrix.outbound import (
+    MatrixOutboundEnvelopeError,
+    MatrixOutboundOperation,
+)
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -70,10 +87,10 @@ _FAKE_MATRIX_CAPABILITIES = AdapterCapabilities(
     text=True,
     title=False,
     replies="native",
-    threads="fallback",
+    threads="native",
     reactions="native",
-    edits="unsupported",
-    deletes="unsupported",
+    edits="native",
+    deletes="native",
     attachments=False,
     metadata_fields=False,
     store_and_forward=False,
@@ -109,6 +126,9 @@ class FakeMatrixAdapter(AdapterContract):
         (canonical-event path).
     delivered_payloads:
         :class:`RenderingResult` payloads stored for test inspection.
+    sent_operations:
+        Parsed :class:`MatrixOutboundOperation` envelopes delivered via
+        :meth:`deliver`, in order (empty for plain-content payloads).
     inbound_events:
         Events published inbound via :meth:`simulate_inbound`.
     ctx:
@@ -131,6 +151,7 @@ class FakeMatrixAdapter(AdapterContract):
         self.ctx: AdapterContext | None = None
         self.received_events: list[CanonicalEvent] = []
         self.delivered_payloads: list[RenderingResult] = []
+        self.sent_operations: list[MatrixOutboundOperation] = []
         self.inbound_events: list[CanonicalEvent] = []
         self._started: bool = False
 
@@ -177,11 +198,22 @@ class FakeMatrixAdapter(AdapterContract):
     # -- Outbound delivery --------------------------------------------------
 
     async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
-        """Accept an outbound rendered payload for delivery.
+        """Accept an outbound rendered operation for delivery.
 
-        This adapter consumes :class:`RenderingResult` only.  Passing a
+        This adapter consumes :class:`RenderingResult` objects.  Passing a
         raw :class:`CanonicalEvent` raises :class:`AdapterPermanentError`, enforcing
         the rendering boundary at the adapter level.
+
+        Envelope-bearing payloads (``_matrix_operation``) are strictly
+        validated exactly like the real adapter — a malformed envelope
+        raises :class:`AdapterPermanentError`.  ``send_event`` yields the
+        classic ``$fake_<event_id>`` native id; ``redact_event`` yields
+        ``$fake_redact_<event_id>`` (the redaction event's own id, never
+        the redacted message's).  Every parsed operation is recorded in
+        :attr:`sent_operations`.
+
+        Plain content payloads without an envelope are accepted as
+        simple sends so hand-authored downstream tests keep working.
 
         Parameters
         ----------
@@ -197,7 +229,8 @@ class FakeMatrixAdapter(AdapterContract):
         Raises
         ------
         AdapterPermanentError
-            If *result* is not a :class:`RenderingResult`.
+            If *result* is not a :class:`RenderingResult`, or the payload
+            carries a malformed ``_matrix_operation`` envelope.
         """
         if not isinstance(result, RenderingResult):
             raise AdapterPermanentError(
@@ -205,10 +238,27 @@ class FakeMatrixAdapter(AdapterContract):
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."
             )
+        try:
+            operation = MatrixOutboundOperation.from_payload(result.payload)
+        except MatrixOutboundEnvelopeError as exc:
+            raise AdapterPermanentError(
+                f"invalid Matrix outbound operation envelope: {exc}"
+            ) from exc
+
+        if operation is not None:
+            self.sent_operations.append(operation)
+            _trim(self.sent_operations)
+
         self.delivered_payloads.append(result)
         _trim(self.delivered_payloads)
-        # Deterministic Matrix-like event ID for test verification.
-        fake_event_id = f"$fake_{result.event_id}"
+
+        if operation is not None and operation.kind == "redact_event":
+            # A redaction's native ref records to its own canonical
+            # mutation event — never to the redacted message.
+            fake_event_id = f"$fake_redact_{result.event_id}"
+        else:
+            # Deterministic Matrix-like event ID for test verification.
+            fake_event_id = f"$fake_{result.event_id}"
         channel_id = result.target_channel or None
         return AdapterHandoffResult(
             native_message_id=fake_event_id,

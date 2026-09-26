@@ -30,6 +30,12 @@ from medre.core.storage.sqlite.storage import SQLiteStorage
 # ---------------------------------------------------------------------------
 
 
+def _payload_content(result):
+    """Unwrap the closed _matrix_operation envelope to the wire content."""
+    operation = result.payload["_matrix_operation"]
+    return operation["content"]
+
+
 def _make_pipeline_config(
     storage: SQLiteStorage,
     router: Router,
@@ -452,8 +458,8 @@ class TestMatrixPlatformRendererSelection:
         assert result.metadata["renderer"] == "matrix"
 
         # Proves Matrix payload shape (msgtype + body)
-        assert result.payload["msgtype"] == "m.text"
-        assert result.payload["body"] == "platform dispatch test"
+        assert _payload_content(result)["msgtype"] == "m.text"
+        assert _payload_content(result)["body"] == "platform dispatch test"
 
         # Outbound delivery returned a deterministic native_message_id
         assert isinstance(result, RenderingResult)

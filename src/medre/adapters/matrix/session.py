@@ -79,12 +79,18 @@ class _SyncRecycleFailed(RuntimeError):
     """Fail-closed signal: a stale sync loop could not be stopped safely."""
 
 
-class _RoomSendRateLimitIntercept(RuntimeError):
-    """Abort nio's provider-owned retry for one room-send rate limit."""
+class _RoomRateLimitIntercept(RuntimeError):
+    """Abort nio's provider-owned retry for one rate-limited request.
+
+    Raised from filtered response callbacks (room send and room redact)
+    when the homeserver answers with ``M_LIMIT_EXCEEDED`` / HTTP 429.
+    MEDRE's durable delivery scheduler owns retry policy, so the first
+    rate-limited response must surface before nio sleeps and retries.
+    """
 
     def __init__(self, response: Any) -> None:
         self.response = response
-        super().__init__("Matrix room send rate-limited")
+        super().__init__("Matrix room request rate-limited")
 
 
 def _is_retryable_sync_exception(exc: Exception) -> bool:
@@ -1250,7 +1256,22 @@ class MatrixSession:
         """
         if not is_nio_rate_limited_response(response):
             return
-        raise _RoomSendRateLimitIntercept(response)
+        raise _RoomRateLimitIntercept(response)
+
+    async def _on_room_redact_error_response(self, response: Any) -> None:
+        """Surface redaction rate limits before nio sleeps/retries.
+
+        Mirrors :meth:`_on_room_send_error_response`: the pinned
+        mindroom-nio ``_send`` runs filtered response callbacks on 429
+        responses *before* sleeping and retrying, and an exception from
+        the callback aborts the SDK-owned retry loop.  Registered
+        filtered on ``RoomRedactError`` (a sibling of
+        ``RoomSendError`` under ``_ErrorWithRoomId``), so redaction 429s
+        reach MEDRE's retry owner exactly like room-send 429s.
+        """
+        if not is_nio_rate_limited_response(response):
+            return
+        raise _RoomRateLimitIntercept(response)
 
     async def _on_sync_response(self, response: Any) -> None:
         """Commit MEDRE's Classic cursor, then acknowledge it to nio."""
@@ -1431,6 +1452,11 @@ class MatrixSession:
         if room_send_error_cls is not None:
             self._client.add_response_callback(
                 self._on_room_send_error_response, room_send_error_cls
+            )
+        room_redact_error_cls = getattr(nio, "RoomRedactError", None)
+        if room_redact_error_cls is not None:
+            self._client.add_response_callback(
+                self._on_room_redact_error_response, room_redact_error_cls
             )
         await self._load_classic_checkpoint()
 
@@ -2482,7 +2508,68 @@ class MatrixSession:
                 ignore_unverified_devices=ignore_unverified_devices,
                 tx_id=tx_id,
             )
-        except _RoomSendRateLimitIntercept as exc:
+        except _RoomRateLimitIntercept as exc:
+            return exc.response
+
+    async def room_redact(
+        self,
+        room_id: str,
+        event_id: str,
+        reason: str | None = None,
+        tx_id: str | None = None,
+    ) -> Any:
+        """Redact an event in a Matrix room through the session's client.
+
+        Per the session boundary contract the session is the sole owner
+        of the SDK client; the adapter never touches ``nio`` directly.
+
+        Pinned SDK contract (``mindroom-nio``, verified in the pinned
+        source):
+
+        * ``AsyncClient.room_redact(room_id, event_id, reason=None,
+          tx_id=None) -> RoomRedactResponse | RoomRedactError``
+          (``client/async_client.py:2488``);
+        * the request is ``PUT /rooms/{roomId}/redact/{eventId}/{txnId}``
+          with ``reason`` as the only body field (``api.py`` ``room_redact``);
+        * ``RoomRedactResponse`` (a ``RoomEventIdResponse``) carries the
+          redaction event's **own** ``event_id`` plus ``room_id``
+          (``responses.py``);
+        * ``_send`` intercepts 429 responses, runs filtered response
+          callbacks, sleeps ``retry_after_ms`` and retries up to its
+          client-global ``max_limit_exceeded`` budget.  MEDRE's filtered
+          ``_on_room_redact_error_response`` raises the rate-limit
+          sentinel on the first rate-limited response, so the SDK-owned
+          retry never swallows 429s from MEDRE's retry owner — identical
+          to the ``room_send`` interception.
+
+        Encryption semantics: ``room_redact`` does not route through
+        ``_prepare_room_send`` and never encrypts.  ``m.room.redaction``
+        is an intentionally protocol-plaintext event type — its content
+        carries only the ``redacts`` target and an optional neutral
+        reason, so there is no message content to leak (documented, not
+        worked around).
+
+        Returns
+        -------
+        Any
+            The nio ``RoomRedactResponse`` (or equivalent from test
+            fakes).  Rate-limited error responses are surfaced directly.
+
+        Raises
+        ------
+        MatrixConnectionError
+            If the client is not initialised.
+        """
+        if self._client is None:
+            raise MatrixConnectionError("cannot redact: client is not connected")
+        try:
+            return await self._client.room_redact(
+                room_id=room_id,
+                event_id=event_id,
+                reason=reason,
+                tx_id=tx_id,
+            )
+        except _RoomRateLimitIntercept as exc:
             return exc.response
 
     # -- Diagnostics ----------------------------------------------------------

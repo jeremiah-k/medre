@@ -34,6 +34,18 @@ from medre.core.rendering.renderer import (
 # ===================================================================
 
 
+def _payload_content(result):
+    """Return the rendered wire content across renderers.
+
+    Matrix results unwrap their closed ``_matrix_operation`` envelope;
+    other renderers return the payload as-is.
+    """
+    operation = result.payload.get("_matrix_operation")
+    if operation is not None:
+        return operation["content"]
+    return result.payload
+
+
 def _ctx(
     *,
     delivery_strategy: DeliveryStrategyMethod = "direct",
@@ -166,7 +178,7 @@ class TestMatrixFallbackText:
 
     When delivery_strategy is ``"fallback_text"``, MatrixRenderer produces
     a valid Matrix content payload (``msgtype``, ``body``, MEDRE envelope)
-    without ``m.relates_to``, ``_matrix_event_type``, or other native
+    without native ``m.relates_to``, or other native
     relation fields.
     """
 
@@ -175,7 +187,7 @@ class TestMatrixFallbackText:
         self,
     ) -> None:
         """Reaction fallback: msgtype/body present, no m.relates_to or
-        _matrix_event_type."""
+        magic keys."""
         renderer = MatrixRenderer()
         event = _make_reaction_event(
             emoji="\U0001f44d",
@@ -186,13 +198,13 @@ class TestMatrixFallbackText:
         result = await renderer.render(event, ctx)
 
         # Matrix payload shape: msgtype and body always present.
-        assert result.payload.get("msgtype") == "m.text"
-        assert isinstance(result.payload.get("body"), str)
-        assert len(str(result.payload["body"])) > 0
+        assert _payload_content(result).get("msgtype") == "m.text"
+        assert isinstance(_payload_content(result).get("body"), str)
+        assert len(str(_payload_content(result)["body"])) > 0
 
         # No native relation fields emitted.
-        assert "m.relates_to" not in result.payload
-        assert "_matrix_event_type" not in result.payload
+        assert "m.relates_to" not in _payload_content(result)
+        assert "m.relates_to" not in _payload_content(result)
 
         # Evidence it was fallback, not native.
         assert result.fallback_applied == "strategy_fallback_text"
@@ -208,9 +220,9 @@ class TestMatrixFallbackText:
 
         result = await renderer.render(event, ctx)
 
-        assert result.payload.get("msgtype") == "m.text"
-        assert isinstance(result.payload.get("body"), str)
-        assert "m.relates_to" not in result.payload
+        assert _payload_content(result).get("msgtype") == "m.text"
+        assert isinstance(_payload_content(result).get("body"), str)
+        assert "m.relates_to" not in _payload_content(result)
         assert result.fallback_applied == "strategy_fallback_text"
 
     @pytest.mark.asyncio
@@ -225,15 +237,15 @@ class TestMatrixFallbackText:
 
         result = await renderer.render(event, ctx)
 
-        assert result.payload.get("msgtype") == "m.text"
-        assert result.payload["body"] == "plain message"
+        assert _payload_content(result).get("msgtype") == "m.text"
+        assert _payload_content(result)["body"] == "plain message"
         assert result.fallback_applied == "strategy_fallback_text"
 
     @pytest.mark.asyncio
     async def test_direct_reaction_has_native_relation_fields(
         self,
     ) -> None:
-        """Direct strategy: native m.relates_to or _matrix_event_type present
+        """Direct strategy: native m.relates_to present
         for Matrix-native target (contrast with fallback)."""
         renderer = MatrixRenderer()
         event = _make_reaction_event(
@@ -274,9 +286,8 @@ class TestMatrixFallbackText:
         result = await renderer.render(event, ctx)
 
         # Direct mode with native Matrix target: has relation fields.
-        has_relates_to = "m.relates_to" in result.payload
-        has_matrix_event_type = "_matrix_event_type" in result.payload
-        assert has_relates_to or has_matrix_event_type, (
+        has_relates_to = "m.relates_to" in _payload_content(result)
+        assert has_relates_to, (
             "Direct strategy with Matrix-native target should produce "
             "native relation fields"
         )
@@ -319,7 +330,7 @@ class TestLxmflFallbackText:
         assert "destination_hash" in result.payload
 
         # Content is non-empty even for reaction-only events.
-        content = str(result.payload["content"])
+        content = str(_payload_content(result)["content"])
         assert isinstance(content, str)
         assert len(content) > 0
         assert result.fallback_applied == "strategy_fallback_text"
@@ -346,7 +357,7 @@ class TestLxmflFallbackText:
 
         result = await renderer.render(event, ctx)
 
-        content = str(result.payload["content"])
+        content = str(_payload_content(result)["content"])
         # Non-empty: degraded relation text fills the content.
         assert len(content) > 0
         assert "reply" in content.lower()
@@ -374,7 +385,7 @@ class TestLxmflFallbackText:
 
         result = await renderer.render(event, ctx)
 
-        content = result.payload["content"]
+        content = _payload_content(result)["content"]
         assert isinstance(content, str)
         assert len(content) > 0
         # The inline text contains the relation type indicator.
@@ -431,7 +442,7 @@ class TestMeshtasticFallbackText:
         result = await renderer.render(event, ctx)
 
         # Meshtastic payload shape preserved.
-        assert result.payload["channel_index"] == 3
+        assert _payload_content(result)["channel_index"] == 3
 
         # Native relation fields suppressed.
         assert "reply_id" not in result.payload
@@ -439,7 +450,7 @@ class TestMeshtasticFallbackText:
 
         # Text is present.
         assert isinstance(result.payload.get("text"), str)
-        assert len(str(result.payload["text"])) > 0
+        assert len(str(_payload_content(result)["text"])) > 0
 
         assert result.fallback_applied == "strategy_fallback_text"
 
@@ -471,10 +482,10 @@ class TestMeshtasticFallbackText:
         assert "reply_id" not in result.payload
 
         # Channel preserved.
-        assert result.payload["channel_index"] == 0
+        assert _payload_content(result)["channel_index"] == 0
 
         # Text contains readable reaction info.
-        text = str(result.payload["text"])
+        text = str(_payload_content(result)["text"])
         assert len(text) > 0
 
         assert result.fallback_applied == "strategy_fallback_text"
@@ -509,7 +520,7 @@ class TestMeshtasticFallbackText:
         result = await renderer.render(event, ctx)
 
         # Text truncated to byte budget.
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert isinstance(text, str)
         assert len(text.encode("utf-8")) <= 10
         assert result.truncated is True
@@ -600,11 +611,11 @@ class TestMeshCoreFallbackText:
         result = await renderer.render(event, ctx)
 
         # MeshCore payload shape preserved.
-        assert result.payload["channel_index"] == 2
+        assert _payload_content(result)["channel_index"] == 2
 
         # Text present.
         assert isinstance(result.payload.get("text"), str)
-        assert len(str(result.payload["text"])) > 0
+        assert len(str(_payload_content(result)["text"])) > 0
 
         assert result.fallback_applied == "strategy_fallback_text"
 
@@ -638,7 +649,7 @@ class TestMeshCoreFallbackText:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert isinstance(text, str)
         assert len(text) > 0
         assert "reaction" in text.lower()
@@ -661,7 +672,7 @@ class TestMeshCoreFallbackText:
 
         result = await renderer.render(event, ctx)
 
-        text = result.payload["text"]
+        text = _payload_content(result)["text"]
         assert isinstance(text, str)
         assert len(text.encode("utf-8")) <= 15
         assert result.truncated is True

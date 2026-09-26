@@ -98,6 +98,53 @@ class NativeRef(msgspec.Struct, frozen=True):
     native_thread_id: str | None = None
 
 
+RelationTargetStatus = Literal[
+    "bound",  # exactly one native target bound in this destination (referential ops)
+    "bound_owned",  # mutation-eligible: proven authorship + exactly one OUTBOUND copy
+    "unresolved_target",  # target canonical event unknown (no target_event_id or not stored)
+    "out_of_scope",  # target stored, but zero native refs in this adapter+context
+    "ambiguous",  # multiple DISTINCT native targets match (never guess)
+    "not_authorized",  # mutation: identity/ownership proof failed (incl. inbound-only)
+    "binding_unavailable",  # storage read failed — ALWAYS fail closed
+]
+"""Resolved destination-scoped binding status of one relation target.
+
+Computed by core relation binding (see
+:class:`~medre.core.planning.relation_binding.RelationBindingAuthority`).
+The ``not_authorized`` family is distinct from the inability-to-bind family:
+``unresolved_target`` / ``out_of_scope`` / ``ambiguous`` /
+``binding_unavailable`` mean core could not identify a unique native target,
+while ``not_authorized`` means a target was identified but the mutation
+authorship proof failed.
+"""
+
+
+class RelationTargetFact(msgspec.Struct, frozen=True):
+    """Core-computed destination-scoped binding + mutation-eligibility fact.
+
+    Built exclusively by core relation binding from STORED canonical events and
+    NativeMessageRef records.  Codecs MUST NOT populate it; user/wire-supplied
+    relation metadata is never an input.  Renderers/adapters treat it as the
+    sole authority for native mutation authorization.
+
+    Facts live only on in-flight enriched event copies.  They are never
+    persisted into ``canonical_events`` (stored relations keep ``target_fact``
+    unset) and stored canonical evidence is never mutated to carry one.
+    """
+
+    status: RelationTargetStatus
+    adapter: str | None = None
+    native_channel_id: str | None = None
+    native_message_id: str | None = None
+    native_thread_id: str | None = None
+    direction: str | None = (
+        None  # "inbound" | "outbound" | None; "outbound" when bound_owned
+    )
+    reason: str | None = (
+        None  # stable machine-readable snake_case reason code + context
+    )
+
+
 class EventRelation(msgspec.Struct, frozen=True):
     """A typed link from one event to another.
 
@@ -123,6 +170,13 @@ class EventRelation(msgspec.Struct, frozen=True):
         original message for a reply, or the emoji for a reaction).
     metadata:
         Arbitrary key-value metadata attached to this relation.
+    target_fact:
+        Optional core-computed destination-scoped binding and
+        mutation-eligibility fact (:class:`RelationTargetFact`).  Computed
+        at delivery-planning time from stored canonical events and
+        ``NativeMessageRef`` records only — never from wire/user-supplied
+        relation metadata.  It exists only on in-flight enriched copies and
+        is never persisted into ``canonical_events``.
     """
 
     relation_type: Literal["reply", "reaction", "edit", "delete", "thread"]
@@ -131,6 +185,7 @@ class EventRelation(msgspec.Struct, frozen=True):
     key: str | None
     fallback_text: str | None
     metadata: dict[str, object] = msgspec.field(default_factory=dict)
+    target_fact: RelationTargetFact | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.metadata, FrozenDict):
