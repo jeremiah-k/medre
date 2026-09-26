@@ -143,6 +143,9 @@ class RelationTargetFact(msgspec.Struct, frozen=True):
     reason: str | None = (
         None  # stable machine-readable snake_case reason code + context
     )
+    target_event_kind: str | None = (
+        None  # stored canonical EventKind of the target, when it was read
+    )
 
 
 class EventRelation(msgspec.Struct, frozen=True):

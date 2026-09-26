@@ -21,6 +21,7 @@ import sqlite3
 import threading
 from typing import Any
 
+from medre.core.ingress.types import AttachmentAdmissionFact
 from medre.core.storage.sqlite.ingress_sql import (
     CLAIM_INGRESS_SELECT,
     CLAIM_INGRESS_UPDATE,
@@ -30,6 +31,84 @@ from medre.core.storage.sqlite.ingress_sql import (
     claimed_ingress_row,
 )
 from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
+
+
+class AttachmentAdmissionPlan:
+    """Prepared binary-content retention inputs for one admission.
+
+    All values are computed by the caller **outside** the write
+    transaction (hashing, measured length, per-attachment size cap); the
+    quota/dedup decision itself is resolved inside the transaction by
+    :func:`sync_admit_ingress`.  Both event-op variants are fully built so
+    the transaction only picks one — no JSON work happens under the lock.
+    """
+
+    __slots__ = (
+        "content_ref",
+        "size_bytes",
+        "max_retained_bytes",
+        "retained_event_ops",
+        "unavailable_event_ops",
+        "retain_ops",
+        "media_kind",
+        "mime_type",
+        "forced_unavailable_reason",
+    )
+
+    def __init__(
+        self,
+        *,
+        content_ref: str,
+        size_bytes: int,
+        max_retained_bytes: int,
+        retained_event_ops: list[tuple[str, tuple[Any, ...]]],
+        unavailable_event_ops: list[tuple[str, tuple[Any, ...]]],
+        retain_ops: list[tuple[str, tuple[Any, ...]]],
+        media_kind: str | None = None,
+        mime_type: str | None = None,
+        forced_unavailable_reason: str | None = None,
+    ) -> None:
+        self.content_ref = content_ref
+        self.size_bytes = size_bytes
+        self.max_retained_bytes = max_retained_bytes
+        self.retained_event_ops = retained_event_ops
+        self.unavailable_event_ops = unavailable_event_ops
+        self.retain_ops = retain_ops
+        self.media_kind = media_kind
+        self.mime_type = mime_type
+        self.forced_unavailable_reason = forced_unavailable_reason
+
+    def make_fact(self, retained: bool, reason: str | None) -> AttachmentAdmissionFact:
+        """Build the admission fact for the committed retention decision."""
+        return AttachmentAdmissionFact(
+            retained=retained,
+            content_ref=self.content_ref if retained else None,
+            size_bytes=self.size_bytes,
+            reason=None if retained else reason,
+        )
+
+
+def _existing_attachment_fact(
+    db: sqlite3.Connection, event_id: str
+) -> AttachmentAdmissionFact | None:
+    """Return the stored attachment fact for an already-admitted event."""
+    row = db.execute(
+        """
+        SELECT a.content_ref, b.size_bytes
+        FROM event_attachment_associations a
+        JOIN attachment_blobs b ON b.content_ref = a.content_ref
+        WHERE a.event_id = ?
+        """,
+        (event_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return AttachmentAdmissionFact(
+        retained=True,
+        content_ref=str(row[0]),
+        size_bytes=int(row[1]),
+        reason=None,
+    )
 
 
 def sync_open(db_path: str) -> sqlite3.Connection:
@@ -301,12 +380,22 @@ def sync_admit_ingress(
     provenance: str,
     work_status: str,
     now_iso: str,
-) -> tuple[str, bool]:
-    """Atomically admit an event/native ref/work marker.
+    attachment_plan: "AttachmentAdmissionPlan | None" = None,
+) -> tuple[str, bool, "object | None"]:
+    """Atomically admit an event/native ref/work marker plus attachment bytes.
 
     Existing native identities are repaired with a missing work row in the
     same transaction so an incomplete prior admission cannot silently mark an
     event complete without ever routing it.
+
+    When *attachment_plan* is supplied the retention decision is made inside
+    the same ``BEGIN IMMEDIATE`` transaction: content that already exists is
+    deduplicated (quota consumed once), new content is admitted only under
+    the retained-bytes quota, and a quota rejection still commits the event
+    with an honest unavailable descriptor.  The returned third element is the
+    :class:`~medre.core.ingress.types.AttachmentAdmissionFact` for the
+    committed admission (``None`` when no bytes were supplied or the event
+    was a duplicate without a stored association).
     """
     with lock:
         try:
@@ -331,10 +420,48 @@ def sync_admit_ingress(
                         (existing_event_id, provenance, work_status, now_iso, now_iso),
                     )
                 db.commit()
-                return existing_event_id, False
+                return (
+                    existing_event_id,
+                    False,
+                    _existing_attachment_fact(db, existing_event_id),
+                )
 
-            for sql, params in event_ops:
+            chosen_event_ops = event_ops
+            attachment_fact = None
+            if attachment_plan is not None:
+                retained = True
+                reason: str | None = attachment_plan.forced_unavailable_reason
+                if reason is None:
+                    existing_blob = db.execute(
+                        "SELECT 1 FROM attachment_blobs WHERE content_ref = ?",
+                        (attachment_plan.content_ref,),
+                    ).fetchone()
+                    if existing_blob is None:
+                        total_row = db.execute(
+                            "SELECT COALESCE(SUM(size_bytes), 0) FROM attachment_blobs"
+                        ).fetchone()
+                        retained_bytes = int(total_row[0]) if total_row else 0
+                        if (
+                            retained_bytes + attachment_plan.size_bytes
+                            > attachment_plan.max_retained_bytes
+                        ):
+                            retained = False
+                            reason = "quota_exceeded"
+                else:
+                    retained = False
+                if retained:
+                    chosen_event_ops = attachment_plan.retained_event_ops
+                else:
+                    chosen_event_ops = attachment_plan.unavailable_event_ops
+                attachment_fact = attachment_plan.make_fact(retained, reason)
+
+            for sql, params in chosen_event_ops:
                 db.execute(sql, params)
+            if attachment_plan is not None and attachment_fact is not None:
+                # Content and association follow the canonical event insert
+                # in the same transaction (foreign keys are immediate).
+                for sql, params in attachment_plan.retain_ops:
+                    db.execute(sql, params)
             if native_insert is not None:
                 db.execute(*native_insert)
             db.execute(
@@ -342,7 +469,7 @@ def sync_admit_ingress(
                 (event_id, provenance, work_status, now_iso, now_iso),
             )
             db.commit()
-            return event_id, True
+            return event_id, True, attachment_fact
         except BaseException:
             try:
                 db.rollback()

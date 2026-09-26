@@ -36,6 +36,34 @@ class DurableIngressDeferredError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class InboundAttachmentContent:
+    """Verified plaintext bytes admitted alongside one canonical event.
+
+    Binary ingress data travels separately from the persisted canonical
+    envelope through this narrow value.  The adapter supplies bytes it has
+    already bounded, integrity-verified, and (for encrypted sources)
+    decrypted; core computes the authoritative content identity and
+    measured length from the supplied bytes and never trusts a
+    wire-supplied content identifier.
+    """
+
+    data: bytes
+    declared_size: int | None = None
+    """Source-declared size for mismatch evidence; never trusted."""
+
+
+@dataclass(frozen=True)
+class AttachmentAdmissionFact:
+    """Outcome of admitting attachment bytes with one canonical event."""
+
+    retained: bool
+    content_ref: str | None = None
+    size_bytes: int | None = None
+    reason: str | None = None
+    """Stable secret-free reason when bytes were not retained."""
+
+
+@dataclass(frozen=True)
 class AdmissionResult:
     """Result of atomically admitting one canonical inbound event."""
 
@@ -43,6 +71,8 @@ class AdmissionResult:
     created: bool
     provenance: IngressProvenance
     work_status: IngressWorkStatus
+    attachment: AttachmentAdmissionFact | None = None
+    """Outcome for admitted binary content, when bytes were supplied."""
 
     @property
     def duplicate(self) -> bool:

@@ -271,6 +271,34 @@ CREATE TABLE IF NOT EXISTS adapter_checkpoints (
     PRIMARY KEY(adapter_id, stream)
 );
 
+-- Durable attachment content.  Content-addressed: one row per unique
+-- retained byte string; identical content admitted twice stores once and
+-- consumes quota once.  ``data`` is the plaintext payload (see
+-- docs/spec/security-privacy.md); ordinary event queries never select it.
+-- NOTE: this and ``event_attachment_associations`` below are additive
+-- tables created by the DDL above; they are intentionally absent from
+-- ``_REQUIRED_COLUMNS`` so pre-existing schema-version-1 databases gain
+-- them through ``CREATE TABLE IF NOT EXISTS`` instead of failing the
+-- pre-release shape guard.
+CREATE TABLE IF NOT EXISTS attachment_blobs (
+    content_ref TEXT PRIMARY KEY,
+    size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+    media_kind TEXT,
+    mime_type TEXT,
+    created_at TEXT NOT NULL,
+    data BLOB NOT NULL
+);
+
+-- Event → content association.  One primary attachment per canonical
+-- event; the association is the only authority for loading retained bytes
+-- for an event (a content_ref named in a render payload without this
+-- association is forged and must fail).
+CREATE TABLE IF NOT EXISTS event_attachment_associations (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    content_ref TEXT NOT NULL REFERENCES attachment_blobs(content_ref),
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS plugin_state (
     plugin_id TEXT NOT NULL,
     key TEXT NOT NULL,

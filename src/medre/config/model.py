@@ -226,6 +226,81 @@ class RetryConfig:
 
 
 @dataclass(frozen=True)
+class AttachmentConfig:
+    """Generic durable-attachment policy (disabled unless explicitly enabled).
+
+    Fields
+    ------
+    enabled:
+        Master switch for retaining and transferring attachment bytes.
+        When ``False``, no attachment bytes are fetched, stored, or
+        delivered; previously retained bytes are not transferred either.
+    max_attachment_bytes:
+        Maximum measured size of one primary attachment.
+    max_retained_bytes:
+        Maximum total of unique retained attachment bytes.  Reaching the
+        quota rejects new content explicitly; nothing is evicted.  Raising
+        or lowering capacity is an operator action — this runtime adds no
+        automatic binary retention, TTL, or GC.
+    max_concurrent_transfers:
+        Maximum number of concurrent binary transfers (downloads and
+        uploads combined) across the whole runtime.
+    transfer_timeout_seconds:
+        Deadline for one binary transfer.
+    """
+
+    enabled: bool = False
+    max_attachment_bytes: int = 10_485_760  # 10 MiB
+    max_retained_bytes: int = 268_435_456  # 256 MiB
+    max_concurrent_transfers: int = 2
+    transfer_timeout_seconds: float = 60.0
+
+    def validate(self) -> Self:
+        """Validate attachment limits.
+
+        Raises
+        ------
+        ConfigValidationError
+            If any limit is not a positive finite number, a boolean is
+            supplied where a number is required, or the combination is
+            nonsensical (a per-attachment cap above the retained budget,
+            or a per-attachment cap smaller than one byte).
+        """
+        for name in ("max_attachment_bytes", "max_retained_bytes"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ConfigValidationError(
+                    f"attachments.{name} must be a positive integer, " f"got {value!r}"
+                )
+        if isinstance(self.max_concurrent_transfers, bool) or (
+            not isinstance(self.max_concurrent_transfers, int)
+            or self.max_concurrent_transfers < 1
+        ):
+            raise ConfigValidationError(
+                "attachments.max_concurrent_transfers must be an integer >= 1, "
+                f"got {self.max_concurrent_transfers!r}"
+            )
+        timeout = self.transfer_timeout_seconds
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+            raise ConfigValidationError(
+                "attachments.transfer_timeout_seconds must be a positive "
+                f"finite number, got {timeout!r}"
+            )
+        if not float(timeout) > 0 or float(timeout) == float("inf"):
+            raise ConfigValidationError(
+                "attachments.transfer_timeout_seconds must be a positive "
+                f"finite number, got {timeout!r}"
+            )
+        if self.max_attachment_bytes > self.max_retained_bytes:
+            raise ConfigValidationError(
+                "attachments.max_attachment_bytes cannot exceed "
+                "attachments.max_retained_bytes "
+                f"({self.max_attachment_bytes} > {self.max_retained_bytes})"
+            )
+        return self
+
+
+@dataclass(frozen=True)
 class StorageConfig:
     """Persistence / storage configuration."""
 
@@ -585,5 +660,6 @@ class RuntimeConfig:
     storage: StorageConfig = field(default_factory=StorageConfig)
     limits: RuntimeLimits = field(default_factory=RuntimeLimits)
     retry: RetryConfig = field(default_factory=RetryConfig)
+    attachments: AttachmentConfig = field(default_factory=AttachmentConfig)
     adapters: AdapterConfigSet = field(default_factory=AdapterConfigSet)
     routes: RouteConfigSet = field(default_factory=_default_route_config_set)

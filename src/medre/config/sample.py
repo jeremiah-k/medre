@@ -55,6 +55,17 @@ storage:
   # {state} expands to XDG state dir or MEDRE_HOME/state
   path: '{state}/medre.sqlite'
 
+# --- Durable attachments (disabled by default) ---
+# Enable retaining and relaying file/media attachments between transports.
+# Limits are strict: positive integers, a positive finite timeout, and the
+# per-attachment cap cannot exceed the total retained budget.
+attachments:
+  enabled: false
+  # max_attachment_bytes: 10485760      # 10 MiB per attachment
+  # max_retained_bytes: 268435456       # 256 MiB total unique retained bytes
+  # max_concurrent_transfers: 2         # runtime-wide download/upload limit
+  # transfer_timeout_seconds: 60.0      # deadline for one binary transfer
+
 # --- Matrix adapter (fake by default) ---
 # To use a real Matrix homeserver, change adapter_kind to "real" and set:
 #   homeserver: https://your-homeserver.org

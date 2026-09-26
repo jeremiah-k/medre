@@ -44,6 +44,9 @@ from medre.core.storage.backend import (
 )
 
 # Mixin imports — method groups composed via multiple inheritance.
+from medre.core.storage.sqlite._attachments import (
+    _AttachmentsMixin,
+)
 from medre.core.storage.sqlite._conversation import _ConversationMixin
 from medre.core.storage.sqlite._count import _CountMixin
 from medre.core.storage.sqlite._delivery_finalize import _DeliveryFinalizationMixin
@@ -648,6 +651,7 @@ class _SQLiteStorageBase:
 class SQLiteStorage(
     _EventMixin,
     _IngressMixin,
+    _AttachmentsMixin,
     _NativeRefMixin,
     _RelationMixin,
     _ConversationMixin,

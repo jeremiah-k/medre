@@ -244,6 +244,7 @@ class RelationTargetFact(msgspec.Struct, frozen=True):
     native_thread_id: str | None = None
     direction: str | None = None      # "inbound" | "outbound" | None; "outbound" when bound_owned
     reason: str | None = None         # stable machine-readable snake_case reason code + context
+    target_event_kind: str | None = None   # stored EventKind of the target, when read (media-edit rejection input)
 ```
 
 #### 2.6.2 Binding Semantics
@@ -524,6 +525,60 @@ KNOWN_KINDS: frozenset[str] = frozenset([
     "plugin.custom",
 ])
 ```
+
+### 5.5 `message.file` Attachment Descriptor
+
+A `message.file` event carries exactly one primary attachment descriptor in
+its payload under the `attachment` key (module
+`medre.core.events.attachments`, `ATTACHMENT_PAYLOAD_KEY`). The descriptor
+is the single typed, validated seam for attachment metadata; transport
+provenance (MXC locators, wire `file` objects, encrypted-media key material,
+local paths, raw bytes) MUST NOT enter it — adapters keep that under their
+own versioned native metadata namespace.
+
+| Field                | Type              | Present in             | Meaning                                               |
+| -------------------- | ----------------- | ---------------------- | ----------------------------------------------------- |
+| `kind`               | string            | all forms              | `image`, `audio`, `video`, or `file`                  |
+| `filename`           | string, optional  | all forms              | Source-declared filename, when known                  |
+| `mime_type`          | string, optional  | all forms              | Source-declared MIME type, when known                 |
+| `size_bytes`         | integer, optional | retained / unavailable | See state table                                       |
+| `width`, `height`    | integer, optional | all forms              | Pixel dimensions for visual media, when known         |
+| `duration_ms`        | integer, optional | all forms              | Duration in milliseconds for timed media, when known  |
+| `content_ref`        | string            | retained only          | `sha256:<64 lowercase hex>` local integrity reference |
+| `unavailable_reason` | string            | unavailable only       | One of the stable codes below                         |
+
+Descriptor states are exclusive:
+
+- **retained** — `content_ref` is set and `unavailable_reason` is absent.
+  `size_bytes` is the measured length of the stored bytes.
+- **unavailable** — `unavailable_reason` is set and `content_ref` is absent.
+  `size_bytes`, when present, is the source-declared value and was never
+  verified against retained bytes.
+- **declared (in-flight only)** — the wire-declared form produced by a
+  decoding adapter while retention is being decided. It **never persists**:
+  core admission rewrites it to a retained descriptor when bytes are
+  admitted atomically, and the adapter rewrites it to an unavailable
+  descriptor before any descriptor-only admission.
+
+Unavailable reason codes (stable, secret-free):
+
+| Reason               | Meaning                                                                    |
+| -------------------- | -------------------------------------------------------------------------- |
+| `policy_disabled`    | Generic attachment policy is disabled; bytes are never fetched or retained |
+| `history_suppressed` | History/backlog provenance; bytes are deliberately not acquired            |
+| `oversized`          | Measured size exceeds `attachments.max_attachment_bytes`                   |
+| `malformed_source`   | Source locator or encrypted-file structure is malformed                    |
+| `integrity_failed`   | Digest or size verification failed (never trusted, never stored)           |
+| `unsupported_source` | Source media form is unsupported (e.g. unknown encrypted-media version)    |
+| `quota_exceeded`     | Retained-bytes quota would be exceeded; the event admits without bytes     |
+| `not_retained`       | No durable admission path was available to retain the bytes                |
+| `content_missing`    | Media is gone or unretrievable at the source                               |
+
+Content is never fabricated: an unavailable descriptor describes the
+attachment honestly and carries no usable content reference. Storage-side
+admission and load semantics are normative in
+[storage.md §4.12–§4.13](storage.md#412-attachment_blobs) and
+[storage.md §8.18](storage.md#818-attachment-content-access).
 
 ---
 

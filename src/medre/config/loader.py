@@ -31,6 +31,7 @@ from medre.config.errors import (
 )
 from medre.config.model import (
     AdapterConfigSet,
+    AttachmentConfig,
     GenericAdapterRuntimeConfig,
     LoggingConfig,
     RetryConfig,
@@ -78,7 +79,7 @@ _TOML_NOT_SUPPORTED_MSG = (
 #: in this set is rejected at load time so typos (e.g. ``roues:``) surface
 #: as a :class:`ConfigValidationError` instead of silently being dropped.
 _KNOWN_ROOT_KEYS: frozenset[str] = frozenset(
-    {"runtime", "logging", "storage", "retry", "adapters", "routes"}
+    {"runtime", "logging", "storage", "retry", "attachments", "adapters", "routes"}
 )
 
 #: Adapter transport group names accepted under ``adapters:``. Any key not
@@ -110,6 +111,17 @@ _RUNTIME_LIMITS_KNOWN_KEYS: frozenset[str] = frozenset(
 
 #: Keys accepted in the ``[logging]`` section.
 _LOGGING_KNOWN_KEYS: frozenset[str] = frozenset({"level", "format", "overrides"})
+
+#: Keys accepted in the top-level ``[attachments]`` section.
+_ATTACHMENTS_KNOWN_KEYS: frozenset[str] = frozenset(
+    {
+        "enabled",
+        "max_attachment_bytes",
+        "max_retained_bytes",
+        "max_concurrent_transfers",
+        "transfer_timeout_seconds",
+    }
+)
 
 #: Keys accepted in the ``[storage]`` section.
 _STORAGE_KNOWN_KEYS: frozenset[str] = frozenset({"backend", "path"})
@@ -464,6 +476,26 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
     _get_section_dict(data, "routes")
     routes = RouteConfigSet.from_dict(data)
 
+    # [attachments] section — generic durable-attachment policy.
+    attachments_data = _get_section_dict(data, "attachments")
+    _reject_unknown_keys(
+        attachments_data, _ATTACHMENTS_KNOWN_KEYS, section_path="attachments"
+    )
+    raw_enabled = attachments_data.get("enabled", False)
+    if not isinstance(raw_enabled, bool):
+        raise ConfigValidationError(
+            "attachments.enabled must be a boolean, "
+            f"got {type(raw_enabled).__name__}",
+            section_path="attachments",
+        )
+    attachments = AttachmentConfig(
+        enabled=raw_enabled,
+        max_attachment_bytes=attachments_data.get("max_attachment_bytes", 10_485_760),
+        max_retained_bytes=attachments_data.get("max_retained_bytes", 268_435_456),
+        max_concurrent_transfers=attachments_data.get("max_concurrent_transfers", 2),
+        transfer_timeout_seconds=attachments_data.get("transfer_timeout_seconds", 60.0),
+    ).validate()
+
     # Reject unknown root-level keys so operator typos (e.g. ``roues:``)
     # surface as a clear error rather than silently dropping the section.
     # Matches ``additionalProperties: false`` on the JSON schemas.
@@ -482,6 +514,7 @@ def _parse_runtime_config(data: dict, paths: MedrePaths) -> RuntimeConfig:
         storage=storage,
         limits=limits,
         retry=retry,
+        attachments=attachments,
         adapters=adapters,
         routes=routes,
     )
