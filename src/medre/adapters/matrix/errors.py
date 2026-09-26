@@ -137,3 +137,25 @@ class MatrixProvisionError(MatrixError):
                 "Reconcile these resources before retrying."
             )
         super().__init__(message)
+
+
+class MatrixMediaError(MatrixError):
+    """Base error for native media transfers."""
+
+
+class MatrixMediaUnavailableError(MatrixMediaError):
+    """Permanent media input problem; retrying the same input cannot help.
+
+    ``reason`` carries a stable secret-free code matching the canonical
+    attachment descriptor's ``unavailable_reason`` vocabulary subset used
+    for ingress rejection: ``malformed_source``, ``unsupported_source``,
+    ``integrity_failed``, ``oversized``, ``content_missing``.
+    """
+
+    def __init__(self, message: str, *, reason: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+class MatrixMediaTransientError(MatrixMediaError):
+    """Retryable media acquisition/transient transfer failure."""

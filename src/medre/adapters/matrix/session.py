@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import random
+import re
 import time
 from collections import deque
 from dataclasses import dataclass, replace
@@ -68,6 +69,46 @@ _MAX_ROOM_STATES: int = 10_000
 _ROOM_KEY_REQUEST_MAX_ATTEMPTS: int = 3
 _ROOM_KEY_REQUEST_BASE_DELAY_SECONDS: float = 2.0
 _ROOM_KEY_REQUEST_TIMEOUT_SECONDS: float = 10.0
+
+# -- Media transfer helpers (adapter-local bounded paths) --------------------
+
+# Strict MXC locator: server-name (no userinfo, no path traversal) plus an
+# opaque media id.  Anything else is malformed and never requested.
+_MXC_URI_PATTERN = re.compile(
+    r"^mxc://([A-Za-z0-9.\-]+(?::[0-9]{1,5})?)/([A-Za-z0-9_\-]+)$"
+)
+
+# Upper bound for error-response bodies read for classification evidence.
+_MEDIA_ERROR_BODY_CAP: int = 8192
+
+# Streaming chunk size for bounded downloads.
+_MEDIA_CHUNK_BYTES: int = 65536
+
+_MEDIA_REDIRECT_STATUSES: frozenset[int] = frozenset({301, 302, 303, 307, 308})
+_MEDIA_PERMANENT_MISSING: frozenset[int] = frozenset({403, 404, 410})
+
+
+def _parse_mxc_uri(mxc: str) -> tuple[str, str]:
+    """Validate and split an MXC locator into ``(server_name, media_id)``.
+
+    Rejects non-mxc schemes, userinfo, empty authority, query/fragment
+    suffixes, and traversal-shaped media ids before any request is made.
+    """
+    from medre.adapters.matrix.errors import MatrixMediaUnavailableError
+
+    if not isinstance(mxc, str) or not mxc.strip():
+        raise MatrixMediaUnavailableError(
+            "media locator is empty", reason="malformed_source"
+        )
+    match = _MXC_URI_PATTERN.match(mxc.strip())
+    if match is None:
+        raise MatrixMediaUnavailableError(
+            "media locator is not a well-formed mxc URI",
+            reason="malformed_source",
+        )
+    return match.group(1), match.group(2)
+
+
 _SYNC_RECYCLE_CANCEL_TIMEOUT_SECONDS: float = 5.0
 
 
@@ -1299,31 +1340,40 @@ class MatrixSession:
             if committer is None:
                 raise RuntimeError("durable Matrix sync has no checkpoint committer")
             await committer("classic_sync", next_batch, metadata_json)
-            try:
-                client.acknowledge_classic_sync(next_batch)
+            # An empty Classic response (``next_batch`` unchanged) stages no
+            # new SDK state: there is nothing to acknowledge, and the pinned
+            # SDK rejects an acknowledgement for an unstaged token.  The
+            # checkpoint commit above remains correct and idempotent.
+            if not getattr(client, "has_uncommitted_classic_sync_state", False):
+                self._committed_sync_token = next_batch
                 self._classic_ack_deferrals = 0
-            except Exception as exc:
-                if not (
-                    self._is_classic_ack_deferral_error(exc)
-                    and self._classic_ack_recovery_busy(client)
-                ):
-                    raise
-                # Campaign F4 (run4): recovery dispatches (undecryptable-event
-                # room-key work) were still active when the acknowledgement
-                # ran, so nio rejects the token. The durable checkpoint is
-                # already committed — deferring the acknowledgement to a
-                # later quiet response is contract-correct, while letting the
-                # error propagate needlessly restarts the outer sync supervisor.
-                # nio keeps the staged state bookkeeping-only until
-                # the next successful acknowledgement.
-                self._classic_ack_deferrals += 1
-                self._logger.warning(
-                    "Matrix Classic sync acknowledgement deferred (%d "
-                    "consecutive): durable checkpoint committed, nio "
-                    "recovery work still active",
-                    self._classic_ack_deferrals,
-                )
-            self._committed_sync_token = next_batch
+            else:
+                try:
+                    client.acknowledge_classic_sync(next_batch)
+                    self._classic_ack_deferrals = 0
+                except Exception as exc:
+                    if not (
+                        self._is_classic_ack_deferral_error(exc)
+                        and self._classic_ack_recovery_busy(client)
+                    ):
+                        raise
+                    # Campaign F4 (run4): recovery dispatches
+                    # (undecryptable-event room-key work) were still active
+                    # when the acknowledgement ran, so nio rejects the token.
+                    # The durable checkpoint is already committed — deferring
+                    # the acknowledgement to a later quiet response is
+                    # contract-correct, while letting the error propagate
+                    # needlessly restarts the outer sync supervisor.  nio
+                    # keeps the staged state bookkeeping-only until the next
+                    # successful acknowledgement.
+                    self._classic_ack_deferrals += 1
+                    self._logger.warning(
+                        "Matrix Classic sync acknowledgement deferred (%d "
+                        "consecutive): durable checkpoint committed, nio "
+                        "recovery work still active",
+                        self._classic_ack_deferrals,
+                    )
+                self._committed_sync_token = next_batch
             if abandoned:
                 settle = getattr(client, "acknowledge_unrecovered_rooms", None)
                 if callable(settle):
@@ -1457,6 +1507,11 @@ class MatrixSession:
         if room_redact_error_cls is not None:
             self._client.add_response_callback(
                 self._on_room_redact_error_response, room_redact_error_cls
+            )
+        upload_error_cls = getattr(nio, "UploadError", None)
+        if upload_error_cls is not None:
+            self._client.add_response_callback(
+                self._on_upload_error_response, upload_error_cls
             )
         await self._load_classic_checkpoint()
 
@@ -2459,7 +2514,283 @@ class MatrixSession:
         # Reset reconnect counter so diagnostics are truthful after stop.
         self._reconnect_attempts = 0
 
-    # -- Outbound send (per §31 §7.2 session owns all SDK interaction) -------
+    # -- Media transfer (adapter-local bounded paths) ------------------------
+
+    async def download_media(
+        self,
+        *,
+        mxc: str,
+        max_bytes: int,
+        timeout_seconds: float,
+    ) -> bytes:
+        """Bounded authenticated media download from THIS homeserver.
+
+        The SDK's own download helper reads the whole response without a
+        cap, so this adapter-local path streams through the SDK's aiohttp
+        session instead: the request targets the configured homeserver's
+        authenticated media endpoint only (built with the SDK path
+        builder), the access token travels in the Authorization header —
+        never in the URL — redirects are never followed (a 3xx is a
+        permanent locator failure), and the body is measured chunk by
+        chunk so a lying or absent Content-Length cannot overflow the
+        cap.  Error bodies are read under a small fixed bound.
+
+        Raises
+        ------
+        MatrixMediaUnavailableError
+            Permanent input problems: malformed locator/redirect
+            (``malformed_source``), retrievable-but-gone media
+            (``content_missing``), or a stream that crosses *max_bytes*
+            (``oversized``).
+        MatrixMediaTransientError
+            Network/timeouts/429/5xx — retryable through the existing
+            durable-ingress ownership.
+        """
+        from aiohttp import ClientTimeout
+
+        from medre.adapters.matrix.errors import (
+            MatrixMediaTransientError,
+            MatrixMediaUnavailableError,
+        )
+
+        if self._client is None:
+            raise MatrixConnectionError(
+                "cannot download media: client is not connected"
+            )
+        http_session = getattr(self._client, "client_session", None)
+        if http_session is None:
+            raise MatrixConnectionError(
+                "cannot download media: client HTTP session is not open"
+            )
+        import nio
+
+        server_name, media_id = _parse_mxc_uri(mxc)
+        method, path = nio.Api.download(server_name, media_id, access_token=None)
+        # The pinned SDK's path builder stringifies the omitted token into
+        # the query as a literal ``access_token=None``; Synapse rejects any
+        # request that mixes an Authorization header with an access_token
+        # query parameter (M_MISSING_TOKEN), so the query param is dropped
+        # and the token travels only in the header.
+        from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+        split = urlsplit(path)
+        kept = [
+            (key, value)
+            for key, value in parse_qsl(split.query, keep_blank_values=True)
+            if key != "access_token"
+        ]
+        path = urlunsplit(split._replace(query=urlencode(kept) if kept else ""))
+        url = f"{self._client.homeserver}{path}"
+        headers: dict[str, str] = {}
+        token = getattr(self._client, "access_token", None)
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        timeout = ClientTimeout(total=max(0.001, float(timeout_seconds)))
+
+        try:
+            async with http_session.request(
+                method,
+                url,
+                headers=headers,
+                allow_redirects=False,
+                timeout=timeout,
+            ) as response:
+                status = int(response.status)
+                if status == 200:
+                    declared = response.headers.get("Content-Length")
+                    if declared is not None:
+                        try:
+                            declared_size = int(str(declared).strip())
+                        except ValueError:
+                            declared_size = None
+                        if declared_size is not None and declared_size > max_bytes:
+                            raise MatrixMediaUnavailableError(
+                                f"media declares {declared_size} bytes, above "
+                                f"the {max_bytes}-byte cap",
+                                reason="oversized",
+                            )
+                    buffer = bytearray()
+                    async for chunk in response.content.iter_chunked(
+                        _MEDIA_CHUNK_BYTES
+                    ):
+                        buffer.extend(chunk)
+                        if len(buffer) > max_bytes:
+                            raise MatrixMediaUnavailableError(
+                                f"media stream crossed the {max_bytes}-byte cap "
+                                f"after {len(buffer)} bytes",
+                                reason="oversized",
+                            )
+                    return bytes(buffer)
+                if status in _MEDIA_REDIRECT_STATUSES:
+                    raise MatrixMediaUnavailableError(
+                        f"media endpoint answered with redirect HTTP {status}; "
+                        "redirects are never followed for media",
+                        reason="malformed_source",
+                    )
+                body = await response.content.read(_MEDIA_ERROR_BODY_CAP)
+                errcode = self._media_errcode(body)
+                detail = f"HTTP {status}" + (f" {errcode}" if errcode else "")
+                if status in _MEDIA_PERMANENT_MISSING:
+                    raise MatrixMediaUnavailableError(
+                        f"media is not retrievable ({detail})",
+                        reason="content_missing",
+                    )
+                if status == 429 or status >= 500:
+                    raise MatrixMediaTransientError(
+                        f"media endpoint transient failure ({detail})"
+                    )
+                raise MatrixMediaUnavailableError(
+                    f"media request rejected ({detail})", reason="malformed_source"
+                )
+        except (MatrixMediaUnavailableError, MatrixMediaTransientError):
+            raise
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError as exc:
+            raise MatrixMediaTransientError("media download timed out") from exc
+        except MatrixConnectionError:
+            raise
+        except OSError as exc:
+            raise MatrixMediaTransientError(
+                f"media download network failure: {exc}"
+            ) from exc
+        except Exception as exc:
+            # aiohttp client errors and any unexpected transport failure stay
+            # transient: the durable retry ownership decides when to stop.
+            raise MatrixMediaTransientError(
+                f"media download failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+    @staticmethod
+    def _media_errcode(body: bytes) -> str | None:
+        """Extract a Matrix errcode from a bounded error body, if any."""
+        if not body:
+            return None
+        try:
+            parsed = json.loads(body)
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        errcode = parsed.get("errcode")
+        return errcode if isinstance(errcode, str) else None
+
+    def decrypt_media_attachment(
+        self, *, ciphertext: bytes, file_info: object
+    ) -> bytes:
+        """Verify encrypted-file structure and decrypt via the pinned SDK.
+
+        Structure is validated before any crypto runs: a missing or
+        non-``v2`` version, a non-JWK key, a non-A256CTR algorithm, or
+        missing IV/SHA-256 hash fields are permanent input problems
+        (``malformed_source`` / ``unsupported_source``).  The pinned
+        SDK's ``decrypt_attachment`` then verifies the ciphertext SHA-256
+        before decrypting; a mismatch raises with ``integrity_failed``.
+        No new cipher code exists here.
+        """
+        from medre.adapters.matrix.errors import MatrixMediaUnavailableError
+
+        if not isinstance(file_info, dict):
+            raise MatrixMediaUnavailableError(
+                "encrypted file info is not an object", reason="malformed_source"
+            )
+        version = file_info.get("v")
+        if version != "v2":
+            raise MatrixMediaUnavailableError(
+                f"unsupported encrypted attachment version {version!r}",
+                reason="unsupported_source",
+            )
+        key = file_info.get("key")
+        if not isinstance(key, dict):
+            raise MatrixMediaUnavailableError(
+                "encrypted attachment key is not a JWK object",
+                reason="malformed_source",
+            )
+        if key.get("kty") != "oct" or not isinstance(key.get("k"), str):
+            raise MatrixMediaUnavailableError(
+                "encrypted attachment key is not a symmetric JWK",
+                reason="malformed_source",
+            )
+        if key.get("alg") != "A256CTR":
+            raise MatrixMediaUnavailableError(
+                f"unsupported encrypted attachment algorithm {key.get('alg')!r}",
+                reason="unsupported_source",
+            )
+        iv = file_info.get("iv")
+        hashes = file_info.get("hashes")
+        if not isinstance(iv, str) or not isinstance(hashes, dict):
+            raise MatrixMediaUnavailableError(
+                "encrypted attachment is missing iv/hashes",
+                reason="malformed_source",
+            )
+        sha256_hash = hashes.get("sha256")
+        if not isinstance(sha256_hash, str):
+            raise MatrixMediaUnavailableError(
+                "encrypted attachment is missing the sha256 ciphertext hash",
+                reason="malformed_source",
+            )
+        import nio
+
+        try:
+            return nio.crypto.attachments.decrypt_attachment(
+                ciphertext, key["k"], sha256_hash, iv
+            )
+        except nio.EncryptionError as exc:
+            raise MatrixMediaUnavailableError(
+                f"encrypted attachment failed integrity verification: {exc}",
+                reason="integrity_failed",
+            ) from exc
+
+    async def upload_media(
+        self,
+        *,
+        data: bytes,
+        content_type: str,
+        filename: str | None,
+        encrypt: bool,
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Upload media bytes to this session's homeserver via the pinned SDK.
+
+        Returns the SDK upload response and — when *encrypt* is true — the
+        transient decryption-info dict (``v``/``key``/``iv``/``hashes``).
+        That key material stays inside the adapter boundary: it is never
+        persisted into canonical events, outbox state, receipts, or logs,
+        and the caller discards it after building the one wire event.
+        Upload-specific 429s are intercepted before the SDK sleeps/retries
+        (see :meth:`_on_upload_error_response`).
+        """
+        if self._client is None:
+            raise MatrixConnectionError("cannot upload media: client is not connected")
+
+        # The pinned SDK's DataProvider contract is a SYNC callable
+        # (got_429, got_timeouts) -> bytes | Iterable[bytes]; an async
+        # callable would hand aiohttp a coroutine object it cannot send.
+        def _provider(got_429: int, got_timeouts: int) -> bytes:
+            return data
+
+        try:
+            return await self._client.upload(
+                _provider,
+                content_type=content_type,
+                filename=filename,
+                encrypt=encrypt,
+                filesize=len(data),
+            )
+        except _RoomRateLimitIntercept as exc:
+            return exc.response, None
+
+    async def _on_upload_error_response(self, response: Any) -> None:
+        """Surface upload rate limits before nio sleeps/retries.
+
+        Mirrors :meth:`_on_room_send_error_response`: the pinned SDK runs
+        filtered response callbacks on 429 responses before sleeping and
+        retrying, so raising the sentinel here aborts the SDK-owned retry
+        loop and hands retry ownership to MEDRE's durable scheduler.
+        Sync/key-request retry behavior is untouched.
+        """
+        if not is_nio_rate_limited_response(response):
+            return
+        raise _RoomRateLimitIntercept(response)
 
     async def room_send(
         self,
