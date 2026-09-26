@@ -373,14 +373,25 @@ def _container_running(name: str) -> bool:
 def _docker_run(
     args: list[str], timeout: int = 120
 ) -> subprocess.CompletedProcess[str]:
-    """Run a docker CLI command, raising on failure."""
-    return subprocess.run(
-        ["docker", *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=True,
-    )
+    """Run a docker CLI command, raising on failure.
+
+    The captured CLI/registry output is included in the raised error: a
+    bare exit status hides the actual cause (for example, a Docker Hub
+    rate-limit rejection during a pull).
+    """
+    try:
+        return subprocess.run(
+            ["docker", *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(
+            f"docker {' '.join(args)} failed (exit {exc.returncode}): {detail}"
+        ) from exc
 
 
 def _wait_for_tcp(host: str, port: int, timeout: int = _READY_TIMEOUT) -> bool:
@@ -418,8 +429,14 @@ def _wait_for_http_200(url: str, timeout: int = _READY_TIMEOUT) -> bool:
     return False
 
 
-def _ensure_image(image: str) -> None:
-    """Pull a Docker image if not already present locally."""
+def _ensure_image(image: str, *, attempts: int = 3) -> None:
+    """Pull a Docker image if not already present locally.
+
+    A failed pull is retried with a short backoff: registry rejections
+    (Docker Hub rate limits, transient manifest errors) are per-request
+    and usually clear without operator action.  The final failure raises
+    with the registry's own output.
+    """
     try:
         subprocess.run(
             ["docker", "image", "inspect", image],
@@ -428,9 +445,18 @@ def _ensure_image(image: str) -> None:
             timeout=5,
         )
         logger.info("Using cached image: %s", image)
+        return
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         logger.info("Pulling image: %s", image)
-        _docker_run(["pull", image], timeout=300)
+
+    for attempt in range(1, attempts + 1):
+        try:
+            _docker_run(["pull", image], timeout=300)
+            return
+        except (RuntimeError, subprocess.TimeoutExpired):
+            if attempt == attempts:
+                raise
+            time.sleep(2 * attempt)
 
 
 # ---------------------------------------------------------------------------
