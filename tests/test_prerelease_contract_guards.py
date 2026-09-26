@@ -264,13 +264,13 @@ def test_routing_schema_keeps_context_map_structured_only() -> None:
         # Conditional schema branches may narrow context_map to null when
         # another addressing authority is active.  That is not a second
         # mapping representation and must not be mistaken for one.
-        if occurrence == {"type": "null"}:
+        if occurrence in ({"type": "null"}, {"type": "object"}):
             continue
 
         variants = occurrence.get("oneOf")
         assert isinstance(variants, list), (
-            "context_map must be either the structured mapping contract "
-            "or a conditional null-only narrowing"
+            "context_map must be the structured mapping contract or a "
+            "conditional type-only constraint"
         )
         object_variants = [
             variant
@@ -283,3 +283,49 @@ def test_routing_schema_keeps_context_map_structured_only() -> None:
             isinstance(variant, dict) and variant.get("type") == "string"
             for variant in variants
         ), "bare-string context_map compatibility unexpectedly returned"
+
+
+def test_routing_schema_enforces_context_map_route_boundaries() -> None:
+    """Machine schema must mirror context-map cardinality/addressing rules."""
+    from jsonschema import Draft202012Validator
+
+    schema_path = _ROOT / "docs" / "schemas" / "routing-config.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+
+    base_route: dict[str, Any] = {
+        "route_id": "mapped",
+        "source_adapters": ["source"],
+        "dest_adapters": ["dest"],
+        "context_map": {"ctx": {"dest_context": "room"}},
+    }
+
+    # Exercise both the top-level RouteConfig arm and RouteConfigRef through
+    # RouteConfigSet so their conditional constraints cannot drift apart.
+    def errors(route: dict[str, Any]) -> tuple[list[Any], list[Any]]:
+        return (
+            list(validator.iter_errors(route)),
+            list(validator.iter_errors({"routes": [route]})),
+        )
+
+    assert errors(base_route) == ([], [])
+
+    invalid_variants = (
+        {**base_route, "source_adapters": ["source", "other"]},
+        {**base_route, "dest_adapters": ["dest", "other"]},
+        {**base_route, "source_channel": "legacy-source"},
+        {**base_route, "dest_channel": "legacy-dest"},
+        {**base_route, "source_room": "!source:example.org"},
+        {**base_route, "dest_room": "!dest:example.org"},
+        {
+            **base_route,
+            "dest_destination": {
+                "kind": "lxmf_destination",
+                "destination_hash": "21c0c1b9aabbccddeeff001122334455",
+            },
+        },
+    )
+    for route in invalid_variants:
+        standalone_errors, set_errors = errors(route)
+        assert standalone_errors, route
+        assert set_errors, route

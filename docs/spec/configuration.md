@@ -346,9 +346,10 @@ accepted depends on the route's directionality:
   `dest_to_source`). Duplicate `dest_context` values would become
   duplicate reverse-leg inbound source contexts, which is ambiguous.
 
-Entries carrying a structured `dest_destination` never participate in
-fan-in (each addresses a unique destination entity, and they are
-forward-only). The check runs at configuration validation time and fails
+Entries carrying a structured `dest_destination` are excluded from this
+`dest_context` ambiguity check. They are forward-only, and multiple source
+contexts MAY intentionally address the same structured destination entity.
+The check runs at configuration validation time and fails
 with a `ConfigValidationError`. See
 [routing-delivery.md §17.6](routing-delivery.md#176-duplicate-dest_context-fan-in-for-context_map)
 for the full directionality decision matrix.

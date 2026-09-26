@@ -12,6 +12,7 @@ import pytest
 
 from medre.adapters.matrix.runtime import prepare_matrix_runtime_config
 from medre.config.adapters.matrix import MatrixConfig
+from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     AdapterConfigSet,
     MatrixRuntimeConfig,
@@ -965,3 +966,30 @@ class TestContextMapBuilderIntegration:
         prepared = _prepare_matrix_config(config, tmp_paths, "fm")
         assert "!active_room:test.org" in prepared.auto_join_rooms
         assert "!disabled_room:test.org" not in prepared.auto_join_rooms
+
+
+def test_route_expansion_error_is_runtime_config_error(
+    tmp_paths: MedrePaths,
+) -> None:
+    """Compiler validation failures stay inside the runtime error boundary."""
+    mapped = RouteConfig(
+        route_id="mapped",
+        source_adapters=("source",),
+        dest_adapters=("dest",),
+        context_map={"ctx": ContextMapEntry(dest_context="room")},
+    )
+    generated_id = build_runtime_routes(RouteConfigSet(routes=(mapped,)))[0].id
+    shadow = RouteConfig(
+        route_id=generated_id,
+        source_adapters=("other-source",),
+        dest_adapters=("other-dest",),
+    )
+    config = RuntimeConfig(
+        storage=StorageConfig(backend="memory"),
+        routes=RouteConfigSet(routes=(mapped, shadow)),
+    )
+
+    with pytest.raises(RuntimeConfigError, match="Invalid route configuration") as exc:
+        RuntimeBuilder(config, tmp_paths).build()
+
+    assert isinstance(exc.value.__cause__, ConfigValidationError)

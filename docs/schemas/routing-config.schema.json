@@ -144,6 +144,23 @@
               "dest_adapters": { "maxItems": 1 }
             }
           }
+        },
+        {
+          "if": {
+            "properties": { "context_map": { "type": "object" } },
+            "required": ["context_map"]
+          },
+          "then": {
+            "properties": {
+              "source_adapters": { "maxItems": 1 },
+              "dest_adapters": { "maxItems": 1 },
+              "source_channel": { "type": "null" },
+              "dest_channel": { "type": "null" },
+              "source_room": { "type": "null" },
+              "dest_room": { "type": "null" },
+              "dest_destination": { "type": "null" }
+            }
+          }
         }
       ]
     },
@@ -444,6 +461,23 @@
               "dest_room": { "type": "null" },
               "context_map": { "type": "null" },
               "dest_adapters": { "maxItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "context_map": { "type": "object" } },
+            "required": ["context_map"]
+          },
+          "then": {
+            "properties": {
+              "source_adapters": { "maxItems": 1 },
+              "dest_adapters": { "maxItems": 1 },
+              "source_channel": { "type": "null" },
+              "dest_channel": { "type": "null" },
+              "source_room": { "type": "null" },
+              "dest_room": { "type": "null" },
+              "dest_destination": { "type": "null" }
             }
           }
         }

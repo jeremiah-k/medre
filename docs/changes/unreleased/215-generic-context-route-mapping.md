@@ -45,6 +45,11 @@ configuration seam.
   structured `dest_destination` require `source_to_dest` and never
   participate in fan-in. `channel_room_map` configs fail the generic
   unknown-key rejection with a pointed hint toward `context_map`.
+- Schema/runtime parity is fail-closed for mapping routes: `context_map`
+  requires exactly one adapter on each side and excludes the legacy
+  channel/room/destination selectors in both machine-schema route shapes.
+  Runtime construction normalizes compiler `ConfigValidationError` failures
+  to the public `RuntimeConfigError` build boundary.
 
 Migration: pre-release cutover — configs using `channel_room_map` must move
 to `context_map` entries with `dest_context` / `dest_destination`; there is

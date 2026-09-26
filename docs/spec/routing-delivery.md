@@ -1700,8 +1700,9 @@ creates reverse legs: a dest-side event arriving from the shared context
 would match two or more expanded reverse legs that target different
 source contexts, with no signal in the event to pick one. Such
 configurations MUST be rejected. Entries carrying a structured
-`dest_destination` never participate: they expand forward legs only, and
-each addresses a unique destination entity.
+`dest_destination` are excluded from this `dest_context` ambiguity check and
+expand forward legs only. Multiple source contexts MAY intentionally address
+the same structured destination entity.
 
 ### 17.6.2 Directionality decision matrix
 

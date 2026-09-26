@@ -517,14 +517,25 @@ class TestSampleConfigStructuredContextMap:
         assert "source_origin_label" in output
         assert "dest_origin_label" in output
 
-    def test_sample_has_no_scalar_mapping_entries(self) -> None:
-        """Sample entries are structured tables only — no bare-scalar shape."""
+    def test_sample_structured_destination_uses_configured_adapter_id(self) -> None:
+        """Commented LXMF example names the adapter declared by the sample."""
         output = _run_cli("config", "sample")
-        # The removed scalar-entry example shape must not reappear in any
-        # guise: mapping entries always carry a dest_context key on their
-        # own line.
-        assert "room: '!general:example.com'" not in output
-        assert "dest_context:" in output
+        assert "Requires adapters.lxmf.lxmf_node to be enabled." in output
+        assert "#   dest_adapters: [lxmf_node]" in output
+
+    def test_sample_has_no_scalar_mapping_entries(self) -> None:
+        """The parseable sample uses only structured mapping entries."""
+        output = _run_cli("config", "sample")
+        parsed = parse_yaml_config(output)
+        route = parsed["routes"]["context_mapped_bridge"]
+        entry = route["context_map"]["1"]
+        assert entry == {
+            "dest_context": "!ops:example.com",
+            "source_origin_label": "Ops",
+            "dest_origin_label": "Matrix-Ops",
+        }
+        # Structured-destination documentation intentionally remains commented.
+        assert "dest_destination:" in output
 
 
 def test_route_unknown_adapter_ref_exits_nonzero(tmp_path: Path) -> None:

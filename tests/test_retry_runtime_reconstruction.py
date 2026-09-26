@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from medre.adapters.fakes.presentation import FakePresentationAdapter
 from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
+from medre.core.events.metadata import FrozenDict
 from medre.core.planning.delivery_plan import DeliveryPlan, DeliveryStrategy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.routing.router import Router
@@ -197,7 +198,8 @@ async def test_reconstructed_retry_plan_carries_metadata_through_worker(
         assert dest.kind == "matrix_room"
         assert dest.destination_hash == "deadbeef"
         assert dest.destination_name == "test-room"
-        assert dest.metadata == dest_metadata
+        assert dest.metadata == FrozenDict(dest_metadata)
+        assert dest.metadata["via"] == ("server.org",)
 
         # Retry policy reconstructed from the receipt (not worker default)
         policy = cap_plan.retry_policy

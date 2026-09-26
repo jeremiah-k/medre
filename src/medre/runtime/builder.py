@@ -34,6 +34,7 @@ from medre.adapter_registry import (
     get_adapter_spec,
     iter_adapter_specs,
 )
+from medre.config.errors import ConfigValidationError
 from medre.config.model import (
     RuntimeConfig,
     StorageConfig,
@@ -392,9 +393,14 @@ class RuntimeBuilder:
         #      Config→route expansion is owned by the config compiler.
         from medre.runtime.route_engine import build_runtime_routes
 
-        self._adapter_preparation_routes = tuple(
-            build_runtime_routes(self._config.routes)
-        )
+        try:
+            self._adapter_preparation_routes = tuple(
+                build_runtime_routes(self._config.routes)
+            )
+        except ConfigValidationError as exc:
+            raise RuntimeConfigError(
+                f"Invalid route configuration: {exc}"
+            ) from exc
 
         # 10.2 Run adapter-owned configuration preparation as fail-closed
         #      preflight. Preparation derives/validates configuration; it is

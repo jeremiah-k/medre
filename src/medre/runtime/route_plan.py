@@ -443,8 +443,8 @@ def _route_warnings(rc: RouteConfig) -> list[str]:
     only meaningful when the route creates forward legs exclusively
     (``source_to_dest``); with reverse legs present the config rejects
     duplicate ``dest_context`` values outright.  Entries carrying a
-    structured ``dest_destination`` never participate (each addresses a
-    unique destination entity).
+    structured ``dest_destination`` are excluded from that ambiguity check;
+    multiple entries may address the same structured destination entity.
     """
     warnings: list[str] = []
     context_map = rc.context_map

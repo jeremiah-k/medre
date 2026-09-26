@@ -264,27 +264,29 @@ routes:
   # ``dest_destination`` plus optional per-entry ``source_origin_label`` /
   # ``dest_origin_label`` for fine-grained relay-prefix attribution per
   # context.  Contexts are opaque strings owned by their adapters.
-  # Uncomment and adjust to match your setup.
-  # context_mapped_bridge:
-  #   source_adapters: [radio]
-  #   dest_adapters: [main]
-  #   directionality: bidirectional
-  #   enabled: true
-  #   context_map:
-  #     "0":
-  #       dest_context: '!general:example.com'
-  #     "1":
-  #       dest_context: '!ops:example.com'
-  #       source_origin_label: Ops
-  #       dest_origin_label: Matrix-Ops
+  # This disabled route is parseable documentation; enable and adjust it
+  # when the referenced contexts exist in your transports.
+  context_mapped_bridge:
+    source_adapters: [radio]
+    dest_adapters: [main]
+    directionality: bidirectional
+    enabled: false
+    context_map:
+      "0":
+        dest_context: '!general:example.com'
+      "1":
+        dest_context: '!ops:example.com'
+        source_origin_label: Ops
+        dest_origin_label: Matrix-Ops
   #
   # --- Route with a structured destination (context_map entry) ---
   # An entry may instead target a structured destination entity (e.g. an
   # LXMF destination).  Structured-destination entries are forward-only:
   # they require directionality "source_to_dest".
+  # Requires adapters.lxmf.lxmf_node to be enabled.
   # lxmf_out:
   #   source_adapters: [main]
-  #   dest_adapters: [lxmf]
+  #   dest_adapters: [lxmf_node]
   #   directionality: source_to_dest
   #   enabled: true
   #   context_map:
