@@ -24,7 +24,6 @@ from medre.core.ingress.types import (
     IngressWorkItem,
     IngressWorkStatus,
 )
-
 from medre.core.ingress.worker import DurableIngressWorker
 
 __all__ = [

@@ -349,16 +349,12 @@ class TestAtomicAdmission:
                 storage,
                 _file_event("evt-empty", _declared()),
                 b"",
-                limits=AttachmentLimits(
-                    max_attachment_bytes=64, max_retained_bytes=64
-                ),
+                limits=AttachmentLimits(max_attachment_bytes=64, max_retained_bytes=64),
             )
             fact = result.attachment
             assert fact is not None and fact.retained
             assert fact.size_bytes == 0
-            assert fact.content_ref == (
-                "sha256:" + hashlib.sha256(b"").hexdigest()
-            )
+            assert fact.content_ref == ("sha256:" + hashlib.sha256(b"").hexdigest())
             loaded = await storage.load_attachment_content(
                 "evt-empty", fact.content_ref
             )
