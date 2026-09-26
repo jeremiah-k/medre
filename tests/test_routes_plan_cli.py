@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from medre.cli.route_commands import _format_structured_destination
 from tests.helpers.cli import _run_cli_raw
 
 pytestmark = pytest.mark.usefixtures("isolated_config_env")
@@ -557,3 +558,89 @@ def test_plan_json_shows_adapter_provenance(tmp_path: Path) -> None:
     leg = bridge["legs"][0]
     assert leg["source_origin_label"] == "AdapterMatrix"
     assert leg["source_origin_label_source"] == "adapter"
+
+
+# ---------------------------------------------------------------------------
+# Structured destination rendering
+# ---------------------------------------------------------------------------
+
+_CONFIG_CONTEXT_MAP_STRUCTURED = """\
+runtime:
+  name: plan-cli-structured
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok_main
+      room_allowlist: ['!shared:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+routes:
+  mapped:
+    source_adapters: [radio]
+    dest_adapters: [main]
+    directionality: source_to_dest
+    context_map:
+      "0":
+        dest_destination:
+          kind: lxmf_destination
+          destination_hash: 21c0c1b9aabbccddeeff001122334455
+          destination_name: bob
+      "1":
+        dest_context: '!shared:fake.local'
+"""
+
+
+def test_plan_renders_structured_destinations(tmp_path: Path) -> None:
+    """Mapping legs with a structured destination render
+    ``context_map: <src> → <kind> <hash> (name)``; plain-context legs keep
+    the dest-context fallback."""
+    cfg = _write_config(tmp_path, _CONFIG_CONTEXT_MAP_STRUCTURED)
+    stdout, _stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+
+    assert code == 0
+    assert (
+        "context_map: 0 → lxmf_destination 21c0c1b9aabbccddeeff001122334455 (bob)"
+    ) in stdout
+    assert "context_map: 1 → !shared:fake.local" in stdout
+
+
+class _Leg:
+    """Minimal RoutePlanLeg stand-in for the destination formatter."""
+
+    def __init__(
+        self,
+        *,
+        kind: str | None,
+        hash_: str | None,
+        name: str | None,
+    ) -> None:
+        self.dest_destination_kind = kind
+        self.dest_destination_hash = hash_
+        self.dest_destination_name = name
+
+
+def test_format_structured_destination_arms() -> None:
+    """``<kind> <hash> (name)`` with each part omitted when absent."""
+    fmt = _format_structured_destination
+    full = _Leg(kind="lxmf_destination", hash_="h1", name="bob")
+    assert fmt(full) == "lxmf_destination h1 (bob)"
+    assert fmt(_Leg(kind="lxmf_destination", hash_="h1", name=None)) == (
+        "lxmf_destination h1"
+    )
+    assert fmt(_Leg(kind="lxmf_destination", hash_=None, name="bob")) == (
+        "lxmf_destination bob"
+    )
+    assert fmt(_Leg(kind="lxmf_destination", hash_=None, name=None)) == (
+        "lxmf_destination"
+    )
+    assert fmt(_Leg(kind=None, hash_="h1", name=None)) == "? h1"

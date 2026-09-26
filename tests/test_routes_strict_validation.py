@@ -11,7 +11,13 @@ import pytest
 
 from medre.config.errors import ConfigValidationError
 from medre.config.loader import load_config
-from medre.config.routes import ContextMapEntry, RouteConfig
+from medre.config.route_expansion import expand_route_config
+from medre.config.routes import (
+    ContextMapEntry,
+    RouteConfig,
+    RouteDestinationConfig,
+    RouteDirectionality,
+)
 
 # ---------------------------------------------------------------------------
 # Unknown route-level key rejection
@@ -215,3 +221,74 @@ def test_direct_route_config_rejects_empty_context_map() -> None:
             dest_adapters=("chat",),
             context_map={},
         )
+
+
+def test_expand_route_config_rejects_multi_adapter_context_map() -> None:
+    """The compiler re-checks the one-source/one-dest fence even for a
+    directly constructed route that mutated after config validation."""
+    rc = RouteConfig(
+        route_id="direct-fanout",
+        source_adapters=("radio_adapter",),
+        dest_adapters=("chat_adapter",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        context_map={"a": ContextMapEntry(dest_context="!room:example.org")},
+    )
+    object.__setattr__(rc, "dest_adapters", ("chat_adapter", "chat_adapter_2"))
+
+    with pytest.raises(
+        ConfigValidationError,
+        match="exactly one source adapter and one dest adapter",
+    ):
+        expand_route_config(rc)
+
+
+def test_expand_route_config_rejects_expansion_token_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two source contexts may never share an expansion token. The SHA-256
+    derivation makes natural collisions implausible, so the fence is pinned
+    by forcing the token derivation and asserting the split-routes error."""
+    rc = RouteConfig(
+        route_id="direct-collide",
+        source_adapters=("radio_adapter",),
+        dest_adapters=("chat_adapter",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        context_map={
+            "a": ContextMapEntry(dest_context="!room-a:example.org"),
+            "b": ContextMapEntry(dest_context="!room-b:example.org"),
+        },
+    )
+    monkeypatch.setattr(
+        "medre.config.route_expansion._context_map_token",
+        lambda _ctx: "h_dead",
+    )
+
+    with pytest.raises(
+        ConfigValidationError, match="collide on expansion token 'h_dead'"
+    ):
+        expand_route_config(rc)
+
+
+def test_expand_route_config_rejects_context_map_channel_conflict() -> None:
+    """The compiler re-checks context_map/channel mutual exclusion even for
+    a directly constructed route that mutated after config validation."""
+    rc = RouteConfig(
+        route_id="direct-conflict",
+        source_adapters=("radio_adapter",),
+        dest_adapters=("chat_adapter",),
+        directionality=RouteDirectionality.SOURCE_TO_DEST,
+        context_map={
+            "a": ContextMapEntry(
+                dest_destination=RouteDestinationConfig(
+                    kind="lxmf_destination",
+                    destination_hash="21c0c1b9aabbccddeeff001122334455",
+                )
+            )
+        },
+    )
+    object.__setattr__(rc, "dest_channel", "#leak")
+
+    with pytest.raises(
+        ConfigValidationError, match="context_map is mutually exclusive with"
+    ):
+        expand_route_config(rc)

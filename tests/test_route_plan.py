@@ -549,3 +549,122 @@ def test_route_plan_leg_is_frozen_dataclass(tmp_path: Path) -> None:
     assert isinstance(leg, RoutePlanLeg)
     with pytest.raises(FrozenInstanceError):
         leg.direction = "reversed"  # type: ignore[misc]
+
+
+# ===========================================================================
+# context_map plan-level fences: expansion errors and fan-in warnings
+# ===========================================================================
+
+
+_CONFIG_CONTEXT_MAP_REVERSE = """\
+runtime:
+  name: plan-ctx-reverse
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok_main
+      room_allowlist: ['!a:fake.local', '!b:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+routes:
+  matrix_to_mesh:
+    source_adapters: [main]
+    dest_adapters: [radio]
+    directionality: dest_to_source
+    context_map:
+      "0":
+        dest_context: '!a:fake.local'
+      "1":
+        dest_context: '!b:fake.local'
+"""
+
+
+_CONFIG_CONTEXT_MAP_FANIN = """\
+runtime:
+  name: plan-ctx-fanin
+storage:
+  backend: memory
+adapters:
+  matrix:
+    main:
+      enabled: true
+      adapter_kind: fake
+      homeserver: https://fake.local
+      user_id: '@bot:fake.local'
+      access_token: tok_main
+      room_allowlist: ['!shared:fake.local']
+      encryption_mode: plaintext
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: fake
+      connection_type: fake
+routes:
+  mesh_to_matrix:
+    source_adapters: [radio]
+    dest_adapters: [main]
+    directionality: source_to_dest
+    context_map:
+      "a":
+        dest_context: '!shared:fake.local'
+      "b":
+        dest_context: '!shared:fake.local'
+      "c":
+        dest_destination:
+          kind: lxmf_destination
+          destination_hash: 21c0c1b9aabbccddeeff001122334455
+"""
+
+
+def test_expansion_error_recorded_on_route_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A route whose expansion fails yields an entry carrying the error
+    instead of aborting the whole plan build."""
+    monkeypatch.setattr(
+        "medre.config.route_expansion._context_map_token",
+        lambda _ctx: "h_dead",
+    )
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP)
+    plan = build_route_plan(config)
+
+    entry = _entry_by_id(plan, "mesh_to_matrix")
+    assert entry.error is not None
+    assert "collide on expansion token 'h_dead'" in entry.error
+    assert entry.legs == []
+    assert plan.total_legs == 0
+
+
+def test_reverse_direction_route_has_no_fan_in_warning(tmp_path: Path) -> None:
+    """Fan-in ambiguity is a forward-only concern: a dest_to_source route
+    with distinct dest_contexts produces no fan-in warning."""
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP_REVERSE)
+    plan = build_route_plan(config)
+
+    entry = _entry_by_id(plan, "matrix_to_mesh")
+    assert not any("fan-in" in w for w in entry.warnings)
+
+
+def test_fan_in_warning_ignores_structured_destination_entries(
+    tmp_path: Path,
+) -> None:
+    """Entries without a dest_context (structured destinations) are not
+    fan-in candidates: the warning names only the plain-context sources."""
+    config = _load(tmp_path, _CONFIG_CONTEXT_MAP_FANIN)
+    plan = build_route_plan(config)
+
+    entry = _entry_by_id(plan, "mesh_to_matrix")
+    fan_in = [w for w in entry.warnings if "fan-in" in w]
+    assert len(fan_in) == 1
+    assert "!shared:fake.local" in fan_in[0]
+    assert fan_in[0].endswith("source contexts a, b")

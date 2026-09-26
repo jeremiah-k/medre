@@ -123,6 +123,39 @@ class TestContextMapConfig:
         with pytest.raises(ConfigValidationError, match="must be a table"):
             RouteConfig.from_dict("bad", self._base(context_map=[{"0": "!r:t"}]))
 
+    # --- rejection: direct-construction boundary re-checks ---
+
+    def test_direct_construction_rejects_non_dict_context_map(self) -> None:
+        """The post-parse validator re-checks the map shape for directly
+        constructed routes, which bypass ``from_dict`` normalization."""
+        with pytest.raises(ConfigValidationError, match="context_map must be a dict"):
+            RouteConfig(
+                route_id="direct_nondict",
+                source_adapters=("radio_adapter",),
+                dest_adapters=("chat_adapter",),
+                context_map=["not", "a", "dict"],  # type: ignore[list-item]
+            )
+
+    def test_direct_construction_rejects_non_normalized_key(self) -> None:
+        """A non-string map key must match its normalized string form."""
+        with pytest.raises(
+            ConfigValidationError, match="must use normalized string form '5'"
+        ):
+            RouteConfig(
+                route_id="direct_intkey",
+                source_adapters=("radio_adapter",),
+                dest_adapters=("chat_adapter",),
+                context_map={5: ContextMapEntry(dest_context="!room:example.com")},
+            )
+
+    def test_entry_rejects_non_config_dest_destination(self) -> None:
+        """A structured destination must be a RouteDestinationConfig."""
+        with pytest.raises(
+            ConfigValidationError,
+            match="'dest_destination' must be a RouteDestinationConfig, got str",
+        ):
+            ContextMapEntry(dest_context=None, dest_destination="not-a-config")
+
     # --- rejection: context key validation ---
 
     def test_reject_bool_context_key(self) -> None:
