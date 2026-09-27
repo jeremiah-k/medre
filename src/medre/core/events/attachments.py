@@ -58,6 +58,7 @@ ATTACHMENT_UNAVAILABLE_REASONS: frozenset[str] = frozenset(
         "quota_exceeded",
         "not_retained",
         "content_missing",
+        "fetch_exhausted",
     }
 )
 
@@ -179,8 +180,17 @@ class AttachmentDescriptor:
                     f"got {value!r}"
                 )
 
+    def _validate_optional_strings(self) -> None:
+        for name in ("filename", "mime_type"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value):
+                raise AttachmentDescriptorError(
+                    f"attachment {name} must be a non-empty string, got {value!r}"
+                )
+
     def _validate_declared(self) -> None:
         self._validate_kind()
+        self._validate_optional_strings()
         self._validate_numbers()
 
     def validate(self) -> None:
@@ -214,6 +224,7 @@ class AttachmentDescriptor:
                 f"{sorted(ATTACHMENT_UNAVAILABLE_REASONS)}, "
                 f"got {self.unavailable_reason!r}"
             )
+        self._validate_optional_strings()
         self._validate_numbers()
 
     # -- Derived states ---------------------------------------------------
@@ -361,13 +372,17 @@ class AttachmentDescriptor:
         descriptor.validate()
         return descriptor
 
+    def _key(self) -> tuple[object, ...]:
+        """Return raw descriptor state without persisted-form validation."""
+        return tuple(getattr(self, name) for name in self.__slots__)
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, AttachmentDescriptor):
             return NotImplemented
-        return self.to_payload() == other.to_payload()
+        return self._key() == other._key()
 
     def __hash__(self) -> int:
-        return hash(tuple(sorted(self.to_payload().items(), key=lambda kv: kv[0])))
+        return hash(self._key())
 
     def __repr__(self) -> str:
         return (

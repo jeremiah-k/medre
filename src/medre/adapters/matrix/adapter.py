@@ -23,7 +23,10 @@ from msgspec import structs as _msgspec_structs
 from medre.adapters.matrix.codec import MatrixCodec
 from medre.adapters.matrix.compat import HAS_NIO
 from medre.adapters.matrix.errors import (
+    MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY,
+    MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS,
     MATRIX_PERMANENT_ERRCODES,
+    MatrixAttachmentFetchDeferredError,
     MatrixConnectionError,
     MatrixMediaTransientError,
     MatrixMediaUnavailableError,
@@ -66,7 +69,6 @@ from medre.core.ingress import (
     IngressProvenance,
 )
 from medre.core.ingress.content import AttachmentContentUnavailableError
-from medre.core.ingress.types import DurableIngressDeferredError
 from medre.core.rendering.renderer import RenderingResult
 
 _logger = logging.getLogger(__name__)
@@ -1307,10 +1309,12 @@ class MatrixAdapter(AdapterContract):
 
         Permanent media problems admit the event descriptor-only with the
         stable reason — the sync cursor keeps advancing.  Transient
-        failures (network, timeouts, permit contention) raise
-        ``DurableIngressDeferredError`` so the existing durable-ingress
-        ownership redispatches; they are never converted into an immutable
-        unavailable admission.
+        failures (network, timeouts, permit contention) keep the native event
+        pending through Matrix durable-sync ownership.  The retry budget is
+        keyed by native room/event identity and persisted by the session; after
+        three transient acquisition failures the event is admitted descriptor-
+        only as ``fetch_exhausted`` so one unavailable object cannot block
+        admission forever.
         """
         if canonical.event_kind != EventKind.MESSAGE_FILE:
             return canonical, None
@@ -1401,25 +1405,24 @@ class MatrixAdapter(AdapterContract):
                 None,
             )
         except AttachmentTransferPermitTimeoutError as exc:
-            self._inbound_attachment_deferred += 1
-            raise DurableIngressDeferredError(
-                canonical.event_id, (f"attachment permit acquisition: {exc}",)
-            ) from exc
+            return self._defer_or_exhaust_attachment_fetch(
+                native_event, canonical, declared,
+                f"attachment permit acquisition: {exc}", exc,
+            )
         except asyncio.TimeoutError as exc:
-            self._inbound_attachment_deferred += 1
-            raise DurableIngressDeferredError(
-                canonical.event_id, ("attachment fetch timed out",)
-            ) from exc
+            return self._defer_or_exhaust_attachment_fetch(
+                native_event, canonical, declared, "attachment fetch timed out", exc
+            )
         except MatrixMediaTransientError as exc:
-            self._inbound_attachment_deferred += 1
-            raise DurableIngressDeferredError(
-                canonical.event_id, (f"attachment fetch transient failure: {exc}",)
-            ) from exc
+            return self._defer_or_exhaust_attachment_fetch(
+                native_event, canonical, declared,
+                f"attachment fetch transient failure: {exc}", exc,
+            )
         except OSError as exc:
-            self._inbound_attachment_deferred += 1
-            raise DurableIngressDeferredError(
-                canonical.event_id, (f"attachment fetch network failure: {exc}",)
-            ) from exc
+            return self._defer_or_exhaust_attachment_fetch(
+                native_event, canonical, declared,
+                f"attachment fetch network failure: {exc}", exc,
+            )
 
         self._inbound_attachment_retained += 1
         return (
@@ -1428,6 +1431,41 @@ class MatrixAdapter(AdapterContract):
             ),
             InboundAttachmentContent(data=data, declared_size=declared.size_bytes),
         )
+
+    def _defer_or_exhaust_attachment_fetch(
+        self,
+        native_event: dict[str, Any],
+        canonical: Any,
+        declared: Any,
+        reason: str,
+        exc: BaseException,
+    ) -> tuple[Any, None]:
+        """Defer a transient fetch or admit unavailable after its durable budget."""
+        raw_count = native_event.get(MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY, 0)
+        prior_count = (
+            raw_count
+            if (
+                isinstance(raw_count, int)
+                and not isinstance(raw_count, bool)
+                and raw_count >= 0
+            )
+            else 0
+        )
+        if prior_count >= MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS - 1:
+            self._inbound_attachment_unavailable += 1
+            if self.ctx is not None:
+                self.ctx.logger.warning(
+                    "MatrixAdapter %s: attachment fetch retry budget exhausted",
+                    self.adapter_id,
+                )
+            return (
+                self._event_with_attachment_payload(
+                    canonical, declared.with_unavailable("fetch_exhausted").to_payload()
+                ),
+                None,
+            )
+        self._inbound_attachment_deferred += 1
+        raise MatrixAttachmentFetchDeferredError(canonical.event_id, (reason,)) from exc
 
     # -- Codec access -------------------------------------------------------
 

@@ -92,6 +92,23 @@ class TestAttachmentDescriptor:
                 {ATTACHMENT_PAYLOAD_KEY: forged_reason}
             )
 
+    def test_declared_descriptor_equality_and_hash_skip_persisted_validation(
+        self,
+    ) -> None:
+        first = _declared()
+        second = _declared()
+
+        assert first == second
+        assert hash(first) == hash(second)
+        assert first != AttachmentDescriptor(
+            kind="image",
+            filename="other.png",
+            mime_type="image/png",
+            size_bytes=11,
+            width=4,
+            height=4,
+        )
+
     def test_retained_and_unavailable_are_exclusive(self) -> None:
         ref = "sha256:" + "0" * 64
         with pytest.raises(AttachmentDescriptorError):
@@ -136,6 +153,15 @@ class TestAttachmentDescriptor:
             attachment_descriptor_from_event_payload(
                 {ATTACHMENT_PAYLOAD_KEY: {**good.to_payload(), "size_bytes": True}}
             )
+
+    @pytest.mark.parametrize("field", ["filename", "mime_type"])
+    @pytest.mark.parametrize("bad", ["", 7, True])
+    def test_direct_construction_rejects_invalid_optional_strings(
+        self, field: str, bad: object
+    ) -> None:
+        descriptor = AttachmentDescriptor(kind="file", **{field: bad})
+        with pytest.raises(AttachmentDescriptorError):
+            descriptor.to_declared_payload()
 
     def test_kinds_are_the_neutral_four(self) -> None:
         assert ATTACHMENT_KINDS == {"image", "audio", "video", "file"}

@@ -34,7 +34,10 @@ from typing import Any, Callable, Iterable, Literal, cast
 
 import medre.adapters.matrix.compat as _compat_mod
 from medre.adapters.matrix.errors import (
+    MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY,
+    MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS,
     MATRIX_PERMANENT_ERRCODES,
+    MatrixAttachmentFetchDeferredError,
     MatrixConnectionError,
     is_nio_rate_limited_response,
 )
@@ -345,6 +348,8 @@ class MatrixSession:
         "_cross_signing_service",
         "_cross_signing_diagnostics",
         "_classic_ack_deferrals",
+        "_attachment_fetch_deferrals",
+        "_attachment_fetch_deferral_lock",
     )
 
     _UNDECRYPTABLE_DEDUP_WINDOW_SECS: float = 60.0
@@ -398,6 +403,10 @@ class MatrixSession:
         # Consecutive Classic Sync acknowledgements deferred because nio
         # recovery work was still active at ack time (campaign F4).
         self._classic_ack_deferrals: int = 0
+        # Stable-native Matrix media fetch deferrals persisted separately
+        # from the Classic Sync cursor.
+        self._attachment_fetch_deferrals: dict[str, int] = {}
+        self._attachment_fetch_deferral_lock = asyncio.Lock()
         # Sync recovery
         self._reconnect_attempts: int = 0
         self._reconnecting: bool = False
@@ -666,6 +675,7 @@ class MatrixSession:
         self._committed_sync_token = None
         self._recovered_event_count = 0
         self._history_event_count = 0
+        self._attachment_fetch_deferrals = {}
         self._recovery_abandoned_rooms = {}
         self._recovery_last_abandonment = None
         self._stop_requested = False
@@ -1162,12 +1172,42 @@ class MatrixSession:
                 self._recovered_event_count += 1
             elif provenance_value == "history":
                 self._history_event_count += 1
+            attachment_key = self._attachment_fetch_deferral_key(normalized)
+            if attachment_key is not None:
+                count = self._attachment_fetch_deferrals.get(attachment_key, 0)
+                if count:
+                    normalized[MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY] = count
             await self._admission_callback(normalized, ingress_provenance)
+            if (
+                attachment_key is not None
+                and attachment_key in self._attachment_fetch_deferrals
+            ):
+                await self._clear_attachment_fetch_deferral(attachment_key)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            # Expected deferral signal — translate to CallbackNotAcceptedError
-            # so nio keeps the event pending for redispatch.
+            # Attachment acquisition is pre-admission, so its retry budget is
+            # persisted against the stable native Matrix identity here rather
+            # than against the adapter's freshly decoded canonical UUID.
+            if isinstance(exc, MatrixAttachmentFetchDeferredError):
+                attachment_key = self._attachment_fetch_deferral_key(normalized)
+                if attachment_key is not None:
+                    try:
+                        await self._record_attachment_fetch_deferral(attachment_key)
+                    except Exception:
+                        # Checkpoint failure must not consume the native event.
+                        # Keep the in-memory count and reject the callback so
+                        # nio leaves the event pending for a later attempt.
+                        self._logger.exception(
+                            "Failed to persist Matrix attachment fetch deferral"
+                        )
+                rejection = self._resolve_callback_not_accepted_error()
+                if rejection is None:
+                    raise exc from None
+                raise rejection(str(exc)) from exc
+            # Other expected deferrals retain their existing unbounded
+            # ownership semantics; only attachment acquisition has a separate
+            # fixed retry budget.
             if isinstance(exc, DurableIngressDeferredError):
                 rejection = self._resolve_callback_not_accepted_error()
                 if rejection is None:
@@ -1184,6 +1224,87 @@ class MatrixSession:
                 getattr(event, "event_id", None),
             )
             raise
+
+    @staticmethod
+    def _attachment_fetch_deferral_key(normalized: dict[str, Any]) -> str | None:
+        """Return a non-secret stable key for one native Matrix timeline event."""
+        room_id = normalized.get("room_id")
+        event_id = normalized.get("event_id")
+        if not isinstance(room_id, str) or not room_id:
+            return None
+        if not isinstance(event_id, str) or not event_id:
+            return None
+        identity = f"{room_id}\0{event_id}".encode("utf-8")
+        return hashlib.sha256(identity).hexdigest()
+
+    async def _record_attachment_fetch_deferral(self, key: str) -> None:
+        """Persist one pre-admission attachment fetch deferral."""
+        async with self._attachment_fetch_deferral_lock:
+            current = self._attachment_fetch_deferrals.get(key, 0)
+            self._attachment_fetch_deferrals[key] = min(
+                current + 1, MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS - 1
+            )
+            await self._persist_attachment_fetch_deferrals()
+
+    async def _clear_attachment_fetch_deferral(self, key: str) -> None:
+        """Forget retry state after the native event is durably admitted."""
+        async with self._attachment_fetch_deferral_lock:
+            self._attachment_fetch_deferrals.pop(key, None)
+            try:
+                await self._persist_attachment_fetch_deferrals()
+            except Exception:
+                # Admission has already succeeded. A stale retry counter must
+                # not turn a durable success into a rejected Matrix callback;
+                # future duplicate admission remains idempotent and can clear
+                # it again.
+                self._logger.warning(
+                    "Failed to clear Matrix attachment fetch deferral checkpoint",
+                    exc_info=True,
+                )
+
+    async def _persist_attachment_fetch_deferrals(self) -> None:
+        committer = self._checkpoint_committer
+        if committer is None:
+            return
+        metadata = json.dumps(
+            {"attempts": dict(sorted(self._attachment_fetch_deferrals.items()))},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        await committer("matrix_attachment_fetch_deferrals", "v1", metadata)
+
+    async def _load_attachment_fetch_deferrals(self) -> None:
+        loader = self._checkpoint_loader
+        if loader is None:
+            return
+        checkpoint = await loader("matrix_attachment_fetch_deferrals")
+        self._attachment_fetch_deferrals = {}
+        if checkpoint is None or not checkpoint.metadata_json:
+            return
+        try:
+            stored = json.loads(checkpoint.metadata_json)
+            if not isinstance(stored, dict):
+                raise ValueError("checkpoint metadata must be an object")
+            attempts = stored.get("attempts", {})
+            if not isinstance(attempts, dict):
+                raise ValueError("attempts must be an object")
+            restored: dict[str, int] = {}
+            for key, count in attempts.items():
+                if (
+                    not isinstance(key, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", key) is None
+                    or isinstance(count, bool)
+                    or not isinstance(count, int)
+                    or count < 1
+                    or count >= MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS
+                ):
+                    raise ValueError("invalid attachment fetch deferral entry")
+                restored[key] = count
+            self._attachment_fetch_deferrals = restored
+        except (TypeError, ValueError):
+            self._logger.warning(
+                "Ignoring malformed Matrix attachment fetch deferral checkpoint"
+            )
 
     @staticmethod
     def _abandonment_metadata(response: Any) -> dict[str, tuple[str, ...]]:
@@ -1414,6 +1535,7 @@ class MatrixSession:
         if loader is None:
             raise RuntimeError("durable Matrix sync has no checkpoint loader")
         checkpoint = await loader("classic_sync")
+        await self._load_attachment_fetch_deferrals()
         self._committed_sync_token = (
             checkpoint.cursor if checkpoint is not None else None
         )
@@ -2739,6 +2861,11 @@ class MatrixSession:
             raise MatrixMediaUnavailableError(
                 f"encrypted attachment failed integrity verification: {exc}",
                 reason="integrity_failed",
+            ) from exc
+        except (ValueError, TypeError) as exc:
+            raise MatrixMediaUnavailableError(
+                f"encrypted attachment parameters are malformed: {exc}",
+                reason="malformed_source",
             ) from exc
 
     async def upload_media(

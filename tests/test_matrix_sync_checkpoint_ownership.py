@@ -14,6 +14,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from medre.adapters.matrix.errors import (
+    MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY,
+    MatrixAttachmentFetchDeferredError,
+)
 from medre.adapters.matrix.session import MatrixSession
 from medre.core.ingress.types import AdapterCheckpoint
 from tests.helpers.matrix_session import make_matrix_config
@@ -162,6 +166,165 @@ async def test_durable_deferred_admission_yields_callback_not_accepted(
 
     with pytest.raises(CallbackNotAcceptedError, match="capacity_full"):
         await session._on_nio_admission(room, event, SimpleNamespace(value="live"))
+
+
+async def test_attachment_fetch_deferral_count_survives_restart_and_clears_on_admission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CallbackNotAcceptedError(Exception):
+        pass
+
+    monkeypatch.setitem(
+        sys.modules,
+        "nio",
+        SimpleNamespace(CallbackNotAcceptedError=CallbackNotAcceptedError),
+    )
+    checkpoints: dict[str, AdapterCheckpoint] = {}
+
+    async def load(stream: str) -> AdapterCheckpoint | None:
+        return checkpoints.get(stream)
+
+    async def commit(stream: str, cursor: str, metadata: str) -> None:
+        checkpoints[stream] = AdapterCheckpoint(
+            adapter_id="matrix-test",
+            stream=stream,
+            cursor=cursor,
+            metadata_json=metadata,
+            updated_at="2026-09-26T00:00:00Z",
+        )
+
+    room = SimpleNamespace(room_id="!room:example.org")
+    event = SimpleNamespace(
+        sender="@alice:example.org",
+        event_id="$media",
+        body="photo.png",
+        source={
+            "event_id": "$media",
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+            "content": {"msgtype": "m.image", "body": "photo.png"},
+        },
+    )
+
+    seen_counts: list[int] = []
+
+    async def defer(normalized: dict[str, object], _provenance: str) -> None:
+        seen_counts.append(
+            int(normalized.get(MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY, 0))
+        )
+        raise MatrixAttachmentFetchDeferredError("generated-canonical", ("network",))
+
+    first = _durable_session(
+        admission_callback=defer,
+        checkpoint_loader=load,
+        checkpoint_committer=commit,
+    )
+    await first._load_attachment_fetch_deferrals()
+    with pytest.raises(CallbackNotAcceptedError):
+        await first._on_nio_admission(room, event, SimpleNamespace(value="live"))
+    assert seen_counts == [0]
+
+    accepted_counts: list[int] = []
+
+    async def accept(normalized: dict[str, object], _provenance: str) -> None:
+        accepted_counts.append(
+            int(normalized.get(MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY, 0))
+        )
+
+    restarted = _durable_session(
+        admission_callback=accept,
+        checkpoint_loader=load,
+        checkpoint_committer=commit,
+    )
+    await restarted._load_attachment_fetch_deferrals()
+    await restarted._on_nio_admission(room, event, SimpleNamespace(value="live"))
+
+    assert accepted_counts == [1]
+    saved = checkpoints["matrix_attachment_fetch_deferrals"]
+    assert json.loads(saved.metadata_json) == {"attempts": {}}
+
+
+async def test_attachment_fetch_checkpoint_failure_keeps_native_event_pending(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class CallbackNotAcceptedError(Exception):
+        pass
+
+    monkeypatch.setitem(
+        sys.modules,
+        "nio",
+        SimpleNamespace(CallbackNotAcceptedError=CallbackNotAcceptedError),
+    )
+
+    async def fail_commit(_stream: str, _cursor: str, _metadata: str) -> None:
+        raise OSError("disk full")
+
+    async def defer(_event: dict[str, object], _provenance: str) -> None:
+        raise MatrixAttachmentFetchDeferredError("generated-canonical", ("network",))
+
+    session = _durable_session(
+        admission_callback=defer,
+        checkpoint_committer=fail_commit,
+    )
+    room = SimpleNamespace(room_id="!room:example.org")
+    event = SimpleNamespace(
+        sender="@alice:example.org",
+        event_id="$media",
+        body="photo.png",
+        source={
+            "event_id": "$media",
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+            "content": {"msgtype": "m.image", "body": "photo.png"},
+        },
+    )
+
+    caplog.set_level("ERROR", logger="medre.adapters.matrix.session")
+    with pytest.raises(CallbackNotAcceptedError):
+        await session._on_nio_admission(room, event, SimpleNamespace(value="live"))
+
+    assert list(session._attachment_fetch_deferrals.values()) == [1]
+    assert any(
+        "Failed to persist Matrix attachment fetch deferral" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.parametrize(
+    "metadata_json",
+    [
+        "[]",
+        '{"attempts":[]}',
+        '{"attempts":{"not-a-digest":1}}',
+        '{"attempts":{"' + "a" * 64 + '":0}}',
+        '{"attempts":{"' + "a" * 64 + '":3}}',
+        '{"attempts":{"' + "a" * 64 + '":true}}',
+    ],
+)
+async def test_load_attachment_fetch_checkpoint_discards_malformed_metadata(
+    metadata_json: str,
+) -> None:
+    checkpoint = AdapterCheckpoint(
+        adapter_id="matrix-test",
+        stream="matrix_attachment_fetch_deferrals",
+        cursor="v1",
+        metadata_json=metadata_json,
+        updated_at="2026-09-26T00:00:00Z",
+    )
+
+    async def load(_stream: str) -> AdapterCheckpoint:
+        return checkpoint
+
+    logger = MagicMock()
+    session = _durable_session(checkpoint_loader=load, logger=logger)
+
+    await session._load_attachment_fetch_deferrals()
+
+    assert session._attachment_fetch_deferrals == {}
+    logger.warning.assert_called_once_with(
+        "Ignoring malformed Matrix attachment fetch deferral checkpoint"
+    )
 
 
 async def test_unexpected_runtime_error_propagates_and_is_logged(
@@ -397,6 +560,8 @@ async def test_load_checkpoint_restores_committed_cursor_and_clears_stale_recove
     )
 
     async def load(stream: str) -> AdapterCheckpoint | None:
+        if stream == "matrix_attachment_fetch_deferrals":
+            return None
         assert stream == "classic_sync"
         return checkpoint
 
@@ -437,7 +602,9 @@ async def test_load_checkpoint_warns_and_discards_malformed_nested_metadata(
         updated_at="2026-08-18T00:00:00Z",
     )
 
-    async def load(_stream: str) -> AdapterCheckpoint:
+    async def load(stream: str) -> AdapterCheckpoint | None:
+        if stream == "matrix_attachment_fetch_deferrals":
+            return None
         return checkpoint
 
     logger = MagicMock()

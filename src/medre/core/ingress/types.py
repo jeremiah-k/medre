@@ -21,11 +21,12 @@ INGRESS_WORK_STATUS_VALUES: frozenset[str] = frozenset(get_args(IngressWorkStatu
 class DurableIngressDeferredError(RuntimeError):
     """Signal that durable ingress must remain pending for a later attempt.
 
-    Raised only after canonical ingress admission has succeeded when routing
-    cannot safely transfer responsibility to durable delivery state.  The
-    ingress worker releases the work row back to ``pending`` without consuming
-    the terminal processing-failure budget.  A deferred row is retried on a later
-    poll cycle rather than repeatedly reclaimed in the same cycle.
+    This signal has two ownership points.  Before canonical admission, a
+    transport may use it to reject/redispatch the native event without advancing
+    its source cursor.  After canonical admission, the ingress worker uses it
+    when routing cannot safely transfer responsibility to durable delivery
+    state; the work row returns to ``pending`` without consuming the terminal
+    processing-failure budget.
     """
 
     def __init__(self, event_id: str, reasons: tuple[str, ...]) -> None:

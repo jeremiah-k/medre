@@ -15,11 +15,11 @@ previously stored files.
   (`image`/`audio`/`video`/`file`), filename, MIME type, optional
   dimensions/duration, and exactly one exclusive state — **retained**
   (`content_ref = sha256:<64 lowercase hex>`, `size_bytes` = measured
-  length) or **unavailable** (one of nine stable, secret-free reason codes:
+  length) or **unavailable** (one of ten stable, secret-free reason codes:
   `policy_disabled`, `history_suppressed`, `oversized`, `malformed_source`,
   `integrity_failed`, `unsupported_source`, `quota_exceeded`, `not_retained`,
-  `content_missing`). A third, wire-**declared** form exists only in flight
-  between adapter decode and admission and never persists. Transport
+  `content_missing`, `fetch_exhausted`). A third, wire-**declared** form exists
+  only in flight between adapter decode and admission and never persists. Transport
   provenance (MXC locators, wire `file` objects, encrypted-media key
   material) never enters the descriptor; adapters keep it in their own
   versioned `metadata.native.data` namespace.
@@ -84,6 +84,12 @@ previously stored files.
   snapshot, runtime-wide transfer permits (`max_concurrent_transfers`,
   closed at shutdown so in-flight transfers finish under their deadline and
   no new acquisition starts), and association-scoped content access.
+- Hardening from adversarial review: transient Matrix attachment acquisition is
+  capped at three attempts using a restart-persistent counter keyed by stable
+  native Matrix identity; exhaustion admits descriptor-only as
+  `fetch_exhausted` instead of leaving one event pending forever. Malformed
+  encrypted-media key/IV/hash values classify as `malformed_source`; fake
+  Matrix delivery now rejects an explicitly disabled attachment policy.
 - Hardening from adversarial review: quota-rejected bytes are never written or
   associated behind an unavailable descriptor; zero-byte attachments retain
   normally with measured size `0`; a transfer waiter that has not acquired a

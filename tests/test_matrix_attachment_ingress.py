@@ -22,7 +22,11 @@ import pytest
 
 from medre.adapters.matrix.adapter import MatrixAdapter
 from medre.adapters.matrix.codec import MatrixCodec
+from medre.adapters.matrix.session import MatrixSession
 from medre.adapters.matrix.errors import (
+    MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY,
+    MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS,
+    MatrixAttachmentFetchDeferredError,
     MatrixMediaTransientError,
     MatrixMediaUnavailableError,
 )
@@ -436,7 +440,7 @@ async def test_transient_media_error_defers_ingress_without_admission() -> None:
     session.download_result = MatrixMediaTransientError("upstream connection reset")
     adapter, admit = make_adapter(session, seam=make_seam())
 
-    with pytest.raises(DurableIngressDeferredError) as excinfo:
+    with pytest.raises(MatrixAttachmentFetchDeferredError) as excinfo:
         await adapter._on_room_message(media_event(), "live")
 
     assert isinstance(excinfo.value.event_id, str) and excinfo.value.event_id
@@ -444,6 +448,58 @@ async def test_transient_media_error_defers_ingress_without_admission() -> None:
     assert admit.calls == []
     assert adapter._inbound_attachment_deferred == 1
     assert adapter._inbound_attachment_unavailable == 0
+
+
+async def test_transient_media_error_exhausts_to_descriptor_only() -> None:
+    session = StubMatrixSession()
+    session.download_result = MatrixMediaTransientError("upstream connection reset")
+    adapter, admit = make_adapter(session, seam=make_seam())
+    event = media_event()
+    event[MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY] = (
+        MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS - 1
+    )
+
+    await adapter._on_room_message(event, "live")
+
+    assert len(admit.calls) == 1
+    assert admit.calls[0]["attachment"] is None
+    descriptor = admit.events[0].payload[ATTACHMENT_PAYLOAD_KEY]
+    assert descriptor["unavailable_reason"] == "fetch_exhausted"
+    assert adapter._inbound_attachment_deferred == 0
+    assert adapter._inbound_attachment_unavailable == 1
+
+
+def test_decrypt_media_attachment_maps_sdk_decode_errors_to_malformed_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    class EncryptionError(Exception):
+        pass
+
+    def fail_decode(*_args: object) -> bytes:
+        raise ValueError("invalid base64")
+
+    fake_nio = SimpleNamespace(
+        EncryptionError=EncryptionError,
+        crypto=SimpleNamespace(
+            attachments=SimpleNamespace(decrypt_attachment=fail_decode)
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "nio", fake_nio)
+    session = MatrixSession(make_config())
+    file_info = {
+        "v": "v2",
+        "key": {"kty": "oct", "alg": "A256CTR", "k": "bad"},
+        "iv": "bad",
+        "hashes": {"sha256": "bad"},
+    }
+
+    with pytest.raises(MatrixMediaUnavailableError) as excinfo:
+        session.decrypt_media_attachment(ciphertext=b"ciphertext", file_info=file_info)
+
+    assert excinfo.value.reason == "malformed_source"
 
 
 async def test_permit_contention_defers_ingress_without_fetch() -> None:

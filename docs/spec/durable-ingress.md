@@ -41,11 +41,14 @@ wire-declared size is evidence at most, never authority.
 
 The admission decision is honest under both failure classes:
 
-- **Transient failures stay retryable.** Permit contention, transfer
-  timeout, and network failure raise `DurableIngressDeferredError` after
-  admission has not yet happened for the event, so the existing
-  durable-ingress ownership redispatches the work without consuming the
-  terminal processing-failure budget.
+- **Transient failures stay retryable but bounded.** Permit contention,
+  transfer timeout, and network failure raise `DurableIngressDeferredError`
+  before the event is admitted. Matrix keeps the native event pending without
+  advancing its source cursor, while MEDRE persists a retry count keyed by the
+  native room/event identity. After three transient attachment-acquisition
+  failures, the event admits descriptor-only with `fetch_exhausted`; ordinary
+  post-admission durable-ingress deferrals retain their existing work-row
+  semantics and do not consume the terminal processing-failure budget.
 - **Permanent media problems admit descriptor-only.** Malformed locators,
   unsupported encrypted-media structures, digest mismatches, oversized or
   quota-rejected content, and media that is gone at the source produce an

@@ -248,13 +248,6 @@ class FakeMatrixAdapter(AdapterContract):
                 f"invalid Matrix outbound operation envelope: {exc}"
             ) from exc
 
-        if operation is not None:
-            self.sent_operations.append(operation)
-            _trim(self.sent_operations)
-
-        self.delivered_payloads.append(result)
-        _trim(self.delivered_payloads)
-
         if operation is not None and operation.kind == "send_media":
             # Mirror the real adapter's seam resolution: retained bytes load
             # through the association-scoped runtime seam only, and a
@@ -263,7 +256,9 @@ class FakeMatrixAdapter(AdapterContract):
             # fake accepts the operation (it has no homeserver to upload
             # to) so plain-envelope tests keep working.
             seam = self.ctx.attachments if self.ctx is not None else None
-            if seam is not None and seam.policy.enabled:
+            if seam is not None and not seam.policy.enabled:
+                raise AdapterPermanentError("attachment_unavailable:policy_disabled")
+            if seam is not None:
                 from medre.core.ingress.content import (
                     AttachmentContentUnavailableError,
                 )
@@ -278,6 +273,13 @@ class FakeMatrixAdapter(AdapterContract):
                     ) from exc
                 self.sent_media.append((operation.content_ref or "", stored.data))
                 _trim(self.sent_media)
+
+        if operation is not None:
+            self.sent_operations.append(operation)
+            _trim(self.sent_operations)
+
+        self.delivered_payloads.append(result)
+        _trim(self.delivered_payloads)
 
         if operation is not None and operation.kind == "redact_event":
             # A redaction's native ref records to its own canonical

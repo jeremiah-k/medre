@@ -573,6 +573,7 @@ Unavailable reason codes (stable, secret-free):
 | `quota_exceeded`     | Retained-bytes quota would be exceeded; the event admits without bytes     |
 | `not_retained`       | No durable admission path was available to retain the bytes                |
 | `content_missing`    | Media is gone or unretrievable at the source                               |
+| `fetch_exhausted`    | Repeated transient source fetches exhausted the bounded retry budget       |
 
 Content is never fabricated: an unavailable descriptor describes the
 attachment honestly and carries no usable content reference. Storage-side

@@ -170,9 +170,11 @@ bytes are acquired through a bounded model, in this order:
 
 Transient failures (network, timeout, permit contention) stay retryable via
 the durable-ingress deferral path
-([durable-ingress.md](durable-ingress.md)); permanent media problems admit
-the event descriptor-only with the stable reason and the sync cursor keeps
-advancing.
+([durable-ingress.md](durable-ingress.md)). MEDRE persists that acquisition
+budget against the stable native Matrix room/event identity; after three
+failed attempts the event admits descriptor-only as `fetch_exhausted` so the
+source cursor cannot remain blocked forever. Other permanent media problems
+admit descriptor-only with their stable reason and the sync cursor advances.
 
 ### 4.3 Media edits are rejected
 

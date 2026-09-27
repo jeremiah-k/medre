@@ -860,8 +860,10 @@ class TestSynapseEncryptedAttachmentSmoke:
                 assert downloaded == _MEDIA_BYTES
                 # No file key material in any persisted canonical evidence.
                 canonical = await storage.get(result.event_id)
-                assert "key" not in json.dumps(canonical.payload)
-                assert "iv" not in json.dumps(canonical.payload)
+                canonical_payload = json.dumps(canonical.payload)
+                assert keys["key"]["k"] not in canonical_payload
+                assert keys["iv"] not in canonical_payload
+                assert keys["hashes"]["sha256"] not in canonical_payload
                 report = {
                     "transport": "matrix",
                     "evidence_level": "docker_synapse_e2ee_source_media",

@@ -733,6 +733,30 @@ async def test_fake_adapter_forged_content_ref_is_permanent() -> None:
     ):
         await fake.deliver(send_media_result(event_id="evt-10"))
     assert fake.sent_media == []
+    assert fake.sent_operations == []
+    assert fake.delivered_payloads == []
+
+
+async def test_fake_adapter_disabled_policy_fails_closed() -> None:
+    store = StubContentStore(
+        stored=StoredAttachmentContent(
+            content_ref=CONTENT_REF,
+            size_bytes=len(STORED_BYTES),
+            data=STORED_BYTES,
+        )
+    )
+    fake = FakeMatrixAdapter("fake_mx")
+    await fake.start(make_fake_context(make_seam(store, enabled=False)))
+
+    with pytest.raises(
+        AdapterPermanentError, match="attachment_unavailable:policy_disabled"
+    ):
+        await fake.deliver(send_media_result(event_id="evt-disabled"))
+
+    assert store.calls == []
+    assert fake.sent_media == []
+    assert fake.sent_operations == []
+    assert fake.delivered_payloads == []
 
 
 async def test_fake_adapter_without_seam_accepts_send_media() -> None:
