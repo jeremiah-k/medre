@@ -66,6 +66,15 @@ _CONFIG_EXCLUSIVE_CONFLICT = _CONFIG_VALID.replace(
     "  second_exclusive:\n    source_adapters: [main]\n    dest_adapters: [radio]\n    directionality: source_to_dest\n    ownership: exclusive\n",
 )
 
+# Same overlap as above, but ownership is supplied exclusively through env vars.
+_CONFIG_ENV_OWNERSHIP_CONFLICT = _CONFIG_VALID.replace(
+    "    directionality: bidirectional\n",
+    "    directionality: source_to_dest\n",
+).replace(
+    "  paused:\n    source_adapters: [radio]\n    dest_adapters: [main]\n    directionality: source_to_dest\n    enabled: false\n",
+    "  second_exclusive:\n    source_adapters: [main]\n    dest_adapters: [radio]\n    directionality: source_to_dest\n",
+)
+
 # Config with no routes.
 _CONFIG_NO_ROUTES = """\
 runtime:
@@ -353,6 +362,38 @@ def test_exclusive_conflict_fails_routes_validate(tmp_path: Path) -> None:
     """`routes validate` reports the same conflicts as plan and startup."""
     cfg = _write_config(tmp_path, _CONFIG_EXCLUSIVE_CONFLICT)
     stdout, stderr, code = _run_cli_raw("routes", "validate", "--config", str(cfg))
+    assert code != 0
+    assert stderr == ""
+    assert "Exclusive routes 'bridge' and 'second_exclusive'" in stdout
+    assert "overlapping source specifications" in stdout
+
+
+def test_env_ownership_conflict_is_visible_to_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Offline planning applies ownership overrides before conflict checks."""
+    cfg = _write_config(tmp_path, _CONFIG_ENV_OWNERSHIP_CONFLICT)
+    monkeypatch.setenv("MEDRE_ROUTE__BRIDGE__OWNERSHIP", "exclusive")
+    monkeypatch.setenv("MEDRE_ROUTE__SECOND_EXCLUSIVE__OWNERSHIP", "exclusive")
+
+    stdout, stderr, code = _run_cli_raw("routes", "plan", "--config", str(cfg))
+
+    assert code != 0
+    assert stderr == ""
+    assert "Exclusive route conflicts (1):" in stdout
+    assert "bridge (bridge) overlaps second_exclusive (second_exclusive)" in stdout
+
+
+def test_env_ownership_conflict_is_visible_to_validate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Route validation uses the same effective env-overridden config as runtime."""
+    cfg = _write_config(tmp_path, _CONFIG_ENV_OWNERSHIP_CONFLICT)
+    monkeypatch.setenv("MEDRE_ROUTE__BRIDGE__OWNERSHIP", "exclusive")
+    monkeypatch.setenv("MEDRE_ROUTE__SECOND_EXCLUSIVE__OWNERSHIP", "exclusive")
+
+    stdout, stderr, code = _run_cli_raw("routes", "validate", "--config", str(cfg))
+
     assert code != 0
     assert stderr == ""
     assert "Exclusive routes 'bridge' and 'second_exclusive'" in stdout

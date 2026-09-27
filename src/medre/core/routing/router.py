@@ -226,6 +226,20 @@ class Router:
 
     # -- Validation -------------------------------------------------------
 
+    def find_conflicts(
+        self, replacements: Iterable[Route] = ()
+    ) -> list[tuple[str, str]]:
+        """Return conflicts after overlaying candidate route replacements.
+
+        Existing routes remain part of the candidate router state unless a
+        replacement carries the same route ID, matching :meth:`add_route`
+        semantics.  The router itself is not mutated.
+        """
+        candidates = dict(self._routes)
+        for route in replacements:
+            candidates[route.id] = route
+        return find_route_conflicts(candidates.values())
+
     def validate_no_conflicts(self) -> None:
         """Validate that no two exclusive routes have overlapping sources.
 
@@ -235,7 +249,7 @@ class Router:
             If two routes with ``ownership="exclusive"`` have source
             specifications that can match the same event.
         """
-        conflicts = find_route_conflicts(self._routes.values())
+        conflicts = self.find_conflicts()
         if conflicts:
             route_a_id, route_b_id = conflicts[0]
             raise RouteConflictError(route_a_id, route_b_id)

@@ -299,6 +299,29 @@ class TestAddRemoveRoutes:
         with pytest.raises(KeyError):
             router.remove_route("nope")
 
+    def test_find_conflicts_overlays_replacements_by_route_id(self) -> None:
+        replace_me = Route(
+            id="replace_me",
+            source=RouteSource(adapter="old", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="t1")],
+            ownership="exclusive",
+        )
+        other = Route(
+            id="other",
+            source=RouteSource(adapter="new", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="t2")],
+            ownership="exclusive",
+        )
+        replacement = Route(
+            id="replace_me",
+            source=RouteSource(adapter="new", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="t3")],
+            ownership="exclusive",
+        )
+        router = Router(routes=[replace_me, other])
+
+        assert router.find_conflicts([replacement]) == [("other", "replace_me")]
+
 
 # ===================================================================
 # RouteTarget resolution

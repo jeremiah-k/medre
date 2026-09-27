@@ -1087,7 +1087,6 @@ class RouteConfig:
     dest_adapters: tuple[str, ...]
     directionality: RouteDirectionality | str = RouteDirectionality.SOURCE_TO_DEST
     priority: int = 100
-    ownership: str = "shared"
     enabled: bool = True
     source_channel: str | None = None
     dest_channel: str | None = None
@@ -1099,6 +1098,7 @@ class RouteConfig:
     context_map: dict[str, ContextMapEntry] | None = None
     source_origin_label: str | None = None
     dest_origin_label: str | None = None
+    ownership: str = "shared"
 
     def __post_init__(self) -> None:
         """Normalize enum-typed fields and the ``context_map`` shape.

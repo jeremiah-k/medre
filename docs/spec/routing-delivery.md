@@ -1396,10 +1396,12 @@ transport SDK, or performing any network or hardware I/O.
 The `medre routes plan` operator command is the offline rendering of this
 expansion. Its properties:
 
-- **Startup-equivalent ownership validation.** The plan reports overlapping
+- **Startup-equivalent ownership validation.** The plan applies the same
+  environment overrides as runtime before expansion, then reports overlapping
   enabled exclusive expanded routes as blocking conflicts and exits with the
-  configuration-error status. This uses the same pure conflict detector as
-  runtime startup and performs no adapter I/O.
+  configuration-error status. `medre routes validate` uses the same effective
+  configuration. Both preflight paths use the same pure conflict detector as
+  runtime startup and perform no adapter I/O.
 - **Ownership visibility.** Each config route entry includes its `shared` /
   `exclusive` ownership value so the preflight output explains why overlap is
   permitted or rejected.

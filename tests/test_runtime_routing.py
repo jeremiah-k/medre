@@ -432,6 +432,42 @@ class TestRegisterRoutes:
         result = register_routes(router, rcs, frozenset({"a", "b", "c"}))
         assert [route.id for route in result.registered_routes] == ["exclusive_a"]
 
+    def test_conflict_with_existing_router_route_fails_before_mutation(self) -> None:
+        existing = Route(
+            id="existing",
+            source=RouteSource(adapter="a", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="b")],
+            ownership="exclusive",
+        )
+        router = Router(routes=[existing])
+        rcs = RouteConfigSet(
+            routes=(_rc("new", ("a",), ("c",), ownership="exclusive"),)
+        )
+
+        with pytest.raises(RouteConflictError, match="existing.*new|new.*existing"):
+            register_routes(router, rcs, frozenset({"a", "b", "c"}))
+
+        assert router.match(_make_event(source_adapter="a")) == [existing]
+
+    def test_same_id_candidate_replaces_existing_route_for_conflict_check(self) -> None:
+        existing = Route(
+            id="replace_me",
+            source=RouteSource(adapter="a", event_kinds=(), channel=None),
+            targets=[RouteTarget(adapter="b")],
+            ownership="exclusive",
+        )
+        router = Router(routes=[existing])
+        rcs = RouteConfigSet(
+            routes=(_rc("replace_me", ("a",), ("c",), ownership="exclusive"),)
+        )
+
+        result = register_routes(router, rcs, frozenset({"a", "b", "c"}))
+
+        assert [route.id for route in result.registered_routes] == ["replace_me"]
+        matched = router.match(_make_event(source_adapter="a"))
+        assert matched == list(result.registered_routes)
+        assert matched[0].targets[0].adapter == "c"
+
     def test_routes_registered_on_router(self) -> None:
         """Routes appear in Router.match() results."""
         rcs = RouteConfigSet(routes=(_rc("r1", ("a",), ("b",)),))

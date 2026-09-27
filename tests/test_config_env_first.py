@@ -35,6 +35,7 @@ from medre.config.routes import (
     ContextMapEntry,
     RouteConfig,
     RouteConfigSet,
+    RouteDestinationConfig,
     RouteDirectionality,
     RouteRetryConfig,
 )
@@ -1068,6 +1069,34 @@ class TestRouteOverridePreservesComplexFields:
         assert route.retry is not None
         assert route.retry.enabled is True
         assert route.retry.max_attempts == 5
+
+    def test_structured_destination_preserved_on_ownership_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        destination = RouteDestinationConfig(
+            kind="lxmf_destination",
+            destination_hash="a" * 32,
+            destination_name="mobile-peer",
+        )
+        route = RouteConfig(
+            route_id="toml-route",
+            source_adapters=("adapter-a",),
+            dest_adapters=("adapter-b",),
+            dest_destination=destination,
+        )
+        base = RuntimeConfig(
+            runtime=RuntimeOptions(name="test"),
+            logging=LoggingConfig(level="INFO"),
+            storage=StorageConfig(backend="sqlite", path="/tmp/test.db"),
+            adapters=AdapterConfigSet(),
+            routes=RouteConfigSet(routes=(route,)),
+        )
+        monkeypatch.setenv("MEDRE_ROUTE__TOML_ROUTE__OWNERSHIP", "exclusive")
+
+        overridden = apply_env_overrides(base).routes.routes[0]
+
+        assert overridden.ownership == "exclusive"
+        assert overridden.dest_destination == destination
 
 
 # ---------------------------------------------------------------------------

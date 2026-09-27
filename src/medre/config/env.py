@@ -1326,6 +1326,10 @@ def _build_route_data_from_env_fields(
             route_data["policy"] = dataclasses.asdict(existing.policy)
         if existing.retry is not None:
             route_data["retry"] = dataclasses.asdict(existing.retry)
+        if existing.dest_destination is not None:
+            route_data["dest_destination"] = dataclasses.asdict(
+                existing.dest_destination
+            )
         if existing.source_origin_label is not None:
             route_data["source_origin_label"] = existing.source_origin_label
         if existing.dest_origin_label is not None:

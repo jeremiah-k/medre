@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from medre.core.routing.models import Route
-from medre.core.routing.router import RouteConflictError, Router, find_route_conflicts
+from medre.core.routing.router import RouteConflictError, Router
 from medre.runtime.errors import RuntimeConfigError
 
 if TYPE_CHECKING:
@@ -562,7 +562,7 @@ def register_routes(
     routes = [leg.route for leg in legs]
     provenance = {leg.route.id: leg.config_route_id for leg in legs}
 
-    conflicts = find_route_conflicts(routes)
+    conflicts = router.find_conflicts(routes)
     if conflicts:
         route_a_id, route_b_id = conflicts[0]
         raise RouteConflictError(route_a_id, route_b_id)

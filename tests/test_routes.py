@@ -140,6 +140,19 @@ class TestRouteConfigValid:
         with pytest.raises(AttributeError):
             r.route_id = "changed"  # type: ignore[misc]
 
+    def test_new_ownership_field_preserves_existing_positional_signature(self) -> None:
+        route = RouteConfig(
+            "positional",
+            ("a",),
+            ("b",),
+            RouteDirectionality.SOURCE_TO_DEST,
+            7,
+            False,
+        )
+        assert route.priority == 7
+        assert route.enabled is False
+        assert route.ownership == "shared"
+
 
 # ---------------------------------------------------------------------------
 # RouteConfig — source_origin_label / dest_origin_label (function-style)

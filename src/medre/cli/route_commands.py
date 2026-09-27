@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING
 
+from medre.config.env import apply_env_overrides
 from medre.config.loader import load_config
 from medre.config.routes import RouteConfigSet, RouteDirectionality
 
@@ -19,6 +20,7 @@ def _routes_validate(config_path: str | None) -> None:
     """Load config and validate route definitions, printing a summary."""
     try:
         config, source, paths = load_config(config_path)
+        config = apply_env_overrides(config, paths)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
@@ -338,6 +340,7 @@ def _routes_plan(config_path: str | None, as_json: bool = False) -> None:
     """
     try:
         config, _source, _paths = load_config(config_path)
+        config = apply_env_overrides(config, _paths)
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)

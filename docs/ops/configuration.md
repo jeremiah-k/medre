@@ -103,7 +103,8 @@ redaction scope.
 `medre routes plan --config <path>` renders the expanded route topology
 the runtime will build, **without performing any live network or hardware
 I/O**. No adapter is started, no SDK is imported, no transport is
-contacted — the plan is computed purely from the parsed config.
+contacted — the plan is computed purely from the effective config after the
+same environment overrides runtime applies.
 
 What the plan shows:
 
