@@ -589,3 +589,48 @@ class TestTransferPermits:
                 raise RuntimeError("transfer failed mid-flight")
         async with permits.acquire():
             pass
+
+
+class TestDescriptorContractEdges:
+    def test_with_unavailable_rejects_unknown_reason(self) -> None:
+        descriptor = _declared()
+        with pytest.raises(AttachmentDescriptorError, match="unknown attachment"):
+            descriptor.with_unavailable("totally_not_a_reason")
+
+    def test_declared_payload_rejects_persisted_retention_fields(self) -> None:
+        from medre.core.events.attachments import (
+            declared_descriptor_from_event_payload,
+        )
+
+        retained = (
+            _declared().with_retained_content("sha256:" + "a" * 64, 11).to_payload()
+        )
+        with pytest.raises(AttachmentDescriptorError, match="allowed"):
+            declared_descriptor_from_event_payload({"attachment": retained})
+        unavailable = _declared().with_unavailable("oversized").to_payload()
+        with pytest.raises(AttachmentDescriptorError, match="allowed"):
+            declared_descriptor_from_event_payload({"attachment": unavailable})
+
+    def test_declared_descriptors_compare_and_hash_without_validation(self) -> None:
+        """Declared-form descriptors are equal/hashable pre-retention.
+
+        Their to_payload() would fail full validation (no content_ref and no
+        reason yet), so equality must not round-trip through the persisted
+        form.
+        """
+        left = _declared()
+        right = _declared()
+        assert left == right
+        assert hash(left) == hash(right)
+        assert left != AttachmentDescriptor(
+            kind="image",
+            filename="photo.png",
+            mime_type="image/png",
+            size_bytes=12,
+            width=4,
+            height=4,
+        )
+
+    def test_from_payload_rejects_boolean_numbers(self) -> None:
+        with pytest.raises(AttachmentDescriptorError, match="size_bytes"):
+            AttachmentDescriptor.from_payload({"kind": "file", "size_bytes": True})

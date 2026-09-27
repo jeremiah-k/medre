@@ -7,6 +7,9 @@ Run narrowly::
 
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import MagicMock
+
 import pytest
 
 from medre.config.errors import ConfigValidationError
@@ -123,3 +126,79 @@ class TestAttachmentEnvOverrides:
                 # cap violates the cross-field rule on revalidation
                 {"max_retained_bytes": "1"},
             )
+
+
+class TestRuntimeAttachmentSeam:
+    """The runtime assembles the transfer seam only when policy allows."""
+
+    @staticmethod
+    def _app(attachments: AttachmentConfig, storage: object) -> object:
+        from unittest.mock import MagicMock
+
+        from medre.runtime.app import MedreApp
+
+        return MedreApp(
+            config=RuntimeConfig(attachments=attachments),
+            paths=MagicMock(),
+            storage=storage,
+            rendering_pipeline=MagicMock(),
+            router=MagicMock(),
+            fallback_resolver=MagicMock(),
+            relation_resolver=MagicMock(),
+            pipeline_runner=MagicMock(),
+            diagnostician=MagicMock(),
+            adapters={},
+            shutdown_event=asyncio.Event(),
+            event_bus=MagicMock(),
+        )
+
+    def test_disabled_policy_assembles_nothing(self) -> None:
+        app = self._app(AttachmentConfig(enabled=False), storage=MagicMock())
+        app._assemble_attachment_seam()
+        assert app._attachment_seam is None
+        assert app._attachment_limits is None
+        assert app._attachment_permits is None
+
+    def test_enabled_without_storage_warns_and_assembles_nothing(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        app = self._app(AttachmentConfig(enabled=True), storage=None)
+        app._assemble_attachment_seam()
+        assert app._attachment_seam is None
+        assert any(
+            "durable storage is absent" in record.message for record in caplog.records
+        )
+
+    def test_enabled_with_storage_builds_bounded_seam(self) -> None:
+        from medre.adapters.matrix.outbound import CONTENT_REF_PATTERN  # noqa: F401
+        from medre.core.ingress.content import (
+            AttachmentPolicyState,
+            AttachmentRuntimeSeam,
+        )
+        from medre.core.storage.sqlite.storage import StorageAttachmentAccess
+
+        config = AttachmentConfig(
+            enabled=True,
+            max_attachment_bytes=2048,
+            max_retained_bytes=8192,
+            max_concurrent_transfers=3,
+            transfer_timeout_seconds=7.5,
+        )
+        app = self._app(config, storage=object())
+        app._assemble_attachment_seam()
+
+        seam = app._attachment_seam
+        assert isinstance(seam, AttachmentRuntimeSeam)
+        assert isinstance(seam.content, StorageAttachmentAccess)
+        assert seam.permits.closed is False
+        policy = seam.policy
+        assert isinstance(policy, AttachmentPolicyState)
+        assert policy.enabled is True
+        assert policy.max_attachment_bytes == 2048
+        assert policy.transfer_timeout_seconds == 7.5
+        assert app._attachment_limits is not None
+        assert app._attachment_limits.max_retained_bytes == 8192
+
+        # Shutdown closes the permit gate exactly once.
+        app._attachment_permits.close()
+        assert seam.permits.closed is True

@@ -809,3 +809,160 @@ async def test_fake_adapter_without_seam_accepts_send_media() -> None:
     assert operation.kind == "send_media"
     assert operation.content_ref == CONTENT_REF
     assert handoff.native_message_id == "$fake_evt-11"
+
+
+# ---------------------------------------------------------------------------
+# Renderer: media relations
+# ---------------------------------------------------------------------------
+
+
+def _bound_relation(kind: str, native_id: str) -> EventRelation:
+    from medre.core.events.canonical import RelationTargetFact
+
+    return EventRelation(
+        kind,
+        "$target-canonical",
+        None,
+        None,
+        None,
+        target_fact=RelationTargetFact(
+            status="bound_owned",
+            adapter="mx",
+            native_channel_id=ROOM_ID,
+            native_message_id=native_id,
+            direction="outbound",
+        ),
+    )
+
+
+async def _render_media_with_relations(relations: tuple[EventRelation, ...]) -> dict:
+    from msgspec import structs as msgspec_structs
+
+    event = msgspec_structs.replace(retained_media_event(), relations=relations)
+    result = await MatrixRenderer().render(event, render_ctx())
+    return result.payload[MATRIX_OPERATION_KEY]["content"]
+
+
+async def test_render_media_thread_with_reply_is_explicit() -> None:
+    template = await _render_media_with_relations(
+        (_bound_relation("thread", "$root-native"), _bound_relation("reply", "$parent"))
+    )
+    assert template["m.relates_to"] == {
+        "rel_type": "m.thread",
+        "event_id": "$root-native",
+        "is_falling_back": False,
+        "m.in_reply_to": {"event_id": "$parent"},
+    }
+
+
+async def test_render_media_thread_without_reply_falls_back_to_root() -> None:
+    template = await _render_media_with_relations(
+        (_bound_relation("thread", "$root-native"),)
+    )
+    assert template["m.relates_to"] == {
+        "rel_type": "m.thread",
+        "event_id": "$root-native",
+        "is_falling_back": True,
+        "m.in_reply_to": {"event_id": "$root-native"},
+    }
+
+
+async def test_render_media_plain_reply_only() -> None:
+    template = await _render_media_with_relations(
+        (_bound_relation("reply", "$parent"),)
+    )
+    assert template["m.relates_to"] == {"m.in_reply_to": {"event_id": "$parent"}}
+
+
+# ---------------------------------------------------------------------------
+# Adapter: delivery guards and transient classification
+# ---------------------------------------------------------------------------
+
+
+async def test_deliver_requires_started_session() -> None:
+    stored = StoredAttachmentContent(
+        content_ref=CONTENT_REF, size_bytes=7, data=STORED_BYTES
+    )
+    session = StubEgressSession()
+    adapter = make_adapter(session, make_seam(StubContentStore(stored=stored)))
+    adapter._session = None
+
+    with pytest.raises(AdapterPermanentError, match="session is not initialized"):
+        await adapter.deliver(send_media_result())
+
+
+async def test_deliver_auto_join_failure_is_permanent() -> None:
+    class NoJoinSession(StubEgressSession):
+        def is_room_member(self, room_id: str) -> bool:
+            return False
+
+        async def ensure_joined(self, room_id: str) -> bool:
+            return False
+
+    config = MatrixConfig(
+        adapter_id="mx",
+        homeserver="http://hs",
+        user_id="@bot:hs",
+        access_token="t",
+        room_allowlist={ROOM_ID},
+        auto_join_rooms=(ROOM_ID,),
+        encryption_mode="plaintext",
+    ).validate()
+    adapter = MatrixAdapter(config)
+    adapter._session = NoJoinSession()
+    adapter._started = True
+
+    async def publish_inbound(event: Any) -> None:
+        return None
+
+    adapter.ctx = AdapterContext(
+        adapter_id="mx",
+        publish_inbound=publish_inbound,
+        logger=logging.getLogger("test.matrix.send_media"),
+        clock=lambda: datetime.now(tz=UTC),
+        shutdown_event=asyncio.Event(),
+        attachments=make_seam(
+            StubContentStore(
+                stored=StoredAttachmentContent(
+                    content_ref=CONTENT_REF, size_bytes=7, data=STORED_BYTES
+                )
+            )
+        ),
+    )
+
+    with pytest.raises(AdapterPermanentError, match="auto-join"):
+        await adapter.deliver(send_media_result())
+
+
+async def test_deliver_encrypted_upload_without_keys_is_permanent() -> None:
+    stored = StoredAttachmentContent(
+        content_ref=CONTENT_REF, size_bytes=7, data=STORED_BYTES
+    )
+    session = StubEgressSession(
+        encrypted=True,
+        upload_responses=[(SimpleNamespace(content_uri="mxc://hs/up1"), None)],
+    )
+    adapter = make_adapter(session, make_seam(StubContentStore(stored=stored)))
+
+    with pytest.raises(AdapterPermanentError, match="no decryption metadata"):
+        await adapter.deliver(send_media_result())
+    assert adapter._permanent_delivery_failures == 1
+
+
+def test_transient_error_classifier_matches_transport_shapes() -> None:
+    from medre.adapters.matrix.adapter import _is_transient_error
+
+    assert _is_transient_error(OSError("connection reset")) is True
+    assert _is_transient_error(asyncio.TimeoutError()) is True
+    assert _is_transient_error(RuntimeError("logic bug")) is False
+
+    class LocalProtocolError(Exception):
+        pass
+
+    assert _is_transient_error(LocalProtocolError("nio transport")) is True
+
+    class ClientError(Exception):
+        pass
+
+    ClientError.__module__ = "aiohttp.client_proto"
+    assert _is_transient_error(ClientError("aiohttp transport")) is True
