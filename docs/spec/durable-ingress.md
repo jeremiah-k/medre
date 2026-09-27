@@ -48,7 +48,10 @@ The admission decision is honest under both failure classes:
   native room/event identity. After three transient attachment-acquisition
   failures, the event admits descriptor-only with `fetch_exhausted`; ordinary
   post-admission durable-ingress deferrals retain their existing work-row
-  semantics and do not consume the terminal processing-failure budget.
+  semantics and do not consume the terminal processing-failure budget. The
+  retry-count checkpoint is bounded: entries clear on admission or when an
+  event is consumed without a further dispatch, and recording past a fixed
+  cap evicts the least recently deferred identity.
 - **Permanent media problems admit descriptor-only.** Malformed locators,
   unsupported encrypted-media structures, digest mismatches, oversized or
   quota-rejected content, and media that is gone at the source produce an
