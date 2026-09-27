@@ -1,15 +1,14 @@
 """Failure-kind classification shared between recover and evidence.
 
-Provides :func:`infer_failure_kind` and :func:`failure_category` — reusable
-helpers that reconstruct a best-effort failure classification from the error
-message patterns produced by the delivery pipeline.
+The persisted ``failure_kind`` on a receipt is the machine authority; this
+module maps it to recovery categories and recommended operator commands.
+Nothing reconstructs a classification from error wording.
 
 Public symbols
 --------------
 * :data:`RETRYABLE_KINDS` — frozenset of retryable failure-kind strings.
 * :data:`PERMANENT_KINDS` — frozenset of permanent failure-kind strings.
 * :data:`OPERATIONAL_KINDS` — frozenset of operational failure-kind strings.
-* :func:`infer_failure_kind` — infer failure-kind from receipt error/status.
 * :func:`failure_category` — map a failure-kind to a recovery category.
 * :func:`recommended_commands` — suggested next commands for a category.
 """
@@ -20,7 +19,6 @@ __all__ = [
     "RETRYABLE_KINDS",
     "PERMANENT_KINDS",
     "OPERATIONAL_KINDS",
-    "infer_failure_kind",
     "failure_category",
     "recommended_commands",
 ]
@@ -62,55 +60,12 @@ OPERATIONAL_KINDS: frozenset[str] = frozenset(
 """Failure kinds caused by operational conditions (capacity, shutdown, deadline)."""
 
 
-def infer_failure_kind(error: str | None, status: str) -> str:
-    """Infer a failure-kind string from receipt error and status fields.
+def failure_category(failure_kind: str | None) -> str:
+    """Map a persisted failure-kind string to a recovery category.
 
-    Current receipts persist ``failure_kind`` directly and callers should prefer
-    that durable value. This helper is a fallback for legacy/partial evidence
-    where the field is missing, reconstructing a best-effort classification
-    from error/status patterns only.
-    """
-    err = (error or "").lower()
-    # Operational: capacity / shutdown / deadline
-    if "delivery_capacity_exceeded" in err or "capacity" in err:
-        return "capacity_rejection"
-    if "delivery_rejected_shutdown" in err or "shutdown" in err:
-        return "shutdown_rejection"
-    if "deadline_exceeded" in err or "deadline" in err:
-        return "deadline_exceeded"
-    # Permanent: renderer / adapter-missing
-    if "renderer" in err or "no renderer" in err:
-        return "renderer_failure"
-    if "adapter_missing" in err or "not registered" in err:
-        return "adapter_missing"
-    if "planner" in err:
-        return "planner_failure"
-    # Permanent: policy suppression
-    if "policy_suppressed" in err or "route policy denied" in err:
-        return "policy_suppressed"
-    # Retryable: transient signals
-    if any(
-        s in err
-        for s in ("timeout", "connectionerror", "connection reset", "temporary")
-    ):
-        return "adapter_transient"
-    # ``dead_lettered`` is lifecycle authority, not a failure-kind signal:
-    # it can represent exhausted transient retries or an immediately terminal
-    # permanent failure. Without a persisted kind or a recognizable error
-    # pattern, preserve that ambiguity instead of inventing retryability.
-    if status == "dead_lettered":
-        return "unknown"
-    # Outbox ownership skip
-    if "outbox_not_owned" in err or "outbox row not owned" in err:
-        return "outbox_not_owned"
-    # Default: permanent for unclassifiable failures
-    if error:
-        return "adapter_permanent"
-    return "unknown"
-
-
-def failure_category(failure_kind: str) -> str:
-    """Map a failure-kind string to a recovery category.
+    ``None`` maps to ``"unknown"``: receipts without a failure kind carry
+    no machine-readable classification and nothing is reconstructed from
+    error wording.
 
     Returns one of: ``"retryable"``, ``"permanent"``, ``"operational"``,
     ``"unknown"``.

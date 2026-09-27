@@ -72,6 +72,9 @@ def _receipt(
         "target_channel": target_channel,
         "route_id": route_id,
         "status": status,
+        "receipt_kind": (
+            "attempt" if status in {"queued", "sent", "failed"} else "lifecycle"
+        ),
         "attempt_number": attempt_number,
         "sequence": sequence,
         "source": source,

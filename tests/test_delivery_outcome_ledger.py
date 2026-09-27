@@ -754,6 +754,7 @@ class TestDictInput:
             "route_id": "route-dict",
             "status": "sent",
             "attempt_number": 1,
+            "receipt_kind": "attempt",
             "source": "live",
         }
         ledger = build_delivery_outcome_ledger(receipts=[receipt_dict])

@@ -84,6 +84,9 @@ def _receipt(
     d: dict = {
         "receipt_id": receipt_id,
         "status": status,
+        "receipt_kind": (
+            "attempt" if status in {"queued", "sent", "failed"} else "lifecycle"
+        ),
         "delivery_plan_id": delivery_plan_id,
         "target_adapter": target_adapter,
         "target_channel": target_channel,

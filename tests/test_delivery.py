@@ -1267,31 +1267,11 @@ class TestRouteStats:
 class TestPolicySuppressedClassification:
     """Verify policy_suppressed classification and reporting."""
 
-    def test_infer_failure_kind_policy_suppressed_text(self) -> None:
-        """Error text containing 'policy_suppressed' infers policy_suppressed."""
-        from medre.core.observability.classification import infer_failure_kind
+    def test_failure_category_none_is_unknown(self) -> None:
+        """A missing failure kind classifies as unknown, never guessed."""
+        from medre.core.observability.classification import failure_category
 
-        assert (
-            infer_failure_kind("policy_suppressed for target", "failed")
-            == "policy_suppressed"
-        )
-
-    def test_infer_failure_kind_route_policy_denied(self) -> None:
-        """Error text containing 'route policy denied' infers policy_suppressed."""
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert (
-            infer_failure_kind("route policy denied for target", "failed")
-            == "policy_suppressed"
-        )
-
-    def test_infer_failure_kind_case_insensitive(self) -> None:
-        """Inference is case-insensitive."""
-        from medre.core.observability.classification import infer_failure_kind
-
-        assert (
-            infer_failure_kind("Route Policy Denied", "failed") == "policy_suppressed"
-        )
+        assert failure_category(None) == "unknown"
 
     def test_failure_category_permanent(self) -> None:
         """policy_suppressed maps to the 'permanent' category."""

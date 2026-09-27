@@ -17,7 +17,6 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
 )
 from medre.core.events.metadata import EventMetadata
-from medre.core.observability.classification import infer_failure_kind
 from medre.core.planning.delivery_plan import (
     DeliveryPlan,
     DeliveryStrategy,
@@ -157,12 +156,35 @@ class RetryWorker:
     def _is_retryable(receipt: DeliveryReceipt) -> bool:
         if receipt.status != "failed":
             return False
-        # Use the persisted failure_kind when available; fall back to
-        # error-pattern inference for receipts that lack it.
-        if receipt.failure_kind is not None:
-            return receipt.failure_kind == "adapter_transient"
-        kind = infer_failure_kind(receipt.error, receipt.status)
-        return kind == "adapter_transient"
+        return receipt.failure_kind == "adapter_transient"
+
+
+_KIND_FOR_ERROR: tuple[tuple[str, str], ...] = (
+    ("timeout", "adapter_transient"),
+    ("connectionerror", "adapter_transient"),
+    ("connection reset", "adapter_transient"),
+    ("temporary", "adapter_transient"),
+    ("permission denied", "adapter_permanent"),
+    ("renderer", "renderer_failure"),
+    ("adapter_missing", "adapter_missing"),
+    ("not registered", "adapter_missing"),
+    ("delivery_capacity_exceeded", "capacity_rejection"),
+    ("delivery_rejected_shutdown", "shutdown_rejection"),
+    ("deadline_exceeded", "deadline_exceeded"),
+)
+
+
+def _kind_for_error(error: str | None) -> str:
+    """Map a test error string to its failure kind.
+
+    Test fixtures build failed receipts with the structured kind their
+    assertions rely on; production persists the kind at write time.
+    """
+    err = (error or "").lower()
+    for needle, kind in _KIND_FOR_ERROR:
+        if needle in err:
+            return kind
+    return "adapter_permanent"
 
 
 # ---------------------------------------------------------------------------
@@ -201,10 +223,9 @@ def _make_failed_receipt(
 ) -> DeliveryReceipt:
     if next_retry_at is None:
         next_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-    # Infer failure_kind from error if not explicitly set.
+    # Failed test receipts carry the structured kind production persists.
     if failure_kind is None:
-        kind = infer_failure_kind(error, "failed")
-        failure_kind = kind
+        failure_kind = _kind_for_error(error)
     return DeliveryReceipt(
         receipt_id=receipt_id,
         event_id=event_id,

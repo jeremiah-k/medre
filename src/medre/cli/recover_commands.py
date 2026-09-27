@@ -38,9 +38,6 @@ from medre.core.observability.classification import (
     failure_category as _failure_category,
 )
 from medre.core.observability.classification import (
-    infer_failure_kind as _infer_failure_kind,
-)
-from medre.core.observability.classification import (
     recommended_commands as _recommended_commands,
 )
 from medre.core.observability.sanitization import sanitize_error
@@ -215,9 +212,7 @@ async def _build_event_recovery_runbook(
 
         r = current
         error_msg = getattr(r, "error", None)
-        inferred = getattr(r, "failure_kind", None) or _infer_failure_kind(
-            error_msg, r.status
-        )
+        inferred = getattr(r, "failure_kind", None)
         cat = _failure_category(inferred)
         entry: dict[str, Any] = {
             "target_adapter": r.target_adapter,

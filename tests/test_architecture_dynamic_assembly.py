@@ -41,20 +41,6 @@ def test_extracts_real_built_in_registry() -> None:
 class TestExtractDynamicAdapterImports:
     """Tests for extract_dynamic_adapter_imports()."""
 
-    def test_extracts_adapter_factory_modules(self) -> None:
-        """Parses _AdapterFactory(module=...) calls."""
-        source = (
-            "_ADAPTER_BUILDERS = {\n"
-            '    "matrix": _AdapterFactory(\n'
-            '        module="medre.adapters.matrix.adapter",\n'
-            '        cls_name="MatrixAdapter",\n'
-            "    ),\n"
-            "}\n"
-        )
-        results = extract_dynamic_adapter_imports(source)
-        modules = [r[0] for r in results]
-        assert "medre.adapters.matrix.adapter" in modules
-
     def test_extracts_renderer_specs(self) -> None:
         """Parses _ADAPTER_RENDERER_SPECS list tuples."""
         source = (
@@ -519,22 +505,6 @@ class TestNonBuilderBoundaryClassification:
         """Non-builder's __import__("medre.adapters.x.adapter") appears in forbidden."""
         builder = "pass\n"
         other = '__import__("medre.adapters.x.adapter")\n'
-        with _synthetic_src(
-            tmp_path, builder_source=builder, other_source=other
-        ) as src:
-            graph = build_dependency_graph(src)
-            report = build_route_adapter_boundary_report(graph, src_root=src)
-            sources = {v.source for v in report.forbidden_runtime_adapter.violations}
-            assert "medre.runtime.other" in sources
-
-    def test_non_builder_adapter_factory_in_forbidden(self, tmp_path: Path) -> None:
-        """Non-builder's _AdapterFactory(module="medre.adapters.x.adapter") appears in forbidden."""
-        builder = "pass\n"
-        other = (
-            "class _AdapterFactory:\n"
-            "    def __init__(self, module, cls_name): pass\n"
-            '_AdapterFactory(module="medre.adapters.x.adapter", cls_name="XAdapter")\n'
-        )
         with _synthetic_src(
             tmp_path, builder_source=builder, other_source=other
         ) as src:

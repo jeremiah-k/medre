@@ -50,6 +50,9 @@ class _FakeReceipt:
         self.target_channel = None
         self.route_id = "route-1"
         self.status = status
+        self.receipt_kind = (
+            "attempt" if status in {"queued", "sent", "failed"} else "lifecycle"
+        )
         self.attempt_number = attempt_number
         self.error = error
         self.failure_kind = None

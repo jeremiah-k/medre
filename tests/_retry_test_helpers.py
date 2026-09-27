@@ -16,7 +16,6 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
 )
 from medre.core.events.metadata import EventMetadata
-from medre.core.observability.classification import infer_failure_kind
 from medre.core.planning.delivery_plan import RetryExecutor, RetryPolicy
 from medre.core.routing.models import Route, RouteSource, RouteTarget
 from medre.core.supervision.accounting import RuntimeAccounting
@@ -138,10 +137,7 @@ class RetryWorker:
     def _is_retryable(receipt: DeliveryReceipt) -> bool:
         if receipt.status != "failed":
             return False
-        if receipt.failure_kind is not None:
-            return receipt.failure_kind == "adapter_transient"
-        kind = infer_failure_kind(receipt.error, receipt.status)
-        return kind == "adapter_transient"
+        return receipt.failure_kind == "adapter_transient"
 
     @staticmethod
     def _make_route(receipt):
@@ -219,6 +215,12 @@ def _make_failed_receipt(
     error: str = "ConnectionError: timeout",
     attempt_number: int = 1,
 ) -> DeliveryReceipt:
+    err = error.lower()
+    kind = (
+        "adapter_transient"
+        if "timeout" in err or "connection" in err
+        else "adapter_permanent"
+    )
     return DeliveryReceipt(
         receipt_id=receipt_id,
         event_id="evt-001",
@@ -227,6 +229,7 @@ def _make_failed_receipt(
         route_id="route-1",
         status="failed",
         error=error,
+        failure_kind=kind,
         next_retry_at=datetime.now(timezone.utc) - timedelta(seconds=1),
         attempt_number=attempt_number,
         created_at=datetime.now(timezone.utc),

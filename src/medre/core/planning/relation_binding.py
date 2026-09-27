@@ -11,7 +11,8 @@ Binding is deliberately conservative and destination-scoped:
   ``metadata`` and any other wire/user-supplied data are never inputs.
 * When the destination context is known, candidates must match the exact
   ``(adapter, native_channel_id)`` pair; adapter-only matching is allowed
-  only when no destination context is known (legacy replay contexts).
+  only when the route carries no explicit destination channel, so no
+  native context exists to match against.
 * Identical ``(native_channel_id, native_message_id)`` tuples are deduped;
   more than one DISTINCT tuple is ``ambiguous`` — core never guesses.
 * Mutation relations (``edit`` / ``delete``) additionally require the
@@ -208,8 +209,8 @@ class RelationBindingAuthority:
                 facts for the mutation ``bound_owned`` proof.
             target_adapter: EXACT destination adapter instance id.
             target_channel: EXACT destination native context (e.g. room id).
-                ``None`` allows adapter-only matching (legacy replay
-                contexts).
+                ``None`` allows adapter-only matching for routes without
+                an explicit destination channel.
             cached_get_fn: Optional memoized ``storage.get`` callable.
             cached_list_fn: Optional memoized
                 ``storage.list_native_refs_for_event`` callable.
