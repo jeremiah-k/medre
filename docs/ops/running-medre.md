@@ -743,12 +743,25 @@ MEDRE does not rotate logs internally. Use external log rotation (logrotate, Doc
 
 ### Capacity Bounding
 
-The `CapacityController` manages two independent semaphores:
+The `CapacityController` manages three independent semaphores:
 
-| Stream   | Config field                 | Default bound | What it limits                                           |
-| -------- | ---------------------------- | ------------- | -------------------------------------------------------- |
-| Delivery | `max_inflight_deliveries`    | 100           | Concurrent adapter `deliver()` calls across all adapters |
-| Replay   | `max_inflight_replay_events` | 100           | Concurrent replay event deliveries                       |
+| Stream   | Config field                      | Default bound | What it limits                                            |
+| -------- | --------------------------------- | ------------- | --------------------------------------------------------- |
+| Delivery | `max_inflight_deliveries`         | 100           | Concurrent adapter `deliver()` calls across all adapters  |
+| Replay   | `max_inflight_replay_events`      | 100           | Concurrent replay event deliveries                        |
+| Inbound  | `max_inflight_inbound_admissions` | 100           | Concurrent durable ingress admissions across all adapters |
+
+Inbound is admission-gated before durability: the radio transports schedule one
+ingress coroutine per SDK callback with no transport-level bound, so every
+inbound publish and protocol-provenance admission crosses the gate first. The
+wait queue is bounded at the admission limit itself; overflow, waiting past
+`inbound_admission_timeout_seconds` (default 5.0s), or arriving after inbound
+acceptance closed raises `InboundAdmissionRejected` — adapters count and log it
+as ingress loss, and the capacity snapshot exposes wait depth, the oldest
+pending wait age, and rejection and timeout counters without event payloads.
+During shutdown, inbound acceptance stays open while adapters stop so late
+callbacks persist rows for the next runtime generation; it closes after the
+last adapter, and outstanding admissions drain before storage closes.
 
 When a direct delivery or replay event cannot acquire a slot within
 `delivery_acquire_timeout_seconds` (default 1.0s), the operation is rejected and

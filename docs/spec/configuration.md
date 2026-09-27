@@ -73,12 +73,14 @@ changing the root config model.
 
 ### 2.4 RuntimeLimits
 
-| Field                              | Default | Description                          |
-| ---------------------------------- | ------- | ------------------------------------ |
-| `max_inflight_deliveries`          | `100`   | Max concurrent in-flight deliveries  |
-| `max_inflight_replay_events`       | `100`   | Max concurrent replay events         |
-| `shutdown_drain_timeout_seconds`   | `10`    | Max wait for in-flight work to drain |
-| `delivery_acquire_timeout_seconds` | `1.0`   | Timeout acquiring a delivery slot    |
+| Field                               | Default | Description                          |
+| ----------------------------------- | ------- | ------------------------------------ |
+| `max_inflight_deliveries`           | `100`   | Max concurrent in-flight deliveries  |
+| `max_inflight_replay_events`        | `100`   | Max concurrent replay events         |
+| `shutdown_drain_timeout_seconds`    | `10`    | Max wait for in-flight work to drain |
+| `delivery_acquire_timeout_seconds`  | `1.0`   | Timeout acquiring a delivery slot    |
+| `max_inflight_inbound_admissions`   | `100`   | Max concurrent inbound admissions    |
+| `inbound_admission_timeout_seconds` | `5.0`   | Inbound admission wait before reject |
 
 ### 2.5 RetryConfig
 

@@ -1439,6 +1439,11 @@ class MedreApp:
                 "processing terminates."
             )
 
+        # Inbound acceptance deliberately stays open here: late adapter
+        # callbacks during teardown may still cross durable admission so
+        # their rows remain pending for the next runtime generation (see
+        # the capacity-and-shutdown handoff in the durable-ingress spec).
+        # Delivery/replay acceptance is what closes now.
         if self._capacity_controller is not None:
             self._capacity_controller.stop_accepting()
 
@@ -1651,6 +1656,33 @@ class MedreApp:
             self._attachment_permits = None
             self._attachment_seam = None
 
+        # 1.9.6 Inbound admission closes only after every adapter stopped:
+        # with no callback source left, close acceptance and wait for any
+        # still-crossing admissions to finish before the pipeline runner
+        # and storage go away. Outstanding admissions past the deadline
+        # are shutdown-visible (their rows may not have committed).
+        inbound_drain_abandoned = False
+        if self._capacity_controller is not None:
+            self._capacity_controller.stop_accepting_inbound()
+            while _time.monotonic() < drain_deadline:
+                if self._capacity_controller.snapshot()["inbound_current"] == 0:
+                    _logger.info("Inbound admissions drained")
+                    break
+                try:
+                    await asyncio.sleep(0.1)
+                except asyncio.CancelledError:
+                    _deferred_cancel_count += _drain_pending_cancellations()
+                    _logger.debug("Cancelled during inbound admission drain (deferred)")
+            else:
+                inbound_drain_abandoned = (
+                    self._capacity_controller.snapshot()["inbound_current"] > 0
+                )
+                if inbound_drain_abandoned:
+                    _logger.error(
+                        "Inbound admissions still in flight at the drain "
+                        "deadline; their durable rows may not have committed"
+                    )
+
         # 2. Stop the pipeline runner.
         try:
             await self.pipeline_runner.stop()
@@ -1678,6 +1710,7 @@ class MedreApp:
             and _cancelled is None
             and not retry_abandoned
             and not capacity_drain_abandoned
+            and not inbound_drain_abandoned
             and not self.pipeline_runner.conversation_projection_repair_failed
         ):
             try:
@@ -2390,11 +2423,13 @@ class MedreApp:
             provenance: Any,
             attachment: Any = None,
         ) -> Any:
-            return await runner.admit_ingress(
-                event,
-                provenance,
-                attachment=attachment,
-                attachment_limits=attachment_limits,
+            return await self._gate_inbound_admission(
+                lambda: runner.admit_ingress(
+                    event,
+                    provenance,
+                    attachment=attachment,
+                    attachment_limits=attachment_limits,
+                )
             )
 
         return _admit
@@ -2406,6 +2441,12 @@ class MedreApp:
         event, inbound native reference, and pending work marker are committed
         before this callback returns. The durable ingress worker owns routing
         and delivery afterwards.
+
+        Every crossing passes the runtime-wide inbound admission gate: the
+        callback-scheduled ingress coroutines of the radio transports have no
+        transport-level bound of their own, so the gate bounds concurrent
+        admission commits and rejects arrivals that wait past the admission
+        timeout instead of growing without limit.
         """
 
         runner = self.pipeline_runner
@@ -2414,9 +2455,37 @@ class MedreApp:
         async def _publish(event: Any) -> None:
             if storage is None:
                 raise RuntimeError("live adapter ingress requires durable storage")
-            await runner.admit_ingress(event, "live")
+            await self._gate_inbound_admission(
+                lambda: runner.admit_ingress(event, "live")
+            )
 
         return _publish
+
+    async def _gate_inbound_admission(self, crossing: Any) -> Any:
+        """Run one durable ingress crossing under the inbound admission gate.
+
+        *crossing* is a zero-argument factory returning the admission
+        coroutine: building the coroutine is deferred until a slot is held,
+        so a rejected arrival never leaves an un-awaited coroutine behind.
+
+        When no capacity controller is assembled the crossing runs ungated,
+        preserving the seam's behavior for reduced runtimes (REPLAY scope and
+        tests without limits).
+        """
+        capacity = self._capacity_controller
+        if capacity is None:
+            return await crossing()
+        if not await capacity.acquire_inbound():
+            from medre.core.supervision.capacity import InboundAdmissionRejected
+
+            raise InboundAdmissionRejected(
+                "inbound event rejected at the admission gate "
+                "(timeout or shutdown); counted as ingress loss"
+            )
+        try:
+            return await crossing()
+        finally:
+            await capacity.release_inbound()
 
     def _assemble_attachment_seam(self) -> None:
         """Build the runtime-wide attachment transfer seam, or clear it.

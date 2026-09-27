@@ -32,6 +32,8 @@ async def test_production_fanout_invokes_only_delivery_limit_acquires(
         max_inflight_deliveries=2,
         max_inflight_replay_events=1,
         delivery_acquire_timeout_seconds=1.0,
+        max_inflight_inbound_admissions=2,
+        inbound_admission_timeout_seconds=1.0,
     )
     capacity = CapacityController(limits)
     runner.set_capacity_controller(capacity)

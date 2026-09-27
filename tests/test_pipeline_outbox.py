@@ -61,6 +61,8 @@ class _ZeroCapacityLimits:
     max_inflight_deliveries: int = 0
     max_inflight_replay_events: int = 0
     delivery_acquire_timeout_seconds: float = 0.1
+    max_inflight_inbound_admissions: int = 10
+    inbound_admission_timeout_seconds: float = 1.0
 
 
 class TestOutboxCreation:

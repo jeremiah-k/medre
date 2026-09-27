@@ -26,6 +26,8 @@ class _FakeLimits:
     max_inflight_deliveries = 10
     max_inflight_replay_events = 5
     delivery_acquire_timeout_seconds = 1.0
+    max_inflight_inbound_admissions = 10
+    inbound_admission_timeout_seconds = 1.0
 
 
 class _StubAdapter:

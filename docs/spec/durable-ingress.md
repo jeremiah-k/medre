@@ -30,6 +30,30 @@ provide richer provenance, but they do not bypass the same canonical admission
 transaction. Storage-less direct app construction is a test-only compatibility
 path and does not provide this guarantee.
 
+Every inbound crossing — `publish_inbound` and `admit_inbound` alike — passes
+the runtime-wide bounded admission gate before any admission work starts. The
+radio transports schedule one ingress coroutine per SDK callback with no
+transport-level bound of their own, so the gate is what bounds concurrent
+admissions. An arrival holds a slot for the full admission call — relation
+resolution before the transaction, the admission transaction itself, and
+projection repair after it; routing and delivery happen afterwards in the
+durable ingress worker under the delivery capacity bounds. The wait queue is
+bounded at the admission limit itself: at most `max_inflight_inbound_admissions`
+crossings execute concurrently and at most as many further arrivals may queue;
+overflow is rejected immediately rather than scheduled as another waiting
+coroutine. An arrival that waits longer than
+`inbound_admission_timeout_seconds` for a slot, overflows the wait queue, or
+arrives after inbound acceptance closed raises `InboundAdmissionRejected`:
+adapters count and log the rejection as ingress loss, never a silent drop, and
+the capacity snapshot carries wait depth, the oldest pending wait age, and
+rejection and timeout counters without event payloads. Inbound acceptance
+closes only after every adapter has stopped — during adapter teardown late
+callbacks still cross durable admission per the shutdown handoff below — while
+delivery and replay acceptance closes earlier, before the capacity drain.
+Matrix needs no transport-specific exception: its sync callbacks are awaited
+sequentially by the sync loop, so unconsumed events remain server-side and the
+gate is redundant safety there.
+
 ## Inbound attachment bytes
 
 Binary attachment data travels separately from the persisted canonical
