@@ -258,6 +258,12 @@ async def test_download_timeout_is_transient(monkeypatch: pytest.MonkeyPatch) ->
 
 
 async def test_download_requires_open_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    # download_media imports aiohttp before its connection guards run.
+    monkeypatch.setitem(
+        sys.modules,
+        "aiohttp",
+        SimpleNamespace(ClientTimeout=lambda **kwargs: SimpleNamespace(**kwargs)),
+    )
     monkeypatch.setitem(sys.modules, "nio", _nio_module())
     session = MatrixSession(make_matrix_config())
     with pytest.raises(MatrixConnectionError, match="not connected"):
