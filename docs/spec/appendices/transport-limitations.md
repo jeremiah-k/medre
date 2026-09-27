@@ -22,10 +22,13 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
    no ACK, no remote receipt).
 
 4. **Runtime capacity control exists; transport-aware rate limiting is
-   incomplete.** The runtime enforces a configurable max-inflight-delivery
-   limit. Meshtastic has bounded adapter-local outbound queue retry. Matrix
-   M_LIMIT_EXCEEDED responses are classified as transient. Full adaptive
-   transport backoff as runtime policy is not yet implemented.
+   incomplete.** The runtime enforces configurable in-flight bounds for
+   deliveries, replay events, and inbound admissions; inbound saturation
+   rejects with counted evidence past the admission timeout instead of
+   growing without limit. Meshtastic has bounded adapter-local outbound
+   queue retry. Matrix M_LIMIT_EXCEEDED responses are classified as
+   transient. Full adaptive transport backoff as runtime policy is not yet
+   implemented.
 
 5. **Graceful shutdown is bounded, not fully durable outside MEDRE-owned state.**
    Durable-ingress grace and in-flight capacity drain share one
@@ -60,8 +63,13 @@ Cross-transport limitation summary, inherent constraints, and known gaps.
 
 - Multi-room concurrent inbound has not been tested against a real homeserver.
 - Decrypted Matrix ingress normalizes reactions, edits, redactions, and media.
-  Outbound edits/deletes/attachments remain unsupported, and MEDRE does not manage
-  a room-key backup/import/export workflow.
+  Outbound relations are native: replies, threads, reactions, edits, and deletes
+  render through the Matrix adapter, with replacement events preserving the
+  original relation per the relation semantics. Outbound attachments relay
+  through the durable bounded media transfer: per-attachment byte caps, a
+  transfer deadline, bounded retry, and descriptor-only admission on fetch
+  exhaustion. MEDRE still does not manage a room-key backup/import/export
+  workflow.
 - Own-device cross-signing is implemented against MEDRE's currently pinned
   `mindroom-nio` surface. Peer-device trust is still intentionally permissive
   for bot operation and is not operator-configurable.
