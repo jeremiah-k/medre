@@ -321,50 +321,55 @@ async def test_duplicate_admission_reports_original_retained_fact() -> None:
 
     storage = SQLiteStorage(":memory:")
     await storage.initialize()
+    try:
 
-    def build(event_id: str):
-        event = make_storage_event(
-            event_id,
-            event_kind="message.file",
-            payload={
-                "body": "file.bin",
-                "attachment": AttachmentDescriptor(
-                    kind="file",
-                    filename="file.bin",
-                    mime_type="application/octet-stream",
-                ).to_declared_payload(),
-            },
+        def build(event_id: str):
+            event = make_storage_event(
+                event_id,
+                event_kind="message.file",
+                payload={
+                    "body": "file.bin",
+                    "attachment": AttachmentDescriptor(
+                        kind="file",
+                        filename="file.bin",
+                        mime_type="application/octet-stream",
+                    ).to_declared_payload(),
+                },
+            )
+            ref = NativeMessageRef(
+                id=f"nmr-{event_id}",
+                event_id=event_id,
+                adapter="fake_transport",
+                native_channel_id="ch-0",
+                native_message_id="native-same",
+                native_thread_id=None,
+                native_relation_id=None,
+                direction="inbound",
+                created_at=event.timestamp,
+            )
+            return event, ref
+
+        first = await storage.admit_ingress(
+            *build("evt-one"),
+            "live",
+            attachment=InboundAttachmentContent(data=b"original", declared_size=None),
         )
-        ref = NativeMessageRef(
-            id=f"nmr-{event_id}",
-            event_id=event_id,
-            adapter="fake_transport",
-            native_channel_id="ch-0",
-            native_message_id="native-same",
-            native_thread_id=None,
-            native_relation_id=None,
-            direction="inbound",
-            created_at=event.timestamp,
+        assert first.attachment is not None and first.attachment.retained
+
+        second_event, second_ref = build("evt-two")
+        second = await storage.admit_ingress(
+            second_event,
+            second_ref,
+            "live",
+            attachment=InboundAttachmentContent(
+                data=b"replacement", declared_size=None
+            ),
         )
-        return event, ref
-
-    first = await storage.admit_ingress(
-        *build("evt-one"),
-        "live",
-        attachment=InboundAttachmentContent(data=b"original", declared_size=None),
-    )
-    assert first.attachment is not None and first.attachment.retained
-
-    second_event, second_ref = build("evt-two")
-    second = await storage.admit_ingress(
-        second_event,
-        second_ref,
-        "live",
-        attachment=InboundAttachmentContent(data=b"replacement", declared_size=None),
-    )
-    assert second.created is False
-    assert second.attachment is not None and second.attachment.retained
-    stored = await storage.load_attachment_content(
-        "evt-one", second.attachment.content_ref
-    )
-    assert stored.data == b"original"
+        assert second.created is False
+        assert second.attachment is not None and second.attachment.retained
+        stored = await storage.load_attachment_content(
+            "evt-one", second.attachment.content_ref
+        )
+        assert stored.data == b"original"
+    finally:
+        await storage.close()
