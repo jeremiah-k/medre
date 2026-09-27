@@ -74,9 +74,7 @@ def is_nio_rate_limited_response(response: Any) -> bool:
 # for the stable native (room,event) identity before the adapter decodes a
 # fresh canonical UUID. The key is intentionally adapter-private and never
 # enters persisted canonical event metadata.
-MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY = (
-    "_medre_attachment_fetch_deferral_count"
-)
+MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY = "_medre_attachment_fetch_deferral_count"
 MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS = 3
 
 

@@ -1406,8 +1406,11 @@ class MatrixAdapter(AdapterContract):
             )
         except AttachmentTransferPermitTimeoutError as exc:
             return self._defer_or_exhaust_attachment_fetch(
-                native_event, canonical, declared,
-                f"attachment permit acquisition: {exc}", exc,
+                native_event,
+                canonical,
+                declared,
+                f"attachment permit acquisition: {exc}",
+                exc,
             )
         except asyncio.TimeoutError as exc:
             return self._defer_or_exhaust_attachment_fetch(
@@ -1415,13 +1418,19 @@ class MatrixAdapter(AdapterContract):
             )
         except MatrixMediaTransientError as exc:
             return self._defer_or_exhaust_attachment_fetch(
-                native_event, canonical, declared,
-                f"attachment fetch transient failure: {exc}", exc,
+                native_event,
+                canonical,
+                declared,
+                f"attachment fetch transient failure: {exc}",
+                exc,
             )
         except OSError as exc:
             return self._defer_or_exhaust_attachment_fetch(
-                native_event, canonical, declared,
-                f"attachment fetch network failure: {exc}", exc,
+                native_event,
+                canonical,
+                declared,
+                f"attachment fetch network failure: {exc}",
+                exc,
             )
 
         self._inbound_attachment_retained += 1
