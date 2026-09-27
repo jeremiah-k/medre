@@ -20,9 +20,10 @@ A `RouteSource` describes where a route matches events from.
 ```python
 @dataclass
 class RouteSource:
-    adapter: str | None          # Adapter instance name, or None for any
-    event_kinds: list[str]       # Event kinds to match (e.g., ["message.text", "telemetry"])
-    channel: str | None          # Source channel/filter, or None for any
+    adapter: str | None              # Adapter instance name, or None for any
+    event_kinds: tuple[str, ...]     # Event kinds to match (e.g., ("message.text", "telemetry"))
+    channel: str | None              # Source channel/filter, or None for any
+    origin_label: str | None = None  # Route-level source attribution label, or None for unset
 ```
 
 Matching rules:
@@ -42,12 +43,14 @@ A `RouteTarget` describes where a route delivers events to.
 ```python
 @dataclass
 class RouteTarget:
-    adapter: str                              # Target adapter instance name (REQUIRED)
-    channel: str | None                       # Target channel/room/topic, or None for adapter default
-    destination: RouteDestination | None      # Structured destination for identity-based addressing
+    adapter: str | None = None                # Target adapter instance (concrete on every expanded route)
+    channel: str | None = None                # Target channel/room/topic, or None for adapter default
+    destination: RouteDestination | None = None  # Structured destination for identity-based addressing
 ```
 
-`adapter` is always REQUIRED. Every delivery goes to a specific adapter instance.
+Every expanded route carries a concrete `adapter`: the configuration model
+requires destination adapters per route and expansion assigns one to each
+target (Section 2.6).
 
 `channel` and `destination` are mutually exclusive addressing modes. See Section 2.4 for precedence rules.
 
