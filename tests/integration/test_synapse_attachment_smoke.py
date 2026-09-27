@@ -115,9 +115,7 @@ def _api_request(
     except urllib.error.HTTPError as exc:  # pragma: no cover - diagnostics path
         detail = exc.read().decode()[:400]
         exc.close()
-        raise RuntimeError(
-            f"HTTP {exc.code} for {method} {url}: {detail}"
-        ) from exc
+        raise RuntimeError(f"HTTP {exc.code} for {method} {url}: {detail}") from exc
 
 
 def _json_headers(token: str) -> dict[str, str]:
