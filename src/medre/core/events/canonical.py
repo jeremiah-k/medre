@@ -74,6 +74,15 @@ _DELIVERY_LIFECYCLE_RECEIPT_STATUSES = frozenset(
     {"dead_lettered", "cancelled", "abandoned", "suppressed"}
 )
 
+#: Closed capability-decision and delivery-strategy vocabularies for
+#: :class:`DeliveryReceipt`. These mirror the planning-layer
+#: ``DeliveryStrategyMethod`` literal and are the single authority shared by
+#: receipt validation, receipt-sanitation helpers, and the SQLite CHECKs.
+DELIVERY_CAPABILITY_LEVELS = frozenset({"native", "fallback", "unsupported"})
+DELIVERY_STRATEGY_METHODS = frozenset(
+    {"direct", "fallback_text", "skip", "propagated", "opportunistic", "paper"}
+)
+
 
 class NativeRef(msgspec.Struct, frozen=True):
     """Reference to a message in an adapter's native ID space.
@@ -288,6 +297,15 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
         ``status`` and then frozen onto the instance.
     error:
         Error message if the delivery failed.
+    capability_level:
+        Structured capability decision level copied from the delivery plan.
+    capability_field:
+        Adapter capability field that determined the decision, when applicable.
+    capability_reason:
+        Human-readable decision reason. Reporting treats this as display text,
+        not as a machine-readable encoding.
+    delivery_strategy:
+        Structured delivery strategy selected by the plan.
     adapter_message_id:
         Native message ID assigned by the target adapter after
         adapter-reported handoff, when available.
@@ -343,6 +361,10 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     receipt_kind: DeliveryReceiptKind | None = None
     error: str | None = None
     failure_kind: str | None = None
+    capability_level: str | None = None
+    capability_field: str | None = None
+    capability_reason: str | None = None
+    delivery_strategy: str | None = None
     adapter_message_id: str | None = None
     next_retry_at: datetime | None = None
     attempt_number: int = 1
@@ -361,6 +383,25 @@ class DeliveryReceipt(msgspec.Struct, frozen=True):
     )
 
     def __post_init__(self) -> None:
+        if (
+            self.capability_level is not None
+            and self.capability_level not in DELIVERY_CAPABILITY_LEVELS
+        ):
+            raise ValueError(
+                f"invalid delivery capability_level: {self.capability_level!r}"
+            )
+        if (
+            self.delivery_strategy is not None
+            and self.delivery_strategy not in DELIVERY_STRATEGY_METHODS
+        ):
+            raise ValueError(f"invalid delivery strategy: {self.delivery_strategy!r}")
+        for field_name, value in (
+            ("capability_field", self.capability_field),
+            ("capability_reason", self.capability_reason),
+        ):
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{field_name} must be a string or None")
+
         if self.status in _DELIVERY_ATTEMPT_RECEIPT_STATUSES:
             expected_kind: DeliveryReceiptKind = "attempt"
         elif self.status in _DELIVERY_LIFECYCLE_RECEIPT_STATUSES:

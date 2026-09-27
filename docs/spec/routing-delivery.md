@@ -705,6 +705,10 @@ class DeliveryReceipt:
     receipt_kind: Literal["attempt", "lifecycle"] | None = None
     error: str | None = None               # Error message if delivery failed
     failure_kind: str | None = None        # DeliveryFailureKind value
+    capability_level: str | None = None    # Structured planning capability level
+    capability_field: str | None = None    # Capability field that drove the plan
+    capability_reason: str | None = None   # Human-readable display reason
+    delivery_strategy: str | None = None   # Structured strategy selected by the plan
     adapter_message_id: str | None = None  # Platform-specific message ID
     next_retry_at: datetime | None = None  # Scheduled time for next retry attempt
     attempt_number: int = 1                # 1-indexed attempt number
@@ -757,6 +761,10 @@ CREATE TABLE delivery_receipts (
     receipt_kind TEXT NOT NULL,
     error TEXT,
     failure_kind TEXT,
+    capability_level TEXT,
+    capability_field TEXT,
+    capability_reason TEXT,
+    delivery_strategy TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
@@ -775,6 +783,13 @@ CREATE TABLE delivery_receipts (
                                   'remote_service', 'end_to_end'))
 );
 ```
+
+The four capability/strategy columns are copied from the `DeliveryPlan` when a
+plan exists and then preserved across retry/lifecycle lineage. They are the
+machine-readable authority for receipts. `capability_reason` is display text
+only; consumers MUST NOT recover structure by parsing it. Receipts constructed
+without a plan carry `None` for all four fields; nothing derives them from
+`rendering_evidence` or suppression text.
 
 ### 8.3.1 Rendering Evidence and Receipts
 

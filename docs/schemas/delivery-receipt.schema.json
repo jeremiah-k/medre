@@ -70,6 +70,36 @@
       "default": null,
       "description": "Classification of the failure (e.g. 'adapter_permanent', 'adapter_transient')."
     },
+    "capability_level": {
+      "type": ["string", "null"],
+      "enum": ["native", "fallback", "unsupported", null],
+      "default": null,
+      "description": "Structured capability decision level copied from the delivery plan; null for receipts constructed without a plan."
+    },
+    "capability_field": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Adapter capability field that determined the delivery decision, when applicable."
+    },
+    "capability_reason": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Human-readable capability decision reason. Display text only; consumers must not parse it for structure."
+    },
+    "delivery_strategy": {
+      "type": ["string", "null"],
+      "enum": [
+        "direct",
+        "fallback_text",
+        "skip",
+        "propagated",
+        "opportunistic",
+        "paper",
+        null
+      ],
+      "default": null,
+      "description": "Structured delivery strategy selected by the delivery plan."
+    },
     "adapter_message_id": {
       "type": ["string", "null"],
       "default": null,

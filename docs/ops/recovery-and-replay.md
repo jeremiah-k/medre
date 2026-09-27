@@ -609,7 +609,7 @@ The fields that intentionally differ are: `source` (`"live"` vs `"replay"`), `re
 
 ### Receipt Parity Between Live and Replay
 
-When comparing a live receipt to its replay counterpart for the same event and target, these fields match: `event_id`, `delivery_plan_id`, `target_adapter`, `target_channel`, `route_id`, `status`, `failure_kind`, `error` (for suppression reasons), `rendering_evidence` (strategy and capability level), and `next_retry_at` (when applicable).
+When comparing a live receipt to its replay counterpart for the same event and target, these fields match: `event_id`, `delivery_plan_id`, `target_adapter`, `target_channel`, `route_id`, `status`, `failure_kind`, `error` (for suppression reasons), `capability_level`, `capability_field`, `capability_reason`, `delivery_strategy`, `rendering_evidence`, and `next_retry_at` (when applicable). The structured capability fields are receipt authority; `rendering_evidence` remains rendering evidence rather than the primary capability record.
 
 To verify parity, compare receipts for the same event across live and replay:
 

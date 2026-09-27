@@ -175,6 +175,10 @@ async def test_exhausted_from_queued_outbox(
             retry_backoff_base=2.0,
             retry_max_delay=45.0,
             retry_jitter=True,
+            capability_level="fallback",
+            capability_field="replies",
+            capability_reason="native reply unavailable",
+            delivery_strategy="fallback_text",
             rendering_evidence='{"delivery_strategy":"direct"}',
             outbox_id="obox-q-ex",
             attempt_number=1,
@@ -207,6 +211,10 @@ async def test_exhausted_from_queued_outbox(
     assert receipt.retry_backoff_base == 2.0
     assert receipt.retry_max_delay == 45.0
     assert receipt.retry_jitter is True
+    assert receipt.capability_level == "fallback"
+    assert receipt.capability_field == "replies"
+    assert receipt.capability_reason == "native reply unavailable"
+    assert receipt.delivery_strategy == "fallback_text"
     # Rendering evidence remains on the immutable queued parent; the failed
     # attempt links to it rather than duplicating render evidence onto a
     # failure receipt.
@@ -220,6 +228,10 @@ async def test_exhausted_from_queued_outbox(
     assert terminal[0].retry_backoff_base == 2.0
     assert terminal[0].retry_max_delay == 45.0
     assert terminal[0].retry_jitter is True
+    assert terminal[0].capability_level == "fallback"
+    assert terminal[0].capability_field == "replies"
+    assert terminal[0].capability_reason == "native reply unavailable"
+    assert terminal[0].delivery_strategy == "fallback_text"
 
     outbox = await temp_storage.get_outbox_item("obox-q-ex")
     assert outbox is not None

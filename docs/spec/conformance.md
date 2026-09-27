@@ -391,9 +391,9 @@ A conforming implementation satisfies:
 
 2. **Live/replay plan parity**: Live delivery and replay planning produce plans with identical `plan_id`, `route_id`, `target_identity`, `capability_level`, `capability_field`, `capability_reason`, and `primary_strategy.method` for the same event and route configuration.
 
-3. **Receipt parity**: Live and replay receipts for the same event and target match on `event_id`, `delivery_plan_id`, `target_adapter`, `target_channel`, `route_id`, `status`, `error`, `failure_kind`, and `rendering_evidence`. The fields `source`, `replay_run_id`, `receipt_id`, `created_at`, and `adapter_message_id` intentionally differ.
+3. **Receipt parity**: Live and replay receipts for the same event and target match on `event_id`, `delivery_plan_id`, `target_adapter`, `target_channel`, `route_id`, `status`, `error`, `failure_kind`, `capability_level`, `capability_field`, `capability_reason`, `delivery_strategy`, and `rendering_evidence`. The fields `source`, `replay_run_id`, `receipt_id`, `created_at`, and `adapter_message_id` intentionally differ.
 
-4. **Capability fields populated**: `FallbackResolver.resolve_fallback` populates `capability_level`, `capability_field`, and `capability_reason` from the `CapabilityDecision` on every plan it produces.
+4. **Capability fields populated**: `FallbackResolver.resolve_fallback` populates `capability_level`, `capability_field`, and `capability_reason` from the `CapabilityDecision` on every plan it produces. Receipt construction persists those fields plus the selected `delivery_strategy`; reporting and delivery-ledger views read the persisted fields directly; nothing parses reason or error text.
 
 ### 8.2 Suppression Semantics Conformance
 

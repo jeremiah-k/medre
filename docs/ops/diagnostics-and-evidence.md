@@ -578,11 +578,20 @@ Check `delivery_plan_id` on the receipt. Plan IDs are deterministic — the same
 
 ### "What strategy was chosen?"
 
-Check `delivery_strategy` in the report dict. This is derived from the receipt's `rendering_evidence` JSON or error text. Values: `"direct"` (native delivery), `"fallback_text"` (degraded rendering), or `"skip"` (suppressed before delivery).
+Check `delivery_strategy` in the report dict. Receipts persist this as a
+structured planning field; receipts constructed without a plan carry `None`.
+Common values are `"direct"`
+(native delivery), `"fallback_text"` (degraded rendering), and `"skip"`
+(suppressed before delivery); transport-specific strategies such as LXMF
+delivery methods may also appear.
 
 ### "What capability field drove the decision?"
 
-Check `capability_field` in the report dict. This identifies which adapter capability field (e.g. `reactions`, `replies`, `text`) caused the strategy decision. It is `None` for loop-suppressed or policy-suppressed deliveries (those are driven by guards, not capabilities).
+Check `capability_field` in the report dict. This is copied from the persisted
+receipt capability decision and identifies which adapter capability field (for
+example `reactions`, `replies`, or `text`) caused the strategy decision. It is
+`None` for loop-suppressed or policy-suppressed deliveries because those guards
+are not capability decisions, and for receipts constructed without a plan.
 
 ### "What is the delivery status?"
 
@@ -606,7 +615,8 @@ Check these fields together:
 
 - `failure_kind` — the high-level category (e.g. `capability_suppressed`, `loop_suppressed`, `adapter_transient`)
 - `failure_kind_detail` — more specific (e.g. `e2ee_blocked`, `meshtastic_queue_rejected`)
-- `suppression_reason` — human-readable reason parsed from the error text
+- `suppression_reason` — human-readable display reason (`capability_reason`
+  when the receipt carries one; otherwise the sanitized suppression `error`)
 - `error` — the raw error message
 
 ### "Was this live, replay, or a retry from replay?"

@@ -51,6 +51,10 @@ class TestAppendQueuedToSentReceipt:
             channel="0",
             plan_id="plan-q",
             outbox_id="obox-supplemental-sent",
+            capability_level="fallback",
+            capability_field="replies",
+            capability_reason="native reply unavailable",
+            delivery_strategy="fallback_text",
         )
         await append_receipt_with_parent(temp_storage, queued)
 
@@ -98,6 +102,10 @@ class TestAppendQueuedToSentReceipt:
         assert sent[0].parent_receipt_id == "rcpt-queued"
         assert sent[0].adapter_message_id == "packet-42"
         assert sent[0].delivery_plan_id == "plan-q"
+        assert sent[0].capability_level == "fallback"
+        assert sent[0].capability_field == "replies"
+        assert sent[0].capability_reason == "native reply unavailable"
+        assert sent[0].delivery_strategy == "fallback_text"
 
     async def test_completion_before_queued_receipt_finalizes_from_provenance(
         self,
@@ -115,6 +123,12 @@ class TestAppendQueuedToSentReceipt:
             target_channel="0",
             status="in_progress",
             attempt_number=1,
+            metadata={
+                "capability_level": "fallback",
+                "capability_field": "replies",
+                "capability_reason": "native reply unavailable",
+                "delivery_strategy": "fallback_text",
+            },
         )
         await create_outbox_item_with_parent(temp_storage, outbox_item)
         feedback = make_deferred_completion(
@@ -149,6 +163,10 @@ class TestAppendQueuedToSentReceipt:
         assert sent[0].parent_receipt_id is None
         assert sent[0].source == "live"
         assert sent[0].adapter_message_id == "packet-early"
+        assert sent[0].capability_level == "fallback"
+        assert sent[0].capability_field == "replies"
+        assert sent[0].capability_reason == "native reply unavailable"
+        assert sent[0].delivery_strategy == "fallback_text"
         refs = await temp_storage.list_native_refs_for_event("evt-001")
         assert any(ref.native_message_id == "packet-early" for ref in refs)
 

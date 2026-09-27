@@ -17,8 +17,6 @@ Derived helpers:
 
 from __future__ import annotations
 
-import json
-import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -27,6 +25,7 @@ from medre.core.events.canonical import (
     DeliveryReceipt,
     NativeMessageRef,
 )
+from medre.core.evidence.capability import derive_capability_evidence
 from medre.core.observability.sanitization import sanitize_error, sanitize_for_log
 
 
@@ -213,115 +212,31 @@ def _compute_retryable(
 
 def _derive_capability_evidence(
     error: str | None,
-    rendering_evidence: str | None,
     failure_kind: str | None,
     status: str,
+    *,
+    capability_level: str | None = None,
+    capability_field: str | None = None,
+    capability_reason: str | None = None,
+    delivery_strategy: str | None = None,
 ) -> dict[str, Any]:
-    """Derive structured capability-suppression fields from receipt data.
+    """Return sanitized report-facing capability evidence for one receipt.
 
-    Extracts fields **without** requiring storage schema changes.
-
-    **Sources by field:**
-
-    * ``rendering_evidence`` JSON supplies ``capability_level`` and
-      ``delivery_strategy`` (for sent/queued receipts).
-    * ``error`` text supplies ``suppression_reason`` (always sanitized via
-      :func:`sanitize_error`), ``capability_field``, and — when the error
-      matches a known capability pattern — also ``capability_level`` and
-      ``delivery_strategy``.
-
-    Resolution order:
-
-    1. If ``rendering_evidence`` contains valid JSON with capability fields,
-       those values seed ``capability_level`` and ``delivery_strategy``.
-    2. If ``status == "suppressed"`` and ``error`` matches known capability
-       suppression patterns, fields are parsed from the error text
-       (overriding rendering_evidence values where applicable).
-    3. ``suppression_reason`` is always sanitized before storage to prevent
-      leaking tokens or secrets present in the raw error.
-    4. As a safety net, when ``failure_kind == "capability_suppressed"``,
-      ``capability_level`` and ``delivery_strategy`` default to
-      ``"unsupported"`` and ``"skip"`` respectively if not already set by
-      an earlier step.
-
-    Returns a dict with keys ``suppression_reason``, ``capability_field``,
-    ``capability_level``, ``delivery_strategy`` (all possibly ``None``).
+    The core helper owns structured-field derivation; runtime reporting adds
+    only the log/evidence sanitization boundary for the operator-facing
+    suppression reason.
     """
-    result: dict[str, Any] = {
-        "suppression_reason": None,
-        "capability_field": None,
-        "capability_level": None,
-        "delivery_strategy": None,
-    }
-
-    # 1. Try rendering_evidence JSON first (sent/queued receipts).
-    if rendering_evidence is not None:
-        try:
-            ev = json.loads(rendering_evidence)
-            if isinstance(ev, dict):
-                result["capability_level"] = ev.get("capability_level")
-                result["delivery_strategy"] = ev.get("delivery_strategy")
-        except (json.JSONDecodeError, ValueError, TypeError):
-            pass
-
-    # 2. For suppressed receipts, derive from error text patterns.
-    #
-    # COUPLING NOTE: The regexes below parse reason strings produced by
-    # CapabilityDecisionResolver in
-    # medre.core.planning.capability_decision.  The reason format is
-    # ``"{field} {level} …"`` where ``{field}`` is a capability-field
-    # name and ``{level}`` is ``"unsupported"`` or ``"fallback"``.
-    # Changes to _make_event_kind_reason / _make_relation_reason in
-    # capability_decision.py MUST preserve the leading
-    # ``"{field} {level}"`` prefix or this derivation will silently
-    # break.  Regression tests in TestResolverReasonRoundTrip guard
-    # this contract.
-    if status == "suppressed" and error:
-        # Pattern: "capability_suppressed: {reason}"
-        cap_match = re.match(r"^capability_suppressed:\s*(.+)$", error)
-        if cap_match:
-            reason_text = cap_match.group(1).strip()
-            result["suppression_reason"] = sanitize_error(reason_text)
-            # Extract capability_field from reason: first word before
-            # " unsupported" or " fallback".
-            field_match = re.match(r"^(\w+)\s+(unsupported|fallback)\b", reason_text)
-            if field_match:
-                result["capability_field"] = field_match.group(1)
-                level = field_match.group(2)
-                result["capability_level"] = level
-                result["delivery_strategy"] = (
-                    "skip" if level == "unsupported" else "fallback_text"
-                )
-            else:
-                # Fallback: set level from failure_kind.
-                if failure_kind == "capability_suppressed":
-                    result["capability_level"] = "unsupported"
-                    result["delivery_strategy"] = "skip"
-        elif error.startswith("plan_skip:") or error.startswith("delivery_skipped:"):
-            result["suppression_reason"] = sanitize_error(error)
-            result["delivery_strategy"] = "skip"
-            if failure_kind == "capability_suppressed":
-                result["capability_level"] = "unsupported"
-        elif failure_kind == "loop_suppressed":
-            result["suppression_reason"] = sanitize_error(error)
-            result["capability_level"] = None
-            result["delivery_strategy"] = None
-        elif failure_kind == "policy_suppressed":
-            result["suppression_reason"] = sanitize_error(error)
-        else:
-            # Generic suppressed receipt with unknown failure_kind.
-            result["suppression_reason"] = sanitize_error(error)
-
-    # Safety net: capability_suppressed must always produce unsupported/skip
-    # defaults even when the error does not match any known pattern.
-    # Preserve values explicitly extracted from the error text (unsupported,
-    # fallback) but override any rendering_evidence-only values (e.g. native).
-    if failure_kind == "capability_suppressed":
-        if result["capability_level"] not in ("unsupported", "fallback"):
-            result["capability_level"] = "unsupported"
-        if result["delivery_strategy"] not in ("skip", "fallback_text"):
-            result["delivery_strategy"] = "skip"
-
+    result = derive_capability_evidence(
+        error,
+        failure_kind,
+        status,
+        capability_level=capability_level,
+        capability_field=capability_field,
+        capability_reason=capability_reason,
+        delivery_strategy=delivery_strategy,
+    )
+    if result["suppression_reason"] is not None:
+        result["suppression_reason"] = sanitize_error(result["suppression_reason"])
     return result
 
 
@@ -367,7 +282,6 @@ def delivery_receipt_to_report_dict(
     _retry_jitter: bool | None = getattr(receipt, "retry_jitter", None)
     _parent_receipt_id: str | None = getattr(receipt, "parent_receipt_id", None)
     _replay_run_id: str | None = getattr(receipt, "replay_run_id", None)
-    _rendering_evidence: str | None = getattr(receipt, "rendering_evidence", None)
     fk_detail: str | None = _derive_failure_kind_detail(
         receipt.failure_kind,
         receipt.error,
@@ -379,9 +293,14 @@ def delivery_receipt_to_report_dict(
     )
     cap_evidence: dict[str, Any] = _derive_capability_evidence(
         receipt.error,
-        _rendering_evidence,
         receipt.failure_kind,
         receipt.status,
+        # getattr for the same reason as the enrichment fields above: minimal
+        # receipt-like doubles may omit them.
+        capability_level=getattr(receipt, "capability_level", None),
+        capability_field=getattr(receipt, "capability_field", None),
+        capability_reason=getattr(receipt, "capability_reason", None),
+        delivery_strategy=getattr(receipt, "delivery_strategy", None),
     )
     return {
         # Canonical persisted identity/order fields.
@@ -413,7 +332,7 @@ def delivery_receipt_to_report_dict(
         "failure_kind_detail": fk_detail,
         "adapter_message_id": receipt.adapter_message_id,
         "retryable": retryable,
-        # Capability-evidence fields (derived from error/rendering_evidence).
+        # Capability evidence: structured receipt fields.
         "suppression_reason": cap_evidence["suppression_reason"],
         "capability_field": cap_evidence["capability_field"],
         "capability_level": cap_evidence["capability_level"],

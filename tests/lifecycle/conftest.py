@@ -61,6 +61,10 @@ def _make_receipt(
     source: str = "live",
     replay_run_id: str | None = None,
     outbox_id: str | None = None,
+    capability_level: str | None = None,
+    capability_field: str | None = None,
+    capability_reason: str | None = None,
+    delivery_strategy: str | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         sequence=0,
@@ -73,6 +77,10 @@ def _make_receipt(
         status=status,
         error=error,
         failure_kind=failure_kind,
+        capability_level=capability_level,
+        capability_field=capability_field,
+        capability_reason=capability_reason,
+        delivery_strategy=delivery_strategy,
         created_at=datetime.now(tz=timezone.utc),
         attempt_number=attempt_number,
         parent_receipt_id=parent_receipt_id,

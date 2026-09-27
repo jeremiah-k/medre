@@ -178,6 +178,10 @@ def _summarize_receipt(receipt: Any, warnings: list[str]) -> ReceiptSummary:
         replay_run_id=receipt.replay_run_id,
         failure_kind=receipt.failure_kind,
         error=receipt.error,
+        capability_level=receipt.capability_level,
+        capability_field=receipt.capability_field,
+        capability_reason=receipt.capability_reason,
+        delivery_strategy=receipt.delivery_strategy,
         rendering_evidence=parsed_evidence,
         created_at=(
             receipt.created_at.isoformat()

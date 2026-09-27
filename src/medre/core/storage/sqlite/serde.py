@@ -143,6 +143,10 @@ def _row_to_receipt(row: dict[str, Any]) -> DeliveryReceipt:
         receipt_kind=row.get("receipt_kind"),  # type: ignore[arg-type]
         error=row["error"],
         failure_kind=row.get("failure_kind"),
+        capability_level=row.get("capability_level"),
+        capability_field=row.get("capability_field"),
+        capability_reason=row.get("capability_reason"),
+        delivery_strategy=row.get("delivery_strategy"),
         adapter_message_id=row["adapter_message_id"],
         next_retry_at=(
             datetime.fromisoformat(row["next_retry_at"])

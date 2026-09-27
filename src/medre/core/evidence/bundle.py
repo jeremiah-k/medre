@@ -59,6 +59,10 @@ class ReceiptSummary(msgspec.Struct, frozen=True):
     replay_run_id: str | None = None
     failure_kind: str | None = None
     error: str | None = None
+    capability_level: str | None = None
+    capability_field: str | None = None
+    capability_reason: str | None = None
+    delivery_strategy: str | None = None
     rendering_evidence: dict[str, Any] | None = None
     created_at: str = ""
 

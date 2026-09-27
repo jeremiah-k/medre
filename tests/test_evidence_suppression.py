@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from medre.core.contracts.adapter import AdapterCapabilities
 from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
 from medre.core.events.kinds import EventKind
 from medre.core.events.metadata import EventMetadata
@@ -25,10 +24,9 @@ from medre.runtime.reporting import (
     _derive_capability_evidence,
     delivery_receipt_to_report_dict,
 )
-from tests.helpers.pipeline import make_event
 
 if TYPE_CHECKING:
-    from medre.core.planning.capability_decision import CapabilityDecision
+    pass
 
 # ===================================================================
 # 13. Loop-suppression suppression-evidence: PipelineRunner → suppressed
@@ -272,6 +270,12 @@ def _cap_suppressed_receipt(
     source: str = "live",
     replay_run_id: str | None = None,
     rendering_evidence: str | None = None,
+    capability_level: str | None = "unsupported",
+    capability_field: str | None = "reactions",
+    capability_reason: str | None = (
+        "reactions unsupported by adapter (event has reaction relation)"
+    ),
+    delivery_strategy: str | None = "skip",
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
         receipt_id=receipt_id,
@@ -287,6 +291,10 @@ def _cap_suppressed_receipt(
         source=source,
         replay_run_id=replay_run_id,
         rendering_evidence=rendering_evidence,
+        capability_level=capability_level,
+        capability_field=capability_field,
+        capability_reason=capability_reason,
+        delivery_strategy=delivery_strategy,
         created_at=_ts(second=1),
     )
 
@@ -374,6 +382,7 @@ class TestCapabilitySuppressedReportDict:
         receipt = _cap_suppressed_receipt(
             error="plan_skip: delivery strategy is 'skip' (event_kind=message.reaction)",
             failure_kind="capability_suppressed",
+            capability_reason=None,
         )
         report = delivery_receipt_to_report_dict(receipt)
         assert report["suppression_reason"] is not None
@@ -385,14 +394,18 @@ class TestCapabilitySuppressedReportDict:
         receipt = _cap_suppressed_receipt(
             error="Self-loop guard",
             failure_kind="loop_suppressed",
+            capability_level=None,
+            capability_field=None,
+            capability_reason=None,
+            delivery_strategy=None,
         )
         report = delivery_receipt_to_report_dict(receipt)
         assert report["suppression_reason"] == "Self-loop guard"
         assert report["capability_level"] is None
         assert report["capability_field"] is None
 
-    def test_sent_receipt_capability_from_rendering_evidence(self) -> None:
-        """Sent receipts get capability_level/delivery_strategy from rendering_evidence."""
+    def test_sent_receipt_capability_fields_pass_through(self) -> None:
+        """Sent receipts expose the structured decision persisted at planning."""
         receipt = DeliveryReceipt(
             receipt_id="rcpt-sent-001",
             event_id="ev-cap-sup-001",
@@ -402,30 +415,39 @@ class TestCapabilitySuppressedReportDict:
             route_id="route-cap-1",
             status="sent",
             failure_kind=None,
-            rendering_evidence='{"delivery_strategy": "direct", "capability_level": "native", "truncated": false}',
+            capability_level="native",
+            capability_field="reactions",
+            delivery_strategy="direct",
             source="live",
             created_at=_ts(second=1),
         )
         report = delivery_receipt_to_report_dict(receipt)
         assert report["capability_level"] == "native"
+        assert report["capability_field"] == "reactions"
         assert report["delivery_strategy"] == "direct"
         # No suppression_reason for sent receipts.
         assert report["suppression_reason"] is None
 
-    def test_fallback_reason_parsed(self) -> None:
+    def test_fallback_decision_pass_through(self) -> None:
         receipt = _cap_suppressed_receipt(
             error="capability_suppressed: replies fallback for adapter (event has reply relation)",
             failure_kind="capability_suppressed",
+            capability_field="replies",
+            capability_reason="replies fallback for adapter (event has reply relation)",
+            capability_level="fallback",
+            delivery_strategy="fallback_text",
         )
         report = delivery_receipt_to_report_dict(receipt)
         assert report["capability_field"] == "replies"
         assert report["capability_level"] == "fallback"
         assert report["delivery_strategy"] == "fallback_text"
 
-    def test_capability_field_from_event_kind_reason(self) -> None:
+    def test_event_kind_decision_pass_through(self) -> None:
         receipt = _cap_suppressed_receipt(
             error="capability_suppressed: text unsupported by adapter (event_kind=message.telemetry)",
             failure_kind="capability_suppressed",
+            capability_field="text",
+            capability_reason="text unsupported by adapter (event_kind=message.telemetry)",
         )
         report = delivery_receipt_to_report_dict(receipt)
         assert report["capability_field"] == "text"
@@ -451,41 +473,76 @@ class TestCapabilitySuppressedReportDict:
 
 
 class TestDeriveCapabilityEvidenceUnit:
-    """Unit tests for _derive_capability_evidence helper."""
+    """Unit tests for the structured derive_capability_evidence helper."""
 
     def test_none_inputs_returns_all_none(self) -> None:
-        result = _derive_capability_evidence(None, None, None, "sent")
+        result = _derive_capability_evidence(None, None, "sent")
         assert result["suppression_reason"] is None
         assert result["capability_field"] is None
         assert result["capability_level"] is None
         assert result["delivery_strategy"] is None
 
-    def test_rendering_evidence_provides_capability_level(self) -> None:
+    def test_structured_fields_pass_through_unchanged(self) -> None:
         result = _derive_capability_evidence(
-            error=None,
-            rendering_evidence='{"capability_level": "native", "delivery_strategy": "direct"}',
-            failure_kind=None,
-            status="sent",
+            None,
+            None,
+            "sent",
+            capability_level="native",
+            capability_field="reactions",
+            capability_reason="native reactions supported",
+            delivery_strategy="direct",
         )
         assert result["capability_level"] == "native"
+        assert result["capability_field"] == "reactions"
         assert result["delivery_strategy"] == "direct"
+        assert result["suppression_reason"] is None
 
-    def test_rendering_evidence_invalid_json_ignored(self) -> None:
+    def test_missing_structured_fields_are_not_recovered_from_text(self) -> None:
+        """No prose grammar exists: absent structured fields stay None."""
         result = _derive_capability_evidence(
-            error=None,
-            rendering_evidence="{broken",
-            failure_kind=None,
-            status="sent",
+            error="capability_suppressed: reactions unsupported by adapter (event has reaction relation)",
+            failure_kind="capability_suppressed",
+            status="suppressed",
         )
+        assert result["suppression_reason"] == (
+            "reactions unsupported by adapter (event has reaction relation)"
+        )
+        assert result["capability_field"] is None
         assert result["capability_level"] is None
         assert result["delivery_strategy"] is None
 
-    def test_capability_suppressed_error_pattern(self) -> None:
+    def test_capability_reason_preferred_over_error_text(self) -> None:
+        result = _derive_capability_evidence(
+            "capability_suppressed: stale prose",
+            "capability_suppressed",
+            "suppressed",
+            capability_reason="structured decision reason",
+        )
+        assert result["suppression_reason"] == "structured decision reason"
+
+    def test_capability_reason_preserved_when_suppression_has_no_error(self) -> None:
+        result = _derive_capability_evidence(
+            None,
+            "capability_suppressed",
+            "suppressed",
+            capability_level="unsupported",
+            capability_field="reactions",
+            capability_reason="structured decision reason",
+            delivery_strategy="skip",
+        )
+        assert result["suppression_reason"] == "structured decision reason"
+        assert result["capability_field"] == "reactions"
+        assert result["capability_level"] == "unsupported"
+        assert result["delivery_strategy"] == "skip"
+
+    def test_capability_suppressed_error_prefix_stripped(self) -> None:
         result = _derive_capability_evidence(
             error="capability_suppressed: reactions unsupported by adapter (event has reaction relation)",
-            rendering_evidence=None,
             failure_kind="capability_suppressed",
             status="suppressed",
+            capability_field="reactions",
+            capability_level="unsupported",
+            delivery_strategy="skip",
         )
         assert result["suppression_reason"] == (
             "reactions unsupported by adapter (event has reaction relation)"
@@ -494,21 +551,23 @@ class TestDeriveCapabilityEvidenceUnit:
         assert result["capability_level"] == "unsupported"
         assert result["delivery_strategy"] == "skip"
 
-    def test_plan_skip_error_pattern(self) -> None:
+    def test_plan_skip_error_displayed_verbatim(self) -> None:
         result = _derive_capability_evidence(
             error="plan_skip: delivery strategy is 'skip' (event_kind=message.reaction)",
-            rendering_evidence=None,
             failure_kind="capability_suppressed",
             status="suppressed",
+            capability_level="unsupported",
+            delivery_strategy="skip",
         )
-        assert result["suppression_reason"] is not None
+        assert result["suppression_reason"] == (
+            "plan_skip: delivery strategy is 'skip' (event_kind=message.reaction)"
+        )
         assert result["delivery_strategy"] == "skip"
         assert result["capability_level"] == "unsupported"
 
     def test_loop_suppressed_error(self) -> None:
         result = _derive_capability_evidence(
             error="Self-loop guard",
-            rendering_evidence=None,
             failure_kind="loop_suppressed",
             status="suppressed",
         )
@@ -517,56 +576,47 @@ class TestDeriveCapabilityEvidenceUnit:
         assert result["capability_field"] is None
         assert result["delivery_strategy"] is None
 
-    def test_capability_suppressed_no_field_match(self) -> None:
-        """capability_suppressed error without field pattern still gets level."""
+    def test_policy_suppressed_prefix_stripped(self) -> None:
         result = _derive_capability_evidence(
-            error="capability_suppressed: event kind not supported by target adapter(s)",
-            rendering_evidence=None,
-            failure_kind="capability_suppressed",
-            status="suppressed",
+            error="policy_suppressed: route policy denied",
+            failure_kind="policy_suppressed",
+            status="failed",
         )
-        assert result["suppression_reason"] == (
-            "event kind not supported by target adapter(s)"
-        )
-        assert result["capability_field"] is None
-        assert result["capability_level"] == "unsupported"
-        assert result["delivery_strategy"] == "skip"
+        assert result["suppression_reason"] == "route policy denied"
 
-    def test_capability_suppressed_unrecognized_error_fallback(self) -> None:
-        """capability_suppressed failure_kind with completely unrecognized error
-        format still falls back to unsupported/skip via safety net."""
+    def test_failure_kind_suppression_without_suppressed_status(self) -> None:
+        """A suppression failure_kind derives the reason even on failed status."""
         result = _derive_capability_evidence(
-            error="some completely unknown error message",
-            rendering_evidence=None,
+            error="capability_suppressed: replies fallback old prose",
             failure_kind="capability_suppressed",
-            status="suppressed",
+            status="failed",
+            capability_field="replies",
+            capability_level="fallback",
+            delivery_strategy="fallback_text",
         )
-        assert result["capability_level"] == "unsupported"
-        assert result["delivery_strategy"] == "skip"
-        assert result["suppression_reason"] == "some completely unknown error message"
-        assert result["capability_field"] is None
+        assert result["suppression_reason"] == "replies fallback old prose"
+        assert result["capability_field"] == "replies"
+        assert result["capability_level"] == "fallback"
+        assert result["delivery_strategy"] == "fallback_text"
 
-    def test_capability_suppressed_empty_error_fallback(self) -> None:
-        """capability_suppressed with empty error still gets unsupported/skip."""
+    def test_empty_error_no_reason(self) -> None:
         result = _derive_capability_evidence(
-            error="",
-            rendering_evidence=None,
-            failure_kind="capability_suppressed",
-            status="suppressed",
+            "",
+            "capability_suppressed",
+            "suppressed",
         )
-        # Empty error is falsy, so the suppressed block is skipped entirely;
-        # safety net still kicks in.
-        assert result["capability_level"] == "unsupported"
-        assert result["delivery_strategy"] == "skip"
         assert result["suppression_reason"] is None
+        assert result["capability_level"] is None
+        assert result["delivery_strategy"] is None
 
     def test_suppression_reason_sanitized_with_token(self) -> None:
         """suppression_reason is sanitized: tokens in error text are redacted."""
         result = _derive_capability_evidence(
             error="capability_suppressed: text unsupported (token=syt_deadbeef123abc)",
-            rendering_evidence=None,
             failure_kind="capability_suppressed",
             status="suppressed",
+            capability_field="text",
+            capability_level="unsupported",
         )
         assert "syt_deadbeef123abc" not in result["suppression_reason"]
         assert "[REDACTED]" in result["suppression_reason"]
@@ -577,9 +627,10 @@ class TestDeriveCapabilityEvidenceUnit:
         """plan_skip error with embedded token is sanitized in suppression_reason."""
         result = _derive_capability_evidence(
             error="plan_skip: delivery strategy is 'skip' (token=sk-abc123def456ghi789xyz)",
-            rendering_evidence=None,
             failure_kind="capability_suppressed",
             status="suppressed",
+            capability_level="unsupported",
+            delivery_strategy="skip",
         )
         assert "sk-abc123def456ghi789xyz" not in result["suppression_reason"]
         assert "[REDACTED]" in result["suppression_reason"]
@@ -590,7 +641,6 @@ class TestDeriveCapabilityEvidenceUnit:
         """loop_suppressed error with embedded token is sanitized."""
         result = _derive_capability_evidence(
             error="Self-loop guard detected (access_token=syt_looptoken123)",
-            rendering_evidence=None,
             failure_kind="loop_suppressed",
             status="suppressed",
         )
@@ -598,20 +648,57 @@ class TestDeriveCapabilityEvidenceUnit:
         assert "[REDACTED]" in result["suppression_reason"]
         assert result["capability_level"] is None
 
-    def test_rendering_evidence_overridden_by_capability_suppressed_safety_net(
-        self,
-    ) -> None:
-        """When failure_kind is capability_suppressed but error doesn't match
-        any known pattern, safety net overrides rendering_evidence values."""
-        result = _derive_capability_evidence(
-            error="unrecognized error text",
-            rendering_evidence='{"capability_level": "native", "delivery_strategy": "direct"}',
-            failure_kind="capability_suppressed",
-            status="suppressed",
+
+class TestStructuredCapabilityEvidenceAuthority:
+    """Current receipts do not depend on human-readable reason grammar."""
+
+    def test_structured_fields_override_changed_reason_text(self) -> None:
+        receipt = _cap_suppressed_receipt(
+            error="capability_suppressed: renderer cannot preserve this relation",
+            capability_level="unsupported",
+            capability_field="reactions",
+            capability_reason="renderer cannot preserve this relation",
+            delivery_strategy="skip",
         )
-        # Safety net fills unsupported/skip since error parsing didn't set them.
-        assert result["capability_level"] == "unsupported"
-        assert result["delivery_strategy"] == "skip"
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["capability_field"] == "reactions"
+        assert report["capability_level"] == "unsupported"
+        assert report["delivery_strategy"] == "skip"
+        assert report["suppression_reason"] == (
+            "renderer cannot preserve this relation"
+        )
+
+    def test_report_preserves_structured_reason_without_error(self) -> None:
+        receipt = _cap_suppressed_receipt(
+            error=None,
+            capability_level="unsupported",
+            capability_field="reactions",
+            capability_reason="structured reason without error text",
+            delivery_strategy="skip",
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["suppression_reason"] == "structured reason without error text"
+
+    def test_structured_fields_independent_of_rendering_evidence(self) -> None:
+        """rendering_evidence is observational; it never supplies structure."""
+        receipt = DeliveryReceipt(
+            receipt_id="rcpt-structured-sent",
+            event_id="evt-structured-sent",
+            delivery_plan_id="plan-structured-sent",
+            target_adapter="radio",
+            status="sent",
+            capability_level="fallback",
+            capability_field="replies",
+            capability_reason="native relation unavailable",
+            delivery_strategy="fallback_text",
+            rendering_evidence=(
+                '{"capability_level": "native", ' '"delivery_strategy": "direct"}'
+            ),
+        )
+        report = delivery_receipt_to_report_dict(receipt)
+        assert report["capability_field"] == "replies"
+        assert report["capability_level"] == "fallback"
+        assert report["delivery_strategy"] == "fallback_text"
 
 
 class TestCapabilitySuppressedEvidenceBundle:
@@ -805,6 +892,10 @@ class TestCapabilitySuppressedEvidenceBundle:
                     event_id=event_id,
                     error="Self-loop guard",
                     failure_kind="loop_suppressed",
+                    capability_level=None,
+                    capability_field=None,
+                    capability_reason=None,
+                    delivery_strategy=None,
                 ),
             ],
         )
@@ -817,10 +908,10 @@ class TestCapabilitySuppressedEvidenceBundle:
         assert entry["source"] == "live"
 
     @pytest.mark.asyncio
-    async def test_sent_receipt_dsbt_capability_from_rendering_evidence(
+    async def test_sent_receipt_dsbt_capability_fields_pass_through(
         self, tmp_path: Path
     ) -> None:
-        """Sent receipts expose capability_level/delivery_strategy from rendering_evidence."""
+        """Sent receipts expose the structured capability fields they persist."""
         event_id = "ev-cap-dsbt-sent-001"
         db_path = str(tmp_path / "cap-dsbt-sent.db")
         await _build_db(
@@ -836,7 +927,9 @@ class TestCapabilitySuppressedEvidenceBundle:
                     route_id="route-sent-1",
                     status="sent",
                     source="live",
-                    rendering_evidence='{"delivery_strategy": "direct", "capability_level": "native"}',
+                    capability_level="native",
+                    capability_field="reactions",
+                    delivery_strategy="direct",
                     created_at=_ts(second=1),
                 ),
             ],
@@ -845,6 +938,7 @@ class TestCapabilitySuppressedEvidenceBundle:
         dsbt = summary["delivery_state_by_target"]
         entry = next(iter(dsbt.values()))
         assert entry["capability_level"] == "native"
+        assert entry["capability_field"] == "reactions"
         assert entry["delivery_strategy"] == "direct"
         assert entry["suppression_reason"] is None
         assert entry["source"] == "live"
@@ -910,200 +1004,3 @@ class TestCapabilitySuppressedEvidenceBundle:
 # ===================================================================
 # 15. Resolver-reason round-trip: coupling guard
 # ===================================================================
-
-
-class TestResolverReasonRoundTrip:
-    """Regression tests guarding the coupling between
-    CapabilityDecisionResolver.reason and
-    _derive_capability_evidence / delivery_receipt_to_report_dict.
-
-    Every test uses the **real resolver** to produce a decision, then
-    constructs the ``"capability_suppressed: {reason}"`` error string
-    that the delivery pipeline would emit, and feeds it through
-    ``_derive_capability_evidence`` (or
-    ``delivery_receipt_to_report_dict``) to assert that the
-    capability_field and capability_level are correctly derived.
-
-    If a reason-format change in capability_decision.py breaks the
-    parser in reporting.py, these tests fail first — before the change
-    reaches production.
-    """
-
-    @staticmethod
-    def _error_from_decision(decision: "CapabilityDecision") -> str:
-        """Build the error string the pipeline would emit for a suppressed decision."""
-        assert decision.reason is not None, "decision.reason must not be None"
-        return f"capability_suppressed: {decision.reason}"
-
-    def test_event_kind_unsupported_round_trip(self) -> None:
-        """Event-kind unsupported reason → _derive_capability_evidence."""
-        from medre.core.planning.capability_decision import resolver
-
-        caps = AdapterCapabilities(reactions="unsupported")
-        event = make_event(event_kind="message.reacted")
-        decision = resolver.decide(event, caps)
-
-        error = self._error_from_decision(decision)
-        result = _derive_capability_evidence(
-            error=error,
-            rendering_evidence=None,
-            failure_kind="capability_suppressed",
-            status="suppressed",
-        )
-        assert result["capability_field"] == decision.capability_field
-        assert result["capability_level"] == "unsupported"
-        assert result["delivery_strategy"] == "skip"
-
-    def test_event_kind_fallback_round_trip(self) -> None:
-        """Event-kind fallback reason → _derive_capability_evidence."""
-        from medre.core.planning.capability_decision import resolver
-
-        caps = AdapterCapabilities(reactions="fallback")
-        event = make_event(event_kind="message.reacted")
-        decision = resolver.decide(event, caps)
-
-        error = self._error_from_decision(decision)
-        result = _derive_capability_evidence(
-            error=error,
-            rendering_evidence=None,
-            failure_kind="capability_suppressed",
-            status="suppressed",
-        )
-        assert result["capability_field"] == decision.capability_field
-        assert result["capability_level"] == "fallback"
-        assert result["delivery_strategy"] == "fallback_text"
-
-    def test_relation_unsupported_round_trip(self) -> None:
-        """Relation unsupported reason → _derive_capability_evidence."""
-        from medre.core.events.canonical import EventRelation, NativeRef
-        from medre.core.planning.capability_decision import resolver
-
-        caps = AdapterCapabilities(replies="unsupported")
-        rel = EventRelation(
-            relation_type="reply",
-            target_event_id="evt-parent",
-            target_native_ref=NativeRef(
-                adapter="test_adapter",
-                native_channel_id="ch-0",
-                native_message_id="native-001",
-            ),
-            key=None,
-            fallback_text="original",
-        )
-        event = make_event(
-            event_kind="plugin.custom",
-            relations=(rel,),
-        )
-        decision = resolver.decide(event, caps)
-
-        error = self._error_from_decision(decision)
-        result = _derive_capability_evidence(
-            error=error,
-            rendering_evidence=None,
-            failure_kind="capability_suppressed",
-            status="suppressed",
-        )
-        assert result["capability_field"] == "replies"
-        assert result["capability_level"] == "unsupported"
-        assert result["delivery_strategy"] == "skip"
-
-    def test_relation_fallback_round_trip(self) -> None:
-        """Relation fallback reason → _derive_capability_evidence."""
-        from medre.core.events.canonical import EventRelation, NativeRef
-        from medre.core.planning.capability_decision import resolver
-
-        caps = AdapterCapabilities(replies="fallback")
-        rel = EventRelation(
-            relation_type="reply",
-            target_event_id="evt-parent",
-            target_native_ref=NativeRef(
-                adapter="test_adapter",
-                native_channel_id="ch-0",
-                native_message_id="native-001",
-            ),
-            key=None,
-            fallback_text="original",
-        )
-        event = make_event(
-            event_kind="plugin.custom",
-            relations=(rel,),
-        )
-        decision = resolver.decide(event, caps)
-
-        error = self._error_from_decision(decision)
-        result = _derive_capability_evidence(
-            error=error,
-            rendering_evidence=None,
-            failure_kind="capability_suppressed",
-            status="suppressed",
-        )
-        assert result["capability_field"] == "replies"
-        assert result["capability_level"] == "fallback"
-        assert result["delivery_strategy"] == "fallback_text"
-
-    def test_boolean_field_unsupported_round_trip(self) -> None:
-        """Boolean capability field (text=False) unsupported → round trip."""
-        from medre.core.planning.capability_decision import resolver
-
-        caps = AdapterCapabilities(text=False)
-        event = make_event(event_kind="message.text")
-        decision = resolver.decide(event, caps)
-
-        error = self._error_from_decision(decision)
-        result = _derive_capability_evidence(
-            error=error,
-            rendering_evidence=None,
-            failure_kind="capability_suppressed",
-            status="suppressed",
-        )
-        assert result["capability_field"] == "text"
-        assert result["capability_level"] == "unsupported"
-        assert result["delivery_strategy"] == "skip"
-
-    def test_edits_event_kind_round_trip(self) -> None:
-        """Edits field (string 3-level) event-kind round trip."""
-        from medre.core.planning.capability_decision import resolver
-
-        caps = AdapterCapabilities(edits="fallback")
-        event = make_event(event_kind="message.edited")
-        decision = resolver.decide(event, caps)
-
-        error = self._error_from_decision(decision)
-        result = _derive_capability_evidence(
-            error=error,
-            rendering_evidence=None,
-            failure_kind="capability_suppressed",
-            status="suppressed",
-        )
-        assert result["capability_field"] == "edits"
-        assert result["capability_level"] == "fallback"
-        assert result["delivery_strategy"] == "fallback_text"
-
-    def test_full_receipt_round_trip(self) -> None:
-        """Full delivery_receipt_to_report_dict round trip via resolver."""
-        from medre.core.planning.capability_decision import resolver
-
-        caps = AdapterCapabilities(reactions="unsupported")
-        event = make_event(event_kind="message.reacted")
-        decision = resolver.decide(event, caps)
-
-        error = self._error_from_decision(decision)
-        receipt = DeliveryReceipt(
-            receipt_id="rcpt-roundtrip-001",
-            event_id=event.event_id,
-            delivery_plan_id="dp-roundtrip-001",
-            target_adapter="radio",
-            target_channel="ch-0",
-            route_id="route-roundtrip-1",
-            status="suppressed",
-            error=error,
-            failure_kind="capability_suppressed",
-            attempt_number=1,
-            source="live",
-            created_at=_ts(second=1),
-        )
-        report = delivery_receipt_to_report_dict(receipt)
-        assert report["capability_field"] == decision.capability_field
-        assert report["capability_level"] == "unsupported"
-        assert report["delivery_strategy"] == "skip"
-        assert report["suppression_reason"] == decision.reason

@@ -635,6 +635,10 @@ CREATE TABLE delivery_receipts (
     receipt_kind TEXT NOT NULL,
     error TEXT,
     failure_kind TEXT,
+    capability_level TEXT,
+    capability_field TEXT,
+    capability_reason TEXT,
+    delivery_strategy TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
@@ -652,9 +656,19 @@ CREATE TABLE delivery_receipts (
     CHECK (attempt_number >= 1),
     CHECK (receipt_kind IN ('attempt', 'lifecycle')),
     CHECK ((receipt_kind = 'attempt' AND status IN ('queued', 'sent', 'failed')) OR (receipt_kind = 'lifecycle' AND status IN ('dead_lettered', 'cancelled', 'abandoned', 'suppressed'))),
+    CHECK (capability_level IS NULL OR capability_level IN ('native', 'fallback', 'unsupported')),
+    CHECK (delivery_strategy IS NULL OR delivery_strategy IN ('direct', 'fallback_text', 'skip', 'propagated', 'opportunistic', 'paper')),
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 ```
+
+`capability_level`, `capability_field`, `capability_reason`, and
+`delivery_strategy` persist the planning decision as structured receipt
+evidence. These columns are the machine-readable authority for receipts;
+`capability_reason` is display text and MUST NOT be parsed to recover
+structure. An existing schema-version-1 database whose `delivery_receipts`
+table lacks these columns is an incompatible prerelease shape and is rejected
+by the normal required-column guard rather than migrated in place.
 
 `rendering_evidence` stores the serialized rendering evidence JSON string for the
 delivery. `NULL` when no evidence is available (suppressed, failed, or skipped
@@ -799,6 +813,7 @@ current_rows AS (
 SELECT sequence, receipt_id, event_id, delivery_plan_id,
        target_adapter, target_channel, route_id, status,
        receipt_kind, error, failure_kind,
+       capability_level, capability_field, capability_reason, delivery_strategy,
        adapter_message_id, next_retry_at, attempt_number,
        parent_receipt_id, source, replay_run_id,
        retry_max_attempts, retry_backoff_base,

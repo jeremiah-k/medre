@@ -104,6 +104,10 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     receipt_kind TEXT NOT NULL,
     error TEXT,
     failure_kind TEXT,
+    capability_level TEXT,
+    capability_field TEXT,
+    capability_reason TEXT,
+    delivery_strategy TEXT,
     adapter_message_id TEXT,
     next_retry_at TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
@@ -124,6 +128,8 @@ CREATE TABLE IF NOT EXISTS delivery_receipts (
     CHECK (source IN ('live', 'retry', 'replay')),
     CHECK (source != 'live' OR replay_run_id IS NULL),
     CHECK (replay_run_id IS NULL OR (length(replay_run_id) > 0 AND replay_run_id = trim(replay_run_id))),
+    CHECK (capability_level IS NULL OR capability_level IN ('native', 'fallback', 'unsupported')),
+    CHECK (delivery_strategy IS NULL OR delivery_strategy IN ('direct', 'fallback_text', 'skip', 'propagated', 'opportunistic', 'paper')),
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
@@ -183,6 +189,7 @@ current_rows AS (
 SELECT sequence, receipt_id, event_id, delivery_plan_id,
        target_adapter, target_channel, route_id, status,
        receipt_kind, error, failure_kind,
+       capability_level, capability_field, capability_reason, delivery_strategy,
        adapter_message_id, next_retry_at, attempt_number,
        parent_receipt_id, source, replay_run_id,
        retry_max_attempts, retry_backoff_base,
@@ -496,6 +503,10 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "receipt_kind",
             "error",
             "failure_kind",
+            "capability_level",
+            "capability_field",
+            "capability_reason",
+            "delivery_strategy",
             "adapter_message_id",
             "next_retry_at",
             "attempt_number",

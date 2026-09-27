@@ -30,6 +30,7 @@ from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.engine.pipeline.delivery_evidence import DeliveryExecutionEvidence
 from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.engine.pipeline.outbox_manager import OutboxContext, OutboxManager
+from medre.core.engine.pipeline.receipt_factory import plan_capability_receipt_fields
 from medre.core.engine.pipeline.target_delivery import (
     _AdapterDeliveryError,
     _RendererDeliveryError,
@@ -74,6 +75,10 @@ class _PersistSuppressionReceiptFn(Protocol):
         route_id: str,
         failure_kind: DeliveryFailureKind,
         error: str,
+        capability_level: str | None = None,
+        capability_field: str | None = None,
+        capability_reason: str | None = None,
+        delivery_strategy: str | None = None,
         source: str = "live",
         replay_run_id: str | None = None,
     ) -> DeliveryReceipt: ...
@@ -996,6 +1001,9 @@ class DeliveryCoordinator:
             route_id=ctx.route.id,
             failure_kind=failure_kind,
             error=error,
+            # Shared plan sanitizer: suppression evidence stays persistable
+            # even when a malformed plan carries unknown capability values.
+            **plan_capability_receipt_fields(ctx.plan),
             source=ctx.source,
             replay_run_id=ctx.replay_run_id,
         )

@@ -25,7 +25,10 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.engine.pipeline.delivery_state import (
     TERMINAL_OUTBOX_STATUSES,
 )
-from medre.core.engine.pipeline.receipt_factory import build_delivery_receipt
+from medre.core.engine.pipeline.receipt_factory import (
+    build_delivery_receipt,
+    capability_receipt_fields,
+)
 from medre.core.events import (
     normalize_delivery_provenance,
 )
@@ -492,6 +495,10 @@ class OutboxManager:
                     receipt_kind="attempt",
                     error=error_msg,
                     failure_kind=failure_kind,
+                    **capability_receipt_fields(
+                        receipt=queued_receipt,
+                        metadata=existing_item.metadata,
+                    ),
                     source=provenance.source,
                     replay_run_id=provenance.replay_run_id,
                     parent_receipt_id=lifecycle_parent_id,
@@ -539,6 +546,10 @@ class OutboxManager:
                     receipt_kind="lifecycle",
                     error=error_msg,
                     failure_kind=failure_kind,
+                    **capability_receipt_fields(
+                        receipt=queued_receipt,
+                        metadata=existing_item.metadata,
+                    ),
                     source=provenance.source,
                     replay_run_id=provenance.replay_run_id,
                     parent_receipt_id=lifecycle_parent_id,

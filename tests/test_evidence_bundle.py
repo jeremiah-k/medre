@@ -63,6 +63,10 @@ def _make_receipt(
     source: str = "live",
     replay_run_id: str | None = None,
     rendering_evidence: str | None = None,
+    capability_level: str | None = None,
+    capability_field: str | None = None,
+    capability_reason: str | None = None,
+    delivery_strategy: str | None = None,
     created_at: datetime | None = None,
 ) -> DeliveryReceipt:
     return DeliveryReceipt(
@@ -78,6 +82,10 @@ def _make_receipt(
         source=source,
         replay_run_id=replay_run_id,
         rendering_evidence=rendering_evidence,
+        capability_level=capability_level,
+        capability_field=capability_field,
+        capability_reason=capability_reason,
+        delivery_strategy=delivery_strategy,
         created_at=created_at or _FIXED_NOW,
     )
 
@@ -290,6 +298,42 @@ class TestCollectorValidRenderingEvidence:
         assert r.rendering_evidence["delivery_strategy"] == "direct"
         # No warnings for valid evidence.
         assert not any("rendering_evidence" in w for w in bundle.warnings)
+
+
+class TestCollectorStructuredCapabilityEvidence:
+    """Receipt summaries preserve structured capability authority."""
+
+    @pytest.mark.asyncio
+    async def test_preserves_structured_capability_fields(self) -> None:
+        receipt = _make_receipt(
+            "rcpt-capability",
+            event_id="evt-capability",
+            capability_level="fallback",
+            capability_field="replies",
+            capability_reason="native reply unavailable",
+            delivery_strategy="fallback_text",
+            rendering_evidence=json.dumps(
+                {"capability_level": "unsupported", "delivery_strategy": "skip"}
+            ),
+        )
+        storage = _populated_fake(
+            event_id="evt-capability",
+            receipts=[receipt],
+        )
+        collector = EvidenceCollector(storage, now_fn=_fixed_now)
+
+        bundle = await collector.collect_for_event("evt-capability")
+
+        summary = bundle.delivery_receipts[0]
+        assert summary.capability_level == "fallback"
+        assert summary.capability_field == "replies"
+        assert summary.capability_reason == "native reply unavailable"
+        assert summary.delivery_strategy == "fallback_text"
+        as_dict = bundle.to_dict()["delivery_receipts"][0]
+        assert as_dict["capability_level"] == "fallback"
+        assert as_dict["capability_field"] == "replies"
+        assert as_dict["capability_reason"] == "native reply unavailable"
+        assert as_dict["delivery_strategy"] == "fallback_text"
 
 
 class TestCollectorInvalidRenderingEvidence:
