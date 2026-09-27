@@ -103,8 +103,8 @@ class _RecordingController(CapacityController):
         super().__init__(limits)
         self._proof_order = order
 
-    async def release_inbound(self) -> None:
-        await super().release_inbound()
+    async def release_inbound(self, source_id: str | None = None) -> None:
+        await super().release_inbound(source_id)
         self._proof_order.append("released")
 
 

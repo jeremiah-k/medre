@@ -27,6 +27,8 @@ from medre.config.model import (
     StorageConfig,
 )
 from medre.config.routes import RouteConfigSet
+from medre.core.ingress.types import DurableIngressDeferredError
+from medre.core.supervision.accounting import RuntimeAccounting
 from medre.core.supervision.capacity import (
     CapacityController,
     InboundAdmissionRejected,
@@ -168,6 +170,120 @@ class TestInboundAdmissionController:
         assert await asyncio.wait_for(queued, timeout=1)
         await controller.release_inbound()
 
+    async def test_inbound_source_configuration_is_generation_stable(self) -> None:
+        controller = CapacityController(
+            _Limits(
+                max_inflight_inbound_admissions=2,
+                inbound_admission_timeout_seconds=0.05,
+            )
+        )
+        controller.configure_inbound_sources(["matrix", "radio"])
+
+        # Repeating the same builder declaration is harmless, but a later
+        # source-set mutation would change fair-share semantics mid-generation.
+        controller.configure_inbound_sources(["radio", "matrix"])
+        with pytest.raises(RuntimeError, match="fixed for the runtime generation"):
+            controller.configure_inbound_sources(["matrix", "meshcore"])
+
+    async def test_registered_sources_partition_wait_queue_fairly(self) -> None:
+        controller = CapacityController(
+            _Limits(
+                max_inflight_inbound_admissions=4,
+                inbound_admission_timeout_seconds=5.0,
+            )
+        )
+        controller.configure_inbound_sources(["noisy", "quiet"])
+
+        # Active slots stay work-conserving: one source may use the whole
+        # execution budget when nobody else is contending.
+        for _ in range(4):
+            assert await controller.acquire_inbound("noisy")
+
+        # Pending overload is partitioned: each of two sources gets two of
+        # the four bounded waiting slots, so noisy cannot consume quiet's
+        # entire overload cushion.
+        noisy_waiters = [
+            asyncio.create_task(controller.acquire_inbound("noisy")) for _ in range(2)
+        ]
+        assert await wait_until(
+            lambda: controller.snapshot()["inbound_sources"]["noisy"]["waiting"] == 2
+        )
+        assert not await controller.acquire_inbound("noisy")
+
+        quiet_waiter = asyncio.create_task(controller.acquire_inbound("quiet"))
+        assert await wait_until(
+            lambda: controller.snapshot()["inbound_sources"]["quiet"]["waiting"] == 1
+        )
+        snapshot = controller.snapshot()
+        assert snapshot["inbound_sources"]["noisy"]["wait_limit"] == 2
+        assert snapshot["inbound_sources"]["quiet"]["wait_limit"] == 2
+        assert snapshot["inbound_sources"]["noisy"]["rejections"] == 1
+
+        # Grants rotate by source once both have pending work. The first
+        # release serves noisy (queued first); the second serves quiet even
+        # though noisy still has another waiter.
+        await controller.release_inbound("noisy")
+        assert await asyncio.wait_for(noisy_waiters[0], timeout=1)
+        await controller.release_inbound("noisy")
+        assert await asyncio.wait_for(quiet_waiter, timeout=1)
+        assert not noisy_waiters[1].done()
+
+        # Drain remaining ownership cleanly.
+        await controller.release_inbound("quiet")
+        assert await asyncio.wait_for(noisy_waiters[1], timeout=1)
+        for _ in range(4):
+            await controller.release_inbound("noisy")
+
+    async def test_source_snapshot_attributes_timeout(self) -> None:
+        controller = CapacityController(
+            _Limits(
+                max_inflight_inbound_admissions=1,
+                inbound_admission_timeout_seconds=0.02,
+            )
+        )
+        controller.configure_inbound_sources(["a", "b"])
+        assert await controller.acquire_inbound("a")
+        assert not await controller.acquire_inbound("b")
+
+        snapshot = controller.snapshot()
+        assert snapshot["inbound_timeouts"] == 1
+        assert snapshot["inbound_sources"]["a"]["current"] == 1
+        assert snapshot["inbound_sources"]["b"]["timeouts"] == 1
+        assert snapshot["inbound_sources"]["b"]["waiting"] == 0
+        await controller.release_inbound("a")
+
+    async def test_cancellation_after_grant_does_not_leak_slot(self) -> None:
+        controller = CapacityController(
+            _Limits(
+                max_inflight_inbound_admissions=1,
+                inbound_admission_timeout_seconds=5.0,
+            )
+        )
+        controller.configure_inbound_sources(["a", "b"])
+        assert await controller.acquire_inbound("a")
+
+        waiter = asyncio.create_task(controller.acquire_inbound("b"))
+        assert await wait_until(
+            lambda: controller.snapshot()["inbound_sources"]["b"]["waiting"] == 1
+        )
+        await controller.release_inbound("a")
+        waiter.cancel()
+        # A cancellation racing a completed grant resolves one of two lawful
+        # ways: the cancel propagates and the controller returns the slot, or
+        # (py3.11 wait_for semantics) the completed future's result wins, the
+        # acquire returns True, and the caller owns the slot it must release.
+        acquired = False
+        try:
+            acquired = await waiter
+        except asyncio.CancelledError:
+            acquired = False
+        if acquired:
+            await controller.release_inbound("b")
+
+        assert controller.snapshot()["inbound_current"] == 0
+        assert await controller.acquire_inbound("a")
+        await controller.release_inbound("a")
+
     async def test_oldest_wait_age_follows_remaining_waiters(self) -> None:
         controller = CapacityController(
             _Limits(
@@ -219,6 +335,7 @@ class TestInboundAdmissionController:
             "inbound_current",
             "inbound_limit",
             "inbound_rejections",
+            "inbound_sources",
             "inbound_timeouts",
         ):
             assert key in snapshot
@@ -250,10 +367,13 @@ class _GateApp:
     pipeline_runner: Any
     storage: Any = object()
     _capacity_controller: CapacityController | None
+    _runtime_accounting: RuntimeAccounting | None = None
+    _attachment_limits: Any = None
 
     # Reuse the production methods so the double cannot drift from the
     # real wiring shape.
     _gate_inbound_admission = _MedreApp._gate_inbound_admission
+    _make_admit_inbound = _MedreApp._make_admit_inbound
     _make_publish_inbound = _MedreApp._make_publish_inbound
 
 
@@ -295,6 +415,55 @@ class TestInboundAdmissionSeam:
         snapshot = controller.snapshot()
         assert snapshot["inbound_timeouts"] == 1
         assert snapshot["inbound_current"] == 0
+
+    async def test_publish_rejection_is_attributed_and_accounted(self) -> None:
+        runner = _FakeRunner(delay=0.2)
+        controller = CapacityController(
+            _Limits(
+                max_inflight_inbound_admissions=1,
+                inbound_admission_timeout_seconds=0.02,
+            )
+        )
+        controller.configure_inbound_sources(["radio"])
+        app = _GateApp()
+        app.pipeline_runner = runner
+        app._capacity_controller = controller
+        app._runtime_accounting = RuntimeAccounting()
+        publish = app._make_publish_inbound("radio")
+
+        first = asyncio.create_task(publish("event-1"))
+        assert await wait_until(lambda: controller.inbound_current == 1)
+        with pytest.raises(InboundAdmissionRejected, match="radio"):
+            await publish("event-2")
+        await first
+
+        assert app._runtime_accounting.snapshot()["capacity_rejections"] == 1
+        assert controller.snapshot()["inbound_sources"]["radio"]["timeouts"] == 1
+
+    async def test_cursor_aware_rejection_becomes_durable_deferral(self) -> None:
+        runner = _FakeRunner(delay=0.2)
+        controller = CapacityController(
+            _Limits(
+                max_inflight_inbound_admissions=1,
+                inbound_admission_timeout_seconds=0.02,
+            )
+        )
+        controller.configure_inbound_sources(["matrix"])
+        app = _GateApp()
+        app.pipeline_runner = runner
+        app._capacity_controller = controller
+        app._runtime_accounting = RuntimeAccounting()
+        admit = app._make_admit_inbound("matrix")
+
+        first = asyncio.create_task(admit({"event_id": "$first"}, "live"))
+        assert await wait_until(lambda: controller.inbound_current == 1)
+        with pytest.raises(DurableIngressDeferredError) as exc_info:
+            await admit({"event_id": "$second"}, "live")
+        await first
+
+        assert exc_info.value.event_id == "$second"
+        assert exc_info.value.reasons == ("inbound_admission_capacity",)
+        assert app._runtime_accounting.snapshot()["capacity_rejections"] == 1
 
     async def test_admission_failure_releases_the_slot(self) -> None:
         class _FailingRunner(_FakeRunner):

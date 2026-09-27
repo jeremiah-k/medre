@@ -116,6 +116,36 @@ def test_metrics_projection_excludes_replay_route_identifiers() -> None:
     assert "sensitive-route-id" not in json.dumps(projected)
 
 
+def test_metrics_projection_excludes_inbound_source_identifiers() -> None:
+    projected = _metrics_projection(
+        {
+            "capacity": {
+                "state": {
+                    "inbound_current": 1,
+                    "inbound_sources": {
+                        "sensitive-adapter-id": {
+                            "current": 1,
+                            "waiting": 0,
+                        }
+                    },
+                }
+            }
+        },
+        {
+            "capacity": {
+                "inbound_current": 1,
+                "inbound_sources": {
+                    "sensitive-adapter-id": {"waiting": 2},
+                },
+            }
+        },
+    )
+
+    assert projected["capacity"] == {"state": {"inbound_current": 1}}
+    assert projected["runtime_diagnostics"]["capacity"] == {"inbound_current": 1}
+    assert "sensitive-adapter-id" not in json.dumps(projected)
+
+
 class TestDiagnostics:
     """Tests for 'medre diagnostics' command."""
 

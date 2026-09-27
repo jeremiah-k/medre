@@ -130,6 +130,27 @@ class TestBuildWithMockedAdapters:
         assert isinstance(app, MedreApp)
         assert len(app.adapters) > 0
 
+    def test_build_configures_inbound_capacity_sources(
+        self, tmp_paths: MedrePaths
+    ) -> None:
+        config = make_all_enabled_config()
+        builder = RuntimeBuilder(config, tmp_paths)
+
+        with patch.object(
+            builder,
+            "_build_single_adapter",
+            side_effect=lambda _transport, adapter_id, *_args, **_kwargs: MagicMock(
+                spec=AdapterContract,
+                adapter_id=adapter_id,
+            ),
+        ):
+            app = builder.build()
+
+        assert app._capacity_controller is not None
+        sources = app._capacity_controller.snapshot()["inbound_sources"]
+        assert set(sources) == set(app.adapters)
+        assert all(source["waiting"] == 0 for source in sources.values())
+
     def test_build_creates_subsystems(self, tmp_paths: MedrePaths) -> None:
         """Builder creates all expected subsystem references."""
         config = make_empty_config()

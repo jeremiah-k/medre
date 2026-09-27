@@ -703,6 +703,7 @@ class TestCapacityControllerSnapshot:
             "inbound_current",
             "inbound_limit",
             "inbound_rejections",
+            "inbound_sources",
             "inbound_timeouts",
             "replay_current",
             "replay_limit",

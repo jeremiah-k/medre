@@ -937,9 +937,9 @@ class MedreApp:
 
                     ctx = AdapterContext(
                         adapter_id=adapter_id,
-                        publish_inbound=self._make_publish_inbound(),
+                        publish_inbound=self._make_publish_inbound(adapter_id),
                         admit_inbound=(
-                            self._make_admit_inbound()
+                            self._make_admit_inbound(adapter_id)
                             if self.storage is not None
                             else None
                         ),
@@ -2413,7 +2413,7 @@ class MedreApp:
 
         return _commit
 
-    def _make_admit_inbound(self) -> Any:
+    def _make_admit_inbound(self, adapter_id: str | None = None) -> Any:
         """Return a protocol-provenance durable ingress admission callable."""
         runner = self.pipeline_runner
         attachment_limits = self._attachment_limits
@@ -2423,18 +2423,28 @@ class MedreApp:
             provenance: Any,
             attachment: Any = None,
         ) -> Any:
+            event_id = None
+            if isinstance(event, dict):
+                event_id = event.get("event_id")
+            else:
+                event_id = getattr(event, "event_id", None)
+            stable_event_id = (
+                event_id if isinstance(event_id, str) and event_id else "unknown"
+            )
             return await self._gate_inbound_admission(
                 lambda: runner.admit_ingress(
                     event,
                     provenance,
                     attachment=attachment,
                     attachment_limits=attachment_limits,
-                )
+                ),
+                source_id=adapter_id,
+                deferred_event_id=stable_event_id,
             )
 
         return _admit
 
-    def _make_publish_inbound(self) -> Any:
+    def _make_publish_inbound(self, adapter_id: str | None = None) -> Any:
         """Return the durable live-adapter ingress admission callable.
 
         Live adapter ingress always crosses durable admission: the canonical
@@ -2456,12 +2466,19 @@ class MedreApp:
             if storage is None:
                 raise RuntimeError("live adapter ingress requires durable storage")
             await self._gate_inbound_admission(
-                lambda: runner.admit_ingress(event, "live")
+                lambda: runner.admit_ingress(event, "live"),
+                source_id=adapter_id,
             )
 
         return _publish
 
-    async def _gate_inbound_admission(self, crossing: Any) -> Any:
+    async def _gate_inbound_admission(
+        self,
+        crossing: Any,
+        *,
+        source_id: str | None = None,
+        deferred_event_id: str | None = None,
+    ) -> Any:
         """Run one durable ingress crossing under the inbound admission gate.
 
         *crossing* is a zero-argument factory returning the admission
@@ -2475,17 +2492,35 @@ class MedreApp:
         capacity = self._capacity_controller
         if capacity is None:
             return await crossing()
-        if not await capacity.acquire_inbound():
+        acquired = (
+            await capacity.acquire_inbound()
+            if source_id is None
+            else await capacity.acquire_inbound(source_id)
+        )
+        if not acquired:
             from medre.core.supervision.capacity import InboundAdmissionRejected
 
+            if self._runtime_accounting is not None:
+                self._runtime_accounting.record_capacity_rejection()
+            if deferred_event_id is not None:
+                from medre.core.ingress.types import DurableIngressDeferredError
+
+                raise DurableIngressDeferredError(
+                    deferred_event_id,
+                    ("inbound_admission_capacity",),
+                )
+            source_suffix = f" for adapter {source_id!r}" if source_id else ""
             raise InboundAdmissionRejected(
-                "inbound event rejected at the admission gate "
-                "(timeout or shutdown); counted as ingress loss"
+                f"inbound event rejected at the admission gate{source_suffix} "
+                "(timeout, overload, or shutdown); counted as ingress loss"
             )
         try:
             return await crossing()
         finally:
-            await capacity.release_inbound()
+            if source_id is None:
+                await capacity.release_inbound()
+            else:
+                await capacity.release_inbound(source_id)
 
     def _assemble_attachment_seam(self) -> None:
         """Build the runtime-wide attachment transfer seam, or clear it.

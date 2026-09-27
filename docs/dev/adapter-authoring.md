@@ -478,6 +478,16 @@ only window into the runtime.
 | `load_checkpoint` / `commit_checkpoint` | Optional application-owned external cursor persistence                           |
 | `report_delivery_feedback`              | Optional single sink for the closed `DeliveryFeedback` union                     |
 
+Both inbound seams cross the runtime's bounded admission controller. The
+runtime binds the adapter ID automatically so overload is attributed and queued
+fairly across adapters. `publish_inbound` is the ordinary callback boundary: if
+the bounded gate rejects an arrival, the adapter receives
+`InboundAdmissionRejected` and must treat that event as not durably admitted.
+Use `admit_inbound` only when the transport can retain or redispatch a native
+event until an application-owned cursor advances; capacity rejection on this
+seam becomes `DurableIngressDeferredError`, allowing the transport to leave the
+event pending instead of losing it.
+
 ### What adapters cannot do
 
 - Import or call another adapter directly.
