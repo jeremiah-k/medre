@@ -18,7 +18,10 @@ from medre.adapters.matrix.errors import (
     MATRIX_ATTACHMENT_FETCH_DEFERRAL_COUNT_KEY,
     MatrixAttachmentFetchDeferredError,
 )
-from medre.adapters.matrix.session import MatrixSession
+from medre.adapters.matrix.session import (
+    _ATTACHMENT_FETCH_DEFERRALS_MAX,
+    MatrixSession,
+)
 from medre.core.ingress.types import AdapterCheckpoint
 from tests.helpers.matrix_session import make_matrix_config
 
@@ -289,6 +292,87 @@ async def test_attachment_fetch_checkpoint_failure_keeps_native_event_pending(
         "Failed to persist Matrix attachment fetch deferral" in record.message
         for record in caplog.records
     )
+
+
+async def test_attachment_fetch_deferral_map_is_bounded_with_oldest_eviction() -> None:
+    """The persisted deferral map cannot grow without limit.
+
+    Entries normally clear on durable admission, but events nio consumes
+    without a further dispatch leave theirs behind; recording past the cap
+    evicts the oldest identity first so the checkpoint stays bounded.
+    """
+    session = _durable_session()
+    overflow = 5
+    total = _ATTACHMENT_FETCH_DEFERRALS_MAX + overflow
+    for index in range(total):
+        await session._record_attachment_fetch_deferral(f"{index:064x}")
+
+    assert len(session._attachment_fetch_deferrals) == _ATTACHMENT_FETCH_DEFERRALS_MAX
+    assert f"{0:064x}" not in session._attachment_fetch_deferrals
+    assert f"{overflow:064x}" in session._attachment_fetch_deferrals
+    newest = f"{total - 1:064x}"
+    assert session._attachment_fetch_deferrals[newest] == 1
+
+    # Re-recording an existing identity refreshes its recency, so a still
+    # failing fetch keeps its budget instead of being evicted as stale.
+    await session._record_attachment_fetch_deferral(f"{overflow:064x}")
+    await session._record_attachment_fetch_deferral(f"{total:064x}")
+    assert f"{overflow + 1:064x}" not in session._attachment_fetch_deferrals
+    assert f"{overflow:064x}" in session._attachment_fetch_deferrals
+    assert session._attachment_fetch_deferrals[f"{overflow:064x}"] == 2
+
+
+async def test_unexpected_admission_error_prunes_attachment_fetch_deferral(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An event nio consumes on an unexpected error is pruned, not parked.
+
+    The deferral entry is recorded when acquisition defers, then removed
+    when the same event's next dispatch dies in a way nio will consume
+    (live errors are wrapped as accepted); the entry would otherwise
+    outlive its event until the size cap evicted it.
+    """
+
+    class CallbackNotAcceptedError(Exception):
+        pass
+
+    monkeypatch.setitem(
+        sys.modules,
+        "nio",
+        SimpleNamespace(CallbackNotAcceptedError=CallbackNotAcceptedError),
+    )
+
+    calls = {"count": 0}
+
+    async def flaky_admission(_event: dict[str, object], _provenance: str) -> None:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise MatrixAttachmentFetchDeferredError(
+                "generated-canonical", ("network",)
+            )
+        raise RuntimeError("boom")
+
+    session = _durable_session(admission_callback=flaky_admission)
+    room = SimpleNamespace(room_id="!room:example.org")
+    event = SimpleNamespace(
+        sender="@alice:example.org",
+        event_id="$media",
+        body="photo.png",
+        source={
+            "event_id": "$media",
+            "sender": "@alice:example.org",
+            "type": "m.room.message",
+            "content": {"msgtype": "m.image", "body": "photo.png"},
+        },
+    )
+
+    with pytest.raises(CallbackNotAcceptedError):
+        await session._on_nio_admission(room, event, SimpleNamespace(value="live"))
+    assert list(session._attachment_fetch_deferrals.values()) == [1]
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await session._on_nio_admission(room, event, SimpleNamespace(value="live"))
+    assert session._attachment_fetch_deferrals == {}
 
 
 @pytest.mark.parametrize(

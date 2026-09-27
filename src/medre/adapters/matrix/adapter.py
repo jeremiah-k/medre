@@ -594,13 +594,17 @@ class MatrixAdapter(AdapterContract):
             retry_after_seconds=remaining,
         )
 
-    def _check_encrypted_room_safety(self, room_id: str) -> None:
+    def _check_encrypted_room_safety(
+        self, room_id: str, *, room_encrypted: bool
+    ) -> None:
         """Enforce the configured room-encryption send policy for *room_id*.
 
-        Two layers, both delegating room-encryption detection to the
-        session's :meth:`~MatrixSession.is_room_encrypted` authority
+        Two layers, both consuming the caller's single
+        :meth:`~MatrixSession.is_room_encrypted` read for this delivery
         (session room-state cache first, then the client's normalized
-        room state):
+        room state).  Reading the state once per delivery keeps the safety
+        decision and any subsequent encrypted upload from seeing
+        conflicting snapshots if a sync lands between them.
 
         * ``require_encrypted_rooms=True`` — fail closed.  The send is
           refused unless crypto is active *and* the room is affirmatively
@@ -617,6 +621,9 @@ class MatrixAdapter(AdapterContract):
         ----------
         room_id:
             The target room ID.
+        room_encrypted:
+            The caller's single room-encryption read for this delivery,
+            consumed by both policy layers below.
 
         Raises
         ------
@@ -635,7 +642,7 @@ class MatrixAdapter(AdapterContract):
                     "active; refusing to send",
                     transient=False,
                 )
-            if not self._session.is_room_encrypted(room_id):
+            if not room_encrypted:
                 if self._session.encryption_state_known(room_id):
                     raise MatrixSendError(
                         f"Matrix room {room_id} is not established as encrypted; "
@@ -658,7 +665,7 @@ class MatrixAdapter(AdapterContract):
         if self._session.crypto_enabled:
             return
 
-        if self._session.is_room_encrypted(room_id):
+        if room_encrypted:
             raise MatrixSendError(
                 "Matrix room is encrypted but E2EE crypto is not active; "
                 "cannot send encrypted message",
@@ -785,8 +792,15 @@ class MatrixAdapter(AdapterContract):
         else:
             wire_content = dict(operation.content or {})
             wire_content.pop("room_id", None)
+            room_encrypted = (
+                bool(self._session.is_room_encrypted(room_id))
+                if self._session is not None
+                else False
+            )
             try:
-                self._check_encrypted_room_safety(room_id)
+                self._check_encrypted_room_safety(
+                    room_id, room_encrypted=room_encrypted
+                )
             except MatrixSendError as exc:
                 if exc.transient:
                     raise AdapterSendError(str(exc), transient=True) from exc
@@ -994,8 +1008,12 @@ class MatrixAdapter(AdapterContract):
                         f"Failed to auto-join configured room {room_id}"
                     )
 
+        # One room-encryption read per delivery: the safety gate and the
+        # upload's encrypt decision must consume the same snapshot, so a
+        # sync landing between them cannot flip plaintext/encrypted mode.
+        room_encrypted = bool(self._session.is_room_encrypted(room_id))
         try:
-            self._check_encrypted_room_safety(room_id)
+            self._check_encrypted_room_safety(room_id, room_encrypted=room_encrypted)
         except MatrixSendError as exc:
             if exc.transient:
                 raise AdapterSendError(str(exc), transient=True) from exc
@@ -1012,7 +1030,6 @@ class MatrixAdapter(AdapterContract):
                     ),
                     timeout=timeout,
                 )
-                encrypt = bool(self._session.is_room_encrypted(room_id))
                 template = dict(operation.content or {})
                 info = template.get("info")
                 info = dict(info) if isinstance(info, dict) else {}
@@ -1031,7 +1048,7 @@ class MatrixAdapter(AdapterContract):
                         data=stored.data,
                         content_type=content_type,
                         filename=filename,
-                        encrypt=encrypt,
+                        encrypt=room_encrypted,
                     ),
                     timeout=timeout,
                 )
@@ -1096,7 +1113,7 @@ class MatrixAdapter(AdapterContract):
             raise AdapterPermanentError(f"media upload failed: {err_msg}")
 
         wire_content = dict(template)
-        if encrypt:
+        if room_encrypted:
             if not isinstance(keys, dict) or not keys:
                 self._permanent_delivery_failures += 1
                 raise AdapterPermanentError(

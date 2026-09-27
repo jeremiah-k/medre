@@ -87,6 +87,13 @@ _MEDIA_ERROR_BODY_CAP: int = 8192
 # Streaming chunk size for bounded downloads.
 _MEDIA_CHUNK_BYTES: int = 65536
 
+# Bound on the persisted attachment-fetch deferral map.  Entries normally
+# clear on durable admission, but an event nio consumes without a further
+# dispatch (recovery abandonment, an unexpected error accepted as consumed)
+# leaves its entry behind; the cap keeps that checkpoint bounded, evicting
+# the oldest identity first.
+_ATTACHMENT_FETCH_DEFERRALS_MAX: int = 1024
+
 _MEDIA_REDIRECT_STATUSES: frozenset[int] = frozenset({301, 302, 303, 307, 308})
 _MEDIA_PERMANENT_MISSING: frozenset[int] = frozenset({403, 404, 410})
 
@@ -1218,6 +1225,11 @@ class MatrixSession:
             # ``_LiveCallbackError(accepted=True)`` (live) or logs+drops
             # (recovered).  Do NOT translate to CallbackNotAcceptedError;
             # that would loop forever.
+            unexpected_key = self._attachment_fetch_deferral_key(normalized)
+            if unexpected_key is not None:
+                # The event is consumed either way and will not be
+                # redispatched, so its deferral entry is dead state.
+                await self._prune_attachment_fetch_deferral(unexpected_key)
             self._logger.exception(
                 "MATRIX_ADMISSION_UNEXPECTED_ERROR: provenance=%s event_id=%s",
                 provenance_value,
@@ -1241,10 +1253,41 @@ class MatrixSession:
         """Persist one pre-admission attachment fetch deferral."""
         async with self._attachment_fetch_deferral_lock:
             current = self._attachment_fetch_deferrals.get(key, 0)
+            # Re-insert so iteration order tracks the most recent deferral
+            # and the cap evicts the least recently deferred identity.
+            self._attachment_fetch_deferrals.pop(key, None)
             self._attachment_fetch_deferrals[key] = min(
                 current + 1, MATRIX_ATTACHMENT_FETCH_MAX_DEFERRALS - 1
             )
+            while (
+                len(self._attachment_fetch_deferrals) > _ATTACHMENT_FETCH_DEFERRALS_MAX
+            ):
+                oldest = next(iter(self._attachment_fetch_deferrals))
+                self._attachment_fetch_deferrals.pop(oldest, None)
             await self._persist_attachment_fetch_deferrals()
+
+    async def _prune_attachment_fetch_deferral(self, key: str) -> None:
+        """Forget retry state when an event is consumed without admission.
+
+        nio consumes an event whose admission callback raised an unexpected
+        error (live events are wrapped as accepted; recovered events are
+        logged and dropped), and events abandoned by gap recovery are never
+        redispatched either.  Such an entry would otherwise persist until
+        the size cap evicts it.
+        """
+        async with self._attachment_fetch_deferral_lock:
+            if key not in self._attachment_fetch_deferrals:
+                return
+            self._attachment_fetch_deferrals.pop(key, None)
+            try:
+                await self._persist_attachment_fetch_deferrals()
+            except Exception:
+                # The entry is already gone in memory; a failed persist only
+                # delays the checkpoint update to the next record/clear.
+                self._logger.warning(
+                    "Failed to persist pruned Matrix attachment fetch deferral",
+                    exc_info=True,
+                )
 
     async def _clear_attachment_fetch_deferral(self, key: str) -> None:
         """Forget retry state after the native event is durably admitted."""

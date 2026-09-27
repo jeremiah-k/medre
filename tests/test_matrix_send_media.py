@@ -604,6 +604,45 @@ async def test_deliver_encrypted_room_sends_file_with_keys() -> None:
     assert result.native_message_id == "$sent-ok"
 
 
+async def test_deliver_reads_room_encryption_once_for_safety_and_upload() -> None:
+    """One encryption snapshot feeds both the safety gate and the upload.
+
+    A sync landing between two separate reads could flip the delivery
+    between encrypted and plaintext after the policy gate passed; the gate
+    and the upload must consume the same value.
+    """
+
+    class FlippingEgressSession(StubEgressSession):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(encrypted=True, **kwargs)
+            self.encryption_reads = 0
+
+        def is_room_encrypted(self, room_id: str) -> bool:
+            self.encryption_reads += 1
+            return self._encrypted if self.encryption_reads == 1 else False
+
+    stored = StoredAttachmentContent(
+        content_ref=CONTENT_REF, size_bytes=7, data=STORED_BYTES
+    )
+    session = FlippingEgressSession(
+        upload_responses=[
+            (
+                SimpleNamespace(content_uri="mxc://hs/up1"),
+                {"v": "v2", "key": {"k": "k" * 43}, "iv": "i" * 24, "hashes": {}},
+            )
+        ],
+    )
+    adapter = make_adapter(session, make_seam(StubContentStore(stored=stored)))
+
+    await adapter.deliver(send_media_result())
+
+    assert session.encryption_reads == 1
+    assert session.upload_calls[0]["encrypt"] is True
+    wire = session.room_send_calls[0]["content"]
+    assert "url" not in wire  # the encrypted snapshot drove an encrypted send
+    assert "file" in wire
+
+
 async def test_upload_rate_limit_is_transient_and_opens_cooldown() -> None:
     response = SimpleNamespace(
         status_code=429, errcode="M_LIMIT_EXCEEDED", retry_after_ms=2000

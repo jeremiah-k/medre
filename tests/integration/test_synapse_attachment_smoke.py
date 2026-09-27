@@ -593,34 +593,37 @@ class TestSynapseAttachmentSmoke:
         await harness.start()
         # Live-provenance retention first: the media must arrive after the
         # live sync boundary (startup backlog is history-suppressed).
-        await harness.wait_until_live()
-        await asyncio.sleep(1.0)
-        mxc = _upload_media(
-            synapse_env,
-            synapse_env.test_access_token,
-            _MEDIA_BYTES,
-            "restart.bin",
-            "application/octet-stream",
-        )
-        _send_room_event(
-            synapse_env,
-            synapse_env.test_access_token,
-            synapse_env.test_room_id,
-            {
-                "msgtype": "m.file",
-                "body": "restart.bin",
-                "filename": "restart.bin",
-                "url": mxc,
-                "info": {
-                    "mimetype": "application/octet-stream",
-                    "size": len(_MEDIA_BYTES),
+        try:
+            await harness.start()
+            await harness.wait_until_live()
+            await asyncio.sleep(1.0)
+            mxc = _upload_media(
+                synapse_env,
+                synapse_env.test_access_token,
+                _MEDIA_BYTES,
+                "restart.bin",
+                "application/octet-stream",
+            )
+            _send_room_event(
+                synapse_env,
+                synapse_env.test_access_token,
+                synapse_env.test_room_id,
+                {
+                    "msgtype": "m.file",
+                    "body": "restart.bin",
+                    "filename": "restart.bin",
+                    "url": mxc,
+                    "info": {
+                        "mimetype": "application/octet-stream",
+                        "size": len(_MEDIA_BYTES),
+                    },
                 },
-            },
-        )
-        result = await harness.wait_for_file_admission("restart.bin")
+            )
+            result = await harness.wait_for_file_admission("restart.bin")
+        finally:
+            await harness.stop()
+            await storage.close()
         content_ref = result.attachment.content_ref
-        await harness.stop()
-        await storage.close()
 
         # The source media is gone before any delivery attempt.
         _delete_media(synapse_env, mxc)
